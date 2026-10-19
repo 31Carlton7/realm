@@ -222,19 +222,9 @@ export function isNewerVersion(installed: string | null | undefined, latest: str
 export type InstallProvenance = "npm" | "pnpm" | "brew" | "uv" | "unknown";
 
 /**
- * Whether Realm may offer to run `route`'s update command against a binary of this provenance.
- *
- * The rule is "do not update what you did not install, by a method that did not install it". Running
- * `npm install -g` against a Homebrew-installed CLI does not upgrade it — it drops a second copy into
- * the npm prefix and whichever comes first on PATH wins, which is a confusing machine and a support
- * problem Realm would have created. npm and pnpm are interchangeable here only in that both put the
- * package under a global `node_modules`; an `npm install -g` over a pnpm global install is still a
- * second copy, so pnpm is refused too.
- */
-/**
  * The Homebrew formula a kind is published under, where one exists.
  *
- * Separate from `INSTALL_ROUTES` because a route is the way Realm INSTALLS a CLI (one canonical
+ * Separate from `AGENT_INSTALL_ROUTES` because a route is the way Realm INSTALLS a CLI (one canonical
  * choice) and this is a way it may already BE installed. Both `codex` and `claude` ship a formula
  * alongside their npm package, and a user who used `brew install` should be updated with
  * `brew upgrade` — the refusal was correct that npm would leave a second copy, and wrong that the
@@ -306,6 +296,16 @@ export function updatePlan(route: InstallRoute | null, provenance: InstallProven
   return null;
 }
 
+/**
+ * Whether Realm may offer to run `route`'s update command against a binary of this provenance.
+ *
+ * The rule is "do not update what you did not install, by a method that did not install it". Running
+ * `npm install -g` against a Homebrew-installed CLI does not upgrade it — it drops a second copy into
+ * the npm prefix and whichever comes first on PATH wins, which is a confusing machine and a support
+ * problem Realm would have created. npm and pnpm are interchangeable here only in that both put the
+ * package under a global `node_modules`; an `npm install -g` over a pnpm global install is still a
+ * second copy, so pnpm is refused too.
+ */
 export function canRunUpdate(route: InstallRoute | null, provenance: InstallProvenance, kind?: AgentKind): boolean {
   // `kind` is optional so existing callers keep compiling; without it the old route-matching rule
   // stands, which is the conservative answer rather than a different one.

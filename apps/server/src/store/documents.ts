@@ -44,11 +44,6 @@ export class DocumentsStore {
     return (this.db.prepare("SELECT * FROM document_workspaces WHERE environment_id = ? ORDER BY created_at").all(environmentId) as Row[]).map(toWorkspace);
   }
 
-  /** Every workspace, for the watcher's rebuild on boot. */
-  listAll(): DocumentWorkspace[] {
-    return (this.db.prepare("SELECT * FROM document_workspaces ORDER BY created_at").all() as Row[]).map(toWorkspace);
-  }
-
   /**
    * Replace the tab strip. `activePath` is CORRECTED to a member of `openPaths` (or null) rather than
    * stored as given — a client racing its own tab close would otherwise strand the pane on a tab that

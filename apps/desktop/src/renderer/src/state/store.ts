@@ -10,17 +10,17 @@ import { loadInstalledFaces, localFamilies, publishFontFaces } from "./font-sour
 import { createStore, useStore, type StoreApi } from "zustand";
 import { EMPTY_TRAIL, pushStop, settleStop, stepTarget, type WindowStop, type WindowTrail } from "./window-trail";
 import {
-  allItems, closeItem as layoutClose, closeLeaf as layoutCloseLeaf, emptyLayout, moveTab as layoutMoveTab, openInSidePane as layoutOpenInSidePane, equalizeSplit as layoutEqualize, findLeaf, findLeafOfItem, findPanel, firstLeaf, itemIdOfLeaf, openItem as layoutOpen, sideTabsOf, tabOwner, updateSizes, AgentKindSchema, LayoutSchema, modeWireValue, sessionModeOf,
+  allItems, closeItem as layoutClose, closeLeaf as layoutCloseLeaf, emptyLayout, moveTab as layoutMoveTab, openInSidePane as layoutOpenInSidePane, equalizeSplit as layoutEqualize, findLeaf, findLeafOfItem, findPanel, itemIdOfLeaf, openItem as layoutOpen, sideTabsOf, tabOwner, updateSizes, AgentKindSchema, LayoutSchema, modeWireValue, sessionModeOf,
   lectureWrapUpPrompt, localDateStamp, sessionEvent,
   groupsFromLayout, SpaceGroupsSchema,
   besidePane, clampPanelShare, columnOf, firstPaneLeaf, normalizeView, openBesideInView, parseStoredView, primaryLeaves, pruneView, rememberSidePane, showInView, splitEmptyInView, viewFromGroups, withoutItem, type BesideEdge, type Room, type StoredView, type WindowView,
-  canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
+  forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   SETTING_ACTIVE_SPACE, SETTING_SIDE_PANES_HIDDEN, viewSettingKey, SETTING_THEME, SETTING_SUBMIT_KEY, AGENT_SETTINGS,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, annotationChipLabel, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, LINKS_OPEN_IN_KEY, type LinksOpenIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
-  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpSignInOptions, type McpServerStatus, type McpTransport, type MemoryClaudeImport, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type KeybindingsFile, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
+  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpSignInOptions, type McpServerStatus, type McpTransport, type MemoryClaudeImport, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves, type Rect } from "./no-overlay";
@@ -153,8 +153,6 @@ export type CliJob = {
 };
 export type TranscriptEntry = { lastSeq: number; t: Transcript };
 
-/** Everything the store needs from the outside world: realm-server RPC plus the two platform
- *  seams (native folder picker, local terminal disposal). Tests substitute a fake. */
 /** What main reports about the secret store itself. `available`: macOS will encrypt (no store
  *  without it). `canPromptTouchID`: this Mac can satisfy a fill — Settings says so plainly rather
  *  than letting the user enroll a password and find out at a sign-in prompt. */
@@ -162,6 +160,8 @@ export type CredentialStatus = { available: boolean; canPromptTouchID: boolean; 
 /** What a Share with ▸ <profile> did: copied, into the profile named, or why not. */
 export type ShareResult = { ok: true; profileName: string } | { ok: false; error: string };
 
+/** Everything the store needs from the outside world: realm-server RPC plus what main provides over
+ *  the preload bridge. Tests substitute a fake. */
 export type Api = TeamApi & LabApi & {
   listProfiles(): Promise<Profile[]>;
   /** Icon/color left out are the server's defaults (`user` / grey) — the New space sheet's inline
@@ -289,9 +289,9 @@ export type Api = TeamApi & LabApi & {
   uploadIconAsset(profileId: string, path: string): Promise<IconAsset>;
   deleteIconAsset(id: string): Promise<void>;
   listSessions(spaceId: string): Promise<Session[]>;
-  /** Every session across every space (sessionId→spaceId map for cross-space badges). */
-  /** `null` = every profile. The chat feed passes the active one; callers resolving a session by id
-   *  pass null. Scoped by the server's space→profile join, never by a filter here. */
+  /** Every session across every space (sessionId→spaceId map for cross-space badges). `null` = every
+   *  profile. The chat feed passes the active one; callers resolving a session by id pass null. Scoped
+   *  by the server's space→profile join, never by a filter here. */
   listAllSessions(profileId?: string | null): Promise<Session[]>;
   /** Each of a space's sessions' newest reply, as one line — null where it has not replied. */
   sessionsDigest(spaceId: string): Promise<{ sessionId: string; lastReply: string | null }[]>;
@@ -310,14 +310,11 @@ export type Api = TeamApi & LabApi & {
   /** `skills.list` for a space: the library folder and every skill in it, valid or not — the mention
    *  picker (W4) reads the skills, the settings panel (W5) also shows the root and the invalid rows. */
   listSkills(spaceId: string): Promise<{ root: string; skills: Skill[] }>;
-  /** `commands.list` — a space's user-defined slash commands. `spaceId` is nullable so the palette can
-   *  ask outside a session, which drops the space folder's `commands/` and keeps the rest. */
-  /** `scripts.run` — run a space's named shell command in a terminal, by its `script.<id>.run` id. */
-  /** `scripts.list` — a space's named shell commands. */
   /** `project.grep` / `project.files`: search the checkout an environment points at, as opposed to
    *  `search.query`, which searches Realm's own records. */
   projectGrep(cwd: string, query: string, limit?: number): Promise<ProjectGrepResult>;
   projectFiles(cwd: string, query: string, limit?: number): Promise<ProjectFilesResult>;
+  /** `scripts.list` — a space's named shell commands. */
   listScripts(spaceId: string): Promise<{ scripts: Script[] }>;
   /** `scripts.save` — create (null id) or update in place. Update keeps the id AND the position,
    *  which is what keeps a `script.<id>.run` binding attached across a rename. */
@@ -327,19 +324,16 @@ export type Api = TeamApi & LabApi & {
   removeScript(spaceId: string, id: string): Promise<void>;
   /** `scripts.reorder` — the whole order, by id. */
   reorderScripts(spaceId: string, ids: string[]): Promise<{ scripts: Script[] }>;
-  /** `keybindings.get` — also the seed-and-merge path. A non-null `error` means the file could not be
-   *  used as written, `rules` is Realm's defaults, and the file on disk is untouched. */
   /** `sandbox.get` — this space's execution-sandbox state: its posture, whether that came from the
    *  default, the resolved policy, and whether Seatbelt can be applied on this Mac at all. */
   getSandbox(spaceId: string): Promise<SandboxState>;
   /** `sandbox.set` — `null` clears the override and puts the space back on the default. Answers with
    *  the space's whole new state, so a caller never follows a write with a read. */
   setSandbox(spaceId: string, prefs: ExecutionSandboxPrefs | null): Promise<SandboxState>;
-  getKeybindings(): Promise<KeybindingsFile>;
-  /** `keybindings.set` — replaces the file. Order IS precedence; the server never sorts or dedupes. */
-  writeKeybindings(rules: Keybinding[]): Promise<KeybindingsFile>;
-  resetKeybindings(): Promise<KeybindingsFile>;
+  /** `scripts.run` — run a space's named shell command in a terminal, by its `script.<id>.run` id. */
   runScript(spaceId: string, commandId: string): Promise<{ terminalId: string; itemId: string; cwd: string }>;
+  /** `commands.list` — a space's user-defined slash commands. `spaceId` is nullable so the palette can
+   *  ask outside a session, which drops the space folder's `commands/` and keeps the rest. */
   listCommands(spaceId: string | null): Promise<{ root: string; commands: UserCommand[] }>;
   /** `commands.expand` — one command's template against what was typed after it. `missing` names the
    *  placeholders nothing was typed for; they are left STANDING in `text` so the draft shows them. */
@@ -448,9 +442,6 @@ export type Api = TeamApi & LabApi & {
   /** `sessions.openTerminal` — get-or-create the session's terminal side panel. The FIRST call is what
    *  spawns the pty, so this must only ever be called when the panel is actually being shown. */
   openSessionTerminal(sessionId: string): Promise<{ terminalId: string; itemId: string }>;
-  /** `terminals.write` — raw bytes into a pty. A trailing "\n" is what RUNS the line, so callers that
-   *  are only offering a command (the install card) must not send one. */
-  writeTerminal(terminalId: string, data: string): Promise<void>;
   /** Type a command into a terminal once its shell goes quiet; never appends a newline. */
   prefillTerminal(terminalId: string, command: string): Promise<void>;
   /** `force` bypasses the server's probe cache (the install card's retry / focus refresh). */
@@ -544,7 +535,6 @@ export type Api = TeamApi & LabApi & {
   computerAccessRequest(id: string): Promise<ComputerAccessStatus>;
   /** Clear Realm's stale entry for ONE grant (tccutil reset in main), ask again, open its pane. */
   computerAccessRepair(id: string): Promise<ComputerAccessStatus>;
-  computerAccessOpenSettings(id: string): Promise<void>;
   /** The Updates row's state (Plan 15 W1) — main-process IPC. The gate lives in main (updater.ts):
    *  a gated build answers `disabled` with its reason, and `checkUpdates` on such a build returns
    *  that same state rather than pretending to check. */
@@ -588,8 +578,8 @@ export type Api = TeamApi & LabApi & {
   appIcons(paths: string[]): Promise<Record<string, string | null>>;
   /** The code editors installed on this Mac. */
   listEditors(): Promise<InstalledEditor[]>;
-  /** Open an existing path in one of them; false when main refused (not installed, no such path). */
-  /** `base` is the directory a relative path is relative to — a session's working directory. */
+  /** Open an existing path in one of them; false when main refused (not installed, no such path).
+   *  `base` is the directory a relative path is relative to — a session's working directory. */
   openInEditor(id: EditorId, path: string, base?: string): Promise<boolean>;
   /** `workspace.gitInfo`: null when cwd is not a git repo (server caches ~3s). */
   gitInfo(cwd: string): Promise<GitInfo | null>;
@@ -756,32 +746,6 @@ export const memoryRepoKey = (o: MemoryRepoOwner): string => `${o.scope}:${o.id}
  *  while its probe has not answered), and `needs` what it lacks when it cannot. */
 export type McpProvider = { name: string; enabled: boolean; offered: boolean | null; needs: string | null };
 
-/** Item titles for the destination pages (W4). Static like the space page's "Overview": the page
- *  header renders the live copy, so a snapshot in the item row has nothing to go stale against. */
-export const DESTINATION_PAGE_TITLES: Record<DestinationPageKind, string> = {
-  "library-page": "Library",
-  "connections-page": "Connections",
-  "code-review-page": "Code review",
-  "settings-page": "Settings",
-  // Static like the rest: the page header renders the live profile name; the item row's title has
-  // nothing to go stale against (Plan 14 W2).
-  "profile-page": "Profile",
-  "schedules-page": "Scheduled tasks",
-  "you-page": "You",
-};
-
-/**
- * Where an activated destination page lands.
- *
- * `reuse` is the plain click: one page per space, so a second activation goes to the pane that already
- * holds it. `here` overrides that homing and moves the page into the focused pane instead.
- *
- * They only differ once the page is open somewhere else. A page that does not exist yet is created in
- * the focused pane under either placement, which is why the surfaces offering `here` gate on
- * `destinationPageElsewhere` rather than advertising a choice that has one outcome.
- */
-export type DestinationPlacement = "reuse" | "here";
-
 /** Feed page size (W5). Modest: the page is a glance at what waited, not an archive browser —
  *  "Load more" pages further on the server's cursor. */
 export const NOTIFICATIONS_PAGE = 50;
@@ -886,8 +850,6 @@ const SETTING_SIDEBAR_WIDTH = "ui.sidebarWidth";
 /** Whether the space strip sorts by activity instead of the user's own drag order. See
  *  `sidebarActivityOrder`. */
 const SETTING_SIDEBAR_ACTIVITY_ORDER = "ui.sidebarActivityOrder";
-/** Which other spaces show their live sessions under their sidebar row — see `sidebarOpenSpaces`. */
-const SETTING_SIDEBAR_OPEN_SPACES = "ui.sidebarOpenSpaces";
 /** Whether a delete asks first. On unless the user has said otherwise — see `confirmDelete`. */
 const SETTING_CONFIRM_DELETE = "ui.confirmDelete";
 /** How a session's file browser lays a folder out — see `filesView`. */
@@ -898,8 +860,6 @@ const SIGN_IN_ORDER: Record<AgentSignIn["state"], number> = { starting: 0, brows
 /** How the Library lays its files out. Its own key, not the session browser's: the Library opens on
  *  tiles, as Codex's does, and a person who reads a folder as rows has not said anything about it. */
 export const SETTING_LIBRARY_VIEW = "ui.libraryView";
-/** Per-session terminal-panel state (open + width), keyed by session id. */
-export const SETTING_TERMINAL_PANEL = "ui.terminalPanel";
 /** The quick chat: which session it is, and where its window sits. One key, because the two are only
  *  ever read together — a position with no conversation to put in it is nothing. */
 export const SETTING_QUICK_CHAT = "ui.quickChat";
@@ -927,34 +887,14 @@ export const SCHEDULE_RUNS_PAGE = 10;
  *  (`applyMcpCall`) enforces this — `loadMoreMcpCalls` is a page the user explicitly asked for, and
  *  trimming it would make "Load more" lie about what it just fetched. */
 export const MCP_CALLS_LIVE_CAP = 500;
-/** Plan 6 W4: the session's terminal panel takes 38% of the session pane the first time it opens. */
-export const TERMINAL_PANEL_WIDTH = 38;
-
-/** One session's terminal side panel: whether it is showing, and its share (%) of the session pane. */
-export type TerminalPanel = { open: boolean; width: number };
-
-/** Settings are `unknown` on the wire and the file is user-editable, so the persisted panel map is
- *  validated field by field; anything malformed is dropped rather than trusted into the layout. */
-export function parseTerminalPanels(raw: unknown): Record<string, TerminalPanel> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
-  const out: Record<string, TerminalPanel> = {};
-  for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
-    if (!v || typeof v !== "object") continue;
-    const { open, width } = v as { open?: unknown; width?: unknown };
-    if (typeof open !== "boolean") continue;
-    out[id] = { open, width: typeof width === "number" && width > 0 && width < 100 ? width : TERMINAL_PANEL_WIDTH };
-  }
-  return out;
-}
-
-/** The space page's tab rail (Plan 12 W3). "connections" is what the retired sheet called "mcp" —
- *  openers that used `tab: "mcp"` (the plus-menu's "Manage connections…") map to it. */
 /**
  * What a session pane's right-hand strip is showing. One union rather than two flags, because the
  * strip is one place: see `sessionDock`.
  */
 export type SessionDock = { kind: "summary" } | { kind: "files" } | { kind: "terminal" };
 
+/** The space page's tab rail (Plan 12 W3). "connections" is what the retired sheet called "mcp" —
+ *  openers that used `tab: "mcp"` (the plus-menu's "Manage connections…") map to it. */
 export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "scripts" | "sandbox" | "sessions" | "worktrees" | "tasks" | "history"
   /* A team's pages, in the same column under a "Team" head (TeamPages.tsx): the Overview, the records
      and one of them, a role, the log. */
@@ -964,8 +904,8 @@ export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "sc
 /** The profile page's rail (Plan 14 W2). */
 export type ProfilePageTab = "general" | "skills" | "connections" | "memory";
 /** The Settings page's tabs, in rail order — the store holds which one is showing so an opener can land
- *  on one (the browser pane's "Browser settings" opens Sign-ins). */
-/** The Settings rail's pages (`settings-index.ts` owns their order and headings). */
+ *  on one (the browser pane's "Browser settings" opens Sign-ins). `settings-index.ts` owns their order
+ *  and headings. */
 export type SettingsPageTab = SettingsTab;
 
 /** Sessions are never created through a sheet (W3): "+"/⌘N/palette create one instantly and every
@@ -991,9 +931,9 @@ export type Sheet =
   /** Teams: who joins a team that exists — the starters not on it yet, and teammates the person
    *  writes. From the team's page and the sidebar's Team fold alike. */
   | { kind: "add-teammates"; spaceId: string }
-  /** Plan 22: start a lecture (title prompt), wrap one up (pick which), import Plynn recordings. */
   /** This version's notes: opened once after an update, and from the rail or Help (WhatsNewSheet). */
   | { kind: "whats-new" }
+  /** Plan 22: start a lecture (title prompt), wrap one up (pick which), import Plynn recordings. */
   | { kind: "new-lecture" }
   | { kind: "wrap-up-lecture" }
   | { kind: "plynn-import" }
@@ -1030,13 +970,11 @@ export type AppState = TeamSlice & LabSlice & {
    *  moved background gets the same surface ladder and the same contrast correction a vendored one
    *  does, rather than a raw value written past the machinery. */
   themeOverrides: ThemeOverrides;
-  /** Themes imported from VS Code colour files (`themes.list`), and the folder they live in. Held so
-   *  the picker can offer them; `setCustomThemes` is what makes their names actually resolve. */
+  /** Themes imported from VS Code colour files (`themes.list`). Held so the picker can offer them;
+   *  `setCustomThemes` is what makes their names actually resolve. */
   customThemes: StoredTheme[];
-  themesRoot: string;
-  /** Google Fonts families downloaded into `~/Realm/fonts`, and the folder itself. */
+  /** Google Fonts families downloaded into `~/Realm/fonts`. */
   installedFonts: InstalledFont[];
-  fontsRoot: string;
   /** Families installed on this Mac (`queryLocalFonts`). Empty where the API is missing or refused —
    *  an extra source of choices, never a dependency of the picker. */
   localFonts: string[];
@@ -1140,14 +1078,6 @@ export type AppState = TeamSlice & LabSlice & {
    * strip picks up exactly where it was left.
    */
   sidebarActivityOrder: boolean;
-  /**
-   * The other spaces whose live sessions are unfolded under their row in the sidebar, by space id.
-   *
-   * Remembered per space and across launches (`SETTING_SIDEBAR_OPEN_SPACES`): a space you opened to
-   * keep an eye on is one you want to find open again. A space with nothing live draws no disclosure
-   * at all, but keeps its entry, so it unfolds again the next time it has something to show.
-   */
-  sidebarOpenSpaces: string[];
   // ——— Plan 27: the sidebar's own remembered choices (one block; nothing else in this file is the
   //     sidebar's). Read by `hydrateSidebarPrefs` when the sidebar mounts, so boot is untouched. ———
   /** Which lens the sidebar's list wears: the profile's spaces as sections, or every session by time
@@ -1173,13 +1103,6 @@ export type AppState = TeamSlice & LabSlice & {
    * throws away a draft — nor the ones that spell out a named object and offer an explicit Cancel.
    */
   confirmDelete: boolean;
-  /** Which list the sidebar's body is showing: the space's own items, or the gateway's call log.
-   *
-   *  Store-held rather than local to the column because `applyMcpCall` reads it — a live call has to
-   *  know whether anything is looking at the feed. NOT persisted, deliberately: it is a lens you flip
-   *  while watching something, like the archived shelf's disclosure, and one that survived a restart
-   *  would be a preference nobody asked for. */
-  sidebarView: "space" | "activity";
   /** The items of every space of the active profile, archived ones included (the space's own lists
    *  show those apart). Each space's slice is refreshed on its own `items.changed`. */
   items: Item[];
@@ -1616,10 +1539,7 @@ export type AppState = TeamSlice & LabSlice & {
   checkpointAckStale: boolean;
   /** The last restore's outcome, so the sheet can say what happened and name the undo. */
   restoreResult: RestoreResult | null;
-  /** Terminal side panel per session id (W4). Absent = never opened, which is also what keeps the pty
-   *  unspawned: nothing reaches the server until an entry turns `open`. Persisted as one setting. */
-  terminalPanel: Record<string, TerminalPanel>;
-  /** sessionId → the terminal id backing its panel; filled by the first openSessionTerminal. */
+  /** sessionId → the terminal id behind its dock or tab; filled by the first openSessionTerminal. */
   sessionTerminals: Record<string, string>;
   /**
    * What is docked to a session pane's strip — its summary, its files, or its terminal. Absent
@@ -1629,21 +1549,10 @@ export type AppState = TeamSlice & LabSlice & {
    * open states separately is how two panels come to be drawn over each other: each measures the
    * same edge and each claims it.
    *
-   * In memory only, unlike `terminalPanel`. These are things you look at while working and then stop
-   * looking at; restoring one across a relaunch would reopen a panel nobody is reading.
+   * In memory only. These are things you look at while working and then stop looking at; restoring
+   * one across a relaunch would reopen a panel nobody is reading.
    */
   sessionDock: Record<string, SessionDock | undefined>;
-  /**
-   * The quick chat's session. Null when there is none.
-   *
-   * Created UNLISTED — no item row, and so no place in the sidebar, the pinned grid, the command
-   * palette, the Library or any layout. It belongs to the app rather than to a space's list of work,
-   * which is why it also stays up as you move between spaces: the window is the only place it is
-   * ever shown, and switching spaces is not a reason to lose sight of it.
-   *
-   * It still RUNS somewhere — an agent needs a working directory — so the row carries the space it
-   * was made in. That is a fact about where its commands land, not about which list it appears in.
-   */
   /**
    * The app-level page showing over the workspace, if any — Library, Connections, Notifications,
    * Scheduled tasks, Settings, a space's Overview, a profile, or You.
@@ -1662,6 +1571,17 @@ export type AppState = TeamSlice & LabSlice & {
    *  and in memory: an inspector is a thing you open to answer a question and close again, and one
    *  that came back after a relaunch would be chrome nobody asked for. */
   simulatorElements: Record<string, boolean>;
+  /**
+   * The quick chat's session. Null when there is none.
+   *
+   * Created UNLISTED — no item row, and so no place in the sidebar, the pinned grid, the command
+   * palette, the Library or any layout. It belongs to the app rather than to a space's list of work,
+   * which is why it also stays up as you move between spaces: the window is the only place it is
+   * ever shown, and switching spaces is not a reason to lose sight of it.
+   *
+   * It still RUNS somewhere — an agent needs a working directory — so the row carries the space it
+   * was made in. That is a fact about where its commands land, not about which list it appears in.
+   */
   quickChat: { sessionId: string } | null;
   /** The media viewer, when a file is open in it — see `state/viewer.ts`. Transient: a file is looked
    *  at, not kept, so it is never written into the saved view and a profile switch takes it away. */
@@ -1868,11 +1788,8 @@ export type AppState = TeamSlice & LabSlice & {
   setGroundAlpha(pct: number): Promise<void>;
   setPaneAlpha(pct: number): Promise<void>;
   setReduceMotion(pref: ReducedMotionPref): Promise<void>;
-  setSidebarActivityOrder(v: boolean): Promise<void>;
   setLowPower(v: boolean): Promise<void>;
   setSidebarActivityOrder(v: boolean): Promise<void>;
-  /** Unfold or fold another space's live sessions under its sidebar row, and remember it. */
-  setSpaceRowOpen(spaceId: string, open: boolean): Promise<void>;
   setConfirmDelete(v: boolean): Promise<void>;
   /** The window gained or lost focus. Called by App's own listeners; nothing else writes it. */
   setWindowActive(v: boolean): void;
@@ -1889,10 +1806,6 @@ export type AppState = TeamSlice & LabSlice & {
   setFilesView(view: FilesView): Promise<void>;
   /** Lay the Library's files out as `view`, and remember it (`SETTING_LIBRARY_VIEW`). */
   setLibraryView(view: FilesView): Promise<void>;
-  /** Show the space's items or the call feed. Turning the feed ON clears any narrowing the sheet
-   *  left behind — a filter nobody can see in this column would silently hide rows — and leaves the
-   *  reading to the feed itself. */
-  setSidebarView(view: "space" | "activity"): void;
   /** Set the sidebar's width, clamped to SIDEBAR_WIDTH and persisted on a debounce. */
   setSidebarWidth(px: number): Promise<void>;
   setSubmitKey(v: SubmitKey): Promise<void>;
@@ -1940,10 +1853,11 @@ export type AppState = TeamSlice & LabSlice & {
    * onboarding is a prompter pointed at the user's code. Lives here rather than in the sheet
    * because it needs the ids each step returns, and the component would otherwise re-read them
    * out of state between awaits.
+   *
+   * `icon` and `color` are the space's own identity, chosen on the first screen rather than
+   * assigned. Both are required by the caller because both have a real default there — a form that
+   * cannot say what it picked would be a form that picked nothing.
    */
-  /** `icon` and `color` are the space's own identity, chosen on the first screen rather than
-   *  assigned. Both are required by the caller because both have a real default there — a form that
-   *  cannot say what it picked would be a form that picked nothing. */
   completeOnboarding(input: { name: string; agentKind: AgentKind; folder: string | null; icon: string; color: string }): Promise<void>;
   /** A terminal in `spaceId` — the current space when none is named — opened into the target or
    *  focused pane. */
@@ -2072,8 +1986,6 @@ export type AppState = TeamSlice & LabSlice & {
   stepWindow(delta: number): Promise<void>;
   /** Is there somewhere to go `delta` steps along the window's trail? */
   canStepWindow(delta: number): boolean;
-  /** Is there a stop `delta` steps from where `leafId` stands? What greys the arrows out. */
-  canPaneNav(leafId: string | null, delta: number): boolean;
   /** Move pane focus to the structural neighbor in that direction (see neighborLeafId); no-op without one. */
   focusNeighbor(dir: FocusDir): void;
   /** Functional sizes update for one split; persisted with a trailing debounce. No-op if unchanged.
@@ -2259,7 +2171,7 @@ export type AppState = TeamSlice & LabSlice & {
   moveSessionToNewWorktree(sessionId: string): Promise<void>;
   /** Sidebar's "Move to space…" (item context menu). Same server guard as the agent/environment
    *  switches — closes the item out of the current space's layout first, then re-homes it; any open
-   *  terminal panel for the session is torn down client-side to match the server's teardown. */
+   *  terminal for the session is torn down client-side to match the server's teardown. */
   moveSessionToSpace(sessionId: string, spaceId: string): Promise<void>;
   /** Fetch a space's servers into `connectors` (plus-menu open, `mcp.changed`). */
   refreshConnectors(spaceId: string): Promise<void>;
@@ -2505,14 +2417,9 @@ export type AppState = TeamSlice & LabSlice & {
    * to it rather than putting it away. Bottom: the dock at the pane's foot, which a second press hides.
    */
   showSessionTerminal(sessionId: string): Promise<void>;
-  /** Show/hide the session's terminal panel (pane-header toggle, ⌘J). Opening it is the one and only
-   *  thing that creates the terminal — and only the first time. */
-  toggleTerminalPanel(sessionId: string): Promise<void>;
   /** Get-or-create the terminal behind an already-open panel (restore path after a reload). No-op once
    *  known, so a session whose panel stays shut never reaches the server. */
   ensureSessionTerminal(sessionId: string): Promise<void>;
-  /** Panel width (% of the session pane) from a resize drag; persisted with a trailing debounce. */
-  setTerminalPanelWidth(sessionId: string, width: number): void;
   /** Dock something to this session pane's right-hand strip, replacing whatever was there. Passing
    *  what is already docked closes it, so one call serves every toggle that opens this strip. */
   toggleSessionDock(sessionId: string, dock: SessionDock): void;
@@ -2676,10 +2583,6 @@ export type AppState = TeamSlice & LabSlice & {
    *  delegated child opens nowhere — it is listed under its lead's running-agents control — and is
    *  remembered so its clean finish can be read (`applyAgentSettled`). */
   applyAgentOpened(payload: { spaceId: string; sessionId: string; itemId: string }): Promise<void>;
-  /** The `session.openRequested` handler: a session an agent's `session_open` made for the user goes
-   *  on screen beside that agent's pane, on the edge it asked for — quietly, the keyboard left where it
-   *  was. With the agent's pane not on screen it stays a sidebar row; with no room for a split it takes
-   *  the place of the pane beside the agent's, as any open beside does. */
   /** The `space.switchRequested` handler: an agent's approved `space_switch`, carried out as the
    *  user's own `selectSpace` — except while they are `typing`, and in a window bound to one profile
    *  (the first window is the one whose space the server reads back). */
@@ -2687,6 +2590,10 @@ export type AppState = TeamSlice & LabSlice & {
   /** The `settings.changed` handler: an agent's `settings_set`, taken as if this window's own Settings
    *  had made it — for the keys on `AGENT_SETTINGS` and no other, and only a value the app offers. */
   applySettingChanged(payload: { key: string; value?: unknown }): void;
+  /** The `session.openRequested` handler: a session an agent's `session_open` made for the user goes
+   *  on screen beside that agent's pane, on the edge it asked for — quietly, the keyboard left where it
+   *  was. With the agent's pane not on screen it stays a sidebar row; with no room for a split it takes
+   *  the place of the pane beside the agent's, as any open beside does. */
   applySessionOpenRequested(payload: { spaceId: string; sessionId: string; itemId: string; openedBy: string; edge: "right" | "bottom" }): Promise<void>;
   /** The `session.agentSettled` handler: a delegated child that finished cleanly has its "Finished a
    *  turn" row read — its report is already in the lead's transcript. */
@@ -2718,11 +2625,6 @@ export type AppState = TeamSlice & LabSlice & {
   /** Open the Library on one skill's page, from a list that is not the Library's own. The same
    *  two-step `openProfilePage` uses: name the destination, then go there. */
   openSkillPage(id: string): Promise<void>;
-  /** Open (or focus) a sidebar destination page (Plan 12 W4: Library, Connections) in the ACTIVE
-   *  space's layout. One page item per space, deduped by KIND — the refId is the kind's well-known
-   *  sentinel (`PAGE_REF_IDS`), and the item's `spaceId` is the vantage its scope groups read from.
-   *  Returns the page item's id — null only when there is no active space to put it in — which is what
-   *  a caller needs to then address something INSIDE the page it just opened. */
   /** Show or hide the device's accessibility tree over a simulator's picture. */
   toggleSimulatorElements(simulatorId: string): void;
   /** The native file picker, for the surfaces that need a PATH rather than an attachment — the
@@ -2781,9 +2683,9 @@ export type AppState = TeamSlice & LabSlice & {
   sharePasskey(profileId: string, id: string, toProfileId: string): Promise<ShareResult>;
   /** Deep-link a permission row's System Settings pane (by row id; main owns the URLs). */
   openTccPane(pane: string): Promise<void>;
-  /** Re-run `mac doctor` into `macAccess`. Prompt-free, so the tab may call it freely. */
   /** The real macOS icon for a capability's app, as a data URL, or null. */
   macAppIcon(id: string): Promise<string | null>;
+  /** Re-run `mac doctor` into `macAccess`. Prompt-free, so the tab may call it freely. */
   refreshMacAccess(): Promise<void>;
   /** Raise ONE capability's prompt. A no-op while another prompt is up (macOS shows one dialog at
    *  a time) and on any row that cannot be prompted — the page never asks for what cannot be asked. */
@@ -2801,7 +2703,6 @@ export type AppState = TeamSlice & LabSlice & {
   /** Repair ONE grant macOS no longer honours (tccutil reset, ask again), then watch for the switch.
    *  A no-op while another prompt is up, and on any row that does not offer it. */
   repairComputerAccess(id: string): Promise<void>;
-  openComputerAccessPane(id: string): Promise<void>;
   /** Fetch the Updates row's current state from main's gated updater into `updateStatus`. */
   refreshUpdateStatus(): Promise<void>;
   /** Run a real update check (or receive the disabled state unchanged — main's gate decides).
@@ -2948,8 +2849,8 @@ export type AppState = TeamSlice & LabSlice & {
   /** `checkpoints.capture` — a point the user asked for, next to the ones every turn takes. */
   captureCheckpoint(environmentId: string, sessionId: string | null): Promise<void>;
   /** "Fork from here" (Plan 16 W3): server makes worktree + session; this adopts the new pane and
-   *  closes the sheet. The ancestor session and its checkout are untouched — workspace fork only. */
-  /** `agentKind` forks onto a DIFFERENT agent; omitted keeps the ancestor's. */
+   *  closes the sheet. The ancestor session and its checkout are untouched — workspace fork only.
+   *  `agentKind` forks onto a DIFFERENT agent; omitted keeps the ancestor's. */
   forkFromCheckpoint(checkpointId: string, agentKind?: AgentKind): Promise<void>;
   /** Re-fetch this space's MCP servers. Called on `McpSection` mount (sheet open) and on `mcp.changed`
    *  while that space's settings sheet is the one showing. Applies the result only if the sheet is
@@ -3257,9 +3158,6 @@ const sameSizes = (a: number[], b: number[]) => a.length === b.length && a.every
 const isThemePref = (x: unknown): x is ThemePref => x === "system" || x === "light" || x === "dark";
 const isSubmitKey = (x: unknown): x is SubmitKey => x === "enter" || x === "cmdEnter";
 
-/** One face's palette, from its own key or from the single selection an older build stored. A
- *  palette is only accepted for a face it HAS: the legacy key can name a dark-only palette, and
- *  putting that in the light slot would leave the window with no light palette to fall back from. */
 /**
  * An imported theme as the palette registry wants it.
  *
@@ -3286,6 +3184,9 @@ const themeDefOf = (t: StoredTheme): ThemeDef => ({
  *  upgraded from that version may hold a row for a page since removed, whose kind no list here names. */
 const isPageItemKind = (kind: string): boolean => kind.endsWith("-page");
 
+/** One face's palette, from its own key or from the single selection an older build stored. A
+ *  palette is only accepted for a face it HAS: the legacy key can name a dark-only palette, and
+ *  putting that in the light slot would leave the window with no light palette to fall back from. */
 const storedPalette = (stored: unknown, legacy: unknown, mode: Mode): ThemeName => {
   const name = isThemeName(stored) ? stored : isThemeName(legacy) ? legacy : DEFAULT_SELECTION[mode];
   return themeModes(name).includes(mode) ? name : DEFAULT_SELECTION[mode];
@@ -3410,24 +3311,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       if (persistTimer) clearTimeout(persistTimer);
       persistTimer = setTimeout(() => { persistTimer = null; get().run(persist); }, PERSIST_DEBOUNCE_MS);
     };
-    /** Terminal-panel state persists as one settings blob, on its own debounce: a resize drag writes
-     *  every frame, but a toggle is a single deliberate act and writes straight through. */
-    let panelTimer: ReturnType<typeof setTimeout> | null = null;
     /** `agentsShown` is read on first use rather than at boot (`hydrateAgentsShown`), and nothing is
      *  written back before it has been: a write first would replace every other lead's mark. */
     let agentsShownRead: Promise<void> | null = null;
     let agentsShownLoaded = false;
     let agentsShownTimer: ReturnType<typeof setTimeout> | null = null;
-    const persistPanels = async () => {
-      if (panelTimer) { clearTimeout(panelTimer); panelTimer = null; }
-      await api.setSetting(SETTING_TERMINAL_PANEL, get().terminalPanel);
-    };
-    const schedulePanelPersist = () => {
-      if (panelTimer) clearTimeout(panelTimer);
-      panelTimer = setTimeout(() => { panelTimer = null; get().run(persistPanels); }, PERSIST_DEBOUNCE_MS);
-    };
-    /** The quick chat's session and window position, on the panel map's own debounce shape: opening
-     *  and closing write straight through (one deliberate act each), a drag writes every frame. */
+    /** The quick chat's session and window position, on a debounce: opening and closing write straight
+     *  through (one deliberate act each), while a drag, which moves every frame, waits for it. */
     let quickTimer: ReturnType<typeof setTimeout> | null = null;
     const persistQuickChat = async () => {
       if (quickTimer) { clearTimeout(quickTimer); quickTimer = null; }
@@ -3496,10 +3386,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       }
       return kept;
     };
-    const panelOf = (id: string): TerminalPanel => get().terminalPanel[id] ?? { open: false, width: TERMINAL_PANEL_WIDTH };
-    const setPanel = (id: string, p: TerminalPanel) => set({ terminalPanel: { ...get().terminalPanel, [id]: p } });
-    /** Sessions with an openSessionTerminal call in flight — StrictMode double-mounts and a toggle
-     *  racing the restore effect must not spawn two ptys for one session. A Map, not a Set: later
+    /** Sessions with an openSessionTerminal call in flight — StrictMode double-mounts and a prefill
+     *  racing the dock's restore effect must not spawn two ptys for one session. A Map, not a Set: later
      *  callers JOIN the in-flight call instead of returning early, so `prefillTerminal` (which races the
      *  drawer's own restore effect) still has a terminal id to write into when it resumes. */
     const ensuringTerminal = new Map<string, Promise<void>>();
@@ -3513,7 +3401,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     /** Flush a pending debounced persist — before the profile changes (persist writes the active
      *  profile's view), and on `pagehide`. */
     const flushPersist = async () => {
-      if (panelTimer) await persistPanels();
       if (quickTimer) await persistQuickChat();
       if (persistTimer) await persist();
     };
@@ -3529,13 +3416,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  session's, whichever space the other pane on screen is from. */
     const besideSpace = (beside: Beside): string | null =>
       typeof beside === "object" ? get().sessions[beside.sessionId]?.spaceId ?? get().items.find((i) => i.kind === "session" && i.refId === beside.sessionId)?.spaceId ?? null : null;
-    /** Whether anything is looking at the gateway's call log — the sheet, or the sidebar's feed.
-     *
-     *  Four readers ask: both fetches' supersession guards, and the live-call gate. It is one
-     *  function because it went from one surface to two, and all four had spelled the single surface
-     *  out for themselves — so the feed would have shown the rows it was opened with and then gone
-     *  quietly stale, which is the one failure a feed cannot have. A third surface adds a term. */
-    const watchingCalls = () => get().sheet?.kind === "activity" || get().sidebarView === "activity";
+    /** Whether anything is looking at the gateway's call log — its sheet. Three readers ask: both
+     *  fetches' supersession guards, and the live-call gate; a second surface adds a term here rather
+     *  than to each of them. */
+    const watchingCalls = () => get().sheet?.kind === "activity";
     const mergeSpace = (s: Space) => set({ spaces: get().spaces.map((x) => (x.id === s.id ? s : x)) });
     /**
      * The write that says a session's conversation moved at `at` (`sessionActivityAt`), or undefined
@@ -3833,11 +3717,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       }
       return keeper;
     };
-    /** Adopt a freshly created item: refresh items, then open it into targetLeafId ?? the focused leaf.
-     *  (A concurrent items.changed refresh can't have opened it — reconcile is prune-only.) Takes an
-     *  itemsFetchSeq slot so any older in-flight refreshItems response is dropped instead of pruning
-     *  the item this fetch is about to open. */
-    /** Kick an event-driven git refresh for one session's cwd (no-op while the session is unknown). */
     /**
      * Ask git, now, whether a space's own checkout is a repository — and keep the answer where the
      * prompter and the sidebar read it (`spaceIsPlainFolder`). Every action that would make a worktree
@@ -3851,6 +3730,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       await get().refreshGitInfo(path);
       return get().gitInfo[path] != null;
     };
+    /** Kick an event-driven git refresh for one session's cwd (no-op while the session is unknown). */
     const refreshGitFor = (sessionId: string) => {
       const cwd = get().sessions[sessionId]?.cwd;
       if (cwd) get().run(() => get().refreshGitInfo(cwd));
@@ -3921,10 +3801,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const order = ids.includes(sid) ? ids : [...ids, sid];
       return order.flatMap((id) => (id === sid ? fresh : get().items.filter((i) => i.spaceId === id)));
     };
-    /** Fetch one space's items into `items` — unless a newer fetch of that space started since, or the
-     *  window has left that space's profile. Answers whether this fetch's list is the one applied. */
     /** Per space, the newest load of its items — what a load another overtook waits for (below). */
     const latestItemsLoad = new Map<string, Promise<boolean>>();
+    /** Fetch one space's items into `items` — unless a newer fetch of that space started since, or the
+     *  window has left that space's profile. Answers whether this fetch's list is the one applied. */
     const loadSpaceItems = (sid: string): Promise<boolean> => {
       const seq = nextItemsSeq(sid);
       const epoch = profileEpoch;
@@ -4084,6 +3964,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       return best;
     };
 
+    /** Adopt a freshly created item: refresh items, then open it into targetLeafId ?? the focused leaf.
+     *  (A concurrent items.changed refresh can't have opened it — reconcile is prune-only.) Takes an
+     *  itemsFetchSeq slot so any older in-flight refreshItems response is dropped instead of pruning
+     *  the item this fetch is about to open. */
     const adoptItem = async (sid: string, itemId: string, targetLeafId: string | null, beside: Beside = false, edge?: DropEdge) => {
       // Superseded by a newer fetch of the space? That one started after this item existed, so its
       // list has it too — the open below goes ahead either way.
@@ -4308,11 +4192,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const focused = get().items.find((i) => i.id === itemIdOfLeaf(get().layout, get().focusedLeafId));
       if (focused?.kind === "session") refreshGitFor(focused.refId);
     };
-    /**
-     * An item a session's agent opened while none of that session's chain is on screen: kept in the
-     * side pane its session will have when it is next shown. Never a pane of its own beside whatever
-     * has focus (design.md: what an agent opens arrives in ONE side pane beside its session).
-     */
     /** The tail of the agent-pane queue (`applyAgentPaneOpened`). */
     let agentPanes: Promise<void> = Promise.resolve();
     const openAgentPane = async ({ spaceId, itemId, openedBy }: { spaceId: string; itemId: string; openedBy: string }) => {
@@ -4320,10 +4199,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       await get().refreshItems(spaceId);
       if (!inProfile(spaceId)) return;
       if (await get().openInSidePane(openedBy, itemId)) return;
-      // None of its chain is on screen: kept in the side pane its session will have when it is
-      // shown, never a column of its own beside whatever has focus.
       await keepInSidePane(openedBy, itemId);
     };
+    /**
+     * An item a session's agent opened while none of that session's chain is on screen: kept in the
+     * side pane its session will have when it is next shown. Never a pane of its own beside whatever
+     * has focus (design.md: what an agent opens arrives in ONE side pane beside its session).
+     */
     const keepInSidePane = async (sessionId: string, itemId: string): Promise<boolean> => {
       const keeper = await keeperOf(sessionId);
       if (!keeper) return false;
@@ -4417,7 +4299,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       ...teamSlice(api, get, set),
       ...labSlice(api, get, set),
       booted: false,
-      sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarOnPage: null, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
+      sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], installedFonts: [], localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, confirmDelete: true, items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarOnPage: null, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
       allItems: [], archivedSessions: null, lastAgentKind: null, lastModels: {}, renamingItemId: null,
       connectionState: "connected",
       appPick: null,
@@ -4431,7 +4313,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeBranches: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, agentsAsk: {}, agentsShown: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
-      terminalPanel: {}, sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null, viewer: null,
+      sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null, viewer: null,
       machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {}, profileMemoryRepo: {}, spaceMemoryRepos: {}, memoryRepoLog: {},
@@ -4443,11 +4325,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, openSpaces, askDelete, lastAgent, eggs, konami, panels, quick, filesView, libraryView, system, avatarPath, sidePanesHidden, lastModels] = await Promise.all([
+        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, quick, filesView, libraryView, system, avatarPath, sidePanesHidden, lastModels] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_ACTIVE_PROFILE), api.getSetting(SETTING_THEME),
-          api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_PANE_ALPHA), api.getSetting(REDUCED_MOTION_KEY), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_SIDEBAR_OPEN_SPACES), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
+          api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_PANE_ALPHA), api.getSetting(REDUCED_MOTION_KEY), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
-          api.getSetting(SETTING_TERMINAL_PANEL),
           api.getSetting(SETTING_QUICK_CHAT),
           api.getSetting(SETTING_FILES_VIEW),
           api.getSetting(SETTING_LIBRARY_VIEW),
@@ -4493,13 +4374,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           sidebarActivityOrder: activityOrder === true,
           // Ids, and nothing else: a value an older or newer build wrote in another shape is read as
           // "nothing unfolded", which is the resting state rather than a guess at what was meant.
-          sidebarOpenSpaces: Array.isArray(openSpaces) ? openSpaces.filter((id): id is string => typeof id === "string") : [],
           // Only an explicit false turns it off: an unset key and a missing row both mean "nobody
           // has said", and the answer to that for a destructive step is to keep asking.
           confirmDelete: askDelete !== false,
           lastAgentKind: agent.success ? agent.data : null, lastModels: parseLastModels(lastModels),
           easterEggs: eggs === true, konamiUnlocked: konami === true,
-          terminalPanel: parseTerminalPanels(panels), machineName: system.machineName, userName: system.userName, avatarPath, detachedSince: system.detachedSince });
+          machineName: system.machineName, userName: system.userName, avatarPath, detachedSince: system.detachedSince });
         // AppShell is already mounted during boot: keep spaces unpublished until each saved custom
         // icon can resolve, rather than visibly rendering its folder fallback first.
         // Same reason, same place: a preference naming a downloaded family needs its `@font-face` in
@@ -4841,12 +4721,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await api.setSetting(SETTING_THEME_NAME[mode], name);
       },
       async refreshCustomThemes() {
-        const { root, themes } = await api.listThemes();
+        const { themes } = await api.listThemes();
         /* Published to `@realm/ui`'s registry BEFORE the store, because `applyTheme` resolves a name
            through it: setting the state first would re-render the window with a palette whose name
            does not resolve yet, which paints one frame of Realm's own colours over the theme. */
         setCustomThemes(themes.map(themeDefOf));
-        set({ customThemes: themes, themesRoot: root });
+        set({ customThemes: themes });
       },
       async importThemeFile() {
         const path = await api.pickThemeFile();
@@ -4856,11 +4736,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         return theme.id;
       },
       async refreshFonts() {
-        const { root, fonts } = await api.listInstalledFonts();
+        const { fonts } = await api.listInstalledFonts();
         /* Published BEFORE the state, for `refreshCustomThemes`'s reason: a preference naming a
            family whose `@font-face` is not in the document yet paints one frame in the fallback. */
         publishFontFaces(await loadInstalledFaces(fonts, (family) => api.fontFaces(family)));
-        set({ installedFonts: fonts, fontsRoot: root });
+        set({ installedFonts: fonts });
       },
       async refreshLocalFonts() { set({ localFonts: await localFamilies() }); },
       async refreshFontCatalog() {
@@ -4960,14 +4840,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ sidebarActivityOrder: v });
         await api.setSetting(SETTING_SIDEBAR_ACTIVITY_ORDER, v);
       },
-      async setSpaceRowOpen(spaceId, open) {
-        const known = new Set(get().spaces.map((s) => s.id));
-        // A deleted space's id is dropped on the way past, so the key never outgrows the home.
-        const kept = get().sidebarOpenSpaces.filter((id) => id !== spaceId && known.has(id));
-        const next = open ? [...kept, spaceId] : kept;
-        set({ sidebarOpenSpaces: next });
-        await api.setSetting(SETTING_SIDEBAR_OPEN_SPACES, next);
-      },
       // ——— Plan 27: the sidebar's remembered choices (see `sidebarLens`) ———
       sidebarLens: "spaces",
       sidebarCollapsedSpaces: [],
@@ -5056,12 +4928,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async setLibraryView(view) {
         set({ libraryView: view });
         await api.setSetting(SETTING_LIBRARY_VIEW, view);
-      },
-      setSidebarView(view) {
-        if (get().sidebarView === view) return;
-        // openActivity's reset, without the sheet or its fetch: the feed reads the log when it
-        // mounts, so doing it here as well would be two round trips per flip of the lens.
-        set(view === "activity" ? { sidebarView: view, mcpCallsFilter: {}, mcpCalls: [], mcpCallsHasMore: false } : { sidebarView: view });
       },
       async setSidebarWidth(px) {
         // Clamped before it is stored rather than only before it is painted, for the reason
@@ -5474,7 +5340,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           const { [it.refId]: _ua, ...sessionUpdatedAt } = get().sessionUpdatedAt;
           const { [it.refId]: _aa, ...sessionActivityAt } = get().sessionActivityAt;
           const { [it.refId]: _as, ...allSessions } = get().allSessions;
-          const { [it.refId]: _tp, ...terminalPanel } = get().terminalPanel; const { [it.refId]: _tid, ...sessionTerminals } = get().sessionTerminals;
+          const { [it.refId]: _tid, ...sessionTerminals } = get().sessionTerminals;
           const { [it.refId]: _dk, ...sessionDock } = get().sessionDock;
           const { [it.refId]: _pr, ...planReturn } = get().planReturn;
           const { [it.refId]: _at, ...pendingAttachments } = get().pendingAttachments;
@@ -5484,8 +5350,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           const { [it.refId]: _dl, ...draftLinks } = get().draftLinks;
           const { [it.refId]: _drf, ...draftRefs } = get().draftRefs;
           const { [it.refId]: _ac, ...sessionActivity } = get().sessionActivity;
-          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, draftRefs, planReturn, sessionSpace, sessionUpdatedAt, sessionActivityAt, allSessions, terminalPanel, sessionTerminals, sessionDock, sessionActivity });
-          if (termId || _tp) get().run(persistPanels); // the panel map just lost an entry
+          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, draftRefs, planReturn, sessionSpace, sessionUpdatedAt, sessionActivityAt, allSessions, sessionTerminals, sessionDock, sessionActivity });
         }
       },
       async splitFocused(dir) {
@@ -5537,7 +5402,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (!leaf) return;
         set({ paneHistory: pushNav(get().paneHistory, leaf.id, { itemId, view }) });
       },
-      canPaneNav(leafId, delta) { return canNav(get().paneHistory, leafId, delta); },
       async stepPaneNav(leafId, delta) {
         const stepped = stepNav(get().paneHistory, leafId, delta);
         if (stepped === get().paneHistory) return; // nowhere to go — no layout write, nothing persisted
@@ -6483,8 +6347,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (termId && moved.terminalItemId === null) {
           api.disposeTerminal(termId);
           const { [sessionId]: _tid, ...sessionTerminals } = get().sessionTerminals;
-          const { [sessionId]: _tp, ...terminalPanel } = get().terminalPanel;
-          set({ sessionTerminals, terminalPanel });
+          set({ sessionTerminals });
         }
       },
       async refreshConnectors(spaceId) {
@@ -7018,14 +6881,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (get().terminalDock === "bottom") { get().toggleSessionDock(sessionId, { kind: "terminal" }); return; }
         await showTerminalTab(sessionId);
       },
-      async toggleTerminalPanel(sessionId) {
-        const next = { ...panelOf(sessionId), open: !panelOf(sessionId).open };
-        // Show the panel first, then create: the toggle is instant, and the pane fills in when the
-        // shell answers. Closing never destroys anything — the pty and its scrollback wait.
-        setPanel(sessionId, next);
-        await persistPanels();
-        if (next.open) await get().ensureSessionTerminal(sessionId);
-      },
       async openQuickChat() {
         if (get().quickChat) return;
         const sid = get().activeSpaceId; if (!sid) return;
@@ -7173,12 +7028,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       closeSessionDock(sessionId) {
         const { [sessionId]: _gone, ...rest } = get().sessionDock;
         set({ sessionDock: rest });
-      },
-      setTerminalPanelWidth(sessionId, width) {
-        const cur = panelOf(sessionId);
-        if (Math.abs(cur.width - width) < 0.01) return;
-        setPanel(sessionId, { ...cur, width });
-        schedulePanelPersist();
       },
       async refreshGitInfo(cwd) {
         const info = await api.gitInfo(cwd);
@@ -7771,7 +7620,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         finally { set({ computerRequesting: null }); }
         void watchComputerAccess(id);
       },
-      async openComputerAccessPane(id) { await api.computerAccessOpenSettings(id); },
       async refreshUpdateStatus() { set({ updateStatus: await api.updateStatus() }); },
       async checkForUpdates() {
         const held = get().updateStatus;

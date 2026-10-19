@@ -39,7 +39,7 @@ export function scopeGroupOf(scope: ItemScope): GroupId {
  * They read the same everywhere they appear, and they appear on more than one axis: these are the
  * headings of a scope-grouped list here, and they are the two scopes the Library's file browser
  * filters by. Two literals would be two places for the wording to drift, which is exactly what
- * scope-groups.test.ts's single-definition-site rule exists to prevent — so the rule is satisfied by
+ * scope-groups.test.tsx's single-definition-site rule exists to prevent — so the rule is satisfied by
  * making this the site, rather than by giving the second caller different words for the same thing.
  */
 export const SCOPE_LABEL = { thisSpace: "This space", everywhere: "Everywhere" } as const;

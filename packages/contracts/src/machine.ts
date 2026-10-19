@@ -14,9 +14,9 @@ import { IdSchema, Timestamps } from "./entities";
  *   - `mac` — this Mac's own screen, through the computer-use helper (Plan 25 W7).
  *   - `container` — a container Realm runs with a virtual display, after which it is a `vnc` (W7).
  *
- * Only `vnc` is built. The others are in the enum because the enum is what a stored row is validated
- * against and a source added later must not fail to parse a row written by a newer build — but every
- * one of them is refused at the service, by name, rather than silently doing nothing.
+ * `container` is the one not built. It stays in the enum because the enum is what a stored row is
+ * validated against, and a source added later must not fail to parse a row written by a newer build —
+ * but it is refused at the service, by name, rather than silently doing nothing.
  */
 export const MachineSourceSchema = z.enum(["vnc", "qemu", "mac", "container"]);
 export type MachineSource = z.infer<typeof MachineSourceSchema>;
@@ -104,7 +104,7 @@ export type Machine = z.infer<typeof MachineSchema>;
 /**
  * The live half, broadcast on `machine.status` and held in the renderer's store.
  *
- * `wsPort` rides the event rather than being fetched afterwards: a renderer that had to call
+ * `wsUrl` rides the event rather than being fetched afterwards: a renderer that had to call
  * `machines.get` on every status change would open its socket a round trip late, and the one thing
  * a viewer must not do is show a stale frame while a new connection is already available.
  *

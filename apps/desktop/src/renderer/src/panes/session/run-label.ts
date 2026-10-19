@@ -63,14 +63,6 @@ export const EGG_RUN_LABELS: readonly RunLabel[] = [
 ];
 
 /**
- * The label for a run, keyed on the millisecond it started.
- *
- * Deterministic, not random. A `Math.random()` here would re-roll on every re-render — and a
- * streaming run re-renders a dozen times a second — and the settled line, which is rebuilt from the
- * persisted event log on every reload, would name a different verb than the one the user actually
- * watched. Hashing the start time gives both for free: stable within a run, spread across runs.
- */
-/**
  * What a run is called when the session is PLANNING.
  *
  * Plan mode looked exactly like every other run: a playful verb, then prose arriving in the
@@ -81,6 +73,14 @@ export const EGG_RUN_LABELS: readonly RunLabel[] = [
  */
 export const PLAN_RUN_LABEL: RunLabel = { present: "Planning", past: "Planned" };
 
+/**
+ * The label for a run, keyed on the millisecond it started.
+ *
+ * Deterministic, not random. A `Math.random()` here would re-roll on every re-render — and a
+ * streaming run re-renders a dozen times a second — and the settled line, which is rebuilt from the
+ * persisted event log on every reload, would name a different verb than the one the user actually
+ * watched. Hashing the start time gives both for free: stable within a run, spread across runs.
+ */
 export function runLabelFor(startedAt: number, mode?: string, eggs = false, packLabels: readonly RunLabel[] = []): RunLabel {
   if (mode === "plan") return PLAN_RUN_LABEL;
   // xorshift-multiply (splittable-hash shape): ms timestamps one prompt apart differ only in their

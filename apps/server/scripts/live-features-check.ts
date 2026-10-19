@@ -9,7 +9,7 @@
  * service the handler reads, and that a keymap file really lands on a real disk. Every failure this
  * has caught in the past was of exactly that shape.
  *
- * Run: `pnpm --filter @realm/server exec tsx scripts/live-overnight-check.ts`
+ * Run: `pnpm --filter @realm/server exec tsx scripts/live-features-check.ts`
  *
  * `REALM_HOME` is a scratch directory made here and the real one is never opened — booting a server
  * against `~/Realm` would write a keybindings.json into the user's actual home.

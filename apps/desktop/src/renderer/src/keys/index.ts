@@ -1,5 +1,3 @@
-/** The renderer's keybinding layer: one hook to mount, and the two pure pieces underneath it. */
+/** The renderer's keybinding layer: the window's keyboard, and the renderer's half of the menu bar. */
 export { useKeybindings } from "./use-keybindings";
-export { chordFromEvent, type KeyEventLike } from "./chord";
-export { appCommands, keyContext } from "./commands";
 export { useMenuBar } from "./menu-bar";

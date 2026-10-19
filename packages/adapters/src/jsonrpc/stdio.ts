@@ -14,13 +14,6 @@ export class JsonRpcCallError extends Error {
 }
 
 /**
- * Rejects with `message` if `p` has not settled within `ms`.
- *
- * The underlying request is NOT cancelled — JSON-RPC has no cancel — it is simply abandoned; the peer's late
- * answer lands on an already-settled promise. Every unbounded call into a child process goes through this:
- * a child that spawns and then answers nothing must never leave a promise pending forever.
- */
-/**
  * A call that ran out of time, distinguishable from one the peer ANSWERED with an error.
  *
  * The difference decides what a caller may do next. A peer that said "no" has been heard from, and
@@ -34,6 +27,13 @@ export class RpcTimeoutError extends Error {
 
 export const isRpcTimeout = (e: unknown): boolean => e instanceof RpcTimeoutError;
 
+/**
+ * Rejects with `message` if `p` has not settled within `ms`.
+ *
+ * The underlying request is NOT cancelled — JSON-RPC has no cancel — it is simply abandoned; the peer's late
+ * answer lands on an already-settled promise. Every unbounded call into a child process goes through this:
+ * a child that spawns and then answers nothing must never leave a promise pending forever.
+ */
 export function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new RpcTimeoutError(message)), ms);

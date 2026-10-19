@@ -9,6 +9,7 @@ import {
   agentRowHint, billingLead, chipLabel, chipTitle, effortCurrent, fastModeHint, fastModeShown, fastModeTitle, fastModeUntried, filterRows, flatten,
   formatEffort, groupRows, holdRows, isHarnessDefault, modelAbout, modelIdOn, modelLabel, type EffortControl, type FastMode, type ModelRow,
 } from "./model-catalog";
+import { prefersReducedMotion } from "../../reduced-motion";
 
 export { formatEffort };
 
@@ -38,8 +39,7 @@ export const HEAVY_EFFORTS = new Set(["xhigh", "max"]);
 /** Whether the app is holding its motion still: the reader asked (`prefers-reduced-motion`, which the
  *  app's own Reduce motion setting drives), or Low power is on. A moment that cannot play is not
  *  started, rather than started and frozen at its first frame. */
-const motionHeld = (): boolean =>
-  (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false) || document.documentElement.dataset.quiet === "always";
+const motionHeld = (): boolean => prefersReducedMotion() || document.documentElement.dataset.quiet === "always";
 
 /**
  * Play a one-shot animation by setting `attr` on `el`, and take the attribute off when THAT animation

@@ -332,9 +332,6 @@ const ToolCardBody = memo(function ToolCardBody({ block, sessionStatus, enter = 
   );
 });
 
-/** The collapsed row's duration (Ara refresh §4: `Worked for <duration> ›`). While the run is still
- *  working it ticks live off the group's own first timestamp; once settled it freezes on the ledger's
- *  first→last span — the same duration the counts line has always computed. */
 /**
  * Draw the run's work only as wide as the parts that fit on its one line. The parts that do not fit
  * wrap onto a line the box never shows (styles.css), but a wrapped box keeps the width it shrank to,
@@ -366,6 +363,9 @@ function useWorkFit(key: string) {
   return ref;
 }
 
+/** The collapsed row's duration (Ara refresh §4: `Worked for <duration> ›`). While the run is still
+ *  working it ticks live off the group's own first timestamp; once settled it freezes on the ledger's
+ *  first→last span — the same duration the counts line has always computed. */
 function useWorkedFor(working: boolean, firstTs: number, settledMs: number): string {
   const elapsed = useElapsed(firstTs, working);
   return formatDuration(working ? elapsed : settledMs);

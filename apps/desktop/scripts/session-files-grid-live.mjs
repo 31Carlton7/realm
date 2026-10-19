@@ -428,7 +428,7 @@ async function main() {
 
 /**
  * The server is a SECOND Electron process, spawned by the one we started, and killing the parent
- * leaves it holding REALM_PORT (sidebar-and-splits-live.mjs). Killed by the ports this script chose,
+ * leaves it holding REALM_PORT. Killed by the ports this script chose,
  * then by the pids the scratch home recorded, and the scratch goes last.
  */
 let reaped = false;

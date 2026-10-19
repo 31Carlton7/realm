@@ -13,7 +13,7 @@ import type { DatabaseSync } from "node:sqlite";
  * state RC2 can leave it in, a researcher-only team, two teams that are creator teams only by what
  * they did, and a space with no team.
  *
- * `V50_ROWS` is plain INSERTs with every NOT NULL column named, so the same rows also load into a
+ * `v50Rows` is plain INSERTs with every NOT NULL column named, so the same rows also load into a
  * home whose schema WAS replayed — the one the behaviour tests boot the real app on.
  */
 

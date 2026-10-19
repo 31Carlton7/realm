@@ -201,12 +201,12 @@ function PeekBar({ spaceName, elsewhere, onOpen }: { spaceName: string; elsewher
   );
 }
 
-/** Transcript + composer for one agent session (item.refId = session id). PanelBar renders the header. */
 /** Stable, so a pane with no references hands the Composer the same array every render. */
 const EMPTY_REFS: readonly { sessionId: string; title: string; agent: string }[] = [];
 
 const trimSlash = (path: string): string => path.replace(/\/+$/, "");
 
+/** Transcript + composer for one agent session (item.refId = session id). PanelBar renders the header. */
 export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const id = item.refId;
   const session = useApp((s) => s.sessions[id]);

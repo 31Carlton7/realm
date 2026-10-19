@@ -170,8 +170,6 @@ contextBridge.exposeInMainWorld("realm", {
     /** Start an OS drag carrying the file. Call from a `dragstart` the renderer has cancelled. */
     startDrag: (path: string): void => ipcRenderer.send("files:drag-start", path),
   },
-  /** The Dock icon chosen in Settings ▸ App (main/app-icon.ts). `set` hands main the picture's bytes,
-   *  which it puts on the Dock and keeps for the next launch; false when main refused them. */
   /** Realm's theme preference, for the window's native appearance (main/appearance.ts). */
   setAppearance: (pref: string): void => ipcRenderer.send("appearance:set", pref),
   /** What's new (main/whats-new.ts): this version's notes; whether this window should open them
@@ -181,6 +179,8 @@ contextBridge.exposeInMainWorld("realm", {
     claim: (): Promise<boolean> => ipcRenderer.invoke("whats-new:claim"),
     seen: (): Promise<void> => ipcRenderer.invoke("whats-new:seen"),
   },
+  /** The Dock icon chosen in Settings ▸ App (main/app-icon.ts). `set` hands main the picture's bytes,
+   *  which it puts on the Dock and keeps for the next launch; false when main refused them. */
   appIcon: {
     get: (): Promise<string> => ipcRenderer.invoke("app-icon:get"),
     set: (id: string, png: Uint8Array): Promise<boolean> => ipcRenderer.invoke("app-icon:set", id, png),
@@ -215,11 +215,6 @@ contextBridge.exposeInMainWorld("realm", {
   phoneScreen: {
     showLive: (): Promise<string> => ipcRenderer.invoke("phone:show-live"),
   },
-  /** The `mac` CLI's access (Permissions tab, "Apps on this Mac"). `status` is a `mac doctor` read —
-   *  documented never to prompt. `grant` DOES prompt, on purpose: it runs the one read-only command
-   *  that raises that capability's macOS dialog and resolves the re-read audit once the user answers,
-   *  so it may sit pending for as long as the dialog is up. Both take a CAPABILITY id, never a
-   *  command or a URL — main validates it against mac-access.ts's closed table. */
   /** Settings ▸ Lab: Realm's own login item (installed app only; main says whether it can be set) and
    *  the System Settings pane a check names — a pane id, never a URL (main/lab-host.ts). */
   lab: {
@@ -227,6 +222,11 @@ contextBridge.exposeInMainWorld("realm", {
     setLoginItem: (on: boolean): Promise<{ openAtLogin: boolean | null; canSet: boolean }> => ipcRenderer.invoke("lab:set-login-item", on),
     openSettings: (pane: string): Promise<void> => ipcRenderer.invoke("lab:open-settings", pane),
   },
+  /** The `mac` CLI's access (Permissions tab, "Apps on this Mac"). `status` is a `mac doctor` read —
+   *  documented never to prompt. `grant` DOES prompt, on purpose: it runs the one read-only command
+   *  that raises that capability's macOS dialog and resolves the re-read audit once the user answers,
+   *  so it may sit pending for as long as the dialog is up. Both take a CAPABILITY id, never a
+   *  command or a URL — main validates it against mac-access.ts's closed table. */
   macAccess: {
     status: (): Promise<MacAccessStatus> => ipcRenderer.invoke("mac:status"),
     grant: (id: string): Promise<MacAccessStatus> => ipcRenderer.invoke("mac:grant", id),
@@ -240,12 +240,11 @@ contextBridge.exposeInMainWorld("realm", {
   /** Computer control's two grants (Permissions tab). `status` never prompts — it is the same
    *  prompt-free query `permissions.probe` uses. `request` DOES prompt, on purpose and only from a
    *  click on that row, which is why it lives here rather than behind `permissions` (tcc.ts's
-   *  no-prompt rule). All three take a ROW id validated in main against a closed set. */
+   *  no-prompt rule). `request` and `repair` take a ROW id validated in main against a closed set. */
   computerAccess: {
     status: (): Promise<ComputerAccessStatus> => ipcRenderer.invoke("computer:status"),
     request: (id: string): Promise<ComputerAccessStatus> => ipcRenderer.invoke("computer:request", id),
     repair: (id: string): Promise<ComputerAccessStatus> => ipcRenderer.invoke("computer:repair", id),
-    openSettings: (id: string): Promise<void> => ipcRenderer.invoke("computer:open-settings", id),
   },
   /** Settings→App "Updates" row (Plan 15 W1). The gate lives in main (updater.ts): `check` on a
    *  gated build answers the same honest disabled state `status` does — never a fake spinner. */
@@ -361,12 +360,6 @@ contextBridge.exposeInMainWorld("realm", {
       ipcRenderer.invoke("credentials:clear-fill-allow", profileId, credentialId, origin),
   },
   /**
-   * A team's Vault page (`main/vault-ipc.ts`). Same one-way rule as `credentials`: `addSignin` and
-   * `addKey` take a value and answer with metadata, and nothing here returns one. `setAllow` is the
-   * only way a grant is let through without asking, and main asks macOS to confirm the user first;
-   * `clearAllow` puts the question back and is never confirmed.
-   */
-  /**
    * A team's post sheet (`main/ticket-presses.ts`): the person's one click on "Post at …", recorded in
    * main for realm-server to ask about. Returns whether main took it.
    */
@@ -378,6 +371,12 @@ contextBridge.exposeInMainWorld("realm", {
     pressPolicy: (input: unknown): Promise<{ ok: true } | { ok: false; error: string }> =>
       ipcRenderer.invoke("team:press-policy", input),
   },
+  /**
+   * A team's Vault page (`main/vault-ipc.ts`). Same one-way rule as `credentials`: `addSignin` and
+   * `addKey` take a value and answer with metadata, and nothing here returns one. `setAllow` is the
+   * only way a grant is let through without asking, and main asks macOS to confirm the user first;
+   * `clearAllow` puts the question back and is never confirmed.
+   */
   vault: {
     list: (profileId: string, spaceId: string): Promise<{ available: boolean; secrets: VaultSecrets; allows: VaultAllow[]; profileUnattended: boolean }> =>
       ipcRenderer.invoke("vault:list", profileId, spaceId),
@@ -431,8 +430,8 @@ contextBridge.exposeInMainWorld("realm", {
       ipcRenderer.on("realm:browser-state", handler);
       return () => ipcRenderer.removeListener("realm:browser-state", handler);
     },
-    /** Arms the element picker; unlike every other member here, it stays pending until the user acts. */
-    /** `accent` is the user's theme colour, so the picker's overlay is the colour of the app it
+    /** Arms the element picker; unlike every other member here, it stays pending until the user acts.
+     *  `accent` is the user's theme colour, so the picker's overlay is the colour of the app it
      *  belongs to rather than a fixed blue. Optional — main falls back to Realm's default. */
     pickElement: (id: string, accent?: string): Promise<BrowserPickedElement | null> =>
       ipcRenderer.invoke("browser:pick-element", id, accent),

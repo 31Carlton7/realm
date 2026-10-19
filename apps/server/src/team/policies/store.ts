@@ -37,8 +37,8 @@ function toPolicy(r: Raw): StoredPolicy | null {
 }
 
 /**
- * `team_policies`, rows only. The ONE place in realm-server that writes the table: `reach.test.ts`
- * holds every other file to reading it. Which write is allowed — tightening is open, loosening takes a
+ * `team_policies`, rows only. The ONE place in realm-server that writes the table, besides the
+ * migration that seeds its floors. Which write is allowed — tightening is open, loosening takes a
  * sealed press — is `PoliciesService`'s; this store writes what it is given.
  */
 export class PolicyStore {

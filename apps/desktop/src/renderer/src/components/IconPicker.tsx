@@ -99,7 +99,7 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
      grid dissolves on its own). */
   const grid = useRef<HTMLDivElement>(null);
   useDissolve(grid);
-  const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef, onClose, exit: true });
+  const { pos, closing } = useAnchoredPopover({ ref, anchorRef, onClose, exit: true });
   const [tab, setTab] = useState<Tab>("default");
   /* The search takes the keyboard once the surface is placed, and again on a tab that has one. The
      popover renders hidden until it is measured and a hidden field cannot be focused, so the

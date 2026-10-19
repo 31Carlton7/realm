@@ -26,6 +26,13 @@ export type SyntaxSeed = {
   attr: string;
 };
 
+/** What a theme has to state. Every property in `THEME_VARS` is derived from these — see
+ *  `themeVars` — because a palette is a set of RELATIONSHIPS (a surface ladder, an ink ramp, a
+ *  border overlay ramp) and only the anchors of those relationships are a matter of taste.
+ *
+ *  The border ramp, the shadow stacks and the scrims state nothing here on purpose: tembo's ramps are
+ *  ALPHA overlays over whatever ground they land on, so they already follow a repainted surface. That
+ *  is the property that makes a thirteen-value seed enough. */
 export type ThemeSeed = {
   /** The window ground. The whole surface ladder is this colour at other lightnesses, so its HUE and
    *  CHROMA are what make a theme's greys look like that theme's greys rather than Realm's. */

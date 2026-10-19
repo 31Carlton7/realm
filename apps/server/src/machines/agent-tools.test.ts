@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { MACHINE_PROVIDER_NAME, type Machine, type MachineState, type VmAction } from "@realm/contracts";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createMachineAgentProvider, describeAct } from "./agent-tools";

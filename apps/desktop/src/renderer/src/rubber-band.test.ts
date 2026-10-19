@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { IDLE_RELEASE_MS, RubberBand, installRubberBand, rubberband, unrubberband } from "./rubber-band";
+import { IDLE_RELEASE_MS, RubberBand, installRubberBand, rubberband } from "./rubber-band";
 
 type El = { clientHeight: number; scrollTop: number; scrollHeight: number };
 const scroller = (scrollTop = 0): El => ({ clientHeight: 600, scrollTop, scrollHeight: 2000 });
@@ -22,9 +22,6 @@ describe("the resistance curve", () => {
     expect(rubberband(400, 600) - rubberband(300, 600)).toBeLessThan(rubberband(100, 600) - rubberband(0, 600));
     expect(rubberband(-100, 600)).toBe(-rubberband(100, 600));
     expect(rubberband(1e6, 600)).toBeLessThan(600);
-  });
-  it("can be read backwards", () => {
-    for (const o of [5, 80, 400, -250]) expect(unrubberband(rubberband(o, 600), 600)).toBeCloseTo(o, 6);
   });
 });
 

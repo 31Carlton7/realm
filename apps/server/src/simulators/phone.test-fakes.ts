@@ -52,8 +52,6 @@ const SCREENS: Record<string, Screen> = {
   },
 };
 
-export type { Row as PhoneRow };
-
 export type PhoneRequest = { method: string; path: string; body: Record<string, unknown>; at: number };
 
 export class FakePhone {

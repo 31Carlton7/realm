@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { columnCount, columnName, delimiterFor, parseSheet, serializeField, serializeSheet, setCell, splitRecords } from "./csv-model";
+import { columnCount, columnName, delimiterFor, parseSheet, scanRecords, serializeField, serializeSheet } from "./csv-model";
 
 const rt = (text: string, d: "," | "\t" = ",") => serializeSheet(parseSheet(text, d));
 
@@ -20,50 +20,38 @@ describe("round-trip preservation", () => {
   it("keeps another author's quoting style on unedited rows", () => {
     const csv = '"a","b","c"\n"1","2","3"\n';
     const sheet = parseSheet(csv, ",");
-    const edited = setCell(sheet, 1, 0, "999");
+    // What SheetEditor commits for an edited row: the new cells, and that row's source dropped.
+    const edited = { ...sheet, rows: [sheet.rows[0]!, ["999", "2", "3"]], rowSources: [sheet.rowSources[0]!, null] };
     const out = serializeSheet(edited);
     expect(out).toBe('"a","b","c"\n999,2,3\n');  // row 0 verbatim; the EDITED row is canonical throughout
   });
 
   it("preserves CRLF on unedited rows", () => {
     const csv = "a,b\r\nc,d\r\n";
-    // splitRecords keeps the \r inside the record; papaparse strips it from the parsed cells.
+    // scanRecords strips the \r from each record's source and the sheet's `eol` puts it back.
     const sheet = parseSheet(csv, ",");
     expect(serializeSheet(sheet)).toBe(csv);
     expect(sheet.rows[0]).toEqual(["a", "b"]);
   });
 });
 
-describe("splitRecords", () => {
+describe("scanRecords", () => {
   it("respects quoted newlines", () => {
-    expect(splitRecords('a,"x\ny",b\nc,d\n')).toEqual(['a,"x\ny",b', "c,d"]);
+    expect(scanRecords('a,"x\ny",b\nc,d\n').records).toEqual(['a,"x\ny",b', "c,d"]);
   });
   it("handles escaped quotes inside quoted fields", () => {
-    expect(splitRecords('"say ""hi""",b\nc,d\n')).toEqual(['"say ""hi""",b', "c,d"]);
+    expect(scanRecords('"say ""hi""",b\nc,d\n').records).toEqual(['"say ""hi""",b', "c,d"]);
   });
   it("keeps a final unterminated record", () => {
-    expect(splitRecords("a,b\nc,d")).toEqual(["a,b", "c,d"]);
+    expect(scanRecords("a,b\nc,d").records).toEqual(["a,b", "c,d"]);
   });
 });
 
-describe("setCell", () => {
-  it("grows the sheet when writing past the edge", () => {
+describe("serializeSheet", () => {
+  it("writes rows added past the edge canonically, blank rows included", () => {
     const sheet = parseSheet("a\n", ",");
-    const bigger = setCell(sheet, 2, 2, "x");
-    expect(bigger.rows).toEqual([["a"], [], ["", "", "x"]]);
+    const bigger = { ...sheet, rows: [["a"], [], ["", "", "x"]], rowSources: [sheet.rowSources[0]!, null, null] };
     expect(serializeSheet(bigger)).toBe("a\n\n,,x\n");
-  });
-
-  it("is identity when the value did not change", () => {
-    const sheet = parseSheet("a,b\n", ",");
-    expect(setCell(sheet, 0, 0, "a")).toBe(sheet);
-  });
-
-  it("never mutates its input", () => {
-    const sheet = parseSheet("a,b\n", ",");
-    setCell(sheet, 0, 0, "z");
-    expect(sheet.rows[0]).toEqual(["a", "b"]);
-    expect(sheet.rowSources[0]).toBe("a,b");
   });
 });
 

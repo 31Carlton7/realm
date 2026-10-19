@@ -5,7 +5,7 @@ import {
   AGENT_SKILL_SUPPORT, ItemScopeSchema, LEGACY_SPACE_SCOPE, SKILL_TEXT_MAX, SKILL_TREE_DEPTH, SKILL_TREE_MAX, SkillIdSchema,
   isReadableSkillFile, type AgentKind, type ItemScope, type Skill, type SkillDetail, type SkillResource,
 } from "@realm/contracts";
-import { scan, scanRoots as buildScanRoots, tildify, type Discovered, type ScanRoot } from "./discovery";
+import { scan, scanRoots as buildScanRoots, type Discovered, type ScanRoot } from "./discovery";
 import type { SkillsInjection } from "@realm/adapters";
 import { RpcError } from "../store/rows";
 import type { SettingsStore } from "../store/settings";

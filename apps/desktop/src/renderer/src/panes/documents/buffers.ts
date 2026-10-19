@@ -24,11 +24,6 @@ export function opened(path: string, text: string, hash: string): Buffer {
   return { path, text, baseHash: hash, dirty: false, conflict: null, missing: false };
 }
 
-/** A brand-new document the user has not saved yet: no disk content to be based on. */
-export function created(path: string, text: string): Buffer {
-  return { path, text, baseHash: null, dirty: true, conflict: null, missing: false };
-}
-
 export function edited(b: Buffer, text: string): Buffer {
   if (text === b.text) return b;
   return { ...b, text, dirty: true };

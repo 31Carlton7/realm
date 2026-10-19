@@ -1018,14 +1018,6 @@ function secrets(): SecretStore | null {
 }
 
 /**
- * Settings → Sign-ins (Plan 11). The ONLY way a credential is created, which is the point: there is
- * no RPC method, no MCP tool, no file import and no chat path into `addCredential`, so nothing a
- * model can call is able to enroll a credential for the origin it happens to be standing on.
- *
- * The traffic is one-way by construction. `credentials:add` takes a value; nothing here returns one,
- * and `BrowserCredential` — the shape both list handlers answer with — has no field for one.
- */
-/**
  * Plan 23 W4 — the user's own downloads.
  *
  * This is the ONLY channel by which Electron main can learn that a human, specifically, wanted a
@@ -1051,6 +1043,14 @@ ipcMain.handle("browser:save-download", async (e, browserId: string, id: string,
   });
 });
 
+/**
+ * Settings → Sign-ins (Plan 11). The ONLY way a credential is created, which is the point: there is
+ * no RPC method, no MCP tool, no file import and no chat path into `addCredential`, so nothing a
+ * model can call is able to enroll a credential for the origin it happens to be standing on.
+ *
+ * The traffic is one-way by construction. `credentials:add` takes a value; nothing here returns one,
+ * and `BrowserCredential` — the shape both list handlers answer with — has no field for one.
+ */
 ipcMain.handle("credentials:list", (_e, profileId: unknown): BrowserCredential[] => {
   const pid = profileArg(profileId);
   return pid ? secrets()?.listCredentials(pid) ?? [] : [];
@@ -1221,14 +1221,14 @@ ipcMain.handle("save-text", async (_e, input: { name: string; text: string }): P
   return r.filePath;
 });
 
-/** The prompter's attach button. Multi-select, and it answers with mime and size alongside the path:
- *  `sessions.send` wants the mime, and the prompter needs the size to enforce MAX_ATTACHMENT_BYTES
- *  itself rather than letting the Claude adapter throw after the user pressed send. */
 /** Drag-and-drop's counterpart to `pick-files`: the renderer has the paths already and needs the
  *  facts only a `stat` can supply — chiefly whether the thing is a folder. */
 ipcMain.handle("describe-paths", async (_e, paths: unknown): Promise<PickedFile[]> =>
   Array.isArray(paths) ? describeFiles(paths.filter((p): p is string => typeof p === "string")) : []);
 
+/** The prompter's attach button. Multi-select, and it answers with mime and size alongside the path:
+ *  `sessions.send` wants the mime, and the prompter needs the size to enforce MAX_ATTACHMENT_BYTES
+ *  itself rather than letting the Claude adapter throw after the user pressed send. */
 ipcMain.handle("pick-files", async (): Promise<PickedFile[]> => {
   const r = await dialog.showOpenDialog({ properties: ["openFile", "multiSelections"] });
   return r.canceled ? [] : describeFiles(r.filePaths);
@@ -1384,11 +1384,6 @@ ipcMain.handle("computer:request", (_e, id: unknown): Promise<ComputerAccessStat
 ipcMain.handle("computer:repair", (_e, id: unknown): Promise<ComputerAccessStatus> => {
   if (!isComputerAccessId(id)) throw new Error(`unknown computer access row: ${String(id)}`);
   return computerAccess.repair(id);
-});
-
-ipcMain.handle("computer:open-settings", (_e, id: unknown) => {
-  if (!isComputerAccessId(id)) throw new Error(`unknown computer access row: ${String(id)}`);
-  void shell.openExternal(TCC_SETTINGS_URLS[id]);
 });
 
 // ── The `mac` CLI's access (Permissions tab, "Apps on this Mac") ────────────────────────────────
@@ -1667,12 +1662,12 @@ ipcMain.handle("notify:badge", (_e, count: number) => { desktopNotifier.badge(Nu
 /** Settings ▸ Appearance ▸ Reduce motion, answered on the window that asked — the quick chat is a
  *  window of its own and keeps its own answer in step by asking at its own boot. */
 ipcMain.handle("motion:set", (e, pref: unknown) => applyReducedMotion(e.sender, pref));
-/** The renderer's half of the sleep preference: the switch's new value, so a change takes effect on
- *  a turn already running rather than at the next status change. */
 /** Settings ▸ General ▸ Links, as the renderer last said: where a clicked link opens, and which
  *  browser a link's right-click menu lists first. The renderer reads it at boot and says so. */
 let linksOpenIn: LinksOpenIn = LINKS_OPEN_IN_DEFAULT;
 ipcMain.on("links:open-in", (_e, pref: unknown) => { if (isLinksOpenIn(pref)) linksOpenIn = pref; });
+/** The renderer's half of the sleep preference: the switch's new value, so a change takes effect on
+ *  a turn already running rather than at the next status change. */
 ipcMain.handle("power:prevent-sleep", (_e, on: unknown) => { sleepGuard.setPreference(on === true); });
 /** Settings ▸ General ▸ Open files in, and the transcript's path menu: the editors this Mac has, and
  *  opening a path that exists in one of them. `existingPath` is the gate Reveal in Finder uses, and it
@@ -1868,14 +1863,6 @@ ipcMain.handle("files:save-copy", async (_e, path: unknown): Promise<string | nu
 });
 
 /**
- * Get realm-server, in whichever of its two shapes this build uses.
- *
- * Packaged: a daemon that outlives this process, found if one is already up and started if not. Dev
- * and the live checks: the child on a pipe it has always been, with `daemonMode` off so nothing is
- * left behind when the app exits. Both ends hand back the same three facts, so everything downstream
- * of here is written once.
- */
-/**
  * Replace, or carry on with, a daemon running code this app did not ship.
  *
  * The user is asked only when something is actually working, because that is the only thing a
@@ -1958,6 +1945,14 @@ function startDaemonProcess(home: string): void {
   try { daemonChild = spawnDaemon({ home, logFd: fd }); } finally { closeDaemonLog(fd); }
 }
 
+/**
+ * Get realm-server, in whichever of its two shapes this build uses.
+ *
+ * Packaged: a daemon that outlives this process, found if one is already up and started if not. Dev
+ * and the live checks: the child on a pipe it has always been, with daemon mode off so nothing is
+ * left behind when the app exits. Both ends hand back the same three facts, so everything downstream
+ * of here is written once.
+ */
 async function startRealmServer(): Promise<{ port: number; home: string; token: string }> {
   const home = realmHomePath();
   if (daemonModeEnabled({ packaged: app.isPackaged, env: process.env.REALM_DAEMON, platform: process.platform })) {

@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { placeAnchored } from "../state/no-overlay";
 import { useBrowserRects } from "../state/store";
+import { prefersReducedMotion } from "../reduced-motion";
 
 export type PopoverPosition = { left: number; top: number; origin: string };
 export type AnchoredPopover = {
@@ -17,8 +18,6 @@ const MARGIN = 6;
  *  a timer shorter than the animation clips the exit, a longer one parks a finished surface on
  *  screen — so styles.test.ts pins the two together against the `--dur-press` rung. */
 const EXIT_MS = 120;
-
-const reducedMotion = (): boolean => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
 /** One anchored surface while it is up. */
 type Open = { surface: RefObject<HTMLElement | null>; anchor?: RefObject<HTMLElement | null> };
@@ -166,7 +165,7 @@ export function useAnchoredPopover({ ref, anchorRef, at, align = "left", placeme
     // Reduced motion skips the hold rather than running it at zero duration. The global
     // `animation: none !important` would otherwise leave the surface fully painted and merely
     // unusable for the length of an exit nobody asked to see.
-    if (!exit || reducedMotion()) { onCloseRef.current(); return; }
+    if (!exit || prefersReducedMotion()) { onCloseRef.current(); return; }
     closingRef.current = true;
     leave();
     setClosing(true);

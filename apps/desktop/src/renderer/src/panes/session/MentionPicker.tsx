@@ -1,4 +1,3 @@
-import type { Skill } from "@realm/contracts";
 import { Icon, Realmite, parseRealmiteSpec } from "@realm/ui";
 import { Fragment, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -30,9 +29,6 @@ export function usePickerScroller(active: number) {
   return { list, hovered };
 }
 
-/** The characters a skill id may contain — must agree with contracts/mentions.ts, or the popover
- *  would offer a completion the send-time scan then refuses to recognise. */
-const ID_CHAR = /[A-Za-z0-9._-]/;
 /** What the QUERY after an `@` may contain: an id's characters, and a path's `/` — a file is found
  *  by `src/au` as often as by `auth`. What a pick inserts is always a whole token of its own, so a
  *  slash typed here never ends up inside one. */
@@ -56,15 +52,6 @@ export function mentionQueryAt(text: string, caret: number): { start: number; en
   let end = caret;
   while (end < text.length && QUERY_CHAR.test(text[end]!)) end++;
   return { start, end, query: text.slice(i, caret) };
-}
-
-/** Case-insensitive substring filter over id and display name — the same "filtered as you type"
- *  contract as the model picker's search, and nothing more: matching here only narrows the MENU;
- *  what resolves at send stays exact-match only. */
-export function filterMentionSkills(skills: readonly Skill[], query: string): Skill[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return [...skills];
-  return skills.filter((s) => s.id.toLowerCase().includes(q) || s.name.toLowerCase().includes(q));
 }
 
 /** A row's DOM id — what the textarea's `aria-activedescendant` names. Whitespace is not allowed in

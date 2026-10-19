@@ -541,7 +541,7 @@ function FailedBody({ state, machineId, onEdit }: { state: MachineState; machine
       <div className="machine-rest">
         <h2 className="machine-title">Could not connect</h2>
         <p className="machine-reason">{REASONS[state.error ?? ""] ?? "Realm could not connect to that machine."}</p>
-        {/* The server's own words, verbatim. `machineError` exists precisely because the state alone
+        {/* The server's own words, verbatim. `detail` exists precisely because the state alone
             is a dead end — "unreachable" tells a reader nothing they can act on, and "nothing is
             listening on port 5900 at that address" tells them what to change. */}
         {state.detail && <p className="machine-detail">{state.detail}</p>}

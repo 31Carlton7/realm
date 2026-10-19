@@ -1,13 +1,11 @@
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, rename, rm, stat, writeFile, readFile, readdir } from "node:fs/promises";
+import { mkdir, rename, rm, stat, statfs, writeFile, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { statfs } from "node:fs";
 import { promisify } from "node:util";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-
-const statfsAsync = promisify(statfs);
 
 /**
  * Disk images, content-addressed (Plan 25 W5).
@@ -240,17 +238,15 @@ async function hashFile(path: string): Promise<string> {
 
 async function defaultFreeBytes(dir: string): Promise<number> {
   try {
-    const s = await statfsAsync(dir);
+    const s = await statfs(dir);
     return Number(s.bavail) * Number(s.bsize);
   } catch { return Number.MAX_SAFE_INTEGER; }
 }
 
 /** `qemu-img info --output=json`, which is the only thing that knows a file's real format. */
 async function defaultProbe(path: string): Promise<{ format: string; backing: boolean } | null> {
-  const { execFile } = await import("node:child_process");
-  const { promisify: p } = await import("node:util");
   try {
-    const { stdout } = await p(execFile)("qemu-img", ["info", "--output=json", path], { timeout: 10_000 });
+    const { stdout } = await promisify(execFile)("qemu-img", ["info", "--output=json", path], { timeout: 10_000 });
     const info = JSON.parse(stdout) as { format?: string; "backing-filename"?: string };
     return { format: String(info.format ?? ""), backing: typeof info["backing-filename"] === "string" };
   } catch { return null; }

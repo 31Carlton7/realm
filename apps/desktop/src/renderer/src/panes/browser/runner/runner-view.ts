@@ -15,10 +15,10 @@
 import { colours, realmiteFromSeed, realmiteSvg, REALMITE_CSS, type Colours, type PaletteId, type RealmiteSpec } from "@realm/ui";
 import { advance, createRun, heroCentre, nextBest, parseBest, RUN, score, type Run, type RunEvent } from "./runner";
 
-/** The canvas's height in CSS pixels, and how much of it is earth below the running line. */
 /** How many game pixels tall the view is, whatever its CSS height: the canvas scales the world to fit,
  *  so a taller view (the stylesheet grows it with the pane's width) draws everything bigger. */
 const WORLD_HEIGHT = 170;
+/** How much of it is earth below the running line. */
 const EARTH = 30;
 const CHECK = 13;
 /** The Realmite on its feet, in game pixels: its body about as wide as the ball it curls into. */

@@ -7,7 +7,7 @@ import type { Block } from "./transcript-model";
  *
  * Still pure, and still read on every render of every visible session pane, so it still must not
  * call an agent. What changed is that it now takes a `generated` hint as an input: the model-written
- * one the server produces once per settled turn (`PromptHintService`), which arrives as a
+ * one the server produces once per settled turn (`SessionSummaryService`), which arrives as a
  * `prompt_hint` event and is already in the transcript by the time this runs. The call happens on
  * the settle, not here — that ordering is the whole reason ⇥ still accepts a stable target.
  *

@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import type { DelegatedRun, DelegationOutcome, StoredSessionEvent } from "@realm/contracts";
 
 /**
@@ -435,5 +436,3 @@ export function workingMs(run: ActiveRun, now: number): number {
   const open = run.pausedSince != null ? now - run.pausedSince : 0;
   return Math.max(0, now - run.startedAt - (run.pausedMs ?? 0) - open);
 }
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));

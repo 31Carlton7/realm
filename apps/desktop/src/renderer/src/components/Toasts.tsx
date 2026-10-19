@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { placeToastStack, type Rect, type ToastPlacement } from "../state/no-overlay";
 import { useApp, useBrowserRects } from "../state/store";
 import type { Toast, ToastTone } from "../state/toasts";
+import { prefersReducedMotion } from "../reduced-motion";
 
 /** The stack's width, and the narrowest it will go to stay clear of a browser view. */
 const WIDTH = 340;
@@ -22,8 +23,6 @@ const ESTIMATE = 42;
 export const TOAST_EXIT_MS = 160;
 
 const TONE_ICON: Record<ToastTone, IconName> = { error: "errorCircle", warning: "alert", success: "checkCircle", info: "info" };
-
-const reducedMotion = (): boolean => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
 /**
  * Whether the window is the key window and on screen — the toasts' clocks run only then. The signal is
@@ -163,7 +162,7 @@ function ToastCard({ toast, index, count, y, scale, height, paused, onHeight, on
 
   useEffect(() => {
     if (!leaving) return;
-    const t = setTimeout(() => onGone(toast.id), reducedMotion() ? 0 : TOAST_EXIT_MS);
+    const t = setTimeout(() => onGone(toast.id), prefersReducedMotion() ? 0 : TOAST_EXIT_MS);
     return () => clearTimeout(t);
   }, [leaving, onGone, toast.id]);
 

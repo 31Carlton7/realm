@@ -2867,7 +2867,7 @@ describe("the '+' menu — Connectors (Plan 12 W1)", () => {
   });
 
   it("lists only ENABLED servers, dot + honest note per the hub's pushed status", async () => {
-    const { store } = await mountConn([
+    await mountConn([
       { name: "linear", enabled: true, status: "connected" },
       { name: "posthog", enabled: true, status: "idle" },
       { name: "broken", enabled: true, status: "circuit_open" },

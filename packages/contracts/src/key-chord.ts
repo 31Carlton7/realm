@@ -67,7 +67,7 @@ const PUNCTUATION: Record<string, { code: string; vk: number; shifted: string }>
 };
 
 /** macOS editing commands for the chords that are menu commands rather than keys. Keyed by the chord
- *  as `describeChord` spells it. */
+ *  `label` `resolveKeyChord` spells. */
 const MAC_COMMANDS: Record<string, string> = {
   "Meta+a": "selectAll", "Meta+c": "copy", "Meta+x": "cut", "Meta+v": "paste", "Meta+z": "undo", "Shift+Meta+z": "redo",
   "Meta+ArrowLeft": "moveToBeginningOfLine", "Meta+ArrowRight": "moveToEndOfLine",

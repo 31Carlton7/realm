@@ -146,7 +146,6 @@ function useSidebarFolded(collapsed: boolean): boolean {
   return folded;
 }
 
-/** Writes the active space's palette to :root; lives under the store provider so it can read state. */
 /**
  * Whether the app's decorative motion is allowed to run right now, stamped on `:root` for the
  * stylesheet to answer to.
@@ -294,6 +293,7 @@ function RubberBandBridge() {
   return null;
 }
 
+/** Writes the active space's palette to :root; lives under the store provider so it can read state. */
 export function ThemeBridge() {
   const color = useApp((s) => s.activeSpace()?.color ?? null);
   const pref = useApp((s) => s.themePref);
@@ -508,12 +508,12 @@ export function subscribeSpaceLists(store: StoreApi<AppState>, on: Subscribe): (
   return () => { for (const off of offs) off(); };
 }
 
-/** The broadcasts that bring an agent-opened pane into the layout. Exported for its test. */
 /** How recent a keystroke into a field or a terminal keeps an agent's `space_switch` from moving the
  *  window: long enough to cover the pause between two words, short enough that a person who has
  *  stopped is not in the way. */
 const TYPING_QUIET_MS = 4_000;
 
+/** The broadcasts that bring an agent-opened pane into the layout. Exported for its test. */
 export const AGENT_PANE_EVENTS = ["browser.agentOpened", "simulator.agentOpened", "terminal.agentOpened"] as const;
 
 /**

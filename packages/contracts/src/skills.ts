@@ -22,12 +22,6 @@ import type { AgentKind } from "./entities";
 export const SkillIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "skill id must be a plain directory name");
 
 /**
- * One entry of Realm's skills library, as `skills.list` reports it for a given space.
- *
- * `valid: false` entries are listed on purpose: they are what the user sees instead of silence when a
- * `SKILL.md` is malformed. They are never staged for an agent, whatever `enabled` says.
- */
-/**
  * Where a skill was found. Realm's own library is one origin among several as of W-discovery: the
  * library is still the only place Realm ever WRITES, but it is no longer the only place it LOOKS.
  *
@@ -81,6 +75,12 @@ export type SkillSource = z.infer<typeof SkillSourceSchema>;
 /** The library origin, which every pre-discovery skill has and which alone allows writes. */
 export const LIBRARY_ORIGIN = (root: string): SkillOrigin => ({ kind: "library", key: "library", label: "Realm library", root });
 
+/**
+ * One entry of Realm's skills library, as `skills.list` reports it for a given space.
+ *
+ * `valid: false` entries are listed on purpose: they are what the user sees instead of silence when a
+ * `SKILL.md` is malformed. They are never staged for an agent, whatever `enabled` says.
+ */
 export const SkillSchema = z.object({
   id: SkillIdSchema,
   /** Frontmatter `name`; falls back to the directory name when the file could not be parsed. */

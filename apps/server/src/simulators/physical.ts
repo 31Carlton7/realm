@@ -122,10 +122,10 @@ export class PhysicalDevices {
     return l;
   }
 
-  /** The foreground app's tree, in points. Null when the runner answered with something else. */
-  /** The tree of the app in front. `patient`: wait as long as a slow app takes, for a reader that
-   *  would rather do that than ask again (the runner shares a snapshot under way with any read that
-   *  asks during it, so a read that gave up and asked again would be waiting on the same one). */
+  /** The foreground app's tree, in points. Null when the runner answered with something else.
+   *  `patient`: wait as long as a slow app takes, for a reader that would rather do that than ask
+   *  again (the runner shares a snapshot under way with any read that asks during it, so a read that
+   *  gave up and asked again would be waiting on the same one). */
   async ax(udid: string, o: { patient?: boolean } = {}): Promise<SimulatorAxTree | null> {
     const t = this.d.timing ?? {};
     return this.of(udid).client.tree(o.patient ? t.patientReadMs ?? PATIENT_READ_MS : t.readMs ?? READ_MS);

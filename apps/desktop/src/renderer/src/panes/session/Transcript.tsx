@@ -32,6 +32,7 @@ import { useMediaFiles } from "./media/use-media";
 import { NEAR_END_PX, SETTLE_MS, applyScrollTop, markOf, recallScroll, rememberScroll, type ScrollMark } from "../scroll-memory";
 import { ScrollTrack } from "./ScrollTrack";
 import { samePrompts, trackPrompts, type TrackPrompt } from "./scroll-track";
+import { prefersReducedMotion } from "../../reduced-motion";
 
 /** Permission cards share the blocks' key space; the prefix keeps a requestId from colliding with one. */
 const permKey = (requestId: string) => `perm:${requestId}`;
@@ -105,19 +106,13 @@ const NO_PROMPTS: readonly TrackPrompt[] = [];
 const NO_SAVED: readonly number[] = [];
 const NO_WAITING: ReadonlySet<string> = new Set();
 
-const reducedMotion = (): boolean => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+/** An error's own words, capped, in a box that dissolves at an end once there is more of them. */
+function ErrorText({ text }: { text: string }) {
+  const box = useRef<HTMLPreElement>(null);
+  useDissolve(box);
+  return <pre ref={box}>{text}</pre>;
+}
 
-/**
- * A user message's text, with its chips drawn as chips.
- *
- * The runs between chips stay PLAIN TEXT, not markdown: the transcript's job is to show what the user
- * typed, markers and all, and parsing it would change the words in the record. `chipRuns` partitions
- * rather than rewrites, which is what makes drawing them safe at all.
- *
- * A mention is recognised against the LIVE library, exactly as the composer recognises it, so a skill
- * deleted since the message was sent goes back to being the `@name` the user typed — which is also
- * what the agent was told, the server having failed to resolve it too.
- */
 /**
  * A turn goal mode started, in the log: one line, and the prompt behind it.
  *
@@ -131,13 +126,6 @@ const reducedMotion = (): boolean => window.matchMedia?.("(prefers-reduced-motio
  * HERE — what the agent was handed is a fact about the run, and a log that hid it would be lying by
  * omission — it is just not the loudest thing in the column.
  */
-/** An error's own words, capped, in a box that dissolves at an end once there is more of them. */
-function ErrorText({ text }: { text: string }) {
-  const box = useRef<HTMLPreElement>(null);
-  useDissolve(box);
-  return <pre ref={box}>{text}</pre>;
-}
-
 function GoalTurn({ kind, text }: { kind: "continuation" | "budget"; text: string }) {
   const [open, setOpen] = useState(false);
   return (
@@ -157,6 +145,17 @@ function refTitle(ref: MentionRef): string {
   return ref.kind === "app" ? `${ref.name} — computer use for this session (${ref.bundleId})` : ref.path;
 }
 
+/**
+ * A user message's text, with its chips drawn as chips.
+ *
+ * The runs between chips stay PLAIN TEXT, not markdown: the transcript's job is to show what the user
+ * typed, markers and all, and parsing it would change the words in the record. `chipRuns` partitions
+ * rather than rewrites, which is what makes drawing them safe at all.
+ *
+ * A mention is recognised against the LIVE library, exactly as the composer recognises it, so a skill
+ * deleted since the message was sent goes back to being the `@name` the user typed — which is also
+ * what the agent was told, the server having failed to resolve it too.
+ */
 function UserText({ text, mentionIds, refs, appIcons }: { text: string; mentionIds: readonly string[]; refs?: readonly MentionRef[]; appIcons: Readonly<Record<string, string | null>> }) {
   const runs = useMemo(() => chipRuns(text, mentionIds), [text, mentionIds]);
   const byLabel = useMemo(() => new Map((refs ?? []).map((r) => [r.label, r])), [refs]);
@@ -543,7 +542,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
     restore.current = null;
     const to = Math.max(0, Math.min(top, el.scrollHeight - el.clientHeight));
     pin({ top: to, atEnd: el.scrollHeight - to - el.clientHeight < NEAR_END_PX });
-    el.scrollTo({ top: to, behavior: instant || reducedMotion() ? "instant" : "smooth" });
+    el.scrollTo({ top: to, behavior: instant || prefersReducedMotion() ? "instant" : "smooth" });
   };
   const jump = useCallback((top: number, instant?: boolean) => jumpRef.current(top, instant), []);
 

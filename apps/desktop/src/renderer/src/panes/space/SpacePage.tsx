@@ -8,7 +8,6 @@ import { McpSection } from "../../components/sidebar/McpSection";
 import { BrowserOrigins } from "../../components/sidebar/BrowserOrigins";
 import { ComputerApps } from "../../components/sidebar/ComputerApps";
 import { IconPicker } from "../../components/IconPicker";
-import { SpaceIcon } from "../../components/SpaceIcon";
 import { SkillsPanel } from "../../components/settings/SkillsPanel";
 import { MemoryPanel } from "../../components/settings/MemoryPanel";
 import type { PaneProps } from "../registry";

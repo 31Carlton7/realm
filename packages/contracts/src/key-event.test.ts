@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_KEYBINDINGS, normalizeKeyChord } from "@realm/contracts";
-import { chordFromEvent, type KeyEventLike } from "./chord";
+import { DEFAULT_KEYBINDINGS, normalizeKeyChord } from "./keybindings";
+import { chordFromEvent, type KeyEventLike } from "./key-event";
 
 const press = (over: Partial<KeyEventLike> & { key: string }): KeyEventLike =>
   ({ metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...over });

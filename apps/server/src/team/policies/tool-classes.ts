@@ -10,7 +10,8 @@ export type StoredToolClass = { connector: string; tool: string; class: RiskClas
 /**
  * A person's word on what a connector's tools do (`tool_classes`), per profile. Written only from the
  * Policies page's "What does this do?" through `PoliciesService.setToolClass` — no agent-callable path
- * reaches it, and `reach.test.ts` holds every reference to the table to this file and the migration.
+ * reaches it, and `tool-classes.test.ts` holds every reference to the table to this file and the
+ * migration.
  *
  * A raise holds as written. A lowering holds only with main's seal on it, which `PoliciesService`
  * checks; without one the class Realm derived stands.

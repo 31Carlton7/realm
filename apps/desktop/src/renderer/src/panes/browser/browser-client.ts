@@ -62,8 +62,8 @@ export type BrowserHostBridge = {
   setBounds(id: string, rect: { x: number; y: number; width: number; height: number }, dpr: number, visible: boolean): void;
   onState(cb: (s: BrowserViewState) => void): () => void;
   /** Arms the picker; resolves when the user clicks an element, or null if the pick did not happen.
-   *  Stays pending for as long as the user takes to aim. */
-  /** `accent` is the theme colour the page-side overlay is drawn in. */
+   *  Stays pending for as long as the user takes to aim. `accent` is the theme colour the page-side
+   *  overlay is drawn in. */
   pickElement(id: string, accent?: string): Promise<BrowserPickedElement | null>;
   cancelPick(id: string): Promise<void>;
   /** Plan 26 W7d — the picker kept armed: pending until the user presses Send in the page's own

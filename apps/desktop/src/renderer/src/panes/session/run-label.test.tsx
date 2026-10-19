@@ -123,9 +123,8 @@ describe("what a settled line may claim", () => {
   });
 });
 
-/** A start time the second roll lands a friend's name on, and one it does not. */
+/** A start time the second roll lands a friend's name on. */
 const NAMED_SEED = 1_756_900_000_000;
-const PLAIN_SEED = 1_756_900_000_001;
 
 describe("the friends the switch lets in", () => {
 

@@ -92,11 +92,6 @@ export function bucketOf(ts: number, now: number): { key: number; label: string 
   return { key: first, label: dateFormat(sameYear ? { month: "long" } : { month: "long", year: "numeric" }).format(d) };
 }
 
-/** `bucketOf`'s label alone. */
-export function bucketLabel(ts: number, now: number): string {
-  return bucketOf(ts, now).label;
-}
-
 /**
  * Rows cut into `bucketOf`'s buckets by `at`, newest bucket first. Within a bucket the rows keep the
  * order they came in, so a caller that ranked them (what needs you first) keeps its ranking.

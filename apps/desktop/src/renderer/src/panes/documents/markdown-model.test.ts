@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { canonicalize, docSchema, parseMarkdown, serializeMarkdown, splitFrontMatter } from "./markdown-model";
+import { docSchema, parseMarkdown, serializeMarkdown, splitFrontMatter } from "./markdown-model";
 
-const rt = (md: string) => canonicalize(md);
+const canonicalize = (md: string) => serializeMarkdown(parseMarkdown(md));
+const rt = canonicalize;
 
 describe("round-trips the constructs the schema owns", () => {
   const cases: [string, string][] = [

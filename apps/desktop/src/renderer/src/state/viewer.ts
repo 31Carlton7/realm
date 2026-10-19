@@ -1,4 +1,4 @@
-import { WRITE_TOOL_NAMES, bareToolName, mediaCandidatesIn, writtenPathOf, type AgentKind, type ArtifactKind } from "@realm/contracts";
+import { WRITE_TOOL_NAMES, bareToolName, mediaCandidatesIn, writtenPathOf, type ArtifactKind } from "@realm/contracts";
 import type { Block } from "../panes/session/transcript-model";
 import type { DraftRun } from "../panes/session/draft-run";
 

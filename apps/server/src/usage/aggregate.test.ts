@@ -17,7 +17,6 @@ const sample = (ts: number, costUsd: number, input: number, output: number, turn
 
 /** $3/M in, $15/M out — Claude-ish list prices, so the arithmetic is checkable by hand. */
 const priced: PriceLookup = (model) => (model ? { priceIn: 3, priceOut: 15 } : null);
-const unpriced: PriceLookup = () => null;
 
 const emptyActivity = { toolCalls: 0, userMessages: 0, errors: 0, mcpCalls: 0, mcpFailures: 0, mcpMedianMs: 0, topTools: [], topMcpServers: [] };
 const noBudget = { budget: { monthlyUsd: null, thresholds: [0.5, 0.8, 1], includeEstimated: true }, monthSpendUsd: 0, monthStart: FROM, projectedUsd: null };

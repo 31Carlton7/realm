@@ -916,7 +916,7 @@ export const migrations: string[] = [
   `,
   // v45 — the team's activity log: every wake, submission, decision, record change and budget stop,
   // one line each. Append-only by contract — nothing in the code updates or deletes a row
-  // (`team/activity.test.ts` holds that), so "what did this team do" is answered from one place.
+  // (`team/store.test.ts` holds that), so "what did this team do" is answered from one place.
   `
   CREATE TABLE IF NOT EXISTS team_activity (
     id TEXT PRIMARY KEY, space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,

@@ -4,7 +4,7 @@ import { EventEmitter } from "node:events";
 import { rmSync, writeFileSync } from "node:fs";
 import { tempDir } from "@realm/test-utils";
 import { join } from "node:path";
-import { StdioJsonRpc, JsonRpcCallError } from "./stdio";
+import { StdioJsonRpc } from "./stdio";
 
 /**
  * Every assertion in this file is gated on a real child process: node cold start, module load and at least one

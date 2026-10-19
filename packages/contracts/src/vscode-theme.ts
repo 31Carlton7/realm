@@ -181,14 +181,14 @@ const SCOPE_BORROW: Record<keyof SyntaxSeed, readonly (keyof SyntaxSeed)[]> = {
   title: ["keyword"], type: ["keyword"], attr: ["type", "keyword"],
 };
 
-/** What was read, and from where — so the import can SAY which of the thirteen the theme actually
- *  stated and which Realm had to work out. A theme missing eight of them is worth knowing about
- *  before it repaints the app. */
 /** `borrowed` is its own answer, and only the accent uses it: the theme DID state one, and it was a
  *  grey — so the value came from elsewhere in the same file rather than from nothing. Worth telling
  *  apart from `derived` in the import's own report, because it is the one substitution Realm makes
  *  against something the author actually wrote. */
 export type SeedSource = "stated" | "derived" | "borrowed";
+/** What was read, and from where — so the import can SAY which of the thirteen the theme actually
+ *  stated and which Realm had to work out. A theme missing eight of them is worth knowing about
+ *  before it repaints the app. */
 export type SeedReport = Record<string, SeedSource>;
 
 /**
