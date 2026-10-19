@@ -134,7 +134,13 @@ async function shot(c, tag, clip) {
   console.log(`SCREENSHOT ${tag} ${out}`);
 }
 
+/** The sidebar is translucent, and a capture holds none of the material behind it: on its own it came
+ *  out mid-grey in dark mode. Reduce transparency is Realm's own way to a solid ground (styles.css,
+ *  the sidebar's --page), so the pictures are judged on the ground they actually stand on. */
+const SOLID = [{ name: "prefers-reduced-transparency", value: "reduce" }];
+
 async function holdKey(c) {
+  await c.send("Emulation.setEmulatedMedia", { features: SOLID });
   await c.send("Emulation.setFocusEmulationEnabled", { enabled: true });
   await evalIn(c, `(() => { const r = document.documentElement; const hold = () => r.removeAttribute('data-window-inactive');
     hold(); new MutationObserver(hold).observe(r, { attributes: true, attributeFilter: ['data-window-inactive'] }); return true; })()`);
@@ -289,8 +295,10 @@ async function motion(c, mode) {
   await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: vault.x, y: vault.y });
   await c.send("Input.dispatchMouseEvent", { type: "mousePressed", x: vault.x, y: vault.y, button: "left", clickCount: 1 });
   await c.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: vault.x, y: vault.y, button: "left", clickCount: 1 });
-  const settle = await evalIn(c, `(() => { const b = __live.teamRow('Vault').querySelector('.i3d'); return { on: b.hasAttribute('data-settle'), anim: getComputedStyle(b.querySelector('.i3d-art')).animationName }; })()`);
-  await sleep(90);
+  // The mark lands in an effect after React commits the click, so it is waited for, not read in the same tick.
+  const settle = await until(() => evalIn(c, `(() => { const b = __live.teamRow('Vault').querySelector('.i3d');
+    return b.hasAttribute('data-settle') && { on: true, anim: getComputedStyle(b.querySelector('.i3d-art')).animationName }; })()`), 400, "settle").catch(() => ({ on: false, anim: "none" }));
+  await sleep(60);
   await shot(c, `08-motion-settle-mid-${mode}`, col);
   check(`I5 ${mode} a click on a row settles its picture once`, settle.on && settle.anim === "i3d-settle", settle);
   await sleep(800);
@@ -298,12 +306,12 @@ async function motion(c, mode) {
   check(`I5 ${mode} the bounce ends on its own`, after === false);
   await shot(c, `08-motion-settle-rest-${mode}`, col);
 
-  await c.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+  await c.send("Emulation.setEmulatedMedia", { features: [...SOLID, { name: "prefers-reduced-motion", value: "reduce" }] });
   await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: at.x, y: at.y });
   await sleep(300);
   const still = await evalIn(c, `getComputedStyle(__live.teamRow('Policies').querySelector('.i3d-art')).transform`);
   check(`I5 ${mode} under Reduce motion the hovered picture holds still`, still === "none", still);
-  await c.send("Emulation.setEmulatedMedia", { features: [] });
+  await c.send("Emulation.setEmulatedMedia", { features: SOLID });
   await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 });
   await backToSpaces(c);
 }
