@@ -1,5 +1,5 @@
 import {
-  isLegacyLabel, itemActKind, itemTarget, reviewVerb, verbFamily,
+  isLegacyLabel, itemTarget, itemTicketKind, reviewVerb, verbFamily,
   type ActTicket, type DeliverableFormat, type TeamReviewDetail, type TeamReviewSummary,
 } from "@realm/contracts";
 import { ACT_WORDS, agoPhrase, slotPhrase } from "../team-format";
@@ -190,7 +190,7 @@ const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
  * leaves Realm not at all.
  */
 export function approveConsequence(detail: TeamReviewDetail): string {
-  const acts = detail.items.flatMap((i) => { const k = itemActKind(detail.kind, i); return k ? [{ kind: k, item: i }] : []; });
+  const acts = detail.items.flatMap((i) => { const k = itemTicketKind(detail.kind, i); return k ? [{ kind: k, item: i }] : []; });
   const family = verbFamily(reviewVerb(detail.kind, detail.items));
   if (acts.length > 0) {
     const first = acts[0]!;
@@ -294,7 +294,7 @@ export function receipt(decision: Decision, detail: Pick<TeamReviewDetail, "titl
   const t = `“${detail.title}”`;
   const role = detail.roleName ?? "the role";
   const family = verbFamily(detail.verb !== undefined ? detail.verb : reviewVerb(detail.kind, detail.items));
-  const acts = detail.items.some((i) => itemActKind(detail.kind, i) !== null);
+  const acts = detail.items.some((i) => itemTicketKind(detail.kind, i) !== null);
   switch (decision) {
     case "approve":
       return acts ? `Approved ${t}. Nothing ${family === "send" ? "sends" : "posts"} until you press ${family === "send" ? "Send" : "Post"}.` : `Approved ${t}.`;

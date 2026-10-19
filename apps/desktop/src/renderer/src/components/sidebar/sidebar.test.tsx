@@ -619,15 +619,23 @@ describe("Pinned", () => {
     expect(pin.querySelector(".item-count")).toHaveTextContent("2");
   });
 
-  it("leads with what the item is: the session's agent, a page's icon, a document's glyph", async () => {
-    // THE MUTANT: every pin the same chat bubble, which is what made twelve tiles indistinguishable.
+  it("leads with what the item is: a session's space, a page's icon, a document's glyph", async () => {
+    // THE MUTANTS: every pin the same chat bubble, which is what made twelve tiles indistinguishable;
+    // and a session led by its agent's mark, which says nothing about which space it is in.
     await mount(home({
+      spaces: [space("s1", "p1", "Versed", { icon: "emoji:🎬", color: "#7c6cff" }), space("s2", "p1", "Homework", { color: "#3ddc97" })],
       items: { s1: [sessionItem("a", "s1", "Alpha", { pinned: true }), item("i-doc", "s1", { kind: "documents", refId: "d1", title: "Spec", pinned: true })], s2: [] },
       sessions: [session("a", "s1", { title: "Alpha", agentKind: "claude" })],
     }));
     const pinned = await pinnedRegion();
-    await waitFor(() => expect(within(pinned).getByRole("button", { name: /^Alpha/ }).querySelector("svg[data-brand]")).toHaveAttribute("data-brand", "claude"));
+    const alpha = await within(pinned).findByRole("button", { name: "Alpha in Versed" });
+    expect(alpha.querySelector(".sb-space-icon")).toHaveTextContent("🎬");
+    expect(alpha.querySelector("svg[data-brand]")).toBeNull();
+    // The space's colour, as its section's icon wears it.
+    expect((alpha.querySelector(".sb-space-icon") as HTMLElement).style.color).not.toBe("");
     expect(within(pinned).getByRole("button", { name: /^Spec/ }).querySelector("svg")).not.toBeNull();
+    // Below the pins, the same session keeps its own row's mark.
+    expect(within(section("Versed")).getByRole("button", { name: /^Alpha/ }).querySelector(".sb-space-icon")).toBeNull();
   });
 
   it("unpins from the row, and the pin leaves", async () => {

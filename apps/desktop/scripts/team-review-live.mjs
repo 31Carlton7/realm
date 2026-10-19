@@ -270,6 +270,8 @@ async function boot() {
   await c.ready;
   await c.send("Runtime.enable");
   await c.send("Page.enable");
+  // The renderer is listed before its document exists, and holding the key needs the document's root.
+  await until(() => evalIn(c, `!!document.documentElement`).catch(() => false), 30_000, "document");
   await holdKey(c);
   await until(() => evalIn(c, `!!document.querySelector('.onboarding input:not([type=radio])')`), 30_000, "onboarding");
   // The space's name, and nothing typed into onboarding's own session: its engine is a real one.

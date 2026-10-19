@@ -85,6 +85,14 @@ export class PolicyGate {
     const { sessionId, spaceId } = ctx;
     if (!this.d.policies.isTeam(spaceId)) return { ok: true, answered: false };
     const v = await this.verdict(spaceId, call);
+    // Realm's own tools are classed one by one (`REALM_TOOL_CLASSES`, exhaustive by test), so a name
+    // the table lacks is one no provider has. Refused as that here, before a card could ask the person
+    // to approve a call that would only fail. A server's tool cannot be told apart this way: one it
+    // would not list may still run.
+    if (call.connector.startsWith("realm:") && v.source === "unclassified") {
+      return { ok: false, summary: "blocked: unknown tool",
+        message: `unknown tool "${call.tool}" — ${call.connector.slice("realm:".length)} has no tool by that name. Nothing was run.` };
+    }
     const role = ctx.fromView ? null : this.d.roleRunOf(sessionId);
     const actor = role ? `role:${role.roleId}` : "user";
     const run = role ? { runId: role.runId, sessionId: role.sessionId } : { runId: null, sessionId };
@@ -135,7 +143,7 @@ export class PolicyGate {
 
   private async verdict(spaceId: string, call: Pick<GatedCall, "connector" | "tool" | "host" | "annotations">) {
     const [c, { rows }] = await Promise.all([this.d.policies.classify(spaceId, call), this.d.policies.rows(spaceId)]);
-    return { ...resolvePolicy(rows, { connector: call.connector, tool: call.tool, class: c.class, verb: c.verb, asksFirst: c.asksFirst !== null }), class: c.class, verb: c.verb };
+    return { ...resolvePolicy(rows, { connector: call.connector, tool: call.tool, class: c.class, verb: c.verb, asksFirst: c.asksFirst !== null }), class: c.class, verb: c.verb, source: c.source };
   }
 
   /** Why a no-click call is past its row's limits right now, in a card's words; null when it is not. */

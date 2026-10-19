@@ -357,6 +357,8 @@ describe("teams over the wire", () => {
     const pre = app.runs.extraSystemContext(sid)!;
     expect(pre).toContain("You are Content Producer");
     expect(pre).toContain("review_submit");
+    // Without it the role never writes one, and Review never shows why a draft was made.
+    expect(pre).toContain("Give each review a `note`");
     expect(pre).toContain("review_close");
     expect(pre).toContain("stops at $3 or 20 minutes");
     void run;

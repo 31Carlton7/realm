@@ -95,6 +95,16 @@ describe("review_submit, generic", () => {
     expect(team.review(r.id).items[0]!.action).toEqual({ verb: "dm", connector: "channel:instagram", account: "@a", to: "@b", legacy: 1 });
   });
 
+  it("promises no pacing for a DM that names nobody to send it to — Realm issues it no ticket, so the person sends it", () => {
+    // THE MUTANT: the pacing line on every channel act with an account. "0 of 15 DMs today" promised a
+    // send that approving never lines up, beside a Review that then said to send it yourself.
+    const { team, ctx } = setup();
+    const dm = team.submit(ctx, { kind: "DM", title: "DM", items: [{ files: [], body: "hi", action: { connector: "channel:instagram", verb: "dm", account: "@a" } }] });
+    expect(team.review(dm.id).checks.map((c) => c.title)).toEqual(["@a has no consent on record", "Realm does not send this yet"]);
+    const legacy = team.submit(ctx, { kind: "message", title: "Note", items: [{ files: [], body: "hi", target: { channel: "Instagram", account: "@a" } }] });
+    expect(team.review(legacy.id).checks.at(-1)).toEqual({ ok: null, title: "Realm does not send this", detail: "It names no one to send it to. Approving marks it ready; send it yourself." });
+  });
+
   it("refuses a secret's shape in the text, the meta or the action — and nothing else that could be fixed later", () => {
     const { team, ctx, store } = setup();
     const key = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789";
