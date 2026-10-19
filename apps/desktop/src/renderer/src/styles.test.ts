@@ -250,6 +250,21 @@ describe("§6 motion table", () => {
     expect(title).toMatch(/text-overflow:\s*ellipsis/);
   });
 
+  /* THE mutant is the card left to shrink (`flex: 0 1 auto`): shrink is shared in proportion to size,
+     so beside a long log the report came out a strip two lines high — 126px of a 822px viewer, showing
+     91px of a 314px report (calmer-surfaces-live.mjs). The rest is what reading it takes. */
+  it("gives a sub-agent's report its own height, never the log's leftovers, and reads it at the body size", () => {
+    const card = bodiesFor(".subagent-view-result").join(" ");
+    expect(card).toMatch(/flex:\s*none/);
+    expect(Number(/max-height:\s*(\d+)%/.exec(card)?.[1])).toBeGreaterThanOrEqual(50);
+    // Real padding on every side the words meet; the right one is the scroller's, for its bar.
+    const [top, right, bottom, left] = /padding:\s*(\d+)px (\d+)px (\d+)px (\d+)px/.exec(card)!.slice(1).map(Number) as [number, number, number, number];
+    const scrollerPad = Number(/padding-right:\s*(\d+)px/.exec(bodiesFor(".subagent-view-result-scroll").join(" "))?.[1]);
+    expect(Math.min(top, bottom, left, right + scrollerPad)).toBeGreaterThanOrEqual(12);
+    expect(bodiesFor(".subagent-view-result-head").join(" ")).toMatch(/font-size:\s*13px.*color:\s*var\(--ink\)/);
+    expect(bodiesFor(".subagent-view-result .subagent-view-prose").join(" ")).toMatch(/font-size:\s*14px;\s*color:\s*var\(--ink\)/);
+  });
+
   it("hangs the team note's New role pill outside the note's text edge", () => {
     // Mutant: the old `padding-left: 0` that `.page .btn-quiet` outranked — the words sat 10px in.
     expect(bodiesFor(".tp-card-note .tp-card-new").join(" ")).toMatch(/margin-left:\s*-10px/);
@@ -1847,7 +1862,9 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(card).toContain("background: var(--surface)");
     expect(card).toContain("box-shadow: var(--shadow-card)");
     const focus = bodiesFor(".composer:focus-within").join(" ");
-    expect(focus).toContain("0 0 0 1px var(--line-strong)");
+    // A brighter hairline in place of the card's own, not a second, wider ring stacked over it.
+    expect(focus).toContain("0 0 0 var(--hairline-w) var(--line-strong), var(--shadow-card-lift)");
+    expect(bodiesFor(":root[data-squircle] .composer:focus-within").join(" ")).toContain("--sq-ring-w: var(--hairline-w)");
     expect(focus).not.toContain("--rl-accent");
   });
 
@@ -2106,7 +2123,7 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     const card = bodiesFor(".commit-card").join(" ");
     expect(card).toContain("background: var(--surface)");
     expect(card).toContain("box-shadow: var(--shadow-card)");
-    expect(bodiesFor(".commit-card:focus-within").join(" ")).toContain("0 0 0 1px var(--line-strong)");
+    expect(bodiesFor(".commit-card:focus-within").join(" ")).toBe(bodiesFor(".composer:focus-within").join(" "));
     // The removed form: the dock used to be a raised strip behind a hairline. Both must stay gone —
     // the list already dissolves into the card, and either one draws that seam twice.
     const dock = bodiesFor(".diff-commit").join(" ");
@@ -2882,6 +2899,31 @@ describe("dividers", () => {
     expect(bodiesFor(".settings-row + .settings-row").join(" ")).toContain("border-top: 0");
     expect(bodiesFor(".settings-row:has(+ .settings-row)").join(" ")).toContain("border-bottom: 0");
     expect(bodiesFor(".settings-row + .settings-row::before").join(" ")).toContain("inset: 0 16px auto 16px");
+  });
+
+  /* The owner, 10-18: "the border contrasts the card bg too much". On dark the rim measured +12 levels
+     over a card that stood +9 over its ground — an outline brighter than the card. THE mutants: the rim
+     put back on the line (as loud as before), and a divider between a card's rows left on the rim,
+     where it would all but vanish now that the rim is soft. */
+  it("edges a card more softly than its fill lifts it, and keeps the line's weight for what divides it", () => {
+    const root = (selector: string) => RULES.filter((r) => r.selectors.includes(selector)).map((r) => r.body).join(" ");
+    const declared = (body: string, name: string) => new RegExp(`--${name}: ([^;]+);`).exec(body)?.[1] ?? "";
+    const alphaOf = (v: string) => {
+      const hex = /^#[0-9a-f]{6}([0-9a-f]{2})$/.exec(v) ?? /#[0-9a-f]{6}([0-9a-f]{2})/.exec(declared(tokensCss, v.replace(/^var\(--|\)$/g, "")));
+      return parseInt(hex![1]!, 16);
+    };
+    const dark = root(":root"), light = root(':root[data-mode="light"]');
+    // Dark: an overlay a rung under the card's own, so the rim adds less than the fill does.
+    expect(alphaOf(declared(dark, "rl-card-rim"))).toBeLessThan(alphaOf(declared(dark, "rl-card")));
+    // Light: the card is white, so the rim is what draws it — kept, but under the line's weight.
+    expect(declared(light, "rl-card-rim"), "light states its own rim").not.toBe("");
+    const lightLine = declared(tokensCss.slice(tokensCss.indexOf("--line: var(--overlay-darken")), "line");
+    expect(alphaOf(declared(light, "rl-card-rim"))).toBeLessThan(alphaOf(lightLine));
+    for (const sel of [".settings-row + .settings-row::before", ".memory-fact + .memory-fact", ".sched-card-facts", ".tp-props > div:nth-child(n+3)::before", ".cr-field", ".sched-modal-name"]) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body, sel).toContain("var(--rl-line)");
+      expect(body, sel).not.toContain("--rl-card-rim");
+    }
   });
 
   it("the diff list draws a seam only under an OPEN file", () => {
@@ -4905,6 +4947,26 @@ describe("softer edges", () => {
       [".todo-track", "background: var(--mark)"], ['.status-dot[data-status="idle"]', "background: var(--mark-strong)"],
       [".item-glyph rect", "fill: var(--mark-strong)"],
     ] as const) expect(bodiesFor(sel).join(" "), sel).toContain(decl);
+  });
+
+  /* The owner, 10-18: the prompter's shadow and its files', "a bit lighter and cleaner". The card stack
+     is what the prompter, its file tiles and every floating card wear, so the change is made there.
+     THE mutants: the ring put back a rung above the line (it measured +17 levels over the prompter's
+     own fill on dark), or a layer of the lift back at the weight it had — 20% black on dark, 4% on light. */
+  it("rings a card at the line's rung, and lifts it on a lighter shadow than it had, in both faces", () => {
+    const value = (block: string, name: string) => new RegExp(`--${name}: ([^;]+);`).exec(block)?.[1] ?? "";
+    const alphas = (text: string) => [...text.matchAll(/#[0-9a-f]{6}([0-9a-f]{2})\b/g)].map((m) => parseInt(m[1]!, 16));
+    const overlay = (ref: string) => alphas(value(tokens, ref.replace(/^var\(--|\)$/g, "")));
+    const ringAlpha = (block: string) => { const v = value(block, "card-ring"); return v.startsWith("var(") ? overlay(v)[0]! : alphas(v)[0]!; };
+    // The light block that states the card stack — not the first light block in the file, the palette's.
+    const lightStack = [...tokens.matchAll(/:root\[data-mode="light"\]\s*\{([^}]*)\}/g)].map((m) => m[1]!).find((b) => b.includes("--card-ring:"))!;
+    for (const [face, block, before] of [["dark", dark, 0x33], ["light", lightStack, 0x0a]] as const) {
+      expect(ringAlpha(block), face).toBeLessThanOrEqual(overlay(value(block, "line"))[0]!);
+      const lift = value(block, "shadow-card-lift");
+      expect(Math.max(...alphas(lift)), face).toBeLessThan(before);
+      // The painted cards' filter is the same layers, so the prompter is no lighter painted than flat.
+      expect(alphas(value(block, "shadow-card-lift-filter")), face).toEqual(alphas(lift));
+    }
   });
 });
 
