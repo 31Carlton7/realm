@@ -869,8 +869,6 @@ const SIGN_IN_ORDER: Record<AgentSignIn["state"], number> = { starting: 0, brows
 /** How the Library lays its files out. Its own key, not the session browser's: the Library opens on
  *  tiles, as Codex's does, and a person who reads a folder as rows has not said anything about it. */
 export const SETTING_LIBRARY_VIEW = "ui.libraryView";
-/** Per-session terminal-panel state (open + width), keyed by session id. */
-export const SETTING_TERMINAL_PANEL = "ui.terminalPanel";
 /** The quick chat: which session it is, and where its window sits. One key, because the two are only
  *  ever read together — a position with no conversation to put in it is nothing. */
 export const SETTING_QUICK_CHAT = "ui.quickChat";
@@ -898,26 +896,6 @@ export const SCHEDULE_RUNS_PAGE = 10;
  *  (`applyMcpCall`) enforces this — `loadMoreMcpCalls` is a page the user explicitly asked for, and
  *  trimming it would make "Load more" lie about what it just fetched. */
 export const MCP_CALLS_LIVE_CAP = 500;
-/** Plan 6 W4: the session's terminal panel takes 38% of the session pane the first time it opens. */
-export const TERMINAL_PANEL_WIDTH = 38;
-
-/** One session's terminal side panel: whether it is showing, and its share (%) of the session pane. */
-export type TerminalPanel = { open: boolean; width: number };
-
-/** Settings are `unknown` on the wire and the file is user-editable, so the persisted panel map is
- *  validated field by field; anything malformed is dropped rather than trusted into the layout. */
-export function parseTerminalPanels(raw: unknown): Record<string, TerminalPanel> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
-  const out: Record<string, TerminalPanel> = {};
-  for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
-    if (!v || typeof v !== "object") continue;
-    const { open, width } = v as { open?: unknown; width?: unknown };
-    if (typeof open !== "boolean") continue;
-    out[id] = { open, width: typeof width === "number" && width > 0 && width < 100 ? width : TERMINAL_PANEL_WIDTH };
-  }
-  return out;
-}
-
 /**
  * What a session pane's right-hand strip is showing. One union rather than two flags, because the
  * strip is one place: see `sessionDock`.
@@ -1570,10 +1548,7 @@ export type AppState = TeamSlice & LabSlice & {
   checkpointAckStale: boolean;
   /** The last restore's outcome, so the sheet can say what happened and name the undo. */
   restoreResult: RestoreResult | null;
-  /** Terminal side panel per session id (W4). Absent = never opened, which is also what keeps the pty
-   *  unspawned: nothing reaches the server until an entry turns `open`. Persisted as one setting. */
-  terminalPanel: Record<string, TerminalPanel>;
-  /** sessionId → the terminal id backing its panel; filled by the first openSessionTerminal. */
+  /** sessionId → the terminal id behind its dock or tab; filled by the first openSessionTerminal. */
   sessionTerminals: Record<string, string>;
   /**
    * What is docked to a session pane's strip — its summary, its files, or its terminal. Absent
@@ -1583,8 +1558,8 @@ export type AppState = TeamSlice & LabSlice & {
    * open states separately is how two panels come to be drawn over each other: each measures the
    * same edge and each claims it.
    *
-   * In memory only, unlike `terminalPanel`. These are things you look at while working and then stop
-   * looking at; restoring one across a relaunch would reopen a panel nobody is reading.
+   * In memory only. These are things you look at while working and then stop looking at; restoring
+   * one across a relaunch would reopen a panel nobody is reading.
    */
   sessionDock: Record<string, SessionDock | undefined>;
   /**
@@ -2205,7 +2180,7 @@ export type AppState = TeamSlice & LabSlice & {
   moveSessionToNewWorktree(sessionId: string): Promise<void>;
   /** Sidebar's "Move to space…" (item context menu). Same server guard as the agent/environment
    *  switches — closes the item out of the current space's layout first, then re-homes it; any open
-   *  terminal panel for the session is torn down client-side to match the server's teardown. */
+   *  terminal for the session is torn down client-side to match the server's teardown. */
   moveSessionToSpace(sessionId: string, spaceId: string): Promise<void>;
   /** Fetch a space's servers into `connectors` (plus-menu open, `mcp.changed`). */
   refreshConnectors(spaceId: string): Promise<void>;
@@ -2451,14 +2426,9 @@ export type AppState = TeamSlice & LabSlice & {
    * to it rather than putting it away. Bottom: the dock at the pane's foot, which a second press hides.
    */
   showSessionTerminal(sessionId: string): Promise<void>;
-  /** Show/hide the session's terminal panel (pane-header toggle, ⌘J). Opening it is the one and only
-   *  thing that creates the terminal — and only the first time. */
-  toggleTerminalPanel(sessionId: string): Promise<void>;
   /** Get-or-create the terminal behind an already-open panel (restore path after a reload). No-op once
    *  known, so a session whose panel stays shut never reaches the server. */
   ensureSessionTerminal(sessionId: string): Promise<void>;
-  /** Panel width (% of the session pane) from a resize drag; persisted with a trailing debounce. */
-  setTerminalPanelWidth(sessionId: string, width: number): void;
   /** Dock something to this session pane's right-hand strip, replacing whatever was there. Passing
    *  what is already docked closes it, so one call serves every toggle that opens this strip. */
   toggleSessionDock(sessionId: string, dock: SessionDock): void;
@@ -3350,24 +3320,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       if (persistTimer) clearTimeout(persistTimer);
       persistTimer = setTimeout(() => { persistTimer = null; get().run(persist); }, PERSIST_DEBOUNCE_MS);
     };
-    /** Terminal-panel state persists as one settings blob, on its own debounce: a resize drag writes
-     *  every frame, but a toggle is a single deliberate act and writes straight through. */
-    let panelTimer: ReturnType<typeof setTimeout> | null = null;
     /** `agentsShown` is read on first use rather than at boot (`hydrateAgentsShown`), and nothing is
      *  written back before it has been: a write first would replace every other lead's mark. */
     let agentsShownRead: Promise<void> | null = null;
     let agentsShownLoaded = false;
     let agentsShownTimer: ReturnType<typeof setTimeout> | null = null;
-    const persistPanels = async () => {
-      if (panelTimer) { clearTimeout(panelTimer); panelTimer = null; }
-      await api.setSetting(SETTING_TERMINAL_PANEL, get().terminalPanel);
-    };
-    const schedulePanelPersist = () => {
-      if (panelTimer) clearTimeout(panelTimer);
-      panelTimer = setTimeout(() => { panelTimer = null; get().run(persistPanels); }, PERSIST_DEBOUNCE_MS);
-    };
-    /** The quick chat's session and window position, on the panel map's own debounce shape: opening
-     *  and closing write straight through (one deliberate act each), a drag writes every frame. */
+    /** The quick chat's session and window position, on a debounce: opening and closing write straight
+     *  through (one deliberate act each), while a drag, which moves every frame, waits for it. */
     let quickTimer: ReturnType<typeof setTimeout> | null = null;
     const persistQuickChat = async () => {
       if (quickTimer) { clearTimeout(quickTimer); quickTimer = null; }
@@ -3436,10 +3395,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       }
       return kept;
     };
-    const panelOf = (id: string): TerminalPanel => get().terminalPanel[id] ?? { open: false, width: TERMINAL_PANEL_WIDTH };
-    const setPanel = (id: string, p: TerminalPanel) => set({ terminalPanel: { ...get().terminalPanel, [id]: p } });
-    /** Sessions with an openSessionTerminal call in flight — StrictMode double-mounts and a toggle
-     *  racing the restore effect must not spawn two ptys for one session. A Map, not a Set: later
+    /** Sessions with an openSessionTerminal call in flight — StrictMode double-mounts and a prefill
+     *  racing the dock's restore effect must not spawn two ptys for one session. A Map, not a Set: later
      *  callers JOIN the in-flight call instead of returning early, so `prefillTerminal` (which races the
      *  drawer's own restore effect) still has a terminal id to write into when it resumes. */
     const ensuringTerminal = new Map<string, Promise<void>>();
@@ -3453,7 +3410,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     /** Flush a pending debounced persist — before the profile changes (persist writes the active
      *  profile's view), and on `pagehide`. */
     const flushPersist = async () => {
-      if (panelTimer) await persistPanels();
       if (quickTimer) await persistQuickChat();
       if (persistTimer) await persist();
     };
@@ -4366,7 +4322,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeBranches: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, agentsAsk: {}, agentsShown: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
-      terminalPanel: {}, sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null, viewer: null,
+      sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null, viewer: null,
       machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
       profileMemory: {}, profileMemoryRepo: {}, spaceMemoryRepos: {}, memoryRepoLog: {},
@@ -4378,11 +4334,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, panels, quick, filesView, libraryView, system, avatarPath, sidePanesHidden, lastModels] = await Promise.all([
+        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, quick, filesView, libraryView, system, avatarPath, sidePanesHidden, lastModels] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_ACTIVE_PROFILE), api.getSetting(SETTING_THEME),
           api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_PANE_ALPHA), api.getSetting(REDUCED_MOTION_KEY), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
-          api.getSetting(SETTING_TERMINAL_PANEL),
           api.getSetting(SETTING_QUICK_CHAT),
           api.getSetting(SETTING_FILES_VIEW),
           api.getSetting(SETTING_LIBRARY_VIEW),
@@ -4433,7 +4388,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           confirmDelete: askDelete !== false,
           lastAgentKind: agent.success ? agent.data : null, lastModels: parseLastModels(lastModels),
           easterEggs: eggs === true, konamiUnlocked: konami === true,
-          terminalPanel: parseTerminalPanels(panels), machineName: system.machineName, userName: system.userName, avatarPath, detachedSince: system.detachedSince });
+          machineName: system.machineName, userName: system.userName, avatarPath, detachedSince: system.detachedSince });
         // AppShell is already mounted during boot: keep spaces unpublished until each saved custom
         // icon can resolve, rather than visibly rendering its folder fallback first.
         // Same reason, same place: a preference naming a downloaded family needs its `@font-face` in
@@ -5394,7 +5349,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           const { [it.refId]: _ua, ...sessionUpdatedAt } = get().sessionUpdatedAt;
           const { [it.refId]: _aa, ...sessionActivityAt } = get().sessionActivityAt;
           const { [it.refId]: _as, ...allSessions } = get().allSessions;
-          const { [it.refId]: _tp, ...terminalPanel } = get().terminalPanel; const { [it.refId]: _tid, ...sessionTerminals } = get().sessionTerminals;
+          const { [it.refId]: _tid, ...sessionTerminals } = get().sessionTerminals;
           const { [it.refId]: _dk, ...sessionDock } = get().sessionDock;
           const { [it.refId]: _pr, ...planReturn } = get().planReturn;
           const { [it.refId]: _at, ...pendingAttachments } = get().pendingAttachments;
@@ -5404,8 +5359,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           const { [it.refId]: _dl, ...draftLinks } = get().draftLinks;
           const { [it.refId]: _drf, ...draftRefs } = get().draftRefs;
           const { [it.refId]: _ac, ...sessionActivity } = get().sessionActivity;
-          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, draftRefs, planReturn, sessionSpace, sessionUpdatedAt, sessionActivityAt, allSessions, terminalPanel, sessionTerminals, sessionDock, sessionActivity });
-          if (termId || _tp) get().run(persistPanels); // the panel map just lost an entry
+          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, draftRefs, planReturn, sessionSpace, sessionUpdatedAt, sessionActivityAt, allSessions, sessionTerminals, sessionDock, sessionActivity });
         }
       },
       async splitFocused(dir) {
@@ -6402,8 +6356,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (termId && moved.terminalItemId === null) {
           api.disposeTerminal(termId);
           const { [sessionId]: _tid, ...sessionTerminals } = get().sessionTerminals;
-          const { [sessionId]: _tp, ...terminalPanel } = get().terminalPanel;
-          set({ sessionTerminals, terminalPanel });
+          set({ sessionTerminals });
         }
       },
       async refreshConnectors(spaceId) {
@@ -6937,14 +6890,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (get().terminalDock === "bottom") { get().toggleSessionDock(sessionId, { kind: "terminal" }); return; }
         await showTerminalTab(sessionId);
       },
-      async toggleTerminalPanel(sessionId) {
-        const next = { ...panelOf(sessionId), open: !panelOf(sessionId).open };
-        // Show the panel first, then create: the toggle is instant, and the pane fills in when the
-        // shell answers. Closing never destroys anything — the pty and its scrollback wait.
-        setPanel(sessionId, next);
-        await persistPanels();
-        if (next.open) await get().ensureSessionTerminal(sessionId);
-      },
       async openQuickChat() {
         if (get().quickChat) return;
         const sid = get().activeSpaceId; if (!sid) return;
@@ -7092,12 +7037,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       closeSessionDock(sessionId) {
         const { [sessionId]: _gone, ...rest } = get().sessionDock;
         set({ sessionDock: rest });
-      },
-      setTerminalPanelWidth(sessionId, width) {
-        const cur = panelOf(sessionId);
-        if (Math.abs(cur.width - width) < 0.01) return;
-        setPanel(sessionId, { ...cur, width });
-        schedulePanelPersist();
       },
       async refreshGitInfo(cwd) {
         const info = await api.gitInfo(cwd);
