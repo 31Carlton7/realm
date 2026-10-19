@@ -108,14 +108,19 @@ export function startBrowserAgentBridge(opts: {
     }, opts.onEvent, opts.hasWindow);
     socket.addEventListener("open", () => { opts.onLog?.("[browser-agent] bridge connected"); core.onOpen(); opts.onConnected?.(core); });
     socket.addEventListener("message", (ev) => { void core.onMessage(typeof ev.data === "string" ? ev.data : ""); });
-    socket.addEventListener("close", () => {
-      if (stopped || ws !== socket) return;
+    let dropped = false;
+    const drop = (): void => {
+      if (stopped || ws !== socket || dropped) return;
+      dropped = true;
       opts.onLog?.("[browser-agent] bridge disconnected; retrying");
       core.onClose();
       opts.onDisconnected?.();
       timer = setTimeout(connect, RECONNECT_MS);
-    });
-    socket.addEventListener("error", () => { /* close fires next; reconnect happens there */ });
+    };
+    socket.addEventListener("close", drop);
+    // Node's WebSocket reports a refused dial as `error` alone, with no `close` after it — so a dial to
+    // a server that is not up yet ends here, or the bridge never dials again after its first miss.
+    socket.addEventListener("error", drop);
   };
   connect();
 

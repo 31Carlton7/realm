@@ -16,6 +16,8 @@ class FakeSocket {
   close(): void { this.drop(); }
   open(): void { this.readyState = 1; for (const fn of this.listeners.get("open") ?? []) fn({}); }
   drop(): void { this.readyState = 3; for (const fn of this.listeners.get("close") ?? []) fn({}); }
+  /** A dial nothing answers, as Node's WebSocket reports it: `error`, and no `close` after. */
+  refuse(): void { for (const fn of this.listeners.get("error") ?? []) fn({}); }
 }
 
 beforeEach(() => {
@@ -55,6 +57,28 @@ describe("startBrowserAgentBridge", () => {
     // and what tells it a host has attached.
     expect(second.sent[0]).toMatchObject({ method: "browserHost.register", params: { hasWindow: true } });
     expect(connected).toHaveBeenCalledTimes(2);
+    bridge.stop();
+  });
+
+  it("keeps dialing while nothing answers, though Node reports a refused dial with no close", () => {
+    const disconnected = vi.fn();
+    const bridge = startBrowserAgentBridge({ endpoint: () => ({ port: 1111, token: "t" }), handleOp: async () => ({}), onDisconnected: disconnected });
+    FakeSocket.made[0]!.open();
+    FakeSocket.made[0]!.drop();
+    // The server is still coming back: each redial is refused.
+    for (let i = 1; i <= 3; i++) {
+      vi.advanceTimersByTime(2_000);
+      expect(FakeSocket.made).toHaveLength(i + 1);
+      // MUTANT: wait for a `close` that never comes, and the bridge — and the supervisor it ticks —
+      // stop here for good: no respawn, no reconnect.
+      FakeSocket.made[i]!.refuse();
+    }
+    vi.advanceTimersByTime(2_000);
+    expect(FakeSocket.made).toHaveLength(5);
+    // One drop per socket, however many ways it says so.
+    FakeSocket.made[4]!.refuse();
+    FakeSocket.made[4]!.drop();
+    expect(disconnected).toHaveBeenCalledTimes(5);
     bridge.stop();
   });
 });
