@@ -99,15 +99,22 @@ describe("the + offers Add teammate…", () => {
 });
 
 describe("the row of who is working", () => {
-  it("each agent wears its state — the sidebar's dot and ring while it works or needs you — and says the rest on hover", async () => {
-    const { store } = await mount({ children: [WORKING, WAITING, DONE] });
+  it("each agent leads with its own mark, wearing its state — the sidebar's dot while it works or needs you — and says the rest on hover", async () => {
+    const claudeKid = kid("se7", "Draft the changelog", { agentKind: "claude", model: "claude-opus-5-5" }, { settledAt: NOW - 5_000, outcome: "done", report: "Done." });
+    const { store } = await mount({ children: [WORKING, WAITING, claudeKid] });
     const g = await row();
     // Needs you first, then working, then what has ended.
     expect(chips(g).map((c) => [c.textContent, c.dataset.state])).toEqual([
       ["Check the schema", "waiting"], ["Write the tests", "working"], ["Draft the changelog", "done"]]);
-    expect(chips(g)[0]!.querySelector('.status-dot[data-status="waiting_permission"]')).not.toBeNull();
-    expect(chips(g)[1]!.querySelector('.status-dot[data-status="running"]')).not.toBeNull();
-    expect(chips(g)[2]!.querySelector(".status-dot")).toBeNull();
+    // Which agent: the harness's own mark, the one the model picker draws.
+    const mark = (c: HTMLElement) => c.querySelector(".active-agent-mark > svg[data-brand]")?.getAttribute("data-brand");
+    expect(chips(g).map(mark)).toEqual(["openai", "openai", "claude"]);
+    // Where it stands, on the mark's corner: the dot while live, the glyph once ended.
+    const badge = (c: HTMLElement) => c.querySelector(".active-agent-mark > .active-agent-badge")!;
+    expect(badge(chips(g)[0]!).querySelector('.status-dot[data-status="waiting_permission"]')).not.toBeNull();
+    expect(badge(chips(g)[1]!).querySelector('.status-dot[data-status="running"]')).not.toBeNull();
+    expect(badge(chips(g)[2]!).querySelector(".status-dot")).toBeNull();
+    expect(badge(chips(g)[2]!).querySelector("svg")).not.toBeNull();
     // The name, what runs it, where it stands and for how long — and the task, where it says more.
     expect(chips(g)[1]).toHaveAttribute("title", expect.stringMatching(/^Write the tests · Codex · GPT-6 Luna · Working, 1m \d+s\. Right-click for more\.$/));
     // A click opens it in the Agents tab, on that agent.

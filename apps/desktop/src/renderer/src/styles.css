@@ -5862,12 +5862,20 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .active-agents .active-agent { max-width: 200px; }
 @container (max-width: 520px) { .active-agents .active-agent { max-width: 140px; } }
 @container (max-width: 460px) { .active-agents .active-agent { max-width: 96px; } }
-.active-agent-mark { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 12px; color: var(--rl-text-faint); }
+/* The agent's own mark with its state on the corner: a badge cut out of the mark by a ring of the
+   ground under it, so the two read as one object at 14px — the menu's surface in "+N", the strip's
+   below. */
+.active-agent-mark { position: relative; flex: none; display: inline-flex; width: 14px; height: 14px; }
+.active-agent-badge { position: absolute; right: -3px; bottom: -3px; display: grid; place-items: center; width: 10px; height: 10px;
+  border-radius: 50%; background: var(--surface); color: var(--rl-text-dim); }
+/* On the strip: the chip's own fill over the strip's ground, so the cut-out matches at rest and under
+   the pointer alike. */
+.active-agent .active-agent-badge { background: linear-gradient(var(--fill), var(--fill)), var(--rl-frame); }
+.active-agent-badge .status-dot { width: 6px; height: 6px; }
 /* The sidebar's dot, without its ping (`.item-status::after`): the strip under the transcript already
    pings for these same agents, and two rings moving for one fact is the sidebar's reason not to. */
-.active-agent-mark .status-dot::after { content: none; }
-.active-agent[data-state="failed"] .active-agent-mark, .active-agent[data-state="timeout"] .active-agent-mark,
-.active-agent-mark[data-state="failed"], .active-agent-mark[data-state="timeout"] { color: var(--rl-danger); }
+.active-agent-badge .status-dot::after { content: none; }
+.active-agent-mark[data-state="failed"] .active-agent-badge, .active-agent-mark[data-state="timeout"] .active-agent-badge { color: var(--rl-danger); }
 /* Needs you is the one state the person has to act on, so its name is a rung brighter. */
 .composer-overstrip .active-agent[data-state="waiting"] { color: var(--rl-text-dim); }
 .active-agents-more { font-variant-numeric: tabular-nums; }

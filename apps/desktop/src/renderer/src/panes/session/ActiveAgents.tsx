@@ -1,10 +1,10 @@
-import { AGENT_META, type DelegatedChild } from "@realm/contracts";
+import { AGENT_META, type AgentKind, type DelegatedChild } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { useApp } from "../../state/store";
 import { StateMark } from "../agents-tab/StateMark";
-import { STATE_LABEL, isLive, modelLabel, orchestratorOrder } from "../agents-tab/subagent-state";
+import { STATE_LABEL, isLive, modelLabel, orchestratorOrder, type SubagentState } from "../agents-tab/subagent-state";
 import { stripAgents, useSessionSubagents, type SessionSubagent } from "./session-subagents";
 import { formatDuration } from "./tool-group";
 import type { Block } from "./transcript-model";
@@ -77,7 +77,9 @@ export function ActiveAgents({ sessionId, agents, onMessage }: {
       : leadKind ? `inside ${AGENT_META[leadKind].label}` : null;
     const task = child?.goal?.split("\n")[0]?.trim() || null;
     const took = formatDuration(Math.max(0, (a.endedAt ?? now) - a.startedAt));
-    return { agent: a, on, task: task && task !== a.title ? task : null, took, delegated: child !== undefined };
+    // Its own harness for a delegated child; a harness's own sub-agent runs inside the lead's.
+    const kind = child?.session.agentKind ?? leadKind ?? null;
+    return { agent: a, kind, on, task: task && task !== a.title ? task : null, took, delegated: child !== undefined };
   };
   const shown = agents.length > ROW_MAX ? agents.slice(0, ROW_MAX - 1) : agents;
   const folded = agents.slice(shown.length);
@@ -89,7 +91,29 @@ export function ActiveAgents({ sessionId, agents, onMessage }: {
   );
 }
 
-type Described = { agent: SessionSubagent; on: string | null; task: string | null; took: string; delegated: boolean };
+type Described = { agent: SessionSubagent; kind: AgentKind | null; on: string | null; task: string | null; took: string; delegated: boolean };
+
+/**
+ * Which agent it is, and where it stands: the harness's own mark — the one the model picker draws
+ * beside the model — with the state on its corner. Live, the sidebar's dot; ended, the transcript's
+ * glyph, so done, failed and stopped are told apart by shape as well as by tone.
+ */
+function AgentMark({ kind, state }: { kind: AgentKind | null; state: SubagentState }) {
+  return (
+    <span className="active-agent-mark" data-state={state}>
+      {kind ? <Icon name={AGENT_META[kind].icon} size={14} colored /> : <Icon name="bot" size={14} />}
+      <span className="active-agent-badge" aria-hidden="true">
+        {isLive(state) ? <StateMark state={state} /> : <EndedGlyph state={state} />}
+      </span>
+    </span>
+  );
+}
+
+function EndedGlyph({ state }: { state: SubagentState }) {
+  const name = state === "done" ? "check" : state === "failed" || state === "timeout" ? "errorCircle" : "stop";
+  // off-ladder: a badge on the corner of a 14px mark, where the 12 rung would cover the mark it marks.
+  return <Icon name={name} size={8} />;
+}
 
 /** "Write the tests · Codex · GPT-6 Luna · Working, 2:10 · <its task>" — the name, what runs it, where it
  *  stands and for how long, and what it was asked when that says more than its name. */
@@ -109,7 +133,7 @@ function AgentChip({ leadId, d, onMessage }: { leadId: string; d: Described; onM
         aria-label={`${agent.title}, ${STATE_LABEL[agent.state]}. Opens it in the Agents tab`}
         onClick={() => open(agent.id)}
         onContextMenu={(e) => { e.preventDefault(); setMenuAt({ x: e.clientX, y: e.clientY }); }}>
-        <span className="active-agent-mark"><StateMark state={agent.state} /></span>
+        <AgentMark kind={d.kind} state={agent.state} />
         <span className="chip-label">{agent.title}</span>
       </button>
       {menuAt && <Menu items={items} at={menuAt} onClose={() => setMenuAt(null)} label={agent.title} />}
@@ -123,7 +147,7 @@ function MoreChip({ leadId, agents }: { leadId: string; agents: Described[] }) {
   const [open, setOpen] = useState(false);
   const show = useOpen(leadId);
   const items: MenuItem[] = agents.map((d) => ({
-    label: d.agent.title, icon: <span className="active-agent-mark" data-state={d.agent.state}><StateMark state={d.agent.state} /></span>,
+    label: d.agent.title, icon: <AgentMark kind={d.kind} state={d.agent.state} />,
     detail: STATE_LABEL[d.agent.state], title: agentSummary(d), onSelect: () => show(d.agent.id),
   }));
   return (
