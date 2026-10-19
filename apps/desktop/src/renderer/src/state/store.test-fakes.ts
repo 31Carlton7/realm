@@ -1791,6 +1791,17 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       for (const t of data.teams) { const s = t.reviews.find((x) => x.id === id); if (s) s.state = r.state; }
       return r;
     },
+    teamReviewUndoApproval: async (id) => {
+      calls.push(`teamReviewUndoApproval:${id}`);
+      const r = data.teamReviews[id]!;
+      if (r.tickets.some((t) => t.state === "done" || t.state === "acting")) {
+        throw new RpcError("TEAM_REVIEW_WENT_OUT", "It's too late to undo: a post already went out. Close stops whatever hasn't gone out.");
+      }
+      const back = { state: "waiting" as const, decidedAt: null, actsTotal: 0, actsDone: 0, actsWaiting: 0, actsFailed: 0, nextActAt: null };
+      Object.assign(r, back, { tickets: [] });
+      for (const t of data.teams) { const s = t.reviews.find((x) => x.id === id); if (s) Object.assign(s, back); }
+      return r;
+    },
     teamReviewRequestChanges: async (id, note) => {
       calls.push(`teamReviewRequestChanges:${id}:${note}`);
       const r = data.teamReviews[id]!;

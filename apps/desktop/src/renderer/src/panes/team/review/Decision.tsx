@@ -1,6 +1,6 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useRef, useState } from "react";
-import { reviewVerb, verbFamily, type ActTicket, type TeamReviewDetail, type TeamReviewItem, type TeamSpace } from "@realm/contracts";
+import { FINAL_REVIEW_STATES, reviewVerb, verbFamily, type ActTicket, type TeamReviewDetail, type TeamReviewItem, type TeamSpace } from "@realm/contracts";
 import { useApp } from "../../../state/store";
 import { ACT_WORDS, plainError } from "../team-format";
 import { POST_SHEET_NO_AGENT, PostSheet } from "../PostSheet";
@@ -23,12 +23,19 @@ const SETTLE_MS = 350;
  * and can be taken back, a refused one says why and offers the press again, and one that went out
  * keeps its proof. Close stays until the batch has gone out, because after the yes is when it
  * matters most: it takes back every press still waiting.
+ *
+ * The yes itself is taken back from its toast's Undo, for as long as nothing of the batch has left
+ * Realm; the toast gives up the offer once something has, or once the batch is finished with.
  */
-export function DecisionDock({ team, detail, item, onDecided }: {
+export function DecisionDock({ team, detail, item, onDecided, onUndone }: {
   team: TeamSpace | undefined; detail: TeamReviewDetail; item: TeamReviewItem | null;
   onDecided: (id: string, decision: DecisionKind) => void;
+  /** The yes was undone from its toast — run whether or not this dock is still on screen. */
+  onUndone: (id: string) => void;
 }) {
   const decide = useApp((s) => s.decideTeamReview);
+  const undoApproval = useApp((s) => s.undoTeamReviewApproval);
+  const dismissToast = useApp((s) => s.dismissToast);
   const requestChanges = useApp((s) => s.requestTeamReviewChanges);
   const reject = useApp((s) => s.rejectTeamReview);
   const close = useApp((s) => s.closeTeamReview);
@@ -44,7 +51,14 @@ export function DecisionDock({ team, detail, item, onDecided }: {
   const [sheet, setSheet] = useState<ActTicket | null>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   const shownAt = useRef(Date.now());
+  /** The approval's toast, while its Undo can still do what it says. */
+  const undoOffer = useRef<string | null>(null);
   useEffect(() => { shownAt.current = Date.now(); setAsking(null); setError(null); }, [detail.id]);
+  const undoable = detail.state === "approved" && !detail.tickets.some((t) => t.state === "done" || t.state === "acting");
+  const finished = FINAL_REVIEW_STATES.includes(detail.state);
+  useEffect(() => {
+    if (undoOffer.current && (finished || !undoable)) { dismissToast(undoOffer.current); undoOffer.current = null; }
+  }, [finished, undoable, dismissToast]);
   useEffect(() => { if (asking === "send-back" || asking === "reject") field.current?.focus(); }, [asking]);
 
   const role = reviewRole(team, detail.roleId);
@@ -67,7 +81,13 @@ export function DecisionDock({ team, detail, item, onDecided }: {
         await fn();
         setAsking(null); setNote("");
         if (decision) {
-          toast({ tone: "success", text: receipt(decision, detail, { wakes, reason: reason ?? null }), icon: decision === "approve" ? "check" : decision === "send-back" ? "undo" : undefined });
+          const undo = {
+            label: "Undo",
+            run: () => { undoOffer.current = null; run(async () => { await undoApproval(detail.id); onUndone(detail.id); }); },
+          };
+          const id = toast({ tone: "success", text: receipt(decision, detail, { wakes, reason: reason ?? null }), icon: decision === "approve" ? "check" : decision === "send-back" ? "undo" : undefined,
+            ...(decision === "approve" ? { action: undo } : {}) });
+          if (decision === "approve") undoOffer.current = id;
           onDecided(detail.id, decision);
         }
       } catch (e) { setError(plainError(e)); } finally { setBusy(false); }

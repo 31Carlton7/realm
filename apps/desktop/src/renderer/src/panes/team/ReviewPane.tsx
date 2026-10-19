@@ -21,7 +21,8 @@ export function ReviewMeta({ item }: { item: Item }) {
  * being read out of Waiting for you moves the reader on to the next one waiting, as Mail does after
  * an archive; one that leaves it waiting (an approved post that is now yours to press) keeps it in
  * front. Too narrow for both, the pane shows one at a time: the inbox, then the review chosen, with
- * the way back at its head.
+ * the way back at its head. An approval undone from its toast puts that draft back in Waiting for you,
+ * and the reader goes back to it.
  */
 export function ReviewPane({ item }: { item: Item; visible: boolean; focused?: boolean }) {
   const spaceId = item.refId;
@@ -48,13 +49,14 @@ export function ReviewPane({ item }: { item: Item; visible: boolean; focused?: b
     const next = waitingBefore[at + 1] ?? waitingBefore[at - 1];
     if (next) choose(next.id);
   };
+  const onUndone = (id: string) => { choose(id); setReading(true); };
 
   return (
     <div className="rv" data-reading={reading && selected ? "" : undefined} data-empty={selected ? undefined : ""}>
       <Inbox team={team} groups={groups} selectedId={selected?.id ?? null}
         onSelect={choose} onOpen={(id) => { choose(id); setReading(true); }} />
       {selected
-        ? <Reader key={selected.id} team={team} summary={selected} onBack={() => setReading(false)} onDecided={onDecided} />
+        ? <Reader key={selected.id} team={team} summary={selected} onBack={() => setReading(false)} onDecided={onDecided} onUndone={onUndone} />
         : <div className="rv-detail rv-detail-empty"><Empty team={team} /></div>}
     </div>
   );

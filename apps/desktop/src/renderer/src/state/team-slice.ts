@@ -20,6 +20,7 @@ export type TeamApi = {
   teamRoleMessage(id: string, text: string): Promise<Run>;
   teamReview(id: string): Promise<TeamReviewDetail>;
   teamReviewDecide(id: string, decision: "approve" | "done" | "dismiss"): Promise<TeamReviewSummary>;
+  teamReviewUndoApproval(id: string): Promise<TeamReviewSummary>;
   teamReviewRequestChanges(id: string, note: string): Promise<TeamReviewSummary>;
   teamReviewReject(id: string, reason: string | null): Promise<TeamReviewSummary>;
   teamReviewClose(id: string): Promise<TeamReviewSummary>;
@@ -83,6 +84,9 @@ export type TeamSlice = {
   loadTeamReview(id: string): Promise<TeamReviewDetail>;
   selectTeamReview(spaceId: string, id: string): void;
   decideTeamReview(id: string, decision: "approve" | "done" | "dismiss"): Promise<void>;
+  /** The yes taken back while nothing of it has left Realm: the draft waits again. Throws the server's
+   *  plain line once something has gone out. */
+  undoTeamReviewApproval(id: string): Promise<TeamReviewSummary>;
   requestTeamReviewChanges(id: string, note: string): Promise<void>;
   /** No, with an optional reason the role is told; nothing of it goes out. */
   rejectTeamReview(id: string, reason: string | null): Promise<void>;
@@ -200,6 +204,11 @@ export function teamSlice<S extends Host & TeamSlice>(
     async decideTeamReview(id, decision) {
       const r = await api.teamReviewDecide(id, decision);
       await Promise.all([get().loadTeamReview(id), get().refreshTeam(r.spaceId)]);
+    },
+    async undoTeamReviewApproval(id) {
+      const r = await api.teamReviewUndoApproval(id);
+      await Promise.all([get().loadTeamReview(id), get().refreshTeam(r.spaceId)]);
+      return r;
     },
     async requestTeamReviewChanges(id, note) {
       const r = await api.teamReviewRequestChanges(id, note);
