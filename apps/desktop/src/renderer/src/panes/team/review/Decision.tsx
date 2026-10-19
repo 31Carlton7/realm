@@ -112,7 +112,7 @@ export function DecisionDock({ team, detail, item, onDecided, onUndone }: {
       : asking === "reject" ? { place: wakes ? `Why not? ${capital(roleName)} is told (optional)` : "Why not? (optional)", go: note.trim() && wakes ? `Reject and tell ${roleName}` : "Reject", label: `Why reject ${detail.title}? Optional` }
       : null;
     return (
-      <div className="rv-dock composer-dock" data-asking={asking}>
+      <div className="rv-dock" data-lifts-toasts="" data-asking={asking}>
         <form className="rv-dock-card rv-sendback" onSubmit={(e) => { e.preventDefault(); submit(); }}
           onKeyDown={(e) => {
             if (e.key === "Escape") { e.stopPropagation(); setAsking(null); }
@@ -142,7 +142,7 @@ export function DecisionDock({ team, detail, item, onDecided, onUndone }: {
   }
 
   return (
-    <div className="rv-dock composer-dock">
+    <div className="rv-dock" data-lifts-toasts="">
       <div className="rv-dock-card">
         <div className="rv-dock-row">
           <span className="rv-dock-note" role={error ? "alert" : undefined} data-tone={error || phase === "failed" ? "bad" : undefined}>{sentence}</span>

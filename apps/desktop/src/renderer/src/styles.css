@@ -10713,11 +10713,9 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .rv-run-link { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; margin-left: -7px; }
 
 /* The decision, docked: the action surface of the reader, as the commit card is the diff's. Outside
-   the scroller, so it never dissolves with the work. It wears `.composer-dock` for the one thing that
-   class promises the rest of the window — a toast stands above it, never over its answers — and
-   takes none of the prompter's column geometry. */
-.rv-dock { flex: none; padding: 0 20px 16px; }
-.rv-dock.composer-dock { width: auto; margin: 0; transition: none; }
+   the scroller, so it never dissolves with the work, and over it on the prompter's layer, so its shadow
+   is never cut by what scrolls. A toast stands above it, never over its answers (`data-lifts-toasts`). */
+.rv-dock { position: relative; z-index: 2; flex: none; padding: 0 20px 16px; }
 .rv-dock-card { max-width: 1016px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; padding: 10px 10px 10px 16px;
   border-radius: var(--r-squircle-card); background: var(--surface); box-shadow: var(--shadow-card); }
 .rv-dock-card:focus-within { box-shadow: 0 0 0 var(--hairline-w) var(--line-strong), var(--shadow-card); }

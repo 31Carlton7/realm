@@ -166,6 +166,8 @@ describe("the reader", () => {
     expect(dock.closest(".rv-detail-scroll")).toBeNull();
     expect(dock.closest(".rv-detail")).not.toBeNull();
     expect(within(dock as HTMLElement).getByRole("button", { name: /Approve all 2/ })).toBeEnabled();
+    // THE MUTANT: the hook dropped — a toast stands over Approve instead of above it.
+    expect(dock).toHaveAttribute("data-lifts-toasts");
   });
 
   it("says before Approve what it will do — posts nothing, each waits for its press — and that an email is the person's to send", async () => {
