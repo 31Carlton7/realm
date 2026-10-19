@@ -50,7 +50,8 @@ export type SendMessage = { text: string; attachments: { path: string; mime: str
    *  is, so the pane never shows an agent's words as something the user typed. */
   from?: { sessionId: string; title: string };
   /** Realm's word to the agent about what changed around it since its last message — the teammates it
-   *  was given. The other half of `goal`: on the wire after the user's text, never on the transcript. */
+   *  was given. On the wire after the user's text, and never on the transcript, which keeps what the
+   *  user typed. */
   note?: string };
 
 /* The placeholder a session wears until its first message names it. Not "<Agent> session": the
@@ -694,12 +695,13 @@ export class SessionService {
     // does not. Only on this path: `deliverInterjection` and `resendTurn` do their own bookkeeping, and
     // a peer's question re-sent behind the user's back is not a recovery anyone asked for.
     if (this.forkInFlight.has(id)) this.rewindTurns.set(id, msg);
+    // The teammates this session was given since its last message, told on this one — before the
+    // failover keeps the message, so a retry of the turn says it again.
+    const joined = this.d.teammates?.joinedNote(id);
+    if (joined) msg = { ...msg, note: joined };
     // Recorded BEFORE the message goes out, because the failure this enables recovery from can
     // arrive on the very first event back. A new turn also clears the previous one's retry budget
     // and chain position — those are per-turn, not per-session.
-    // Before the failover records it, so a retry of this turn says it again.
-    const joined = this.d.teammates?.joinedNote(id);
-    if (joined) msg = { ...msg, note: joined };
     this.d.failover?.turnStarted(id, msg);
     this.maybeTitleFrom(id, msg.text);
     // The transcript records what the USER wrote — `@mac` and all. Only the wire below is rewritten.

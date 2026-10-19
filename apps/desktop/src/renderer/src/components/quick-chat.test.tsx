@@ -110,6 +110,23 @@ describe("the quick chat", () => {
     expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual([expect.stringContaining("Files…"), expect.stringContaining("Add teammate…")]);
   });
 
+  it("names who is working on it above the card — the one strip it carries, and without the branch", async () => {
+    /* A teammate can be added from this "+", so this is where it has to be seen. THE MUTANT: the
+       over-strip kept off a compact prompter, as the branch is. */
+    const { store } = await mount();
+    await openChat();
+    const sid = store.getState().quickChat!.sessionId;
+    expect(chat().querySelector(".composer-overstrip")).toBeNull();
+    const helper = { ...store.getState().sessions[sid]!, id: "01ARZ3NDEKTSV4RRFFQ69G5TMT", title: "Check the sources", status: "running" as const,
+      dispatchedBy: { sessionId: sid, kind: "agent_run" as const } };
+    store.setState({ gitInfo: { [store.getState().sessions[sid]!.cwd]: { branch: "main", additions: 0, deletions: 0, dirty: 0 } as never },
+      sessionStatus: { ...store.getState().sessionStatus, [helper.id]: "running" }, dismissedSubagents: { [sid]: [] },
+      subagents: { [sid]: [{ session: helper, goal: "Check the sources", startedAt: Date.now(), settledAt: null, outcome: null, report: null, activity: null }] } });
+    const row = await within(chat()).findByRole("group", { name: "Agents in this session" });
+    expect(row).toHaveTextContent("Check the sources");
+    expect(chat().querySelector(".composer-overstrip .composer-git")).toBeNull();
+  });
+
   it("has no browser, documents, terminal or summary — one close and nothing else", async () => {
     const w = within(await (await mount(), openChat()));
     for (const name of [/browser/i, /documents/i, /terminal/i, /summary/i]) {

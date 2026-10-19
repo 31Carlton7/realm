@@ -421,7 +421,8 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
    * mode chips, the machine, the workspace, the meter, the agents in flight. A quick chat is a
    * question you ask in a corner of the screen; none of those are the question, and a row of them
    * under a 280px card would be most of the window. What stays is what the ask still needs: the
-   * model, attachments, and send.
+   * model, attachments, and send — and who is working on it, since a teammate can be added from
+   * this prompter's "+" too, and the row above the card is where it is seen.
    */
   compact?: boolean;
   /** What the empty box says. The media viewer's prompter names the file it is asking about. */
@@ -771,6 +772,8 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
   const [teammateOpen, setTeammateOpen] = useState(false);
   const rowAgents = useRowAgents(session.id);
+  // The over-strip: the checkout's facts, which a compact prompter does not carry, or who is working.
+  const showOverstrip = (!compact && gitInfo !== null) || rowAgents.length > 0;
   const plusRef = useRef<HTMLButtonElement>(null);
   /** Token start Esc was pressed on: that token stays closed until it is left or retyped. */
   const [mentionDismissed, setMentionDismissed] = useState<number | null>(null);
@@ -1207,9 +1210,9 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
           Between the to-do strip and the card, so the two tabs stack into one frame band rather
           than fighting over the same edge (the join is `.composer-todos + .composer-overstrip` in
           styles.css) and the plan keeps its own top corners. */}
-      {!compact && (gitInfo || rowAgents.length > 0) && (
+      {showOverstrip && (
         <div className="composer-overstrip">
-          <GitChip gitInfo={gitInfo} onOpenDiff={onOpenDiff} />
+          {!compact && <GitChip gitInfo={gitInfo} onOpenDiff={onOpenDiff} />}
           <ActiveAgents sessionId={session.id} agents={rowAgents} onMessage={mentions ? addressAgent : undefined} />
         </div>
       )}
