@@ -2088,6 +2088,18 @@ describe("app store", () => {
       expect(store.getState().gitInfo["/tmp"]).toEqual(gi);
     });
 
+    it("a turn ending re-reads the checkout's changed files along with its summary — the pill is drawn from them", async () => {
+      api = seedGit(); const store = createAppStore(api); await store.getState().boot();
+      const listCalls = () => api.calls.filter((c) => c === "diff:/tmp").length;
+      const before = listCalls();
+      store.getState().applySessionStatus("se1", "idle");
+      await tick();
+      expect(listCalls()).toBe(before + 1);
+      expect("/tmp" in store.getState().diffs).toBe(true);
+      // One summary read, not two: the list does not bring a second `gitInfo` along with it.
+      expect(api.calls.filter((c) => c === "gitInfo:/tmp").length).toBe(api.calls.filter((c) => c === "diff:/tmp").length);
+    });
+
     it("openSession refreshes the session's cwd", async () => {
       api = seedGit(); const store = createAppStore(api); await store.getState().boot();
       const before = api.calls.filter((c) => c.startsWith("gitInfo:")).length;
@@ -2669,6 +2681,22 @@ describe("diff panes", () => {
     // A second "show changes" focuses the pane that exists; it does not accumulate panes.
     expect(a.calls.filter((c) => c.startsWith("createItem:"))).toEqual(created);
     expect(store.getState().items.filter((i) => i.kind === "diff").map((i) => i.id)).toEqual([itemId]);
+  });
+
+  it("names the item \"Changes\", and renames one still named for its branch", async () => {
+    // The branch moved inside the view; the tab says what it shows.
+    const a = withEnv();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().openDiff("env1");
+    expect(store.getState().items.find((i) => i.kind === "diff")?.title).toBe("Changes");
+
+    const old = fakeApi({ environments: { s1: [env] }, items: { s1: [item("i-d", "s1", { kind: "diff", refId: "env1", title: "Changes · realm/x" })] } });
+    const again = createAppStore(old);
+    await again.getState().boot();
+    await again.getState().openDiff("env1");
+    expect(again.getState().items.find((i) => i.id === "i-d")?.title).toBe("Changes");
+    expect(old.calls.some((c) => c.startsWith("createItem:"))).toBe(false);
   });
 
   it("opens as a tab of the focused pane's side pane — the pane keeps what it shows, and no column of its own", async () => {

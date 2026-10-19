@@ -236,6 +236,7 @@ export const liveApi = (): Api => ({
   gitInfo: (cwd) => rpc().call("workspace.gitInfo", { cwd }),
   diff: (cwd) => rpc().call("workspace.diff", { cwd }),
   fileDiff: (cwd, path, staged) => rpc().call("workspace.fileDiff", { cwd, path, staged }),
+  headImage: (cwd, path) => rpc().call("workspace.headImage", { cwd, path }),
   stagePaths: async (cwd, paths) => { await rpc().call("workspace.stage", { cwd, paths }); },
   unstagePaths: async (cwd, paths) => { await rpc().call("workspace.unstage", { cwd, paths }); },
   ship: (input) => rpc().call("workspace.ship", input),

@@ -975,31 +975,6 @@ describe("Ara refresh §3/§4 geometry", () => {
     const hidesChip = RULES.filter((r) => /display: none/.test(r.body) && r.selectors.some((sel) => sel.includes("composer-opts") && !sel.includes("perm-long")));
     expect(hidesChip).toEqual([]);
   });
-
-  it("the branch name is capped by the pane it is in, never by a flat number", () => {
-    // The named mutant: put `max-width: 160px` back. Every pane over ~600px then truncates a name it
-    // had hundreds of pixels of room for, and every pane under ~565px has the whole chip amputated by
-    // the clip above — a button sliced down the middle. Neither is visible from here (jsdom has no
-    // layout); composer-bar-live.mjs sweeps the real row and fails on a chip the group has cut.
-    const branch = bodiesFor(".composer-git .git-branch").join(" ");
-    expect(branch).toContain("100cqw");
-    expect(branch).toContain("var(--branch-reserved)");
-    expect(bodiesFor(".composer-git").join(" ")).toContain("--branch-reserved:");
-  });
-
-  it("a narrow pane spends its width on the branch's NAME, dropping the counts that restate it", () => {
-    const noDirty = blockAfter("@container (max-width: 520px)");
-    expect(noDirty).toMatch(/\.git-dirty \{[^}]*display: none/);
-    const noDiff = blockAfter("@container (max-width: 460px)");
-    expect(noDiff).toMatch(/\.git-diff \{[^}]*display: none/);
-    // The reserve has to be restated as each count leaves, or the name goes on being capped against
-    // room the row has just handed back to it — the silent half of this, and the one worth pinning.
-    expect(noDirty).toContain("--branch-reserved:");
-    expect(noDiff).toContain("--branch-reserved:");
-    // Last step: the chip becomes the mark it already carries. Hidden from the eye, not from a
-    // screen reader — the button's whole remaining content would otherwise be an icon.
-    expect(blockAfter("@container (max-width: 360px)")).toMatch(/\.chip-label \{[^}]*clip-path: inset\(50%\)/);
-  });
 });
 
 describe("Plan 9 W1 — the BUI bridge", () => {
@@ -3297,6 +3272,8 @@ describe("light mode", () => {
     // The same page small, in the page strip.
     [".pdf-thumb-page", "paired with a light override"],
     [".pdf-thumb-page[data-painted]", "a page of the file is white paper on both faces"],
+    // A changed picture in the diff pane's review, on the well's ground — paired the same way.
+    [".diff-thumb", "paired with a light override"],
   ]);
 
   it("no rule paints a raw black or white that the mode cannot reach", () => {
@@ -3311,7 +3288,7 @@ describe("light mode", () => {
   });
 
   it("every literal that is half a pair really does have its other half", () => {
-    for (const sel of [".md img", ".ql-page", "img.avatar", ".media-viewer-img", ".pdf-thumb-page"]) {
+    for (const sel of [".md img", ".ql-page", "img.avatar", ".media-viewer-img", ".pdf-thumb-page", ".diff-thumb"]) {
       expect(bodiesFor(sel).join(" "), sel).toContain("outline: 1px solid rgba(255, 255, 255, 0.1)");
       expect(bodiesFor(`:root[data-mode="light"] ${sel}`).join(" "), sel).toContain("outline-color: rgba(0, 0, 0, 0.1)");
     }

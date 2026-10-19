@@ -212,6 +212,8 @@ export type FakeData = {
   diffs?: Record<string, DiffSummary | null>;
   /** `workspace.fileDiff` by `${cwd}|${path}|${staged}`. */
   patches?: Record<string, FileDiff>;
+  /** `workspace.headImage` by `${cwd}|${path}`; absent = no picture in HEAD (null). */
+  headImages?: Record<string, string>;
   /** What `workspace.ship` answers next. Replace between calls to walk a flow. */
   shipResult?: ShipResult;
   /** `environments.worktreeStatus` by environment id. Mutate between calls to simulate the tree
@@ -502,6 +504,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     gitInfo: overrides.gitInfo ?? {},
     diffs: overrides.diffs ?? {},
     patches: overrides.patches ?? {},
+    headImages: overrides.headImages ?? {},
     shipResult: overrides.shipResult ?? {
       commit: { state: "committed", sha: "abc1234", subject: "a commit", reason: null },
       push: { state: "pushed", remote: "origin", branch: "main", reason: null },
@@ -1952,6 +1955,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return data.patches[`${cwd}|${path}|${staged}`]
         ?? { path, oldPath: null, staged, binary: false, hunks: [], truncated: false, truncatedReason: null, additions: 0, deletions: 0 };
     },
+    headImage: async (cwd, path) => { calls.push(`headImage:${cwd}|${path}`); return data.headImages[`${cwd}|${path}`] ?? null; },
     stagePaths: async (cwd, paths) => { calls.push(`stage:${cwd}|${paths.join(",")}`); },
     unstagePaths: async (cwd, paths) => { calls.push(`unstage:${cwd}|${paths.join(",")}`); },
     ship: async (input) => {
