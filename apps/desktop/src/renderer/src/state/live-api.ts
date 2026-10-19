@@ -216,7 +216,6 @@ export const liveApi = (): Api => ({
   computerAccessStatus: () => window.realm.computerAccess.status(),
   computerAccessRequest: (id) => window.realm.computerAccess.request(id),
   computerAccessRepair: (id) => window.realm.computerAccess.repair(id),
-  computerAccessOpenSettings: (id) => window.realm.computerAccess.openSettings(id),
   updateStatus: () => window.realm.updates.status(),
   checkUpdates: () => window.realm.updates.check(),
   downloadUpdate: () => window.realm.updates.download(),

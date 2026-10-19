@@ -1632,7 +1632,6 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       data.computerAccess = { ...data.computerAccess, rows };
       return structuredClone(data.computerAccess);
     },
-    computerAccessOpenSettings: async (id) => { calls.push(`computerAccessOpenSettings:${id}`); },
     macAccessRevealApp: async () => { calls.push("macAccessRevealApp"); },
     updateStatus: async () => { calls.push("updateStatus"); return { ...data.updateStatus }; },
     // Mirrors main's gate: a disabled updater answers its state unchanged — the fake never checks.

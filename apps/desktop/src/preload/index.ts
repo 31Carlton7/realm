@@ -240,12 +240,11 @@ contextBridge.exposeInMainWorld("realm", {
   /** Computer control's two grants (Permissions tab). `status` never prompts — it is the same
    *  prompt-free query `permissions.probe` uses. `request` DOES prompt, on purpose and only from a
    *  click on that row, which is why it lives here rather than behind `permissions` (tcc.ts's
-   *  no-prompt rule). All three take a ROW id validated in main against a closed set. */
+   *  no-prompt rule). `request` and `repair` take a ROW id validated in main against a closed set. */
   computerAccess: {
     status: (): Promise<ComputerAccessStatus> => ipcRenderer.invoke("computer:status"),
     request: (id: string): Promise<ComputerAccessStatus> => ipcRenderer.invoke("computer:request", id),
     repair: (id: string): Promise<ComputerAccessStatus> => ipcRenderer.invoke("computer:repair", id),
-    openSettings: (id: string): Promise<void> => ipcRenderer.invoke("computer:open-settings", id),
   },
   /** Settings→App "Updates" row (Plan 15 W1). The gate lives in main (updater.ts): `check` on a
    *  gated build answers the same honest disabled state `status` does — never a fake spinner. */

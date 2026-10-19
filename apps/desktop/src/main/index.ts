@@ -1386,11 +1386,6 @@ ipcMain.handle("computer:repair", (_e, id: unknown): Promise<ComputerAccessStatu
   return computerAccess.repair(id);
 });
 
-ipcMain.handle("computer:open-settings", (_e, id: unknown) => {
-  if (!isComputerAccessId(id)) throw new Error(`unknown computer access row: ${String(id)}`);
-  void shell.openExternal(TCC_SETTINGS_URLS[id]);
-});
-
 // ── The `mac` CLI's access (Permissions tab, "Apps on this Mac") ────────────────────────────────
 // Unlike tcc:probe, this half can actually GRANT: for everything but Full Disk Access the grant is a
 // prompt, and the only way to raise a prompt is to run a real command — so `mac:grant` runs one. All

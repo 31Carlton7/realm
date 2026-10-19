@@ -544,7 +544,6 @@ export type Api = TeamApi & LabApi & {
   computerAccessRequest(id: string): Promise<ComputerAccessStatus>;
   /** Clear Realm's stale entry for ONE grant (tccutil reset in main), ask again, open its pane. */
   computerAccessRepair(id: string): Promise<ComputerAccessStatus>;
-  computerAccessOpenSettings(id: string): Promise<void>;
   /** The Updates row's state (Plan 15 W1) — main-process IPC. The gate lives in main (updater.ts):
    *  a gated build answers `disabled` with its reason, and `checkUpdates` on such a build returns
    *  that same state rather than pretending to check. */
@@ -2771,7 +2770,6 @@ export type AppState = TeamSlice & LabSlice & {
   /** Repair ONE grant macOS no longer honours (tccutil reset, ask again), then watch for the switch.
    *  A no-op while another prompt is up, and on any row that does not offer it. */
   repairComputerAccess(id: string): Promise<void>;
-  openComputerAccessPane(id: string): Promise<void>;
   /** Fetch the Updates row's current state from main's gated updater into `updateStatus`. */
   refreshUpdateStatus(): Promise<void>;
   /** Run a real update check (or receive the disabled state unchanged — main's gate decides).
@@ -7739,7 +7737,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         finally { set({ computerRequesting: null }); }
         void watchComputerAccess(id);
       },
-      async openComputerAccessPane(id) { await api.computerAccessOpenSettings(id); },
       async refreshUpdateStatus() { set({ updateStatus: await api.updateStatus() }); },
       async checkForUpdates() {
         const held = get().updateStatus;

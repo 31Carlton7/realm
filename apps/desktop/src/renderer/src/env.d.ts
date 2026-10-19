@@ -206,7 +206,6 @@ interface Window {
       status(): Promise<ComputerAccessStatus>;
       request(id: string): Promise<ComputerAccessStatus>;
       repair(id: string): Promise<ComputerAccessStatus>;
-      openSettings(id: string): Promise<void>;
     };
     /** Settings→App Updates row (Plan 15 W1). The gate lives in main: on a gated build `check`
      *  answers the same disabled state `status` does — the renderer can't start a check main won't run. */
