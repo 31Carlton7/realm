@@ -6300,7 +6300,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           probe: get().agentProbe,
           now: Date.now(),
           readLog,
-          children: () => api.listDelegatedChildren(id),
+          children: async () => (await api.listDelegatedChildren(id)).children,
           resolve: async (path, base) => (await window.realm?.files?.resolve?.(path, base ?? undefined)) ?? null,
           image: async (path) => (await window.realm?.shareImage?.(path)) ?? null,
         });
