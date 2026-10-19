@@ -20,6 +20,8 @@ import { waitFor } from "../test-utils";
  *   - the lead never told / told twice / on the log  → "the lead's agent is told on its next message"
  *   - a dismissal that does not reach the list      → "dismissing takes it off the lead's list"
  *   - a message to a teammate steered mid-turn      → "a message naming a teammate is passed to it"
+ *   - the lead's Stop killing the person's teammate / sparing its agent's own child / a deleted
+ *     lead's teammate left running                → "the lead's Stop leaves the person's teammate"
  *   - agent_ask still refusing every child / any session asking another's child / asking mid-run
  *                                                   → "the lead can ask its own teammate"
  */
@@ -201,6 +203,49 @@ describe("stopping and dismissing", () => {
     await app.sessions.interrupt(b.leadId);
     app.teammates.release(b.leadId);
     expect(app.teammates.dismissed(b.leadId)).toEqual([]);
+    b.close();
+  });
+});
+
+describe("the lead's Stop leaves the person's teammate", () => {
+  // The child's entry first: a teammate's message carries the lead's conversation, the lead's line too.
+  const LONG: FakeScript = [
+    { on: "You are a delegated agent.", emit: Array.from({ length: 40 }, (_, i) => ({ kind: "text" as const, text: `child ${i}` })) },
+    { on: "Lead's long turn", emit: Array.from({ length: 60 }, (_, i) => ({ kind: "text" as const, text: `lead ${i}` })) },
+  ];
+
+  it("stops the lead and what its agent started, and leaves running the teammate the person added", async () => {
+    const b = await boot({ script: LONG, delayMs: 30 });
+    const lead = { sessionId: b.leadId, spaceId: b.spaceId };
+    await app.sessions.send(b.leadId, { text: "Lead's long turn", attachments: [] });
+    await waitFor(() => app.sessions.get(b.leadId).status === "running");
+    const { childId: teammate } = await b.call<{ childId: string }>("delegation.addTeammate", { sessionId: b.leadId, agentKind: "fake", brief: "Write the tests" });
+    const started = await app.agentRuns.start(lead, { goal: "Survey the docs", title: "Survey the docs", constraints: { agentKind: "fake" } });
+    const agents = app.sessions.list(b.spaceId).find((x) => x.title === "Survey the docs")!.id;
+    expect(started.isError).toBe(false);
+    await waitFor(() => app.sessions.get(teammate).status === "running" && app.sessions.get(agents).status === "running");
+    // The Stop button on the lead's prompter.
+    await b.call("sessions.interrupt", { id: b.leadId });
+    await waitFor(settled(agents));
+    expect(app.agentRuns.record(agents)!.outcome).toBe("interrupted");
+    // Still working while the agent's child is already stopped, and it finishes as itself.
+    expect(app.sessions.get(teammate).status).toBe("running");
+    await waitFor(settled(teammate), { timeout: 10_000 });
+    expect(app.agentRuns.record(teammate)!.outcome).toBe("done");
+    // And its report is still the lead's to collect.
+    expect(text(await app.agentRuns.wait(lead, { handles: [teammate] }))).toContain("child 39");
+    b.close();
+  });
+
+  it("deleting the lead stops its teammate too: there is no session left for it to help", async () => {
+    const b = await boot({ script: LONG, delayMs: 30 });
+    const { childId: teammate } = await b.call<{ childId: string }>("delegation.addTeammate", { sessionId: b.leadId, agentKind: "fake" });
+    await waitFor(() => app.sessions.get(teammate).status === "running");
+    const before = app.sessions.events(teammate, 0, 500).length;
+    await app.sessions.delete(b.leadId);
+    await waitFor(() => app.sessions.get(teammate).status === "idle");
+    // Stopped mid-script: it never reached its last line.
+    expect(app.sessions.events(teammate, before, 500).some((e) => e.event.type === "assistant_text" && e.event.payload.text === "child 39")).toBe(false);
     b.close();
   });
 });

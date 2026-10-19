@@ -34,6 +34,10 @@ const SUMMARY_MAX = 1_200;
  * the lead's agent can do with a sub-agent it started works on one it was given — `agent_status` lists
  * it and `agent_wait` collects its report — and the Agents tab shows it among the rest.
  *
+ * **The person's, not the turn's.** Stopping the lead's turn stops what its agent started and leaves a
+ * teammate running (`DelegationEngine.parentInterrupted`'s `sparePeople`): it has its own Stop on the
+ * prompter's row. Deleting the lead stops it with everything else.
+ *
  * **The lead is told on its next message.** Its agent cannot act between turns, so the moment that
  * matters is the next one: `joinedNote` rides on it, beside the user's text, the way a mentioned file
  * or a woken role does (`SessionService.deliver`). Nothing is sent on its own — a turn nobody typed is
@@ -67,7 +71,7 @@ export class Teammates {
       ...(input.newWorktree ? { newWorktree: true } : { environmentId: lead.environmentId }),
     };
     const title = brief ? taskName(brief) : `${AGENT_META[kind].label} teammate`;
-    const started = await this.d.agentRuns.startChild({ sessionId: lead.id, spaceId: lead.spaceId }, { goal: this.goalFor(lead, brief), title, constraints });
+    const started = await this.d.agentRuns.startChild({ sessionId: lead.id, spaceId: lead.spaceId }, { goal: this.goalFor(lead, brief), title, constraints }, { byPerson: true });
     if (!started.ok) throw new RpcError("TEAMMATE_REFUSED", started.message.replace(/^refused:\s*/, ""));
     this.d.settings.set(joinedKey(lead.id), [...this.joined(lead.id), started.childId]);
     return { childId: started.childId };
