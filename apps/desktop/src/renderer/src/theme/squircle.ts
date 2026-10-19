@@ -19,9 +19,6 @@ declare const CSS: {
  *  and canvas can parse neither. */
 const PAINT_INPUTS: readonly PropertyDefinition[] = [
   { name: "--sq-fill", syntax: "<color>", initialValue: "transparent", inherits: false },
-  /* The light along a card's top edge (squircle-paint.js, `sheen`). Transparent is no light at all,
-   * which is every surface that is not a card. */
-  { name: "--sq-sheen", syntax: "<color>", initialValue: "transparent", inherits: false },
   { name: "--sq-ring", syntax: "<color>", initialValue: "transparent", inherits: false },
   { name: "--sq-ring-w", syntax: "<length>", initialValue: "0px", inherits: false },
   /* `top` leaves the ring's top edge out — a tab stacked under another, whose top is a join inside

@@ -3160,8 +3160,9 @@ describe("one card", () => {
     ".stat-tile", ".usage-card", ".usage-figures", ".plan-account", ".market-card"];
   /** Cards made of a run of boxes, one card a list long: each box takes its share of the corners. */
   const RUNS = [".settings-row", ".engine-card"];
-  /** An edge drawn round a box: a border, a zero-blur ring, or a stack with a ring in it. */
-  const EDGE = /(^|;\s*)border(-top|-right|-bottom|-left)?:(?!\s*(none|0)\b)|0 0 0 (var\(--hairline-w\)|[\d.]+px) |var\(--shadow-card\)|var\(--card-ring\)|--rl-card-rim/;
+  /** An edge drawn round a box or along one side of it: a border, a zero-blur ring, a stack with a ring
+   *  in it, or an inset line — a light along the top edge read as a top border at 4× (the owner, 10-19). */
+  const EDGE = /(^|;\s*)border(-top|-right|-bottom|-left)?:(?!\s*(none|0)\b)|0 0 0 (var\(--hairline-w\)|[\d.]+px) |inset 0 -?[\d.]+px 0 |var\(--shadow-card\)|var\(--card-ring\)|--rl-card-rim/;
 
   it("draws no edge round any card, at rest", () => {
     // THE MUTANT: a hairline border, or the ring of the old card stack, put back on any one of them.
@@ -3175,20 +3176,19 @@ describe("one card", () => {
       if (sel === ".settings-row") continue; // a run of rows rounds its ends, below
       expect(body, sel).toContain("border-radius: var(--r-squircle-card)");
       // A file is a card through the object token, which is the card's depth by another name.
-      if (sel !== ".market-card") expect(body, sel).toMatch(/box-shadow: var\(--(card-depth|rl-object-shadow)\)/);
+      if (sel !== ".market-card") expect(body, sel).toMatch(/box-shadow: var\(--(card-lift|rl-object-shadow)\)/);
     }
     expect(bodiesFor(".settings-row:not(.settings-row + .settings-row)").join(" ")).toContain("border-start-start-radius: var(--r-squircle-card)");
     expect(bodiesFor(".settings-row:not(:has(+ .settings-row))").join(" ")).toContain("border-end-end-radius: var(--r-squircle-card)");
   });
 
-  it("paints each card on the superellipse, with its light, and keeps the lift a ring-free box-shadow", () => {
+  it("paints each card on the superellipse, and keeps the lift a ring-free box-shadow", () => {
     // THE MUTANTS: a card left off the painted list (its corner a circle beside the strip's
-    // superellipse), the light dropped from the painter, or the old ringed stack on the painted card.
+    // superellipse), or the old ringed stack on the painted card.
     for (const sel of CARDS) {
       const painted = bodiesFor(`:root[data-squircle] ${sel}`).join(" ");
       expect(painted, sel).toContain("background: paint(rl-squircle)");
       expect(painted, sel).toContain("--sq-radius-top: var(--r-squircle-card)");
-      expect(painted, sel).toContain("--sq-sheen: var(--card-sheen)");
       expect(painted, sel).not.toMatch(EDGE);
     }
     const shared = bodiesFor(":root[data-squircle] .subagent-card").join(" ");
@@ -3220,17 +3220,15 @@ describe("one card", () => {
     expect(gap * rung, "the lift and the clip sit this far inside the painted edge, in px").toBeLessThan(0.5);
   });
 
-  it("has no ring in its lift, light only on the face where light shows, and one composed stack", () => {
-    // Once per face: dark's, then light's.
+  it("lifts a card with no ring and no inset line, in both faces", () => {
+    // Once per face: dark's, then light's. THE MUTANTS: a ring layer, or an inset light, in either.
     const lifts = [...tokensCss.matchAll(/--card-lift: ([^;]+);/g)].map((m) => m[1]!);
     expect(lifts).toHaveLength(2);
-    // Every layer is blurred — a layer with no blur is a ring, whatever its offsets say.
-    for (const lift of lifts) for (const layer of lift.split(",")) expect(Number.parseFloat(layer.trim().split(/\s+/)[2]!), layer).toBeGreaterThan(0);
-    const sheens = [...tokensCss.matchAll(/--card-sheen: ([^;]+);/g)].map((m) => m[1]!);
-    expect(sheens).toHaveLength(2);
-    expect(sheens[0]).toMatch(/^oklch\(1 0 0 \/ [\d.]+\)$/);
-    expect(sheens[1]).toBe("transparent");
-    expect(tokensCss).toContain("--card-depth: inset 0 1px 0 var(--card-sheen), var(--card-lift);");
+    for (const lift of lifts) for (const layer of lift.split(",")) {
+      expect(layer, "no layer is inset").not.toContain("inset");
+      // Every layer is blurred — a layer with no blur is a ring, whatever its offsets say.
+      expect(Number.parseFloat(layer.trim().split(/\s+/)[2]!), layer).toBeGreaterThan(0);
+    }
   });
 
   /* A card's fill is what makes it a card, so a new rule that paints one is held to the family. The
@@ -3247,10 +3245,10 @@ describe("one card", () => {
 
   it("draws a run of boxes as one card: no edges, the curve at its two ends, painted", () => {
     // THE MUTANTS: a run's ends left on the old circular rung, or the engines' run left unpainted.
-    for (const sel of RUNS) expect(bodiesFor(sel).join(" "), sel).not.toMatch(EDGE);
     const ends = { ".settings-row": [".settings-row:not(.settings-row + .settings-row)", ".settings-row:not(:has(+ .settings-row))"],
       ".engine-card": [".engine-card:first-child", ".engine-card:last-child"] } as const;
     for (const sel of RUNS) {
+      for (const part of [sel, ...ends[sel as keyof typeof ends]]) expect(bodiesFor(part).join(" "), part).not.toMatch(EDGE);
       expect(bodiesFor(`:root[data-squircle] ${sel}`).join(" "), sel).toContain("background: paint(rl-squircle)");
       const [first, last] = ends[sel as keyof typeof ends];
       expect(bodiesFor(first).join(" "), first).toContain("border-start-start-radius: var(--r-squircle-card)");
@@ -3258,6 +3256,24 @@ describe("one card", () => {
       expect(bodiesFor(`:root[data-squircle] ${first}`).join(" "), first).toContain("--sq-radius-top: var(--r-squircle-card)");
       expect(bodiesFor(`:root[data-squircle] ${last}`).join(" "), last).toContain("--sq-radius-bottom: var(--r-squircle-card)");
     }
+  });
+
+  /* The Light / Dark / System tiles (the coordinator, 10-19: borderless too). They are set INTO a
+     settings card, so each is a well in it rather than a card on it, and the chosen one is a fill.
+     THE MUTANTS: the hairline back on a tile, the ring back as the chosen state, or a tile left off the
+     painter. */
+  it("draws the theme's three tiles as wells on the card's curve, the chosen one by its fill", () => {
+    const tile = bodiesFor(".mode-card").join(" ");
+    expect(tile).not.toMatch(EDGE);
+    expect(tile).toContain("background: var(--rl-frame-raised)");
+    expect(tile).toContain("border-radius: var(--r-squircle-card)");
+    const chosen = bodiesFor(".mode-card[data-selected]").join(" ");
+    expect(chosen).toContain("background: var(--accent-tint)");
+    expect(chosen).not.toMatch(/box-shadow|border|outline/);
+    const painted = bodiesFor(":root[data-squircle] .mode-card").join(" ");
+    expect(painted).toContain("background: paint(rl-squircle)");
+    expect(painted).toContain("--sq-fill: var(--rl-frame-raised)");
+    expect(bodiesFor(":root[data-squircle] .mode-card[data-selected]").join(" ")).toContain("--sq-fill: var(--accent-tint)");
   });
 
   it("lifts a light run of settings rows from its list, and only a list of rows", () => {
@@ -3446,10 +3462,10 @@ describe("light mode", () => {
        being just a flat square. And also it should have a light border. Look at the simulator and the
        bar that has the live indicator… That should be the shadow and border used for any library item."
        So the toolbar and the items all wear ONE token — and since 10-19 ("I don't like having borders")
-       that token is a card's depth, its light and lift with no edge. THE MUTANTS: an item put back on a
+       that token is a card's lift, with no edge. THE MUTANTS: an item put back on a
        flat inset rim, an item given the stack copied rather than named, the toolbar moved to another
        stack on its own, a ring back in the token, and a picture tile's ring traced inside it. */
-    expect(bodiesFor(":root").join(" ")).toContain("--rl-object-shadow: var(--card-depth)");
+    expect(bodiesFor(":root").join(" ")).toContain("--rl-object-shadow: var(--card-lift)");
     expect(RULES.filter((r) => /(^|[;\s])--rl-object-shadow\s*:/.test(r.body)), "defined once, so there is one place to change it").toHaveLength(1);
     for (const sel of [".sim-toolbar", ".library-tile", ".library-row-mark", ".saved-turn-open", ".docs-home-glyph[data-type]", ".attach-art"]) {
       const body = bodiesFor(sel).join(" ");
@@ -3461,11 +3477,10 @@ describe("light mode", () => {
     expect(bodiesFor(".library-tile").join(" ")).toContain("overflow: hidden");
     // A file the agent will drop keeps its warning ring, and rests on the same lift as every other.
     expect(bodiesFor('.attach-tile[data-disposition="ignored"] .attach-art').join(" ")).toContain("box-shadow: 0 0 0 var(--hairline-w) var(--orange), var(--shadow-card-lift)");
-    /* Painted, the attachment's well takes the same surface in its two halves: the light from the
-       painter, the shadow as a filter on the control round the well — not on the well, whose own
+    /* Painted, the attachment's well takes the same surface: the painter draws its fill and nothing
+       round it, and the shadow is a filter on the control round the well — not on the well, whose own
        clip-path would cut it off. THE mutants: a ring handed back to the painter, or no lift. */
     expect(bodiesFor(":root").join(" ")).toContain("--rl-object-lift-filter: var(--shadow-card-lift-filter)");
-    expect(bodiesFor(":root[data-squircle] .attach-art").join(" ")).toContain("--sq-sheen: var(--card-sheen)");
     expect(bodiesFor(":root[data-squircle] .attach-art").join(" ")).not.toContain("--sq-ring");
     expect(bodiesFor(":root[data-squircle] .attach-open").join(" ")).toContain("filter: var(--rl-object-lift-filter)");
     expect(bodiesFor(":root[data-squircle] .attach-art").join(" ")).not.toContain("filter:");

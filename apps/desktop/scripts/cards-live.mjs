@@ -9,7 +9,8 @@
  * orchestrates four delegated children, for the Agents tab's cards and the pinned report.
  *
  * Every card family is photographed in both faces: the strip, the Agents tab, the report, the plan,
- * the edit card, the permission and question cards, a settings group, the Library, a scheduled task,
+ * the edit card, the permission and question cards, a settings group, the engines, Usage, the theme's
+ * Light / Dark / System tiles, the Library, a scheduled task,
  * and — for the families that take a team or a pull request to reach — the same classes laid into the
  * window as a gallery, under the real stylesheet and the real painter. A corner of the strip is
  * captured at 4× in both faces.
@@ -18,7 +19,8 @@
  *   - its corner is the painter's superellipse, not a circular arc (the fill covers ~0.927 of the
  *     corner square, a circle ~0.785) — and with the gate off, the same measurement finds the circle
  *   - no rim: the pixel just inside its side edge is the fill, not a line brighter (dark) or darker
- *     (light) than the fill beside it
+ *     (light) than the fill beside it, and nothing along its top edge either
+ *   - on the dark face, the fill alone stands the card off its ground
  *   - the lift: the ground under the card is darker than the ground beside the window's edge
  *
  * Screenshots go to LIVE_OUT_DIR as `<LIVE_TAG>-<what>-<face>.png`, so a run before a change and one
@@ -227,6 +229,12 @@ const HELPERS = `globalThis.__live = {
   },
 }; true`;
 
+/** The theme tiles' rules before this change, word for word, for the before shot. */
+const OLD_TILES = `.mode-card { border: var(--hairline-w) solid var(--rl-line) !important; border-radius: var(--r-panel) !important;
+  background: var(--rl-panel) !important; }
+.mode-card[data-selected] { box-shadow: 0 0 0 2px var(--rl-accent) !important; }
+.mode-card[data-selected] .mode-card-name { color: inherit !important; }`;
+
 /** The gallery: the families that take a team, a pull request or a dropped folder to reach, laid into
  *  the window with the classes their components render, so the stylesheet and the painter draw them
  *  exactly as they draw the real thing. */
@@ -339,7 +347,8 @@ async function main() {
       check("dark: the corner is the painter's superellipse, not a circular arc", Math.abs(corner.fraction - SQUIRCLE) < TOL, corner);
       const sheen = await evalIn(c, `(async () => { const s = await __live.sampler(${JSON.stringify(b64)}); const b = document.querySelector(${JSON.stringify(STRIP)}).getBoundingClientRect();
         const x = b.left + b.width * 0.6; return { top: s.lum(x, b.top + 0.25), below: s.lum(x, b.top + 3) }; })()`);
-      check("dark: light along the top edge, a few levels over the fill and no more", sheen.top > sheen.below + 2 && sheen.top < sheen.below + 12, sheen);
+      check("dark: nothing along the top edge either — its first pixel is the fill", Math.abs(sheen.top - sheen.below) <= 1.5, sheen);
+      check("dark: the card stands off its ground by its fill alone — at least 8 levels", e.fill - e.far >= 8, { fill: e.fill, ground: e.far });
       // The live mutant: the old rim put back. The same reading has to see it.
       await evalIn(c, `(() => { const st = document.createElement('style'); st.id = 'live-rim'; st.textContent = '.subagent-strip { border: var(--hairline-w) solid var(--overlay-lighten-50) !important; }'; document.head.append(st); return true; })()`);
       await sleep(300);
@@ -440,11 +449,17 @@ async function main() {
     for (const face of ["dark", "light"]) { await setFace(c, face); await shotOf(c, ".settings-page-pane .settings-list, .settings-page-pane .settings-group", "settings", face, { pad: 24 }); }
     await setFace(c, "dark");
     // Two more pages of cards: the engines' run, and Usage's tiles and cards.
-    for (const [tab, sel, what] of [["Engines", ".engines-list", "engines"], ["Usage", ".usage-panel", "usage"]]) {
+    for (const [tab, sel, what] of [["Appearance", '.settings-row[data-setting="theme"]', "mode-tiles"], ["Engines", ".engines-list", "engines"], ["Usage", ".usage-panel", "usage"]]) {
       await evalIn(c, `[...document.querySelectorAll('.settings-tab, .page-rail button, .page-rail label, [role=tab]')].find((b) => b.textContent.trim() === ${JSON.stringify(tab)})?.click(), true`);
       if (!(await until(() => evalIn(c, `!!document.querySelector(${JSON.stringify(sel)})`), 8_000, tab).catch(() => false))) { note(`no ${what} page`, sel); continue; }
       await sleep(900);
       for (const face of ["dark", "light"]) { await setFace(c, face); await shotOf(c, sel, what, face, { pad: 16 }); }
+      if (what === "mode-tiles") {
+        // The tiles as they were: the old rules (275ee38a) laid back over the new ones, verbatim.
+        await evalIn(c, `(() => { const st = document.createElement('style'); st.id = 'live-old-tiles'; st.textContent = ${JSON.stringify(OLD_TILES)}; document.head.append(st); return true; })()`);
+        for (const face of ["dark", "light"]) { await setFace(c, face); await shotOf(c, sel, "mode-tiles-old", face, { pad: 16 }); }
+        await evalIn(c, `document.getElementById('live-old-tiles')?.remove(), true`);
+      }
       await setFace(c, "dark");
     }
     await evalIn(c, `window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })), true`);

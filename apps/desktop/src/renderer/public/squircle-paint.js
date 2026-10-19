@@ -49,11 +49,6 @@ function sweep(ctx, cx, cy, r, t0, t1, n) {
 
 function trace(ctx, w, h, rTop, rBot, n) {
   ctx.beginPath();
-  outline(ctx, w, h, rTop, rBot, n);
-}
-
-/** The closed outline as one more subpath of whatever path is being built. */
-function outline(ctx, w, h, rTop, rBot, n) {
   ctx.moveTo(rTop, 0);
   ctx.lineTo(w - rTop, 0);
   sweep(ctx, w - rTop, rTop, rTop, -Math.PI / 2, 0, n);
@@ -81,31 +76,11 @@ function traceOpenTop(ctx, w, h, rTop, rBot, n) {
   ctx.lineTo(0, rTop);
 }
 
-/* A card's light: the band between its outline and the same outline one pixel lower, inside the
- * shape — what `box-shadow: inset 0 1px 0` draws round a circular corner, drawn round this one. Full
- * along the top run, thinning to nothing as each corner turns down, and absent from the sides and the
- * foot, so it reads as light falling on the top edge rather than as a line drawn round the card. The
- * pixel is the fallback's `1px`, which the stylesheet writes beside it. */
-function sheen(ctx, w, h, rTop, rBot, n, colour) {
-  ctx.save();
-  trace(ctx, w, h, rTop, rBot, n);
-  ctx.clip();
-  trace(ctx, w, h, rTop, rBot, n);
-  ctx.translate(0, 1);
-  outline(ctx, w, h, rTop, rBot, n);
-  ctx.fillStyle = colour;
-  ctx.fill("evenodd");
-  ctx.restore();
-}
-
-/* A registered `<color>` left at its initial value comes through as one of these. */
-const clear = (colour) => !colour || colour === "transparent" || colour === "rgba(0, 0, 0, 0)";
-
 registerPaint(
   "rl-squircle",
   class {
     static get inputProperties() {
-      return ["--sq-fill", "--sq-sheen", "--sq-ring", "--sq-ring-w", "--sq-ring-open", "--sq-radius-top", "--sq-radius-bottom", "--sq-n"];
+      return ["--sq-fill", "--sq-ring", "--sq-ring-w", "--sq-ring-open", "--sq-radius-top", "--sq-radius-bottom", "--sq-n"];
     }
 
     paint(ctx, size, props) {
@@ -134,9 +109,6 @@ registerPaint(
         ctx.fill();
       }
 
-      const light = String(props.get("--sq-sheen")).trim();
-      if (!clear(light)) sheen(ctx, w, h, rTop, rBot, n, light);
-
       const ringW = px(props.get("--sq-ring-w"));
       const ring = String(props.get("--sq-ring")).trim();
       if (ringW > 0 && ring) {
@@ -144,8 +116,6 @@ registerPaint(
          * would be cut off by the background painting area anyway. This lands the whole ring just
          * inside the curve, at the width asked for, with no second edge. */
         ctx.save();
-        // Traced again: the sheen above leaves its own band as the current path.
-        trace(ctx, w, h, rTop, rBot, n);
         ctx.clip();
         // The clip is always the closed shape; only the stroke leaves the top out (`traceOpenTop`).
         if (String(props.get("--sq-ring-open")).trim() === "top") traceOpenTop(ctx, w, h, rTop, rBot, n);

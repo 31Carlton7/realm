@@ -215,8 +215,8 @@ Rules:
   not, and two stacked seams in the same 60px is the failure this rule exists to catch.
 - Hairlines separate structure. Shadows indicate elevation. A card is the one resting thing that
   stands up, and it does so without an edge (the owner, 10-19: "I don't like having borders… it feels
-  cheap"): its fill, light along its top edge that is gone by the time each corner turns down, and a
-  soft lift with no ring in it (`--card-depth`). A thing a person picks up rather than reads — a file
+  cheap"): its fill and a soft lift with no ring in it (`--card-lift`), and nothing along any edge — a
+  light along the top, tried first, read as a top border once zoomed in. A thing a person picks up rather than reads — a file
   wherever it is shown, a saved turn, the device's toolbar — stands on the same surface through one
   token of its own (`--rl-object-shadow`, the owner's 10-05 rule that they all match). A picture in the
   transcript stays its own frame. Floating things — menus, popovers, sheets, toasts — are not cards:
@@ -243,14 +243,14 @@ Rules:
   is not a well. The rows were `--rl-frame`, a shade BELOW the page, and a group of controls that
   reads as a hole in the page reads as nothing in particular. The fill is an overlay rather than a
   colour, because the ground under a page is the pane's translucent canvas and the card has to lift
-  whatever that came to. The run of rows is one card: the first row takes the top corners and the
-  light, the last the bottom corners, and a row under another hands its top to the divider. A row
+  whatever that came to. The run of rows is one card: the first row takes the top corners, the last
+  the bottom corners, and a row under another hands its top to the divider. A row
   cannot cast the lift — it would fall across the row above — so where the card needs it to be seen at
   all (white on near-white, the light face) the list holding the run casts it as one shape.
 - The step is a card's boundary, and nothing is drawn round it. Codex rings its card a rung lighter
   than both sides (rim 57); Realm's rim did the same until it measured brighter over the card than the
   card stood over the ground (10-18, "a border fighting the card"), and softened to less than the fill
-  it still read as an outline (10-19). What a card has instead is light and lift. A divider between a
+  it still read as an outline (10-19). What a card has instead is its lift. A divider between a
   card's rows, and the edge of a field written on one, is a line and keeps the line's weight — a
   field is a place to type, not a card.
 - A hairline with NO change of surface beside it needs its own weight, and its own token. The
