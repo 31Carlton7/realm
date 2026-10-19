@@ -26,6 +26,7 @@ export * from "./memory";
 export * from "./session-events";
 export * from "./session-facts";
 export * from "./notifications";
+export * from "./remote";
 export * from "./review";
 export * from "./code-review";
 export * from "./browser-agent";

@@ -176,6 +176,19 @@ describe("FakeAdapter lifecycle", () => {
     const got: string[] = []; for await (const e of h.events) got.push(e.type);
     expect(got).toEqual(["init", "status", "status"]);
   });
+  it("a failing step settles the turn in error, as a real agent's failed turn does, and the handle stays usable", async () => {
+    const a = new FakeAdapter({ script: [{ on: "fail", emit: [{ kind: "fail", message: "the build broke" }, { kind: "text", text: "never said" }] }, { on: "ok", emit: [{ kind: "text", text: "fine" }] }] });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] }); const got: string[] = []; const said: string[] = [];
+    const c = (async () => { for await (const e of h.events) {
+      got.push(e.type === "status" ? `status:${e.payload.status}` : e.type);
+      if (e.type === "assistant_text") { said.push(e.payload.text); if (e.payload.text === "fine") break; }
+    } })();
+    await h.send({ text: "fail", attachments: [] }); await h.send({ text: "ok", attachments: [] }); await c;
+    // THE MUTANT: settle idle after the error, as `throw` does, and no failure ever stands in Needs you.
+    expect(got.slice(0, 6)).toEqual(["init", "status:idle", "status:running", "error", "status:error", "status:running"]);
+    expect(said).toEqual(["fine"]);
+    await h.dispose();
+  });
   it("a throwing step emits error and the handle stays usable", async () => {
     const a = new FakeAdapter({ script: [{ on: "boom", emit: [{ kind: "throw", message: "kaboom" }] }, { on: "ok", emit: [{ kind: "text", text: "fine" }] }] });
     const h = a.start({ cwd: "/tmp", mcpServers: [] }); const got: string[] = []; let errMsg = "";

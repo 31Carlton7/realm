@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isSealed, newSecretKey, open, seal, SECRET_KEY_BYTES } from "./secret-box";
+import { isSealed, newSecretKey, open, seal, SECRET_DOMAINS, SECRET_KEY_BYTES } from "./secret-box";
 
 /**
  * The mutants this format exists to kill:
@@ -63,6 +63,15 @@ describe("secret-box", () => {
     expect(() => seal(Buffer.alloc(16), "oauth", "x")).toThrow();
     expect(open(Buffer.alloc(16), "oauth", seal(newSecretKey(), "oauth", "x"))).toBeNull();
     expect(newSecretKey()).toHaveLength(SECRET_KEY_BYTES);
+  });
+
+  it("never renumbers a domain: each code is written into every blob of its kind", () => {
+    // Appended only. A renumbered `machine` or `remote` would leave every stored blob of that domain
+    // unopenable — a forgotten VNC password, or every paired phone cut off — with no error to see.
+    expect(SECRET_DOMAINS).toEqual({ oauth: 1, credential: 2, machine: 3, eggs: 4, passkey: 5, unlock: 6, "vault-key": 7, "vault-allow": 8, "team-policy": 9, "fill-allow": 10, remote: 11 });
+    const key = newSecretKey();
+    expect(Buffer.from(seal(key, "remote", "keys"), "base64")[1]).toBe(11);
+    expect(open(key, "machine", seal(key, "remote", "keys"))).toBeNull();
   });
 
   it("isSealed tells a blob from the PLAINTEXT JSON older builds wrote — the no-migration path", () => {

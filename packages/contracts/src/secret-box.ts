@@ -57,13 +57,19 @@
  * role do more without the person — a row realm-server keeps in `realm.db`, where an agent's shell can
  * write. The seal is the stamp beside the row; the server cannot make one, only ask main whether one
  * opens. Held only by Electron main.
+ *
+ * `remote` (Plan 28) seals the Mac's own identity for Realm Mobile: the X25519 and Ed25519 private
+ * keys every paired phone has pinned. The server holds this key, like `machine`, because the server
+ * is what dials the relay and runs each phone's Noise handshake. Like `machine`, no key means no
+ * seal at all — never a private key written in the clear — and the server reports itself locked
+ * until Electron main hands the key over.
  */
 import { createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from "node:crypto";
 
 /** Domain → the byte written into the header and mixed in as AAD. Codes are permanent: changing one
  *  makes every existing blob of that domain unopenable, which for credentials means silent data
  *  loss the user only discovers at a sign-in prompt. Add, never renumber. */
-export const SECRET_DOMAINS = { oauth: 1, credential: 2, machine: 3, eggs: 4, passkey: 5, unlock: 6, "vault-key": 7, "vault-allow": 8, "team-policy": 9, "fill-allow": 10 } as const;
+export const SECRET_DOMAINS = { oauth: 1, credential: 2, machine: 3, eggs: 4, passkey: 5, unlock: 6, "vault-key": 7, "vault-allow": 8, "team-policy": 9, "fill-allow": 10, remote: 11 } as const;
 export type SecretDomain = keyof typeof SECRET_DOMAINS;
 
 const VERSION = 1;
