@@ -437,6 +437,26 @@ describe("SecretStore — persistence and the keyring", () => {
     expect(disk.file).toBe("{ not json");
   });
 
+  it("a keyring that will not open and a file that cannot be moved: nothing changes, and the next read starts over", async () => {
+    const { store, disk, deps } = makeStore();
+    const row = store.addCredential(P, input());
+    const saved = disk.file;
+    let keychainBack = false;
+    const later = new SecretStore({
+      ...deps,
+      safeStorage: { ...fakeSafeStorage(), decryptString: (b) => { if (!keychainBack) throw new Error("item not found"); return fakeSafeStorage().decryptString(b); } },
+      setAside: () => { throw new Error("EACCES: permission denied"); },
+    });
+    expect(() => later.listCredentials(P)).toThrow("EACCES");
+    expect(disk.file).toBe(saved);
+    // The Keychain answers again. MUTANT: keep the half-loaded store from the failed read, and this
+    // fill finds no keyring until Realm is restarted.
+    keychainBack = true;
+    let typed: string | null = null;
+    expect(await later.withCredentialValue(P, row.id, async (v) => { typed = v; })).toEqual({ ok: true });
+    expect(typed).toBe(SECRET);
+  });
+
   it("keeps the notice on disk even when no keyring can be made yet", () => {
     // macOS offering no encryption key this launch: nothing is minted or saved for the store's own
     // sake, and the notice still has to outlive the launch.
