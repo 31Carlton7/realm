@@ -6,6 +6,7 @@ import { Transcript } from "../../session/Transcript";
 import type { Transcript as TranscriptModel } from "../../session/transcript-model";
 import { realmiteState, reviewGlyph } from "../../../components/sidebar/TeamRows";
 import { useApp } from "../../../state/store";
+import { useApprovalReceipt } from "../review/Decision";
 import { duration, feedTime, goalLine, handoffChip, reviewStateLine } from "../team-format";
 import type { ThreadItem, ThreadRow } from "./thread";
 
@@ -168,10 +169,11 @@ function DraftCard({ review, spaceId, onSendBack }: { review: TeamReviewSummary;
   const decide = useApp((s) => s.decideTeamReview);
   const openTeamReview = useApp((s) => s.openTeamReview);
   const run = useApp((s) => s.run);
+  const approvalReceipt = useApprovalReceipt();
   const [busy, setBusy] = useState(false);
   const open = review.state === "waiting";
   const line = reviewStateLine(review);
-  const approve = () => { setBusy(true); run(async () => { try { await decide(review.id, "approve"); } finally { setBusy(false); } }); };
+  const approve = () => { setBusy(true); run(async () => { try { await decide(review.id, "approve"); approvalReceipt(review.id); } finally { setBusy(false); } }); };
   return (
     <div className="tc-card tc-draft" data-open={open || undefined}>
       <div className="tc-draft-head">

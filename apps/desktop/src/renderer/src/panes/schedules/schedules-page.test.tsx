@@ -304,6 +304,24 @@ describe("the task's card", () => {
     await waitFor(() => expect(store.getState().schedules.s1![0]!.cron).toBe("30 9 * * 2"));
   });
 
+  it("renames a one-shot that has run, and offers no Pause for it", async () => {
+    // THE MUTANT: Save kept off until there is a first run, which a finished one-shot never has again.
+    const cron = `once:${new Date(2026, 8, 1, 13, 0, 30).getTime()}`;
+    const { api, store } = await mount({ schedules: [schedule({ cron, nextRunAt: null, lastRunAt: new Date(2026, 8, 1, 13, 1).getTime() })] });
+    fireEvent.click(task("Morning triage"));
+    fireEvent.click(await screen.findByRole("button", { name: "More for Morning triage" }));
+    expect(screen.queryByRole("menuitem", { name: "Pause" })).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Run now" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Morning triage" }));
+    const dialog = await screen.findByRole("dialog", { name: "Edit task" });
+    expect(within(dialog).getByText("Its time has passed. Pick a new one to run it again.")).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText("Task name"), { target: { value: "Shipped" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(api.calls).toContain("updateSchedule:sch1"));
+    // Its own moment goes back to the second, not as the minute the date fields can hold.
+    await waitFor(() => expect(store.getState().schedules.s1![0]).toMatchObject({ title: "Shipped", cron }));
+  });
+
   it("runs the task now through the method that leaves its clock alone, and opens the run it made", async () => {
     const { api } = await mount({ schedules: [schedule()] });
     fireEvent.click(task("Morning triage"));

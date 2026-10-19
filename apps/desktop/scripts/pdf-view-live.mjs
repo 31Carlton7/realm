@@ -9,7 +9,8 @@
  *   1. a 40-page text PDF in a font it does not embed → white pages on the pane's ground, "1 of 40"
  *   2. the page field, zoom, a link inside the file, ⌘F find with a count, text selection
  *   3. an agent rewriting the file keeps the reader's page; a shorter rewrite clamps it
- *   4. a 200-page file holds only the canvases in reach
+ *   4. a 200-page file holds only the canvases in reach; ‹ › pressed with the mouse step one slide of
+ *      a 16:9 deck at a time, both ways, zoomed out, quickly, and to its last slide
  *   5. CJK through a predefined CMap, a JPEG 2000 picture (the WASM decoder), a password, a corrupt file
  *   6. screenshots, dark and light, to look at
  *
@@ -22,7 +23,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { corruptPdf, cjkPdf, jpxPdf, passwordPdf, textPdf } from "./pdf-fixtures.mjs";
+import { corruptPdf, cjkPdf, jpxPdf, passwordPdf, slidesPdf, textPdf } from "./pdf-fixtures.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9239), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8799);
@@ -200,6 +201,7 @@ async function main() {
   if (jpx) put("scan.pdf", jpx);
   put("locked.pdf", passwordPdf());
   put("broken.pdf", corruptPdf());
+  put("slides.pdf", slidesPdf(30));
 
   await paletteRow(c, "Documents");
   await until(() => evalIn(c, `!!document.querySelector('.documents-pane')`), 15000, "documents pane");
@@ -231,6 +233,9 @@ async function main() {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(f, "12"); f.dispatchEvent(new Event("input", { bubbles: true }));
     f.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); return true; })()`);
   await until(async () => (await state(c)).field === "12", 5000, "page 12");
+  // The field names the page at once; the pages take a moment to scroll there.
+  let last = -1;
+  await until(async () => { const top = (await state(c)).top; const still = top === last; last = top; return still; }, 5000, "landed on page 12");
   check("typing 12 and Return goes to page 12", true);
   // 2b. Zoom: + steps up a rung, the readout puts it back to fit.
   const before = (await state(c)).zoom;
@@ -315,6 +320,48 @@ async function main() {
     most.push((await state(c)).canvases);
   }
   check("a 200-page file holds only the canvases in reach", Math.max(...most) <= 10, { canvases: most });
+
+  // 4b. ‹ › on a slide deck, pressed as a person presses them (Input events, through hit testing). A
+  // slide is shorter than the reading line is deep at small zooms, and the last slides cannot be
+  // scrolled to the top: the two places the arrows went nowhere.
+  await openFile(c, "slides.pdf");
+  await until(async () => (await state(c)).painted >= 1, 20000, "slides painted");
+  const press = async (label) => {
+    const at = await evalIn(c, `(() => { const r = document.querySelector('[aria-label="${label}"]').getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; })()`);
+    for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) {
+      await c.send("Input.dispatchMouseEvent", { type, x: at.x, y: at.y, button: type === "mouseMoved" ? "none" : "left", clickCount: type === "mouseMoved" ? 0 : 1 });
+    }
+  };
+  /** The slide whose top is nearest the view's top, read off the pages themselves. */
+  const slideAtTop = () => evalIn(c, `(() => { const v = document.querySelector('.pdf-view').getBoundingClientRect().top;
+    const ps = [...document.querySelectorAll('.pdf-page')]; let best = 0;
+    ps.forEach((p, i) => { if (Math.abs(p.getBoundingClientRect().top - v) < Math.abs(ps[best].getBoundingClientRect().top - v)) best = i; }); return best + 1; })()`);
+  const steps = async (label, n) => { const seen = []; for (let i = 0; i < n; i++) { await press(label); await sleep(900); seen.push(`${(await state(c)).field}@${await slideAtTop()}`); } return seen; };
+  check("slides at fit width: › › › then ‹ ‹ step one slide each, the slide at the top agreeing",
+    JSON.stringify([...await steps("Next page", 3), ...await steps("Previous page", 2)]) === JSON.stringify(["2@2", "3@3", "4@4", "3@3", "2@2"]));
+  for (let i = 0; i < 3; i++) { await press("Next page"); await sleep(60); }
+  await sleep(1200);
+  s = await state(c);
+  check("three quick presses of › go three slides", s.field === "5" && await slideAtTop() === 5, { field: s.field, top: await slideAtTop() });
+  for (let i = 0; i < 3; i++) { await press("Zoom out"); await sleep(400); }
+  const zoomed = (await state(c)).zoom;
+  await press("Next page"); await sleep(900);
+  const zoomedSteps = [`${(await state(c)).field}@${await slideAtTop()}`, ...await steps("Previous page", 2), ...await steps("Next page", 1)];
+  const zoomedOk = zoomedSteps.every((x, i, all) => x.split("@")[0] === x.split("@")[1] && (i === 0 || Math.abs(Number(x.split("@")[0]) - Number(all[i - 1].split("@")[0])) === 1));
+  check("zoomed out, ‹ and › still step one slide each way", zoomedOk, { zoom: zoomed, steps: zoomedSteps });
+  const pane = await evalIn(c, `(() => { const p = document.querySelector('.documents-pane').getBoundingClientRect(); return { x: p.x, y: p.y, width: p.width, height: p.height }; })()`);
+  await shot(c, "pdf-slides-zoomed-after-prev", pane);
+  await evalIn(c, `document.querySelector('.pdf-tools-zoom .media-viewer-zoom').click(); true`);
+  await sleep(400);
+  await evalIn(c, `(() => { const f = document.querySelector('.pdf-page-field'); f.focus();
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(f, "28"); f.dispatchEvent(new Event("input", { bubbles: true }));
+    f.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); return true; })()`);
+  await until(async () => (await state(c)).field === "28", 5000, "slide 28");
+  await sleep(900);
+  const toEnd = await steps("Next page", 2);
+  const nextOff = await evalIn(c, `document.querySelector('[aria-label="Next page"]').disabled`);
+  check("› reaches slide 30 of 30 and then goes dark", toEnd.at(-1)?.startsWith("30@") && nextOff, { toEnd, nextOff });
+  await shot(c, "pdf-slides-end", pane);
 
   // 5. CJK, a JPEG 2000 scan, a password, a corrupt file.
   await openFile(c, "japanese.pdf");

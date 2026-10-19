@@ -993,6 +993,7 @@ export function registerMethods(d: Deps): void {
   reg("team.roleMessage", (p) => { refuseWhileDraining("message a teammate"); return d.team.messageRole(p.id, p.text); });
   reg("team.review", (p) => d.team.review(p.id));
   reg("team.reviewApprove", (p) => d.team.approve(p.id));
+  reg("team.reviewUndoApproval", (p) => d.team.undoApproval(p.id));
   reg("team.reviewRequestChanges", (p) => d.team.requestChanges(p.id, p.note));
   reg("team.reviewDone", (p) => d.team.markDone(p.id));
   reg("team.reviewDismiss", (p) => d.team.dismiss(p.id));

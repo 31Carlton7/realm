@@ -308,8 +308,8 @@ button { font: inherit; color: inherit; background: none; border: none; padding:
 /* Chrome is not text. A double-click on a heading, a card's title or a status line selects its words in
    a browser and does nothing in an AppKit window, where only a text view selects; and ⌘A sweeping the
    whole interface blue is the same tell at full size. So nothing selects until it is named as content
-   below — a header, a chip, a toast or a page of settings written tomorrow is chrome without a rule of
-   its own. The images and glyphs chrome is drawn with do not lift off as drag ghosts either. */
+   below — a header, a chip or a page of settings written tomorrow is chrome without a rule of its
+   own. The images and glyphs chrome is drawn with do not lift off as drag ghosts either. */
 body { -webkit-user-select: none; user-select: none; }
 /* Content: what a person reads or copies. Prose, either side's — a message, a report, a plan, a skill
    (`.md`, and the user's own words); a finished question's answers; a diff, in a tool's card or a pane;
@@ -2899,7 +2899,8 @@ button.panel-title:hover { background: var(--rl-hover); }
    wrong build. Danger rather than warning because the two ask for different things: warning means
    hold on, danger means do something. */
 .conn-banner[data-tone="bad"] { background: color-mix(in srgb, var(--rl-danger) 8%, var(--surface)); color: var(--rl-danger); }
-.conn-banner button { color: inherit; font-weight: var(--fw-title); padding: 2px 6px; border-radius: var(--r-chip); }
+/* The action keeps its words on one line; a long line beside it (a log's path) wraps instead. */
+.conn-banner button { flex: none; white-space: nowrap; color: inherit; font-weight: var(--fw-title); padding: 2px 6px; border-radius: var(--r-chip); }
 .conn-banner button:hover { background: var(--rl-hover); }
 /* A system notice ARRIVES; it does not blink into being. The banner is drawn by something the user
    did not ask for — the socket dropping — and a cut straight to a finished bar at the top of the
@@ -3182,8 +3183,9 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
 .toast[data-tone="error"] { --toast-tone: var(--rl-danger); }
 .toast[data-tone="warning"] { --toast-tone: var(--rl-warning); }
 .toast[data-tone="success"] { --toast-tone: var(--rl-success); }
-/* The glyph that says what kind of notice it is, the words, and the way to dismiss it. The words are
-   chrome, as a notice's are in any Mac app (the owner, 10-18): a toast is read and let go. */
+/* The glyph that says what kind of notice it is, the words, and the way to dismiss it. The words select
+   (`data-selectable`, the owner, 10-19) so an error's wording can be copied; the glyph and the buttons
+   stay chrome. */
 .toast-body { display: flex; align-items: flex-start; gap: 10px; padding: 12px 8px 12px 12px;
   transition: opacity var(--dur-swap) var(--ease-fade); }
 .toast-icon { flex: none; display: grid; place-items: center; height: 18px; color: var(--toast-tone); }
@@ -4047,7 +4049,6 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   border-radius: var(--r-ctl); text-align: left; font-size: 12px; color: var(--ink); }
 .delegation-item:hover { background: var(--rl-hover); }
 .delegation-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.delegation-dim { flex: none; font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 
 /* ── A session's Agents tab (panes/agents-tab) ─────────────────────────────
    The session's sub-agents above, the composer that hands it work below, in one column on the pane's
@@ -4246,30 +4247,6 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .delegation-line[data-state="failed"] .tool-status, .delegation-line[data-state="timeout"] .tool-status { color: var(--rl-danger); }
 .delegation-line .tool-row:disabled { color: var(--ink); opacity: 1; }
 
-/* The session's sub-agents under its last message (SubagentStrip.tsx): the pane-bar chip, readable.
-   A card on the card ground, so it reads as a thing the session has out rather than one more line
-   the agent said; the accent only on its mark, as the chip carries it, and the state colours the
-   Agents tab's own marks use. Settled, it is the head row alone. */
-.subagent-strip { display: flex; flex-direction: column; margin: 12px 0 0; padding: 4px;
-  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); }
-.subagent-strip-head, .subagent-strip-row { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 0 8px; border: none;
-  border-radius: var(--r-ctl); background: transparent; font: inherit; text-align: left; transition: background-color var(--dur-hover) ease; }
-.subagent-strip-head { height: 30px; font-size: 13px; color: var(--ink); }
-.subagent-strip-head > svg:first-child { flex: none; color: var(--rl-accent); }
-.subagent-strip[data-settled] .subagent-strip-head { color: var(--ink-2); }
-.subagent-strip[data-settled] .subagent-strip-head > svg:first-child { color: var(--ink-3); }
-.subagent-strip-head:hover, .subagent-strip-row:hover { background: var(--rl-hover); transition: none; }
-.subagent-strip-head:focus-visible, .subagent-strip-row:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--rl-accent); }
-.subagent-strip-line { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.subagent-strip-go { flex: none; color: var(--ink-3); }
-.subagent-strip-list { list-style: none; margin: 0; padding: 0 0 2px; display: flex; flex-direction: column; gap: 2px; }
-.subagent-strip-row { height: 28px; font-size: 12px; color: var(--ink-2); }
-.subagent-strip-mark { flex: none; display: inline-flex; justify-content: center; width: 14px; color: var(--ink-3); }
-.subagent-strip-row[data-state="failed"] .subagent-strip-mark, .subagent-strip-row[data-state="timeout"] .subagent-strip-mark { color: var(--rl-danger); }
-.subagent-strip-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--ink); }
-.subagent-strip-state { flex: none; color: var(--ink-3); }
-.subagent-strip-row[data-state="waiting"] .subagent-strip-state { color: var(--ink); }
-.subagent-strip-time { flex: none; color: var(--ink-3); font-size: 12px; font-variant-numeric: tabular-nums; }
 .plan-implement-with { gap: 5px; }
 /* The settled twin of .msg-working: the same verb in the past tense, with the wait it cost. Quieter
    than the live label — it is scrollback now, not the thing to watch — and tabular so a column of
@@ -5814,30 +5791,6 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    running off the end of the list must not carry the scroll into the log behind it. */
 .composer-todos .todo-list { margin-top: 8px; max-height: 248px; overflow-y: auto; overscroll-behavior: contain; --fade-h: 24px; --fade-top-h: 16px; }
 
-/* ── Running agents: a count in the session's bar, and the list it opens ──────────────
-   A chip in the bar's meta rather than a strip on the prompter: the agents a session has working are
-   context about the SESSION, read where its status dot is, and a strip above the composer took
-   transcript height for as long as anything ran. The count is quiet ink with the accent on its mark,
-   the same weight the status dot beside it carries. */
-.agents-chip { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border-radius: var(--r-chip);
-  font-size: 12px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; white-space: nowrap;
-  transition: background-color var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
-.agents-chip > svg { flex: none; color: var(--rl-accent); }
-.agents-chip-needs { display: inline-flex; align-items: center; gap: 6px; }
-.agents-chip-sep { color: var(--rl-text-faint); }
-.agents-chip:hover, .agents-chip[aria-expanded="true"] { background: var(--rl-hover); color: var(--rl-text-bright); }
-.agents-pop { width: 340px; max-width: calc(100vw - 24px); }
-.agents-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px 4px;
-  font-size: 12px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
-/* Bounded for a fan-out of twenty: the list scrolls inside the popover, and running off its end must
-   not carry the scroll into the transcript under it. */
-.agents-pop .delegation-list { margin: 0; padding: 0; border: none; max-height: 280px; overflow-y: auto; overscroll-behavior: contain; --fade-h: 24px; --fade-top-h: 24px; }
-/* The row whose agent the drawer is showing. It needs to be told apart from a HOVERED row, and the
-   active fill alone cannot do it — `--rl-active` and `--rl-hover` are one rung apart, so the two read
-   as the same state and the pointer decides which. The fill says "this one", and the mark going
-   accent is what says it is still true once the pointer has moved away. */
-.delegation-item[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); }
-.delegation-item[data-selected] > svg:first-child { color: var(--rl-accent); }
 
 /* ── Over-strip: what the checkout has changed, on a tab of its own above the card ─────
    The to-do strip's geometry exactly — same frame fill, same 10px side inset, the same 10px of
@@ -6410,7 +6363,6 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    Library, and a filter is a compositing pass each); a child clipped by `overflow` lands on the curve;
    and a focus `outline` traces it, offset and all. Without the painter, the card is the same fill
    and lift on a circle of the full radius (each card's own rule). */
-:root[data-squircle] .subagent-strip,
 :root[data-squircle] .subagent-card,
 :root[data-squircle] .subagent-view-result,
 :root[data-squircle] .edit-summary,
@@ -6855,7 +6807,7 @@ select { appearance: none; padding-right: 22px;
   .documents-picker-list, .documents-rich-scroll, .documents-rich-surface, .documents-rich .tiptap, .documents-raw,
   .docs-home-scroll, .code-file-languages, .pdf-view, .pdf-strip,
   /* the prompter — only the pinned strips' copies of the lists are bounded enough to scroll */
-  .composer-todos .todo-list, .agents-pop .delegation-list,
+  .composer-todos .todo-list,
   /* a session's Agents tab: its list of sub-agents and the composer's model chooser — and its viewer:
      a harness agent's log, and the pinned report */
   .subagents-scroll, .subagents-chooser-list, .subagent-view-log, .subagent-view-result-scroll,
@@ -7584,6 +7536,10 @@ select { appearance: none; padding-right: 22px;
 /* An import's receipt is a sentence of counts, so it wraps rather than pushing the buttons off. */
 .share-note.passwords-import-note { white-space: normal; max-width: 260px; }
 .password-actions { display: inline-flex; align-items: center; gap: 8px; }
+/* A store Realm could not read and kept aside: the sentence takes the line, and the path in it may
+   break anywhere — it is one long word — rather than push the two buttons off the end. */
+.passwords-unreadable, .passwords-keychain { display: flex; align-items: center; gap: 8px; }
+.passwords-unreadable p, .passwords-keychain p { flex: 1; margin: 0; overflow-wrap: anywhere; }
 /* Share with ▸'s receipt: the copy went elsewhere, so nothing in this list changes — the line beside
    the button is the only place that says it happened. Quiet, and on the button's own baseline. */
 .share-note { align-self: center; font-size: 12px; color: var(--rl-text-dim); white-space: nowrap; }
@@ -10856,11 +10812,9 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .rv-run-link { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; margin-left: -7px; }
 
 /* The decision, docked: the action surface of the reader, as the commit card is the diff's. Outside
-   the scroller, so it never dissolves with the work. It wears `.composer-dock` for the one thing that
-   class promises the rest of the window — a toast stands above it, never over its answers — and
-   takes none of the prompter's column geometry. */
-.rv-dock { flex: none; padding: 0 20px 16px; }
-.rv-dock.composer-dock { width: auto; margin: 0; transition: none; }
+   the scroller, so it never dissolves with the work, and over it on the prompter's layer, so its shadow
+   is never cut by what scrolls. A toast stands above it, never over its answers (`data-lifts-toasts`). */
+.rv-dock { position: relative; z-index: 2; flex: none; padding: 0 20px 16px; }
 .rv-dock-card { max-width: 1016px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; padding: 10px 10px 10px 16px;
   border-radius: var(--r-squircle-card); background: var(--surface); box-shadow: var(--shadow-card); }
 .rv-dock-card:focus-within { box-shadow: 0 0 0 var(--hairline-w) var(--line-strong), var(--shadow-card); }

@@ -149,6 +149,20 @@ describe("a teammate's chat", () => {
     expect(store.getState().teamReviewSelected.s1).toBe("v1");
   });
 
+  it("says a yes from the chat as Review does, and its Undo puts the draft back to waiting in the thread", async () => {
+    const { api, store } = await mount(base({ teamReviews: { v1: { ...draft, items: [], previous: [], costUsd: null, durationMs: null, runCapUsd: null, model: null, recordName: null, checks: [], ledger: [], root: null, tickets: [] } } }),
+      <TeamPage spaceId="s1" tab="role:r1" />);
+    const card = (await screen.findByText("Launch brief")).closest(".tc-draft") as HTMLElement;
+    fireEvent.click(within(card).getByRole("button", { name: "Approve" }));
+    // THE MUTANT: the chat's Approve without Review's receipt — a yes nothing says, and no way to take it back.
+    await waitFor(() => expect(store.getState().toasts.map((t) => [t.text, t.action?.label])).toContainEqual(["Approved “Launch brief”.", "Undo"]));
+    await waitFor(() => expect(within(card).queryByRole("button", { name: "Approve" })).toBeNull());
+    store.getState().toasts.find((t) => t.action)!.action!.run();
+    await waitFor(() => expect(api.calls).toContain("teamReviewUndoApproval:v1"));
+    await waitFor(() => expect(within(card).getByRole("button", { name: "Approve" })).toBeEnabled());
+    expect(card).toHaveAttribute("data-open");
+  });
+
   it("Send back puts the draft in the prompter's head, and what is sent is the changes asked for it", async () => {
     const { api } = await mount(base({ teamReviews: { v1: { ...draft, items: [], previous: [], costUsd: null, durationMs: null, runCapUsd: null, model: null, recordName: null, checks: [], ledger: [], root: null, tickets: [] } } }),
       <TeamPage spaceId="s1" tab="role:r1" />);

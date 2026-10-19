@@ -120,6 +120,25 @@ const isAlive = (pid: number): boolean => {
   }
 };
 
+/** The two facts a client needs to get onto realm-server's socket. */
+export type DaemonEndpoint = { port: number; token: string };
+
+/**
+ * Where realm-server is now: the endpoint `daemon.json` records, when that is a different one and the
+ * pid that wrote it is alive; otherwise `known`.
+ *
+ * A server mints its port and token at every boot, so the one the supervisor started after a crash
+ * is somewhere nothing attached to the old one knows about. The file is the only place that says
+ * where. A file still naming the dead server — a crash does not clear it — names a pid that is gone,
+ * and is not followed; neither is a server on its way out.
+ */
+export function followDaemon(known: DaemonEndpoint, recorded: DaemonState | null, pidAlive: (pid: number) => boolean = isAlive): DaemonEndpoint {
+  if (!recorded || recorded.state !== "running") return known;
+  if (recorded.port === known.port && recorded.token === known.token) return known;
+  if (!pidAlive(recorded.pid)) return known;
+  return { port: recorded.port, token: recorded.token };
+}
+
 /** How long a `wait` decision is honoured before we stop believing in the daemon it named. Matches
  *  the ready-line timeout the child-process path has always used. */
 export const DAEMON_WAIT_MS = 15_000;

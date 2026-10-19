@@ -110,6 +110,20 @@ describe("PolicyGate — a role's run", () => {
     expect(cards[0]!.opts).toEqual({ promptUnderBypass: true, perSession: true });
   });
 
+  it("refuses a Realm tool that no provider has as unknown, before any card", async () => {
+    // THE MUTANT: an unknown name classed as the riskiest tool and asked about. The person approved a
+    // card for `ticket_post`, and the call then failed as a tool that does not exist.
+    const { g, cards, logged } = gate({ role: true });
+    const made = { connector: "realm:realm-team", tool: "ticket_post", fullName: "realm-team__ticket_post", args: {} };
+    const a = await g.check(ctx, made);
+    expect(a).toMatchObject({ ok: false, summary: "blocked: unknown tool" });
+    expect(a.ok === false && a.message).toBe('unknown tool "ticket_post" — realm-team has no tool by that name. Nothing was run.');
+    expect(cards).toEqual([]);
+    expect(logged).toEqual([]);
+    // A Realm tool it does have still goes to the rows.
+    expect(await g.check(ctx, { ...made, tool: "record_update", fullName: "realm-team__record_update" })).toEqual({ ok: true, answered: false });
+  });
+
   it("does not run a call the person denied on the policy's card", async () => {
     const { g } = gate({ role: true, answer: false });
     expect(await g.check(ctx, SEND)).toMatchObject({ ok: false, summary: "denied on the policy's card" });

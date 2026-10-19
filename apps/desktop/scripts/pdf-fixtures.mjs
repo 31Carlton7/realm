@@ -82,6 +82,20 @@ export function textPdf(pages = 40, linkTo = 30) {
   return writePdf(objs);
 }
 
+/** A lecture's slides: `pages` 16:9 pages (960 × 540 pt, PowerPoint's widescreen), each saying its
+ *  number in large type. A page this short is shorter than the reading line's depth in a tall pane. */
+export function slidesPdf(pages = 30) {
+  const objs = ["<< /Type /Catalog /Pages 2 0 R >>", "", "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>"];
+  const kids = [];
+  for (let n = 1; n <= pages; n++) {
+    objs.push({ dict: "", stream: `BT /F1 64 Tf 80 380 Td (${esc(`Slide ${n}`)}) Tj ET\nBT /F1 24 Tf 80 300 Td (${esc(`of ${pages}`)}) Tj ET` });
+    objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 960 540] /Resources << /Font << /F1 3 0 R >> >> /Contents ${objs.length} 0 R >>`);
+    kids.push(`${objs.length} 0 R`);
+  }
+  objs[1] = `<< /Type /Pages /Kids [${kids.join(" ")}] /Count ${pages} >>`;
+  return writePdf(objs);
+}
+
 /** Japanese set in a font the file does not carry, through the predefined UniJIS-UCS2-H CMap: pdf.js
  *  needs its CMap files to read a single character of it. */
 export function cjkPdf() {

@@ -4,13 +4,13 @@
  * Boots the BUILT app on a scratch REALM_HOME, as a scratch window that cannot take focus, with the
  * scripted agent standing in for Claude and Codex, so the lead and every sub-agent run the script and
  * nothing reaches an account. The lead runs "Orchestrate the theme work" (four delegated children)
- * and then "Restart the stalled agents" (the harness's own background agents, for the strip under the
- * last message). Then, in the window:
+ * and then "Restart the stalled agents" (the harness's own background agents, for the row over the
+ * prompter). Then, in the window:
  *
  *   1. Selection: chrome does not select on a drag or a double-click; a drag inside a message's prose
  *      selects its words and does not light the chrome beside it; the content regions still select.
  *   2. The prompter with a picture and a file on it, dark and light, painted and flat.
- *   3. The cards: the transcript's sub-agent lines and strip, the Agents tab's cards, a settings group.
+ *   3. The cards: the transcript's sub-agent lines, the Agents tab's cards, a settings group.
  *   4. "What it reported": the pinned report's height in the viewer, for a one-line report and for a
  *      long one, against the viewer it sits in.
  *
@@ -304,7 +304,7 @@ async function main() {
   await setFace(c, "dark");
 
   await api.call("sessions.send", { id: lead, text: "Restart the stalled agents.", attachments: [], mentions: [] });
-  await until(() => evalIn(c, `[...document.querySelectorAll('.subagent-strip-row')].some((r) => r.textContent.includes('Teams rule engine'))`), 30_000, "strip row");
+  await until(() => evalIn(c, `[...document.querySelectorAll('.composer-overstrip .active-agent')].some((r) => r.textContent.includes('Teams rule engine'))`), 30_000, "agent on the row");
   await until(async () => (await api.call("sessions.get", { id: lead }))?.status !== "running", 30_000, "lead turn over");
   await sleep(800);
   await evalIn(c, `(() => { const t = document.querySelector('.panel .transcript'); t.scrollTop = t.scrollHeight; return true; })()`);
@@ -319,7 +319,7 @@ async function main() {
     "composer field": `document.querySelector('.composer textarea')`,
     "a turn's closing line": `document.querySelector('.panel .msg-run')`,
     "a sub-agent line": `document.querySelector('.panel .delegation-line-task')`,
-    "the strip's head": `document.querySelector('.panel .subagent-strip-line')`,
+    "an agent on the prompter's row": `document.querySelector('.panel .composer-overstrip .active-agent .chip-label')`,
     "a pane's title": `document.querySelector('.panel-bar')`,
     "a user message's time": `document.querySelector('.panel .msg-user-at')`,
     "a card's task": `document.querySelector('.subagent-card .subagent-task')`,
@@ -330,7 +330,7 @@ async function main() {
   const used = await evalIn(c, `(() => { const out = {}; for (const [k, sel] of Object.entries(${JSON.stringify(probes)})) { const el = (0, eval)(sel); out[k] = el ? __live.selects(el) : "missing"; } return out; })()`);
   note("selection, used value", used);
   for (const k of ["assistant prose", "user message", "composer field"]) check(`${k} selects`, used[k] === "text", used[k]);
-  for (const k of ["a turn's closing line", "a sub-agent line", "the strip's head", "a pane's title", "a user message's time", "a card's task", "a card's facts", "the Agents tab's head", "a sidebar row"]) {
+  for (const k of ["a turn's closing line", "a sub-agent line", "an agent on the prompter's row", "a pane's title", "a user message's time", "a card's task", "a card's facts", "the Agents tab's head", "a sidebar row"]) {
     check(`${k} does not select`, used[k] === "none", used[k]);
   }
 
@@ -366,7 +366,7 @@ async function main() {
     await shotOf(c, ".panel .transcript-col", "selection-spill", "dark", { tail: 360, keepSelection: true });
   }
   // A double-click on chrome selects nothing.
-  for (const [name, sel] of [["closing line", ".panel .msg-run span"], ["sub-agent line", ".panel .delegation-line-task"], ["strip head", ".panel .subagent-strip-line"], ["card task", ".subagent-card .subagent-task"], ["sidebar row", ".sidebar .item-row"]]) {
+  for (const [name, sel] of [["closing line", ".panel .msg-run span"], ["sub-agent line", ".panel .delegation-line-task"], ["agent on the row", ".panel .composer-overstrip .active-agent .chip-label"], ["card task", ".subagent-card .subagent-task"], ["sidebar row", ".sidebar .item-row"]]) {
     const at = await evalIn(c, `(() => { const el = document.querySelector(${JSON.stringify(sel)}); if (!el) return null; __live.centre(el); const r = el.getBoundingClientRect();
       const p = { x: r.left + Math.min(24, r.width / 2), y: r.top + r.height / 2 }; return __live.reaches(el, p) ? p : { miss: document.elementFromPoint(p.x, p.y)?.className ?? null }; })()`);
     if (!at || at.miss !== undefined) { note(`no ${name} to double-click`, { sel, at }); continue; }

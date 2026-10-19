@@ -89,6 +89,29 @@ describe("DaemonSupervisor", () => {
     expect(h.states.at(-1)).toEqual({ kind: "restarting", attempt: 1 });
   });
 
+  it("restarts on the person's word even after giving up, with a fresh crash-loop budget", () => {
+    const h = harness({ pidAlive: () => false });
+    for (let i = 0; i < CRASH_LOOP_LIMIT + 1; i++) {
+      h.sup.onDisconnected();
+      h.advance(DOWN_GRACE_MS);
+      h.sup.tick();
+      h.advance(backoffFor(i + 1));
+    }
+    expect(h.states.at(-1)).toMatchObject({ kind: "failed" });
+    // The banner's "Restart Realm's server".
+    h.sup.restartNow();
+    expect(h.spawns()).toBe(CRASH_LOOP_LIMIT + 1);
+    expect(h.states.at(-1)).toEqual({ kind: "disconnected" });
+    // MUTANT: keep the old crash-loop record and this one death puts it straight back to `failed`.
+    h.advance(DOWN_GRACE_MS);
+    h.sup.tick();
+    expect(h.states.at(-1)).toEqual({ kind: "restarting", attempt: 1 });
+    // And it is a supervisor again: the next connect is believed.
+    h.advance(backoffFor(1));
+    h.sup.onConnected();
+    expect(h.states.at(-1)).toEqual({ kind: "connected" });
+  });
+
   it("stops cleanly: a pending respawn never fires", () => {
     const h = harness({ pidAlive: () => false });
     h.sup.onDisconnected();

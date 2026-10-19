@@ -1,34 +1,12 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
-import { createPortal } from "react-dom";
-import { bareToolName, type DelegatedRun, type Session } from "@realm/contracts";
+import { useRef } from "react";
+import { bareToolName, type Session } from "@realm/contracts";
 import { useApp } from "../../state/store";
-import { useAnchoredPopover } from "../../components/use-anchored-popover";
 import { useDissolve } from "../../components/ScrollFades";
 import { CHILD_ORIGINS, ORIGIN_META, SESSION_STATUS_LABEL } from "../session-labels";
-import { formatDuration, isHarnessLaunch, SUBAGENT_TOOLS, type ToolBlock } from "./tool-group";
+import { isHarnessLaunch, SUBAGENT_TOOLS, type ToolBlock } from "./tool-group";
 import type { SubagentState } from "../agents-tab/subagent-state";
 import type { Block } from "./transcript-model";
-import { useElapsed } from "./use-elapsed";
-
-/** A peer `agent_ask` reached is NOT a session this one spawned: it was doing its own work before the
- *  question arrived and goes on doing it afterwards. Calling it a sub-agent would be wrong twice. */
-const ASKED_META = { icon: "session", label: "Asked a question (agent_ask)" };
-
-/**
- * The agents this session has in flight, as one control at the top right of its pane.
- *
- * A delegated child is a real session, but it no longer gets a pane: a fan-out of eight was eight
- * columns too narrow to read. This control is how the user sees them instead — a count in the bar,
- * and a click opens the list. A row opens that sub-agent in this session's Agents tab, a tab of its
- * side pane beside the browsers its agents opened, so looking at one never rearranges the workspace.
- *
- * In the pane bar rather than a pane of its own, deliberately. The engine's registry lives in the
- * server's memory and dies with the process, while a pane is a layout leaf that persists — a pane
- * kind for this would leave an empty panel behind from a run that finished yesterday. Living in the
- * delegating session's own bar IS the link to that session, and the control leaves when the
- * session's runs do.
- */
 
 /**
  * Whether this call still has an agent working behind it — the two ways that can be true, because
@@ -98,7 +76,7 @@ export function harnessAgents(blocks: readonly Block[], live = true): HarnessAge
     });
 }
 
-/** The ones still working — what the pane-bar chip counts. */
+/** The ones still working. */
 export function harnessSubagents(blocks: readonly Block[], live = true): { id: string; label: string; startedAt: number }[] {
   return harnessAgents(blocks, live).filter((h) => h.state === "working").map(({ id, label, startedAt }) => ({ id, label, startedAt }));
 }
@@ -198,162 +176,5 @@ export function ChildSessions({ ids }: { ids: readonly string[] }) {
         );
       })}
     </ul>
-  );
-}
-
-export function RunningAgents({ sessionId }: { sessionId: string }) {
-  const running = useApp((s) => s.delegatedRuns[sessionId]);
-  const blocks = useApp((s) => s.transcripts[sessionId]?.t.blocks ?? NO_BLOCKS);
-  const refreshDelegatedRuns = useApp((s) => s.refreshDelegatedRuns);
-  const run = useApp((s) => s.run);
-  // Covers the runs that began before this window connected — a reload, a second window, a pane
-  // opened ten minutes into a delegation. Every later change arrives on `delegation.changed`.
-  useEffect(() => { run(() => refreshDelegatedRuns(sessionId)); }, [sessionId, refreshDelegatedRuns, run]);
-  const status = useApp((s) => s.sessionStatus[sessionId]);
-  const live = status === undefined || status === "running" || status === "waiting_permission";
-  const inHarness = useMemo(() => harnessSubagents(blocks, live), [blocks, live]);
-  if ((!running || running.length === 0) && inHarness.length === 0) return null;
-  return <Control sessionId={sessionId} running={running ?? NO_RUNS} harness={inHarness} />;
-}
-
-const NO_BLOCKS: readonly Block[] = [];
-const NO_RUNS: readonly DelegatedRun[] = [];
-
-/** Split out so the hooks below only ever run for a session that actually has agents working — and
- *  so the open popover is discarded with the control rather than surviving until the next one. */
-function Control({ sessionId, running, harness }: {
-  sessionId: string;
-  running: readonly DelegatedRun[];
-  /** Sub-agents the harness is running in-process — no session, no pane, no preview. */
-  harness: { id: string; label: string; startedAt: number }[];
-}) {
-  const sessions = useApp((s) => s.sessions);
-  const sessionStatus = useApp((s) => s.sessionStatus);
-  const openAgentsTab = useApp((s) => s.openAgentsTab);
-  const run = useApp((s) => s.run);
-  const [open, setOpen] = useState(false);
-  const anchor = useRef<HTMLButtonElement>(null);
-  const rows = [...running].sort((a, b) => a.startedAt - b.startedAt);
-  const total = rows.length + harness.length;
-  // A sub-agent of this session's waiting on a request. A peer it only asked a question of is not
-  // its to answer for, so only its own children count.
-  const waiting = rows.filter((r) => r.owned && sessionStatus[r.sessionId] === "waiting_permission");
-  const working = total - waiting.length;
-  // The oldest thing in flight, whichever kind it is — "how long has this session been waiting on
-  // anyone", and starting it at the newest would keep resetting it.
-  const since = Math.min(...rows.map((r) => r.startedAt), ...harness.map((h) => h.startedAt));
-  // Always ticking: this component only exists while something is in flight, so the clock stops by
-  // unmounting rather than by a flag. One clock for every row, so the rows and the head agree.
-  const elapsed = useElapsed(since, true);
-  const count = total === 1 ? "1 agent" : `${total} agents`;
-  const title = sessions[sessionId]?.title ?? "this session";
-  const needs = waiting.length > 0 ? `${waiting.length} ${waiting.length === 1 ? "needs" : "need"} you` : "";
-  const agents = (n: number) => (n === 1 ? "1 agent" : `${n} agents`);
-  const said = needs ? `${working > 0 ? `${agents(working)} working, ` : ""}${agents(waiting.length)} ${waiting.length === 1 ? "needs" : "need"} you, for ${title}` : `${count} working for ${title}`;
-  return (
-    <>
-      {/* "working", not "waiting on": an `agent_start` the lead deliberately backgrounded is here too,
-          and that lead is not blocked on anything. With a sub-agent waiting on a request, the chip
-          says so and goes to it — the Agents tab, on that card — rather than to the list. */}
-      <button ref={anchor} type="button" className="agents-chip" data-waiting={needs ? true : undefined}
-        aria-haspopup={needs ? undefined : "dialog"} aria-expanded={needs ? undefined : open}
-        aria-label={said} title={`${said} · ${formatDuration(elapsed)}`}
-        onClick={() => {
-          if (waiting[0]) { run(() => openAgentsTab(sessionId, { childId: waiting[0]!.sessionId })); return; }
-          setOpen((o) => !o);
-        }}>
-        <Icon name="bot" size={14} />
-        {working > 0 && <span className="agents-chip-count">{working} working</span>}
-        {needs && (
-          <span className="agents-chip-needs">
-            {working > 0 && <span className="agents-chip-sep" aria-hidden="true">·</span>}
-            <span className="status-dot" data-status="waiting_permission" aria-hidden="true" />{needs}
-          </span>
-        )}
-      </button>
-      {open && <AgentsPopover anchor={anchor} sessionId={sessionId} rows={rows} harness={harness}
-        since={since} elapsed={elapsed} count={count} onClose={() => setOpen(false)} />}
-    </>
-  );
-}
-
-function AgentsPopover({ anchor, sessionId, rows, harness, since, elapsed, count, onClose }: {
-  anchor: RefObject<HTMLButtonElement | null>;
-  sessionId: string;
-  rows: DelegatedRun[];
-  harness: { id: string; label: string; startedAt: number }[];
-  since: number; elapsed: number; count: string;
-  onClose: () => void;
-}) {
-  const sessions = useApp((s) => s.sessions);
-  const sessionStatus = useApp((s) => s.sessionStatus);
-  const watched = useApp((s) => s.agentsShown[sessionId] ?? null);
-  const openAgentsTab = useApp((s) => s.openAgentsTab);
-  const run = useApp((s) => s.run);
-  const preview = useOpenChild();
-  /* A sub-agent of this session's — its own child, or one its harness runs — opens in this session's
-     Agents tab, on its viewer. A peer it only asked a question of is not its sub-agent, and is
-     previewed as the session it is. */
-  const view = (id: string) => run(() => openAgentsTab(sessionId, { childId: id }));
-  const ref = useRef<HTMLDivElement>(null);
-  const list = useRef<HTMLUListElement>(null);
-  useDissolve(list);
-  const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef: anchor, align: "right", onClose, returnFocusRef: anchor, exit: true });
-  const now = since + elapsed;
-  const style: CSSProperties = { position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999,
-    visibility: pos ? "visible" : "hidden", transformOrigin: pos?.origin ?? "top right" };
-  return createPortal(
-    <div ref={ref} role="dialog" aria-label={`${count} working`} className="menu agents-pop" style={style}
-      data-closing={closing || undefined} inert={closing}>
-      <div className="agents-pop-head">
-        <span>{count} working</span>
-        <span className="delegation-dim">{formatDuration(elapsed)}</span>
-      </div>
-      <ul className="delegation-list" ref={list}>
-        {rows.map((r) => {
-          const child = sessions[r.sessionId];
-          const status = sessionStatus[r.sessionId] ?? child?.status;
-          // The Tasks lens's own vocabulary for how a session came to exist, so a delegated child
-          // is named the same here as it is there. A child whose row has not landed yet (the
-          // session and the run are announced separately) still gets its origin from the run.
-          const meta = r.owned ? ORIGIN_META[child?.dispatchedBy?.kind ?? "agent_run"] : ASKED_META;
-          return (
-            <li key={r.sessionId}>
-              {/* This session's own child opens on its viewer in the Agents tab; a peer it only asked
-                  is a whole session of someone else's, previewed as one in this session's side pane. */}
-              <button type="button" className="delegation-item" title={meta.label}
-                aria-label={`${r.owned ? "Open" : "Preview"} ${child?.title ?? "Starting"} — ${meta.label}`}
-                onClick={() => { if (r.owned) view(r.sessionId); else preview(r.sessionId); close(); }}>
-                <Icon name={meta.icon} size={14} />
-                {/* The row lands before the session row does often enough to matter: `agent_run`
-                    registers the run and only then sends the child its first message. */}
-                <span className="delegation-title">{child?.title ?? "Starting…"}</span>
-                {/* `detached` is the difference between "this session is blocked until you finish"
-                    and "go at your own pace" — the lead kept working after agent_start. */}
-                {r.detached && <span className="delegation-dim">not collected yet</span>}
-                <span className="delegation-dim">{formatDuration(now - r.startedAt)}</span>
-                {status && <span className="status-dot item-status" data-status={status} title={SESSION_STATUS_LABEL[status]} />}
-              </button>
-            </li>
-          );
-        })}
-        {/* The harness's own sub-agents. No session behind one of these and so no status dot — but
-            there IS something to watch: the calls it makes arrive in this transcript nested under its
-            launching call, and its viewer in the Agents tab draws them. */}
-        {harness.map((h) => (
-          <li key={h.id}>
-            <button type="button" className="delegation-item" data-selected={watched === h.id || undefined}
-              aria-label={`Watch ${h.label}`}
-              onClick={() => { view(h.id); close(); }}>
-              <Icon name="bot" size={14} />
-              <span className="delegation-title">{h.label}</span>
-              <span className="delegation-dim">in the agent</span>
-              <span className="delegation-dim">{formatDuration(Math.max(0, now - h.startedAt))}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </div>,
-    document.body,
   );
 }

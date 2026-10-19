@@ -8,7 +8,7 @@ import { homedir, tmpdir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { serverEntry, spawnDaemon, startServer } from "./server-process";
 import { daemonStatePath, readDaemonState, readStateForPort, realmHomePath } from "./daemon-state";
-import { callDaemon, daemonModeEnabled, ensureDaemon, probeDaemon, type HandoffResult } from "./daemon";
+import { callDaemon, daemonModeEnabled, ensureDaemon, followDaemon, probeDaemon, type HandoffResult } from "./daemon";
 import { ProfileDirectory, isBrowserPartition, type ProfileFacts } from "./profile-directory";
 import { decideHandoff, handoffCopy, type DaemonWork } from "./handoff-policy";
 import { bundleIdOf, DAEMON_HANDOFF_MODE_DEFAULT, DAEMON_HANDOFF_MODE_KEY, platformCapabilities, resolveHandoffMode, type DaemonState } from "@realm/contracts";
@@ -66,6 +66,7 @@ import { registerKeyWindowQuery, wireKeyWindow } from "./key-window";
 import { popupNativeMenu, registerNativeMenus } from "./native-menu";
 import { PasswordAutofill } from "./password-autofill";
 import { registerPasswordsIpc } from "./passwords-ipc";
+import { readSecretsFile, setAsideSecretsFile, writeSecretsFile } from "./secrets-file";
 import { keychainHelper, keychainSourceFor } from "./keychain-passwords";
 import { attachTextContextMenu } from "./text-context-menu";
 import { windowOpenTarget } from "./link-open";
@@ -127,8 +128,25 @@ let bridgeClient: BridgeClient | null = null;
  *  the window's first browser panes ask whose they are before the bridge has connected. */
 async function askServer(method: string, params: unknown): Promise<unknown> {
   if (bridgeClient) return bridgeClient.call(method, params);
-  if (!serverInfo) throw new Error("Realm is still starting up");
-  return callDaemon({ port: serverInfo.port, token: serverInfo.token }, method, params, 5_000);
+  const endpoint = serverEndpoint();
+  if (!endpoint) throw new Error("Realm is still starting up");
+  return callDaemon({ port: endpoint.port, token: endpoint.token }, method, params, 5_000);
+}
+
+/**
+ * `serverInfo`, moved to wherever realm-server is now. A server the supervisor (or the banner's
+ * Restart) started after a crash has its own port and token, written to `daemon.json` and nowhere
+ * else; the bridge asks this before every dial and each window before every redial, so whatever was
+ * attached to the old server finds the new one by itself.
+ */
+function serverEndpoint(): { port: number; home: string; token: string } | null {
+  if (!serverInfo) return null;
+  const now = followDaemon(serverInfo, readDaemonState(serverInfo.home));
+  if (now.port !== serverInfo.port || now.token !== serverInfo.token) {
+    console.error(`[daemon] realm-server is on port ${now.port} now`);
+    serverInfo = { ...serverInfo, ...now };
+  }
+  return serverInfo;
 }
 
 /**
@@ -1002,10 +1020,15 @@ function secrets(): SecretStore | null {
   const standIn = livePresenceStandIn({ packaged: app.isPackaged, env: process.env });
   secretStore = new SecretStore({
     safeStorage,
-    readFile: () => (existsSync(file) ? readFileSync(file, "utf8") : null),
+    readFile: () => readSecretsFile(file),
     // 0600: the ciphertext is useless without the Keychain item, but a file only the user can read
     // costs nothing and is what anyone auditing this would expect to find.
-    writeFile: (text) => writeFileSync(file, text, { mode: 0o600 }),
+    writeFile: (text) => writeSecretsFile(file, text),
+    setAside: () => {
+      const aside = setAsideSecretsFile(file, new Date());
+      console.error(`[secrets] ${file} could not be read; kept it at ${aside} and started a new store`);
+      return aside;
+    },
     appendAudit: (line) => {
       mkdirSync(join(home, "logs"), { recursive: true });
       appendFileSync(auditFile, line, { mode: 0o600 });
@@ -1193,6 +1216,7 @@ registerPasswordsIpc({
   },
   clipboard: { writeText: (t) => clipboard.writeText(t), readText: () => clipboard.readText(), clear: () => clipboard.clear() },
   setTimer: (fn, ms) => { setTimeout(fn, ms).unref?.(); },
+  reveal: (path) => shell.showItemInFolder(path),
 });
 registerVaultIpc({
   handle: (channel, fn) => ipcMain.handle(channel, (_e, ...args: unknown[]) => fn(...args)),
@@ -1681,6 +1705,11 @@ const desktopNotifier = new DesktopNotifier({
   setBadge: (count) => { app.setBadgeCount(count); },
 });
 ipcMain.handle("daemon:quit-and-stop", () => quitAndStopAll());
+ipcMain.handle("daemon:endpoint", () => {
+  const endpoint = serverEndpoint();
+  return endpoint ? { port: endpoint.port, token: endpoint.token } : null;
+});
+ipcMain.handle("daemon:restart", () => restartRealmServer());
 ipcMain.handle("notify:show", (_e, input: DesktopNotificationInput) => desktopNotifier.show(input));
 ipcMain.handle("notify:badge", (_e, count: number) => { desktopNotifier.badge(Number(count)); });
 /** Settings ▸ Appearance ▸ Reduce motion, answered on the window that asked — the quick chat is a
@@ -1996,7 +2025,7 @@ async function startRealmServer(): Promise<{ port: number; home: string; token: 
   }
   const { child, ready } = startServer({ home });
   serverChild = child;
-  child.on("exit", () => { serverChild = null; });
+  child.on("exit", () => { if (serverChild === child) serverChild = null; });
   const started = await ready;
   // The token realm-server minted at boot. It is never on stdout, so the state file is the only place
   // it exists — and without it neither the renderer nor the bridge can get onto the socket at all, so
@@ -2053,7 +2082,8 @@ app.whenReady().then(async () => {
     // Before the first window, so its first browser panes and the sign-ins page find every profile —
     // and so sign-ins saved before profiles had their own are handed to their profile at launch.
     await profileDirectory.refresh();
-    secrets()?.adoptUnownedRows();
+    // A store that cannot be read this moment is left as it is, and read again on its next use.
+    try { secrets()?.adoptUnownedRows(); } catch (e) { console.error("[secrets]", e instanceof Error ? e.message : e); }
     // Media streaming opens only once home is known: `media:poster` writes QuickLook scratch under it.
     handleMediaProtocol();
     // Sweep once at launch; saveTempAttachment sweeps again on every paste, so a session that never
@@ -2094,7 +2124,7 @@ app.whenReady().then(async () => {
       });
     }
     agentBridge = startBrowserAgentBridge({
-      port: info.port, token: info.token,
+      endpoint: () => serverEndpoint() ?? info,
       hasWindow: () => windows.size > 0,
       onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); void readSleepPreference().then(refreshSleepGuard); void readPairedPhones(); presence.reset(); void profileDirectory.refresh(); void labOnConnected(labUpdate()); },
       // Both on the same event: the bridge redials every two seconds, which is exactly the cadence a
@@ -2203,6 +2233,45 @@ function stopDaemon() {
   const pid = daemonChild?.pid ?? readDaemonState(realmHome ?? realmHomePath())?.pid;
   if (pid && pid !== process.pid) { try { process.kill(pid, "SIGTERM"); } catch { /* already gone */ } }
   daemonChild = null;
+}
+
+/**
+ * The banner's "Restart Realm's server", offered once a window has stopped redialing or the
+ * supervisor has given up. Resolves when main has done what it can; the window dials again after, and
+ * finds the new server through `serverEndpoint`.
+ */
+async function restartRealmServer(): Promise<void> {
+  // Main is on the socket, so the server is answering: the window only has to dial where it is now.
+  if (bridgeClient || !realmHome) return;
+  if (daemonSupervisor) {
+    // Running but not answering. Its home lock would turn the new one away, so it goes first — but
+    // only if the pid is still realm-server: a pid from a stale file may be somebody else's by now.
+    const recorded = readDaemonState(realmHome);
+    if (recorded && runsServer(recorded.pid, recorded.entry)) await stopServerProcess(recorded.pid);
+    daemonSupervisor.restartNow();
+    return;
+  }
+  // The server is this process's own child here, and nothing brings it back but this.
+  const old = serverChild;
+  if (old?.pid) await stopServerProcess(old.pid);
+  const { child, ready } = startServer({ home: realmHome });
+  serverChild = child;
+  child.on("exit", () => { if (serverChild === child) serverChild = null; });
+  await ready;
+}
+
+/** Whether `pid` is a live process running the server bundle at `entry`. */
+function runsServer(pid: number, entry: string): boolean {
+  if (pid === process.pid) return false;
+  try { return execFileSync("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8" }).includes(entry); } catch { return false; }
+}
+
+/** SIGTERM, then SIGKILL for a server too stuck to run its own shutdown. */
+async function stopServerProcess(pid: number): Promise<void> {
+  try { process.kill(pid, "SIGTERM"); } catch { return; }
+  if (await waitForExit(pid, STOP_WAIT_MS)) return;
+  try { process.kill(pid, "SIGKILL"); } catch { return; }
+  await waitForExit(pid, 2_000);
 }
 
 /**

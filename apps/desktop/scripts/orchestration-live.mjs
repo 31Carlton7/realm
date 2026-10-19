@@ -30,8 +30,8 @@
  *  13. The Agents tab as the orchestrator: four sub-agents in every state at once — a card per child
  *      with its model, checkout, mode and budget; the waiting ones open with their request in them;
  *      a permission allowed and a question answered there, on the CHILD's session; Stop on a working
- *      one, which its lead hears as stopped by the user. The pane bar's chip says how many need you
- *      and goes to the first of them.
+ *      one, which its lead hears as stopped by the user. The row over the lead's prompter leads with
+ *      the ones that need you, and its first chip goes to the first of them.
  *  14. The sidebar: no Needs you row for a sub-agent whose lead is listed — the lead's row says
  *      "N ●" instead, sorts to the top of its space, and opens its Agents tab on the first waiting
  *      card. Captured with the tab, dark and light.
@@ -426,10 +426,10 @@ async function orchestratorChecks(c, spaceId) {
   const head = await evalIn(c, `document.querySelector('.subagents-head .subagents-count')?.textContent`);
   check("the head rolls them up in words", head === "2 need you · 1 working · 1 done", head);
 
-  // The pane bar's chip.
-  const chip = await evalIn(c, `(() => { const b = [...document.querySelectorAll('.agents-chip')].find((x) => x.getAttribute('aria-label')?.endsWith(${JSON.stringify(`for ${LEAD}`)}));
-    return b ? { label: b.getAttribute('aria-label'), text: b.textContent } : null; })()`);
-  check("the chip says how many need you", chip?.text === "1 working·2 need you", chip);
+  // The row over the lead's prompter.
+  const leadRow = `[...document.querySelectorAll('.panehost .panel')].find((p) => p.querySelector('.panel-title')?.textContent === ${JSON.stringify(LEAD)})?.querySelector('.composer-overstrip .active-agents')`;
+  const chips = await evalIn(c, `[...(${leadRow}?.querySelectorAll('.active-agent, .active-agents-more') ?? [])].map((b) => b.dataset.state ?? b.textContent)`);
+  check("the row leads with the two that need you, the rest folded", JSON.stringify(chips) === JSON.stringify(["waiting", "waiting", "+2"]), chips);
 
   // ── 14. The sidebar: the lead's row carries the count; Needs you has no row for the children ─
   const row = await until(() => sidebarRow(c, LEAD), 5_000, "the lead's row");
@@ -453,10 +453,10 @@ async function orchestratorChecks(c, spaceId) {
   check("the row opens the Agents tab on the first waiting sub-agent, its request in view", lit?.state === "waiting" && lit.request, lit);
   await allTab();
   await sleep(400);
-  // …and the chip does the same.
-  await evalIn(c, `(() => { [...document.querySelectorAll('.agents-chip')].find((x) => x.getAttribute('aria-label')?.endsWith(${JSON.stringify(`for ${LEAD}`)})).click(); return true; })()`);
-  const lit2 = await until(async () => { const t = await shownTab(); return t?.state === "waiting" ? t : null; }, 5_000, "the viewer from the chip").catch(() => shownTab());
-  check("the chip opens the Agents tab on the first waiting sub-agent", lit2?.state === "waiting", lit2);
+  // …and the row's first chip does the same.
+  await evalIn(c, `(() => { ${leadRow}.querySelector('.active-agent').click(); return true; })()`);
+  const lit2 = await until(async () => { const t = await shownTab(); return t?.state === "waiting" ? t : null; }, 5_000, "the viewer from the row").catch(() => shownTab());
+  check("the row's first chip opens the Agents tab on a waiting sub-agent", lit2?.state === "waiting", lit2);
   // Back to all of them: the waiting cards carry their requests, answered below.
   await allTab();
   await sleep(400);

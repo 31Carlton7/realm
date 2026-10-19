@@ -287,6 +287,12 @@ contextBridge.exposeInMainWorld("realm", {
     ipcRenderer.on("daemon:state", handler);
     return () => ipcRenderer.removeListener("daemon:state", handler);
   },
+  /** Where the server is now — asked by the RPC client before every redial, because a server main
+   *  started after a crash has a new port and token, and the ones on this window's command line are
+   *  the old server's. */
+  serverEndpoint: (): Promise<{ port: number; token: string } | null> => ipcRenderer.invoke("daemon:endpoint"),
+  /** The banner's "Restart Realm's server". */
+  restartServer: (): Promise<void> => ipcRenderer.invoke("daemon:restart"),
   /** Whether the window is the key window — the one the keyboard is going to. Main reports it rather
    *  than the page because focus moving into a browser pane blurs the page while the window stays key. */
   onWindowKey: (cb: (key: boolean) => void): (() => void) => {
@@ -354,6 +360,14 @@ contextBridge.exposeInMainWorld("realm", {
     reveal: (profileId: string, id: string, action: "show" | "copy"): Promise<PasswordRevealResult> =>
       ipcRenderer.invoke("credentials:reveal", profileId, id, action),
     keychainStatus: (): Promise<KeychainPasswordsStatus> => ipcRenderer.invoke("credentials:keychain-status"),
+    /** A store Realm could not read, and where it kept the file: Settings ▸ Passwords says so once. */
+    unreadable: (): Promise<{ path: string; at: number } | null> => ipcRenderer.invoke("credentials:unreadable"),
+    revealUnreadable: (): Promise<void> => ipcRenderer.invoke("credentials:reveal-unreadable"),
+    dismissUnreadable: (): Promise<void> => ipcRenderer.invoke("credentials:dismiss-unreadable"),
+    /** Saved passwords the Keychain will not open for Realm right now; `retryKeychain` asks again and
+     *  answers whether they are still shut. */
+    keychainNeeded: (): Promise<boolean> => ipcRenderer.invoke("credentials:keychain-needed"),
+    retryKeychain: (): Promise<boolean> => ipcRenderer.invoke("credentials:retry-keychain"),
     setKeychain: (enabled: boolean): Promise<KeychainPasswordsStatus> => ipcRenderer.invoke("credentials:set-keychain", enabled),
     keychainList: (): Promise<BrowserCredential[]> => ipcRenderer.invoke("credentials:keychain-list"),
     neverList: (profileId: string): Promise<string[]> => ipcRenderer.invoke("credentials:never-list", profileId),

@@ -301,7 +301,7 @@ async function main() {
   check("no control is ever sliced by the group's overflow — a chip either fits or is not on the row",
     amputated.length === 0, amputated.map((s) => ({ width: s.width, cut: s.items.filter((i) => i.cut).map((i) => i.cls) })));
 
-  const modeless = sweep.filter((s) => !s.perm || !s.perm.inBar || !s.perm.shown);
+  const modeless = room.filter((s) => !s.perm || !s.perm.inBar || !s.perm.shown);
   check("the permission chip is on the row, inside the bar, with its word at every width", modeless.length === 0,
     modeless.map((s) => ({ width: s.width, perm: s.perm })));
 

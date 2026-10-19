@@ -30,7 +30,7 @@ afterEach(() => {
   vi.useRealTimers();
   Object.defineProperty(HTMLElement.prototype, "offsetHeight", offsetHeight);
   document.documentElement.removeAttribute("data-window-inactive");
-  document.body.querySelectorAll(".composer-dock").forEach((el) => el.remove());
+  document.body.querySelectorAll(".composer-dock, [data-lifts-toasts]").forEach((el) => el.remove());
 });
 
 describe("a toast", () => {
@@ -44,6 +44,25 @@ describe("a toast", () => {
     expect(alert.querySelector("p.toast-text")).not.toBeNull();
     // The old bar is gone with it.
     expect(document.querySelector(".error-bar")).toBeNull();
+  });
+
+  it("lets its words be selected to copy and not its buttons, and a press on the words leaves it and its action alone", () => {
+    const { store } = mount();
+    const run = vi.fn();
+    act(() => { store.getState().toast({ tone: "error", text: "/Users/me/Realm/yooo is not a git repository", action: { label: "Undo", run } }); });
+    const card = cards()[0]!;
+    const words = card.querySelector<HTMLElement>(".toast-text")!;
+    // THE MUTANT: the words left as chrome — the window's `user-select: none` takes them, and an
+    // error's wording can't be copied.
+    expect(words).toHaveAttribute("data-selectable");
+    // The opt-in is the words', never the card's: a drag over Undo or Dismiss is still a press.
+    for (const b of within(card).getAllByRole("button")) expect(b.closest("[data-selectable]")).toBeNull();
+    // A press, a double-click or a drag across the words selects them and does nothing else.
+    fireEvent.pointerDown(words); fireEvent.mouseDown(words); fireEvent.mouseUp(words); fireEvent.click(words); fireEvent.doubleClick(words);
+    advance(TOAST_EXIT_MS);
+    expect(run).not.toHaveBeenCalled();
+    expect(card).not.toHaveAttribute("data-leaving");
+    expect(store.getState().toasts).toHaveLength(1);
   });
 
   it("is a status for anything that is not an error", () => {
@@ -193,6 +212,27 @@ describe("the stack", () => {
     document.body.appendChild(dock);
     act(() => { store.getState().toast({ text: "boom", tone: "error" }); });
     expect(parseFloat(stack().style.bottom)).toBe(window.innerHeight - top + 16);
+  });
+
+  it("moves up when a dock arrives under a toast already up, and back down when it goes", async () => {
+    const { store, stack } = mount();
+    act(() => { store.getState().toast({ text: "Approved “Reply to Dana”.", tone: "success" }); });
+    expect(parseFloat(stack().style.bottom)).toBe(16);
+    // Review's decision bar, arriving with the reader of the next review: inside the node that mounts.
+    const reader = document.createElement("article");
+    const bar = document.createElement("div");
+    bar.setAttribute("data-lifts-toasts", "");
+    const top = window.innerHeight - 90;
+    bar.getBoundingClientRect = () => new DOMRect(200, top, window.innerWidth - 220, 74);
+    reader.appendChild(bar);
+    document.body.appendChild(reader);
+    await settle(); // a MutationObserver reports on a microtask
+    // THE MUTANT: the docks read only when the toasts change — the bar covers the toast until it leaves.
+    expect(parseFloat(stack().style.bottom)).toBe(window.innerHeight - top + 16);
+    reader.remove();
+    await settle();
+    // THE MUTANT: only arrivals watched — the toast left floating over nothing where the bar was.
+    expect(parseFloat(stack().style.bottom)).toBe(16);
   });
 
   it("where views cover the whole foot, asks the view under the corner to give it up — for as long as it is up", () => {

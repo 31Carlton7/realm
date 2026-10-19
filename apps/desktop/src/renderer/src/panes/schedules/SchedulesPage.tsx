@@ -1,6 +1,6 @@
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Item, Run, Schedule } from "@realm/contracts";
+import { isOnce, type Item, type Run, type Schedule } from "@realm/contracts";
 import { FALLBACK_AGENT, useApp, useProfileSpaces } from "../../state/store";
 import type { PaneProps } from "../registry";
 import { mcpServerMark } from "../../components/mcp-mark";
@@ -332,11 +332,13 @@ function TaskCard({ schedule, run, onEdit, onRunNow, onGone }: {
   const enabled = (connectors ?? []).filter((c) => c.enabled);
   const missed = schedule.lastSkippedAt !== null && (schedule.lastRunAt === null || schedule.lastSkippedAt > schedule.lastRunAt);
   const remove = () => act(async () => { await deleteSchedule(schedule.id, schedule.spaceId); onGone(); });
+  // A one-shot that has run has nothing left to pause.
+  const finished = schedule.enabled && schedule.nextRunAt === null && isOnce(schedule.cron);
   const items: MenuItem[] = [
     { label: "Run now", icon: <Icon name="play" size={14} />, onSelect: onRunNow },
-    schedule.enabled
+    ...(finished ? [] : [schedule.enabled
       ? { label: "Pause", icon: <Icon name="pause" size={14} />, onSelect: () => act(() => updateSchedule({ id: schedule.id, enabled: false })) }
-      : { label: "Resume", icon: <Icon name="play" size={14} />, onSelect: () => act(() => updateSchedule({ id: schedule.id, enabled: true })) },
+      : { label: "Resume", icon: <Icon name="play" size={14} />, onSelect: () => act(() => updateSchedule({ id: schedule.id, enabled: true })) }]),
     { kind: "separator" },
     // Two steps, where the app asks for them: a task is an object with a history, and the second row
     // says which one is going — its runs and their sessions stay.

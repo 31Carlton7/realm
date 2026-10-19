@@ -12,7 +12,7 @@
  *   2. The viewer's head says the state in words, the clock, the model and harness; the switcher lists
  *      every sibling with its state; the permission is answered in the viewer, on the CHILD.
  *   3. A finished child has its report pinned under the head.
- *   4. The harness agents open the same way, from the strip under the last message.
+ *   4. The harness agents open the same way, from the row over the prompter.
  *   5. Escape goes back to All; the panel resizes from its edge and the viewer follows; after a
  *      reload the tab opens on the sub-agent it was left on.
  *
@@ -248,11 +248,11 @@ async function main() {
   }
   await evalIn(c, `(() => { document.documentElement.dataset.mode = "dark"; return true; })()`);
 
-  // 4. The harness's own agents, from the strip under the last message.
+  // 4. The harness's own agents, from the row over the prompter.
   await until(async () => (await api.call("sessions.get", { id: lead }))?.status !== "running", 60_000, "lead turn over");
   await api.call("sessions.send", { id: lead, text: "Restart the stalled agents.", attachments: [], mentions: [] });
-  await until(() => evalIn(c, `[...document.querySelectorAll('.subagent-strip-row')].some((r) => r.textContent.includes('Teams rule engine'))`), 30_000, "strip row");
-  await evalIn(c, `(() => { [...document.querySelectorAll('.subagent-strip-row')].find((r) => r.textContent.includes('Teams rule engine')).click(); return true; })()`);
+  await until(() => evalIn(c, `[...document.querySelectorAll('.composer-overstrip .active-agent')].some((r) => r.textContent.includes('Teams rule engine'))`), 30_000, "agent on the row");
+  await evalIn(c, `(() => { [...document.querySelectorAll('.composer-overstrip .active-agent')].find((r) => r.textContent.includes('Teams rule engine')).click(); return true; })()`);
   const harness = await until(() => evalIn(c, `document.querySelector('.subagent-view-title')?.textContent === 'Teams rule engine' ? { facts: document.querySelector('.subagent-view-facts').textContent, foot: !!document.querySelector('.subagent-view-foot') } : null`), 10_000, "harness viewer").catch(() => null);
   check("a harness agent opens in the same viewer, with no foot it cannot honour", harness && /Working/.test(harness.facts) && !harness.foot, harness);
   await sleep(500);

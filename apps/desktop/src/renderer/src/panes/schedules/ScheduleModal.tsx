@@ -42,18 +42,22 @@ export function ScheduleModal({ open, spaces, onClose, onSaved }: {
   const updateSchedule = useApp((s) => s.updateSchedule);
   const run = useApp((s) => s.run);
   const [d, setD] = useState<Draft>(() => (editing ? draftOf(editing, fallbackKind) : (open as { draft: Draft }).draft));
+  // The expression the edit opened on: while the draft still writes it, WHEN is untouched and the
+  // task's own spelling goes back as it was.
+  const [kept] = useState(() => (editing ? exprOf(draftOf(editing, fallbackKind)) : null));
   const [advanced, setAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
   const patch = (p: Partial<Draft>) => setD((x) => ({ ...x, ...p }));
   const catalog = useRunCatalog(d.agentKind, d.model);
 
   const first = firstRun(d);
-  const valid = draftValid(d);
+  const whenKept = kept !== null && exprOf(d) === kept;
+  const valid = draftValid(d, Date.now(), kept);
   const submit = () => {
     if (!valid || saving) return;
     // The goal goes as typed — whitespace and all — because it is somebody's standing instructions.
     const body = {
-      title: d.title.trim(), goal: d.goal, cron: exprOf(d)!,
+      title: d.title.trim(), goal: d.goal, cron: editing && whenKept ? editing.cron : exprOf(d)!,
       constraints: constraintsOf(d, editing?.constraints ?? null, catalog.levels.levels.map((l) => l.id)),
       newSessionPerRun: d.newSessionPerRun, archiveSucceeded: d.archiveSucceeded,
     };
@@ -72,7 +76,7 @@ export function ScheduleModal({ open, spaces, onClose, onSaved }: {
   const pickRepeat = (every: Repeat | "custom") => patch(every === "custom" ? { every, cron: exprOf(d) ?? d.cron } : { every });
   const when = first !== null
     ? (d.repeat ? `First run ${whenPhrase(first)}.` : `Runs once, ${whenPhrase(first)}.`)
-    : !d.repeat ? "That time has already passed. Pick one ahead of now."
+    : !d.repeat ? (whenKept ? "Its time has passed. Pick a new one to run it again." : "That time has already passed. Pick one ahead of now.")
     : "That expression will never run — check the five fields (minute, hour, day, month, weekday).";
 
   return (
@@ -149,7 +153,7 @@ export function ScheduleModal({ open, spaces, onClose, onSaved }: {
             </li>
           )}
         </ul>
-        <p className="sched-modal-when" data-invalid={first === null || undefined}>{when}</p>
+        <p className="sched-modal-when" data-invalid={(first === null && !whenKept) || undefined}>{when}</p>
 
         <button type="button" className="sched-modal-advanced" aria-expanded={advanced} onClick={() => setAdvanced((a) => !a)}>
           Advanced <Icon name="chevronDown" size={12} />

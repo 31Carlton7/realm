@@ -17,7 +17,6 @@ import type { QueueActions } from "./ComposerQueue";
 import { useFileDrop } from "../../components/use-file-drop";
 import { InstallCard } from "./InstallCard";
 import { Transcript } from "./Transcript";
-import { RunningAgents } from "./DelegatedRuns";
 import { TerminalDock } from "./TerminalDock";
 import { emptyTranscript } from "./transcript-model";
 import { promptHint } from "./prompt-hint";
@@ -54,8 +53,6 @@ export function SessionMeta({ item }: { item: Item }) {
       {/* The status dot, alone. The cost used to sit here; it now rides the summary button, which is
           where the rest of what a session produced already lives — and a number in the bar was one
           more thing competing with the title for a strip that has four buttons on the other end. */}
-      {/* The agents this session has working — at the bar's right, where "what is it doing" is read. */}
-      <RunningAgents sessionId={id} />
       <span className="status-dot" data-status={status} title={STATUS_LABEL[status]} aria-label={`Status: ${STATUS_LABEL[status]}`} />
     </>
   );
@@ -552,8 +549,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const teamRoles = useApp((st) => (session ? st.teams[session.spaceId]?.roles : undefined));
   // Its own sub-agents that are sessions: `@Write the tests` passes the message to that one too.
   const subagents = useSessionSubagents(id);
+  const children = useApp((st) => st.subagents[id]);
   const mentionAgents = useMemo(() => orchestratorOrder(subagents.filter((a) => a.source === "delegated"), (a) => a.state)
-    .map((a) => ({ id: a.id, title: a.title, state: a.state })), [subagents]);
+    .map((a) => ({ id: a.id, title: a.title, state: a.state, agentKind: children?.find((c) => c.session.id === a.id)?.session.agentKind ?? null })), [subagents, children]);
   const mentionSources = useMemo(() => ({ cwd, mac: macSkill, apps: installedApps, appIcons, accessibility, accessibilityAction, files: mentionFiles, library: mentionLibrary, onOpen: onMentionOpen, ensureIcons, addRef, roles: teamRoles ?? [], agents: mentionAgents }),
     [cwd, macSkill, installedApps, appIcons, accessibility, accessibilityAction, mentionFiles, mentionLibrary, onMentionOpen, ensureIcons, addRef, teamRoles, mentionAgents]);
   /* The apps the log's own messages named keep their icons after a relaunch: asked for once each,

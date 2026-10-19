@@ -236,20 +236,6 @@ describe("§6 motion table", () => {
     expect(bodiesFor(".delegation-line .tool-row > .tool-name:last-child").join(" ")).toMatch(/max-width:\s*none/);
   });
 
-  it("keeps the transcript's sub-agent strip quiet: the accent on its mark alone, and titles that give way", () => {
-    // Mutant: the accent on the strip's ground or rim — a loud card under every fan-out.
-    const strip = bodiesFor(".subagent-strip").join(" ");
-    expect(strip).toMatch(/background:\s*var\(--rl-card\)/);
-    expect(strip).not.toMatch(/--rl-accent/);
-    expect(bodiesFor(".subagent-strip-head > svg:first-child").join(" ")).toMatch(/color:\s*var\(--rl-accent\)/);
-    // Settled, the mark goes quiet with the line.
-    expect(bodiesFor(".subagent-strip[data-settled] .subagent-strip-head > svg:first-child").join(" ")).toMatch(/color:\s*var\(--ink-3\)/);
-    // A long task ellipsizes rather than pushing the state and clock out of the row.
-    const title = bodiesFor(".subagent-strip-title").join(" ");
-    expect(title).toMatch(/min-width:\s*0/);
-    expect(title).toMatch(/text-overflow:\s*ellipsis/);
-  });
-
   /* THE mutant is the card left to shrink (`flex: 0 1 auto`): shrink is shared in proportion to size,
      so beside a long log the report came out a strip two lines high — 126px of a 822px viewer, showing
      91px of a 314px report (calmer-surfaces-live.mjs). The rest is what reading it takes. */
@@ -3152,7 +3138,7 @@ describe("squircle surfaces", () => {
  *  in the composited window is cards-live.mjs's to measure; this pins what the stylesheet promises. */
 describe("one card", () => {
   /** The card family. A new card joins it here, or the fill check below names it. */
-  const CARDS = [".subagent-strip", ".subagent-card", ".subagent-view-result",
+  const CARDS = [".subagent-card", ".subagent-view-result",
     ".edit-summary", ".permission-card", ".question-card", ".question-answered", ".plan-card", ".plan-decision", ".app-view-request",
     ".settings-row", ".sched-card", ".cr-note", ".library-offer", ".saved-turn-open", ".library-tile", ".agent-card",
     ".tc-card", ".rv-why", ".rv-caption", ".rv-paper", ".rv-post", ".rv-files", ".rv-table .md-scroll", ".ps-rows",
@@ -5021,6 +5007,13 @@ describe("the Mac idiom, continued", () => {
     const rule = RULES.find((r) => r.selectors.some((s) => s.startsWith(":is(code")));
     expect(rule?.body).toContain("user-select: text");
     expect(rule!.selectors.join(", ")).toContain(":not(:is(button");
+  });
+
+  /* THE mutant: a toast rule taking selection back off its words — `[data-selectable]` and `.toast-text`
+     weigh the same, so a later `user-select: none` there wins and an error can't be copied again. */
+  it("leaves a toast's words selectable", () => {
+    expect(RULES.filter((r) => r.selectors.some((s) => /\.toasts?\b|\.toast-(text|body)\b/.test(s)) && r.body.includes("user-select: none"))).toEqual([]);
+    expect(bodiesFor("[data-selectable]").join(" ")).toContain("user-select: text");
   });
 
   /* The children move, never the scroller: THE mutant is the offset landing on the scroller, which

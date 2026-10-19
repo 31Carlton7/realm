@@ -156,6 +156,40 @@ describe("the row of who is working", () => {
     expect(chips(await row()).map((c) => c.textContent)).toEqual(["Write the tests", "Rename the flag"]);
   });
 
+  /* What the transcript's strip used to carry, now that the row is the one place: agents a finished
+     turn left working, and how each one ended — in words on its chip's name, and by its glyph. THE
+     mutants: the row gated on the session being busy, so a turn that ended with agents out shows
+     none; and an ended agent drawn with the live dot. */
+  it("keeps the agents a finished turn left working, and says how each one ended", async () => {
+    const T0 = NOW - 120_000;
+    const ask: SessionEvent = { ...sessionEvent("user_message", { text: "Restart both", attachments: [] }), ts: T0 };
+    const background = (id: string, description: string, ts: number): SessionEvent[] => [
+      { ...sessionEvent("tool_call", { toolUseId: id, name: "Agent", input: { description, run_in_background: true }, parentToolUseId: null }), ts },
+      { ...sessionEvent("tool_result", { toolUseId: id, content: "Async agent launched successfully.", isError: false }), ts: ts + 500 },
+      { ...sessionEvent("background_task", { toolUseId: id, status: "running" }), ts: ts + 600 },
+    ];
+    const said: SessionEvent = { ...sessionEvent("assistant_text", { messageId: "m1", text: "Both are going." }), ts: T0 + 3_000 };
+    const fanOut = [ask, ...background("a1", "Teams rule engine", T0 + 1_000), ...background("a2", "Realmite runner game", T0 + 2_000), said];
+    // The turn is over and the session idle; both are still out.
+    await mount({ events: fanOut });
+    expect(chips(await row()).map((c) => `${c.textContent} (${c.dataset.state})`)).toEqual(["Teams rule engine (working)", "Realmite runner game (working)"]);
+    cleanup();
+    // One background agent that stopped, a blocking one that came back an error, and a blocking one
+    // whose turn was cut off under it.
+    const ended: SessionEvent[] = [ask, ...background("a1", "Teams rule engine", T0 + 1_000), said,
+      { ...sessionEvent("background_task", { toolUseId: "a1", status: "stopped" }), ts: T0 + 60_000 },
+      { ...sessionEvent("tool_call", { toolUseId: "b1", name: "Task", input: { description: "Policies page" }, parentToolUseId: null }), ts: T0 + 61_000 },
+      { ...sessionEvent("tool_result", { toolUseId: "b1", content: "It broke.", isError: true }), ts: T0 + 90_000 },
+      { ...sessionEvent("tool_call", { toolUseId: "b2", name: "Task", input: { description: "Dig" }, parentToolUseId: null }), ts: T0 + 62_000 }];
+    await mount({ events: ended });
+    const g = await row();
+    expect(chips(g).map((c) => `${c.textContent} (${c.dataset.state})`)).toEqual([
+      "Teams rule engine (done)", "Policies page (failed)", "Dig (stopped)"]);
+    expect(chips(g).map((c) => c.getAttribute("aria-label")!.split(".")[0])).toEqual([
+      "Teams rule engine, Done", "Policies page, Failed", "Dig, Stopped"]);
+    for (const c of chips(g)) expect(c.querySelector(".active-agent-badge .status-dot")).toBeNull();
+  });
+
   it("leaves out what the person dismissed", async () => {
     await mount({ children: [WORKING, DONE], dismissed: ["se3"] });
     expect(chips(await row()).map((c) => c.textContent)).toEqual(["Write the tests"]);

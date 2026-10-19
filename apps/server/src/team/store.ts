@@ -225,6 +225,18 @@ export class TeamStore {
     this.db.prepare("UPDATE team_review_items SET approved_hash = content_hash, act_state = 'ready' WHERE review_id = ? AND version = ?").run(reviewId, version);
   }
 
+  /** A yes taken back: the items hold no approved hash and nothing ready to act on, and the review
+   *  waits for the person again, undecided. Its items, their files and their hashes are untouched. */
+  unapprove(reviewId: string, version: number): ReviewRow {
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare("UPDATE team_review_items SET approved_hash = NULL, act_state = 'none' WHERE review_id = ? AND version = ?").run(reviewId, version);
+      this.db.prepare("UPDATE team_reviews SET state = 'waiting', decided_at = NULL, updated_at = ? WHERE id = ?").run(this.clock(), reviewId);
+      this.db.exec("COMMIT");
+    } catch (e) { this.db.exec("ROLLBACK"); throw e; }
+    return this.review(reviewId)!;
+  }
+
   /** A file changed under an item: its hash moves, and a yes given to the old bytes no longer covers it. */
   setItemHash(itemId: string, hash: string): void {
     this.db.prepare("UPDATE team_review_items SET content_hash = ?, act_state = CASE WHEN approved_hash IS NOT NULL AND approved_hash <> ? THEN 'none' ELSE act_state END WHERE id = ?")

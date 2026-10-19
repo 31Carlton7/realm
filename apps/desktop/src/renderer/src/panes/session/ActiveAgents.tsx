@@ -1,10 +1,11 @@
-import { AGENT_META, type AgentKind, type DelegatedChild } from "@realm/contracts";
+import { AGENT_META, type AgentKind, type DelegatedChild, type DelegatedRun } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { useApp } from "../../state/store";
 import { StateMark } from "../agents-tab/StateMark";
 import { STATE_LABEL, isLive, modelLabel, orchestratorOrder, type SubagentState } from "../agents-tab/subagent-state";
+import { useOpenChild } from "./DelegatedRuns";
 import { stripAgents, useSessionSubagents, type SessionSubagent } from "./session-subagents";
 import { formatDuration } from "./tool-group";
 import type { Block } from "./transcript-model";
@@ -16,31 +17,49 @@ export const ROW_MAX = 3;
 const NO_BLOCKS: readonly Block[] = [];
 const NO_IDS: readonly string[] = [];
 const NO_CHILDREN: readonly DelegatedChild[] = [];
+const NO_RUNS: readonly DelegatedRun[] = [];
+
+/** One on the row: a sub-agent of the session, or a peer it only asked a question (`agent_ask`). A
+ *  peer is no sub-agent — it was doing its own work before the question and goes on after — but it is
+ *  working for this session until it answers, and the row is where that is said. */
+export type RowAgent = Omit<SessionSubagent, "source"> & { source: SessionSubagent["source"] | "asked" };
 
 /**
  * The agents the row shows, most urgent first: every one still going, and the ones the latest turn
- * started — the strip under the transcript's rule, so a finished teammate stays to be read and goes
- * with the next message — less the ones the person dismissed. What needs you leads, so the fold can
- * never hide it.
+ * started — so a finished teammate stays to be read and goes with the next message — less the ones
+ * the person dismissed, and the peers still answering a question. What needs you leads, so the fold
+ * can never hide it.
  */
-function rowAgents(all: readonly SessionSubagent[], blocks: readonly Block[], dismissed: readonly string[]): SessionSubagent[] {
+function rowAgents(all: readonly SessionSubagent[], asked: readonly RowAgent[], blocks: readonly Block[], dismissed: readonly string[]): RowAgent[] {
   const hidden = new Set(dismissed);
-  return orchestratorOrder(stripAgents(all, blocks).filter((a) => !hidden.has(a.id)), (a) => a.state);
+  return orchestratorOrder([...stripAgents(all, blocks).filter((a) => !hidden.has(a.id)), ...asked], (a) => a.state);
 }
 
 /** The agents `sessionId`'s row shows (`rowAgents`), read from the store — what decides whether the
  *  prompter draws its over-strip at all, as well as what goes on it. */
-export function useRowAgents(sessionId: string): SessionSubagent[] {
+export function useRowAgents(sessionId: string): RowAgent[] {
   const all = useSessionSubagents(sessionId);
   const blocks = useApp((s) => s.transcripts[sessionId]?.t.blocks ?? NO_BLOCKS);
   const dismissed = useApp((s) => s.dismissedSubagents[sessionId] ?? NO_IDS);
   const loaded = useApp((s) => s.subagents[sessionId] !== undefined);
+  const runs = useApp((s) => s.delegatedRuns[sessionId] ?? NO_RUNS);
+  const sessions = useApp((s) => s.sessions);
+  const allSessions = useApp((s) => s.allSessions);
   const refreshSubagents = useApp((s) => s.refreshSubagents);
+  const refreshDelegatedRuns = useApp((s) => s.refreshDelegatedRuns);
   const run = useApp((s) => s.run);
   // The list is otherwise read on demand (the Agents tab, a delegation line), and a teammate that
   // finished before a relaunch is still one the row owes the person until their next message.
   useEffect(() => { if (!loaded) run(() => refreshSubagents(sessionId)); }, [loaded, sessionId, refreshSubagents, run]);
-  return useMemo(() => rowAgents(all, blocks, dismissed), [all, blocks, dismissed]);
+  // The runs in flight, which no table holds: the ones that began before this window connected — a
+  // reload, a second window, a pane opened ten minutes into a delegation. Every later change arrives
+  // on `delegation.changed`.
+  useEffect(() => { run(() => refreshDelegatedRuns(sessionId)); }, [sessionId, refreshDelegatedRuns, run]);
+  const asked = useMemo(() => runs.filter((r) => !r.owned).map((r): RowAgent => ({
+    id: r.sessionId, source: "asked", title: (sessions[r.sessionId] ?? allSessions[r.sessionId])?.title ?? "Starting…",
+    state: "working", startedAt: r.startedAt, endedAt: null,
+  })), [runs, sessions, allSessions]);
+  return useMemo(() => rowAgents(all, asked, blocks, dismissed), [all, asked, blocks, dismissed]);
 }
 
 /**
@@ -51,17 +70,20 @@ export function useRowAgents(sessionId: string): SessionSubagent[] {
  * A click opens one in the session's Agents tab, as its line in the transcript does. Its menu (a
  * right-click) adds what can be done to it from here: put its name in the prompter to message it, stop
  * it, or take it off the row. A harness's own sub-agent runs inside the session's agent, so it can be
- * neither messaged nor stopped on its own, and its menu does not offer either.
+ * neither messaged nor stopped on its own, and its menu does not offer either. A peer the session only
+ * asked a question opens as the session it is, and has no menu: it is not this session's to stop.
  */
 export function ActiveAgents({ sessionId, agents, onMessage }: {
   sessionId: string;
   /** `useRowAgents(sessionId)`, which the prompter has already read to decide on the strip. */
-  agents: readonly SessionSubagent[];
+  agents: readonly RowAgent[];
   /** Put this sub-agent's name in the prompter, as the `@` list would. Absent where the prompter has
    *  no mentions to put it in. */
   onMessage?: (agent: { id: string; title: string }) => void;
 }) {
   const children = useApp((s) => s.subagents[sessionId] ?? NO_CHILDREN);
+  const sessions = useApp((s) => s.sessions);
+  const allSessions = useApp((s) => s.allSessions);
   const leadKind = useApp((s) => (s.sessions[sessionId] ?? s.allSessions[sessionId])?.agentKind);
   const agentProbe = useApp((s) => s.agentProbe);
   const live = agents.filter((a) => isLive(a.state));
@@ -70,7 +92,12 @@ export function ActiveAgents({ sessionId, agents, onMessage }: {
   const now = since + useElapsed(since, live.length > 0);
   if (agents.length === 0) return null;
 
-  const describe = (a: SessionSubagent): Described => {
+  const describe = (a: RowAgent): Described => {
+    if (a.source === "asked") {
+      const peer = sessions[a.id] ?? allSessions[a.id];
+      return { agent: a, kind: peer?.agentKind ?? null, on: "Asked a question (agent_ask)", task: null,
+        took: formatDuration(Math.max(0, now - a.startedAt)), delegated: false };
+    }
     const child = a.source === "delegated" ? children.find((c) => c.session.id === a.id) : undefined;
     const on = child
       ? `${AGENT_META[child.session.agentKind].label} · ${modelLabel(child.session.agentKind, child.session.model, agentProbe)}`
@@ -91,7 +118,7 @@ export function ActiveAgents({ sessionId, agents, onMessage }: {
   );
 }
 
-type Described = { agent: SessionSubagent; kind: AgentKind | null; on: string | null; task: string | null; took: string; delegated: boolean };
+type Described = { agent: RowAgent; kind: AgentKind | null; on: string | null; task: string | null; took: string; delegated: boolean };
 
 /**
  * Which agent it is, and where it stands: the harness's own mark — the one the model picker draws
@@ -126,13 +153,14 @@ function AgentChip({ leadId, d, onMessage }: { leadId: string; d: Described; onM
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
   const items = useAgentMenu(leadId, d, onMessage);
   const open = useOpen(leadId);
+  const asked = agent.source === "asked";
   return (
     <>
       <button type="button" className="ghost-chip active-agent" data-state={agent.state}
-        title={`${agentSummary(d)}. Right-click for more.`}
-        aria-label={`${agent.title}, ${STATE_LABEL[agent.state]}. Opens it in the Agents tab`}
-        onClick={() => open(agent.id)}
-        onContextMenu={(e) => { e.preventDefault(); setMenuAt({ x: e.clientX, y: e.clientY }); }}>
+        title={asked ? agentSummary(d) : `${agentSummary(d)}. Right-click for more.`}
+        aria-label={asked ? `${agent.title}, asked a question. Opens the session` : `${agent.title}, ${STATE_LABEL[agent.state]}. Opens it in the Agents tab`}
+        onClick={() => open(agent)}
+        onContextMenu={asked ? undefined : (e) => { e.preventDefault(); setMenuAt({ x: e.clientX, y: e.clientY }); }}>
         <AgentMark kind={d.kind} state={agent.state} />
         <span className="chip-label">{agent.title}</span>
       </button>
@@ -148,7 +176,7 @@ function MoreChip({ leadId, agents }: { leadId: string; agents: Described[] }) {
   const show = useOpen(leadId);
   const items: MenuItem[] = agents.map((d) => ({
     label: d.agent.title, icon: <AgentMark kind={d.kind} state={d.agent.state} />,
-    detail: STATE_LABEL[d.agent.state], title: agentSummary(d), onSelect: () => show(d.agent.id),
+    detail: STATE_LABEL[d.agent.state], title: agentSummary(d), onSelect: () => show(d.agent),
   }));
   return (
     <>
@@ -163,10 +191,16 @@ function MoreChip({ leadId, agents }: { leadId: string; agents: Described[] }) {
   );
 }
 
-function useOpen(leadId: string): (id: string) => void {
+/** A sub-agent opens in the session's Agents tab, on its card. A peer it only asked has no card
+ *  there, and is previewed as the session it is. */
+function useOpen(leadId: string): (agent: RowAgent) => void {
   const openAgentsTab = useApp((s) => s.openAgentsTab);
+  const openChild = useOpenChild();
   const run = useApp((s) => s.run);
-  return (id) => run(() => openAgentsTab(leadId, { childId: id }));
+  return (agent) => {
+    if (agent.source === "asked") openChild(agent.id);
+    else run(() => openAgentsTab(leadId, { childId: agent.id }));
+  };
 }
 
 /** What a chip's menu offers, by what its owner supports: a delegated child can be messaged and
@@ -178,7 +212,7 @@ function useAgentMenu(leadId: string, d: Described, onMessage?: (agent: { id: st
   const run = useApp((s) => s.run);
   const { agent } = d;
   return [
-    { label: "Open in Agents tab", icon: <Icon name="bot" size={16} />, onSelect: () => open(agent.id) },
+    { label: "Open in Agents tab", icon: <Icon name="bot" size={16} />, onSelect: () => open(agent) },
     ...(d.delegated && onMessage ? [{ label: "Message", icon: <Icon name="comment" size={16} />, detail: "Name it in the prompter",
       onSelect: () => onMessage({ id: agent.id, title: agent.title }) } as MenuItem] : []),
     ...(d.delegated && isLive(agent.state) ? [{ label: "Stop", icon: <Icon name="stop" size={16} />,

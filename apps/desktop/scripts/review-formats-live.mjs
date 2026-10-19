@@ -9,7 +9,8 @@
  *       table, text, files — and one slideshow batch the old way (`kind: slideshows`, `target`);
  *   F2  each review draws in its own renderer, in both faces, screenshot by screenshot;
  *   F3  the email's text is edited in place: version 2, marked the person's, and Approve covers it;
- *   F4  the legacy slideshow batch still draws its strip under "Caption", and approving it offers Post….
+ *   F4  the legacy slideshow batch still draws as a post, its caption under the slides, and approving it
+ *       offers Post….
  *
  * Ports: LIVE_SERVER_PORT / LIVE_CDP_PORT (8824 / 9264). Screenshots go to LIVE_OUT. It touches only
  * its own scratch home, and kills only what holds its own two ports. Pictures are cut from the site's
@@ -267,10 +268,13 @@ async function openReview(c) {
 
 /** Read one review, and wait until its deliverable has drawn (its pictures decoded, its page in). */
 async function readReview(c, id) {
+  const reader = `.rv-detail[aria-labelledby="rv-title-${id}"]`;
   await evalIn(c, `__live.click(__live.q('[data-review="${id}"]'))`);
-  await until(() => evalIn(c, `(() => { const d = __live.q('.rv-deliverable'); if (!d) return false;
+  await until(() => evalIn(c, `(() => { const d = __live.q('${reader} .rv-deliverable'); if (!d || !__live.q('${reader} .rv-dock')) return false;
     const imgs = [...d.querySelectorAll('img')]; return imgs.every((i) => i.complete && i.naturalWidth > 0) && !d.querySelector('.rv-pdf-blank'); })()`), 15_000, `review ${id} drawn`);
-  return evalIn(c, `({ format: __live.q('.rv-deliverable')?.dataset.format, h1: __live.text('.rv-head h1'), heads: __live.qa('.rv-section h3').map((h) => h.textContent), note: __live.text('.rv-decide-note') })`);
+  // Past the beat in which Approve ignores a press (the tail of a double click aimed at the review before).
+  await sleep(400);
+  return evalIn(c, `({ format: __live.q('.rv-deliverable')?.dataset.format, h1: __live.text('.rv-head h1'), heads: __live.qa('.rv-fact-label').map((h) => h.textContent), note: __live.text('.rv-dock-note') })`);
 }
 
 let liveC = null;
@@ -296,48 +300,60 @@ async function main() {
 
   /* ── F2: each format in its renderer, dark ───────────────────────────────────────────────────── */
   await openReview(c);
-  const formats = {};
+  const notes = {};
   for (const [i, s] of SUBMITS.entries()) {
     const r = await readReview(c, byTitle[s.title].id);
-    formats[s.title] = r.format;
+    notes[s.title] = r.note;
     check(`F2 ${s.title} draws as ${EXPECT[i]}`, r.format === EXPECT[i], r);
     await shot(c, `${String(i + 1).padStart(2, "0")}-${EXPECT[i]}-dark`);
   }
-  const card = await evalIn(c, `__live.qa('.rv-card .rv-meta').map((m) => m.textContent)`);
-  // A card names where its batch goes when it goes somewhere (the channel), and otherwise its label as written.
-  check("F2 every card says its label as written, or its channel", SUBMITS.every((s) => card.some((m) => m.includes(s.label) || (s.items[0].action?.connector.startsWith("channel:") && m.includes(s.items[0].action.connector.slice(8))))), card);
-  const states = await evalIn(c, `__live.qa('.rv-card .rv-state').map((m) => m.textContent)`);
-  check("F2 a batch that goes nowhere promises no post", states.filter((t) => /leaves Realm/.test(t)).length === 8 && states.filter((t) => /anything posts/.test(t)).length === 1, states);
+  // A row says what the draft is in plain words, read off how it is drawn — the role's own label only
+  // where that says more, as a bundle's "assets" does — and where it goes when it goes somewhere.
+  const lines = await evalIn(c, `Object.fromEntries(__live.qa('.rv-row[data-review]').map((r) => [r.dataset.review, r.querySelector('.rv-row-what').textContent]))`);
+  const ROW_LINE = [/^Picture$/, /^brief$/, /^Document$/, /^Email to dana@acme\.com/, /^DM to @reader/, /^Diff$/, /^Links$/, /^Table$/, /^Note$/, /^assets$/];
+  check("F2 every row says what it is, and where it goes", SUBMITS.every((s, i) => ROW_LINE[i].test(lines[byTitle[s.title].id] ?? "")), SUBMITS.map((s) => lines[byTitle[s.title].id]));
+  // Before the yes, the dock says what Approve does: for a draft that goes nowhere, that nothing leaves Realm.
+  const nowhere = SUBMITS.filter((s) => !s.items[0].action);
+  check("F2 a draft that goes nowhere promises nothing goes out, and one that goes somewhere says where",
+    nowhere.length === 8 && nowhere.every((s) => /Nothing leaves Realm/.test(notes[s.title] ?? "")) && SUBMITS.filter((s) => s.items[0].action).every((s) => !/Nothing leaves Realm/.test(notes[s.title] ?? "")), notes);
 
   /* ── F3: edit the email, then approve ─────────────────────────────────────────────────────────── */
   const mail = byTitle["Reply to Dana at Acme"];
   await readReview(c, mail.id);
-  await evalIn(c, `__live.click(__live.button('Edit'))`);
+  await evalIn(c, `__live.click(__live.button('Edit', __live.q('.rv-deliverable')))`);
   await until(() => evalIn(c, `!!__live.q('.rv-edit-field')`), 5_000, "edit field");
   await evalIn(c, `__live.set(__live.q('.rv-edit-field'), __live.q('.rv-edit-field').value.replace('The pilot can start on the 14th', 'The pilot starts on Wednesday the 14th, as we agreed'))`);
   await shot(c, "20-email-editing-dark");
-  await evalIn(c, `__live.click(__live.button('Save edit'))`);
+  await evalIn(c, `__live.click(__live.button('Save edit', __live.q('.rv-deliverable')))`);
   await until(() => evalIn(c, `/with your edit/.test(__live.text('.rv-version') ?? '')`), 10_000, "version 2 drawn");
   const v2 = await api.call("team.review", { id: mail.id });
   check("F3 the edit is version 2, the item the person's, its text the new words", v2.version === 2 && v2.items[0].editedBy === "user" && /Wednesday the 14th/.test(v2.items[0].body) && v2.previous.length === 1, { version: v2.version, editedBy: v2.items[0].editedBy });
   const log = await api.call("team.activity", { spaceId: space.id, limit: 50 });
   check("F3 the edit is a line in the log, with its diff", log.some((a) => a.verb === "edited_item" && /\+.*Wednesday the 14th/.test(a.detail.diff ?? "")));
   await shot(c, "21-email-edited-dark");
-  await evalIn(c, `__live.click(__live.qa('.rv-decide .btn.primary')[0])`);
-  await until(() => evalIn(c, `/Approved by you/.test(__live.text('.rv-decide-note') ?? '')`), 8_000, "approved");
+  await sleep(400);
+  await evalIn(c, `__live.click(__live.q('.rv-dock .rv-approve'))`);
+  await until(async () => (await api.call("team.review", { id: mail.id })).state === "approved", 8_000, "approved");
+  // Approved, it is the person's to send, so it leaves Waiting for you and the reader moves on to the
+  // next one waiting; the email, read again, says what was decided.
+  await until(() => evalIn(c, `!__live.q('.rv-detail[aria-labelledby="rv-title-${mail.id}"]')`), 8_000, "moved on");
+  await readReview(c, mail.id);
+  await until(() => evalIn(c, `/Approved by you/.test(__live.text('.rv-dock-note') ?? '')`), 8_000, "approved line");
   const approved = await api.call("team.review", { id: mail.id });
   check("F3 Approve covers the edited bytes", approved.state === "approved" && approved.items[0].approvedHash === approved.items[0].contentHash && /Wednesday the 14th/.test(approved.items[0].body));
 
   /* ── F4: the slideshows sent the old way ──────────────────────────────────────────────────────── */
   const legacy = byTitle[LEGACY.title];
   const lr = await readReview(c, legacy.id);
-  const strip = await evalIn(c, `({ slides: __live.qa('.rv-strip .rv-slide').length, caption: __live.qa('.rv-section h3').map((h) => h.textContent) })`);
-  check("F4 the legacy batch still draws its strip, under Caption", lr.format === "images" && strip.slides === 3 && strip.caption.includes("Caption") && strip.caption.includes("Before it can post"), { lr, strip });
+  // Drawn as the post it would be: who it goes out as and where, the slides in order, the caption under them.
+  const strip = await evalIn(c, `({ slides: __live.qa('.rv-post .rv-strip .rv-slide').length, caption: __live.text('.rv-post .rv-post-caption'), head: __live.text('.rv-post .rv-post-head') })`);
+  check("F4 the legacy batch still draws its strip as a post, its caption under it", lr.format === "images" && strip.slides === 3 && strip.caption === LEGACY.items[0].body
+    && /@versed\.nathan/.test(strip.head ?? "") && /TikTok/.test(strip.head ?? "") && lr.heads.includes("Before it can post"), { lr, strip });
   const legacyDetail = await api.call("team.review", { id: legacy.id });
   check("F4 stored as the backfill would have: a legacy post action, drawn as images", legacyDetail.items.every((i) => i.action?.verb === "post" && i.action?.connector === "channel:tiktok" && i.action?.legacy === 1 && i.target?.channel === "TikTok"));
   await shot(c, "30-legacy-slideshows-dark");
-  await evalIn(c, `__live.click(__live.qa('.rv-decide .btn.primary')[0])`);
-  await until(() => evalIn(c, `!!__live.button('Post…')`), 10_000, "Post… offered");
+  await evalIn(c, `__live.click(__live.q('.rv-dock .rv-approve'))`);
+  await until(() => evalIn(c, `!!__live.button('Post…', __live.q('.rv-dock'))`), 10_000, "Post… offered");
   const tickets = (await api.call("team.review", { id: legacy.id })).tickets;
   check("F4 approving issues one ticket per slideshow, channel as written, and offers Post…", tickets.length === 3 && tickets.every((t) => t.kind === "post" && t.channel === "TikTok"), tickets.map((t) => `${t.kind}:${t.channel}`));
   await shot(c, "31-legacy-approved-post-dark");

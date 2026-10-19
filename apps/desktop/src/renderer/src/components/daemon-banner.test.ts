@@ -19,7 +19,18 @@ describe("bannerFor", () => {
     const b = bannerFor({ connectionDown: true, daemon: { kind: "failed", logPath: "/tmp/realm/logs/server.log" } })!;
     expect(b.text).toContain("keeps failing to start");
     expect(b.text).toContain("/tmp/realm/logs/server.log");
-    expect(b.action).toBeNull();
+    // Giving up was about the automatic tries; the person can still ask for one.
+    expect(b.action).toBe("restart");
+  });
+
+  it("stops saying reconnecting once the window has stopped redialing, and offers a restart", () => {
+    // MUTANT: leave `offline` on the generic line and a window that has given up still promises a
+    // reconnection, with a Retry that only tries the same dead server once more.
+    expect(bannerFor({ connectionDown: true, offline: true, daemon: null })).toEqual({
+      text: "The agent server isn't answering.", action: "restart", tone: "bad",
+    });
+    // Main's word still wins: a crash loop names its log.
+    expect(bannerFor({ connectionDown: true, offline: true, daemon: { kind: "failed", logPath: "/tmp/l" } })!.text).toContain("keeps failing to start");
   });
 
   it("names a restart in progress, because that is a different wait", () => {
@@ -37,6 +48,6 @@ describe("bannerFor", () => {
   it("prefers what main knows over what the socket can guess", () => {
     // A failed server and a dropped socket are the same thing from the renderer's side; only main can
     // tell them apart, so its answer wins.
-    expect(bannerFor({ connectionDown: true, daemon: { kind: "failed" } })!.action).toBeNull();
+    expect(bannerFor({ connectionDown: true, daemon: { kind: "failed" } })!.action).toBe("restart");
   });
 });

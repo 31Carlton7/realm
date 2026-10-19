@@ -136,4 +136,10 @@ describe("approve → act, in words", () => {
     expect(activitySentence(line({ outcome: "superseded" }), "Writer")).toEqual({ text: "Writer replaced Reply to Dana", detail: null });
     expect(activitySentence(line({ outcome: "done" }), "Writer").text).toBe("Writer marked Reply to Dana done");
   });
+
+  it("says an approval was undone in the person's words", () => {
+    const undone: TeamActivity = { id: "a", spaceId: "s", ts: NOW, actor: "user", runId: null, sessionId: null, verb: "undid_approval", object: "2 slideshows for Nathan", detail: { reviewId: "r", version: 1 } };
+    // THE MUTANT: no sentence of its own — the log falls back to "You: undid approval 2 slideshows…".
+    expect(activitySentence(undone, "You")).toEqual({ text: "You undid your approval of 2 slideshows for Nathan", detail: "before any of it went out" });
+  });
 });

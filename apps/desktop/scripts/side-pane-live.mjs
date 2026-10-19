@@ -10,8 +10,8 @@
  *   2. Only the tab showing has its native view on screen — asked of main, over its inspector — and
  *      every tab's page is live, so an agent can drive the ones behind it.
  *   3. A click on a tab brings that browser forward.
- *   4. An `agent_start` child gets no pane; the session's bar says "1 working", and a click in its
- *      list previews the child as a tab of the same side pane.
+ *   4. An `agent_start` child gets no pane; the row over the prompter names it working, and a click
+ *      on its chip previews the child as a tab of the same side pane.
  *
  * Ports: LIVE_SERVER_PORT (8821), LIVE_CDP_PORT (9261), LIVE_SITE_PORT (8822), LIVE_MAIN_INSPECT_PORT (9262). Touches only a scratch
  * dir; kills only what is listening on its own ports. Browses nothing but its own 127.0.0.1 fixture.
@@ -287,21 +287,19 @@ async function main() {
   await evalIn(c, `(() => { const p = [...document.querySelectorAll('.panehost .panel')].find((x) => x.querySelector('.panel-title')?.textContent === ${JSON.stringify(TITLE)}); p.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); return true; })()`);
   await sleep(200);
 
-  // ── 4. A sub-agent gets no pane, a count in the bar, and a preview tab on request ───────────
+  // ── 4. A sub-agent gets no pane, a chip over the prompter, and a preview tab on request ─────
   const started = await call("realm-agent__agent_start", { goal: "HANG", constraints: { agentKind: "acp:gemini" } });
   note("agent_start", text(started).slice(0, 200));
-  const chip = await until(() => evalIn(c, `document.querySelector('.agents-chip')?.textContent ?? null`), 20_000, "running-agents chip");
-  check("the session's bar says one agent is working", chip === "1 working", chip);
+  const chip = await until(() => evalIn(c, `(() => { const b = document.querySelector('.composer-overstrip .active-agent'); return b ? b.dataset.state : null; })()`), 20_000, "the agent on the row");
+  check("the row over the prompter says one agent is working", chip === "working" && await evalIn(c, `document.querySelectorAll('.composer-overstrip .active-agent').length === 1`), chip);
   await sleep(800);
   const withKid = await panes();
   check("the child opened no pane of its own", withKid.length === 2, withKid.map((p) => p.title ?? p.tabs.map((t) => t.name)));
-  await evalIn(c, `(() => { document.querySelector('.agents-chip').click(); return true; })()`);
-  await until(() => evalIn(c, `!!document.querySelector('.agents-pop .delegation-item')`), 5_000, "agents list");
-  await shot(c, "agents-list");
-  await evalIn(c, `(() => { document.querySelector('.agents-pop .delegation-item').click(); return true; })()`);
+  await shot(c, "agents-row");
+  await evalIn(c, `(() => { document.querySelector('.composer-overstrip .active-agent').click(); return true; })()`);
   const preview = await until(async () => { const ps = await panes(); const s = ps.find((p) => p.tabs.length === 4); return s ? ps : null; }, 10_000, "preview tab").catch(() => panes());
   const s4 = preview.find((p) => p.tabs.length === 4);
-  check("a click in the list previews the child as a fourth tab, on screen", !!s4 && s4.tabs.find((t) => t.name.startsWith("Agent"))?.selected && preview.length === 2, preview);
+  check("a click on its chip previews the child as a fourth tab, on screen", !!s4 && s4.tabs.find((t) => t.name.startsWith("Agent"))?.selected && preview.length === 2, preview);
   check("…with the keyboard still in the lead", preview.find((p) => p.title === TITLE)?.focused === true);
   await sleep(500);
   const vKid = await views();

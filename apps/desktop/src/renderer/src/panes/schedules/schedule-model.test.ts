@@ -136,6 +136,15 @@ describe("the modal's draft", () => {
     expect(firstRun(d, now)).toBe(new Date(2026, 8, 8, 9).getTime());
   });
 
+  it("lets an edit that keeps a one-shot's passed moment be saved, and no other passed moment", () => {
+    // A one-shot that has run is still the task's to rename. THE MUTANT: `kept` ignored.
+    const ran = exprOf({ ...blankDraft("s1", "claude", now), repeat: false, date: "2026-09-01", time: "13:00" })!;
+    const d = { ...draftOf(schedule({ cron: ran }), "claude", now), title: "Shipped" };
+    expect(draftValid(d, now)).toBe(false);
+    expect(draftValid(d, now, ran)).toBe(true);
+    expect(draftValid({ ...d, time: "14:00" }, now, ran)).toBe(false);
+  });
+
   it("asks for the agent, the model, its level and fast mode, drops a permission, and keeps whatever else the task was given", () => {
     /* A scheduled run is Full access whatever the task holds, so a permission left from before is not
        written back. THE MUTANT: a row still saying Plan about runs that work in Full access. */

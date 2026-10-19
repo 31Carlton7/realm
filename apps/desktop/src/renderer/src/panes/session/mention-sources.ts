@@ -1,4 +1,4 @@
-import { MAC_SKILL_ID, ROLE_TEMPLATES, basenameOf, documentKindFor, fileLabelCandidates, isImageMime, isSecretPath, matchPath, mimeForPath, type InstalledApp, type LibraryEntry, type Skill, type TeamRole, type UnlabelledRef } from "@realm/contracts";
+import { MAC_SKILL_ID, ROLE_TEMPLATES, basenameOf, documentKindFor, fileLabelCandidates, isImageMime, isSecretPath, matchPath, mimeForPath, type AgentKind, type InstalledApp, type LibraryEntry, type Skill, type TeamRole, type UnlabelledRef } from "@realm/contracts";
 import type { IconName } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { STATE_LABEL, type SubagentState } from "../agents-tab/subagent-state";
@@ -27,14 +27,15 @@ export type MentionOption =
   | { kind: "role"; key: string; name: string; role: TeamRole }
   /** One of this session's own sub-agents — a teammate, or one its agent started: sending passes it
    *  the message. */
-  | { kind: "agent"; key: string; name: string; sessionId: string; state: SubagentState };
+  | { kind: "agent"; key: string; name: string; sessionId: string; state: SubagentState; agentKind: AgentKind | null };
 
 /** One row as the picker draws it: the option, the quiet line after its name, and — in the tour —
  *  the head of the group it opens. */
 export type MentionRow = MentionOption & { detail: string; head?: string };
 
-/** A sub-agent of this session, as the `@` list names it. */
-export type SessionAgent = { id: string; title: string; state: SubagentState };
+/** A sub-agent of this session, as the `@` list names it. `agentKind` is the harness it runs on, whose
+ *  mark it wears — null where the child's session has not been read. */
+export type SessionAgent = { id: string; title: string; state: SubagentState; agentKind: AgentKind | null };
 
 /** A file hit from the server, by its path in the checkout. */
 export type FileHit = { path: string };
@@ -76,7 +77,7 @@ export function mentionOptions(src: { mac: Skill | null; skills: readonly Skill[
     .map((e) => ({ kind: "library", key: `library:${e.path}`, name: e.name, path: e.path, from: e.kind === "added" ? "Added by you" : e.sessionTitle ?? "" }));
   return [
     ...(src.mac ? [{ kind: "mac", key: "mac", name: MAC_SKILL_ID, skill: src.mac } as MentionOption] : []),
-    ...(src.agents ?? []).map((a): MentionOption => ({ kind: "agent", key: `agent:${a.id}`, name: a.title, sessionId: a.id, state: a.state })),
+    ...(src.agents ?? []).map((a): MentionOption => ({ kind: "agent", key: `agent:${a.id}`, name: a.title, sessionId: a.id, state: a.state, agentKind: a.agentKind })),
     ...(src.roles ?? []).filter((r) => r.wakeOnMention).map((r): MentionOption => ({ kind: "role", key: `role:${r.id}`, name: r.name, role: r })),
     ...files,
     ...library,
