@@ -17,7 +17,6 @@ import type { QueueActions } from "./ComposerQueue";
 import { useFileDrop } from "../../components/use-file-drop";
 import { InstallCard } from "./InstallCard";
 import { Transcript } from "./Transcript";
-import { RunningAgents } from "./DelegatedRuns";
 import { TerminalDock } from "./TerminalDock";
 import { emptyTranscript } from "./transcript-model";
 import { promptHint } from "./prompt-hint";
@@ -54,8 +53,6 @@ export function SessionMeta({ item }: { item: Item }) {
       {/* The status dot, alone. The cost used to sit here; it now rides the summary button, which is
           where the rest of what a session produced already lives — and a number in the bar was one
           more thing competing with the title for a strip that has four buttons on the other end. */}
-      {/* The agents this session has working — at the bar's right, where "what is it doing" is read. */}
-      <RunningAgents sessionId={id} />
       <span className="status-dot" data-status={status} title={STATUS_LABEL[status]} aria-label={`Status: ${STATUS_LABEL[status]}`} />
     </>
   );
