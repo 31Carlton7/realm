@@ -13,11 +13,12 @@ import { SecretStore } from "./secret-store";
 const SECRET = "correct horse battery staple";
 const P = "pPersonal";
 
-function harness(over: Partial<PasswordsIpcDeps> = {}) {
-  let disk: string | null = null;
+function harness(over: Partial<PasswordsIpcDeps> = {}, file: string | null = null) {
+  let disk: string | null = file;
   const store = new SecretStore({
     safeStorage: { isEncryptionAvailable: () => true, encryptString: (s) => Buffer.from(`kc:${s}`), decryptString: (b) => b.toString().slice(3) },
     readFile: () => disk, writeFile: (t) => { disk = t; }, appendAudit: () => {},
+    setAside: () => { disk = null; return "/Users/x/Realm/secrets.unreadable-2026-10-19T03-58-12-345Z.json"; },
     promptPresence: async () => true, promptDeviceOwner: async () => true, canPromptDeviceOwner: () => true,
     now: () => 1, newId: (() => { let n = 0; return () => `c${++n}`; })(), defaultProfileId: () => P,
   });
@@ -27,6 +28,7 @@ function harness(over: Partial<PasswordsIpcDeps> = {}) {
   const shown: string[] = [];
   const files = new Map<string, string>();
   const trashed: string[] = [];
+  const revealed: string[] = [];
   registerPasswordsIpc({
     handle: (channel, fn) => { handlers.set(channel, fn); },
     secrets: () => store,
@@ -37,11 +39,58 @@ function harness(over: Partial<PasswordsIpcDeps> = {}) {
     showPassword: async (_s, _title, value) => { shown.push(value); return false; },
     clipboard: { writeText: (t) => { board.text = t; }, readText: () => board.text, clear: () => { board.text = ""; board.cleared++; } },
     setTimer: (fn, ms) => { expect(ms).toBe(PASSWORD_CLIPBOARD_CLEAR_MS); timers.push(fn); },
+    reveal: (path) => { revealed.push(path); },
     ...over,
   });
   const call = (channel: string, ...args: unknown[]) => handlers.get(channel)!({}, ...args);
-  return { store, call, board, timers, shown, files, trashed };
+  return { store, call, board, timers, shown, files, trashed, revealed };
 }
+
+describe("a store Realm could not read", () => {
+  const ASIDE = "/Users/x/Realm/secrets.unreadable-2026-10-19T03-58-12-345Z.json";
+
+  it("tells Settings where the file went, shows it in Finder, and stops once the person has read it", async () => {
+    const h = harness({}, "{ not json");
+    expect(await h.call("credentials:unreadable")).toEqual({ path: ASIDE, at: 1 });
+    // The path Finder is sent to is the store's own; the renderer names none.
+    await h.call("credentials:reveal-unreadable", "/etc/passwd");
+    expect(h.revealed).toEqual([ASIDE]);
+    await h.call("credentials:dismiss-unreadable");
+    expect(await h.call("credentials:unreadable")).toBeNull();
+    await h.call("credentials:reveal-unreadable");
+    expect(h.revealed).toEqual([ASIDE]);
+  });
+
+  it("asks for the Keychain only when it is shut, and Try again answers whether it still is", async () => {
+    const h = harness();
+    h.store.addCredential(P, { origin: "https://example.com", username: "ada", label: "", value: SECRET });
+    expect(await h.call("credentials:keychain-needed")).toBe(false);
+    // The same file, on a launch macOS has not let into the Keychain yet.
+    let disk: string | null = null;
+    new SecretStore({
+      safeStorage: { isEncryptionAvailable: () => true, encryptString: (s) => Buffer.from(`kc:${s}`), decryptString: (b) => b.toString().slice(3) },
+      readFile: () => disk, writeFile: (t) => { disk = t; }, appendAudit: () => {},
+      promptPresence: async () => true, now: () => 1, newId: () => "c1", defaultProfileId: () => P,
+    }).addCredential(P, { origin: "https://example.com", username: "ada", label: "", value: SECRET });
+    let available = false;
+    const locked = new SecretStore({
+      safeStorage: { isEncryptionAvailable: () => available, encryptString: (s) => Buffer.from(`kc:${s}`), decryptString: (b) => b.toString().slice(3) },
+      readFile: () => disk, writeFile: (t) => { disk = t; }, appendAudit: () => {},
+      promptPresence: async () => true, now: () => 1, newId: () => "c2", defaultProfileId: () => P,
+    });
+    const shut = harness({ secrets: () => locked });
+    expect(await shut.call("credentials:keychain-needed")).toBe(true);
+    expect(await shut.call("credentials:retry-keychain")).toBe(true);
+    available = true;
+    expect(await shut.call("credentials:retry-keychain")).toBe(false);
+  });
+
+  it("has nothing to say about a store it read", async () => {
+    const h = harness();
+    h.store.addCredential(P, { origin: "https://example.com", username: "ada", label: "", value: SECRET });
+    expect(await h.call("credentials:unreadable")).toBeNull();
+  });
+});
 
 describe("Show and Copy", () => {
   it("never answer the renderer with the password", async () => {

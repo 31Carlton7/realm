@@ -7,6 +7,7 @@ import {
 import { Menu } from "../../components/Menu";
 import { Sheet } from "../../components/Sheet";
 import { Spinner } from "../../components/Spinner";
+import { capabilities } from "../../platform";
 
 /**
  * Settings ▸ Passwords' Realm 2.3 parts: Show, Copy and Edit on a row, Import, the login keychain, the
@@ -18,6 +19,54 @@ import { Spinner } from "../../components/Spinner";
  */
 
 const api = () => window.realm?.credentials;
+
+/**
+ * A saved-passwords file Realm could not read, kept aside instead of written over (main's
+ * `secrets-file.ts`). Said here, once: it stays until the person closes it, and never comes back for
+ * the same file. Not a sheet — nothing is being asked of them, and nothing is lost.
+ */
+export function UnreadablePasswordsNotice() {
+  const [notice, setNotice] = useState<{ path: string; at: number } | null>(null);
+  useEffect(() => {
+    let live = true;
+    void api()?.unreadable?.().then((n) => { if (live) setNotice(n); }, () => {});
+    return () => { live = false; };
+  }, []);
+  if (!notice) return null;
+  return (
+    <div className="settings-alert passwords-unreadable" role="status" data-setting="passwords-unreadable">
+      <p>Realm couldn't read your saved passwords, so it kept the file aside at {notice.path} and started fresh. Nothing was deleted.</p>
+      <button type="button" className="btn-quiet" onClick={() => { void api()?.revealUnreadable?.(); }}>Show in {capabilities().fileManager}</button>
+      <button type="button" className="icon-btn" aria-label="Dismiss" title="Dismiss"
+        onClick={() => { setNotice(null); void api()?.dismissUnreadable?.(); }}>
+        <Icon name="close" size={12} />
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Saved passwords the Keychain will not open for Realm right now — access refused, or not available
+ * yet. Nothing is wrong with them, and nothing was moved: Try again asks macOS once more, and
+ * `onUnlocked` runs once it says yes.
+ */
+export function KeychainNeededNotice({ onUnlocked }: { onUnlocked: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const retry = async () => {
+    setBusy(true);
+    try {
+      if ((await api()?.retryKeychain?.()) === false) onUnlocked();
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="settings-alert passwords-keychain" role="status" data-setting="passwords-keychain">
+      <p>Realm needs Keychain access to read your saved passwords.</p>
+      <button type="button" className="btn-quiet" disabled={busy} onClick={() => { void retry(); }}>Try again</button>
+    </div>
+  );
+}
 
 /** A row's actions: Show password, Copy password, Edit…. A note beside it says what happened. */
 export function PasswordRowActions({ profileId, credential, onEdit }: { profileId: string; credential: BrowserCredential; onEdit?: () => void }) {

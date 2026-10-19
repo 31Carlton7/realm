@@ -1,7 +1,12 @@
 import { parseWireMessage, type MethodName, type MethodParams, type MethodResult, type EventName, type EventPayload } from "@realm/contracts";
 
 type Listener = (payload: unknown) => void;
-export type ConnectionStatus = "connected" | "reconnecting";
+/** `offline`: the client has stopped redialing after `RECONNECT_ATTEMPTS` failures, and waits for
+ *  `retryNow` — the banner's Restart, or main saying the server is back. */
+export type ConnectionStatus = "connected" | "reconnecting" | "offline";
+/** Where the server is: its address and the `realm.<token>` subprotocol. Both are minted again at
+ *  every server boot, so one started after a crash is somewhere a window's first dial never knew. */
+export type Endpoint = { url: string; protocols: string[] };
 export class RpcError extends Error {
   constructor(public code: string, message: string) { super(message); this.name = "RpcError"; }
 }
@@ -11,12 +16,16 @@ const WS_OPEN = 1;
 const WS_CLOSING = 2;
 export const RECONNECT_BASE_MS = 1000;
 export const RECONNECT_CAP_MS = 15_000;
+/** Redials before the client gives up and says so: about two minutes at the backoff above, longer
+ *  than main's supervisor takes to bring back a crashed server or decide it cannot. */
+export const RECONNECT_ATTEMPTS = 12;
 
 /** One client for the app's lifetime. The socket underneath is disposable: on close the client marks
- *  itself reconnecting and redials with capped exponential backoff, forever. Event handlers and the
- *  pending-call plumbing live on the client (not the socket), so subscriptions survive reconnection;
- *  calls in flight when the socket drops reject with DISCONNECTED and the store's refresh-on-reconnect
- *  repairs state. */
+ *  itself reconnecting and redials with capped exponential backoff, asking `locate` where the server
+ *  is before each redial, until `RECONNECT_ATTEMPTS` have failed. Event handlers and the pending-call
+ *  plumbing live on the client (not the socket), so subscriptions survive reconnection — onto a new
+ *  server too; calls in flight when the socket drops reject with DISCONNECTED and the store's
+ *  refresh-on-reconnect repairs state. */
 export class RpcClient {
   private ws!: WebSocket;
   private pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
@@ -29,7 +38,8 @@ export class RpcClient {
   private attempt = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
-  constructor(private url: string, private Impl: typeof WebSocket = WebSocket, private protocols: string[] = []) {
+  constructor(private url: string, private Impl: typeof WebSocket = WebSocket, private protocols: string[] = [],
+    private locate?: () => Promise<Endpoint | null>) {
     this.connect();
   }
   private connect() {
@@ -57,27 +67,47 @@ export class RpcClient {
     };
   }
   private scheduleReconnect() {
+    if (this.attempt >= RECONNECT_ATTEMPTS) { this.setStatus("offline"); return; }
     const delay = Math.min(RECONNECT_CAP_MS, RECONNECT_BASE_MS * 2 ** Math.min(this.attempt, 10));
     this.attempt++;
-    this.retryTimer = setTimeout(() => { this.retryTimer = null; this.connect(); }, delay);
+    this.retryTimer = setTimeout(() => { this.retryTimer = null; this.redial(); }, delay);
   }
-  /** The banner's Retry. Waiting out a backoff: dial immediately. Dial already in flight: abort it and
-   *  dial fresh — the alternative (a silent no-op) makes the button dishonest, and a browser dial can
-   *  hang far longer than any backoff. Calls queued on the aborted dial reject with DISCONNECTED,
-   *  exactly as a socket drop would. No-op while connected or after dispose(). */
+  /** Dial again, at wherever `locate` says the server is now. A server main restarted after a crash
+   *  listens on a new port with a new token; the address this window was opened with would be
+   *  refused forever. No answer, or a failed one, keeps the last address. */
+  private redial() {
+    if (!this.locate) { this.connect(); return; }
+    void this.locate().catch(() => null).then((endpoint) => {
+      if (this.disposed) return;
+      if (endpoint) { this.url = endpoint.url; this.protocols = endpoint.protocols; }
+      this.connect();
+    });
+  }
+  /** The banner's Retry and Restart, and main saying the server is back. Given up: start counting
+   *  again from the first attempt. Waiting out a backoff: dial immediately. Dial already in flight:
+   *  abort it and dial fresh — the alternative (a silent no-op) makes the button dishonest, and a
+   *  browser dial can hang far longer than any backoff. Calls queued on the aborted dial reject with
+   *  DISCONNECTED, exactly as a socket drop would. No-op while connected or after dispose(). */
   retryNow(): void {
     if (this.disposed) return;
+    if (this.status === "offline") {
+      this.attempt = 0;
+      this.setStatus("reconnecting");
+      this.redial();
+      return;
+    }
     if (this.retryTimer) {
       clearTimeout(this.retryTimer); this.retryTimer = null;
-      this.connect();
+      this.redial();
       return;
     }
     const stale = this.ws;
-    if (stale.readyState !== WS_CONNECTING) return; // connected: nothing to retry
+    if (stale.readyState !== WS_CONNECTING) return; // connected, or a redial is asking where to go
     for (const p of this.pending.values()) p.reject(new RpcError("DISCONNECTED", "dial aborted by retry"));
     this.pending.clear();
-    this.connect(); // reassigns this.ws first, so the stale socket's own onclose is ignored as superseded
+    stale.onclose = null; // a deliberate close: the fresh dial below is the reconnect
     try { stale.close(); } catch { /* already closing */ }
+    this.redial();
   }
   /** Permanent teardown (window unload, tests): close the socket, reject pending calls, stop
    *  reconnecting for good. A disposed client never dials again. */
@@ -144,7 +174,10 @@ export function rpc(): RpcClient {
     if (!Number.isFinite(port)) throw new Error("Realm: server port not provided to renderer (preload missing --realm-port)");
     const token = window.realm?.token;
     if (!token) throw new Error("Realm: server token not provided to renderer (preload missing --realm-token)");
-    singleton = new RpcClient(`ws://127.0.0.1:${port}`, WebSocket, [`realm.${token}`]);
+    singleton = new RpcClient(`ws://127.0.0.1:${port}`, WebSocket, [`realm.${token}`], async () => {
+      const now = await window.realm?.serverEndpoint?.();
+      return now ? { url: `ws://127.0.0.1:${now.port}`, protocols: [`realm.${now.token}`] } : null;
+    });
   }
   return singleton;
 }

@@ -2901,7 +2901,8 @@ button.panel-title:hover { background: var(--rl-hover); }
    wrong build. Danger rather than warning because the two ask for different things: warning means
    hold on, danger means do something. */
 .conn-banner[data-tone="bad"] { background: color-mix(in srgb, var(--rl-danger) 8%, var(--surface)); color: var(--rl-danger); }
-.conn-banner button { color: inherit; font-weight: var(--fw-title); padding: 2px 6px; border-radius: var(--r-chip); }
+/* The action keeps its words on one line; a long line beside it (a log's path) wraps instead. */
+.conn-banner button { flex: none; white-space: nowrap; color: inherit; font-weight: var(--fw-title); padding: 2px 6px; border-radius: var(--r-chip); }
 .conn-banner button:hover { background: var(--rl-hover); }
 /* A system notice ARRIVES; it does not blink into being. The banner is drawn by something the user
    did not ask for — the socket dropping — and a cut straight to a finished bar at the top of the
@@ -7476,6 +7477,10 @@ select { appearance: none; padding-right: 22px;
 /* An import's receipt is a sentence of counts, so it wraps rather than pushing the buttons off. */
 .share-note.passwords-import-note { white-space: normal; max-width: 260px; }
 .password-actions { display: inline-flex; align-items: center; gap: 8px; }
+/* A store Realm could not read and kept aside: the sentence takes the line, and the path in it may
+   break anywhere — it is one long word — rather than push the two buttons off the end. */
+.passwords-unreadable, .passwords-keychain { display: flex; align-items: center; gap: 8px; }
+.passwords-unreadable p, .passwords-keychain p { flex: 1; margin: 0; overflow-wrap: anywhere; }
 /* Share with ▸'s receipt: the copy went elsewhere, so nothing in this list changes — the line beside
    the button is the only place that says it happened. Quiet, and on the button's own baseline. */
 .share-note { align-self: center; font-size: 12px; color: var(--rl-text-dim); white-space: nowrap; }

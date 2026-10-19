@@ -1211,8 +1211,9 @@ export type AppState = TeamSlice & LabSlice & {
   /** The element picker over Realm's own window, while it is up (app-pick/): the session whose prompter
    *  a pick goes to. Null almost always. */
   appPick: { sessionId: string } | null;
-  /** Socket health, mirrored from RpcClient.onStatusChange. "reconnecting" shows the banner. */
-  connectionState: "connected" | "reconnecting";
+  /** Socket health, mirrored from RpcClient.onStatusChange. "reconnecting" shows the banner;
+   *  "offline" is the client having given up, and the banner offers a restart. */
+  connectionState: "connected" | "reconnecting" | "offline";
   /** The user's keymap as the server last reported it, or Realm's defaults until it answers. Held
    *  here rather than in `App` alone because anything that PRINTS a shortcut has to read the same
    *  list the handler reads — a hardcoded `⌘T` in a menu becomes a lie the moment someone rebinds it. */
@@ -2052,7 +2053,7 @@ export type AppState = TeamSlice & LabSlice & {
   flushPersist(): Promise<void>;
   /** On the reconnecting→connected edge, runs a boot-lite refresh (spaces/items/sessions) and catches
    *  every open transcript up from its lastSeq — the events missed while the socket was down. */
-  applyConnectionState(state: "connected" | "reconnecting"): void;
+  applyConnectionState(state: "connected" | "reconnecting" | "offline"): void;
 
   setSpacesOpen(open: boolean): void;
   openSheet(sheet: Sheet): void;
@@ -8411,6 +8412,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       run(action) {
         action().catch((e: unknown) => {
           console.error(e);
+          // The socket dropped under it. The connection banner already says so, and says when it is
+          // back; a toast for every call that was in flight is the same news again, as an error.
+          if ((e as { code?: unknown } | null)?.code === "DISCONNECTED") return;
           get().toast({ tone: "error", text: e instanceof Error ? e.message : String(e) });
         });
       },

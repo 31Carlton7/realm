@@ -169,7 +169,7 @@ async function main() {
   });
   pane.onViewDestroyed((id) => host.release(id));
   blockBrowserDownloads(() => {});
-  const bridge = startBrowserAgentBridge({ port: info.port, handleOp: (op, params) => host.handleOp(op, params), onLog: (l) => log(l) });
+  const bridge = startBrowserAgentBridge({ endpoint: () => ({ port: info.port, token: daemonToken(path.join(scratch, "home")) }), handleOp: (op, params) => host.handleOp(op, params), onLog: (l) => log(l) });
 
   const rpc = await connectRpc(info.port, daemonToken(path.join(scratch, "home")));
 

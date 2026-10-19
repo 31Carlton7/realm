@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { RpcClient } from "./client";
+import { RECONNECT_ATTEMPTS, RECONNECT_BASE_MS, RECONNECT_CAP_MS, RpcClient, type Endpoint } from "./client";
 
 class FakeSocket {
   static instances: FakeSocket[] = [];
@@ -107,7 +107,7 @@ class ReconnSocket {
   static instances: ReconnSocket[] = [];
   onopen: (() => void) | null = null; onmessage: ((e: { data: string }) => void) | null = null;
   onclose: (() => void) | null = null; sent: string[] = []; readyState = 0;
-  constructor(public url: string) { ReconnSocket.instances.push(this); }
+  constructor(public url: string, public protocols?: string[]) { ReconnSocket.instances.push(this); }
   send(s: string) { if (this.readyState !== 1) throw new Error("not open"); this.sent.push(s); }
   open() { this.readyState = 1; this.onopen?.(); }
   fail() { this.readyState = 3; this.onclose?.(); }
@@ -120,7 +120,7 @@ describe("RpcClient reconnect", () => {
   beforeEach(() => { ReconnSocket.instances = []; vi.useFakeTimers(); });
   afterEach(() => { vi.useRealTimers(); });
 
-  it("reconnects with 1s/2s/4s/8s backoff, caps at 15s, and keeps trying forever", () => {
+  it("reconnects with 1s/2s/4s/8s backoff, and caps at 15s", () => {
     const c = new RpcClient("ws://x", Reconn);
     const statuses: string[] = [];
     c.onStatusChange((s) => statuses.push(s));
@@ -148,7 +148,7 @@ describe("RpcClient reconnect", () => {
     vi.advanceTimersByTime(14999); expect(sockets).toHaveLength(5);
     vi.advanceTimersByTime(1); expect(sockets).toHaveLength(6);
     sockets[5]!.fail();
-    // and forever: still 15s, not growing, not stopping
+    // still 15s, not growing
     vi.advanceTimersByTime(15000); expect(sockets).toHaveLength(7);
     // failed dials never emitted extra status changes
     expect(statuses).toEqual(["reconnecting"]);
@@ -250,6 +250,72 @@ describe("RpcClient reconnect", () => {
     expect(sockets).toHaveLength(1);
     c.retryNow(); // after dispose even an explicit retry is a no-op
     expect(sockets).toHaveLength(1);
+  });
+
+  it("stops after RECONNECT_ATTEMPTS failed redials and says so; retryNow starts counting again", () => {
+    const c = new RpcClient("ws://x", Reconn);
+    const statuses: string[] = [];
+    c.onStatusChange((s) => statuses.push(s));
+    const sockets = ReconnSocket.instances;
+    sockets[0]!.open();
+    sockets[0]!.fail();
+    for (let i = 0; i < RECONNECT_ATTEMPTS; i++) { vi.advanceTimersByTime(RECONNECT_CAP_MS); sockets.at(-1)!.fail(); }
+    // MUTANT: drop the bound and the client redials every 15s for as long as the window is open, and
+    // the banner says "reconnecting…" about a server that is not coming back.
+    expect(sockets).toHaveLength(1 + RECONNECT_ATTEMPTS);
+    expect(statuses).toEqual(["reconnecting", "offline"]);
+    vi.advanceTimersByTime(10 * 60_000);
+    expect(sockets).toHaveLength(1 + RECONNECT_ATTEMPTS); // no timer left behind
+    // The banner's Restart: dial now, and from the first rung of the backoff again.
+    c.retryNow();
+    expect(statuses.at(-1)).toBe("reconnecting");
+    expect(sockets).toHaveLength(2 + RECONNECT_ATTEMPTS);
+    sockets.at(-1)!.fail();
+    vi.advanceTimersByTime(RECONNECT_BASE_MS);
+    expect(sockets).toHaveLength(3 + RECONNECT_ATTEMPTS);
+  });
+
+  it("asks where the server is before every redial, and takes its handlers and calls to the new one", async () => {
+    // A crashed server comes back on a new port with a new token; the window's first address is dead.
+    let where: Endpoint | null = null;
+    const c = new RpcClient("ws://127.0.0.1:1111", Reconn, ["realm.old"], async () => where);
+    const sockets = ReconnSocket.instances;
+    const events = vi.fn();
+    c.on("terminal.data", events);
+    const statuses: string[] = [];
+    c.onStatusChange((s) => statuses.push(s));
+    sockets[0]!.open();
+    sockets[0]!.fail();
+    // Nothing new yet: the redial goes where the last one did.
+    await vi.advanceTimersByTimeAsync(RECONNECT_BASE_MS);
+    expect(sockets[1]).toMatchObject({ url: "ws://127.0.0.1:1111", protocols: ["realm.old"] });
+    sockets[1]!.fail();
+    // The new server is up. Main says so, and the window dials it without waiting out the backoff.
+    where = { url: "ws://127.0.0.1:2222", protocols: ["realm.new"] };
+    c.retryNow();
+    await vi.advanceTimersByTimeAsync(0);
+    const s3 = sockets[2]!;
+    expect(s3).toMatchObject({ url: "ws://127.0.0.1:2222", protocols: ["realm.new"] });
+    s3.open();
+    expect(statuses).toEqual(["reconnecting", "connected"]);
+    // Subscriptions made against the old server still hear the new one.
+    s3.onmessage!({ data: JSON.stringify({ event: "terminal.data", payload: { terminalId: "t", data: "x" } }) });
+    expect(events).toHaveBeenCalledWith({ terminalId: "t", data: "x" });
+    const p = c.call("profiles.list", {});
+    const req = JSON.parse(s3.sent[0]!);
+    s3.onmessage!({ data: JSON.stringify({ id: req.id, ok: true, result: [] }) });
+    expect(await p).toEqual([]);
+  });
+
+  it("keeps the last address when asking where the server is fails", async () => {
+    const c = new RpcClient("ws://127.0.0.1:1111", Reconn, ["realm.old"], () => Promise.reject(new Error("main is busy")));
+    const sockets = ReconnSocket.instances;
+    sockets[0]!.open();
+    sockets[0]!.fail();
+    await vi.advanceTimersByTimeAsync(RECONNECT_BASE_MS);
+    expect(sockets).toHaveLength(2);
+    expect(sockets[1]).toMatchObject({ url: "ws://127.0.0.1:1111", protocols: ["realm.old"] });
+    c.dispose();
   });
 
   it("calls made while a reconnect dial is in flight are queued and sent once it opens", async () => {

@@ -33,6 +33,13 @@ interface Window {
     quitAndStopAgents(): Promise<void>;
     /** The agent server's health, as main sees it. Replayed on every new window. */
     onDaemonState(cb: (state: { kind: string; attempt?: number; logPath?: string; why?: string }) => void): () => void;
+    /** Where the server is now. The `port` and `token` above are the ones this window was opened with;
+     *  a server started since — after a crash, or from the banner's Restart — has its own. Optional
+     *  like every late bridge: jsdom has none. */
+    serverEndpoint?(): Promise<{ port: number; token: string } | null>;
+    /** The banner's "Restart Realm's server": start it again, stopping one that is running but not
+     *  answering. Resolves once main has done what it can; the window dials again after. */
+    restartServer?(): Promise<void>;
     /** Whether the window is key (AppKit's sense: it has the keyboard), as main sees it. */
     onWindowKey(cb: (key: boolean) => void): () => void;
     isWindowKey(): Promise<boolean>;
@@ -251,6 +258,13 @@ interface Window {
       setNever?(profileId: string, origin: string, never: boolean): Promise<string[]>;
       fillAllows?(profileId: string): Promise<import("@realm/contracts").PasswordFillAllow[]>;
       clearFillAllow?(profileId: string, credentialId: string, origin: string): Promise<boolean>;
+      /** A store Realm could not read and kept aside, until the person has read the notice. */
+      unreadable?(): Promise<{ path: string; at: number } | null>;
+      revealUnreadable?(): Promise<void>;
+      dismissUnreadable?(): Promise<void>;
+      /** Saved passwords the Keychain will not open for Realm right now, and Try again. */
+      keychainNeeded?(): Promise<boolean>;
+      retryKeychain?(): Promise<boolean>;
     };
     /** A team's post sheet: the one click that lets an act ticket go out (main/ticket-presses.ts).
      *  Optional like every bridge: jsdom has none, and without it nothing can be posted. */
