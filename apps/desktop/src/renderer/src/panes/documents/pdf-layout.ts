@@ -77,10 +77,16 @@ function pageAt(layout: PdfLayout, y: number): number {
   return at;
 }
 
-/** The page the reader is on: the one under the reading line (0-based). */
+/** The page the reader is on (0-based): the one under the reading line, unless the line has passed a
+ *  whole page whose top is still in view, which is the page being read. Where pages are shorter than
+ *  the line is deep (slides, a zoomed-out file), the line alone lands on the second page in view: a
+ *  file opened at its top said "2", and a jump to a page said the one after it, so ‹ went back to the
+ *  page it was already on and › skipped one. */
 export function currentPage(layout: PdfLayout, scrollTop: number, viewport: number): number {
   if (layout.tops.length === 0) return 0;
-  return pageAt(layout, scrollTop + viewport * READING_LINE);
+  let page = pageAt(layout, scrollTop + viewport * READING_LINE);
+  while (page > 0 && layout.tops[page - 1]! >= scrollTop) page--;
+  return page;
 }
 
 /** A place in the document that survives a zoom and a rewrite: the page at the scroller's top edge,

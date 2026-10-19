@@ -25,6 +25,17 @@ describe("the column of pages", () => {
     // In the gap under page 2 (ends at 1096, next top 1112): still page 2.
     expect(currentPage(l, 1100 - 400, 1000)).toBe(1);
   });
+
+  /* THE mutant: the line alone. A slide deck opened at its top said "2", and ‹ from a page a jump had
+     just put at the top went back to that same page. */
+  it("where pages are shorter than the line is deep, it is the first page whose top is in view", () => {
+    const l = layoutPages(pages(8, SLIDE), 0.3); // pages 245 tall, a page every 261; the line 400 down
+    expect(currentPage(l, 0, 1000)).toBe(0);
+    // Where a jump to page 4 lands: its top 24 under the view's.
+    expect(currentPage(l, l.tops[3]! - PAD_Y, 1000)).toBe(3);
+    // Page 4's top scrolled past: page 5 is the first whole one.
+    expect(currentPage(l, l.tops[3]! + 10, 1000)).toBe(4);
+  });
 });
 
 describe("fit", () => {
