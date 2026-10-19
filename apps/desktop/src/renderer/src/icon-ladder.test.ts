@@ -76,11 +76,11 @@ describe("3D icon ladder", () => {
   });
 
   // Mutant killed: the script shipping 2x alone — a 1x display would draw the glyph instead.
-  it("every picture that ships has each rung at each density", () => {
+  it("every icon ships each rung at each density, and nothing else ships", () => {
     const shipped = new Set(Object.keys(ICON3D_FILES).map((f) => f.replace(/^.*\/(.+)-\d+\.webp$/, "$1")));
+    expect([...shipped].sort()).toEqual(Object.keys(ICON3D_GLYPH).sort());
     const missing: string[] = [];
     for (const name of shipped) {
-      expect(Object.keys(ICON3D_GLYPH), `${name} is shipped but Icon3D has no such name`).toContain(name);
       for (const size of ICON3D_SIZES) for (const d of ICON3D_DENSITIES) {
         if (!ICON3D_FILES[`../assets/icons3d/${name}-${size * d}.webp`]) missing.push(`${name}-${size * d}.webp`);
       }
