@@ -403,6 +403,22 @@ describe("ClaudeAdapter", () => {
     expect(resp?.type === "permission_response" && resp.payload.decision).toBe("deny");
     expect(statuses(got)).toEqual(["running", "waiting_permission", "running", "idle"]);
   });
+  it("draws no card for a call the SDK cancelled while a team's policy was still deciding it", async () => {
+    // The signal fires at 5ms and the policy answers "ask the person" at 20ms. An abort event never
+    // fires twice, so a card drawn after it has no listener left to clear it: it sits in Needs you
+    // with nothing behind it, and the turn waits on it forever. That card is the named mutant.
+    const handed: unknown[] = [];
+    const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "mcp__realm__stub__save_thing", abortPermission: true, permissionResults: handed }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [], gatewayDecides: () => new Promise((r) => setTimeout(() => r(false), 20)) });
+    const c = collectUntil(h.events, (e) => e.type === "status" && e.payload.status === "idle");
+    await h.send({ text: "hi", attachments: [] });
+    const got = await Promise.race([c, new Promise<null>((r) => setTimeout(() => r(null), 1000))]);
+    await h.dispose();
+    expect(got, "the turn never settled: a card was left waiting").not.toBeNull();
+    expect(types(got!)).not.toContain("permission_request");
+    expect(statuses(got!)).not.toContain("waiting_permission");
+    expect(handed).toEqual([{ behavior: "deny", message: "aborted" }]);
+  });
   it("generator throw -> error, status error, ended, queue closed; stderr tail attached", async () => {
     const a = new ClaudeAdapter({ query: fakeQuery({ throwAfter: 2, stderr: ["warn: one\n", "warn: two\n"] }) as never });
     const logs: string[] = [];

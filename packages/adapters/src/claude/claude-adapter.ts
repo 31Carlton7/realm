@@ -304,6 +304,9 @@ export class ClaudeAdapter implements AgentAdapter {
       if (toolName.startsWith("mcp__") && opts.gatewayDecides && await opts.gatewayDecides(toolName).catch(() => false)) {
         return { behavior: "allow", updatedInput: toolInput };
       }
+      // Cancelled while the policy decided: the abort has already fired, and the listener below
+      // would never hear it, so a card drawn now could never be cleared.
+      if (o.signal.aborted) return { behavior: "deny", message: "aborted" };
       const requestId = newId();
       const suggestions = o.suggestions ?? [];
       // A question travels on this channel too, and is marked as one HERE — from the SDK's own tool
