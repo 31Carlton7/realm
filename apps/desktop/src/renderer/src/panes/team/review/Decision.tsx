@@ -74,6 +74,10 @@ export function DecisionDock({ team, detail, item, onDecided, onUndone }: {
   const reveal = window.realm?.files?.reveal;
   const n = detail.items.length;
 
+  const undoTheYes = () => {
+    undoOffer.current = null;
+    run(async () => { await undoApproval(detail.id); onUndone(detail.id); });
+  };
   const act = (decision: DecisionKind | null, fn: () => Promise<void>, reason?: string | null) => {
     setBusy(true); setError(null);
     run(async () => {
@@ -81,12 +85,8 @@ export function DecisionDock({ team, detail, item, onDecided, onUndone }: {
         await fn();
         setAsking(null); setNote("");
         if (decision) {
-          const undo = {
-            label: "Undo",
-            run: () => { undoOffer.current = null; run(async () => { await undoApproval(detail.id); onUndone(detail.id); }); },
-          };
           const id = toast({ tone: "success", text: receipt(decision, detail, { wakes, reason: reason ?? null }), icon: decision === "approve" ? "check" : decision === "send-back" ? "undo" : undefined,
-            ...(decision === "approve" ? { action: undo } : {}) });
+            ...(decision === "approve" ? { action: { label: "Undo", run: undoTheYes } } : {}) });
           if (decision === "approve") undoOffer.current = id;
           onDecided(detail.id, decision);
         }

@@ -310,7 +310,8 @@ button { font: inherit; color: inherit; background: none; border: none; padding:
 /* Chrome is not text. A double-click on a heading, a card's title or a status line selects its words in
    a browser and does nothing in an AppKit window, where only a text view selects; and ⌘A sweeping the
    whole interface blue is the same tell at full size. So nothing selects until it is named as content
-   below — a header, a chip or a page of settings written tomorrow is chrome without a rule of its own. The images and glyphs chrome is drawn with do not lift off as drag ghosts either. */
+   below — a header, a chip or a page of settings written tomorrow is chrome without a rule of its
+   own. The images and glyphs chrome is drawn with do not lift off as drag ghosts either. */
 body { -webkit-user-select: none; user-select: none; }
 /* Content: what a person reads or copies. Prose, either side's — a message, a report, a plan, a skill
    (`.md`, and the user's own words); a finished question's answers; a diff, in a tool's card or a pane;
