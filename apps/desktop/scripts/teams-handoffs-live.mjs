@@ -84,8 +84,9 @@ function cdp(wsUrl) {
   };
 }
 
-function rpc(port, token) {
+function rpc(port, token, onEvent = () => {}) {
   const s = socket(`ws://127.0.0.1:${port}`, tokenProtocols(token));
+  s.ws.addEventListener("message", (m) => { const msg = JSON.parse(m.data); if (msg.id === undefined && msg.event) onEvent(msg.event, msg.payload); });
   return {
     ready: s.ready,
     call: (method, params) => new Promise((res, rej) => {
@@ -246,9 +247,23 @@ async function boot() {
   await until(() => evalIn(c, `!!document.querySelector('.composer')`), 30_000, "composer");
   await holdKey(c);
   await c.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false });
-  api = rpc(SERVER_PORT, await daemonToken(home));
+  api = rpc(SERVER_PORT, await daemonToken(home), answerRecordReads);
   await api.ready;
   return c;
+}
+
+/**
+ * `record_read` asks first in every mode (the read goes on the team's activity), so a role's run that
+ * reads a record stops on a card until someone answers it. Answered here as the person would, and
+ * counted; any other card is left standing and named, so a check that waits on one says which.
+ */
+const recordReads = [];
+function answerRecordReads(event, payload) {
+  if (event !== "session.event" || payload.ephemeral || payload.event?.type !== "permission_request") return;
+  const card = payload.event.payload;
+  if (!/record_read$/.test(card.toolName)) { console.log(`CARD left standing: ${card.toolName} in ${payload.sessionId}`); return; }
+  recordReads.push(card.requestId);
+  void api.call("sessions.respondPermission", { id: payload.sessionId, requestId: card.requestId, decision: "allow" }).catch((e) => console.log(`CARD ${e.message}`));
 }
 
 const runsOf = async (roleId) => api.call("team.roleRuns", { id: roleId, limit: 30 });
@@ -257,17 +272,23 @@ const teamOf = (spaceId) => api.call("team.space", { spaceId });
 
 async function openTeamPage(c) {
   await evalIn(c, `__live.click(__live.named('^More for Versed$'))`);
-  await until(() => evalIn(c, `!!__live.button('Team')`), 5_000, "menu row Team");
-  await evalIn(c, `__live.click(__live.button('Team'))`);
+  // In the menu: the sidebar's own Team row says "Team" too.
+  await until(() => evalIn(c, `!!__live.button('Team', __live.q('[role=menu]') ?? undefined)`), 5_000, "menu row Team");
+  await evalIn(c, `__live.click(__live.button('Team', __live.q('[role=menu]')))`);
   await until(() => evalIn(c, `!!__live.q('.sb-page-nav .page-rail')`), 8_000, "team page");
 }
 
+/** A team page by its tab: the Overview, Activity, or a teammate — whose page is its chat, read here
+ *  with its details drawer open beside it, where its goal, handoffs and budget are. */
 async function toTab(c, label) {
-  if (label !== "Overview" && label !== "Activity" && !(await evalIn(c, `!!__live.tab(${JSON.stringify(label)})`))) {
-    await evalIn(c, `__live.click(__live.tab('Roles'))`);
-    await until(() => evalIn(c, `!!__live.tab(${JSON.stringify(label)})`), 5_000, `tab ${label}`);
-  }
+  await until(() => evalIn(c, `!!__live.tab(${JSON.stringify(label)})`), 5_000, `tab ${label}`);
   await evalIn(c, `__live.click(__live.tab(${JSON.stringify(label)}))`);
+  if (label !== "Overview" && label !== "Activity") {
+    const details = `__live.named(${JSON.stringify(`^${label}, in detail$`)})`;
+    await until(() => evalIn(c, `__live.text('.tc-head-name') === ${JSON.stringify(label)} && !!${details}`), 5_000, `chat ${label}`);
+    if (await evalIn(c, `${details}.getAttribute('aria-pressed') !== 'true'`)) await evalIn(c, `__live.click(${details})`);
+    await until(() => evalIn(c, `!!__live.q('.tc-drawer-body')`), 5_000, `details ${label}`);
+  }
   await sleep(300);
 }
 
@@ -324,6 +345,7 @@ async function main() {
   for (const r of [cm, cp]) await api.call("team.roleUpdate", { id: r.id, agentKind: "fake", model: null });
   await api.call("team.roleRun", { id: cm.id, message: "Please keep Nathan's record: he signed contract v3." });
   await until(async () => (await runsOf(cm.id)).every(settled), 30_000, "record");
+  const readsBefore = recordReads.length;
 
   /* ── H1: the handoff ── */
   await api.call("team.roleRun", { id: cp.id, message: "Please make Nathan's slides and hand them over." });
@@ -334,6 +356,7 @@ async function main() {
   check("H1 the team lists the handoff, working, with its record and six files", team.handoffs[0]?.state === "working" && team.handoffs[0]?.recordPath === "creators/nathan-beyenhof.md" && team.handoffs[0]?.files.length === 6, team.handoffs[0]);
   // While Creator Manager is still working: the overview's handoff line and the receiving Realmite's face.
   await openTeamPage(c);
+  await toTab(c, "Overview");
   await until(() => evalIn(c, `__live.qa('.tp-handoffs li').length >= 1`), 8_000, "handoff line");
   const faces = await mites(c, ".tp-handoffs li .tp-handoff-pair > svg, .tp-handoffs li .tp-handoff-pair > span");
   const line = await evalIn(c, `__live.text('.tp-handoffs li')`);
@@ -343,6 +366,7 @@ async function main() {
   await until(async () => (await runsOf(cm.id)).every(settled), 40_000, "cm settles");
   team = await teamOf(space.id);
   check("H1 the handoff is done once the run is, and its work is in Review", team.handoffs[0]?.state === "done" && team.reviews.some((r) => r.title === "Weekly check-in to Nathan"), team.handoffs[0]?.state);
+  check("H1 each record read asked first, and went on once answered", recordReads.length > readsBefore, recordReads.length);
   await backToSpaces(c);
 
   /* ── H2: @Creator Manager from the prompter ── */
