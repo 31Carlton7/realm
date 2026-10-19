@@ -1212,7 +1212,7 @@ export function Composer({ session, status, gitInfo, onOpenDiff, draft, onDraftC
           styles.css) and the plan keeps its own top corners. */}
       {showOverstrip && (
         <div className="composer-overstrip">
-          {!compact && <GitChip gitInfo={gitInfo} onOpenDiff={onOpenDiff} />}
+          <GitChip gitInfo={gitInfo} onOpenDiff={onOpenDiff} />
           <ActiveAgents sessionId={session.id} agents={rowAgents} onMessage={mentions ? addressAgent : undefined} />
         </div>
       )}
