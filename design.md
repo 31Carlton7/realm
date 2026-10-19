@@ -971,6 +971,13 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   well-formed: each model by the name the server resolves, the tools that do it named too. The agent
   stays the one who splits the work, reads the reports and answers for them, and the transcript holds
   the ask beside everything done about it.
+- A teammate is the one door beside the agent, and the owner opened it (10-18): "+ → Add teammate…"
+  takes a model from the prompter's own picker, a line of brief and a checkout, and starts the agent
+  by the path the agent's own `agent_start` takes — its mode, its caps, its place in the Agents tab.
+  It is still the session's sub-agent rather than a second lead: the agent is told on its next
+  message, by handle, and can wait on it, ask it and plan around it. Who is working is said on the
+  prompter's over-strip, a chip each with the sidebar's still dot, the one that needs you first and
+  the rest folded past three; a person addresses one by its `@`, which passes it the message too.
 - A sub-agent in its lead's transcript is a line of its own — "Sub-agent finished · <task>", its model,
   its time — and is never folded into the ledger. A fan-out is two starts and a wait in a row, which
   is a run, and a settled run collapses to "Worked for 8s": the one thing a reader of a delegation

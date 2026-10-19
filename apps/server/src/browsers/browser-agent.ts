@@ -183,9 +183,10 @@ export class BrowserAgentService {
 
   /** The PARENT was interrupted: its delegated run (if any) is cancelled and the child interrupted —
    *  a stop on the delegating session must not leave a ghost agent driving the web. The engine owns
-   *  the registry (shared with `agent_run`); this is kept as the public face `app.ts` wires. */
+   *  the registry (shared with `agent_run`); this is kept as the public face `app.ts` wires, and is
+   *  the stop of a turn, so a teammate the person added is left to its own Stop. */
   parentInterrupted(sessionId: string): void {
-    this.d.engine.parentInterrupted(sessionId);
+    this.d.engine.parentInterrupted(sessionId, { sparePeople: true });
   }
 
   /** A session was deleted. As a parent: cancel its run. As a child: forget its persisted record and

@@ -170,3 +170,29 @@ export const DelegableModelSchema = z.object({
   ready: z.boolean(),
 });
 export type DelegableModel = z.infer<typeof DelegableModelSchema>;
+
+/** How long a teammate's "Help with…" may be. One line in the picker: a task that needs a page is one
+ *  to give the session's own agent, which splits work for a living. */
+export const TEAMMATE_BRIEF_MAX = 500;
+
+/**
+ * A teammate the user adds from the prompter's "+": an agent started beside the session as its
+ * sub-agent, by the same path `agent_start` takes, with the person rather than the agent asking.
+ *
+ * Every field but the session is optional. No `agentKind` is the session's own harness, and no
+ * `model` the session's own model on it (`agent_start`'s rule for a model left out); no brief is
+ * "help where you can". `newWorktree` is the one choice of checkout the picker offers: false is the
+ * session's own folder, true a fresh worktree beside it.
+ */
+export const AddTeammateSchema = z.object({
+  sessionId: IdSchema,
+  agentKind: AgentKindSchema.optional(),
+  model: z.string().trim().min(1).max(120).optional(),
+  brief: z.string().trim().max(TEAMMATE_BRIEF_MAX).optional(),
+  newWorktree: z.boolean().default(false),
+});
+export type AddTeammate = z.input<typeof AddTeammateSchema>;
+
+/** What a lead's sub-agent is dismissed by: a delegated child's session id, or the launching call's id
+ *  for one its own harness runs in-process. Bounded, because it is a key a client writes. */
+export const SubagentIdSchema = z.string().min(1).max(120);

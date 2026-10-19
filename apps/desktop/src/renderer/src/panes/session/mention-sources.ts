@@ -1,6 +1,7 @@
 import { MAC_SKILL_ID, ROLE_TEMPLATES, basenameOf, documentKindFor, fileLabelCandidates, isImageMime, isSecretPath, matchPath, mimeForPath, type InstalledApp, type LibraryEntry, type Skill, type TeamRole, type UnlabelledRef } from "@realm/contracts";
 import type { IconName } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { STATE_LABEL, type SubagentState } from "../agents-tab/subagent-state";
 
 /**
  * The prompter's one `@` list: files in the session's workspace, the Library, skills, the apps on
@@ -23,28 +24,34 @@ export type MentionOption =
   | { kind: "library"; key: string; name: string; path: string; from: string }
   | { kind: "app"; key: string; name: string; app: InstalledApp }
   /** A role on the space's team: sending wakes it as this session's sub-agent. */
-  | { kind: "role"; key: string; name: string; role: TeamRole };
+  | { kind: "role"; key: string; name: string; role: TeamRole }
+  /** One of this session's own sub-agents — a teammate, or one its agent started: sending passes it
+   *  the message. */
+  | { kind: "agent"; key: string; name: string; sessionId: string; state: SubagentState };
 
 /** One row as the picker draws it: the option, the quiet line after its name, and — in the tour —
  *  the head of the group it opens. */
 export type MentionRow = MentionOption & { detail: string; head?: string };
+
+/** A sub-agent of this session, as the `@` list names it. */
+export type SessionAgent = { id: string; title: string; state: SubagentState };
 
 /** A file hit from the server, by its path in the checkout. */
 export type FileHit = { path: string };
 
 /** How many of each kind the tour shows. A bare `@` is a sample, not an inventory: typing is how
  *  the rest is reached, and a tour longer than the popover hides its last group behind a scroll. */
-export const TOUR_CAPS = { role: 4, file: 4, library: 3, skill: 5, app: 5 } as const;
+export const TOUR_CAPS = { agent: 4, role: 4, file: 4, library: 3, skill: 5, app: 5 } as const;
 /** How many of each kind a typed answer may hold, so one kind with a thousand weak matches (files,
  *  on one letter) cannot push every other kind off the list. */
-export const RANKED_CAPS = { mac: 1, role: 4, skill: 4, app: 6, file: 6, library: 4 } as const;
+export const RANKED_CAPS = { mac: 1, agent: 4, role: 4, skill: 4, app: 6, file: 6, library: 4 } as const;
 /** The order kinds break ties in — the special row, then what names a capability, then data. */
-const KIND_ORDER: Record<MentionOption["kind"], number> = { mac: 0, role: 1, skill: 2, app: 3, file: 4, library: 5 };
+const KIND_ORDER: Record<MentionOption["kind"], number> = { mac: 0, agent: 1, role: 1, skill: 2, app: 3, file: 4, library: 5 };
 
 /** What @Mac says about itself in the list. */
 export const MAC_DETAIL = "Calendar, Reminders, Contacts and more on this Mac";
 
-const TYPE_LABEL: Record<MentionOption["kind"], string> = { mac: "Skill", role: "Teammate", skill: "Skill", file: "File", library: "Library", app: "Computer use" };
+const TYPE_LABEL: Record<MentionOption["kind"], string> = { mac: "Skill", agent: "Agent", role: "Teammate", skill: "Skill", file: "File", library: "Library", app: "Computer use" };
 
 /** The glyph a named file wears — what kind of file, at a glance. */
 export function fileMark(path: string): IconName {
@@ -56,7 +63,8 @@ export function fileMark(path: string): IconName {
 const dirOf = (rel: string): string => { const cut = rel.lastIndexOf("/"); return cut === -1 ? "" : rel.slice(0, cut); };
 
 /** Every option this session could name, unranked — the sources joined, and nothing listed twice. */
-export function mentionOptions(src: { mac: Skill | null; skills: readonly Skill[]; files: readonly FileHit[]; cwd: string; library: readonly LibraryEntry[]; apps: readonly InstalledApp[]; roles?: readonly TeamRole[] }): MentionOption[] {
+export function mentionOptions(src: { mac: Skill | null; skills: readonly Skill[]; files: readonly FileHit[]; cwd: string; library: readonly LibraryEntry[]; apps: readonly InstalledApp[]; roles?: readonly TeamRole[];
+  agents?: readonly SessionAgent[] }): MentionOption[] {
   const root = src.cwd.replace(/\/+$/, "");
   const files: MentionOption[] = src.files.filter((f) => !isSecretPath(f.path)).map((f) => ({ kind: "file", key: `file:${f.path}`, name: basenameOf(f.path), rel: f.path, path: `${root}/${f.path}` }));
   const filePaths = new Set(files.map((f) => (f as Extract<MentionOption, { kind: "file" }>).path));
@@ -68,6 +76,7 @@ export function mentionOptions(src: { mac: Skill | null; skills: readonly Skill[
     .map((e) => ({ kind: "library", key: `library:${e.path}`, name: e.name, path: e.path, from: e.kind === "added" ? "Added by you" : e.sessionTitle ?? "" }));
   return [
     ...(src.mac ? [{ kind: "mac", key: "mac", name: MAC_SKILL_ID, skill: src.mac } as MentionOption] : []),
+    ...(src.agents ?? []).map((a): MentionOption => ({ kind: "agent", key: `agent:${a.id}`, name: a.title, sessionId: a.id, state: a.state })),
     ...(src.roles ?? []).filter((r) => r.wakeOnMention).map((r): MentionOption => ({ kind: "role", key: `role:${r.id}`, name: r.name, role: r })),
     ...files,
     ...library,
@@ -114,6 +123,7 @@ function detailOf(o: MentionOption, ranked: boolean, accessibility: boolean | nu
     : o.kind === "skill" ? (o.skill.name !== o.skill.id ? `${o.skill.name} — ${o.skill.description}` : o.skill.description)
     : o.kind === "mac" ? MAC_DETAIL
     : o.kind === "role" ? roleDetail(o.role)
+    : o.kind === "agent" ? `${STATE_LABEL[o.state]} · gets the message too`
     // What the mention does to an app, and — said, not hidden — when macOS has not let it happen.
     : accessibility === false ? "needs Accessibility" : "";
   if (o.kind === "app") return detail ? `${TYPE_LABEL.app} · ${detail}` : TYPE_LABEL.app;
@@ -121,7 +131,7 @@ function detailOf(o: MentionOption, ranked: boolean, accessibility: boolean | nu
   return detail ? `${TYPE_LABEL[o.kind]} · ${detail}` : TYPE_LABEL[o.kind];
 }
 
-const HEAD: Record<Exclude<MentionOption["kind"], "mac">, string> = { role: "Team", file: "Files", library: "Library", skill: "Skills", app: "Apps" };
+const HEAD: Record<Exclude<MentionOption["kind"], "mac">, string> = { agent: "In this session", role: "Team", file: "Files", library: "Library", skill: "Skills", app: "Apps" };
 
 /** A teammate's line in the list: what it does, and that naming it starts it beside this session. */
 function roleDetail(r: TeamRole): string {
@@ -148,7 +158,7 @@ export function mentionRows(options: readonly MentionOption[], query: string, op
     const out: MentionRow[] = [];
     const mac = options.find((o) => o.kind === "mac");
     if (mac) out.push({ ...mac, detail: detailOf(mac, false, a11y) });
-    for (const kind of ["role", "file", "library", "skill", "app"] as const) {
+    for (const kind of ["agent", "role", "file", "library", "skill", "app"] as const) {
       let group = options.filter((o) => o.kind === kind);
       if (kind === "app") {
         group = [...group].sort((x, y) => {
@@ -163,7 +173,7 @@ export function mentionRows(options: readonly MentionOption[], query: string, op
   const scored: { o: MentionOption; score: number; len: number }[] = [];
   const order = (x: { o: MentionOption; score: number; len: number }, y: { o: MentionOption; score: number; len: number }) =>
     y.score - x.score || x.len - y.len || KIND_ORDER[x.o.kind] - KIND_ORDER[y.o.kind] || (x.o.name < y.o.name ? -1 : x.o.name > y.o.name ? 1 : 0);
-  for (const kind of ["mac", "role", "skill", "app", "file", "library"] as const) {
+  for (const kind of ["mac", "agent", "role", "skill", "app", "file", "library"] as const) {
     const hits = options.filter((o) => o.kind === kind).flatMap((o) => { const s = scoreOption(o, q); return s === null ? [] : [{ o, ...s }]; });
     hits.sort(order);
     scored.push(...hits.slice(0, RANKED_CAPS[kind]));
@@ -178,6 +188,7 @@ export function refFor(o: MentionOption): UnlabelledRef | null {
   if (o.kind === "library") return { kind: "library", path: o.path };
   if (o.kind === "app") return { kind: "app", name: o.app.name, bundleId: o.app.bundleId, path: o.app.path };
   if (o.kind === "role") return { kind: "role", roleId: o.role.id };
+  if (o.kind === "agent") return { kind: "agent", sessionId: o.sessionId };
   return null;
 }
 
@@ -197,6 +208,8 @@ export type MentionSources = {
   mac: Skill | null;
   /** The roles on this space's team, if it is one. */
   roles?: readonly TeamRole[];
+  /** This session's own sub-agents that a message can reach — delegated ones, which are sessions. */
+  agents?: readonly SessionAgent[];
   /** The apps on this Mac, or null before main has been asked. */
   apps: readonly InstalledApp[] | null;
   /** App icons by bundle path, as far as they have been fetched. */

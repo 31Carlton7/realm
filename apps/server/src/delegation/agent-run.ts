@@ -429,7 +429,7 @@ export class AgentRunService {
    *
    * Returns the registered run on success, or the caller's refusal already worded.
    */
-  private async spawn(ctx: ProviderCallContext, rawArgs: unknown, detached: boolean): Promise<Spawned | CallToolResult> {
+  private async spawn(ctx: ProviderCallContext, rawArgs: unknown, detached: boolean, byPerson = false): Promise<Spawned | CallToolResult> {
     const parsed = RunArgs.safeParse(rawArgs ?? {});
     if (!parsed.success) return err(`invalid arguments: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
     const { goal, constraints } = parsed.data;
@@ -516,7 +516,7 @@ export class AgentRunService {
     // the layout BESIDE the parent (the fixed openItemBeside path), never replacing it.
     this.d.rpc.broadcast("session.agentOpened", { spaceId: ctx.spaceId, sessionId: childId, itemId: created.itemId });
 
-    const run = this.d.engine.begin(ctx.sessionId, childId, { detached });
+    const run = this.d.engine.begin(ctx.sessionId, childId, { detached, byPerson });
     const fromSeq = created.session.lastEventSeq;
     // The watcher is started BEFORE the first send and owns the execution deadline whether or not
     // anyone ever waits — that is what keeps a forgotten detached child from running forever.
@@ -605,9 +605,11 @@ export class AgentRunService {
 
   /** `agent_start` for Realm itself rather than an agent: a team role woken by a mention is started
    *  as the mentioning session's sub-agent by exactly this path, and the answer is the child's id or
-   *  the refusal's words. */
-  async startChild(ctx: ProviderCallContext, args: { goal: string; title?: string; constraints?: AgentRunConstraints }): Promise<{ ok: true; childId: string } | { ok: false; message: string }> {
-    const spawned = await this.spawn(ctx, args, true);
+   *  the refusal's words. `byPerson` marks one the person started themselves — a teammate — which the
+   *  stop of the session's turn leaves running. */
+  async startChild(ctx: ProviderCallContext, args: { goal: string; title?: string; constraints?: AgentRunConstraints },
+    opts: { byPerson?: boolean } = {}): Promise<{ ok: true; childId: string } | { ok: false; message: string }> {
+    const spawned = await this.spawn(ctx, args, true, opts.byPerson ?? false);
     if (!isSpawned(spawned)) return { ok: false, message: spawned.content.map((c) => (c.type === "text" ? c.text : "")).join(" ").trim() };
     return { ok: true, childId: spawned.childId };
   }

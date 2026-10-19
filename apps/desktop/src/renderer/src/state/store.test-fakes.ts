@@ -406,6 +406,7 @@ export type FakeData = {
   delegatedRuns?: Record<string, DelegatedRun[]>;
   /** Each lead session's sub-agents — what `delegation.children` answers. */
   delegatedChildren?: Record<string, DelegatedChild[]>;
+  dismissedSubagents?: Record<string, string[]>;
   /** What `delegation.models` answers, for every session. */
   delegableModels?: DelegableModels;
   /** What `search.query` answers (Plan 16 W2), regardless of query — palette tests script the groups.
@@ -647,6 +648,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     reviews: overrides.reviews ?? {},
     delegatedRuns: overrides.delegatedRuns ?? {},
     delegatedChildren: overrides.delegatedChildren ?? {},
+    dismissedSubagents: overrides.dismissedSubagents ?? {},
     delegableModels: overrides.delegableModels ?? { models: [], own: { kind: "claude", label: "Fable 5.1" } },
     searchResults: overrides.searchResults ?? { sessions: [], items: [], skills: [], memory: [] },
     artifacts: overrides.artifacts ?? [],
@@ -2255,7 +2257,13 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     getReview: async (environmentId) => { calls.push(`getReview:${environmentId}`); return { review: data.reviews[environmentId] ?? null }; },
     dismissReview: async (environmentId) => { calls.push(`dismissReview:${environmentId}`); data.reviews[environmentId] = null; },
     listDelegatedRuns: async (sessionId) => { calls.push(`listDelegatedRuns:${sessionId}`); return data.delegatedRuns[sessionId] ?? []; },
-    listDelegatedChildren: async (sessionId) => { calls.push(`listDelegatedChildren:${sessionId}`); return data.delegatedChildren[sessionId] ?? []; },
+    listDelegatedChildren: async (sessionId) => { calls.push(`listDelegatedChildren:${sessionId}`); return { children: data.delegatedChildren[sessionId] ?? [], dismissed: data.dismissedSubagents[sessionId] ?? [] }; },
+    addTeammate: async (input) => { calls.push(`addTeammate:${JSON.stringify(input)}`); return { childId: "01ARZ3NDEKTSV4RRFFQ69G5TMT" }; },
+    dismissSubagent: async (sessionId, id) => {
+      calls.push(`dismissSubagent:${sessionId}:${id}`);
+      data.dismissedSubagents[sessionId] = [...(data.dismissedSubagents[sessionId] ?? []), id];
+      return { dismissed: data.dismissedSubagents[sessionId] };
+    },
     delegableModels: async (sessionId) => { calls.push(`delegableModels:${sessionId}`); return data.delegableModels; },
     agentsTab: async (sessionId) => {
       calls.push(`agentsTab:${sessionId}`);

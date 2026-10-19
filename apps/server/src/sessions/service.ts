@@ -48,7 +48,11 @@ export type SendMessage = { text: string; attachments: { path: string; mime: str
   scheduled?: { task: string; note: string };
   /** Written by another session's agent (`session_open`'s first message) — transcript-only, as `goal`
    *  is, so the pane never shows an agent's words as something the user typed. */
-  from?: { sessionId: string; title: string } };
+  from?: { sessionId: string; title: string };
+  /** Realm's word to the agent about what changed around it since its last message — the teammates it
+   *  was given. On the wire after the user's text, and never on the transcript, which keeps what the
+   *  user typed. */
+  note?: string };
 
 /* The placeholder a session wears until its first message names it. Not "<Agent> session": the
  * agent is already shown on the row, and repeating it there says nothing about WHICH session this
@@ -287,6 +291,9 @@ export class SessionService {
       decides(sessionId: string, spaceId: string, gatewayTool: string): Promise<boolean>;
       isRoleRun(sessionId: string): boolean;
     };
+    /** Teammates the person added (`delegation/teammates.ts`): what this session's agent is told about
+     *  them on its next message, spent by asking. Optional — without it nothing is ever added. */
+    teammates?: { joinedNote(sessionId: string): string };
   }) {
     // Unref'd: a sweep with nothing to do must not be what keeps a finished process alive.
     this.reapTimer = setInterval(() => { void this.reapIdle().catch(() => {}); }, REAP_SWEEP_MS);
@@ -694,6 +701,10 @@ export class SessionService {
     // does not. Only on this path: `deliverInterjection` and `resendTurn` do their own bookkeeping, and
     // a peer's question re-sent behind the user's back is not a recovery anyone asked for.
     if (this.forkInFlight.has(id)) this.rewindTurns.set(id, msg);
+    // The teammates this session was given since its last message, told on this one — before the
+    // failover keeps the message, so a retry of the turn says it again.
+    const joined = this.d.teammates?.joinedNote(id);
+    if (joined) msg = { ...msg, note: joined };
     // Recorded BEFORE the message goes out, because the failure this enables recovery from can
     // arrive on the very first event back. A new turn also clears the previous one's retry budget
     // and chain position — those are per-turn, not per-session.
@@ -782,7 +793,7 @@ export class SessionService {
     // text rather than sent as a system note, because all three agent wires take one markdown string
     // and nothing else. A pick in Realm's window names its picture only if it is still attached.
     const context = elementContext(msg.elements ?? [], msg.attachments) + sessionRefContext(msg.sessionRefs ?? [])
-      + mentionRefContext(refs, { macSkill: mac ? this.canonical(mac.path) : null, missing: files.missing, withheld: files.withheld });
+      + mentionRefContext(refs, { macSkill: mac ? this.canonical(mac.path) : null, missing: files.missing, withheld: files.withheld }) + (msg.note ?? "");
     const attachments = [...msg.attachments, ...files.attach];
     if (tokens.length === 0) return { text: msg.text + context, attachments };
     let skill: SkillMention | undefined;
@@ -817,7 +828,7 @@ export class SessionService {
     const attach: Attachment[] = [];
     const missing = new Set<string>(), withheld = new Set<string>();
     for (const r of refs) {
-      if (r.kind === "app" || r.kind === "role") continue;
+      if (r.kind === "app" || r.kind === "role" || r.kind === "agent") continue;
       if (isSecretPath(r.path)) { withheld.add(r.path); continue; }
       let st;
       try { st = statSync(r.path); } catch { missing.add(r.path); continue; }

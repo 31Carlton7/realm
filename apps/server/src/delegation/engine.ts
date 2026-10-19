@@ -147,11 +147,12 @@ export class DelegationEngine {
    * things: `hasRun` ignores it, and its drain is expected to be running in the background under
    * `watch` rather than under the caller's own await.
    */
-  begin(parentSessionId: string, targetSessionId: string, opts: { interruptOnCancel?: boolean; detached?: boolean } = {}): ActiveRun {
+  begin(parentSessionId: string, targetSessionId: string, opts: { interruptOnCancel?: boolean; detached?: boolean; byPerson?: boolean } = {}): ActiveRun {
     const run: ActiveRun = {
       parentSessionId, childSessionId: targetSessionId, cancelled: false, startedAt: Date.now(),
       interruptOnCancel: opts.interruptOnCancel ?? true,
       detached: opts.detached ?? false, done: null, settled: null,
+      ...(opts.byPerson ? { byPerson: true } : {}),
     };
     this.runs.set(parentSessionId, [...this.list(parentSessionId), run]);
     this.announce(parentSessionId);
@@ -192,10 +193,15 @@ export class DelegationEngine {
   /** The PARENT was interrupted: ALL its delegated runs are cancelled and their children interrupted
    *  — a stop on the delegating session must not leave a ghost agent running, and after `agent_start`
    *  there may be several. Called from `SessionService.interrupt` for every session; a session with
-   *  no active run is a no-op. */
-  parentInterrupted(sessionId: string): void {
+   *  no active run is a no-op.
+   *
+   *  `sparePeople` is the stop of the parent's TURN: a run a person started (a teammate added from the
+   *  prompter) is theirs rather than the turn's, has a Stop of its own on the prompter's row, and is
+   *  left running. A parent that is deleted spares nothing — there is no session left to help. */
+  parentInterrupted(sessionId: string, opts: { sparePeople?: boolean } = {}): void {
     for (const run of this.list(sessionId)) {
       if (run.cancelled) continue;
+      if (opts.sparePeople && run.byPerson) continue;
       run.cancelled = true;
       // A delegated CHILD is ours to stop. A PEER being asked a question is not: it was doing its own
       // work before the question arrived and is still doing it, and stopping it because the ASKER was
@@ -411,6 +417,9 @@ export type ActiveRun = {
   startedAt: number;
   interruptOnCancel: boolean;
   detached: boolean;
+  /** A person started it — a teammate added from the prompter — rather than the parent's agent. The
+   *  parent's Stop leaves it running (`parentInterrupted`'s `sparePeople`). */
+  byPerson?: boolean;
   /** The time the child has spent waiting on the user and is not charged for, as `drain` has seen
    *  it: the closed spans, and the open one's start while it is still waiting. */
   pausedMs?: number;

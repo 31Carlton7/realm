@@ -63,6 +63,7 @@ import type { CodeReviewService } from "../code-review/service";
 import type { DelegationEngine } from "../delegation/engine";
 import type { DelegatedChildren } from "../delegation/children";
 import type { AgentRunService } from "../delegation/agent-run";
+import type { Teammates } from "../delegation/teammates";
 import type { SearchService } from "../search/service";
 import type { ArtifactsStore } from "../store/artifacts";
 import type { SavedTurnsStore } from "../store/saved-turns";
@@ -100,6 +101,9 @@ export type Deps = {
   /** A session's sub-agents read back from the tables, and its Agents tab. */
   children: DelegatedChildren;
   agentRuns: AgentRunService;
+  /** The agents a person adds to a session from its prompter's "+". Optional where a test builds the
+   *  methods without the delegation stack. */
+  teammates?: Teammates;
   laya: LayaService;
   agentSignIn: AgentSignInService;
   /** The views MCP servers draw for tool calls (MCP Apps). */
@@ -1030,7 +1034,16 @@ export function registerMethods(d: Deps): void {
   // a pane mounting mid-run has no other way to learn what its session is waiting on.
   reg("delegation.running", (p) => ({ running: d.delegation.liveRuns(p.sessionId) }));
   // The tables' side of the same subject: every child a session ever started, settled ones included.
-  reg("delegation.children", (p) => ({ children: d.children.list(p.sessionId) }));
+  reg("delegation.children", (p) => ({ children: d.children.list(p.sessionId), dismissed: d.teammates?.dismissed(p.sessionId) ?? [] }));
+  reg("delegation.addTeammate", (p) => {
+    if (!d.teammates) throw new RpcError("UNAVAILABLE", "this Realm cannot add teammates");
+    refuseWhileDraining("add a teammate");
+    return d.teammates.add(p);
+  });
+  reg("delegation.dismiss", (p) => {
+    if (!d.teammates) throw new RpcError("UNAVAILABLE", "this Realm cannot dismiss sub-agents");
+    return { dismissed: d.teammates.dismiss(p.sessionId, p.id) };
+  });
   reg("delegation.models", (p) => d.agentRuns.catalogFor(p.sessionId));
   reg("delegation.tab", (p) => d.children.tab(p.sessionId));
 
@@ -1096,7 +1109,9 @@ export function registerMethods(d: Deps): void {
   reg("sessions.send", async (p) => {
     // A teammate named in the message is woken first, as this session's sub-agent, so the message the
     // agent reads already says which sub-agent it is (`HandoffService.wakeMentioned`).
-    const mentionRefs = p.mentionRefs?.some((r) => r.kind === "role") && d.handoffs ? await d.handoffs.wakeMentioned(p.id, p.text, p.mentionRefs) : p.mentionRefs;
+    const woken = p.mentionRefs?.some((r) => r.kind === "role") && d.handoffs ? await d.handoffs.wakeMentioned(p.id, p.text, p.mentionRefs) : p.mentionRefs;
+    // And a sub-agent named in it is passed the message too, its chip told whether it was.
+    const mentionRefs = woken?.some((r) => r.kind === "agent") && d.teammates ? await d.teammates.passMentioned(p.id, p.text, woken) : woken;
     await d.sessions.send(p.id, { text: p.text, attachments: p.attachments, mentions: p.mentions, elements: p.elements, sessionRefs: p.sessionRefs, mentionRefs }, p.delivery);
     return { ok: true as const };
   });
