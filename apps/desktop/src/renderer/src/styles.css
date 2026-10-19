@@ -110,15 +110,15 @@
   /* A card in Codex's grammar, measured off its window: a step ABOVE the ground it stands on — where
      --rl-frame is a well below it. An overlay rather than a colour, because the ground under a page is
      the pane's translucent canvas: the card has to lift whatever that came to, on any desktop.
-     The fill is the boundary and the rim only softens it. Codex rings its card a rung lighter than
-     both sides (page 41, card 47, rim 57), and here that rim measured +12 levels over a card that
-     stood +9 over the ground: an outline brighter than the card it drew, which is what read as a
-     border fighting the card (the owner, 10-18). Now it is +4. A divider between a card's rows, or the
-     edge of a field written on one, is a line and keeps the line's weight (`--rl-line`). The light
-     face sets its own pair below — a white card on the grey ground, its rim a shade under the ground. */
+     The fill is the boundary, and nothing is drawn round it. Codex rings its card a rung lighter than
+     both sides (page 41, card 47, rim 57); here a rim like that measured +12 levels over a card that
+     stood +9 over the ground and read as a border fighting the card (the owner, 10-18), and softened
+     to +4 it still read as one (10-19: "I don't like having borders"). The card's lift (`--card-lift`)
+     is what it has instead. A divider between a card's rows, or the edge of a field
+     written on one, is a line and keeps the line's weight (`--rl-line`). The light face sets its own
+     pair below — a white card on the grey ground. */
   --rl-card: var(--overlay-lighten-100);
   --rl-card-hover: var(--overlay-lighten-200);
-  --rl-card-rim: var(--overlay-lighten-50);
   /* A file's tile, which Codex raises further than a settings card — its tiles are sixteen levels
      over the page where its cards are six — because a tile is an object you pick up, not a group of
      controls you read. */
@@ -126,15 +126,14 @@
   --rl-tile-hover: var(--overlay-lighten-300);
   --rl-tile-press: var(--overlay-lighten-400);
   /* What an OBJECT rests on — a file's tile and its square in a row, a saved turn, a file on a message
-     or in the prompter, and the device's toolbar: a light border and a very slight shadow, the card
-     stack (the owner, 10-05, of the toolbar: "That should be the shadow and border used for any
-     library item"). Named once for all of them, so the toolbar pointed at and the files it was
+     or in the prompter, and the device's toolbar: one surface for all of them (the owner, 10-05, of
+     the toolbar: "That should be the shadow and border used for any library item"), and since 10-19
+     ("I don't like having borders") that surface is a card's — its lift, with no edge
+     drawn round it. Named once for all of them, so the toolbar pointed at and the files it was
      pointed at for cannot drift apart; `styles.test.ts` holds each to it. */
-  --rl-object-shadow: var(--shadow-card);
-  /* …and the same two halves for a surface the worklet paints, where a box-shadow ring would trace the
-     square border box: the border goes to the painter and the shadow becomes a filter (tokens.css
-     splits the card stack the same way, for the same reason). */
-  --rl-object-ring: var(--card-ring);
+  --rl-object-shadow: var(--card-lift);
+  /* …and the lift as a filter, for a surface the worklet paints inside a clip of its own (the
+     prompter's file well), where a box-shadow would trace the square border box. */
   --rl-object-lift-filter: var(--shadow-card-lift-filter);
   /* borders: BUI hairlines are solid and crisp, not alpha — hairline = line now */
   --rl-line: var(--line);                        /* BUI --line */
@@ -269,7 +268,6 @@
   --rl-frame-raised-hover: oklch(0.915 0.003 247.86);
   --rl-card: var(--surface);
   --rl-card-hover: oklch(0.975 0.002 247.85);
-  --rl-card-rim: #03071208;
   --rl-tile: var(--surface);
   --rl-tile-hover: oklch(0.975 0.002 247.85);
   --rl-tile-press: oklch(0.955 0.002 247.85);
@@ -4076,10 +4074,10 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* A card is the sub-agent; its summary is the disclosure, and what opens under it — the request to
    answer, the brief, what can be done — is part of the same card rather than a panel of its own. */
 .subagent-card { display: flex; flex-direction: column; min-width: 0;
-  border: var(--hairline-w) solid var(--rl-card-rim); border-radius: var(--r-panel); background: var(--rl-card); color: var(--ink);
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); color: var(--ink);
   transition: box-shadow var(--dur-slow) ease; }
 .subagent-summary { display: flex; flex-direction: column; gap: 4px; width: 100%; min-width: 0; padding: 10px 12px 11px; text-align: left;
-  border: none; border-radius: var(--r-panel); background: transparent; color: inherit; font: inherit; }
+  border: none; border-radius: var(--r-squircle-card); background: transparent; color: inherit; font: inherit; }
 .subagent-summary:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--rl-accent); }
 /* Asked for from a transcript line: lit long enough to be found, then let go. */
 .subagent-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
@@ -4205,7 +4203,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    in the primary ink, with the padding a card the eye rests in gets; the right edge is the scroller's,
    so a bar has somewhere to go. */
 .subagent-view-result { flex: none; max-height: 60%; display: flex; flex-direction: column; gap: 8px; margin: 0 12px 10px; padding: 12px 6px 14px 16px;
-  border: var(--hairline-w) solid var(--rl-card-rim); border-radius: var(--r-panel); background: var(--rl-card); }
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); }
 .subagent-view-result-head { flex: none; display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; line-height: 18px; font-weight: var(--fw-title); color: var(--ink); }
 .subagent-view-result-head > svg { color: var(--ink-3); }
 .subagent-view-result[data-error] .subagent-view-result-head > svg { color: var(--rl-danger); }
@@ -4251,11 +4249,11 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .delegation-line .tool-row:disabled { color: var(--ink); opacity: 1; }
 
 /* The session's sub-agents under its last message (SubagentStrip.tsx): the pane-bar chip, readable.
-   A card at the hairline on the card ground, so it reads as a thing the session has out rather than
-   one more line the agent said; the accent only on its mark, as the chip carries it, and the state
-   colours the Agents tab's own marks use. Settled, it is the head row alone. */
+   A card on the card ground, so it reads as a thing the session has out rather than one more line
+   the agent said; the accent only on its mark, as the chip carries it, and the state colours the
+   Agents tab's own marks use. Settled, it is the head row alone. */
 .subagent-strip { display: flex; flex-direction: column; margin: 12px 0 0; padding: 4px;
-  border: var(--hairline-w) solid var(--rl-card-rim); border-radius: var(--r-panel); background: var(--rl-card); }
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); }
 .subagent-strip-head, .subagent-strip-row { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 0 8px; border: none;
   border-radius: var(--r-ctl); background: transparent; font: inherit; text-align: left; transition: background-color var(--dur-hover) ease; }
 .subagent-strip-head { height: 30px; font-size: 13px; color: var(--ink); }
@@ -4284,12 +4282,12 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    it was a timestamp a reader had to squint at. */
 .msg-run-at { color: var(--rl-text-faint); }
 /* ── A turn's edits (EditSummary.tsx): Codex's "Edited 2 files +20 −3" card ───────────────────────
-   A card the eye rests in, so it wears the curve and no ring: the surface fill is the whole boundary,
-   and its head is not ruled off from its rows — the title and its two actions are chrome for the
+   A card the eye rests in, so it is drawn as every card is: the curve, no ring, the fill as its
+   boundary with the card's light and lift, and its head not ruled off from its rows — the title and its two actions are chrome for the
    card, not a section of it. The card's curve is the picker cards' rung so the rows' own corners
    nest inside it (20 = 12 of padding + the 8 a row rounds by). */
 .edit-summary { display: flex; flex-direction: column; gap: 2px; margin: 2px 0; padding: 12px;
-  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--surface); }
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--surface); box-shadow: var(--card-lift); }
 /* The actions wrap under the title in a narrow pane rather than pushing Review off the card's edge;
    the title itself never breaks — "Edited / 2 files" is one phrase. */
 .edit-summary-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-height: 30px; padding: 0 8px 6px; }
@@ -4633,7 +4631,7 @@ button.edit-file:hover { background: var(--rl-hover); }
 /* What a view asked to do, held for the user (ViewRequestCard.tsx). The request card's shell — a
    raised surface with the lift every card that waits on an answer wears — set under the frame and
    outside it, where nothing the view draws can reach. */
-.app-view-request { margin-top: 8px; padding: 14px; border-radius: var(--r-panel); background: var(--rl-raised); box-shadow: var(--shadow-card);
+.app-view-request { margin-top: 8px; padding: 14px; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-raised); box-shadow: var(--card-lift);
   display: flex; flex-direction: column; gap: 8px; }
 .app-view-request-title { margin: 0; color: var(--ink); font-size: 14px; line-height: 20px; font-weight: var(--fw-label); }
 .app-view-request-note { margin: 0; color: var(--ink-2); font-size: 12px; }
@@ -4854,12 +4852,12 @@ button.edit-file:hover { background: var(--rl-hover); }
    can act on, and the source is. */
 .math-raw { font-family: var(--font-mono); font-size: .92em; color: var(--rl-warning); }
 
-/* Plan 9 W2: the permission card wears BUI ApprovalCard's shell — a surface card on shadow-card
-   (BUI cards rest; the old floating overlay shadow is gone), radius-card, 12px card pad, and a
-   hairline-topped footer. The behaviour underneath is Realm's, verbatim: numbered options with kbd
+/* Plan 9 W2: the permission card wears BUI ApprovalCard's shell — a surface card (BUI cards rest;
+   the old floating overlay shadow is gone), 12px card pad, and a hairline-topped footer — drawn as
+   every card is, with no edge round it and on the painted curve ("One card", further down). The behaviour underneath is Realm's, verbatim: numbered options with kbd
    chips, ↑↓/bare-digit keys, the Enter-on-Deny guard, Esc→deny. The amber wash stays gone; colour
    survives as the 6px dot and the "Waiting" pill. */
-.permission-card { border-radius: var(--r-panel); padding: 14px; background: var(--surface); box-shadow: var(--shadow-card); display: flex; flex-direction: column; gap: 8px; }
+.permission-card { border-radius: var(--r-squircle-card); corner-shape: squircle; padding: 14px; background: var(--surface); box-shadow: var(--card-lift); display: flex; flex-direction: column; gap: 8px; }
 .permission-head { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: var(--fw-label); color: var(--ink); }
 .permission-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--rl-warning); flex: none; animation: rl-pulse 0.9s ease-in-out infinite; }
 .permission-head .status-pill { margin-left: auto; font-weight: 400; }
@@ -4912,7 +4910,7 @@ button.edit-file:hover { background: var(--rl-hover); }
    labels rather than Allow/Deny. Rows are taller than a permission's because each may carry a
    description line, and they separate themselves the way .permission-options' do — a hover fill on a
    rounded row, with a hairline between them as well saying the same thing twice. */
-.question-card { border-radius: var(--r-panel); padding: 16px; background: var(--surface); box-shadow: var(--shadow-card);
+.question-card { border-radius: var(--r-squircle-card); corner-shape: squircle; padding: 16px; background: var(--surface); box-shadow: var(--card-lift);
   display: flex; flex-direction: column; gap: 10px; container: question-card / inline-size; }
 .question-head { display: flex; align-items: flex-start; gap: 10px; }
 .question-title { flex: 1; min-width: 0; margin: 0; font-size: 15px; font-weight: var(--fw-label); line-height: 1.4; color: var(--ink); text-wrap: balance; }
@@ -5053,10 +5051,10 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    quiet — the host is what says whose page this is. */
 .question-link { margin: 0; padding: 8px 10px; border-radius: var(--r-ctl); background: var(--field); font: 12px/18px var(--font-mono); color: var(--ink-3); overflow-wrap: anywhere; }
 .question-link-host { color: var(--rl-text-bright); font-weight: var(--fw-title); }
-/* A question after the fact: the card's own shell, at rest — no lift, nothing to press — with each
-   question over what was answered. The answer is the thing a reader comes back for, so it takes the
+/* A question after the fact: the card's own shell, with nothing to press — each question over what
+   was answered. The answer is the thing a reader comes back for, so it takes the
    primary ink and the question the secondary; an outcome with no answer under it says so in words. */
-.question-answered { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: var(--r-panel); background: var(--surface); }
+.question-answered { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--surface); box-shadow: var(--card-lift); }
 .question-answered-head { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; line-height: 16px; color: var(--ink-2); }
 .question-answered-head > svg { flex: none; }
 .question-answered-outcome { flex: none; margin-left: auto; color: var(--ink-3); }
@@ -5635,7 +5633,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .market-lede { margin: 0; font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); max-width: 60ch; }
 .market-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
 .market-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; min-height: 150px;
-  background: var(--rl-frame); border-radius: var(--r-panel); corner-shape: squircle; }
+  background: var(--rl-frame); border-radius: var(--r-squircle-card); corner-shape: squircle; }
 /* The well is a near-white tile in BOTH themes: brand marks are drawn for white ground, and Slack's
    aubergine or Sentry's violet on a dark surface is a mark you cannot see. A tile is the one place
    a colour that is not Realm's belongs, and it is 40px. */
@@ -6074,7 +6072,6 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 :root[data-squircle] .tool-panel,
 :root[data-squircle] .tool-body .fd-file,
 :root[data-squircle] .ui-block,
-:root[data-squircle] .edit-summary,
 :root[data-squircle] .subagents-compose,
 :root[data-squircle] .subagent-view-compose,
 :root[data-squircle] .diff-review,
@@ -6339,8 +6336,6 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   border-radius: 0;
   background: paint(rl-squircle);
   --sq-fill: var(--field);
-  --sq-ring: var(--rl-object-ring);
-  --sq-ring-w: var(--hairline-w);
   --sq-radius-top: calc(var(--attach-tile) * var(--sq-ratio-media));
   --sq-radius-bottom: calc(var(--attach-tile) * var(--sq-ratio-media));
   box-shadow: none;
@@ -6375,9 +6370,6 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card); }
 /* A drawn block is the same panel the code it replaced was, painted the same way. */
 :root[data-squircle] .ui-block { --sq-fill: var(--surface); box-shadow: none; }
-/* A turn's edit card is content in the log for the same reason, and on the card rung (see the card). */
-:root[data-squircle] .edit-summary { --sq-fill: var(--surface); box-shadow: none;
-  --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card); }
 /* The Agents tab's composer, on the prompter's curve and painted like it; its focus edge moves to
    the painter, because a box-shadow would trace the square border box `border-radius: 0` leaves. */
 :root[data-squircle] :is(.subagents-compose, .subagent-view-compose) { --sq-fill: var(--surface); }
@@ -6405,6 +6397,123 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   --sq-ring: color-mix(in srgb, var(--rl-accent) 35%, transparent); --sq-ring-w: 2px;
   box-shadow: none;
 }
+/* ── One card ──────────────────────────────────────────────────────────────
+   Every card in the app — a thing the session has out, a request, a group of settings, a file you
+   pick up, a draft the team made — is drawn ONE way (the owner, 10-19: no borders, and the corners
+   a squircle, not "normal rounding"): its fill, a soft lift, and the painter's superellipse. Nothing
+   is drawn round it or along any edge of it.
+
+   The painter draws the face and the box keeps a CIRCULAR
+   `border-radius` of half the curve's. That half is the one measured number this rests on: a circle
+   of radius R/2 contains the superellipse of radius R (n = 4) and never sits more than 0.024R
+   outside it, under half a pixel at the card rung. So the background clip never shaves the painted
+   corner; the lift stays a plain `box-shadow`, cast from a box that follows the curve to within that
+   half pixel (no filter, no extra layer — there are dozens of these in a long transcript or a
+   Library, and a filter is a compositing pass each); a child clipped by `overflow` lands on the curve;
+   and a focus `outline` traces it, offset and all. Without the painter, the card is the same fill
+   and lift on a circle of the full radius (each card's own rule). */
+:root[data-squircle] .subagent-strip,
+:root[data-squircle] .subagent-card,
+:root[data-squircle] .subagent-view-result,
+:root[data-squircle] .edit-summary,
+:root[data-squircle] .permission-card,
+:root[data-squircle] .question-card,
+:root[data-squircle] .question-answered,
+:root[data-squircle] .plan-card,
+:root[data-squircle] .plan-decision,
+:root[data-squircle] .app-view-request,
+:root[data-squircle] .settings-row,
+:root[data-squircle] .sched-card,
+:root[data-squircle] .cr-note,
+:root[data-squircle] .library-offer,
+:root[data-squircle] .saved-turn-open,
+:root[data-squircle] .library-tile,
+:root[data-squircle] .agent-card,
+:root[data-squircle] .tc-card,
+:root[data-squircle] .rv-why,
+:root[data-squircle] .rv-caption,
+:root[data-squircle] .rv-paper,
+:root[data-squircle] .rv-post,
+:root[data-squircle] .rv-files,
+:root[data-squircle] .rv-table .md-scroll,
+:root[data-squircle] .ps-rows,
+:root[data-squircle] .tp-card,
+:root[data-squircle] .tp-wait-row,
+:root[data-squircle] .tp-props,
+:root[data-squircle] .tp-message,
+:root[data-squircle] .tp-prose,
+:root[data-squircle] .tp-goal,
+:root[data-squircle] .stat-tile,
+:root[data-squircle] .usage-card,
+:root[data-squircle] .usage-figures,
+:root[data-squircle] .plan-account,
+:root[data-squircle] .market-card {
+  border-radius: calc(var(--r-squircle-card) / 2);
+  background: paint(rl-squircle);
+  --sq-fill: var(--rl-card);
+  --sq-radius-top: var(--r-squircle-card);
+  --sq-radius-bottom: var(--r-squircle-card);
+  box-shadow: var(--card-lift);
+}
+/* The fill each card already had, read by the painter in place of `background`. */
+:root[data-squircle] .edit-summary,
+:root[data-squircle] .permission-card,
+:root[data-squircle] .question-card,
+:root[data-squircle] .question-answered,
+:root[data-squircle] .plan-card,
+:root[data-squircle] .plan-decision,
+:root[data-squircle] .app-view-request { --sq-fill: var(--surface); }
+:root[data-squircle] .library-tile,
+:root[data-squircle] .agent-card { --sq-fill: var(--rl-tile); }
+:root[data-squircle] .stat-tile,
+:root[data-squircle] .usage-card,
+:root[data-squircle] .usage-figures,
+:root[data-squircle] .plan-account { --sq-fill: var(--chart-surface); }
+:root[data-squircle] .saved-turn-open:hover { --sq-fill: var(--rl-card-hover); }
+:root[data-squircle] .library-tile:hover { --sq-fill: var(--rl-tile-hover); }
+:root[data-squircle] .library-tile:is([data-pressed], :active:focus-visible) { --sq-fill: var(--rl-tile-press); }
+:root[data-squircle] button.tp-card:hover { --sq-fill: var(--rl-card-hover); }
+/* The marketplace's card is a well the page is cut into, not a card standing on it: the curve, with
+   no lift. */
+:root[data-squircle] .market-card { --sq-fill: var(--rl-frame); box-shadow: none; }
+/* The slot for a role of your own is an outline of a card that does not exist yet. */
+:root[data-squircle] .tp-card-custom { --sq-fill: transparent; box-shadow: none; }
+:root[data-squircle] .tp-card-custom:hover { --sq-fill: var(--rl-card); }
+/* A chosen card, and keyboard focus in one, are the only edges a card shows — on the curve, inside it. */
+:root[data-squircle] .tp-pick[data-on] { --sq-ring: color-mix(in srgb, var(--rl-accent) 55%, transparent); --sq-ring-w: 1px; box-shadow: var(--card-lift); }
+:root[data-squircle] .agent-card[data-selected] { --sq-ring: var(--rl-accent); --sq-ring-w: 1.5px; box-shadow: var(--card-lift); }
+:root[data-squircle] .agent-card:has(.agent-card-pick > input:focus-visible) { --sq-ring: var(--rl-accent); --sq-ring-w: 2px; box-shadow: var(--card-lift); }
+/* A sub-agent's card is its summary until it opens, so the summary's focus ring is the card's shape. */
+:root[data-squircle] .subagent-summary { border-radius: calc(var(--r-squircle-card) / 2); }
+/* A run of settings rows is one card, painted a row at a time: the first row takes the top corners,
+   the last the bottom corners, and no row casts the lift onto its neighbour. */
+:root[data-squircle] .settings-row { border-radius: 0; --sq-radius-top: 0px; --sq-radius-bottom: 0px; box-shadow: none; }
+:root[data-squircle] .settings-row:not(.settings-row + .settings-row) {
+  border-start-start-radius: calc(var(--r-squircle-card) / 2); border-start-end-radius: calc(var(--r-squircle-card) / 2);
+  --sq-radius-top: var(--r-squircle-card); }
+:root[data-squircle] .settings-row:not(:has(+ .settings-row)) {
+  border-end-start-radius: calc(var(--r-squircle-card) / 2); border-end-end-radius: calc(var(--r-squircle-card) / 2);
+  --sq-radius-bottom: var(--r-squircle-card); }
+/* …and on the light face, where the card is white on a near-white ground and needs its lift to be seen
+   at all, the run casts it as one shape from the list that holds it — a list of rows and nothing else,
+   so no heading or note beside the card is lifted with it. The dark face's card is a translucent
+   overlay, whose alpha would cast next to nothing. */
+:root[data-mode="light"] :has(> .settings-row):not(:has(> :not(.settings-row))),
+:root[data-mode="light"] .engines-list { filter: var(--card-lift-filter); }
+/* The engines' run, the same way. */
+:root[data-squircle] .engine-card { border-radius: 0; background: paint(rl-squircle); --sq-fill: var(--rl-card); }
+:root[data-squircle] .engine-card:first-child {
+  border-start-start-radius: calc(var(--r-squircle-card) / 2); border-start-end-radius: calc(var(--r-squircle-card) / 2);
+  --sq-radius-top: var(--r-squircle-card); }
+:root[data-squircle] .engine-card:last-child {
+  border-end-start-radius: calc(var(--r-squircle-card) / 2); border-end-end-radius: calc(var(--r-squircle-card) / 2);
+  --sq-radius-bottom: var(--r-squircle-card); }
+:root[data-squircle] .mode-card {
+  border-radius: calc(var(--r-squircle-card) / 2); background: paint(rl-squircle); --sq-fill: var(--rl-frame-raised);
+  --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card); }
+:root[data-squircle] .mode-card[data-selected] { --sq-fill: var(--accent-tint); }
+:root[data-squircle] .scope-doc-row:has(.memory-doc:focus) {
+  --sq-ring: color-mix(in srgb, var(--rl-accent) 55%, transparent); --sq-ring-w: 1px; box-shadow: none; }
 /*
  * Buttons declare the curve but are NOT painted, and that is deliberate.
  *
@@ -6557,8 +6666,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    tile — raised off the ground, ringed a rung lighter — and the chosen one wears the accent's ring. */
 .agent-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 12px; }
 .agent-card {
-  display: flex; flex-direction: column; min-width: 0; border-radius: var(--r-panel); corner-shape: squircle;
-  background: var(--rl-tile); box-shadow: inset 0 0 0 var(--hairline-w) var(--rl-card-rim);
+  display: flex; flex-direction: column; min-width: 0; border-radius: var(--r-squircle-card); corner-shape: squircle;
+  background: var(--rl-tile); box-shadow: var(--card-lift);
   transition: box-shadow var(--dur-hover) ease;
 }
 .agent-card[data-selected] { box-shadow: inset 0 0 0 1.5px var(--rl-accent); }
@@ -7493,11 +7602,12 @@ select { appearance: none; padding-right: 22px;
 /* The document's card is a scope-grouped row (`.scope-doc-row`) holding the page you write on: a
    head with what the page has done with your words and the Write/Preview choice, the text at reading
    size in the content face, and the count at the foot. No field inside the card — the card IS the
-   field, so its rim takes the accent while you are in it, the way a text field's edge would. */
+   field, so its edge lights in the accent while you are in it, the way a text field's would — the one
+   time a card shows an edge, and only while the keyboard is in it. */
 /* Two classes, because `.settings-row` (declared further down) makes every row a flex ROW, and a
    document beside nothing in a flex row sizes to its own content — a 160px column in a 700px card. */
 .settings-row.scope-doc-row { display: block; }
-.scope-doc-row:has(.memory-doc:focus) { border-color: color-mix(in srgb, var(--rl-accent) 55%, var(--rl-card-rim)); }
+.scope-doc-row:has(.memory-doc:focus) { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rl-accent) 55%, transparent); }
 .memory-doc-card { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .memory-doc-head { display: flex; align-items: center; gap: 12px; min-height: 28px; }
 .memory-doc-status { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--rl-text-dim); }
@@ -7661,16 +7771,16 @@ select { appearance: none; padding-right: 22px;
 .settings-row {
   position: relative;
   display: flex; align-items: center; gap: 12px; padding: 14px 16px;
-  background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); border-radius: 0; corner-shape: squircle;
+  background: var(--rl-card); border-radius: 0; corner-shape: squircle;
 }
-/* The rim runs round the RUN, not round each row: a row under another row hands its top edge to the
-   divider, which is inset from both ends as Codex's is, so the card reads as one object ruled
-   inside rather than as a stack of boxes. The row above hands over its bottom edge too: with it,
-   every boundary was drawn twice — the full-width border, and the inset divider right under it. */
-.settings-row + .settings-row { border-top: 0; }
-.settings-row:has(+ .settings-row) { border-bottom: 0; }
-.settings-row:not(.settings-row + .settings-row) { border-start-start-radius: var(--r-panel); border-start-end-radius: var(--r-panel); }
-.settings-row:not(:has(+ .settings-row)) { border-end-start-radius: var(--r-panel); border-end-end-radius: var(--r-panel); }
+/* The run is ONE card, drawn as every card is: no edge round it, the curve at its four corners. A
+   row under another hands its top to the divider, which is inset from both
+   ends as Codex's is, so the card reads as one object ruled inside rather than as a stack of boxes.
+   The lift a free-standing card casts is not drawn per row — a row's shadow would fall across the
+   row above it — so the light face, whose white card needs it, casts it from the run's own list
+   (`:has`, below). */
+.settings-row:not(.settings-row + .settings-row) { border-start-start-radius: var(--r-squircle-card); border-start-end-radius: var(--r-squircle-card); }
+.settings-row:not(:has(+ .settings-row)) { border-end-start-radius: var(--r-squircle-card); border-end-end-radius: var(--r-squircle-card); }
 /* The divider, inset to the label's own edge. Drawn on the LOWER row, so a run's last row can never
    end on a rule with nothing under it. */
 .settings-row + .settings-row::before {
@@ -8191,7 +8301,7 @@ select { appearance: none; padding-right: 22px;
    what it holds, capped at the view it stands in. */
 .sched-card { flex: none; align-self: flex-start; width: 300px; max-height: calc(100% - 24px); overflow-y: auto; margin: 12px 12px 12px 0;
   padding: 14px 16px 12px; display: flex; flex-direction: column; gap: 10px;
-  border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); }
 .sched-card-head { display: flex; align-items: flex-start; gap: 2px; margin: -4px -8px -6px 0; }
 .sched-card-name { flex: 1; min-width: 0; margin: 4px 0 0; font-size: 14px; line-height: 20px; font-weight: var(--fw-label);
   color: var(--rl-text-bright); overflow-wrap: anywhere; }
@@ -8458,8 +8568,8 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .diff-split-notes > * { grid-column: 2; margin: 0 10px; }
 .diff-split-notes[data-side="LEFT"] > * { grid-column: 1; }
 /* A finding or a comment under its line: a card in Codex's grammar, a step above the patch. */
-.cr-note { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--r-panel); corner-shape: squircle;
-  background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+.cr-note { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--r-squircle-card); corner-shape: squircle;
+  background: var(--rl-card); box-shadow: var(--card-lift); }
 /* Who said it, over what was said: under someone's line, a finding is the reviewer's word. */
 .cr-note-by { display: flex; align-items: center; gap: 5px; margin: 0; font-size: 12px; line-height: 16px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
 .cr-note-by > svg { flex: none; }
@@ -8557,10 +8667,6 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .sched-modal-name::placeholder, .sched-modal-goal::placeholder { color: var(--rl-text-faint); }
 .sched-modal-name:focus, .sched-modal-goal:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
 .sched-modal .settings-row { min-height: 48px; padding: 8px 12px 8px 16px; }
-/* A row with another under it hands its bottom edge to that row's inset divider. Left on, the two
-   lines stack into one twice as heavy that runs the card's full width — measured, 2px at the ends
-   and 4px through the middle. */
-.sched-modal .settings-row:has(+ .settings-row) { border-bottom-color: transparent; }
 /* A setting's value, as Codex sets it: quiet text at the row's end that is a menu, the control's ring
    only under the pointer. Still a native select — a Mac menu, type-to-select and all. */
 .sched-select { flex: none; max-width: 60%; field-sizing: content; border-color: transparent; background-color: transparent; color: var(--rl-text-dim);
@@ -8614,7 +8720,7 @@ button.cr-finding-where:hover { text-decoration: underline; }
    answered — a decision stays (design.md). The sentence is read, so it is the body's second rung in
    the secondary ink. */
 .library-offer { display: flex; align-items: center; gap: 12px; margin: 0 0 18px; padding: 12px 12px 12px 16px;
-  background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); border-radius: var(--r-panel); corner-shape: squircle; }
+  background: var(--rl-card); box-shadow: var(--card-lift); border-radius: var(--r-squircle-card); corner-shape: squircle; }
 .library-offer-text { flex: 1; min-width: 0; margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: pretty; }
 .library-offer-actions { flex: none; display: flex; gap: 8px; }
 /* Files held over the page: a pane's own glow, inset from the page's edge as a session pane's is from
@@ -8633,8 +8739,8 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .saved-turns { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .saved-turn { position: relative; display: flex; }
 .saved-turn-open { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 12px 48px 12px 16px; text-align: left;
-  background: var(--rl-card); box-shadow: var(--rl-object-shadow); border-radius: var(--r-panel);
-  transition: background-color var(--dur-hover) ease; }
+  background: var(--rl-card); box-shadow: var(--rl-object-shadow); border-radius: var(--r-squircle-card); corner-shape: squircle;
+  transition: background-color var(--dur-hover) ease, --sq-fill var(--dur-hover) ease; }
 .saved-turn-open:hover { background: var(--rl-card-hover); }
 .saved-turn-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 14px; line-height: 20px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
@@ -8663,9 +8769,9 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .library-tile {
   position: relative; display: flex; flex-direction: column; gap: 6px;
   width: 100%; aspect-ratio: 1; padding: 14px 14px 12px; text-align: left; font: inherit; border: none; overflow: hidden;
-  border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-tile);
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-tile);
   box-shadow: var(--rl-object-shadow);
-  transition: background var(--dur-hover) ease;
+  transition: background var(--dur-hover) ease, --sq-fill var(--dur-hover) ease;
 }
 /* Every card opens, so every card answers the mouse — the preview is where "what can Realm do with
    this" gets answered, and it exists for every file. */
@@ -8847,14 +8953,15 @@ button.cr-finding-where:hover { text-decoration: underline; }
    `.settings-row` above, and the same mechanics, on the list where the count makes it matter most. */
 .engines-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0; }
 /* A card, not a row. Twelve engines each carrying a status, a version, a sign-in and sometimes a
-   command block is more than a hairline-separated list can hold legibly. */
+   command block is more than a hairline-separated list can hold legibly. The run is one card drawn as
+   a settings run is: the card's fill (a group of settings is not a well) and its curve at both ends. */
 .engine-card {
   position: relative;
   display: flex; flex-direction: column; gap: 8px; padding: 14px 16px;
-  background: var(--rl-frame); border-radius: 0; corner-shape: squircle;
+  background: var(--rl-card); border-radius: 0; corner-shape: squircle;
 }
-.engine-card:first-child { border-start-start-radius: var(--r-panel); border-start-end-radius: var(--r-panel); }
-.engine-card:last-child { border-end-start-radius: var(--r-panel); border-end-end-radius: var(--r-panel); }
+.engine-card:first-child { border-start-start-radius: var(--r-squircle-card); border-start-end-radius: var(--r-squircle-card); }
+.engine-card:last-child { border-end-start-radius: var(--r-squircle-card); border-end-end-radius: var(--r-squircle-card); }
 .engine-card + .engine-card::before {
   content: ""; position: absolute; inset: 0 0 auto 16px; height: var(--hairline-w); background: var(--rl-hairline);
 }
@@ -9969,13 +10076,17 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
 .theme-detail:not([open]) { gap: 0; }
 .theme-other { display: flex; flex-direction: column; }
 
+/* The three faces to choose from, set into the settings card: each a well in it — the step a card set
+   into a raised surface takes, measured for the light face's white — on the card's curve, with no edge
+   (the owner, 10-19). The chosen one is the accent's tint, a selection, never a ring round it. */
 .mode-card {
   display: flex; flex-direction: column; gap: 7px; padding: 7px;
-  border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-panel);
-  transition: box-shadow var(--dur-hover) ease;
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-frame-raised);
+  transition: background-color var(--dur-hover) ease, --sq-fill var(--dur-hover) ease;
 }
 .mode-card input { position: absolute; opacity: 0; pointer-events: none; }
-.mode-card[data-selected] { box-shadow: 0 0 0 2px var(--rl-accent); }
+.mode-card[data-selected] { background: var(--accent-tint); }
+.mode-card[data-selected] .mode-card-name { color: var(--accent-ink); }
 .mode-card:has(input:focus-visible) { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
 .mode-card-name { font-size: 13px; font-weight: var(--fw-label); text-align: center; }
 /* The System card shows both faces side by side, each clipped to half the frame — the choice cannot
@@ -10146,7 +10257,7 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
    (tokens.css). On the shipped palette the two are the same value. */
 .stat-tile {
   display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 12px;
-  border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-panel); background: var(--chart-surface);
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--chart-surface); box-shadow: var(--card-lift);
 }
 .stat-label { font-size: 12.5px; color: var(--rl-text-dim); }
 /* Proportional figures, deliberately: `tabular-nums` gives every digit a zero's width, which makes
@@ -10160,7 +10271,7 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
 /* ——— cards ——— */
 .usage-card {
   display: flex; flex-direction: column; gap: 10px; padding: 14px;
-  border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-panel); background: var(--chart-surface);
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--chart-surface); box-shadow: var(--card-lift);
 }
 .usage-card-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
 .usage-card-head h3 { margin: 0; font-size: 13px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
@@ -10307,7 +10418,7 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
    provider's own alert (`data-alert`), never a percentage compared against a threshold picked here. */
 .plan-accounts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
 .plan-account { --plan-hue: var(--rl-accent); display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: 14px 16px;
-  border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-panel); background: var(--chart-surface); }
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--chart-surface); box-shadow: var(--card-lift); }
 .plan-account-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
 .plan-account-name { font-size: 14px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
 .plan-account-tier, .plan-account-org { font-size: 13px; color: var(--rl-text-dim); }
@@ -10340,7 +10451,7 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
    One strip, four cells divided by hairlines: one reading of one range, so one object. The spend
    leads at the title rung; the rest sit a rung down. The cells wrap to two-by-two, then one column. */
 .usage-figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); min-width: 0;
-  border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-panel); background: var(--chart-surface); overflow: hidden; }
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--chart-surface); box-shadow: var(--card-lift); overflow: hidden; }
 .usage-figure { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 14px 16px;
   box-shadow: calc(-1 * var(--hairline-w)) 0 0 var(--rl-line), 0 calc(-1 * var(--hairline-w)) 0 var(--rl-line); }
 .usage-figure-label { font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
@@ -10443,11 +10554,11 @@ img.avatar { outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; 
 }
 
 /* ── The agent's plan, as a transcript block ──────────────────────────────────
-   A card on the permission card's bones (opaque --surface, --shadow-card) rather than the tool
+   A card on the permission card's bones (opaque --surface, the card's depth) rather than the tool
    card's, because a plan is addressed TO the reader: it is the one thing in a Plan-mode turn they
    are meant to actually read, and the tool card's collapsed ledger row is built to be skipped.
    The checklist inside reuses `.todo` wholesale — a plan with per-step status IS a to-do list. */
-.plan-card { border-radius: var(--r-panel); padding: 14px; background: var(--surface); box-shadow: var(--shadow-card);
+.plan-card { border-radius: var(--r-squircle-card); corner-shape: squircle; padding: 14px; background: var(--surface); box-shadow: var(--card-lift);
   display: flex; flex-direction: column; gap: 10px; }
 .plan-head { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: var(--fw-label); color: var(--ink); }
 /* The card's actions, pushed right and quiet until the card is under the pointer — a plan is
@@ -10474,7 +10585,7 @@ img.avatar { outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; 
 /* The answer to a plan, not a permission on one: two named outcomes, no "always". Sits directly
    under the plan block it answers, so it carries no copy of the plan. */
 .plan-decision { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  padding: 10px 12px; border-radius: var(--r-panel); background: var(--surface); box-shadow: var(--shadow-card); }
+  padding: 10px 12px; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--surface); box-shadow: var(--card-lift); }
 .plan-decision-ask { flex: 1; min-width: 0; font-size: 13px; color: var(--ink); }
 .plan-decision-actions { display: flex; gap: 6px; }
 .plan-decision button { padding: 6px 12px; border-radius: var(--r-ctl); font-size: 13px; }
@@ -10721,8 +10832,8 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .rv-pill[data-tone="bad"] { background: var(--red-tint); color: var(--red); }
 .rv-pill[data-tone="ok"] { background: var(--green-tint); color: var(--green); }
 /* The role's note: its words about the work, set apart from the work and above it. */
-.rv-why { margin: 0; display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: var(--r-panel); background: var(--rl-card);
-  box-shadow: 0 0 0 var(--hairline-w) var(--rl-card-rim); }
+.rv-why { margin: 0; display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card);
+  box-shadow: var(--card-lift); }
 .rv-why-who { font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
 .rv-why-text { margin: 0; font-size: 14px; line-height: 21px; color: var(--rl-text-bright); text-wrap: pretty; max-width: 68ch; }
 .rv-version { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
@@ -10730,7 +10841,7 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .rv-stepper-label { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
 .rv-stepper-tabs { flex: none; }
 .rv-section { display: flex; flex-direction: column; gap: 8px; }
-.rv-caption { padding: 14px 16px; border-radius: var(--r-panel); background: var(--rl-card); font-size: 14px; line-height: 20px; color: var(--rl-text-bright);
+.rv-caption { padding: 14px 16px; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); font-size: 14px; line-height: 20px; color: var(--rl-text-bright);
   white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* The facts beside the work: what Realm checked, and how it was made. */
@@ -10781,7 +10892,7 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .rv-meta-rows dd { margin: 0; min-width: 0; color: var(--rl-text-bright); overflow-wrap: anywhere; }
 /* Paper: the surface a document, a mail or a thread is read on — a step above the ground, under its
    rim, its words at the transcript's reading size and measure. */
-.rv-paper { margin: 0; padding: 16px 18px; border-radius: var(--r-squircle-card); background: var(--rl-card); box-shadow: 0 0 0 var(--hairline-w) var(--rl-card-rim);
+.rv-paper { margin: 0; padding: 16px 18px; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift);
   font-size: 15px; line-height: 24px; color: var(--rl-text-bright); min-width: 0; }
 .rv-text, .rv-mail-body, .rv-bubble, .rv-post-caption, .rv-attached-note { white-space: pre-wrap; overflow-wrap: anywhere; }
 .rv-text { max-width: 68ch; }
@@ -10808,13 +10919,13 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .rv-chat-head b { font-weight: var(--fw-medium); color: var(--rl-text-bright); }
 .rv-chat-thread { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .rv-chat[data-dm] .rv-chat-thread { align-items: flex-end; }
-.rv-bubble { max-width: min(85%, 52ch); padding: 9px 14px; border-radius: 20px; background: var(--rl-raised); box-shadow: 0 0 0 var(--hairline-w) var(--rl-card-rim);
+.rv-bubble { max-width: min(85%, 52ch); padding: 9px 14px; border-radius: 20px; background: var(--rl-raised);
   font-size: 15px; line-height: 22px; color: var(--rl-text-bright); }
 .rv-bubble-from { font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
 
 /* A post as its platform lays it out: the account, the slides at their own 9:16, the caption. */
-.rv-post { margin: 0; display: flex; flex-direction: column; gap: 12px; padding: 12px; border-radius: var(--r-squircle-card); background: var(--rl-card);
-  box-shadow: 0 0 0 var(--hairline-w) var(--rl-card-rim); min-width: 0; }
+.rv-post { margin: 0; display: flex; flex-direction: column; gap: 12px; padding: 12px; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card);
+  box-shadow: var(--card-lift); min-width: 0; }
 .rv-post-head { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 2px 4px 0; font-size: 13px; line-height: 18px; }
 .rv-post-avatar { flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--rl-hover); color: var(--rl-text-bright);
   font-size: 12px; line-height: 16px; font-weight: var(--fw-title); }
@@ -10852,7 +10963,7 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .rv-attached-note { margin: 0; font-size: 14px; line-height: 21px; color: var(--rl-text-dim); max-width: 68ch; }
 
 /* A bundle of files as one stack: a card of rows, each a file the Finder would recognise. */
-.rv-files { list-style: none; margin: 0; padding: 4px 0; border-radius: var(--r-panel); background: var(--rl-card); box-shadow: 0 0 0 var(--hairline-w) var(--rl-card-rim); }
+.rv-files { list-style: none; margin: 0; padding: 4px 0; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); }
 .rv-file { position: relative; display: flex; flex-direction: column; min-width: 0; }
 .rv-file + .rv-file::before { content: ""; position: absolute; top: 0; left: 56px; right: 14px; border-top: var(--hairline-w) solid var(--rl-line); }
 .rv-file-row { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 8px 10px 8px 12px; }
@@ -10871,7 +10982,7 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .rv-links .msg-chip { gap: 4px; font-size: 13px; }
 .rv-link-where { min-width: 0; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); overflow-wrap: anywhere; }
 .rv-table { padding: 0; }
-.rv-table .md-scroll { max-height: 480px; border-radius: var(--r-panel); background: var(--rl-card); box-shadow: 0 0 0 var(--hairline-w) var(--rl-card-rim); }
+.rv-table .md-scroll { max-height: 480px; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); }
 .rv-table .rv-strip-note { margin-top: 6px; }
 .rv-diff { min-width: 0; }
 /* Edit, then approve: the control at the text's corner, and the field that takes its place. */
@@ -10908,7 +11019,7 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
    that says the action and its time. */
 .sheet:has(.ps) .sheet-head h3 { font-size: 18px; line-height: 24px; }
 .ps-lede { margin: 0 0 14px; font-size: 14px; line-height: 20px; color: var(--rl-text-dim); text-wrap: pretty; }
-.ps-rows { margin: 0; padding: 0 14px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+.ps-rows { margin: 0; padding: 0 14px; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); }
 .ps-rows > div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; padding: 11px 0; position: relative; }
 .ps-rows > div + div::before { content: ""; position: absolute; top: 0; left: 0; right: 0; border-top: var(--hairline-w) solid var(--rl-line); }
 .ps-rows dt { font-size: 14px; line-height: 20px; color: var(--rl-text-dim); }
@@ -10929,9 +11040,9 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .tp-make { align-items: center; }
 .tp-make .tp-make-note { margin-right: auto; }
 .tp-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); gap: 12px; }
-.tp-card { padding: 14px 16px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim);
+.tp-card { padding: 14px 16px; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift);
   display: flex; flex-direction: column; gap: 6px; min-width: 0; text-align: left; }
-button.tp-card:hover { border-color: var(--rl-line-strong); }
+button.tp-card:hover { background: var(--rl-card-hover); }
 button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
 .tp-card-note { justify-content: center; align-items: flex-start; }
 /* Its words stand on the note's left edge, the pill's padding hung outside it: `.page .btn-quiet`
@@ -10943,7 +11054,7 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tp-card-foot { display: flex; align-items: center; gap: 10px; margin-top: 4px; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
 .tp-mark { width: 32px; height: 32px; border-radius: var(--r-ctl); display: grid; place-items: center; flex: none; color: var(--rl-text-bright); }
 /* A role page's hero: the creature large beside its name, as the maker shows it. */
-.tp-pick[data-on] { border-color: color-mix(in srgb, var(--rl-accent) 55%, var(--rl-card-rim)); }
+.tp-pick[data-on] { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rl-accent) 55%, transparent), var(--card-lift); }
 .tp-pick-box { margin-left: auto; }
 .tp-meter { position: relative; flex: 1; height: 4px; border-radius: var(--r-sm); background: var(--mark); overflow: hidden; max-width: 120px; }
 .tp-meter > i { position: absolute; inset: 0 auto 0 0; border-radius: var(--r-sm); background: var(--rl-text-dim); transition: width var(--dur-pop) var(--ease-out-strong); }
@@ -10959,7 +11070,7 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 
 .tp-wait { display: flex; flex-direction: column; gap: 6px; }
 .tp-wait-row { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 12px;
-  border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); }
 .tp-wait-row img { width: 36px; height: 64px; border-radius: var(--r-chip); object-fit: cover; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 9%, transparent); }
 .tp-wait-row .tp-mark { width: 36px; height: 36px; background: var(--rl-hover); color: var(--rl-text-dim); }
 .tp-wait-text { min-width: 0; }
@@ -10971,8 +11082,8 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tp-feed .t-glyph { align-self: center; }
 .tp-feed small { color: var(--rl-text-dim); font-size: 13px; }
 
-.tp-props { display: grid; grid-template-columns: 150px minmax(0, 1fr); border-radius: var(--r-panel); background: var(--rl-card);
-  border: var(--hairline-w) solid var(--rl-card-rim); overflow: hidden; }
+.tp-props { display: grid; grid-template-columns: 150px minmax(0, 1fr); border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card);
+  box-shadow: var(--card-lift); overflow: hidden; }
 .tp-props > div { padding: 10px 16px; font-size: 14px; line-height: 20px; position: relative; min-width: 0; overflow-wrap: anywhere; }
 .tp-props > div:nth-child(odd) { color: var(--rl-text-dim); }
 .tp-props > div:nth-child(even) { color: var(--rl-text-bright); }
@@ -11003,7 +11114,7 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
   border: var(--hairline-w) solid var(--rl-line); font: inherit; font-size: 14px; line-height: 21px; color: var(--rl-text-bright); resize: none; outline: none; overflow: hidden; }
 .tp-brief:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
 .tp-brief-state { position: absolute; right: 14px; bottom: 8px; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
-.tp-message { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+.tp-message { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); }
 .tp-message-field { width: 100%; padding: 4px 4px; border: none; background: transparent; font: inherit; font-size: 14px; line-height: 20px; color: var(--rl-text-bright); resize: vertical; outline: none; }
 .tp-message-foot { display: flex; align-items: center; gap: 8px; }
 .tp-message-foot .tp-make-note { margin-right: auto; }
@@ -11021,7 +11132,7 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tp-new-type { align-self: flex-start; margin-top: 8px; display: inline-flex; align-items: center; gap: 4px; }
 .tp-other + .tp-other { margin-top: 12px; }
 .tp-other > .settings-row-title { margin: 0 0 6px; color: var(--rl-text-dim); }
-.tp-prose { padding: 12px 16px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+.tp-prose { padding: 12px 16px; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); }
 .tp-prose p { max-width: 72ch; }
 .tp-prose p { margin: 0; font-size: 14px; line-height: 21px; color: var(--rl-text-bright); }
 .tp-prose p + p { margin-top: 8px; }
@@ -11066,7 +11177,7 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tp-shelf-note { margin-top: -4px; }
 .tp-pick[data-there] .tp-pick-box { color: var(--rl-text-dim); }
 .tp-pick-acts { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; flex: none; }
-.tp-card-custom { border-style: dashed; background: transparent; }
+.tp-card-custom { border: var(--hairline-w) dashed var(--rl-line-strong); background: transparent; box-shadow: none; }
 .tp-card-custom:hover { background: var(--rl-card); }
 .tp-mark-add { background: var(--rl-hover); color: var(--rl-text-dim); }
 .tp-picker { gap: 22px; }
@@ -11158,7 +11269,7 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tp-edge:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 .tp-edge[aria-pressed="true"] { color: var(--rl-text-bright); background: var(--rl-hover); border-color: color-mix(in srgb, var(--rl-accent) 45%, transparent); }
 .tp-goal { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 14px;
-  border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); }
 .tp-goal-glyph { color: var(--rl-text-dim); }
 .tp-goal-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .tp-goal-objective { font-size: 14px; line-height: 20px; color: var(--rl-text-bright); overflow-wrap: anywhere; }
@@ -11253,8 +11364,8 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tc-note[data-tone="bad"] > svg { color: var(--rl-danger); }
 .tc-note-detail { color: var(--rl-text-faint); }
 /* Cards for what the teammate made and passed on: a draft, a handoff, a record, a question. */
-.tc-card { display: flex; flex-direction: column; gap: 6px; width: min(400px, 100%); padding: 12px 14px; border-radius: var(--r-panel);
-  background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+.tc-card { display: flex; flex-direction: column; gap: 6px; width: min(400px, 100%); padding: 12px 14px; border-radius: var(--r-squircle-card); corner-shape: squircle;
+  background: var(--rl-card); box-shadow: var(--card-lift); }
 .tc-card-title { font-size: 14px; line-height: 20px; font-weight: var(--fw-label); color: var(--rl-text-bright); overflow-wrap: anywhere; }
 .tc-card-line { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); overflow-wrap: anywhere; }
 .tc-card-link { align-self: flex-start; margin-left: -8px; }

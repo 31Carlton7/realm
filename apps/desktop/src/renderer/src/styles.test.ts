@@ -2866,34 +2866,28 @@ describe("dividers", () => {
     expect(offenders.sort()).toEqual([]);
   });
 
-  it("a card of settings rows draws ONE line between two rows — the inset divider — not the row's own border as well", () => {
+  it("a card of settings rows draws ONE line between two rows — the inset divider — and no row draws a border", () => {
     /* Measured in the New space sheet and on Settings: the row above kept its full-width bottom
        border and the row below drew the inset divider straight under it, so every boundary was two
-       lines, one of them running edge to edge. THE mutant drops the upper row's hand-over. */
-    expect(bodiesFor(".settings-row").join(" ")).toContain("border: var(--hairline-w) solid var(--rl-card-rim)");
-    expect(bodiesFor(".settings-row + .settings-row").join(" ")).toContain("border-top: 0");
-    expect(bodiesFor(".settings-row:has(+ .settings-row)").join(" ")).toContain("border-bottom: 0");
+       lines, one of them running edge to edge. Since 10-19 no row has a border at all (the owner: "I
+       don't like having borders"), so nothing can double the divider. THE mutant: any border back on
+       a row, under any of the selectors that build a run. */
+    // A selector is about the row itself when its last compound is the row (what is inside `:has()`
+    // and `:not()` is a condition, not the subject).
+    const subject = (sel: string) => sel.replace(/\((?:[^()]|\([^()]*\))*\)/g, "()").split(/\s*[\s>+~]\s*/).pop()!;
+    const rows = RULES.filter((r) => partsOf(r).some((sel) => /^\.settings-row(?![\w-])/.test(subject(sel)) && !sel.includes("::")));
+    expect(rows.length).toBeGreaterThan(3);
+    for (const r of rows) expect(r.body, partsOf(r).join(", ")).not.toMatch(/(^|;\s*)border(-top|-bottom|-left|-right)?(-color)?:/);
     expect(bodiesFor(".settings-row + .settings-row::before").join(" ")).toContain("inset: 0 16px auto 16px");
   });
 
-  /* The owner, 10-18: "the border contrasts the card bg too much". On dark the rim measured +12 levels
-     over a card that stood +9 over its ground — an outline brighter than the card. THE mutants: the rim
-     put back on the line (as loud as before), and a divider between a card's rows left on the rim,
-     where it would all but vanish now that the rim is soft. */
-  it("edges a card more softly than its fill lifts it, and keeps the line's weight for what divides it", () => {
-    const root = (selector: string) => RULES.filter((r) => r.selectors.includes(selector)).map((r) => r.body).join(" ");
-    const declared = (body: string, name: string) => new RegExp(`--${name}: ([^;]+);`).exec(body)?.[1] ?? "";
-    const alphaOf = (v: string) => {
-      const hex = /^#[0-9a-f]{6}([0-9a-f]{2})$/.exec(v) ?? /#[0-9a-f]{6}([0-9a-f]{2})/.exec(declared(tokensCss, v.replace(/^var\(--|\)$/g, "")));
-      return parseInt(hex![1]!, 16);
-    };
-    const dark = root(":root"), light = root(':root[data-mode="light"]');
-    // Dark: an overlay a rung under the card's own, so the rim adds less than the fill does.
-    expect(alphaOf(declared(dark, "rl-card-rim"))).toBeLessThan(alphaOf(declared(dark, "rl-card")));
-    // Light: the card is white, so the rim is what draws it — kept, but under the line's weight.
-    expect(declared(light, "rl-card-rim"), "light states its own rim").not.toBe("");
-    const lightLine = declared(tokensCss.slice(tokensCss.indexOf("--line: var(--overlay-darken")), "line");
-    expect(alphaOf(declared(light, "rl-card-rim"))).toBeLessThan(alphaOf(lightLine));
+  /* The owner, 10-18: "the border contrasts the card bg too much" — and softened, 10-19: "I don't like
+     having borders". The rim a card wore is gone, token and all; a divider between a card's rows, or the
+     edge of a field written on one, is a line and keeps the line's weight. THE mutants: the rim token
+     back anywhere, and a divider left on it. */
+  it("draws no rim round a card, and keeps the line's weight for what divides it", () => {
+    expect(css).not.toContain("--rl-card-rim");
+    expect(tokensCss).not.toContain("--rl-card-rim");
     for (const sel of [".settings-row + .settings-row::before", ".memory-fact + .memory-fact", ".sched-card-facts", ".tp-props > div:nth-child(n+3)::before", ".cr-field", ".sched-modal-name"]) {
       const body = bodiesFor(sel).join(" ");
       expect(body, sel).toContain("var(--rl-line)");
@@ -3153,6 +3147,145 @@ describe("squircle surfaces", () => {
   });
 });
 
+/** Every card is drawn ONE way (the owner, 10-19: "I don't like having borders nor do I like having the
+ *  corners be normal rounding (non squircle)… it feels cheap"). What the corner and the edge look like
+ *  in the composited window is cards-live.mjs's to measure; this pins what the stylesheet promises. */
+describe("one card", () => {
+  /** The card family. A new card joins it here, or the fill check below names it. */
+  const CARDS = [".subagent-strip", ".subagent-card", ".subagent-view-result",
+    ".edit-summary", ".permission-card", ".question-card", ".question-answered", ".plan-card", ".plan-decision", ".app-view-request",
+    ".settings-row", ".sched-card", ".cr-note", ".library-offer", ".saved-turn-open", ".library-tile", ".agent-card",
+    ".tc-card", ".rv-why", ".rv-caption", ".rv-paper", ".rv-post", ".rv-files", ".rv-table .md-scroll", ".ps-rows",
+    ".tp-card", ".tp-wait-row", ".tp-props", ".tp-message", ".tp-prose", ".tp-goal",
+    ".stat-tile", ".usage-card", ".usage-figures", ".plan-account", ".market-card"];
+  /** Cards made of a run of boxes, one card a list long: each box takes its share of the corners. */
+  const RUNS = [".settings-row", ".engine-card"];
+  /** An edge drawn round a box or along one side of it: a border, a zero-blur ring, a stack with a ring
+   *  in it, or an inset line — a light along the top edge read as a top border at 4× (the owner, 10-19). */
+  const EDGE = /(^|;\s*)border(-top|-right|-bottom|-left)?:(?!\s*(none|0)\b)|0 0 0 (var\(--hairline-w\)|[\d.]+px) |inset 0 -?[\d.]+px 0 |var\(--shadow-card\)|var\(--card-ring\)|--rl-card-rim/;
+
+  it("draws no edge round any card, at rest", () => {
+    // THE MUTANT: a hairline border, or the ring of the old card stack, put back on any one of them.
+    for (const sel of CARDS) expect(bodiesFor(sel).join(" "), sel).not.toMatch(EDGE);
+  });
+
+  it("gives each card its depth and the card's curve, declared for the Chromium that will draw it", () => {
+    for (const sel of CARDS) {
+      const body = bodiesFor(sel).join(" ");
+      expect(body, sel).toContain("corner-shape: squircle");
+      if (sel === ".settings-row") continue; // a run of rows rounds its ends, below
+      expect(body, sel).toContain("border-radius: var(--r-squircle-card)");
+      // A file is a card through the object token, which is the card's depth by another name.
+      if (sel !== ".market-card") expect(body, sel).toMatch(/box-shadow: var\(--(card-lift|rl-object-shadow)\)/);
+    }
+    expect(bodiesFor(".settings-row:not(.settings-row + .settings-row)").join(" ")).toContain("border-start-start-radius: var(--r-squircle-card)");
+    expect(bodiesFor(".settings-row:not(:has(+ .settings-row))").join(" ")).toContain("border-end-end-radius: var(--r-squircle-card)");
+  });
+
+  it("paints each card on the superellipse, and keeps the lift a ring-free box-shadow", () => {
+    // THE MUTANTS: a card left off the painted list (its corner a circle beside the strip's
+    // superellipse), or the old ringed stack on the painted card.
+    for (const sel of CARDS) {
+      const painted = bodiesFor(`:root[data-squircle] ${sel}`).join(" ");
+      expect(painted, sel).toContain("background: paint(rl-squircle)");
+      expect(painted, sel).toContain("--sq-radius-top: var(--r-squircle-card)");
+      expect(painted, sel).not.toMatch(EDGE);
+    }
+    const shared = bodiesFor(":root[data-squircle] .subagent-card").join(" ");
+    expect(shared).toContain("box-shadow: var(--card-lift)");
+  });
+
+  /* The one number the painted card rests on. Its background is clipped by a CIRCULAR radius of
+     R / k, and that circle has to hold the whole superellipse of radius R — or the clip shaves the
+     painted corner — while hugging it closely enough that a box-shadow and an overflow clip cast from
+     the circle land on the curve. Worked out here rather than trusted: n = 4 is the painter's default,
+     which no card overrides. THE MUTANTS: k = 1 (the circle cuts the corner), or a k that leaves the
+     lift a visible gap off the card (k = 2.5 sits 0.06R inside it). */
+  it("clips a painted card to a circle that holds its superellipse and hugs it to under half a pixel", () => {
+    const radius = /border-radius: calc\(var\(--r-squircle-card\) \/ ([\d.]+)\)/.exec(bodiesFor(":root[data-squircle] .subagent-card").join(" "));
+    expect(radius, "the painted card's border-radius is a fraction of the card rung").not.toBeNull();
+    const k = 1 / Number(radius![1]);
+    const n = 4, R = 1, r = k * R;
+    let outside = -Infinity, gap = 0;
+    for (let i = 0; i <= 4000; i++) {
+      const t = (Math.PI / 2) * i / 4000;
+      const x = R * (1 - Math.cos(t) ** (2 / n)), y = R * (1 - Math.sin(t) ** (2 / n));
+      if (x >= r || y >= r) { gap = Math.max(gap, Math.min(x, y)); continue; }
+      const d = Math.hypot(x - r, y - r);
+      outside = Math.max(outside, d - r);
+      gap = Math.max(gap, r - d);
+    }
+    expect(outside, "the superellipse pokes out of the clip").toBeLessThanOrEqual(0);
+    const rung = Number(/--r-squircle-card: (\d+)px/.exec(css)![1]);
+    expect(gap * rung, "the lift and the clip sit this far inside the painted edge, in px").toBeLessThan(0.5);
+  });
+
+  it("lifts a card with no ring and no inset line, in both faces", () => {
+    // Once per face: dark's, then light's. THE MUTANTS: a ring layer, or an inset light, in either.
+    const lifts = [...tokensCss.matchAll(/--card-lift: ([^;]+);/g)].map((m) => m[1]!);
+    expect(lifts).toHaveLength(2);
+    for (const lift of lifts) for (const layer of lift.split(",")) {
+      expect(layer, "no layer is inset").not.toContain("inset");
+      // Every layer is blurred — a layer with no blur is a ring, whatever its offsets say.
+      expect(Number.parseFloat(layer.trim().split(/\s+/)[2]!), layer).toBeGreaterThan(0);
+    }
+  });
+
+  /* A card's fill is what makes it a card, so a new rule that paints one is held to the family. The
+     exceptions are each something else wearing the fill: a field (which keeps the line's edge — it is
+     a place to type), a mark the size of a glyph, and a hover state. THE MUTANT: a card added with a
+     card's fill and a plain corner, which renders a round rect next to the strip's superellipse. */
+  it("holds every rule that fills a box as a card to the family", () => {
+    const NOT_CARDS = [".cr-field", ".sched-modal-name", ".sched-modal-goal", ".tp-brief", ".tp-record-source",
+      ".library-row-mark", ".docs-home-glyph[data-type]", ".tp-card-custom:hover"];
+    const filled = RULES.filter((r) => /background(-color)?: var\(--(rl-card|rl-tile|chart-surface)\)/.test(r.body))
+      .flatMap(partsOf).filter((sel) => !sel.startsWith(":root"));
+    expect(filled.filter((sel) => !CARDS.includes(sel) && !RUNS.includes(sel) && !NOT_CARDS.includes(sel)).sort()).toEqual([]);
+  });
+
+  it("draws a run of boxes as one card: no edges, the curve at its two ends, painted", () => {
+    // THE MUTANTS: a run's ends left on the old circular rung, or the engines' run left unpainted.
+    const ends = { ".settings-row": [".settings-row:not(.settings-row + .settings-row)", ".settings-row:not(:has(+ .settings-row))"],
+      ".engine-card": [".engine-card:first-child", ".engine-card:last-child"] } as const;
+    for (const sel of RUNS) {
+      for (const part of [sel, ...ends[sel as keyof typeof ends]]) expect(bodiesFor(part).join(" "), part).not.toMatch(EDGE);
+      expect(bodiesFor(`:root[data-squircle] ${sel}`).join(" "), sel).toContain("background: paint(rl-squircle)");
+      const [first, last] = ends[sel as keyof typeof ends];
+      expect(bodiesFor(first).join(" "), first).toContain("border-start-start-radius: var(--r-squircle-card)");
+      expect(bodiesFor(last).join(" "), last).toContain("border-end-end-radius: var(--r-squircle-card)");
+      expect(bodiesFor(`:root[data-squircle] ${first}`).join(" "), first).toContain("--sq-radius-top: var(--r-squircle-card)");
+      expect(bodiesFor(`:root[data-squircle] ${last}`).join(" "), last).toContain("--sq-radius-bottom: var(--r-squircle-card)");
+    }
+  });
+
+  /* The Light / Dark / System tiles (the coordinator, 10-19: borderless too). They are set INTO a
+     settings card, so each is a well in it rather than a card on it, and the chosen one is a fill.
+     THE MUTANTS: the hairline back on a tile, the ring back as the chosen state, or a tile left off the
+     painter. */
+  it("draws the theme's three tiles as wells on the card's curve, the chosen one by its fill", () => {
+    const tile = bodiesFor(".mode-card").join(" ");
+    expect(tile).not.toMatch(EDGE);
+    expect(tile).toContain("background: var(--rl-frame-raised)");
+    expect(tile).toContain("border-radius: var(--r-squircle-card)");
+    const chosen = bodiesFor(".mode-card[data-selected]").join(" ");
+    expect(chosen).toContain("background: var(--accent-tint)");
+    expect(chosen).not.toMatch(/box-shadow|border|outline/);
+    const painted = bodiesFor(":root[data-squircle] .mode-card").join(" ");
+    expect(painted).toContain("background: paint(rl-squircle)");
+    expect(painted).toContain("--sq-fill: var(--rl-frame-raised)");
+    expect(bodiesFor(":root[data-squircle] .mode-card[data-selected]").join(" ")).toContain("--sq-fill: var(--accent-tint)");
+  });
+
+  it("lifts a light run of settings rows from its list, and only a list of rows", () => {
+    /* A row cannot cast the lift itself — it would fall across the row above it — and the light face's
+       white card on its near-white ground is barely there without one. THE MUTANT: the guard dropped,
+       so a heading or a note in the same container is lifted with the card, text and all. */
+    for (const list of [':root[data-mode="light"] :has(> .settings-row):not(:has(> :not(.settings-row)))', ':root[data-mode="light"] .engines-list'])
+      expect(bodiesFor(list).join(" "), list).toContain("filter: var(--card-lift-filter)");
+    expect(tokensCss).toMatch(/--card-lift-filter: drop-shadow\(/);
+  });
+});
+
 /** Light mode is a real mode, not a filter over the dark one. These pin the colours that were being
  *  written as dark-tuned literals in `styles.css` — one layer below the token ramps, where a sweep of
  *  tokens.css cannot see them — and, just as importantly, the ones that deliberately do NOT flip. */
@@ -3324,14 +3457,15 @@ describe("light mode", () => {
       expect(bodiesFor(sel).join(" "), sel).toContain("box-shadow: var(--fill-bevel)");
   });
 
-  it("every file and Library item stands on the device toolbar's own border and shadow — one token, never a copy", () => {
+  it("every file and Library item stands on the device toolbar's own surface — one token, never a copy", () => {
     /* The owner, 10-05: "Files and library items should have a very slight shadow under them instead of
        being just a flat square. And also it should have a light border. Look at the simulator and the
        bar that has the live indicator… That should be the shadow and border used for any library item."
-       So the toolbar and the items all wear ONE token. THE MUTANTS: an item put back on a flat inset rim
-       (or on no edge), an item given the toolbar's stack copied rather than named, the toolbar moved to
-       another stack on its own, and a picture tile's ring traced back inside the border round it. */
-    expect(bodiesFor(":root").join(" ")).toContain("--rl-object-shadow: var(--shadow-card)");
+       So the toolbar and the items all wear ONE token — and since 10-19 ("I don't like having borders")
+       that token is a card's lift, with no edge. THE MUTANTS: an item put back on a
+       flat inset rim, an item given the stack copied rather than named, the toolbar moved to another
+       stack on its own, a ring back in the token, and a picture tile's ring traced inside it. */
+    expect(bodiesFor(":root").join(" ")).toContain("--rl-object-shadow: var(--card-lift)");
     expect(RULES.filter((r) => /(^|[;\s])--rl-object-shadow\s*:/.test(r.body)), "defined once, so there is one place to change it").toHaveLength(1);
     for (const sel of [".sim-toolbar", ".library-tile", ".library-row-mark", ".saved-turn-open", ".docs-home-glyph[data-type]", ".attach-art"]) {
       const body = bodiesFor(sel).join(" ");
@@ -3343,12 +3477,11 @@ describe("light mode", () => {
     expect(bodiesFor(".library-tile").join(" ")).toContain("overflow: hidden");
     // A file the agent will drop keeps its warning ring, and rests on the same lift as every other.
     expect(bodiesFor('.attach-tile[data-disposition="ignored"] .attach-art').join(" ")).toContain("box-shadow: 0 0 0 var(--hairline-w) var(--orange), var(--shadow-card-lift)");
-    /* Painted, the attachment's well takes the same surface in its two halves: the border from the
-       painter, the shadow as a filter on the control round the well — not on the well, whose own
-       clip-path would cut it off. THE mutants: the painter's ring left on --line, or no lift. */
-    expect(bodiesFor(":root").join(" ")).toContain("--rl-object-ring: var(--card-ring)");
+    /* Painted, the attachment's well takes the same surface: the painter draws its fill and nothing
+       round it, and the shadow is a filter on the control round the well — not on the well, whose own
+       clip-path would cut it off. THE mutants: a ring handed back to the painter, or no lift. */
     expect(bodiesFor(":root").join(" ")).toContain("--rl-object-lift-filter: var(--shadow-card-lift-filter)");
-    expect(bodiesFor(":root[data-squircle] .attach-art").join(" ")).toContain("--sq-ring: var(--rl-object-ring)");
+    expect(bodiesFor(":root[data-squircle] .attach-art").join(" ")).not.toContain("--sq-ring");
     expect(bodiesFor(":root[data-squircle] .attach-open").join(" ")).toContain("filter: var(--rl-object-lift-filter)");
     expect(bodiesFor(":root[data-squircle] .attach-art").join(" ")).not.toContain("filter:");
   });

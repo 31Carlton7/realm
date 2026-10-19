@@ -213,12 +213,14 @@ Rules:
   positioned over the thing it is ruling? If not, the rule is decoration, however reasonable
   the story told about it. Chrome above content may take a seam; chrome above more chrome may
   not, and two stacked seams in the same 60px is the failure this rule exists to catch.
-- Hairlines separate structure. Shadows indicate elevation. Resting objects do not cast shadows —
-  with one family of exceptions the owner named (10-05): a thing a person picks up rather than reads.
-  A file wherever it is shown (a Library tile, the square of a file in a row or on a message), a saved
-  turn and the device's toolbar stand on the page under a light border and a very slight shadow, and
-  they all wear the one token for it (`--rl-object-shadow`). A group of settings stays a card of fill
-  under a rim; a picture in the transcript stays its own frame.
+- Hairlines separate structure. Shadows indicate elevation. A card is the one resting thing that
+  stands up, and it does so without an edge (the owner, 10-19: "I don't like having borders… it feels
+  cheap"): its fill and a soft lift with no ring in it (`--card-lift`), and nothing along any edge — a
+  light along the top, tried first, read as a top border once zoomed in. A thing a person picks up rather than reads — a file
+  wherever it is shown, a saved turn, the device's toolbar — stands on the same surface through one
+  token of its own (`--rl-object-shadow`, the owner's 10-05 rule that they all match). A picture in the
+  transcript stays its own frame. Floating things — menus, popovers, sheets, toasts — are not cards:
+  they hang over whatever is behind them, and keep the overlay stack's edge.
 - The window is chrome round a sheet. The rail and the head row across the whole window — the
   traffic lights, the sidebar's head, every pane's top bar — are one ground, a step off the
   sidebar's; the work sits below and beside them in one sheet, under a rim that runs along its top
@@ -241,13 +243,16 @@ Rules:
   is not a well. The rows were `--rl-frame`, a shade BELOW the page, and a group of controls that
   reads as a hole in the page reads as nothing in particular. The fill is an overlay rather than a
   colour, because the ground under a page is the pane's translucent canvas and the card has to lift
-  whatever that came to. The rim runs round the run of rows, not round each one: a row under another
-  hands its top edge to the divider.
-- The step is a card's boundary, and its rim only softens that edge. Codex rings its card a rung
-  lighter than both sides (rim 57), and Realm's rim did the same until it measured brighter over the
-  card than the card stood over the ground — an outline round every card, which the owner called a
-  border fighting the card (10-18). A rim adds less than the fill does; a divider between a card's
-  rows, and the edge of a field written on one, is a line and keeps the line's weight.
+  whatever that came to. The run of rows is one card: the first row takes the top corners, the last
+  the bottom corners, and a row under another hands its top to the divider. A row
+  cannot cast the lift — it would fall across the row above — so where the card needs it to be seen at
+  all (white on near-white, the light face) the list holding the run casts it as one shape.
+- The step is a card's boundary, and nothing is drawn round it. Codex rings its card a rung lighter
+  than both sides (rim 57); Realm's rim did the same until it measured brighter over the card than the
+  card stood over the ground (10-18, "a border fighting the card"), and softened to less than the fill
+  it still read as an outline (10-19). What a card has instead is its lift. A divider between a
+  card's rows, and the edge of a field written on one, is a line and keeps the line's weight — a
+  field is a place to type, not a card.
 - A hairline with NO change of surface beside it needs its own weight, and its own token. The
   ordinary line is sized for the ordinary case, where a surface step carries most of the boundary
   and the line only sharpens it. Where both sides are the same ground the line is the whole
@@ -408,7 +413,8 @@ Use the existing radius ladder:
 - 2 px: ticks, rails, and code marks
 - 6 px: chips and compact inline controls
 - 8 px: buttons, inputs, and controls
-- 12 px: cards, rows, menus, and panels
+- 12 px: rows, menus, and panels
+- 20 px, painted: cards (`--r-squircle-card`), on the superellipse below
 - 16 px: sheets, palettes, and floating windows
 - Pill: statuses or controls whose shape communicates compact continuity
 
@@ -434,6 +440,18 @@ one thing that reliably makes the radius read as a mistake instead of a decision
 is what separates the panel from what surrounds it, and it is enough. For the same reason, do not
 rule a squircled panel's own head off from its body — a language label and a copy control are chrome
 for the panel, not a section beside it.
+
+Every card wears it too, at the card rung — the strip under a message, a request, a group of
+settings, a file's tile, a draft the team made. A card on a circular corner next to the prompter's
+superellipse is the "normal rounding" the owner called cheap (10-19); a card is a panel the eye rests
+in, and it gets the same considered corner.
+
+A painted card keeps a circular `border-radius` of half its curve, and that number is geometry, not
+taste: a circle of radius R/2 holds the superellipse of radius R and never sits more than 0.024R
+outside it, under half a pixel at the card rung. So the background clip never shaves the painted
+corner, and everything else a box does — its `box-shadow` lift, the clip of what it holds, a focus
+outline — follows the curve with no filter and no extra layer, which matters when a transcript or a
+Library holds dozens of cards. `styles.test.ts` works the containment out rather than trusting it.
 
 `corner-shape: squircle` is inert in the Chromium this app ships on, so a surface that declares it
 must also be listed in the paint-worklet rule in `styles.css`. A panel that declares the curve
