@@ -193,7 +193,9 @@ function ToastCard({ toast, index, count, y, scale, height, paused, onHeight, on
       onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); leave(); } }}>
       <div ref={body} className="toast-body">
         <span className="toast-icon"><Icon name={toast.icon ?? TONE_ICON[toast.tone]} size={16} /></span>
-        <p className="toast-text">{toast.text}</p>
+        {/* The words select, so an error's wording can be copied; nothing on the card acts on a press
+            but its buttons, which stay chrome. */}
+        <p className="toast-text" data-selectable="">{toast.text}</p>
         {/* Taken, it is done with: the toast goes as the thing it offered happens. */}
         {toast.action && (
           <button type="button" className="btn-quiet toast-action" onClick={() => { toast.action!.run(); leave(); }}>

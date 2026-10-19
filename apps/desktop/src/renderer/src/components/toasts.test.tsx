@@ -46,6 +46,25 @@ describe("a toast", () => {
     expect(document.querySelector(".error-bar")).toBeNull();
   });
 
+  it("lets its words be selected to copy and not its buttons, and a press on the words leaves it and its action alone", () => {
+    const { store } = mount();
+    const run = vi.fn();
+    act(() => { store.getState().toast({ tone: "error", text: "/Users/me/Realm/yooo is not a git repository", action: { label: "Undo", run } }); });
+    const card = cards()[0]!;
+    const words = card.querySelector<HTMLElement>(".toast-text")!;
+    // THE MUTANT: the words left as chrome — the window's `user-select: none` takes them, and an
+    // error's wording can't be copied.
+    expect(words).toHaveAttribute("data-selectable");
+    // The opt-in is the words', never the card's: a drag over Undo or Dismiss is still a press.
+    for (const b of within(card).getAllByRole("button")) expect(b.closest("[data-selectable]")).toBeNull();
+    // A press, a double-click or a drag across the words selects them and does nothing else.
+    fireEvent.pointerDown(words); fireEvent.mouseDown(words); fireEvent.mouseUp(words); fireEvent.click(words); fireEvent.doubleClick(words);
+    advance(TOAST_EXIT_MS);
+    expect(run).not.toHaveBeenCalled();
+    expect(card).not.toHaveAttribute("data-leaving");
+    expect(store.getState().toasts).toHaveLength(1);
+  });
+
   it("is a status for anything that is not an error", () => {
     const { store } = mount();
     act(() => { store.getState().toast({ tone: "success", text: "Shared example.com's sign-in with School." }); });

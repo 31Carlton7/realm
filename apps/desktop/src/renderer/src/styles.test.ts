@@ -4888,6 +4888,13 @@ describe("the Mac idiom, continued", () => {
     expect(rule!.selectors.join(", ")).toContain(":not(:is(button");
   });
 
+  /* THE mutant: a toast rule taking selection back off its words — `[data-selectable]` and `.toast-text`
+     weigh the same, so a later `user-select: none` there wins and an error can't be copied again. */
+  it("leaves a toast's words selectable", () => {
+    expect(RULES.filter((r) => r.selectors.some((s) => /\.toasts?\b|\.toast-(text|body)\b/.test(s)) && r.body.includes("user-select: none"))).toEqual([]);
+    expect(bodiesFor("[data-selectable]").join(" ")).toContain("user-select: text");
+  });
+
   /* The children move, never the scroller: THE mutant is the offset landing on the scroller, which
      would drag its mask and scrollbar along and read as the pane itself sliding. */
   it("rubber-bands a scroller's content, not the scroller", () => {
