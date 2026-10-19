@@ -1,3 +1,4 @@
+import { AGENT_META } from "@realm/contracts";
 import { Icon, Realmite, parseRealmiteSpec } from "@realm/ui";
 import { Fragment, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -59,7 +60,8 @@ export function mentionQueryAt(text: string, caret: number): { start: number; en
 export const mentionOptionId = (key: string): string => `mention-${key.replace(/\s/g, "_")}`;
 
 /** The mark at the head of a row: what KIND of thing it names, at a glance — an app's own icon, a
- *  file's type, a skill's spark, and for @Mac the Apple mark Realm already draws for this Mac. */
+ *  file's type, a skill's spark, a sub-agent's harness, and for @Mac the Apple mark Realm already
+ *  draws for this Mac. */
 function RowMark({ row, appIcons }: { row: MentionRow; appIcons: Readonly<Record<string, string | null>> }) {
   if (row.kind === "app") {
     const src = appIcons[row.app.path];
@@ -67,7 +69,8 @@ function RowMark({ row, appIcons }: { row: MentionRow; appIcons: Readonly<Record
     return <span className="mention-row-mark" data-app="">{src ? <img src={src} alt="" width={16} height={16} draggable={false} /> : src === null ? <Icon name="pointer" size={14} /> : null}</span>;
   }
   if (row.kind === "role") return <span className="mention-row-mark"><Realmite spec={parseRealmiteSpec(row.role.realmite, row.role.id)} size={16} state={realmiteState(row.role)} /></span>;
-  if (row.kind === "agent") return <span className="mention-row-mark"><Icon name="bot" size={16} /></span>;
+  // Which agent it is, as the prompter's row of active agents draws it: its harness's own mark.
+  if (row.kind === "agent") return <span className="mention-row-mark">{row.agentKind ? <Icon name={AGENT_META[row.agentKind].icon} size={16} colored /> : <Icon name="bot" size={16} />}</span>;
   const name = row.kind === "mac" ? "apple" : row.kind === "skill" ? "sparkles" : fileMark(row.path);
   return <span className="mention-row-mark"><Icon name={name} size={row.kind === "mac" ? 14 : 16} /></span>;
 }
