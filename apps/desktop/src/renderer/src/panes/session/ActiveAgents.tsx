@@ -23,7 +23,7 @@ const NO_CHILDREN: readonly DelegatedChild[] = [];
  * with the next message — less the ones the person dismissed. What needs you leads, so the fold can
  * never hide it.
  */
-export function rowAgents(all: readonly SessionSubagent[], blocks: readonly Block[], dismissed: readonly string[]): SessionSubagent[] {
+function rowAgents(all: readonly SessionSubagent[], blocks: readonly Block[], dismissed: readonly string[]): SessionSubagent[] {
   const hidden = new Set(dismissed);
   return orchestratorOrder(stripAgents(all, blocks).filter((a) => !hidden.has(a.id)), (a) => a.state);
 }
@@ -93,7 +93,7 @@ type Described = { agent: SessionSubagent; on: string | null; task: string | nul
 
 /** "Write the tests · Codex · GPT-6 Luna · Working, 2:10 · <its task>" — the name, what runs it, where it
  *  stands and for how long, and what it was asked when that says more than its name. */
-export function agentSummary(d: Described): string {
+function agentSummary(d: Described): string {
   return [d.agent.title, d.on, `${STATE_LABEL[d.agent.state]}, ${d.took}`, d.task].filter(Boolean).join(" · ");
 }
 
