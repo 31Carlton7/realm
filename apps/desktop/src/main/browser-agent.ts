@@ -632,8 +632,8 @@ export type CredentialFill = {
  * The order of the three gates is load-bearing:
  *
  *   1. **Origin, from CDP, before anything else.** `Page.getNavigationHistory`'s current entry is the
- *      browser's own record of what it loaded — the same class of trustworthy identity
- *      `browser_describe` reports, and specifically NOT page text, a snapshot, a title, or anything a
+ *      browser's own record of what it loaded — the same class of trustworthy identity the bridge's
+ *      `describe` op reports, and specifically NOT page text, a snapshot, a title, or anything a
  *      page can author. It must normalize to exactly the origin the fill names: no subdomain match, no
  *      registrable-domain fallback (see `normalizeOrigin`). A lookalike host gets `origin_mismatch`.
  *   2. **Presence, only after the origin matched.** Deliberately second. Prompting for Touch ID on a

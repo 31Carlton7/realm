@@ -123,8 +123,12 @@ describe("editing a schedule", () => {
     // A row whose stored expression the current parser refuses (written by another build, edited by
     // hand) must still be pausable — the edit is how a user gets out of that state.
     db.prepare("UPDATE schedules SET cron = 'garbage' WHERE id = ?").run(s.id);
-    expect(() => svc.update({ id: s.id, title: "Renamed" })).toThrow(/will ever run/);
-    expect(store.get(s.id)!.title).toBe("Morning sweep");
+    expect(svc.update({ id: s.id, title: "Renamed" }).title).toBe("Renamed");
+    expect(svc.update({ id: s.id, enabled: false }).enabled).toBe(false);
+    expect(store.get(s.id)!.cron).toBe("garbage");
+    // Resuming it, or writing a new expression, is still checked.
+    expect(() => svc.update({ id: s.id, enabled: true })).toThrow(/will ever run/);
+    expect(() => svc.update({ id: s.id, cron: "0 9 30 2 *" })).toThrow(/will ever run/);
   });
 });
 
@@ -138,6 +142,38 @@ describe("the tick", () => {
     svc.tick(); svc.tick(); svc.tick();
     expect(created).toHaveLength(1);
     expect(created[0]).toMatchObject({ spaceId, goal: "check the inbox", title: "Morning sweep" });
+  });
+
+  it("does not fire on every tick through the hour that repeats when the clocks go back", () => {
+    // US clocks go back on 2026-11-01, so 01:00–01:59 happens twice; an hour after the first 01:20
+    // is the second. Passes trivially in a zone that does not change that night.
+    const { svc } = service();
+    clock = at(2026, 11, 1, 1, 20) + 3_600_000;
+    svc.create(input({ cron: "*/15 * * * *" }));
+    for (let i = 0; i < 3; i++) { clock += 60_000; svc.tick(); }
+    expect(created.length).toBeLessThanOrEqual(1);
+  });
+
+  it("runs a daily task once on each day the clocks change, ticked minute by minute in Los Angeles", () => {
+    // THE MUTANT: the gap skipped. A daily 02:30 makes no run on 2026-03-08, and the row records
+    // no skip either. The day the clocks go back, 01:30 happens twice and must still run once.
+    const zone = process.env.TZ;
+    try {
+      process.env.TZ = "America/Los_Angeles";
+      const { svc } = service();
+      clock = at(2026, 3, 7, 12);
+      const spring = svc.create(input({ cron: "30 2 * * *" }));
+      for (const end = at(2026, 3, 8, 12); clock < end; clock += 60_000) svc.tick();
+      expect(created.map((r) => r.dedupeKey)).toEqual([`schedule:${spring.id}:${at(2026, 3, 8, 3)}`]);
+
+      created = [];
+      clock = at(2026, 10, 31, 12);
+      const fall = svc.create(input({ cron: "30 1 * * *" }));
+      for (const end = at(2026, 11, 1, 12); clock < end; clock += 60_000) svc.tick();
+      expect(created.map((r) => r.dedupeKey)).toEqual([`schedule:${fall.id}:${at(2026, 11, 1, 1, 30)}`, `schedule:${spring.id}:${at(2026, 11, 1, 2, 30)}`]);
+    } finally {
+      if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone;
+    }
   });
 
   it("records the run it made, so the row can point at it", () => {
@@ -325,6 +361,27 @@ describe("a task set for one moment", () => {
     const s = svc.create(input({ cron: onceExpr(IN_TWO_WEEKS) }));
     expect(svc.update({ id: s.id, enabled: false }).nextRunAt).toBeNull();
     expect(svc.update({ id: s.id, enabled: true }).nextRunAt).toBe(IN_TWO_WEEKS);
+  });
+
+  it("can be renamed and given new instructions once it has run", () => {
+    // THE MUTANT: re-validate the unchanged `once:` expression on every edit. Its moment is behind
+    // it for good, so every rename of a finished one-shot was refused as "already passed".
+    const { svc } = service();
+    const s = svc.create(input({ cron: onceExpr(IN_TWO_WEEKS) }));
+    clock = IN_TWO_WEEKS; svc.tick();
+    clock = IN_TWO_WEEKS + 60 * 60 * 1000;
+    const edited = svc.update({ id: s.id, title: "Shipped", goal: "open the PR again", cron: s.cron });
+    expect(edited).toMatchObject({ title: "Shipped", goal: "open the PR again", enabled: true, nextRunAt: null });
+    expect(() => svc.update({ id: s.id, cron: onceExpr(IN_TWO_WEEKS - 60_000) })).toThrow(/already passed/);
+  });
+
+  it("refuses to resume once its moment passed while it was paused", () => {
+    // Resuming would leave it reading Finished without ever having run.
+    const { svc } = service();
+    const s = svc.create(input({ cron: onceExpr(IN_TWO_WEEKS), enabled: false }));
+    clock = IN_TWO_WEEKS + 60_000;
+    expect(() => svc.update({ id: s.id, enabled: true })).toThrow(/already passed/);
+    expect(svc.update({ id: s.id, title: "Never mind" }).title).toBe("Never mind");
   });
 });
 

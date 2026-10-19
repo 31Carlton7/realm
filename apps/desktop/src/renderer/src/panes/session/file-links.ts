@@ -199,11 +199,6 @@ export function upgradeFileRef(el: HTMLElement, path: string, root: string): voi
   el.replaceWith(link);
 }
 
-/**
- * Every file this session's tools named or changed, absolute — what a bare `orgs.ts` in the prose is
- * matched against. The tool calls say what the agent touched; a turn's measured changes add what a
- * shell command or a sub-agent wrote, which no call names.
- */
 /** `normalizePath` results, by the joined path. The transcript asks for the touched set on every event
  *  — each streamed word — and a session thousands of calls long re-normalised every path it had
  *  ever named each time; the answer for a given string never changes. Bounded, since a window lives
@@ -220,6 +215,11 @@ function normalizedPath(joined: string): string | null {
   return abs;
 }
 
+/**
+ * Every file this session's tools named or changed, absolute — what a bare `orgs.ts` in the prose is
+ * matched against. The tool calls say what the agent touched; a turn's measured changes add what a
+ * shell command or a sub-agent wrote, which no call names.
+ */
 export function touchedFiles(blocks: readonly Block[], changes: Readonly<Record<number, TurnChanges>> | undefined, cwd: string): Set<string> {
   const out = new Set<string>();
   const add = (p: unknown, base = cwd) => {

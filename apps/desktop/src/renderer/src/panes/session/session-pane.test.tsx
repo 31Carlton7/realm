@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, createEvent, waitFor, act, within, cleanup } from "@testing-library/react";
-import { AGENT_CLI_COMMANDS, AGENT_NOTES, DIRECTORY_MIME, MODEL_NOTES, canonicalModelKey, sessionEvent, type CliStatus, type Environment } from "@realm/contracts";
+import { AGENT_CLI_COMMANDS, AGENT_NOTES, DIRECTORY_MIME, MODEL_NOTES, canonicalModelKey, sessionEvent, type CliStatus, type DiffFileStatus, type DiffSummary, type Environment } from "@realm/contracts";
 import { spaceColor } from "@realm/ui";
 import { StoreContext, createAppStore, type AgentProbe } from "../../state/store";
 import { fakeApi, item, mcpServer, session, skillRow, externalSkillRow, space } from "../../state/store.test-fakes";
@@ -624,6 +624,14 @@ describe("permission keyboard (U-H4)", () => {
     await waitFor(() => expect(decided).toEqual(["r1:allow", "r1:allow_always", "r1:deny"]));
   });
 
+  it("⇧Enter allows always from the row that has focus — the card opens with Allow focused, and the chord is drawn beside Allow always", async () => {
+    const { decided } = await mountFocused(true);
+    const focused = screen.getByRole("button", { name: "Allow" });
+    expect(focused).toHaveFocus();
+    fireEvent.keyDown(focused, { key: "Enter", shiftKey: true });
+    await waitFor(() => expect(decided).toEqual(["r1:allow_always"]));
+  });
+
   it("options are a numbered list (§5): a number chip and its shortcut on every row, hints in the footer", async () => {
     const { card } = await mountFocused(true);
     const rows = within(card).getAllByRole("button").filter((b) => b.classList.contains("permission-option"));
@@ -787,51 +795,64 @@ describe("the prompter's / commands", () => {
   });
 });
 
-describe("composer context row (git chips)", () => {
-  const gi = (over: Partial<{ branch: string; additions: number; deletions: number; dirty: number }> = {}) =>
-    ({ branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0, ...over });
+describe("what changed (the pill over the prompter)", () => {
+  const gi = { branch: "feat/x", additions: 12, deletions: 3, dirty: 3, ahead: 2, behind: 0 };
+  const changed = (files: [string, DiffFileStatus][]): DiffSummary => ({
+    root: "/tmp", branch: "feat/x", totalFiles: files.length, truncated: false,
+    files: files.map(([path, status]) => ({ path, oldPath: null, status, staged: false, unstaged: true, binary: false, additions: 1, deletions: 0 })),
+  });
 
-  async function mountWithGit(info: ReturnType<typeof gi> | null) {
-    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle" })] });
+  const env: Environment = { id: "env1", spaceId: "s1", path: "/tmp", branch: "feat/x", kind: "primary", portBlockStart: 41010, createdAt: 0, updatedAt: 0 };
+
+  async function mountWithChanges(diff: DiffSummary | null, git: typeof gi | null = gi) {
+    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle", environmentId: "env1" })], environments: { s1: [env] },
+      gitInfo: { "/tmp": git }, diffs: { "/tmp": diff } });
     const store = createAppStore(api); await store.getState().boot();
     store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: 0, t: reduceAll([]) } },
-      gitInfo: { "/tmp": info } }); // the fake session's cwd is /tmp
+      gitInfo: { "/tmp": git }, diffs: { "/tmp": diff } }); // the fake session's cwd is /tmp
     const r = render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
-    return { store, ...r };
+    return { store, api, ...r };
   }
+  const pill = () => document.querySelector(".composer-overstrip .what-changed");
+  const kinds = () => [...document.querySelectorAll(".what-changed-kind")].map((k) => k.getAttribute("data-kind"));
 
-  it("renders branch + diff + dirty chips from store gitInfo for the session's cwd, in the OVER-strip", async () => {
-    await mountWithGit(gi({ branch: "feat/x", additions: 12, deletions: 3, dirty: 4 }));
-    // The branch group has a strip of its own above the card. It is neither on the control row (where
-    // it competed for width with everything that changes the next send) nor in the row of workspace
-    // chips under the prompter (where a number that moves every time the agent writes a file sat
-    // among labels that never move). All three places are asserted, so a group that ended up in two
-    // of them fails rather than passing on the one that was looked for.
-    expect(document.querySelector(".composer-overstrip .git-branch")).toHaveTextContent("feat/x");
-    expect(document.querySelector(".composer-opts .composer-git")).toBeNull();
-    expect(document.querySelector(".composer-understrip .composer-git")).toBeNull();
-    expect(document.querySelector(".git-diff .diff-add")).toHaveTextContent("+12");
-    expect(document.querySelector(".git-diff .diff-del")).toHaveTextContent("−3");
-    expect(document.querySelector(".git-dirty")).toHaveTextContent("4 changed");
-    expect(document.querySelector(".composer-cwd")).toBeNull(); // the cwd chip is retired, not moved
+  it("says what changed in plain words, with a mark per kind, and nothing about the branch or the lines", async () => {
+    await mountWithChanges(changed([["src/app.ts", "modified"], ["notes/plan.md", "untracked"], ["shots/hero.png", "modified"]]));
+    expect(pill()).toHaveTextContent("Changed 3 files");
+    expect(kinds()).toEqual(["document", "image", "code"]);
+    expect(pill()).toHaveAttribute("title", "Review what changed: 1 document, 1 image and 1 code file");
+    // The strip held the branch and the +/− counts; both live inside the review now.
+    const strip = document.querySelector(".composer-overstrip")!;
+    expect(strip).not.toHaveTextContent("feat/x");
+    expect(strip).not.toHaveTextContent("+12");
+    expect(strip.querySelector(".git-branch, .diff-add, .diff-del")).toBeNull();
+    // On a strip of its own above the card, never on the control row or the row under it.
+    expect(document.querySelector(".composer-opts .what-changed, .composer-understrip .what-changed")).toBeNull();
   });
 
-  it("hides the diff chip when both counts are zero and the dirty chip at zero", async () => {
-    await mountWithGit(gi({ branch: "main" }));
-    expect(document.querySelector(".git-branch")).toHaveTextContent("main");
-    expect(document.querySelector(".git-diff")).toBeNull();
-    expect(document.querySelector(".git-dirty")).toBeNull();
+  it("names the kind when there is only one, and the verb when every file had the same done to it", async () => {
+    await mountWithChanges(changed([["a.png", "untracked"], ["b.jpg", "untracked"]]));
+    expect(pill()).toHaveTextContent("Added 2 images");
+    expect(kinds()).toEqual(["image"]);
   });
 
-  it("renders no git chips at all when the cwd is not a repo (null)", async () => {
-    await mountWithGit(null);
-    // Including the strip itself: an empty tab above the prompter is a claim on space with nothing
-    // to put in it, and it would still push the card down by its own height.
+  it("draws no strip at all when nothing changed, whatever branch the checkout is on", async () => {
+    // A branch two commits ahead with a clean tree: the old chip still drew the branch here.
+    await mountWithChanges(changed([]));
     expect(document.querySelector(".composer-overstrip")).toBeNull();
-    expect(document.querySelector(".git-branch")).toBeNull();
-    expect(document.querySelector(".git-diff")).toBeNull();
-    expect(document.querySelector(".git-dirty")).toBeNull();
     expect(document.querySelector(".composer-opts")).not.toBeNull(); // the row itself still renders
+  });
+
+  it("draws no strip for a folder that is not a repository", async () => {
+    await mountWithChanges(null, null);
+    expect(document.querySelector(".composer-overstrip")).toBeNull();
+  });
+
+  it("opens the review of this session's checkout", async () => {
+    const { api, store } = await mountWithChanges(changed([["notes.md", "modified"]]));
+    fireEvent.click(screen.getByRole("button", { name: "Changed 1 document" }));
+    await waitFor(() => expect(api.calls).toContain("createItem:s1|diff|env1"));
+    expect(store.getState().items.find((i) => i.kind === "diff")).toMatchObject({ refId: "env1", title: "Changes" });
   });
 });
 
@@ -858,8 +879,6 @@ describe("control-row rework (prompter rework atop Ara refresh §3)", () => {
     expect(document.querySelector(".chip-group")).toBeNull();
     expect(screen.queryByRole("button", { name: "Mode" })).toBeNull();
     for (const c of children) expect(c).toHaveAttribute("aria-haspopup", "menu");
-    // The branch group is off the row and above the card, on its own strip.
-    expect(document.querySelector(".composer-overstrip .composer-git")).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Effort" })).toBeNull();
     const actions = document.querySelector(".composer-actions")!;
     expect(actions.contains(screen.getByRole("button", { name: "Model" }))).toBe(true);
@@ -2613,7 +2632,7 @@ describe("the '+' menu (Plan 12 W1)", () => {
     expect(within(menu).getAllByRole("group").map((g) => g.getAttribute("aria-label"))).toEqual(["Add", "Mode", "Connectors"]);
     const names = (group: string) => [...within(menu).getByRole("group", { name: group }).querySelectorAll('[role^="menuitem"]')]
       .map((b) => b.querySelector(".menu-label")!.textContent);
-    expect(names("Add")).toEqual(["Files…", "Folder…", "Select in Realm", "Skills", "Goal…"]);
+    expect(names("Add")).toEqual(["Files…", "Folder…", "Select in Realm", "Skills", "Goal…", "Add teammate…"]);
     expect(names("Mode")).toEqual(["Build", "Plan", "Ask"]);
     expect(names("Connectors")).toEqual(["Manage connections…"]);
     // The shortcut rides the name; the line is the row's DESCRIPTION, so a row is still found by
@@ -2657,7 +2676,7 @@ describe("the '+' menu (Plan 12 W1)", () => {
     const menu = screen.getByRole("menu", { name: "Add" });
     expect(document.activeElement).toBe(within(menu).getByRole("menuitem", { name: /^Files…/ }));
     // From the last row of Add straight into Mode — the heads are not stops.
-    for (let i = 0; i < 5; i++) fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+    for (let i = 0; i < 6; i++) fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
     expect(document.activeElement).toBe(within(menu).getByRole("menuitemcheckbox", { name: "Build" }));
     fireEvent.keyDown(document.activeElement!, { key: "End" });
     expect(document.activeElement).toBe(within(menu).getByRole("menuitem", { name: "Manage connections…" }));
@@ -2867,7 +2886,7 @@ describe("the '+' menu — Connectors (Plan 12 W1)", () => {
   });
 
   it("lists only ENABLED servers, dot + honest note per the hub's pushed status", async () => {
-    const { store } = await mountConn([
+    await mountConn([
       { name: "linear", enabled: true, status: "connected" },
       { name: "posthog", enabled: true, status: "idle" },
       { name: "broken", enabled: true, status: "circuit_open" },

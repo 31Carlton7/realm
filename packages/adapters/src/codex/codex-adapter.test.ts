@@ -842,6 +842,9 @@ describe("CodexAdapter", () => {
     // Retrying this as turn/start would silently run a SECOND concurrent turn against the same thread.
     expect(texts(evs)).toEqual([]);
     expect(of(evs, "tool_call")).toHaveLength(1);
+    // …and the turn it could not steer into is still running: an `idle` here would settle a live turn,
+    // draining the queue into it and taking Stop away while it works on.
+    expect(statuses(evs).at(-1)).toBe("running");
     await handle.dispose();
   });
 
@@ -926,6 +929,26 @@ describe("CodexAdapter", () => {
     await two.dispose();
     expect(conn.threadCount).toBe(0);
     expect(conn.alive).toBe(false); // the refcount reaching zero has to actually kill the child
+  });
+
+  it("stops a closed session's running turn on a process another session still holds", async () => {
+    // Detaching only stops Realm listening. With the process kept alive by the other session, the
+    // turn would go on running commands and editing files with nobody watching it.
+    const adapter = newAdapter();
+    const one = adapter.start(startOpts());
+    const two = adapter.start(startOpts());
+    const a = drain(one);
+    const b = drain(two);
+    await waitFor(() => {
+      expect(types(a.evs)).toContain("init");
+      expect(types(b.evs)).toContain("init");
+    });
+    await one.send({ text: "HANG", attachments: [] });
+    await waitFor(() => expect(types(a.evs)).toContain("tool_call"));
+    await one.dispose();
+    const conn = (await adapter.connection)!;
+    await waitFor(async () => expect((await conn.request<{ threads: string[] }>("$test/activeTurns")).threads).toEqual([]));
+    await two.dispose();
   });
 
   it("ends a still-attached session quietly when the shared process is deliberately torn down", async () => {
@@ -1161,7 +1184,6 @@ describe("CodexAdapter skills", () => {
 });
 
 describe("codexMcpConfig", () => {
-  const stdio = { name: "airtable", transport: "stdio" as const, command: "/usr/bin/node", args: ["/abs/s.mjs"], env: { K: "v" } };
   const http = { name: "vercel", transport: "http" as const, url: "https://mcp.vercel.com", headers: { Authorization: "Bearer t" } };
 
   it("writes an http server as url/http_headers — Codex's own key, not `headers` — which is the only shape that ever reaches here (the gateway's own entry)", () => {

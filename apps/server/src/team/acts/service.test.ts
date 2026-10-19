@@ -340,6 +340,19 @@ describe("the guardrails", () => {
     expect(verbs()).toContain("act_failed");
   });
 
+  it("counts what waits for a press apart from what the platform refused, and says when the next pressed one goes", async () => {
+    const { approved, acts, press, platform } = setup();
+    const { review, tickets: [a, b, c, d] } = approved("slideshows", slides(4));
+    platform.fail = true;
+    press(a!.id); await acts.post(a!.id); await flush(); await flush();
+    platform.fail = false;
+    press(b!.id); await acts.post(b!.id);
+    // THE MUTANTS: a refused act counted as one waiting (Review would ask for a press with no word of
+    // why), or `nextAt` taken from the ready tickets' plans rather than the pressed slot.
+    expect(acts.counts(review.id)).toEqual({ total: 4, done: 0, ready: 2, failed: 1, nextAt: acts.ticket(b!.id).slotAt });
+    expect([c, d].every((t) => acts.ticket(t!.id).state === "ready" && !acts.ticket(t!.id).error)).toBe(true);
+  });
+
   it("asking for changes takes back every ticket not yet out", async () => {
     const { approved, acts } = setup();
     const { review, tickets } = approved("slideshows", slides(3));

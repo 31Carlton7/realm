@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdtempSync, rmSync, unlinkSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, rmSync, statSync, unlinkSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TURN_CHANGES_MAX_FILES, type FileDiff, type TurnChanges, type TurnFile } from "@realm/contracts";
@@ -111,9 +111,6 @@ export type RestoreHazard = {
   headReason: string | null;
 };
 
-/** The caller's consent, naming exactly the numbers it was shown. */
-export type RestoreAck = { filesChanged: number; commitsRolledBack: number };
-
 export type RestoreOutcome = {
   headMoved: boolean;
   /** Why HEAD stayed where it was, when it did. */
@@ -192,7 +189,14 @@ export class CheckpointGit {
       // work into the user's index, which is precisely the disturbance a checkpoint must not cause.
       // A repository that has never had an index has no file to copy; git creates the scratch one.
       const realIndex = (await this.git(root, ["rev-parse", "--path-format=absolute", "--git-path", "index"])).stdout.trim();
-      if (realIndex && existsSync(realIndex)) copyFileSync(realIndex, index);
+      if (realIndex && existsSync(realIndex)) {
+        copyFileSync(realIndex, index);
+        // With the real index's times: git re-reads a file whose mtime falls in the second the index
+        // was written ("racily clean") and trusts the rest by size and mtime. A copy stamped now would
+        // trust a file rewritten at the same size in that second, and capture its old bytes.
+        const { atime, mtime } = statSync(realIndex);
+        utimesSync(index, atime, mtime);
+      }
 
       const indexTree = await this.writeTree(root, index, headSha);
       const added = await this.git(root, ["add", "-A", "--", "."], { env: { GIT_INDEX_FILE: index } });
@@ -391,11 +395,15 @@ export class CheckpointGit {
   /** Steps 2–4 of the restore recipe (see `restore`'s doc comment): working tree from
    *  `worktreeTree`, untracked survivors deleted, index from `indexTree`. */
   private async applyTrees(root: string, state: CapturedState, errorCode: string): Promise<number> {
+    // Read under the ignore rules in force NOW: the step below can write back an older .gitignore, and
+    // a file it stops ignoring (a `.env` ignored since the checkpoint) was never captured to come back.
+    const visible = new Set(await this.untracked(root));
     const applied = await this.git(root, ["read-tree", "--reset", "-u", state.worktreeTree]);
     if (applied.code !== 0) throw new RpcError(errorCode, gitReason(applied));
 
     let filesRemoved = 0;
     for (const path of await this.untracked(root)) {
+      if (!visible.has(path)) continue;
       try { unlinkSync(join(root, path)); filesRemoved += 1; }
       catch { /* a directory, a race, a permission — the tree is already correct for everything else */ }
     }
@@ -416,7 +424,7 @@ export class CheckpointGit {
   }
 
   /** Every checkpoint ref this environment owns, as git has them. The reconciliation source for
-   *  `deleteEnvironment`: a row that was lost still leaves a ref, and a ref nothing points at is the
+   *  `CheckpointService.forgetEnvironment`: a row that was lost still leaves a ref, and a ref nothing points at is the
    *  disk leak retention exists to prevent. */
   async listRefs(cwd: string, environmentId: string): Promise<string[]> {
     if (!ID.test(environmentId)) throw new RpcError("INVALID_PARAMS", "checkpoint refs are named by ULID only");

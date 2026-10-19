@@ -39,10 +39,6 @@ export class SimulatorsStore {
     return (this.db.prepare("SELECT * FROM simulators WHERE space_id = ? ORDER BY created_at ASC").all(spaceId) as Row[]).map(toSimulator);
   }
 
-  all(): Simulator[] {
-    return (this.db.prepare("SELECT * FROM simulators").all() as Row[]).map(toSimulator);
-  }
-
   /** `platform` and `physical` move with `udid`, because they have to: the three are one fact about
    *  one device, and a row left claiming `ios` while pointed at an AVD is a row that reaches for
    *  `simctl` — as one left claiming a simulator while pointed at a phone would. */

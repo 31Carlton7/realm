@@ -1,7 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Icon } from "@realm/ui";
 import {
-  documentExtension, documentKindFor, documentStem, freeFileName, ownerOfTab, refineDocumentKind,
+  documentExtension, documentKindFor, documentStem, documentTemplate, freeFileName, ownerOfTab, refineDocumentKind,
   type DocumentEntry, type DocumentKind, type DocumentWorkspace,
 } from "@realm/contracts";
 import { rpc } from "../../rpc/client";
@@ -320,7 +320,11 @@ export function DocumentsPane({ item }: PaneProps) {
       const b = prev[from];
       if (!b) return prev;
       const { [from]: _gone, ...rest } = prev;
-      return { ...rest, [path]: { ...b, path } };
+      // A document holding nothing but the title it was made with is still being named: typing over
+      // "Untitled document" names the document, so the heading it was made with follows the name.
+      const kind = documentKindFor(from);
+      const untouched = b.text.trimEnd() === documentTemplate(kind, documentStem(from)).trimEnd();
+      return { ...rest, [path]: untouched ? edited({ ...b, path }, documentTemplate(kind, stem.trim())) : { ...b, path } };
     });
     setActive((cur) => (cur === from ? path : cur));
   }), [run, renameDocumentFile, documentsId]);
@@ -522,8 +526,9 @@ function DocumentNameInput({ stem, onCommit, onCancel }: { stem: string; onCommi
 }
 
 /** Which kinds have a view other than their source, and what that view is. A PDF is the odd one: it
- *  has no text to show, so it is preview-only and gets no toggle. */
-/** `preview` is the GUIDE preview (an html file rendered as itself); `render` is a Quick Look
+ *  has no text to show, so it is preview-only and gets no toggle.
+ *
+ *  `preview` is the GUIDE preview (an html file rendered as itself); `render` is a Quick Look
  *  picture of a file Realm has no editor for. Two different surfaces with one English word between
  *  them, so the names are kept apart here rather than in each reader's head. */
 function structuredViewFor(kind: DocumentKind): "rich" | "grid" | "preview" | "pdf" | "render" | null {

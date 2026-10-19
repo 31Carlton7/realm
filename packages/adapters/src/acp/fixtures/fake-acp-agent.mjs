@@ -309,9 +309,12 @@ function handleNotification(method, params) {
   if (id === undefined) return;
   pendingPrompts.delete(params.sessionId);
   // §6: the agent MAY keep sending updates but MUST flush them before replying, and MUST still resolve the
-  // original prompt with `cancelled`.
-  message(params.sessionId, "bye");
-  ok(id, { stopReason: "cancelled" });
+  // original prompt with `cancelled`. A tick first: the permission answer that came in just before this
+  // is about to send its tool's last update (permitTurn), and that goes out ahead of the reply.
+  setTimeout(() => {
+    message(params.sessionId, "bye");
+    ok(id, { stopReason: "cancelled" });
+  }, 0);
 }
 
 function handleFrame(line) {

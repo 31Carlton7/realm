@@ -32,7 +32,7 @@ export type Sheet = {
  * unquoted newline. The `\r` of a CRLF ending is stripped from the record — the Sheet's single `eol`
  * re-applies it on serialize, which is also what quietly normalizes a mixed-EOL file.
  */
-function scanRecords(text: string): { records: string[]; terminated: boolean } {
+export function scanRecords(text: string): { records: string[]; terminated: boolean } {
   const records: string[] = [];
   let start = 0, inQuotes = false;
   for (let i = 0; i < text.length; i++) {
@@ -49,10 +49,6 @@ function scanRecords(text: string): { records: string[]; terminated: boolean } {
   // unterminated quote can swallow the file's final newline INTO the last record, and counting that
   // newline again as a trailing terminator would grow the file by one byte per save.
   return { records, terminated: text.length > 0 && start >= text.length };
-}
-
-export function splitRecords(text: string): string[] {
-  return scanRecords(text).records;
 }
 
 /** Extension decides the delimiter — `documentKindFor` already routed on it, and auto-detection that
@@ -95,24 +91,6 @@ export function serializeSheet(sheet: Sheet): string {
   });
   if (lines.length === 0) return "";
   return lines.join(sheet.eol) + (sheet.trailingNewline ? sheet.eol : "");
-}
-
-/**
- * Write one cell. Out-of-range coordinates GROW the sheet — typing into the blank row/column below a
- * grid's edge is how spreadsheets add rows, and refusing it would make the grid feel read-only at its
- * borders. New rows serialize canonically (there is no source to preserve); the edited row loses its
- * preserved source, which is the entire mechanism.
- */
-export function setCell(sheet: Sheet, r: number, c: number, value: string): Sheet {
-  const rows = sheet.rows.map((row) => [...row]);
-  const rowSources = [...sheet.rowSources];
-  while (rows.length <= r) { rows.push([]); rowSources.push(null); }
-  const row = rows[r]!;
-  while (row.length <= c) row.push("");
-  if (row[c] === value) return sheet;
-  row[c] = value;
-  rowSources[r] = null;
-  return { ...sheet, rows, rowSources };
 }
 
 /** The grid's rectangular shape: max row length (min 1), so ragged files render as a full grid. */

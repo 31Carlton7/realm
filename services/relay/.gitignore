@@ -1,0 +1,4 @@
+# wrangler dev keeps local Durable Object state here.
+.wrangler/
+# Local secrets for wrangler dev, such as an APNs .p8. Never committed.
+.dev.vars*

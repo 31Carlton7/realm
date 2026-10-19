@@ -668,6 +668,16 @@ describe("app store", () => {
       expect(api.destroyedBrowserViews).toEqual(["b9"]);
     });
 
+    it("a browser closed somewhere else has its view destroyed here too", async () => {
+      // An agent or another window closing it never went through this window's close path, which was
+      // the only thing that shut the page down.
+      const store = createAppStore(api);
+      await store.getState().boot();
+      await openBrowser(store);
+      store.getState().applyBrowserClosed("b9");
+      expect(api.destroyedBrowserViews).toEqual(["b9"]);
+    });
+
     it("the driving signal survives the switch too — the dot is there on the way back", async () => {
       const store = createAppStore(api);
       await store.getState().boot();
@@ -1276,6 +1286,16 @@ describe("app store", () => {
     expect(toast).toMatchObject({ tone: "error", text: "boom" });
     expect(spy).toHaveBeenCalled();
     store.getState().dismissToast(toast!.id);
+    expect(store.getState().toasts).toEqual([]);
+    spy.mockRestore();
+  });
+
+  it("run() leaves a dropped socket to the connection banner rather than toasting each call it cut off", async () => {
+    const store = createAppStore(api);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    store.getState().run(async () => { throw Object.assign(new Error("socket closed"), { code: "DISCONNECTED" }); });
+    store.getState().run(async () => { throw Object.assign(new Error("socket is closed"), { code: "DISCONNECTED" }); });
+    await tick();
     expect(store.getState().toasts).toEqual([]);
     spy.mockRestore();
   });
@@ -1978,6 +1998,32 @@ describe("app store", () => {
       expect(store.getState().pendingAttachments.se1!.map((x) => x.path)).toEqual(["/x/a.png"]);
     });
 
+    it("puts the typed message back in the prompter when the send fails", async () => {
+      const a = withSess();
+      const store = createAppStore(a); await store.getState().boot();
+      a.sendMessage = async () => { throw new Error("offline"); };
+      store.getState().setDraft("se1", "the paragraph I just wrote ");
+      // The prompter's own order: hand the text over, then clear the box behind it.
+      const sending = store.getState().sendMessage("se1", "the paragraph I just wrote");
+      store.getState().setDraft("se1", "");
+      await expect(sending).rejects.toThrow("offline");
+      expect(store.getState().drafts.se1).toBe("the paragraph I just wrote ");
+    });
+
+    it("leaves a draft typed while a failed send was in flight alone", async () => {
+      const a = withSess();
+      const store = createAppStore(a); await store.getState().boot();
+      let fail!: () => void;
+      a.sendMessage = () => new Promise((_, reject) => { fail = () => reject(new Error("offline")); });
+      store.getState().setDraft("se1", "first");
+      const sending = store.getState().sendMessage("se1", "first");
+      store.getState().setDraft("se1", "");
+      store.getState().setDraft("se1", "second");
+      fail();
+      await expect(sending).rejects.toThrow("offline");
+      expect(store.getState().drafts.se1).toBe("second");
+    });
+
     it("a file attached while the send was in flight survives it", async () => {
       const a = withSess();
       const store = createAppStore(a); await store.getState().boot();
@@ -2050,6 +2096,18 @@ describe("app store", () => {
       await tick();
       expect(gitCalls()).toBe(before + 2);
       expect(store.getState().gitInfo["/tmp"]).toEqual(gi);
+    });
+
+    it("a turn ending re-reads the checkout's changed files along with its summary — the pill is drawn from them", async () => {
+      api = seedGit(); const store = createAppStore(api); await store.getState().boot();
+      const listCalls = () => api.calls.filter((c) => c === "diff:/tmp").length;
+      const before = listCalls();
+      store.getState().applySessionStatus("se1", "idle");
+      await tick();
+      expect(listCalls()).toBe(before + 1);
+      expect("/tmp" in store.getState().diffs).toBe(true);
+      // One summary read, not two: the list does not bring a second `gitInfo` along with it.
+      expect(api.calls.filter((c) => c === "gitInfo:/tmp").length).toBe(api.calls.filter((c) => c === "diff:/tmp").length);
     });
 
     it("openSession refreshes the session's cwd", async () => {
@@ -2240,6 +2298,21 @@ describe("app store", () => {
       expect(api.calls).toContain("sessionEvents:se1:1"); // catch-up from lastSeq, not a refetch from 0
       expect(store.getState().transcripts.se1!.lastSeq).toBe(2);
       expect(store.getState().transcripts.se1!.t.blocks.map((b) => b.kind)).toEqual(["user", "assistant"]);
+    });
+
+    it("coming back after giving up refreshes the same way — the server it reaches may be a new one", async () => {
+      api = seed(); const store = createAppStore(api); await store.getState().boot();
+      await store.getState().openSession("se1");
+      api.data.sessionEvents.se1!.push(stored("se1", 2, sessionEvent("assistant_text", { messageId: "m1", text: "still here" })));
+      store.getState().applyConnectionState("reconnecting");
+      store.getState().applyConnectionState("offline");
+      expect(store.getState().connectionState).toBe("offline");
+      api.calls.length = 0;
+      store.getState().applyConnectionState("connected");
+      await tick(); await tick();
+      expect(api.calls).toContain("listSpaces");
+      expect(api.calls).toContain("sessionEvents:se1:1");
+      expect(store.getState().transcripts.se1!.lastSeq).toBe(2);
     });
 
     it("a redundant connected notification does not refetch (refresh only fires on the reconnecting→connected edge)", async () => {
@@ -2450,20 +2523,19 @@ describe("app store", () => {
   });
 });
 
-describe("the session's terminal side panel (W4)", () => {
+describe("the session's terminal (W4)", () => {
   afterEach(() => { vi.useRealTimers(); });
   const withSession = () => fakeApi({
     items: { s1: [item("i9", "s1", { kind: "session", title: "Fake agent session", refId: "se1" })] },
     sessions: [session("se1", "s1")],
   });
 
-  it("is lazy: nothing reaches the server until the panel is actually opened", async () => {
+  it("is lazy: nothing reaches the server until the terminal is actually asked for", async () => {
     const a = withSession();
     const store = createAppStore(a);
     await store.getState().boot();
     await store.getState().openSession("se1");
     expect(a.calls.some((c) => c.startsWith("openSessionTerminal"))).toBe(false);
-    expect(store.getState().terminalPanel["se1"]).toBeUndefined();
     expect(store.getState().sessionTerminals["se1"]).toBeUndefined();
   });
 
@@ -2476,16 +2548,14 @@ describe("the session's terminal side panel (W4)", () => {
     expect(a.calls.filter((c) => c === "openSessionTerminal:se1")).toHaveLength(1);
   });
 
-  it("deleting the session drops the panel state and disposes the renderer-side terminal", async () => {
+  it("deleting the session disposes the renderer-side terminal", async () => {
     const a = withSession();
     const store = createAppStore(a);
     await store.getState().boot();
-    await store.getState().toggleTerminalPanel("se1");
+    await store.getState().ensureSessionTerminal("se1");
     await store.getState().deleteItem("i9");
     expect(a.disposed).toEqual(["term-se1"]); // the xterm + scrollback go with the session
-    expect(store.getState().terminalPanel["se1"]).toBeUndefined();
     expect(store.getState().sessionTerminals["se1"]).toBeUndefined();
-    expect(a.data.settings["ui.terminalPanel"]).toEqual({});
   });
 
   it("closing the session's pane from the layout keeps the terminal — that is what makes reopening a restore", async () => {
@@ -2493,10 +2563,9 @@ describe("the session's terminal side panel (W4)", () => {
     const store = createAppStore(a);
     await store.getState().boot();
     await store.getState().openItem("i9");
-    await store.getState().toggleTerminalPanel("se1");
+    await store.getState().ensureSessionTerminal("se1");
     await store.getState().closeFromLayout("i9");
     expect(a.disposed).toEqual([]);
-    expect(store.getState().terminalPanel["se1"]).toEqual({ open: true, width: 38 });
     expect(store.getState().sessionTerminals["se1"]).toBe("term-se1");
   });
 });
@@ -2570,8 +2639,8 @@ describe("agent probe + the install card's terminal prefill (W4)", () => {
     expect(data).not.toMatch(/[\r\n]/);
   });
 
-  it("prefillTerminal racing the drawer's own restore effect still gets a terminal to write into", async () => {
-    // Opening the panel makes TerminalDrawer mount and call ensureSessionTerminal itself. If the dedup
+  it("prefillTerminal racing the dock's own restore effect still gets a terminal to write into", async () => {
+    // Opening the dock makes TerminalDock mount and call ensureSessionTerminal itself. If the dedup
     // guard returned early instead of joining that call, prefillTerminal would resume with no terminal
     // id and silently write nothing — the "Open in terminal" button would do nothing at all.
     const a = withSession();
@@ -2604,6 +2673,27 @@ describe("diff panes", () => {
   const env: Environment = { id: "env1", spaceId: "s1", path: "/tmp/wt", branch: "realm/x", kind: "worktree", portBlockStart: 41010, createdAt: 0, updatedAt: 0 };
   const withEnv = () => fakeApi({ environments: { s1: [env] }, diffs: { "/tmp/wt": { root: "/tmp/wt", branch: "realm/x", files: [], totalFiles: 0, truncated: false } } });
 
+  it("keeps the newer of two overlapping refreshes, whichever answers last", async () => {
+    // A Stage click refreshes twice — its own, and the `workspace.changed` broadcast — and git can
+    // answer them in either order. The older answer landing last showed a staged file as unstaged.
+    const a = withEnv();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    const older = { root: "/tmp/wt", branch: "realm/x", files: [{ path: "a.txt", oldPath: null, status: "modified", staged: false, additions: 1, deletions: 0 }], totalFiles: 1, truncated: false };
+    const newer = { ...older, files: [{ ...older.files[0]!, staged: true }] };
+    let answerOlder!: () => void;
+    a.diff = (async () => {
+      a.diff = async () => newer as never;
+      await new Promise<void>((r) => { answerOlder = r; });
+      return older as never;
+    }) as typeof a.diff;
+    const first = store.getState().refreshDiff("/tmp/wt");
+    await store.getState().refreshDiff("/tmp/wt");
+    answerOlder();
+    await first;
+    expect(store.getState().diffs["/tmp/wt"]).toEqual(newer);
+  });
+
   it("makes one diff item per environment and goes back to it the second time", async () => {
     const a = withEnv();
     const store = createAppStore(a);
@@ -2616,6 +2706,22 @@ describe("diff panes", () => {
     // A second "show changes" focuses the pane that exists; it does not accumulate panes.
     expect(a.calls.filter((c) => c.startsWith("createItem:"))).toEqual(created);
     expect(store.getState().items.filter((i) => i.kind === "diff").map((i) => i.id)).toEqual([itemId]);
+  });
+
+  it("names the item \"Changes\", and renames one still named for its branch", async () => {
+    // The branch moved inside the view; the tab says what it shows.
+    const a = withEnv();
+    const store = createAppStore(a);
+    await store.getState().boot();
+    await store.getState().openDiff("env1");
+    expect(store.getState().items.find((i) => i.kind === "diff")?.title).toBe("Changes");
+
+    const old = fakeApi({ environments: { s1: [env] }, items: { s1: [item("i-d", "s1", { kind: "diff", refId: "env1", title: "Changes · realm/x" })] } });
+    const again = createAppStore(old);
+    await again.getState().boot();
+    await again.getState().openDiff("env1");
+    expect(again.getState().items.find((i) => i.id === "i-d")?.title).toBe("Changes");
+    expect(old.calls.some((c) => c.startsWith("createItem:"))).toBe(false);
   });
 
   it("opens as a tab of the focused pane's side pane — the pane keeps what it shows, and no column of its own", async () => {
@@ -3138,28 +3244,26 @@ describe("under-strip: environment rebinding + the '+' menu's connectors cache (
     expect(allItems(store.getState().layout!)).not.toContain("i2");
   });
 
-  it("moveSessionToSpace disposes the renderer's terminal panel for an UNSTARTED session — the server tore its pty down", async () => {
+  it("moveSessionToSpace disposes the renderer's terminal for an UNSTARTED session — the server tore its pty down", async () => {
     const a = seed();
     a.data.sessionTerminals.se1 = { terminalId: "term-se1", itemId: "titem-se1" };
     a.data.sessions[0] = session("se1", "s1", { terminalItemId: "titem-se1" });
     const store = createAppStore(a); await store.getState().boot();
-    store.setState({ sessionTerminals: { se1: "term-se1" }, terminalPanel: { se1: { open: true, width: 320 } } });
+    store.setState({ sessionTerminals: { se1: "term-se1" } });
     await store.getState().moveSessionToSpace("se1", "s2");
     expect(a.disposed).toContain("term-se1");
     expect(store.getState().sessionTerminals.se1).toBeUndefined();
-    expect(store.getState().terminalPanel.se1).toBeUndefined();
   });
 
-  it("moveSessionToSpace KEEPS the terminal panel for a session that has run — its checkout came along, so the pty is still valid", async () => {
+  it("moveSessionToSpace KEEPS the terminal for a session that has run — its checkout came along, so the pty is still valid", async () => {
     const a = seed();
     a.data.sessionTerminals.se1 = { terminalId: "term-se1", itemId: "titem-se1" };
     a.data.sessions[0] = session("se1", "s1", { environmentId: "envA", cwd: "/tmp/envA", lastEventSeq: 3, terminalItemId: "titem-se1" });
     const store = createAppStore(a); await store.getState().boot();
-    store.setState({ sessionTerminals: { se1: "term-se1" }, terminalPanel: { se1: { open: true, width: 320 } } });
+    store.setState({ sessionTerminals: { se1: "term-se1" } });
     await store.getState().moveSessionToSpace("se1", "s2");
     expect(a.disposed).not.toContain("term-se1");
     expect(store.getState().sessionTerminals.se1).toBe("term-se1");
-    expect(store.getState().terminalPanel.se1).toEqual({ open: true, width: 320 });
   });
 
   it("worktreeTitleFrom: first four words, clipped; whitespace-only is null", () => {

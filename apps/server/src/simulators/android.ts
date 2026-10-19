@@ -260,14 +260,6 @@ export type Android = {
   stop(serial: string): Promise<{ ok: boolean; detail: string }>;
 };
 
-/**
- * The AVD a running emulator is hosting.
- *
- * MEASURED, and not the documented route: `adb -s <serial> emu avd name` is what the docs point at
- * and it returned an EMPTY string on a fully booted emulator here. `ro.boot.qemu.avd_name` is a
- * kernel boot property, is set before anything else comes up, and answered `Realm_Pixel` correctly.
- * The console route is kept as a fallback for a device where the property is absent.
- */
 /** How hard to try for a tree. See `ax` — a window mid-animation refuses to be dumped. */
 export const AX_ATTEMPTS = 3;
 export const AX_RETRY_MS = 1200;
@@ -284,6 +276,14 @@ export function android(env: NodeJS.ProcessEnv = process.env): Android {
   };
   const shell = (serial: string, cmd: string[], timeout = 15000) => adb(adbArgs(serial, ["shell", ...cmd]), timeout);
 
+  /**
+   * The AVD a running emulator is hosting.
+   *
+   * MEASURED, and not the documented route: `adb -s <serial> emu avd name` is what the docs point at
+   * and it returned an EMPTY string on a fully booted emulator here. `ro.boot.qemu.avd_name` is a
+   * kernel boot property, is set before anything else comes up, and answered `Realm_Pixel` correctly.
+   * The console route is kept as a fallback for a device where the property is absent.
+   */
   const serialToAvd = async (serial: string): Promise<string | null> => {
     const p = await shell(serial, ["getprop", AVD_NAME_PROP], 8000);
     const name = p.stdout.trim();

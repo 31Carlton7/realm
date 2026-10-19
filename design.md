@@ -213,12 +213,14 @@ Rules:
   positioned over the thing it is ruling? If not, the rule is decoration, however reasonable
   the story told about it. Chrome above content may take a seam; chrome above more chrome may
   not, and two stacked seams in the same 60px is the failure this rule exists to catch.
-- Hairlines separate structure. Shadows indicate elevation. Resting objects do not cast shadows —
-  with one family of exceptions the owner named (10-05): a thing a person picks up rather than reads.
-  A file wherever it is shown (a Library tile, the square of a file in a row or on a message), a saved
-  turn and the device's toolbar stand on the page under a light border and a very slight shadow, and
-  they all wear the one token for it (`--rl-object-shadow`). A group of settings stays a card of fill
-  under a rim; a picture in the transcript stays its own frame.
+- Hairlines separate structure. Shadows indicate elevation. A card is the one resting thing that
+  stands up, and it does so without an edge (the owner, 10-19: "I don't like having borders… it feels
+  cheap"): its fill and a soft lift with no ring in it (`--card-lift`), and nothing along any edge — a
+  light along the top, tried first, read as a top border once zoomed in. A thing a person picks up rather than reads — a file
+  wherever it is shown, a saved turn, the device's toolbar — stands on the same surface through one
+  token of its own (`--rl-object-shadow`, the owner's 10-05 rule that they all match). A picture in the
+  transcript stays its own frame. Floating things — menus, popovers, sheets, toasts — are not cards:
+  they hang over whatever is behind them, and keep the overlay stack's edge.
 - The window is chrome round a sheet. The rail and the head row across the whole window — the
   traffic lights, the sidebar's head, every pane's top bar — are one ground, a step off the
   sidebar's; the work sits below and beside them in one sheet, under a rim that runs along its top
@@ -235,14 +237,22 @@ Rules:
   with the column's last pixels instead of standing beside nothing. Moved to another ground, a shade
   keeps its depth in levels, not its alpha — the dark rail is lighter than the panes, so the same
   depth takes less black there — measured on solid grounds, where a capture is what the screen shows.
-- A group of settings is a card in Codex's grammar: a step ABOVE the ground it stands on, under a rim
-  the rung lighter than both sides, its rows divided by hairlines inset from both ends (Codex,
-  measured: page 41, card 47, rim 57; its file tiles go further, 16 levels up, because a tile is an
-  object you pick up and a card is a group you read). It is not a well. The rows were `--rl-frame`,
-  a shade BELOW the page, and a group of controls that reads as a hole in the page reads as nothing
-  in particular. The fill is an overlay rather than a colour, because the ground under a page is the
-  pane's translucent canvas and the card has to lift whatever that came to. The rim runs round the
-  run of rows, not round each one: a row under another hands its top edge to the divider.
+- A group of settings is a card in Codex's grammar: a step ABOVE the ground it stands on, its rows
+  divided by hairlines inset from both ends (Codex, measured: page 41, card 47; its file tiles go
+  further, 16 levels up, because a tile is an object you pick up and a card is a group you read). It
+  is not a well. The rows were `--rl-frame`, a shade BELOW the page, and a group of controls that
+  reads as a hole in the page reads as nothing in particular. The fill is an overlay rather than a
+  colour, because the ground under a page is the pane's translucent canvas and the card has to lift
+  whatever that came to. The run of rows is one card: the first row takes the top corners, the last
+  the bottom corners, and a row under another hands its top to the divider. A row
+  cannot cast the lift — it would fall across the row above — so where the card needs it to be seen at
+  all (white on near-white, the light face) the list holding the run casts it as one shape.
+- The step is a card's boundary, and nothing is drawn round it. Codex rings its card a rung lighter
+  than both sides (rim 57); Realm's rim did the same until it measured brighter over the card than the
+  card stood over the ground (10-18, "a border fighting the card"), and softened to less than the fill
+  it still read as an outline (10-19). What a card has instead is its lift. A divider between a
+  card's rows, and the edge of a field written on one, is a line and keeps the line's weight — a
+  field is a place to type, not a card.
 - A hairline with NO change of surface beside it needs its own weight, and its own token. The
   ordinary line is sized for the ordinary case, where a surface step carries most of the boundary
   and the line only sharpens it. Where both sides are the same ground the line is the whole
@@ -403,7 +413,8 @@ Use the existing radius ladder:
 - 2 px: ticks, rails, and code marks
 - 6 px: chips and compact inline controls
 - 8 px: buttons, inputs, and controls
-- 12 px: cards, rows, menus, and panels
+- 12 px: rows, menus, and panels
+- 20 px, painted: cards (`--r-squircle-card`), on the superellipse below
 - 16 px: sheets, palettes, and floating windows
 - Pill: statuses or controls whose shape communicates compact continuity
 
@@ -429,6 +440,18 @@ one thing that reliably makes the radius read as a mistake instead of a decision
 is what separates the panel from what surrounds it, and it is enough. For the same reason, do not
 rule a squircled panel's own head off from its body — a language label and a copy control are chrome
 for the panel, not a section beside it.
+
+Every card wears it too, at the card rung — the strip under a message, a request, a group of
+settings, a file's tile, a draft the team made. A card on a circular corner next to the prompter's
+superellipse is the "normal rounding" the owner called cheap (10-19); a card is a panel the eye rests
+in, and it gets the same considered corner.
+
+A painted card keeps a circular `border-radius` of half its curve, and that number is geometry, not
+taste: a circle of radius R/2 holds the superellipse of radius R and never sits more than 0.024R
+outside it, under half a pixel at the card rung. So the background clip never shaves the painted
+corner, and everything else a box does — its `box-shadow` lift, the clip of what it holds, a focus
+outline — follows the curve with no filter and no extra layer, which matters when a transcript or a
+Library holds dozens of cards. `styles.test.ts` works the containment out rather than trusting it.
 
 `corner-shape: squircle` is inert in the Chromium this app ships on, so a surface that declares it
 must also be listed in the paint-worklet rule in `styles.css`. A panel that declares the curve
@@ -572,8 +595,13 @@ acronym that is uppercase anyway (a file extension on a tile).
   the keyboard cannot reach it either — so a press lands on a real control or on an element with a role.
 - A window-drag region takes every press that is not opted out of it, and a LABEL is a control: the
   sidebar's old Spaces | Recent segments, labels round hidden radios, answered only on the radio's 13px.
-- Chrome is not text. Buttons, rows, tabs, bars and menus do not select on a drag or a double-click,
-  and their glyphs do not lift off as drag ghosts. Content and fields keep selection.
+- Chrome is not text. Nothing in the window selects on a drag or a double-click until it is named as
+  content — a message's prose and the user's own words, code and a tool's output, a diff, a document in
+  its editor, a field. A header, a card's title, a status line or a page of settings is chrome without
+  a rule of its own (the owner, 10-18), and a new surface of content says so with `data-selectable`
+  rather than as one more name in the stylesheet. A toast's words are content and its buttons are not
+  (the owner, 10-19): an error's wording is what gets pasted into a search or a bug report. Chrome's
+  glyphs do not lift off as drag ghosts.
 - A window that is not key greys its accent — selection, default button, checked boxes, lit
   switches — and keeps its LUMINANCE, so a label's contrast is unchanged under any theme. Build the
   grey where luminance is a channel (XYZ's Y), not from OKLCH's L, which is not luminance for a
@@ -844,8 +872,8 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   each opening a browser once filled a window with eight columns a fifth of it wide, every title an
   ellipsis and every page unreadable. In the panel's bar the tabs are the data of unbounded length,
   so they keep the width and the shown item's own actions go to its menu. The agents still working
-  are a count in the session's bar, and their list previews one on request; a tab dragged to an edge
-  is how something becomes part of the user's own layout.
+  are chips over the session's prompter, and a click on one previews it; a tab dragged to an edge is
+  how something becomes part of the user's own layout.
 - A split holds as many panes as the person makes, split right or down and nested as they were made
   (the owner, 10-05: "allow opening as many as the user wants"). The limit is room, never a count: a
   pane is never drawn below the floor a session pane was measured to work at (`PANE_MIN`), so a split
@@ -876,13 +904,13 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   one draft and a strip that could not say whose its tabs were; opening a session that is on screen
   goes to it, and dropping it on an edge moves it.
 - A pane's bar carries what is about the thing it heads; what is opened BESIDE it is launched from
-  where it lands. A session's bar is its crumb, the count of its agents working, its status, one
-  control for what it made — the summary and the files, told apart in the dock's own head — and its
-  menu. Documents, its terminal, its agents, a page, a device and a machine are rows of the side
-  panel's "+" and of a new tab's page, with their chords, and in the palette. Seven glyphs that each
-  opened something somewhere else were the loudest thing at the top of the window and said nothing
-  about the session (the owner, 10-05); a "+" is the one control a strip of tabs can spare, because
-  every button beside it comes out of the tabs' width.
+  where it lands. A session's bar is its crumb, its status, one control for what it made — the
+  summary and the files, told apart in the dock's own head — and its menu. Documents, its terminal,
+  its agents, a page, a device and a machine are rows of the side panel's "+" and of a new tab's
+  page, with their chords, and in the palette. Seven glyphs that each opened something somewhere
+  else were the loudest thing at the top of the window and said nothing about the session (the
+  owner, 10-05); a "+" is the one control a strip of tabs can spare, because every button beside it
+  comes out of the tabs' width.
 - What a pane SHOWS keeps its controls with it, not in the pane's bar, which in the side panel is the
   tab strip: the simulator's state and eight buttons there once left the tabs no width at all. A device
   wears a toolbar centred over it — its state and the presses used every minute, the rest one click
@@ -962,6 +990,18 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   well-formed: each model by the name the server resolves, the tools that do it named too. The agent
   stays the one who splits the work, reads the reports and answers for them, and the transcript holds
   the ask beside everything done about it.
+- A teammate is the one door beside the agent, and the owner opened it (10-18): "+ → Add teammate…"
+  takes a model from the prompter's own picker, a line of brief and a checkout, and starts the agent
+  by the path the agent's own `agent_start` takes — its mode, its caps, its place in the Agents tab.
+  It is still the session's sub-agent rather than a second lead: the agent is told on its next
+  message, by handle, and can wait on it, ask it and plan around it. Who is working is said on the
+  prompter's over-strip, a chip each with the sidebar's still dot, the one that needs you first and
+  the rest folded past three; a person addresses one by its `@`, which passes it the message too.
+- Who is working is said in that one place (the owner, 10-19). The same agents were also a count in
+  the session's bar and a strip under the last message — three surfaces saying one thing, two of them
+  in the corner of the eye while the person read the third. The transcript keeps each agent's own
+  line where it was started, so the history still reads; what only the bar showed, a session that
+  was merely asked a question, is a chip on the row while it answers, and opens as that session.
 - A sub-agent in its lead's transcript is a line of its own — "Sub-agent finished · <task>", its model,
   its time — and is never folded into the ledger. A fan-out is two starts and a wait in a row, which
   is a run, and a settled run collapses to "Worked for 8s": the one thing a reader of a delegation
@@ -971,10 +1011,11 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   time is spent. A card waiting on a request is open with the request in it, answered there through
   the same call the transcript uses. What a sub-agent started of its own nests under it, never beside it.
 - A sub-agent is looked at in ONE place, whichever surface it was clicked on — its line in the lead's
-  transcript, the strip under the last message, the bar's chip, a card: the lead's Agents tab, on that
+  transcript, its chip over the prompter, a card: the lead's Agents tab, on that
   sub-agent, beside the lead and never over it, with the keyboard left in the lead's prompter. Its
   siblings are tabs along the top with their state's mark; its head says the state in words, the
-  clock, the model and the checkout; its report is pinned under the head once it has one; its log is
+  clock, the model and the checkout; its report is pinned under the head once it has one, as tall as it
+  is up to most of the viewer and never squeezed by the log under it; its log is
   its own transcript, streaming, with its requests answered there; and its foot is only what its owner
   supports — Stop, Open as session and a message for a delegated child, nothing for a harness's own
   agent. Escape goes back to all of them, and the tab remembers which one it was on.

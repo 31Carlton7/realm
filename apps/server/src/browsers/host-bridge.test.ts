@@ -102,6 +102,21 @@ describe("BrowserHostBridge", () => {
     expect(bridge.connected).toBe(true);
   });
 
+  it("a reconnect is a detach and then an attach, never a silent swap of sockets", () => {
+    // What the headless keep-awake decides on: with main gone the server holds the Mac awake itself,
+    // and with main back it lets go. A new socket that replaced the old one unannounced would leave
+    // it holding (or not) on the strength of a host that is no longer there.
+    const first = fakeHost();
+    const second = fakeHost();
+    const bridge = new BrowserHostBridge({ rpc: first.rpc });
+    const seen: boolean[] = [];
+    bridge.onHostChange(() => seen.push(bridge.connected));
+    bridge.register(first.ws, { hasWindow: true });
+    first.close();
+    bridge.register(second.ws, { hasWindow: true });
+    expect(seen).toEqual([true, false, true]);
+  });
+
   it("late results for unknown callIds are ignored", () => {
     const { ws, rpc } = fakeHost();
     const bridge = new BrowserHostBridge({ rpc });

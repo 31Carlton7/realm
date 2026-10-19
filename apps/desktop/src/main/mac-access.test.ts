@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
-  MAC_CAPABILITIES, MAC_SETTINGS_URLS, appBundlePath, grantPlan, grantedCount, isMacCapabilityId,
+  MAC_CAPABILITIES, MAC_SETTINGS_URLS, appBundlePath, isMacCapabilityId,
   macAccessRows, macGrantArgv, macHostName, macSettingsUrl, parseMacDoctor, parseMacVersion, resolveMacBin,
-  settingsOnlyRows, type MacDoctorEntry,
+  type MacDoctorEntry,
 } from "./mac-access";
 
 const entry = (capability: string, status: string, fix: string | null = null): MacDoctorEntry => ({ capability, status, fix });
 const row = (rows: ReturnType<typeof macAccessRows>, id: string) => rows.find((r) => r.id === id)!;
+/** What Settings ▸ Permissions reads off the rows: the ids "Grant all" attempts, the rows left for
+ *  System Settings after it, and how many are granted. */
+const grantPlan = (rows: ReturnType<typeof macAccessRows>) => rows.filter((r) => r.canPrompt).map((r) => r.id);
+const settingsOnlyRows = (rows: ReturnType<typeof macAccessRows>) => rows.filter((r) => r.needsSettings && !r.canPrompt);
+const grantedCount = (rows: ReturnType<typeof macAccessRows>) => rows.filter((r) => r.state === "granted").length;
 
 /** A doctor report where everything is granted; tests override only the capability under scrutiny. */
 const allGranted = (over: Record<string, string> = {}): MacDoctorEntry[] =>

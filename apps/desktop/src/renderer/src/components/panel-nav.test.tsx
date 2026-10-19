@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { canNav } from "@realm/contracts";
 import { render, renderHook, screen, waitFor } from "@testing-library/react";
 import { Main } from "../App";
 import { useKeybindings } from "../keys";
@@ -30,7 +31,7 @@ describe("a pane's own trail", () => {
     expect(screen.queryByRole("button", { name: /^Back in / })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Forward in / })).toBeNull();
     // The trail is still kept, for the keyboard below.
-    expect(store.getState().canPaneNav(leaf, -1)).toBe(true);
+    expect(canNav(store.getState().paneHistory, leaf, -1)).toBe(true);
   });
 
   it("is each pane's own — a split's neighbour is untouched", async () => {
@@ -41,8 +42,8 @@ describe("a pane's own trail", () => {
     const b = store.getState().focusedLeafId!;
     await store.getState().openItem("i2", b);
     // Pane A never changed its occupant; pane B replaced an empty leaf, so neither can go back yet.
-    expect(store.getState().canPaneNav(a, -1)).toBe(false);
-    expect(store.getState().canPaneNav(b, -1)).toBe(false);
+    expect(canNav(store.getState().paneHistory, a, -1)).toBe(false);
+    expect(canNav(store.getState().paneHistory, b, -1)).toBe(false);
   });
 
 });

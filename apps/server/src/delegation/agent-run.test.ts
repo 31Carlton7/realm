@@ -785,6 +785,44 @@ describe("agent_start / agent_wait — several agents at once", () => {
     expect(text(collected)).toContain("step 11");
   }, 40_000);
 
+  it("a browser agent finishing does NOT evict a detached sibling's uncollected report", async () => {
+    // The same mutant as above, reached from `browser_agent_run`, which a parent with detached runs is
+    // free to call (next test): its `finally` ending every run the parent has.
+    const { spaceId, parentId } = await boot({ delayMs: 60, script: [
+      ...longScript(12), { on: "You are a delegated browser agent", emit: [{ kind: "text", text: "browsed" }] },
+    ] });
+    const detached = handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "detached sibling" })));
+    const browser = await app.browserAgents.run({ sessionId: parentId, spaceId }, { goal: "browse" });
+    expect(browser.isError).toBe(false);
+
+    expect(text(app.agentRuns.status({ sessionId: parentId, spaceId }))).toContain(detached);
+    const collected = await app.agentRuns.wait({ sessionId: parentId, spaceId }, { handles: [detached], timeoutMs: 30_000 });
+    expect(collected.isError).toBe(false);
+    expect(text(collected)).toContain("step 11");
+  }, 40_000);
+
+  it("asking a peer does NOT evict a detached sibling's uncollected report", async () => {
+    const { spaceId, parentId } = await boot({ script: longScript(12), delayMs: 60, parentMode: "bypassPermissions" });
+    const peer = app.sessions.create({ spaceId, agentKind: "fake", projectId: null, model: null, effort: null, permissionMode: "bypassPermissions" }).session;
+    await app.sessions.send(peer.id, { text: "hello", attachments: [] });
+    await waitFor(() => app.sessions.get(peer.id).status === "idle");
+    const detached = handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "detached sibling" })));
+    const asked = await app.asks.ask({ sessionId: parentId, spaceId }, { sessionId: peer.id, question: "q?" });
+    expect(asked.isError).toBe(false);
+    expect(text(app.agentRuns.status({ sessionId: parentId, spaceId }))).toContain(detached);
+  }, 40_000);
+
+  it("a child cut off by a restart reads as stopped after it, not as done", async () => {
+    // Runs live in the engine's memory, so a restart ended this one without writing how — and a child
+    // with no outcome that had said anything reads as finished on the lead's Agents tab.
+    const { home, spaceId, parentId } = await boot({ script: longScript(60), delayMs: 60 });
+    const child = handleIn(text(await app.agentRuns.start({ sessionId: parentId, spaceId }, { goal: "a long one" })));
+    await waitFor(() => app.sessions.events(child, 0, 500).some((e) => e.event.type === "assistant_text"));
+    await app.close();
+    app = await createApp({ home, port: 0, adapters: { fake: new CaptureFake({ script: [] }) } });
+    expect(app.agentRuns.record(child)).toMatchObject({ outcome: "stopped" });
+  }, 20_000);
+
   it("a detached child is invisible to hasRun — the parent is free to browse and to be asked", async () => {
     // Detached means "not blocked". Counting it as blocked would make agent_start strictly worse than
     // agent_run: fire one and the parent loses the browser agent and peer questions for its duration.

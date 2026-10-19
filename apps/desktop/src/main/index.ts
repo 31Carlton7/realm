@@ -1,4 +1,4 @@
-import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences, Tray, type MenuItemConstructorOptions, type WebContents } from "electron";
+import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences, Tray, type MenuItemConstructorOptions, type WebContents, powerMonitor } from "electron";
 import { BrowserCredentialInputSchema, PasswordSaveAnswerSchema, newId, parseUnlockPolicy, type UnlockPolicyStatus, type BrowserAction, type BrowserAnnotateResult, type BrowserCredential, type BrowserMenuState, type BrowserScreenshotSaved, type BrowserSignInShare, type MediaFile, type Passkey } from "@realm/contracts";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { copyFile, readFile, writeFile } from "node:fs/promises";
@@ -8,7 +8,7 @@ import { homedir, tmpdir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { serverEntry, spawnDaemon, startServer } from "./server-process";
 import { daemonStatePath, readDaemonState, readStateForPort, realmHomePath } from "./daemon-state";
-import { callDaemon, daemonModeEnabled, ensureDaemon, probeDaemon, type HandoffResult } from "./daemon";
+import { callDaemon, daemonModeEnabled, ensureDaemon, followDaemon, probeDaemon, type HandoffResult } from "./daemon";
 import { ProfileDirectory, isBrowserPartition, type ProfileFacts } from "./profile-directory";
 import { decideHandoff, handoffCopy, type DaemonWork } from "./handoff-policy";
 import { bundleIdOf, DAEMON_HANDOFF_MODE_DEFAULT, DAEMON_HANDOFF_MODE_KEY, platformCapabilities, resolveHandoffMode, type DaemonState } from "@realm/contracts";
@@ -23,6 +23,7 @@ import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
 import { readTextFile } from "./read-text";
 import { compressIconIfNeeded, describeFiles, existingPath, fileThumbnail, openablePath, saveTempAttachment, statFile, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
+import { shareImage } from "./share-images";
 import { clearBrowserPartition, createBrowserPane, governBrowserDownloads, shareSiteCookies, type BrowserPane, type DownloadPolicy } from "./browser-pane";
 import { refuseCapture } from "./capture-guard";
 import { viewNavigationAllowed } from "./app-views";
@@ -58,12 +59,14 @@ import { PasskeyBroker } from "./passkeys";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
 import { applyReducedMotion } from "./reduced-motion";
 import { SleepGuard } from "./sleep-guard";
+import { PRESENCE_POLL_MS, PresenceReporter } from "./presence";
 import { installedEditors, openInEditor } from "./editors";
 import { InstalledApps, applicationDirs } from "./installed-apps";
 import { registerKeyWindowQuery, wireKeyWindow } from "./key-window";
 import { popupNativeMenu, registerNativeMenus } from "./native-menu";
 import { PasswordAutofill } from "./password-autofill";
 import { registerPasswordsIpc } from "./passwords-ipc";
+import { readSecretsFile, setAsideSecretsFile, writeSecretsFile } from "./secrets-file";
 import { keychainHelper, keychainSourceFor } from "./keychain-passwords";
 import { attachTextContextMenu } from "./text-context-menu";
 import { windowOpenTarget } from "./link-open";
@@ -125,8 +128,25 @@ let bridgeClient: BridgeClient | null = null;
  *  the window's first browser panes ask whose they are before the bridge has connected. */
 async function askServer(method: string, params: unknown): Promise<unknown> {
   if (bridgeClient) return bridgeClient.call(method, params);
-  if (!serverInfo) throw new Error("Realm is still starting up");
-  return callDaemon({ port: serverInfo.port, token: serverInfo.token }, method, params, 5_000);
+  const endpoint = serverEndpoint();
+  if (!endpoint) throw new Error("Realm is still starting up");
+  return callDaemon({ port: endpoint.port, token: endpoint.token }, method, params, 5_000);
+}
+
+/**
+ * `serverInfo`, moved to wherever realm-server is now. A server the supervisor (or the banner's
+ * Restart) started after a crash has its own port and token, written to `daemon.json` and nowhere
+ * else; the bridge asks this before every dial and each window before every redial, so whatever was
+ * attached to the old server finds the new one by itself.
+ */
+function serverEndpoint(): { port: number; home: string; token: string } | null {
+  if (!serverInfo) return null;
+  const now = followDaemon(serverInfo, readDaemonState(serverInfo.home));
+  if (now.port !== serverInfo.port || now.token !== serverInfo.token) {
+    console.error(`[daemon] realm-server is on port ${now.port} now`);
+    serverInfo = { ...serverInfo, ...now };
+  }
+  return serverInfo;
 }
 
 /**
@@ -260,13 +280,33 @@ async function refreshTray() {
  *  working with no window open, and only main is there for all of it. */
 const sleepGuard = new SleepGuard(powerSaveBlocker);
 
-/** Re-read whether anything is running, on the same event the tray's counts change on. A bridge
- *  that cannot answer reads as nothing running: with no daemon to ask there are no turns to keep a
- *  Mac awake for, and holding on to a blocker for an answer we cannot get is how one leaks. */
+/** Re-read whether anything is running or waiting, on the same event the tray's counts change on. A
+ *  bridge that cannot answer reads as nothing running: with no daemon to ask there are no turns to
+ *  keep a Mac awake for, and holding on to a blocker for an answer we cannot get is how one leaks. */
 async function refreshSleepGuard() {
   const counts = await daemonCounts();
   sleepGuard.setWorking(counts?.working ?? 0);
+  sleepGuard.setWaiting(counts?.needsYou ?? 0);
 }
+
+/** How many phones are paired with this Mac (Realm Mobile), asked when main connects and then kept
+ *  by `remote.changed`. A server that cannot say has none, as far as the guard is concerned. */
+async function readPairedPhones() {
+  try {
+    const status = await bridgeClient?.call("remote.status", {});
+    const phones = (status as { phones?: unknown } | undefined)?.phones;
+    sleepGuard.setPhones(Array.isArray(phones) ? phones.length : 0);
+  } catch { sleepGuard.setPhones(0); }
+}
+
+/** Whether the owner is at this Mac, for Realm Mobile's pushes (Plan 28): the server holds a push back
+ *  while they are and sends it at once when they are not. The lock, the idle clock and the windows are
+ *  all main's to see, so main is what reports. */
+const presence = new PresenceReporter({
+  idleSeconds: () => powerMonitor.getSystemIdleTime(),
+  windows: () => windows.size,
+  send: (away) => (bridgeClient ? bridgeClient.call("remote.away", { away }) : Promise.reject(new Error("realm-server is not connected"))),
+});
 
 /** The preference, read from the server when main (re)connects: the renderer pushes changes as they
  *  happen, but a launch with no window, or a daemon restarted under it, has to find out for itself. */
@@ -489,6 +529,7 @@ async function createWindow(info: { port: number; home: string; token: string },
         ...(profileId !== null ? [`--realm-profile=${profileId}`] : [])] },
   });
   windows.add(win, profileId);
+  presence.check();
   win.on("focus", () => windows.focused(win));
   // The title is the profile's name — what the Window menu, Mission Control and the Dock list the
   // window by — and main sets it, so the page's own <title> does not put "Realm" back over it.
@@ -550,6 +591,7 @@ async function createWindow(info: { port: number; home: string; token: string },
     appPicks.set(pickKey, false);
     phases.stop();
     windows.remove(win);
+    presence.check();
     windowPanes.delete(id);
     if (appDriveWindow === id) { appDriveHost.forget(); appDriveWindow = null; }
   });
@@ -978,10 +1020,15 @@ function secrets(): SecretStore | null {
   const standIn = livePresenceStandIn({ packaged: app.isPackaged, env: process.env });
   secretStore = new SecretStore({
     safeStorage,
-    readFile: () => (existsSync(file) ? readFileSync(file, "utf8") : null),
+    readFile: () => readSecretsFile(file),
     // 0600: the ciphertext is useless without the Keychain item, but a file only the user can read
     // costs nothing and is what anyone auditing this would expect to find.
-    writeFile: (text) => writeFileSync(file, text, { mode: 0o600 }),
+    writeFile: (text) => writeSecretsFile(file, text),
+    setAside: () => {
+      const aside = setAsideSecretsFile(file, new Date());
+      console.error(`[secrets] ${file} could not be read; kept it at ${aside} and started a new store`);
+      return aside;
+    },
     appendAudit: (line) => {
       mkdirSync(join(home, "logs"), { recursive: true });
       appendFileSync(auditFile, line, { mode: 0o600 });
@@ -1018,14 +1065,6 @@ function secrets(): SecretStore | null {
 }
 
 /**
- * Settings → Sign-ins (Plan 11). The ONLY way a credential is created, which is the point: there is
- * no RPC method, no MCP tool, no file import and no chat path into `addCredential`, so nothing a
- * model can call is able to enroll a credential for the origin it happens to be standing on.
- *
- * The traffic is one-way by construction. `credentials:add` takes a value; nothing here returns one,
- * and `BrowserCredential` — the shape both list handlers answer with — has no field for one.
- */
-/**
  * Plan 23 W4 — the user's own downloads.
  *
  * This is the ONLY channel by which Electron main can learn that a human, specifically, wanted a
@@ -1051,6 +1090,14 @@ ipcMain.handle("browser:save-download", async (e, browserId: string, id: string,
   });
 });
 
+/**
+ * Settings → Sign-ins (Plan 11). The ONLY way a credential is created, which is the point: there is
+ * no RPC method, no MCP tool, no file import and no chat path into `addCredential`, so nothing a
+ * model can call is able to enroll a credential for the origin it happens to be standing on.
+ *
+ * The traffic is one-way by construction. `credentials:add` takes a value; nothing here returns one,
+ * and `BrowserCredential` — the shape both list handlers answer with — has no field for one.
+ */
 ipcMain.handle("credentials:list", (_e, profileId: unknown): BrowserCredential[] => {
   const pid = profileArg(profileId);
   return pid ? secrets()?.listCredentials(pid) ?? [] : [];
@@ -1169,6 +1216,7 @@ registerPasswordsIpc({
   },
   clipboard: { writeText: (t) => clipboard.writeText(t), readText: () => clipboard.readText(), clear: () => clipboard.clear() },
   setTimer: (fn, ms) => { setTimeout(fn, ms).unref?.(); },
+  reveal: (path) => shell.showItemInFolder(path),
 });
 registerVaultIpc({
   handle: (channel, fn) => ipcMain.handle(channel, (_e, ...args: unknown[]) => fn(...args)),
@@ -1221,14 +1269,14 @@ ipcMain.handle("save-text", async (_e, input: { name: string; text: string }): P
   return r.filePath;
 });
 
-/** The prompter's attach button. Multi-select, and it answers with mime and size alongside the path:
- *  `sessions.send` wants the mime, and the prompter needs the size to enforce MAX_ATTACHMENT_BYTES
- *  itself rather than letting the Claude adapter throw after the user pressed send. */
 /** Drag-and-drop's counterpart to `pick-files`: the renderer has the paths already and needs the
  *  facts only a `stat` can supply — chiefly whether the thing is a folder. */
 ipcMain.handle("describe-paths", async (_e, paths: unknown): Promise<PickedFile[]> =>
   Array.isArray(paths) ? describeFiles(paths.filter((p): p is string => typeof p === "string")) : []);
 
+/** The prompter's attach button. Multi-select, and it answers with mime and size alongside the path:
+ *  `sessions.send` wants the mime, and the prompter needs the size to enforce MAX_ATTACHMENT_BYTES
+ *  itself rather than letting the Claude adapter throw after the user pressed send. */
 ipcMain.handle("pick-files", async (): Promise<PickedFile[]> => {
   const r = await dialog.showOpenDialog({ properties: ["openFile", "multiSelections"] });
   return r.canceled ? [] : describeFiles(r.filePaths);
@@ -1384,11 +1432,6 @@ ipcMain.handle("computer:request", (_e, id: unknown): Promise<ComputerAccessStat
 ipcMain.handle("computer:repair", (_e, id: unknown): Promise<ComputerAccessStatus> => {
   if (!isComputerAccessId(id)) throw new Error(`unknown computer access row: ${String(id)}`);
   return computerAccess.repair(id);
-});
-
-ipcMain.handle("computer:open-settings", (_e, id: unknown) => {
-  if (!isComputerAccessId(id)) throw new Error(`unknown computer access row: ${String(id)}`);
-  void shell.openExternal(TCC_SETTINGS_URLS[id]);
 });
 
 // ── The `mac` CLI's access (Permissions tab, "Apps on this Mac") ────────────────────────────────
@@ -1662,17 +1705,22 @@ const desktopNotifier = new DesktopNotifier({
   setBadge: (count) => { app.setBadgeCount(count); },
 });
 ipcMain.handle("daemon:quit-and-stop", () => quitAndStopAll());
+ipcMain.handle("daemon:endpoint", () => {
+  const endpoint = serverEndpoint();
+  return endpoint ? { port: endpoint.port, token: endpoint.token } : null;
+});
+ipcMain.handle("daemon:restart", () => restartRealmServer());
 ipcMain.handle("notify:show", (_e, input: DesktopNotificationInput) => desktopNotifier.show(input));
 ipcMain.handle("notify:badge", (_e, count: number) => { desktopNotifier.badge(Number(count)); });
 /** Settings ▸ Appearance ▸ Reduce motion, answered on the window that asked — the quick chat is a
  *  window of its own and keeps its own answer in step by asking at its own boot. */
 ipcMain.handle("motion:set", (e, pref: unknown) => applyReducedMotion(e.sender, pref));
-/** The renderer's half of the sleep preference: the switch's new value, so a change takes effect on
- *  a turn already running rather than at the next status change. */
 /** Settings ▸ General ▸ Links, as the renderer last said: where a clicked link opens, and which
  *  browser a link's right-click menu lists first. The renderer reads it at boot and says so. */
 let linksOpenIn: LinksOpenIn = LINKS_OPEN_IN_DEFAULT;
 ipcMain.on("links:open-in", (_e, pref: unknown) => { if (isLinksOpenIn(pref)) linksOpenIn = pref; });
+/** The renderer's half of the sleep preference: the switch's new value, so a change takes effect on
+ *  a turn already running rather than at the next status change. */
 ipcMain.handle("power:prevent-sleep", (_e, on: unknown) => { sleepGuard.setPreference(on === true); });
 /** Settings ▸ General ▸ Open files in, and the transcript's path menu: the editors this Mac has, and
  *  opening a path that exists in one of them. `existingPath` is the gate Reveal in Finder uses, and it
@@ -1812,6 +1860,8 @@ const PREVIEW_PX = 512;
 const PAGE_PX = 1600;
 ipcMain.handle("files:preview", (_e, path: unknown, size?: unknown): Promise<string | null> =>
   fileThumbnail(realmHome, path, size === "page" ? PAGE_PX : PREVIEW_PX));
+/** A picture for a shared page, re-encoded here at the page's size (share-images.ts). */
+ipcMain.handle("share:image", (_e, path: unknown): Promise<string | null> => shareImage(path));
 /** Looser than the other three on purpose: a DIRECTORY is a real thing to reveal, and the transcript's
  *  path menu offers this for one — as does `~/…`, and a path relative to `base`. See `existingPath`.
  *  Answers whether there was anything to reveal, so a menu that asked can say when there was not. */
@@ -1867,14 +1917,6 @@ ipcMain.handle("files:save-copy", async (_e, path: unknown): Promise<string | nu
   return r.filePath;
 });
 
-/**
- * Get realm-server, in whichever of its two shapes this build uses.
- *
- * Packaged: a daemon that outlives this process, found if one is already up and started if not. Dev
- * and the live checks: the child on a pipe it has always been, with `daemonMode` off so nothing is
- * left behind when the app exits. Both ends hand back the same three facts, so everything downstream
- * of here is written once.
- */
 /**
  * Replace, or carry on with, a daemon running code this app did not ship.
  *
@@ -1958,6 +2000,14 @@ function startDaemonProcess(home: string): void {
   try { daemonChild = spawnDaemon({ home, logFd: fd }); } finally { closeDaemonLog(fd); }
 }
 
+/**
+ * Get realm-server, in whichever of its two shapes this build uses.
+ *
+ * Packaged: a daemon that outlives this process, found if one is already up and started if not. Dev
+ * and the live checks: the child on a pipe it has always been, with daemon mode off so nothing is
+ * left behind when the app exits. Both ends hand back the same three facts, so everything downstream
+ * of here is written once.
+ */
 async function startRealmServer(): Promise<{ port: number; home: string; token: string }> {
   const home = realmHomePath();
   if (daemonModeEnabled({ packaged: app.isPackaged, env: process.env.REALM_DAEMON, platform: process.platform })) {
@@ -1975,7 +2025,7 @@ async function startRealmServer(): Promise<{ port: number; home: string; token: 
   }
   const { child, ready } = startServer({ home });
   serverChild = child;
-  child.on("exit", () => { serverChild = null; });
+  child.on("exit", () => { if (serverChild === child) serverChild = null; });
   const started = await ready;
   // The token realm-server minted at boot. It is never on stdout, so the state file is the only place
   // it exists — and without it neither the renderer nor the bridge can get onto the socket at all, so
@@ -2032,7 +2082,8 @@ app.whenReady().then(async () => {
     // Before the first window, so its first browser panes and the sign-ins page find every profile —
     // and so sign-ins saved before profiles had their own are handed to their profile at launch.
     await profileDirectory.refresh();
-    secrets()?.adoptUnownedRows();
+    // A store that cannot be read this moment is left as it is, and read again on its next use.
+    try { secrets()?.adoptUnownedRows(); } catch (e) { console.error("[secrets]", e instanceof Error ? e.message : e); }
     // Media streaming opens only once home is known: `media:poster` writes QuickLook scratch under it.
     handleMediaProtocol();
     // Sweep once at launch; saveTempAttachment sweeps again on every paste, so a session that never
@@ -2049,6 +2100,12 @@ app.whenReady().then(async () => {
       every: (fn, ms) => setInterval(fn, ms),
       onFocus: (fn) => app.on("browser-window-focus", fn),
     });
+    // Realm Mobile's presence: the lock is an event, the idle clock has none and is polled, and every
+    // window opening or closing looks again (createWindow). Only changes reach the server.
+    powerMonitor.on("lock-screen", () => presence.setLocked(true));
+    powerMonitor.on("unlock-screen", () => presence.setLocked(false));
+    powerMonitor.on("resume", () => presence.check());
+    setInterval(() => presence.check(), PRESENCE_POLL_MS);
     // W3: register main as the browser host executor on realm-server's RPC socket. Ops for a view
     // that does not exist fail honestly inside the executor; the bridge just relays.
     // The user chose to keep an older server working. Said once, and held, so a window opened later
@@ -2067,17 +2124,23 @@ app.whenReady().then(async () => {
       });
     }
     agentBridge = startBrowserAgentBridge({
-      port: info.port, token: info.token,
+      endpoint: () => serverEndpoint() ?? info,
       hasWindow: () => windows.size > 0,
-      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); void readSleepPreference().then(refreshSleepGuard); void profileDirectory.refresh(); void labOnConnected(labUpdate()); },
+      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); void readSleepPreference().then(refreshSleepGuard); void readPairedPhones(); presence.reset(); void profileDirectory.refresh(); void labOnConnected(labUpdate()); },
       // Both on the same event: the bridge redials every two seconds, which is exactly the cadence a
       // supervisor watching for a dead pid wants, so it needs no clock of its own.
-      onDisconnected: () => { bridgeClient = null; sleepGuard.setWorking(0); daemonSupervisor?.onDisconnected(); daemonSupervisor?.tick(); },
+      onDisconnected: () => { bridgeClient = null; sleepGuard.setWorking(0); sleepGuard.setWaiting(0); daemonSupervisor?.onDisconnected(); daemonSupervisor?.tick(); },
       onEvent: (event, payload) => {
         // A profile made, renamed or deleted: main's partitions, names and sign-ins follow.
         if (event === "profiles.changed") { void profileDirectory.refresh().then(retitleWindows); return; }
         // The counts the tray shows change on exactly one event.
         if (event === "session.status") { void refreshTray(); void refreshSleepGuard(); return; }
+        // A phone paired or removed: whether a waiting session keeps the Mac awake goes with it.
+        if (event === "remote.changed") {
+          const phones = (payload as { phones?: unknown } | undefined)?.phones;
+          sleepGuard.setPhones(Array.isArray(phones) ? phones.length : 0);
+          return;
+        }
         // The lab's update window drained the team's runs: install the update the updater holds.
         if (event === "lab.install") { labInstall(labUpdate(), payload); return; }
         // And the resident's own toasts, for the case the renderer used to own alone: with no window
@@ -2091,6 +2154,7 @@ app.whenReady().then(async () => {
         if (op === "oauthKey") return Promise.resolve({ key: secrets()?.exportOauthKey() ?? null });
         if (op === "machineKey") return Promise.resolve({ key: secrets()?.exportMachineKey() ?? null });
         if (op === "eggsKey") return Promise.resolve({ key: secrets()?.exportEggsKey() ?? null });
+        if (op === "remoteKey") return Promise.resolve({ key: secrets()?.exportRemoteKey() ?? null });
         // The team vault's ops need no window either: a key's request is made from main, not a pane.
         if (op.startsWith("vault")) return vaultHost.handleOp(op, params);
         // A ticket's press: read and spent, never made, from this side.
@@ -2123,6 +2187,10 @@ app.whenReady().then(async () => {
   } catch (e) {
     console.error(e);
     dialog.showErrorBox("Realm failed to start", e instanceof Error ? e.message : String(e));
+    // Out, rather than into the menu bar: with no server behind it a resident Realm could open nothing,
+    // and only the tray's quit would ever end it.
+    quittingForReal = true;
+    detachOnQuit = true;
     app.quit();
   }
 });
@@ -2165,6 +2233,45 @@ function stopDaemon() {
   const pid = daemonChild?.pid ?? readDaemonState(realmHome ?? realmHomePath())?.pid;
   if (pid && pid !== process.pid) { try { process.kill(pid, "SIGTERM"); } catch { /* already gone */ } }
   daemonChild = null;
+}
+
+/**
+ * The banner's "Restart Realm's server", offered once a window has stopped redialing or the
+ * supervisor has given up. Resolves when main has done what it can; the window dials again after, and
+ * finds the new server through `serverEndpoint`.
+ */
+async function restartRealmServer(): Promise<void> {
+  // Main is on the socket, so the server is answering: the window only has to dial where it is now.
+  if (bridgeClient || !realmHome) return;
+  if (daemonSupervisor) {
+    // Running but not answering. Its home lock would turn the new one away, so it goes first — but
+    // only if the pid is still realm-server: a pid from a stale file may be somebody else's by now.
+    const recorded = readDaemonState(realmHome);
+    if (recorded && runsServer(recorded.pid, recorded.entry)) await stopServerProcess(recorded.pid);
+    daemonSupervisor.restartNow();
+    return;
+  }
+  // The server is this process's own child here, and nothing brings it back but this.
+  const old = serverChild;
+  if (old?.pid) await stopServerProcess(old.pid);
+  const { child, ready } = startServer({ home: realmHome });
+  serverChild = child;
+  child.on("exit", () => { if (serverChild === child) serverChild = null; });
+  await ready;
+}
+
+/** Whether `pid` is a live process running the server bundle at `entry`. */
+function runsServer(pid: number, entry: string): boolean {
+  if (pid === process.pid) return false;
+  try { return execFileSync("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8" }).includes(entry); } catch { return false; }
+}
+
+/** SIGTERM, then SIGKILL for a server too stuck to run its own shutdown. */
+async function stopServerProcess(pid: number): Promise<void> {
+  try { process.kill(pid, "SIGTERM"); } catch { return; }
+  if (await waitForExit(pid, STOP_WAIT_MS)) return;
+  try { process.kill(pid, "SIGKILL"); } catch { return; }
+  await waitForExit(pid, 2_000);
 }
 
 /**
@@ -2252,6 +2359,10 @@ ipcMain.on("window:set-profile", (e, profileId: unknown) => {
 /** True once a gesture that really means "stop everything" has been taken. Read by `before-quit` and
  *  `window-all-closed`, both of which otherwise divert into resident mode. */
 let quittingForReal = false;
+/** Set when Realm exits and leaves the daemon as it is: an update restart (`decideQuit`'s
+ *  "update-restart" — the relaunched app's handoff deals with the daemon it finds) and a launch that
+ *  failed to start. */
+let detachOnQuit = false;
 
 /** The tray's *Quit Realm & stop agents* — the one path that stops the daemon, and the only place in
  *  the app where quitting and stopping the work are the same act. */
@@ -2283,6 +2394,9 @@ function shutdownForQuit() {
  * *Quit Realm & stop agents* — lets a quit through to `shutdownForQuit`.
  */
 app.on("before-quit", (e) => {
+  // `quitAndInstall` calls `app.quit()` once its windows are closed, so an update restart arrives here
+  // too, after `before-quit-for-update` — and must not go on to stop the daemon.
+  if (detachOnQuit) { detachFromDaemon(); return; }
   if (decideQuit({ trigger: "quit", working: 0 }).kind === "go-resident" && !quittingForReal) {
     e.preventDefault();
     for (const w of BrowserWindow.getAllWindows()) w.close();
@@ -2315,4 +2429,4 @@ let askedServerToStop = false;
 // An update restart deliberately does NOT stop the daemon — the opposite of what this hook used to
 // do. Squirrel swaps the bundle and relaunches us, and the launcher's handoff deals with the daemon
 // it finds; killing it here would stop every agent for an update the user may not have noticed.
-electronAutoUpdater.on("before-quit-for-update", () => { quittingForReal = true; detachFromDaemon(); });
+electronAutoUpdater.on("before-quit-for-update", () => { quittingForReal = true; detachOnQuit = true; detachFromDaemon(); });

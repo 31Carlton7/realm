@@ -1,5 +1,4 @@
 import { describe, expect, it, afterEach } from "vitest";
-import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type AgentHandle, type StartOptions, type FakeScript, type UserMessage } from "@realm/adapters";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";

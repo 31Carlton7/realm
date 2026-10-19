@@ -41,7 +41,6 @@ export function currentBundleId(entry: string): string {
  */
 export const BOOT_ID = randomUUID();
 
-export const newBootId = (): string => randomUUID();
 export const newToken = (): string => randomBytes(32).toString("base64url");
 
 /** Write the state file atomically at 0600. The temp file is a sibling so the rename stays on one

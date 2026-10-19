@@ -325,7 +325,7 @@ function Track({ scrollRef, prompts, onJump, now, onSave, reveal = null, onRevea
         <p className="track-card-reply" id={`${cardId}-reply`} hidden={!card.reply}>{card.reply}</p>
         <p className="track-card-foot" id={`${cardId}-foot`}>
           <time dateTime={new Date(card.ts).toISOString()}>{stampLabel(card.ts, now)}</time>
-          {[card.from && `Asked by ${card.from}`, card.edited > 0 && `Edited ${plural(card.edited)}`].filter(Boolean).map((part) => ` · ${part}`).join("")}
+          {[card.from && `Asked by ${card.from}`, card.edited > 0 && `Changed ${plural(card.edited)}`].filter(Boolean).map((part) => ` · ${part}`).join("")}
         </p>
       </div>
     </div>

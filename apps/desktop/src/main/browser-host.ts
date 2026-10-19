@@ -326,6 +326,89 @@ export function originAllowed(url: string, allowlist: readonly string[] | null):
   });
 }
 
+/** A page's request for a new window, as Electron's `setWindowOpenHandler` hands it over. */
+export type WindowRequest = { url: string; disposition: string };
+
+/**
+ * How many popup windows one pane may have open at once, its popups' own popups included. Electron has
+ * no popup blocker — a page may call `window.open` without a click — so this is what stops a page
+ * covering the screen in windows. A sign-in needs one.
+ */
+export const POPUP_LIMIT = 3;
+
+/**
+ * What a page's request for a new window becomes.
+ *
+ * A **popup** is a real window: the page keeps `window.opener` to it and it keeps one back, which is
+ * the whole mechanism of a "Sign in with Google" button — the provider's page posts the result to its
+ * opener and calls `window.close()`. Navigating the pane in place instead (what every request did
+ * before) replaced the page that was waiting for that message, so the account pick landed on a page
+ * with no opener and stopped on a blank screen. Chromium says which requests are popups: a
+ * `window.open` with a size, a position or `popup` in its features, and a shift-click, both arrive as
+ * `new-window`. So does an empty address, whatever its disposition — a page opens a blank window to
+ * write into it or send it somewhere, and only a window it holds can be either; navigating the pane to
+ * `about:blank` would wipe the page that asked.
+ *
+ * Everything else is a link (`target=_blank`, a ⌘-click) and goes **in-place**, as it always has: a
+ * link opened in a new tab keeps no opener (`noopener` is implied), so nothing is waiting on it.
+ *
+ * Deliberately not sniffed from the address: the sign-in SDKs that use a popup give it a size, and a
+ * link to an authorize URL is a redirect flow, which finishes in place.
+ */
+export function windowOpenAction(request: WindowRequest, popupsOpen: number): "popup" | "in-place" | "refuse" {
+  const wantsWindow = request.disposition === "new-window" || request.url === "about:blank" || request.url === "";
+  if (!wantsWindow) return "in-place";
+  return popupsOpen < POPUP_LIMIT ? "popup" : "refuse";
+}
+
+/** A popup whose page names no size gets Electron's own default for a new window. */
+const POPUP_DEFAULT_SIZE = { width: 800, height: 600 };
+/** The smallest window Chromium itself will open for a page. */
+const POPUP_MIN_SIZE = 100;
+
+/**
+ * Where a popup window goes, in screen points: the viewport its page asked for in `window.open`'s
+ * features, at the place it asked for, or else centred over the Realm window it belongs to — and
+ * either way inside the work area of the display that window is on, so it never opens off screen or
+ * on another monitor from the page that is waiting for it.
+ */
+export function popupBounds(features: string, around: ViewRect, workArea: ViewRect): ViewRect {
+  const asked = new Map<string, number>();
+  for (const pair of features.split(",")) {
+    const [key = "", value = ""] = pair.split("=");
+    const n = Number.parseInt(value, 10);
+    if (Number.isFinite(n)) asked.set(key.trim().toLowerCase(), n);
+  }
+  const named = (key: string, alias: string) => asked.get(key) ?? asked.get(alias);
+  const fit = (n: number, min: number, max: number) => Math.round(Math.min(Math.max(n, min), Math.max(min, max)));
+  const width = fit(named("width", "innerwidth") ?? POPUP_DEFAULT_SIZE.width, POPUP_MIN_SIZE, workArea.width);
+  const height = fit(named("height", "innerheight") ?? POPUP_DEFAULT_SIZE.height, POPUP_MIN_SIZE, workArea.height);
+  const left = named("left", "screenx") ?? around.x + (around.width - width) / 2;
+  const top = named("top", "screeny") ?? around.y + (around.height - height) / 2;
+  return {
+    x: fit(left, workArea.x, workArea.x + workArea.width - width),
+    y: fit(top, workArea.y, workArea.y + workArea.height - height),
+    width, height,
+  };
+}
+
+/**
+ * A popup's title bar: the site it is on, then what the page calls itself. A popup has no address
+ * bar, and the title bar is the one place left that says whose page is asking for a password — so the
+ * host comes first, where the page's own words cannot push it out. A page with no title of its own
+ * is titled by Chromium with its URL, which says the host twice; that is dropped.
+ */
+export function popupTitle(url: string, pageTitle: string): string {
+  let host = "";
+  try {
+    const u = new URL(url);
+    if (u.protocol === "http:" || u.protocol === "https:") host = u.host;
+  } catch { /* not an address — about:blank, or nothing yet */ }
+  const title = pageTitle.trim();
+  if (!host) return title;
+  return title === "" || url.includes(title) ? host : `${host} — ${title}`;
+}
+
 /**
  * Placeholder rect (renderer CSS px) → view bounds (DIPs relative to the window's content view).
  * CSS px * zoom = DIP, and the renderer's devicePixelRatio = displayScaleFactor * zoomFactor, so
@@ -437,6 +520,10 @@ export type ViewHandle = {
   setZoomFactor(factor: number): void;
   /** The system print dialog, for this page. */
   print(): void;
+  /** The addresses of the popup windows this view's page has open (`windowOpenAction`), its popups'
+   *  own included. Read off each window's webContents, never from what a page says. */
+  popups(): string[];
+  /** Closes the view's popups with it. */
   destroy(): void;
 };
 
@@ -445,8 +532,8 @@ export type ViewHooks = {
   emitState(): void;
   /** `will-navigate` / `will-redirect` consult — false means preventDefault. */
   allowNavigate(url: string): boolean;
-  /** `setWindowOpenHandler` funnel: every window.open/target=_blank is DENIED as a window and offered
-   *  back as an in-place navigation of the same view. */
+  /** `setWindowOpenHandler` funnel for a request `windowOpenAction` calls a link (`target=_blank`, a
+   *  ⌘-click): DENIED as a window and offered back as an in-place navigation of the same view. */
   openInPlace(url: string): void;
   /** `found-in-page`: the view's answer to the last find. */
   found(result: FindResult): void;
@@ -705,6 +792,9 @@ export class BrowserPaneHost {
 
   /** Why the page this view is on did not load, or null when it did (or there is no view). */
   loadErrorOf(id: string): BrowserLoadError | null { return this.views.get(id)?.handle.getLoadError() ?? null; }
+
+  /** The addresses of the popup windows this view's page has open — none when there is no view. */
+  popupsOf(id: string): string[] { return this.views.get(id)?.handle.popups() ?? []; }
 
   /** Every view in one jar, retained or on screen: a deleted profile's panes, which must not go on
    *  running signed in to anything. */

@@ -32,6 +32,9 @@ export const BROWSER_HOST_OPS = [
    *  than asking for it at every launch. Its own domain, so a blob sealed here cannot be opened as
    *  a machine password — `secret-box` mixes the domain in as AAD. */
   "eggsKey",
+  /** The `remote` domain key (Plan 28), which seals this Mac's Realm Mobile identity: realm-server
+   *  dials the relay and runs every phone's handshake, so it is what has to open the private keys. */
+  "remoteKey",
   /** Arm a one-shot download grant, click the ref, and await the file. The DIRECTORY is decided
    *  server-side (`spaceDownloadDir`) and travels with the op — main never picks a path, and
    *  the page never influences one. */
@@ -126,20 +129,6 @@ const OP_TIMEOUT_MS = 60_000;
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout };
 
 /**
- * The server half of the main↔server browser bridge (Plan 11 W3).
- *
- * The `WebContentsView`s and their `webContents.debugger` live in Electron main; the agent tools live
- * here in realm-server (on the MCP gateway). This class is the seam between them: Electron main
- * connects to the RPC socket like any client, calls `browserHost.register`, and from then on every
- * tool's CDP work travels out as a targeted `browserHost.op` event and comes back as a
- * `browserHost.result` call. One host at a time — a second register supersedes the first (an Electron
- * main that restarted), failing whatever the old one still owed.
- *
- * It carries the computer-use ops too (`COMPUTER_HOST_OPS`), which have nothing to do with browser
- * panes but travel the same one main↔server socket to the same one registered executor. The name is
- * the browser's because that is what first needed a bridge; the machinery was never browser-specific.
- */
-/**
  * How much of Realm is actually here.
  *
  * Once the server outlives the app there are three states, not two, and every degradation decision
@@ -157,8 +146,23 @@ type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void; time
  */
 export type HostLevel = "window" | "no-window" | "headless";
 
+/**
+ * The server half of the main↔server browser bridge (Plan 11 W3).
+ *
+ * The `WebContentsView`s and their `webContents.debugger` live in Electron main; the agent tools live
+ * here in realm-server (on the MCP gateway). This class is the seam between them: Electron main
+ * connects to the RPC socket like any client, calls `browserHost.register`, and from then on every
+ * tool's CDP work travels out as a targeted `browserHost.op` event and comes back as a
+ * `browserHost.result` call. One host at a time — a second register supersedes the first (an Electron
+ * main that restarted), failing whatever the old one still owed.
+ *
+ * It carries the computer-use ops too (`COMPUTER_HOST_OPS`), which have nothing to do with browser
+ * panes but travel the same one main↔server socket to the same one registered executor. The name is
+ * the browser's because that is what first needed a bridge; the machinery was never browser-specific.
+ */
 export class BrowserHostBridge {
   private host: WebSocket | null = null;
+  private readonly hostListeners = new Set<() => void>();
   private hasWindow = false;
   private detached: number | null = null;
   private readonly pending = new Map<string, Pending>();
@@ -191,14 +195,28 @@ export class BrowserHostBridge {
    *  is re-sent by main whenever the window opens or closes, which is an ordinary re-register. */
   register(client: WebSocket, opts: { hasWindow?: boolean } = {}): void {
     if (this.host && this.host !== client) this.failAll("browser host replaced by a new registration");
+    const attaching = this.host === null;
     this.host = client;
     this.setWindow(opts.hasWindow ?? false);
+    if (attaching) this.hostChanged();
     client.once("close", () => {
       if (this.host !== client) return; // already superseded; the new host's ops are not ours to fail
       this.host = null;
       this.setWindow(false);
       this.failAll("browser host disconnected");
+      this.hostChanged();
     });
+  }
+
+  /** Called when the app attaches or detaches (`connected` changes), for what the server does
+   *  differently with nobody attached. */
+  onHostChange(listener: () => void): () => void {
+    this.hostListeners.add(listener);
+    return () => { this.hostListeners.delete(listener); };
+  }
+
+  private hostChanged(): void {
+    for (const l of this.hostListeners) l();
   }
 
   private setWindow(hasWindow: boolean): void {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PairRequestSchema, PairingWindowSchema, RemoteStatusSchema } from "./remote";
 import type { CliJobStart, CliStatus } from "./cli";
 import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, BrowserHistoryPageSchema, IconAssetSchema, DocumentWorkspaceSchema, DocumentEntrySchema, DocumentKindSchema, QueuedPromptSchema } from "./entities";
 
@@ -27,7 +28,7 @@ import {
   GhStatusSchema, PrDetailSchema, PrFilesSchema, PrPageSchema, PrPlaceSchema, PrRefSchema, PrReviewSchema, PrSectionSchema, PrSummarySchema,
   PR_PATCHES_PER_CALL, ReviewInstructionsSchema, ReviewerPickSchema, SubmitReviewSchema, SubmittedReviewSchema,
 } from "./code-review";
-import { DelegableModelSchema, DelegatedChildSchema, DelegatedRunSchema, DelegationOutcomeSchema } from "./delegation";
+import { AddTeammateSchema, DelegableModelSchema, DelegatedChildSchema, DelegatedRunSchema, DelegationOutcomeSchema, SubagentIdSchema } from "./delegation";
 import { SEARCH_GROUP_LIMIT, SEARCH_GROUP_LIMIT_MAX, SEARCH_QUERY_MAX, SearchResultsSchema } from "./search";
 import { ImportResultSchema, ImportScanSchema } from "./import";
 import { GuideProgressSchema } from "./documents";
@@ -44,7 +45,7 @@ import { LabAccountSchema, LabDeviceKindSchema, LabDevicesSchema, LabReadinessSc
 import { GuestSpecSchema, MachineSchema, MachineSourceSchema, MachineStateSchema, VncEndpointSchema } from "./machine";
 import { MAX_SESSION_REFS, SessionRefSchema } from "./session-refs";
 import { MAX_MENTION_REFS, MENTION_FILES_LIMIT, MentionRefSchema } from "./mention-refs";
-import { SIMULATOR_CA_DEBUG, SimulatorActSchema, SimulatorAppSchema, SimulatorAxTreeSchema, SimulatorCameraSourceSchema, SimulatorDeviceSchema, SimulatorEventSchema, SimulatorSchema, SimulatorStateSchema, SimulatorPlatformSchema, SimulatorUiStateSchema } from "./simulator";
+import { SIMULATOR_CA_DEBUG, SimulatorActSchema, SimulatorAppSchema, SimulatorAxTreeSchema, SimulatorDeviceSchema, SimulatorEventSchema, SimulatorSchema, SimulatorStateSchema, SimulatorPlatformSchema, SimulatorUiStateSchema } from "./simulator";
 import { GoalSchema, GoalStatusSchema } from "./goal";
 import { UnlockedEggPackSchema } from "./egg-pack";
 import { FailoverPolicySchema } from "./failover";
@@ -414,11 +415,12 @@ export const Methods = {
   "spaces.update": { params: z.object({ id: IdSchema, name: z.string().min(1).optional(), icon: z.string().optional(), color: HexColorSchema.optional(), profileId: IdSchema.optional(), sortOrder: z.number().int().optional(), activeItemId: IdSchema.nullable().optional() }), result: SpaceSchema },
   "spaces.reorder": { params: z.object({ ids: z.array(IdSchema) }), result: z.object({ ok: z.literal(true) }) },
   "spaces.setLayout": { params: z.object({ id: IdSchema, layout: LayoutSchema }), result: SpaceSchema },
-  /** The whole group set in one write — group membership, names, the active pointer and each group's
-   *  zoom all move together, and splitting them into per-field methods would let a reload land between
-   *  two halves of one gesture. Supersedes `spaces.setLayout`, which stays for the layout-only path. */
   /**
    * The whole group set, and which item had the keyboard, in ONE write.
+   *
+   * Group membership, names, the active pointer and each group's zoom all move together, and splitting
+   * them into per-field methods would let a reload land between two halves of one gesture. Supersedes
+   * `spaces.setLayout`, which stays for the layout-only path.
    *
    * Together rather than in two calls on purpose: focus is a fact ABOUT a layout, and two round trips
    * can be interleaved by another window's write, leaving a stored focus that points into a layout it
@@ -1505,6 +1507,10 @@ export const Methods = {
   /** One file's patch, on one side of the index. `path` is relative to the checkout ROOT (the `root`
    *  `workspace.diff` reported), and is refused if it is absolute or contains `..`. */
   "workspace.fileDiff": { params: z.object({ cwd: z.string(), path: z.string(), staged: z.boolean().default(false) }), result: FileDiffSchema },
+  /** A picture as the last commit has it, as a data URL: the "before" beside a changed image in the
+   *  diff pane. `path` is checkout-relative under `workspace.fileDiff`'s rules. Null when the path is
+   *  not a picture, is not in HEAD, or is too large to hand over. */
+  "workspace.headImage": { params: z.object({ cwd: z.string(), path: z.string() }), result: z.string().nullable() },
 
   /**
    * Search a CHECKOUT, where `search.query` searches Realm's own records: ⌘⇧F over the text of the
@@ -1621,8 +1627,14 @@ export const Methods = {
   "team.roleArchive": { params: z.object({ id: IdSchema }), result: z.object({ archived: z.boolean() }) },
   "team.roleRun": { params: z.object({ id: IdSchema, message: z.string().max(20_000).nullable().default(null) }), result: RunSchema },
   "team.roleRuns": { params: z.object({ id: IdSchema, limit: z.number().int().min(1).max(200).default(30) }), result: z.array(RoleRunSchema) },
+  /** A person's message to a teammate: the answer to the question its run is parked on, or a new run
+   *  that continues its newest run's session, waiting behind a live one. */
+  "team.roleMessage": { params: z.object({ id: IdSchema, text: z.string().trim().min(1).max(20_000) }), result: RunSchema },
   "team.review": { params: z.object({ id: IdSchema }), result: TeamReviewDetailSchema },
   "team.reviewApprove": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
+  /** The yes taken back while nothing of it has left Realm: the same draft waits again, and approving
+   *  pins its hashes again. Refused once a post or a send went out; already waiting, nothing changes. */
+  "team.reviewUndoApproval": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
   "team.reviewRequestChanges": { params: z.object({ id: IdSchema, note: z.string().min(1).max(5_000) }), result: TeamReviewSummarySchema },
   "team.reviewDone": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
   "team.reviewDismiss": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
@@ -1643,7 +1655,8 @@ export const Methods = {
   "team.recordTypes.create": { params: CreateRecordTypeSchema, result: TeamRecordTypeSchema },
   "team.recordTypes.update": { params: UpdateRecordTypeSchema, result: TeamRecordTypeSchema },
   "team.recordTypes.archive": { params: z.object({ id: IdSchema, archived: z.boolean().default(true) }), result: TeamRecordTypeSchema },
-  "team.activity": { params: z.object({ spaceId: IdSchema, limit: z.number().int().min(1).max(500).default(100), before: z.number().int().optional() }), result: z.array(TeamActivitySchema) },
+  /** The log, newest first; with `roleId`, only the lines by that role or about it — its chat's. */
+  "team.activity": { params: z.object({ spaceId: IdSchema, limit: z.number().int().min(1).max(500).default(100), before: z.number().int().optional(), roleId: IdSchema.optional() }), result: z.array(TeamActivitySchema) },
   // The team vault (Teams Phase 2). Grants are ids and hosts — no value is ever on this wire, and
   // there is no method that sets a grant's "use without asking": that is the Vault page's, over
   // renderer IPC to main, confirmed by macOS. `vaultAllowChanged` only asks main what is true, for
@@ -1776,6 +1789,19 @@ export const Methods = {
     params: z.object({ ids: z.array(IdSchema).default([]), all: z.boolean().default(false) }),
     result: z.object({ ok: z.literal(true), unread: z.number().int() }),
   },
+  /** Realm Mobile (Plan 28): the link to the relay, the paired phones and any open pairing window. */
+  "remote.status": { params: z.object({}), result: RemoteStatusSchema },
+  /** Opens a pairing window at the relay (5 minutes, 5 attempts) and returns the link its QR code
+   *  carries. Starts the link if no phone was paired yet; a second call replaces the first window. */
+  "remote.pair.start": { params: z.object({}), result: PairingWindowSchema },
+  "remote.pair.cancel": { params: z.object({}), result: z.object({ ok: z.literal(true) }) },
+  /** The owner's answer to `remote.pairRequest`. Only a yes adds the phone. */
+  "remote.pair.answer": { params: z.object({ requestId: z.string(), accept: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
+  /** Remove: the relay forgets the phone's key and its open channel closes at once. */
+  "remote.phones.remove": { params: z.object({ phoneId: z.string() }), result: z.object({ ok: z.literal(true) }) },
+  /** Electron main's report of whether the owner is at this Mac: idle past two minutes, the screen
+   *  locked, or no Realm window. Pushes go at once while away and wait two minutes otherwise. */
+  "remote.away": { params: z.object({ away: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
   /**
    * The reviewer recipe (Plan 13 W3): spawn a read-only reviewer session over this environment. The
    * call returns as soon as the reviewer session exists — the review itself takes minutes, and the
@@ -1855,7 +1881,15 @@ export const Methods = {
   /** Every session this one delegated to — its sub-agents, settled ones included, in the order they
    *  were started. A read of tables, not of the engine: it answers for runs the registry has already
    *  let go, and after a relaunch. */
-  "delegation.children": { params: z.object({ sessionId: IdSchema }), result: z.object({ children: z.array(DelegatedChildSchema) }) },
+  "delegation.children": { params: z.object({ sessionId: IdSchema }), result: z.object({ children: z.array(DelegatedChildSchema),
+    /** The ones the person took off the prompter's row of agents (`delegation.dismiss`). */
+    dismissed: z.array(SubagentIdSchema).default([]) }) },
+  /** Add a teammate from the prompter's "+": started as this session's sub-agent through `agent_start`'s
+   *  own path, and the session's agent told about it on its next message. */
+  "delegation.addTeammate": { params: AddTeammateSchema, result: z.object({ childId: IdSchema }) },
+  /** Take one of a session's sub-agents off its prompter's row. It keeps running if it was, and stays in
+   *  the Agents tab; the row is the only thing that forgets it. */
+  "delegation.dismiss": { params: z.object({ sessionId: IdSchema, id: SubagentIdSchema }), result: z.object({ dismissed: z.array(SubagentIdSchema) }) },
   /** What the Agents tab's composer offers: the models a sub-agent can be put on, and what this
    *  session itself runs — the one choice that needs no name at all. */
   "delegation.models": { params: z.object({ sessionId: IdSchema }), result: z.object({
@@ -1863,8 +1897,6 @@ export const Methods = {
   /** The session's Agents tab, as an item of its space: the one it has, or a new one. Its `refId` is
    *  the session's id — the tab is a view of that session and of nothing else. */
   "delegation.tab": { params: z.object({ sessionId: IdSchema }), result: z.object({ itemId: IdSchema }) },
-  /** `force` skips the server's TTL cache — what the install card's "Check again" and its window-focus
-   *  refresh send, because a cached "not installed" is exactly what the user just fixed. */
   /**
    * Everything the Settings -> Usage tab draws, for one time range, in ONE call.
    *
@@ -2002,13 +2034,13 @@ export const Methods = {
    */
   "agents.probeOne": { params: z.object({ kind: AgentKindSchema }), result: AgentProbeRowSchema.nullable() },
   "sessions.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(SessionSchema) },
-  /** Every session across every space — the client's sessionId→spaceId map for cross-space badges. */
-  /** Every session Realm holds, or every session in ONE profile. Scoped by the server's space→profile
-   *  join when `profileId` is given — the same rule `search.query` states, for the same reason: a
-   *  client-side filter is not trusted to keep one profile's work out of another's surfaces. */
   /** Where each of a space's sessions left off: its newest reply's first line, or null where it has
    *  not replied — for the space's Sessions page to say without opening any. */
   "sessions.digest": { params: z.object({ spaceId: IdSchema }), result: z.array(z.object({ sessionId: IdSchema, lastReply: z.string().nullable() })) },
+  /** Every session Realm holds, or every session in ONE profile — the client's sessionId→spaceId map
+   *  for cross-space badges. Scoped by the server's space→profile join when `profileId` is given — the
+   *  same rule `search.query` states, for the same reason: a client-side filter is not trusted to keep
+   *  one profile's work out of another's surfaces. */
   "sessions.listAll": { params: z.object({ profileId: IdSchema.nullable().default(null) }), result: z.array(SessionSchema) },
   /**
    * Record how far this user has read a session's transcript.
@@ -2198,6 +2230,9 @@ export const Events = {
   "profiles.changed": z.object({}),
   "spaces.changed":   z.object({}),
   "items.changed":    z.object({ spaceId: IdSchema }),
+  /** A browser was closed — by a window, an agent, any caller of `browsers.close`. Its row and item are
+   *  gone, and the window holding its view shuts the page down: only a window's own close path did. */
+  "browsers.closed":  z.object({ browserId: IdSchema }),
   /** A worktree was created or removed in this space (W2) — clients re-list environments. */
   "environments.changed": z.object({ spaceId: IdSchema }),
   /** A checkpoint was taken, restored or pruned in this environment (W4). Broadcast on every turn, so
@@ -2291,10 +2326,6 @@ export const Events = {
    *  bring the child session INTO the layout — the whole point of a delegated agent being a real
    *  session is that the user watches its full trace. */
   "session.agentOpened": z.object({ spaceId: IdSchema, sessionId: IdSchema, itemId: IdSchema }),
-  /** An agent's `session_open` made a session for the user, and it goes on screen BESIDE that agent's
-   *  pane — to the right or below (`edge`), as the user's own split would put it. Not
-   *  `session.agentOpened`: that one is a delegated child, which gets no pane. Quiet, like every
-   *  agent's open: the keyboard stays where the user left it. */
   /** An agent's `settings_set` changed one of the settings agents may change (`AGENT_SETTINGS`): every
    *  window takes the new value as if its own Settings had set it. Only those keys — a window that
    *  re-read any setting on this would let a stored value it never offered take effect. */
@@ -2303,6 +2334,10 @@ export const Events = {
    *  move it — unless the user is typing, when it stays put. The first window answers it; one opened
    *  for a single profile leaves it alone. The server learns the outcome from `ui.activeSpaceId`. */
   "space.switchRequested": z.object({ spaceId: IdSchema, requestedBy: IdSchema }),
+  /** An agent's `session_open` made a session for the user, and it goes on screen BESIDE that agent's
+   *  pane — to the right or below (`edge`), as the user's own split would put it. Not
+   *  `session.agentOpened`: that one is a delegated child, which gets no pane. Quiet, like every
+   *  agent's open: the keyboard stays where the user left it. */
   "session.openRequested": z.object({ spaceId: IdSchema, sessionId: IdSchema, itemId: IdSchema, openedBy: IdSchema, edge: z.enum(["right", "bottom"]) }),
   /** A delegated child's run settled — the other half of `session.agentOpened`, carrying the same ids
    *  plus how it ended, and sent exactly once per run by the tool that opened the child
@@ -2331,6 +2366,11 @@ export const Events = {
    *  (auto-reading a `session_done` for the pane the user is looking at) without a refetch race; null
    *  when the change was a markRead or a resolution, where a held list refetches instead. */
   "notifications.changed": z.object({ notification: NotificationSchema.nullable(), unread: z.number().int() }),
+  /** Realm Mobile's status changed: the link's state, a phone added, removed or seen, a window opened
+   *  or closed. Carries the whole status, so Settings applies it without a refetch. */
+  "remote.changed": RemoteStatusSchema,
+  /** A phone is waiting on the owner's yes to pair (answered with `remote.pair.answer`). */
+  "remote.pairRequest": PairRequestSchema,
   /** A run's row changed (created, dispatched, settled, approved). Carries the fresh row so a Tasks
    *  lens applies it directly — the `notifications.changed` posture, no refetch race. `run` is null
    *  only for a bulk change with no single subject, where a held list refetches instead. */

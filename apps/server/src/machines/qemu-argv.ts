@@ -98,7 +98,7 @@ export const UNIX_PATH_MAX = 104;
 export const logPath = (dir: string): string => join(dir, "qemu.log");
 
 /** The firmware for an architecture. MEASURED: Homebrew ships `edk2-aarch64-code.fd` and
- *  `edk2-x86_64-code.fd`, and NEITHER of the matching `-vars` files — see `nvramBytes`. */
+ *  `edk2-x86_64-code.fd`, and NEITHER of the matching `-vars` files — see `NVRAM_BYTES`. */
 export const firmwareCode = (shareDir: string, arch: QemuArch): string =>
   join(shareDir, arch === "aarch64" ? "edk2-aarch64-code.fd" : "edk2-x86_64-code.fd");
 

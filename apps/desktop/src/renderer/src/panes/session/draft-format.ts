@@ -69,7 +69,7 @@ const LINE_MARKER_RE = /^([ \t]*)(?:([-*+])|(\d{1,9}[.)])|(>+)|(#{1,6}))([ \t]+)
 /** Characters that end a sentence rather than a URL. `)` is trimmed only when unbalanced. */
 const URL_TRAIL = /[.,;:!?'"]+$/;
 
-function urlEnd(text: string, start: number, raw: string): number {
+function urlEnd(start: number, raw: string): number {
   let s = raw.replace(URL_TRAIL, "");
   // A closing paren belongs to the URL only if the URL opened one (wiki links do this constantly).
   while (s.endsWith(")") && (s.match(/\(/g)?.length ?? 0) < (s.match(/\)/g)?.length ?? 0)) s = s.slice(0, -1).replace(URL_TRAIL, "");
@@ -110,7 +110,7 @@ export function highlightSegments(text: string, liveIds: Iterable<string>, stale
   for (const t of scanMentions(text, staleIds)) spans.push({ start: t.start, end: t.end, kind: "mention-stale", rank: RANK.mention });
   for (const m of text.matchAll(CODE_RE)) spans.push({ start: m.index, end: m.index + m[0].length, kind: "code", rank: RANK.code });
   for (const m of text.matchAll(URL_RE)) {
-    const end = urlEnd(text, m.index, m[0]);
+    const end = urlEnd(m.index, m[0]);
     if (end > m.index) spans.push({ start: m.index, end, kind: "link", rank: RANK.link });
   }
   for (const m of text.matchAll(BOLD_RE)) {

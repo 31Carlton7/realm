@@ -49,6 +49,21 @@ const list = async (c: { call: (m: string, p: unknown) => Promise<Any> }) =>
   (await c.call("notifications.list", {})).result as { notifications: Notification[]; nextCursor: string | null; unread: number };
 
 describe("notifications over rpc — the real wiring", () => {
+  it("a turn whose spend passes a budget threshold raises the budget row", async () => {
+    // The usage hook runs from the session's event path BEFORE the event is saved, and read the month's
+    // spend as if it had been: this turn's cost came out as nothing, and the crossing never showed.
+    app = await createApp({ home: tempDir("realm-notif-"), port: 0, adapters: { fake: new FakeAdapter({ script: [{ on: "spend", emit: [{ kind: "usage", costUsd: 60 }] }] }) } });
+    const c = await client(app.port);
+    const p = (await c.call("profiles.create", { name: "W" })).result;
+    const sp = (await c.call("spaces.create", { profileId: p.id, name: "S" })).result;
+    await c.call("usage.setBudget", { monthlyUsd: 100, thresholds: [0.5], includeEstimated: true });
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "spend" });
+    await waitFor(async () => (await c.call("sessions.get", { id: session.id })).result.status === "idle");
+    await waitFor(async () => (await list(c)).notifications.some((n) => n.category === "budget"));
+    c.close();
+  });
+
   it("permission request → pending row; answered from the session pane → the row reconciles; settle → session_done", async () => {
     const { c, sp } = await boot();
     const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;

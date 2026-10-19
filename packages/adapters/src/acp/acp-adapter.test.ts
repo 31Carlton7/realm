@@ -580,6 +580,21 @@ describe("AcpAdapter", () => {
     await handle.dispose();
   });
 
+  it("refuses a write through a link to a file outside that does not exist yet", async () => {
+    // `realpath` refuses a dangling link, and the walk up to its parent made the link look like a new
+    // file inside the directory — while the write itself follows the link out.
+    const dir = await realpath(tempDir("realm-acp-"));
+    const work = join(dir, "work");
+    await mkdir(work);
+    const outside = join(dir, "planted.plist");
+    await symlink(outside, join(work, "notes.txt"));
+    const { handle, evs } = await booted({ cwd: work });
+    await turn(handle, evs, `WRITEFILE ${join(work, "notes.txt")} planted`);
+    expect(texts(evs)[0]).toContain("write failed:");
+    expect(existsSync(outside)).toBe(false);
+    await handle.dispose();
+  });
+
   it("refuses a sibling directory whose name merely starts with the working directory's", async () => {
     // /…/work-evil is not inside /…/work, however much a naive prefix test would like it to be.
     const dir = await realpath(tempDir("realm-acp-"));
@@ -972,6 +987,17 @@ describe("AcpAdapter", () => {
     expect(of(evs, "tool_result")[0]!.payload).toEqual({ toolUseId: of(evs, "tool_call")[0]!.payload.toolUseId, content: "session closed", isError: true });
     expect(types(evs)).not.toContain("error"); // a dispose is not a failure, open card or not
     expect(statuses(evs).at(-1)).toBe("ended");
+  });
+
+  it("closes a tool call still open when the turn ends, so its card stops spinning", async () => {
+    // A stopped turn sends no final update for the call it cut off, as Codex's `turn/completed` does not.
+    const { handle, evs } = await booted();
+    await handle.send({ text: "OPENTOOL", attachments: [] });
+    await waitFor(() => expect(of(evs, "tool_call")).toHaveLength(1));
+    await handle.interrupt();
+    await waitFor(() => expect(statuses(evs).at(-1)).toBe("idle"));
+    expect(of(evs, "tool_result")[0]?.payload).toMatchObject({ toolUseId: of(evs, "tool_call")[0]!.payload.toolUseId, isError: true });
+    await handle.dispose();
   });
 
   it("closes an open tool call and reports an error when the child dies unexpectedly", async () => {

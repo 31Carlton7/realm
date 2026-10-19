@@ -112,6 +112,18 @@ export function itemActKind(label: string, item: DeliverableItem): ActKind | nul
   }
 }
 
+/**
+ * The act Realm lines up for this item once it is approved, or null when a person does it instead: a
+ * channel act (`itemActKind`) aimed at an account on a channel, and for a DM or an email, at someone.
+ * What Review promises before the yes reads this; `ActService.issue` issues tickets on the same rule.
+ */
+export function itemTicketKind(label: string, item: DeliverableItem): ActKind | null {
+  const kind = itemActKind(label, item);
+  const target = itemTarget(item);
+  if (!kind || !target?.account || !target.channel) return null;
+  return kind === "post" || target.to ? kind : null;
+}
+
 /** Whether a verb posts (a caption under a picture) or sends (a message to someone), or neither. */
 export function verbFamily(verb: string | null): "post" | "send" | null {
   if (!verb) return null;

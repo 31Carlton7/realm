@@ -15,9 +15,6 @@ const toGrant = (r: RawGrant): VaultGrant => {
 
 type RawUse = { id: string; ts: number; actor: string; run_id: string | null; session_id: string | null; verb: string; object: string | null; detail_json: string };
 
-/** The verbs a use of a secret is written under in `team_activity`. */
-export const USE_VERBS = ["used_secret", "refused_secret"] as const;
-
 /**
  * The vault's rows in realm.db: grants, and its uses read back off the team's activity log. No secret
  * material is here, or could be — a grant is ids, a name and hosts. Every rule about which grant may be

@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
-import type { InstalledApp, LibraryEntry, Skill } from "@realm/contracts";
+import type { DelegatedChild, InstalledApp, LibraryEntry, Skill } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session, skillRow, type FakeData } from "../../state/store.test-fakes";
 import { SessionPane } from "./SessionPane";
 import { reduceAll } from "./transcript-model";
-import { filterMentionSkills, mentionQueryAt } from "./MentionPicker";
+import { mentionQueryAt } from "./MentionPicker";
 
 /** Library: two mentionable skills, one disabled, one invalid — the last two must NEVER be offered. */
 const LIBRARY = [
@@ -232,6 +232,24 @@ describe("the @ list — files, the Library, apps and @Mac", () => {
  * dissolve, on a scroller INSIDE the surface. A mask applies to everything an element paints, so on
  * the surface itself it would fade the card's own fill and corner out along with the rows.
  */
+describe("the @ list — this session's sub-agents", () => {
+  const child = (id: string, title: string, agentKind: "codex" | "claude"): DelegatedChild => ({
+    session: session(id, "s1", { title, agentKind, status: "running", dispatchedBy: { sessionId: "se1", kind: "agent_run" } }),
+    goal: title, startedAt: 1, settledAt: null, outcome: null, report: null, activity: null,
+  });
+
+  it("marks each with its own agent's mark, as the row of active agents does", async () => {
+    // THE MUTANT: one generic bot glyph for every sub-agent, whatever runs it.
+    const kids = [child("se2", "Write the tests", "codex"), child("se3", "Draft the changelog", "claude")];
+    const { store } = await mount("claude", LIBRARY, { sessions: [session("se1", "s1", { status: "idle", agentKind: "claude", cwd: "/repo" }), ...kids.map((k) => k.session)], delegatedChildren: { se1: kids } });
+    await act(async () => { await store.getState().refreshSubagents("se1"); });
+    await type("@");
+    expect(heads()).toContain("In this session");
+    const mark = (name: string) => row(name).querySelector(".mention-row-mark > svg[data-brand]")?.getAttribute("data-brand");
+    expect([mark("Write the tests"), mark("Draft the changelog")]).toEqual(["openai", "claude"]);
+  });
+});
+
 describe("the @ and / popovers dissolve their rows, never their surface", () => {
   const LONG = Array.from({ length: 12 }, (_, i) => skillRow(`skill-${String(i).padStart(2, "0")}`));
   /** jsdom lays nothing out, so the scroller's metrics are stated — 12 rows in a box of 4. */
@@ -292,14 +310,5 @@ describe("mentionQueryAt", () => {
   });
   it("lets a path's slash into the query, so `@src/au` searches files", () => {
     expect(mentionQueryAt("see @src/au", 11)).toEqual({ start: 4, end: 11, query: "src/au" });
-  });
-});
-
-describe("filterMentionSkills", () => {
-  const skills = [skillRow("mac"), skillRow("mac-cli", { name: "Mac CLI" })];
-  it("matches by id or display name, case-insensitively; empty query keeps everything", () => {
-    expect(filterMentionSkills(skills, "").map((s) => s.id)).toEqual(["mac", "mac-cli"]);
-    expect(filterMentionSkills(skills, "CLI").map((s) => s.id)).toEqual(["mac-cli"]);
-    expect(filterMentionSkills(skills, "zzz")).toEqual([]);
   });
 });

@@ -3,6 +3,7 @@ import { Icon } from "@realm/ui";
 import { useEffect, useId, useLayoutEffect, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import type { SubmitKey } from "../../state/store";
 import { AttachmentTile } from "./AttachmentTile";
+import { prefersReducedMotion } from "../../reduced-motion";
 
 /** What a queued row can do with its message. Edit holds it on the server while the field is open
  *  (`sessions.holdQueued`), so a turn that settles mid-edit cannot send the old text. */
@@ -25,8 +26,6 @@ const LEAVE_MS = 160;
 /** The drag's own type, so the prompter's file and item drops (which read theirs) let it pass. */
 const DRAG_TYPE = "application/x-realm-queued";
 
-const reducedMotion = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-
 /**
  * The rows that just left, kept a moment so they fold away rather than vanish — a Send now that made
  * the row blink out reads as a click that lost the message. Each is put back at the index it left
@@ -39,7 +38,7 @@ function useLeaving(queued: QueuedPrompt[]): { q: QueuedPrompt; leaving: boolean
   useLayoutEffect(() => {
     const was = prev.current;
     prev.current = queued;
-    if (was === queued || reducedMotion()) return;
+    if (was === queued || prefersReducedMotion()) return;
     const left = was.flatMap((q, at) => (queued.some((n) => n.id === q.id) ? [] : [{ q, at }]));
     if (left.length === 0) return;
     setGone((g) => [...g.filter((x) => !left.some((l) => l.q.id === x.q.id)), ...left]);

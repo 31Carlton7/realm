@@ -50,9 +50,4 @@ describe("which surfaces wear the decorative wash", () => {
     expect(dialog.classList.contains("wash")).toBe(false);
     expect(dialog.style.getPropertyValue("--grain-hue")).toBe("");
   });
-
-  /* The two tests that used to sit here compared one washed surface against another and held one
-     still across a re-render. Both read their geometry off surfaces that no longer carry any, so
-     both had quietly become assertions that "" is "" — and `theme/grain.test.ts` tests `grainVars`
-     itself, which is where the per-surface seed and its stability actually live. */
 });

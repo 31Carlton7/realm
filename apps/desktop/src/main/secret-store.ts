@@ -253,9 +253,17 @@ export type UnlockPolicyAuditEntry = {
 
 export type SecretStoreDeps = {
   safeStorage: SafeStorageLike;
-  /** The store file's contents, or null when it does not exist yet. */
+  /** The store file's contents, or null when it does not exist yet. Throws when it exists and cannot
+   *  be read right now — which says nothing about what is in it, so the store writes nothing. */
   readFile(): string | null;
   writeFile(text: string): void;
+  /**
+   * Move the store file aside, unopened and unchanged, and return where it went: the store could not
+   * read it (not JSON, or a keyring this Mac's Keychain will not open), and starting fresh must not
+   * mean writing over every sign-in in it. Throws when it cannot be moved — then nothing is written
+   * over it either. Absent, an unreadable file is refused rather than replaced.
+   */
+  setAside?(): string;
   /** Append one JSONL audit line. Failures are swallowed by the caller — an unwritable log must not
    *  be a reason a sign-in fails, but it also must never be the reason one silently succeeds
    *  unlogged, which is why the append happens before the fill is reported ok. */
@@ -406,7 +414,21 @@ type StoreFile = {
   fillAllow: Record<string, string>;
   /** Whether the login keychain's passwords are offered. Off until the person turns it on. */
   keychainEnabled: boolean;
+  /** Where the last store Realm could not read was kept, and when — until the person has read
+   *  Settings ▸ Passwords' notice about it. */
+  unreadable: SetAside | null;
 };
+
+/** A store file moved aside because it could not be read. */
+export type SetAside = { path: string; at: number };
+
+/**
+ * What safeStorage throws when the Keychain is shut to Realm rather than the blob being bad: access
+ * refused, or not available yet (Electron 37's own words). The keyring is fine then, and so is the
+ * file. Every other failure to open it — "Ciphertext does not appear to be encrypted", the bare
+ * "Error while decrypting…", a blob that opens to garbage — is the content.
+ */
+const KEYCHAIN_SHUT = /(De|En)cryption is not available|cannot be used before app is ready/;
 
 /** 2: every row names its profile. 1 had none — see `adopt`. Policies did not need a new version:
  *  a file without `unlock` is every scope on the default, which is exactly what it was. */
@@ -1693,6 +1715,45 @@ export class SecretStore {
     try { return this.key("eggs").toString("base64"); } catch { return null; }
   }
 
+  /** The `remote` key (Plan 28): what seals this Mac's Realm Mobile identity, the private keys every
+   *  paired phone has pinned. realm-server dials the relay and runs each phone's handshake, so it is
+   *  what has to open them.
+   *
+   *  Null degrades the way machine's does: with no key the server writes no identity at all and
+   *  reports Realm Mobile locked until a Realm that can unlock the keyring attaches. */
+  exportRemoteKey(): string | null {
+    if (!this.available) return null;
+    try { return this.key("remote").toString("base64"); } catch { return null; }
+  }
+
+  /** The store Realm last could not read and kept aside, for Settings ▸ Passwords to say so once.
+   *  Null when there is nothing to say. */
+  unreadableNotice(): SetAside | null {
+    return this.load().unreadable;
+  }
+
+  /** The person has read the notice. The file it named stays where it is. */
+  dismissUnreadableNotice(): void {
+    const file = this.load();
+    if (!file.unreadable) return;
+    file.unreadable = null;
+    this.save();
+  }
+
+  /** Saved sign-ins this launch cannot open because macOS has not let Realm into the Keychain —
+   *  refused, or not available yet. The file is as it was; Settings ▸ Passwords offers Try again. */
+  keychainNeeded(): boolean {
+    const file = this.load();
+    return this.keys === null && file.keyring !== "";
+  }
+
+  /** Settings' Try again: read the file and ask the Keychain afresh. Whether it is still needed. */
+  retryKeychain(): boolean {
+    if (this.keys) return false;
+    this.file = null;
+    return this.keychainNeeded();
+  }
+
   /* ------------------------------------ file ------------------------------------ */
 
   private key(domain: SecretDomain): Buffer {
@@ -1735,8 +1796,16 @@ export class SecretStore {
     if (this.file) return this.file;
     const raw = this.d.readFile();
     let parsed: Partial<StoreFile> | null = null;
-    if (raw) {
+    let setAside: SetAside | null = null;
+    if (raw !== null) {
       try { parsed = JSON.parse(raw) as Partial<StoreFile>; } catch { parsed = null; }
+      // Not JSON, or JSON that is no store — an empty file included, which is what a write cut off
+      // by a crash used to leave. Nothing in it can be read here, and that is not the same as
+      // nothing being in it.
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        parsed = null;
+        setAside = this.setAside();
+      }
     }
     const file: StoreFile = {
       version: FILE_VERSION,
@@ -1751,9 +1820,18 @@ export class SecretStore {
       neverSave: readSiteLists(parsed?.neverSave),
       fillAllow: readUnlockMap(parsed?.fillAllow),
       keychainEnabled: parsed?.keychainEnabled === true,
+      unreadable: setAside ?? readSetAside(parsed?.unreadable),
     };
     this.file = file;
-    this.keys = this.unlockKeyring(file);
+    // Written at once, so the notice outlives this launch even if no keyring can be minted yet.
+    if (setAside) this.save();
+    try {
+      this.keys = this.unlockKeyring(file);
+    } catch (e) {
+      // Nothing was replaced; the next read starts again from the file.
+      this.file = null;
+      throw e;
+    }
     this.unadopted = file.credentials.some((c) => c.profileId === undefined) || file.passkeys.some((p) => p.profileId === undefined);
     return file;
   }
@@ -1761,10 +1839,11 @@ export class SecretStore {
   /**
    * Open the keyring, minting one on first run. A keyring that will not open (Keychain item deleted,
    * file copied from another Mac) is REPLACED with a fresh one and the credential rows that were
-   * sealed under the old keys are dropped — they are permanently unopenable, and keeping them would
+   * sealed under the old keys leave the store — they cannot be opened here, and keeping them would
    * mean a Settings list full of sign-ins that refuse at every fill with no way for the user to see
-   * why. OAuth rows degrade the same way on the server side, to `unconfigured`; the recovery for
-   * both is the flow that created them.
+   * why. The file holding them is moved aside first, whole, never written over: the Keychain that
+   * sealed them may still open it. OAuth rows degrade the same way on the server side, to
+   * `unconfigured`; the recovery for both is the flow that created them.
    */
   private unlockKeyring(file: StoreFile): Record<SecretDomain, Buffer> | null {
     if (!this.available) return null;
@@ -1781,11 +1860,11 @@ export class SecretStore {
              launch after an update, because a feature nobody had used yet wanted a third key.
              Minted and folded in beside the other two instead — the existing keys are untouched, so
              nothing sealed under them stops opening. */
-          /* `machine`, `eggs`, `passkey` and `unlock` were each added after this keyring's shape was settled,
-             and each is folded in the same way and for the reason above: a missing domain is a
-             key to mint, never a corrupt keyring to discard. */
+          /* `machine`, `eggs`, `passkey`, `unlock`, the vault's two, `team-policy` and `remote` were each
+             added after this keyring's shape was settled, and each is folded in the same way and for the
+             reason above: a missing domain is a key to mint, never a corrupt keyring to discard. */
           const added: Record<string, string> = {};
-          const fold = (name: "machine" | "eggs" | "passkey" | "unlock" | "vault-key" | "vault-allow" | "team-policy" | "fill-allow"): Buffer => {
+          const fold = (name: "machine" | "eggs" | "passkey" | "unlock" | "vault-key" | "vault-allow" | "team-policy" | "fill-allow" | "remote"): Buffer => {
             const existing = Buffer.from(String(json[name] ?? ""), "base64");
             if (existing.length === SECRET_KEY_BYTES) return existing;
             const minted = newSecretKey();
@@ -1800,14 +1879,20 @@ export class SecretStore {
           const vaultAllow = fold("vault-allow");
           const teamPolicy = fold("team-policy");
           const fillAllow = fold("fill-allow");
+          const remote = fold("remote");
           if (Object.keys(added).length > 0) {
             file.keyring = this.d.safeStorage.encryptString(JSON.stringify({ ...json, ...added })).toString("base64");
             this.file = file;
             this.save();
           }
-          return { oauth, credential, machine, eggs, passkey, unlock, "vault-key": vaultKey, "vault-allow": vaultAllow, "team-policy": teamPolicy, "fill-allow": fillAllow };
+          return { oauth, credential, machine, eggs, passkey, unlock, "vault-key": vaultKey, "vault-allow": vaultAllow, "team-policy": teamPolicy, "fill-allow": fillAllow, remote };
         }
-      } catch { /* falls through to a fresh keyring */ }
+      } catch (e) {
+        // Refused, or not ready: nothing is moved or replaced, and `retryKeychain` asks again.
+        if (e instanceof Error && KEYCHAIN_SHUT.test(e.message)) return null;
+        /* otherwise falls through to a fresh keyring */
+      }
+      file.unreadable = this.setAside();
       file.credentials = [];
       // Sealed under keys that are gone, so every assertion would refuse with no way for the user to
       // see why. Dropped for the same reason the credentials are, and recovered the same way: by
@@ -1824,7 +1909,7 @@ export class SecretStore {
     const keys = {
       oauth: newSecretKey(), credential: newSecretKey(), machine: newSecretKey(),
       eggs: newSecretKey(), passkey: newSecretKey(), unlock: newSecretKey(),
-      "vault-key": newSecretKey(), "vault-allow": newSecretKey(), "team-policy": newSecretKey(), "fill-allow": newSecretKey(),
+      "vault-key": newSecretKey(), "vault-allow": newSecretKey(), "team-policy": newSecretKey(), "fill-allow": newSecretKey(), remote: newSecretKey(),
     };
     file.keyring = this.d.safeStorage
       .encryptString(JSON.stringify({
@@ -1838,6 +1923,7 @@ export class SecretStore {
         "vault-allow": keys["vault-allow"].toString("base64"),
         "team-policy": keys["team-policy"].toString("base64"),
         "fill-allow": keys["fill-allow"].toString("base64"),
+        remote: keys.remote.toString("base64"),
       }))
       .toString("base64");
     this.file = file;
@@ -1845,10 +1931,21 @@ export class SecretStore {
     return keys;
   }
 
+  /** Move the unreadable file aside, or throw so that nothing is written over it. */
+  private setAside(): SetAside {
+    if (!this.d.setAside) throw new SecretStoreError("Realm couldn't read your saved passwords, and left the file as it was.");
+    return { path: this.d.setAside(), at: this.d.now() };
+  }
+
   private save(): void {
     if (!this.file) return;
     this.d.writeFile(JSON.stringify(this.file, null, 2));
   }
+}
+
+function readSetAside(v: unknown): SetAside | null {
+  const r = v as Partial<SetAside> | null | undefined;
+  return typeof r?.path === "string" && typeof r.at === "number" ? { path: r.path, at: r.at } : null;
 }
 
 /** `BrowserCredential` from a stored row — the projection that drops `sealed`. Written as an

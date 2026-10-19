@@ -331,6 +331,10 @@ export async function scanApplications(dirs: readonly string[], dock: readonly s
   return apps.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true }));
 }
 
+/** How long a scan is trusted without even looking at the folders: one `@` asks for the list and
+ *  then for a page of icons, and the second ask should not stat the folders again. */
+const FRESH_MS = 2_000;
+
 /**
  * The scan, kept: listed once, and listed again only when one of the folders it read has changed —
  * an app installed or removed changes its folder's mtime, and checking a dozen mtimes costs nothing
@@ -341,10 +345,6 @@ export async function scanApplications(dirs: readonly string[], dock: readonly s
  * could name freely would let it point the reader at any file on disk — the same guard
  * `mac:app-icon` keeps by taking a capability id instead of a path.
  */
-/** How long a scan is trusted without even looking at the folders: one `@` asks for the list and
- *  then for a page of icons, and the second ask should not stat the folders again. */
-const FRESH_MS = 2_000;
-
 export class InstalledApps {
   private scan: { stamp: string; at: number; apps: (InstalledApp & { icon: string | null })[] } | null = null;
   private scanning: Promise<(InstalledApp & { icon: string | null })[]> | null = null;

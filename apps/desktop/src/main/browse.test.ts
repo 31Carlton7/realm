@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { mkdirSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
-import { BROWSE_LIMIT, browseFolder, folderLabel, insideRoot } from "./browse";
+import { BROWSE_LIMIT, browseFolder, insideRoot } from "./browse";
 
 let root = "";
 const file = (rel: string, body = "x", ageMin = 0) => {
@@ -87,10 +87,5 @@ describe("browseFolder", () => {
     expect(insideRoot(root, "sub/../..")).toBeNull();
     expect(insideRoot(root, "")).toBe(root);
     await expect(browseFolder(root, "../..")).rejects.toThrow(/outside/);
-  });
-
-  it("names the folder a breadcrumb is showing", () => {
-    expect(folderLabel("/a/b/space", "")).toBe("space");
-    expect(folderLabel("/a/b/space", "sheet/out")).toBe("out");
   });
 });

@@ -388,6 +388,18 @@ describe("headers — silent refresh and reconnect_needed", () => {
     expect(h.as.tokenRequests).toHaveLength(attempts);
   });
 
+  it("stays connected through a refresh the authorization server could not answer, and refreshes on the next call", async () => {
+    // A laptop waking before its network is up, a 503: the refresh token is still good, and latching
+    // "needs reconnecting" over it sent the user to sign in again for nothing.
+    const h = await setup();
+    await h.connect();
+    h.expireAccessToken();
+    h.as.failTokenNext(1, 503, "Service Unavailable");
+    await rejection(() => h.oauth.headers(h.reload()));
+    expect(oauthStatusOf(h.reload())).toBe("connected");
+    expect(await h.oauth.headers(h.reload())).toEqual({ Authorization: `Bearer ${h.as.lastIssuedAccessToken()}` });
+  });
+
   it("flips to reconnect_needed when there is no refresh token to refresh with", async () => {
     const h = await setup({ refreshTokens: false, accessTokenTtlSec: 3600 });
     await h.connect();

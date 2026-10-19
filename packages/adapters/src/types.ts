@@ -131,9 +131,20 @@ export interface AgentHandle {
   respondPermission(requestId: string, decision: PermissionDecision, answers?: AskAnswers): void;
   interrupt(): Promise<void>;
   /** `effort: null` is "the model's own default" — a level the session no longer asks for, not one
-   *  left unsaid. */
+   *  left unsaid. Rejects with `RestartRequiredError` when the running agent takes a permission mode
+   *  only at launch. */
   setOptions(opts: { model?: string; effort?: string | null; permissionMode?: string; fastMode?: boolean }): Promise<void>;
   dispose(): Promise<void>;
+}
+
+/**
+ * The running agent would not switch to the permission mode it was handed, and a fresh start of it
+ * would: it takes that mode at launch. The session's row already holds the mode, so starting the agent
+ * again on the same conversation is how the switch lands. Anything else `setOptions` rejects with is a
+ * refusal no restart fixes.
+ */
+export class RestartRequiredError extends Error {
+  constructor(message: string) { super(message); this.name = "RestartRequiredError"; }
 }
 
 /**

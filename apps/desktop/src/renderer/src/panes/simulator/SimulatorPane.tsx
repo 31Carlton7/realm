@@ -110,8 +110,6 @@ export function SimulatorPane({ item, visible }: PaneProps) {
   );
 }
 
-/** The empty state, and the only place a device is chosen. A list rather than a select: the rows
- *  carry a runtime and a state each, which is what tells two iPhone 17 Pros apart. */
 /** iOS first, then Android — the Mac's own platform leads, and a stable order beats one that
  *  changes with whatever happens to be booted. A real iPhone or iPad is its own group, last: it is
  *  somebody's phone on the cable, not one more simulator to boot. */
@@ -134,6 +132,8 @@ function factsOf(d: SimulatorDevice): string {
   return `${d.runtime}${running(d) ? " · already booted" : ""}`;
 }
 
+/** The empty state, and the only place a device is chosen. A list rather than a select: the rows
+ *  carry a runtime and a state each, which is what tells two iPhone 17 Pros apart. */
 function DevicePicker({ chosen, onPick }: { chosen: string | null; onPick: (udid: string, platform: SimulatorPlatform, physical: boolean) => void }) {
   const [devices, setDevices] = useState<SimulatorDevice[] | null>(null);
   const [available, setAvailable] = useState(true);

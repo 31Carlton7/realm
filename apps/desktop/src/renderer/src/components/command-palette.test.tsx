@@ -430,7 +430,7 @@ describe("deep search (Plan 16 W2)", () => {
   });
 
   it("a skill hit routes to the Library page; a memory hit to the space page's Memory tab", async () => {
-    const { store, api } = await mount({ searchResults: { ...empty,
+    const { store } = await mount({ searchResults: { ...empty,
       skills: [{ id: "auth", name: "Auth helper", description: "does login", snippet: snip("does ", "login") }],
       memory: [{ scope: "space" as const, profileId: null, spaceId: "s1", title: "Versed memory", snippet: snip("the ", "login"), file: null }],
     } });

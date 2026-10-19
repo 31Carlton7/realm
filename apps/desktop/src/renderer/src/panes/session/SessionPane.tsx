@@ -17,7 +17,6 @@ import type { QueueActions } from "./ComposerQueue";
 import { useFileDrop } from "../../components/use-file-drop";
 import { InstallCard } from "./InstallCard";
 import { Transcript } from "./Transcript";
-import { RunningAgents } from "./DelegatedRuns";
 import { TerminalDock } from "./TerminalDock";
 import { emptyTranscript } from "./transcript-model";
 import { promptHint } from "./prompt-hint";
@@ -25,6 +24,8 @@ import { latestTodos } from "./session-todos";
 import { SessionSummaryHost, useSummaryLive } from "./SessionSummary";
 import { SessionFilesHost } from "./SessionFiles";
 import { GoalStrip } from "./GoalStrip";
+import { useSessionSubagents } from "./session-subagents";
+import { orchestratorOrder } from "../agents-tab/subagent-state";
 import { useSelectInRealm } from "../../app-pick/start";
 import { PathMenu, asRef } from "./PathMenu";
 import { useSpaceTint } from "../../components/sidebar/use-sidebar-model";
@@ -52,8 +53,6 @@ export function SessionMeta({ item }: { item: Item }) {
       {/* The status dot, alone. The cost used to sit here; it now rides the summary button, which is
           where the rest of what a session produced already lives — and a number in the bar was one
           more thing competing with the title for a strip that has four buttons on the other end. */}
-      {/* The agents this session has working — at the bar's right, where "what is it doing" is read. */}
-      <RunningAgents sessionId={id} />
       <span className="status-dot" data-status={status} title={STATUS_LABEL[status]} aria-label={`Status: ${STATUS_LABEL[status]}`} />
     </>
   );
@@ -165,14 +164,18 @@ export function SessionPanelActions({ item, keep }: { item: Item; keep: number }
  *  read as the group they came from rather than as the first of the layout rows. */
 export function useSessionMenuItems(item: Item, keep: number): MenuItem[] {
   const actions = useSessionActions(item);
+  const shareSession = useApp((s) => s.shareSession);
   return useMemo(() => {
     if (item.kind !== "session") return [];
+    /* Beside Rename: like it, an act on the session itself rather than on the pane showing it. */
+    const share: MenuItem = { label: "Share as web page…", icon: <Icon name="browser" size={14} />, onSelect: () => shareSession(item.refId) };
     const overflow = actions.slice(keep);
-    if (overflow.length === 0) return [];
+    if (overflow.length === 0) return [share];
     /* Fenced on both sides: these are the bar's cluster, continued, and without the leading rule they
        read as a continuation of Rename instead — one list of five unrelated things at the top of the
        menu. */
     return [
+      share,
       { kind: "separator" },
       ...overflow.map((a): MenuItem => ({
         label: a.label,
@@ -183,7 +186,7 @@ export function useSessionMenuItems(item: Item, keep: number): MenuItem[] {
       })),
       { kind: "separator" },
     ];
-  }, [actions, keep, item.kind]);
+  }, [actions, keep, item.kind, item.refId, shareSession]);
 }
 
 /**
@@ -201,12 +204,12 @@ function PeekBar({ spaceName, elsewhere, onOpen }: { spaceName: string; elsewher
   );
 }
 
-/** Transcript + composer for one agent session (item.refId = session id). PanelBar renders the header. */
 /** Stable, so a pane with no references hands the Composer the same array every render. */
 const EMPTY_REFS: readonly { sessionId: string; title: string; agent: string }[] = [];
 
 const trimSlash = (path: string): string => path.replace(/\/+$/, "");
 
+/** Transcript + composer for one agent session (item.refId = session id). PanelBar renders the header. */
 export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const id = item.refId;
   const session = useApp((s) => s.sessions[id]);
@@ -375,6 +378,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
     return read;
   }, [id, loadEarlierEvents, loadEventsThrough, run]);
   const gitInfo = useApp((s) => { const cwd = s.sessions[id]?.cwd; return cwd ? s.gitInfo[cwd] ?? null : null; });
+  const changes = useApp((s) => { const cwd = s.sessions[id]?.cwd; return cwd ? s.diffs[cwd] ?? null : null; });
   // What is docked to this pane's right edge, if anything — one strip, one occupant.
   const dock = useApp((s) => s.sessionDock[id]);
   const closeSessionDock = useApp((s) => s.closeSessionDock);
@@ -418,6 +422,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const cliRow = session ? cliStatus.find((r) => r.kind === session.agentKind) : undefined;
   const openDiff = useApp((s) => s.openDiff);
   const exportSession = useApp((s) => s.exportSession);
+  const shareSession = useApp((s) => s.shareSession);
   const submitKey = useApp((s) => s.submitKey);
   const easterEggs = useApp((s) => s.easterEggs);
   // Stable across renders: InstallCard registers it as a window "focus" listener.
@@ -542,8 +547,13 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const cwd = session?.cwd ?? "";
   // A team space's roles: `@Creator Manager` wakes one as this session's sub-agent.
   const teamRoles = useApp((st) => (session ? st.teams[session.spaceId]?.roles : undefined));
-  const mentionSources = useMemo(() => ({ cwd, mac: macSkill, apps: installedApps, appIcons, accessibility, accessibilityAction, files: mentionFiles, library: mentionLibrary, onOpen: onMentionOpen, ensureIcons, addRef, roles: teamRoles ?? [] }),
-    [cwd, macSkill, installedApps, appIcons, accessibility, accessibilityAction, mentionFiles, mentionLibrary, onMentionOpen, ensureIcons, addRef, teamRoles]);
+  // Its own sub-agents that are sessions: `@Write the tests` passes the message to that one too.
+  const subagents = useSessionSubagents(id);
+  const children = useApp((st) => st.subagents[id]);
+  const mentionAgents = useMemo(() => orchestratorOrder(subagents.filter((a) => a.source === "delegated"), (a) => a.state)
+    .map((a) => ({ id: a.id, title: a.title, state: a.state, agentKind: children?.find((c) => c.session.id === a.id)?.session.agentKind ?? null })), [subagents, children]);
+  const mentionSources = useMemo(() => ({ cwd, mac: macSkill, apps: installedApps, appIcons, accessibility, accessibilityAction, files: mentionFiles, library: mentionLibrary, onOpen: onMentionOpen, ensureIcons, addRef, roles: teamRoles ?? [], agents: mentionAgents }),
+    [cwd, macSkill, installedApps, appIcons, accessibility, accessibilityAction, mentionFiles, mentionLibrary, onMentionOpen, ensureIcons, addRef, teamRoles, mentionAgents]);
   /* The apps the log's own messages named keep their icons after a relaunch: asked for once each,
      when the transcript first carries them. */
   const loggedApps = useMemo(() => [...new Set(transcript.blocks.flatMap((b) => (b.kind === "user" && b.refs ? b.refs.flatMap((r) => (r.kind === "app" ? [r.path] : [])) : [])))].join("\n"),
@@ -629,6 +639,10 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
       id: "export", label: "Export session", hint: "Save this transcript as Markdown", icon: "download",
       run: () => run(() => exportSession(id)),
     },
+    {
+      id: "share", label: "Share as web page", hint: "Save this session as one page that opens in any browser", icon: "browser",
+      run: () => shareSession(id),
+    },
     // Each of the rest is gated on the thing it would act on actually existing: a command that could
     // only no-op is the dead chrome the pane bar bans, and a picker is a worse place for one than a
     // toolbar because the user typed its name expecting it to work.
@@ -690,7 +704,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onInstall={() => run(() => runCliAction(session.agentKind, "install"))}
             onSignIn={() => run(() => startSignIn(session.agentKind, session.spaceId, session.id))}
             onDismissJob={() => dismissCliJob(session.agentKind)} />
-        : <DraftedComposer session={session} status={status} gitInfo={gitInfo} todos={todos} quote={quote}
+        : <DraftedComposer session={session} status={status} gitInfo={gitInfo} changes={changes} todos={todos} quote={quote}
             onOpenDiff={() => run(() => openDiff(session.environmentId))}
             attachments={attachments}
             onAttachPick={() => run(() => attachFromPicker(id))}

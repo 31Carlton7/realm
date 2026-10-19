@@ -33,6 +33,13 @@ interface Window {
     quitAndStopAgents(): Promise<void>;
     /** The agent server's health, as main sees it. Replayed on every new window. */
     onDaemonState(cb: (state: { kind: string; attempt?: number; logPath?: string; why?: string }) => void): () => void;
+    /** Where the server is now. The `port` and `token` above are the ones this window was opened with;
+     *  a server started since — after a crash, or from the banner's Restart — has its own. Optional
+     *  like every late bridge: jsdom has none. */
+    serverEndpoint?(): Promise<{ port: number; token: string } | null>;
+    /** The banner's "Restart Realm's server": start it again, stopping one that is running but not
+     *  answering. Resolves once main has done what it can; the window dials again after. */
+    restartServer?(): Promise<void>;
     /** Whether the window is key (AppKit's sense: it has the keyboard), as main sees it. */
     onWindowKey(cb: (key: boolean) => void): () => void;
     isWindowKey(): Promise<boolean>;
@@ -84,8 +91,8 @@ interface Window {
     pickFolders(): Promise<PickedFile[]>;
     /** The path of a VS Code colour theme the user chose, or null if they cancelled. */
     pickThemeFile(): Promise<string | null>;
-    /** Downscaled data: URL for an image attachment; null for anything not a readable image. */
-    /** `tile` (the default) is a 96px mark beside a name; `card` is the Library's preview. */
+    /** Downscaled data: URL for an image attachment; null for anything not a readable image. `tile`
+     *  (the default) is a 96px mark beside a name; `card` is the Library's preview. */
     attachmentThumbnail(path: string, size?: "tile" | "card"): Promise<string | null>;
     /** Hand an attachment to the app the user reads that type in — the files Realm cannot draw.
      *  Optional for the same reason `media` is: without the bridge the tile stays a picture. */
@@ -93,6 +100,8 @@ interface Window {
     /** Write text to a file the user names; the saved path, or null when cancelled. Optional like
      *  the other late additions: jsdom has no bridge, and the caller says so rather than throwing. */
     saveText?(input: { name: string; text: string }): Promise<string | null>;
+    /** A picture for a shared page, re-encoded by main at the page's size; null when it is not one. */
+    shareImage?(path: string): Promise<string | null>;
     /** Single-image picker for the icon picker's "Uploaded" tab; null when cancelled. */
     describePaths(paths: string[]): Promise<PickedFile[]>;
     pickIconImage(): Promise<PickedFile | null>;
@@ -113,14 +122,9 @@ interface Window {
       /** The path of that copy, made once per version of the file (main/media-proxy.ts). */
       transcode?(path: string): Promise<string>;
     };
-    /** Any file the app is already LISTING — a Library row, a session's outputs — as opposed to a
-     *  path an agent merely named. `media` above admits only what a media element can decode, so it
-     *  is right to refuse a `.ts`; these are gated on existence instead. Optional for the same
-     *  reason: every call site degrades to "cannot", and jsdom has no bridge at all. */
     /** Realm's theme preference, so the window's native material, menus and panels match it
      *  (main/appearance.ts). Optional: a renderer with no bridge has no native appearance to set. */
     setAppearance?(pref: "system" | "light" | "dark"): void;
-    /** The Dock icon (main/app-icon.ts). Optional: only the desktop app has a Dock to change. */
     /** What's new (main/whats-new.ts). Optional like every late bridge: jsdom has none. */
     whatsNew?: {
       notes(): Promise<WhatsNew>;
@@ -128,10 +132,15 @@ interface Window {
       claim(): Promise<boolean>;
       seen(): Promise<void>;
     };
+    /** The Dock icon (main/app-icon.ts). Optional: only the desktop app has a Dock to change. */
     appIcon?: {
       get(): Promise<string>;
       set(id: string, png: Uint8Array): Promise<boolean>;
     };
+    /** Any file the app is already LISTING — a Library row, a session's outputs — as opposed to a
+     *  path an agent merely named. `media` above admits only what a media element can decode, so it
+     *  is right to refuse a `.ts`; these are gated on existence instead. Optional for the same
+     *  reason: every call site degrades to "cannot", and jsdom has no bridge at all. */
     files?: {
       /** Size and mtime, or null when nothing is there — how a preview learns to say the file is
        *  gone rather than drawing actions that would each fail in turn. */
@@ -181,15 +190,15 @@ interface Window {
       probe(): Promise<TccRow[]>;
       openSettings(pane: string): Promise<void>;
     };
-    /** The `mac` CLI's access (Permissions tab, "Apps on this Mac"). `status` runs `mac doctor`,
-     *  which never prompts; `grant` deliberately DOES — it runs the one read-only command that
-     *  raises that capability's macOS dialog, so it stays pending while the dialog is up. */
     /** Settings ▸ Lab (main/lab-host.ts). */
     lab?: {
       loginItem(): Promise<{ openAtLogin: boolean | null; canSet: boolean }>;
       setLoginItem(on: boolean): Promise<{ openAtLogin: boolean | null; canSet: boolean }>;
       openSettings(pane: string): Promise<void>;
     };
+    /** The `mac` CLI's access (Permissions tab, "Apps on this Mac"). `status` runs `mac doctor`,
+     *  which never prompts; `grant` deliberately DOES — it runs the one read-only command that
+     *  raises that capability's macOS dialog, so it stays pending while the dialog is up. */
     macAccess: {
       status(): Promise<MacAccessStatus>;
       grant(id: string): Promise<MacAccessStatus>;
@@ -206,7 +215,6 @@ interface Window {
       status(): Promise<ComputerAccessStatus>;
       request(id: string): Promise<ComputerAccessStatus>;
       repair(id: string): Promise<ComputerAccessStatus>;
-      openSettings(id: string): Promise<void>;
     };
     /** Settings→App Updates row (Plan 15 W1). The gate lives in main: on a gated build `check`
      *  answers the same disabled state `status` does — the renderer can't start a check main won't run. */
@@ -226,8 +234,8 @@ interface Window {
       badge(count: number): Promise<void>;
       onActivate(cb: (id: string) => void): () => void;
     };
-    /** Settings → Sign-ins. One-way by construction: `add` takes a value, nothing gives one back. */
-    /** Every door names the PROFILE whose sign-ins it is: they are a profile's own (Plan 27 Phase 2). */
+    /** Settings → Sign-ins. One-way by construction: `add` takes a value, nothing gives one back.
+     *  Every door names the PROFILE whose sign-ins it is: they are a profile's own (Plan 27 Phase 2). */
     credentials: {
       list(profileId: string): Promise<import("@realm/contracts").BrowserCredential[]>;
       status(): Promise<{ available: boolean; canPromptTouchID: boolean; canPromptDeviceOwner: boolean; presenceTtlMs: number }>;
@@ -250,6 +258,13 @@ interface Window {
       setNever?(profileId: string, origin: string, never: boolean): Promise<string[]>;
       fillAllows?(profileId: string): Promise<import("@realm/contracts").PasswordFillAllow[]>;
       clearFillAllow?(profileId: string, credentialId: string, origin: string): Promise<boolean>;
+      /** A store Realm could not read and kept aside, until the person has read the notice. */
+      unreadable?(): Promise<{ path: string; at: number } | null>;
+      revealUnreadable?(): Promise<void>;
+      dismissUnreadable?(): Promise<void>;
+      /** Saved passwords the Keychain will not open for Realm right now, and Try again. */
+      keychainNeeded?(): Promise<boolean>;
+      retryKeychain?(): Promise<boolean>;
     };
     /** A team's post sheet: the one click that lets an act ticket go out (main/ticket-presses.ts).
      *  Optional like every bridge: jsdom has none, and without it nothing can be posted. */

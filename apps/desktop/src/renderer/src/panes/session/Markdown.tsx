@@ -57,27 +57,11 @@ const COPY_BUTTON_HTML =
   '<svg class="copy-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2.5"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>' +
   '<svg class="copied-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>';
 
-/** Post-sanitize DOM pass (DOMParser is inert — never executes scripts; the input is already
- *  DOMPurify-clean, and everything added here is our own static markup):
- *  - A-M1: a wide table must scroll inside its own container instead of stretching the transcript.
- *  - Plan 9 W2 (BUI CodeBlock): each fenced block becomes an editor panel — a header naming the
- *    fence's language beside a copy control, the <pre> as the body. The button is inert HTML;
- *    the Markdown component below wires it up by delegation. */
 /** GitHub's admonition syntax: a blockquote whose first line is `[!NOTE]` (or TIP / IMPORTANT /
  *  WARNING / CAUTION). Agents write these constantly and a plain grey bar throws away the one thing
  *  the marker was for — which of the five it is. Anything else in the brackets is left alone. */
 const CALLOUTS = new Set(["note", "tip", "important", "warning", "caution"]);
 
-/**
- * A numbered marker on a link the agent DID fetch.
- *
- * The numbers are the sources list's own, so `[2]` in the prose and `2` in the disclosure are one
- * page. Only links whose href matches something actually retrieved get one: a marker on a url the
- * model merely typed would present a claim as a citation, which is the one thing a citation must
- * never do. A message with no matching links gets no markers and still gets its sources list —
- * they answer different questions ("where did this sentence come from" against "what did you
- * read"), and only the first needs the model to have linked anything.
- */
 const citeKey = (url: string): string => url.replace(/\/+$/, "");
 
 /** The app's mark as an inline SVG string — the markdown renderer writes HTML, not React. */
@@ -110,6 +94,16 @@ function markAppLinks(doc: Document): void {
   }
 }
 
+/**
+ * A numbered marker on a link the agent DID fetch.
+ *
+ * The numbers are the sources list's own, so `[2]` in the prose and `2` in the disclosure are one
+ * page. Only links whose href matches something actually retrieved get one: a marker on a url the
+ * model merely typed would present a claim as a citation, which is the one thing a citation must
+ * never do. A message with no matching links gets no markers and still gets its sources list —
+ * they answer different questions ("where did this sentence come from" against "what did you
+ * read"), and only the first needs the model to have linked anything.
+ */
 function markCitations(doc: Document, cite: readonly string[]): void {
   const index = new Map(cite.map((url, i) => [citeKey(url), i + 1]));
   for (const a of Array.from(doc.body.querySelectorAll("a[href]"))) {
@@ -122,6 +116,12 @@ function markCitations(doc: Document, cite: readonly string[]): void {
   }
 }
 
+/** Post-sanitize DOM pass (DOMParser is inert — never executes scripts; the input is already
+ *  DOMPurify-clean, and everything added here is our own static markup):
+ *  - A-M1: a wide table must scroll inside its own container instead of stretching the transcript.
+ *  - Plan 9 W2 (BUI CodeBlock): each fenced block becomes an editor panel — a header naming the
+ *    fence's language beside a copy control, the <pre> as the body. The button is inert HTML;
+ *    the Markdown component below wires it up by delegation. */
 function decorate(html: string, cite: readonly string[]): string {
   if (cite.length === 0 && !html.includes("<table") && !html.includes("<pre") && !html.includes("<blockquote") && !html.includes("<a ")) return html;
   const doc = new DOMParser().parseFromString(html, "text/html");

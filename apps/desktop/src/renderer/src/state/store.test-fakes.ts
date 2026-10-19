@@ -1,10 +1,11 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_KEYBINDINGS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack, type UnlockPolicy, unlockPolicyRank } from "@realm/contracts";
-import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpSignInOptions, McpTool, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
+import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack, type UnlockPolicy, unlockPolicyRank } from "@realm/contracts";
+import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpSignInOptions, McpTool, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, BranchList, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
-import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, Schedule, SearchResults, UsageBudget, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
+import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, Schedule, SearchResults, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
 import type { SavedTurn } from "@realm/contracts";
+import { DEFAULT_REMOTE_RELAY, type PairRequest, type PairedPhone, type RemoteStatus } from "@realm/contracts";
 import { RpcError } from "../rpc/client";
 import type { RoleRun, TeamActivity, TeamRecord, TeamRecordType, TeamReviewDetail, TeamReviewSummary, TeamRole, TeamSpace } from "@realm/contracts";
 import { recordPreset, recordTemplate } from "@realm/contracts";
@@ -153,6 +154,24 @@ export const macRow = (id: string, label: string, group: MacAccessRow["group"], 
   };
 };
 
+/** Realm Mobile's status on a Mac that has never paired: the link off, no phone, no window. */
+export const remoteStatus = (extra: Partial<RemoteStatus> = {}): RemoteStatus =>
+  ({ state: "off", relay: DEFAULT_REMOTE_RELAY, macName: "Carlton's MacBook Pro", phones: [], pairing: null, ...extra });
+
+/** A paired phone, seen a minute after it was added. */
+export const pairedPhone = (phoneId: string, extra: Partial<PairedPhone> = {}): PairedPhone =>
+  ({ phoneId, name: "Carlton's iPhone", model: "iPhone18,1", addedAt: 0, lastSeen: 60_000, ...extra });
+
+/** A pairing link the length a real one is (PROTOCOL.md §2): the relay, two ids, two 32-byte keys, the
+ *  Mac's name and the expiry, base64url'd after the `#`. A QR test drawing a toy string would be
+ *  testing a smaller code than the one a phone is shown. */
+export const pairingLink = (windowId: string, expiresAt: number): string => {
+  const key = (seed: string) => btoa(seed.repeat(32).slice(0, 32)).replace(/=+$/, "");
+  const data = { r: DEFAULT_REMOTE_RELAY, m: "q3VkM8Lw0FhZ1y2aYb9xXw", k: key("k"), s: key("s"), w: windowId, n: "Carlton's MacBook Pro", e: expiresAt };
+  const b64u = btoa(JSON.stringify(data)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return `https://realm.computer/pair#1.${b64u}`;
+};
+
 export type FakeData = {
   /** `system.info.detachedSince` — when Realm's last window went away. Null (the default) is a server
    *  with a window attached, which is what every test that does not care about it wants. */
@@ -212,6 +231,8 @@ export type FakeData = {
   diffs?: Record<string, DiffSummary | null>;
   /** `workspace.fileDiff` by `${cwd}|${path}|${staged}`. */
   patches?: Record<string, FileDiff>;
+  /** `workspace.headImage` by `${cwd}|${path}`; absent = no picture in HEAD (null). */
+  headImages?: Record<string, string>;
   /** What `workspace.ship` answers next. Replace between calls to walk a flow. */
   shipResult?: ShipResult;
   /** `environments.worktreeStatus` by environment id. Mutate between calls to simulate the tree
@@ -246,9 +267,6 @@ export type FakeData = {
   commandsRoot?: string;
   /** A space's project scripts, by space id. Absent → none. */
   scripts?: Record<string, Script[]>;
-  /** What `keybindings.get` answers with. Defaults to the shipped rules with no error — the state a
-   *  fresh install is in. */
-  keybindings?: KeybindingsFile;
   /** What `sandbox.get` answers with. Defaults to the shipped posture (`off`) inherited from the
    *  default, on a Mac where Seatbelt works — the state a fresh install is in. */
   sandbox?: SandboxState;
@@ -312,12 +330,12 @@ export type FakeData = {
   /** What the main-process TCC probe answers (W6's Permissions tab). Defaults to the two honest
    *  can't-check rows plus three probed ones, mirroring main/tcc.ts's shape. */
   tccRows?: TccRow[];
-  /** Saved sign-ins. Each is profile p1's unless it names another `profileId` — sign-ins are a
-   *  profile's own, and the fake answers each profile with its rows alone, as main does. */
   /** The profile this fake window was opened for (`window.realm.profileId`); absent = the first window. */
   boundProfileId?: string | null;
   /** Profiles another (fake) window is showing — what `focusProfileWindow` answers yes for. */
   profilesInOtherWindows?: string[];
+  /** Saved sign-ins. Each is profile p1's unless it names another `profileId` — sign-ins are a
+   *  profile's own, and the fake answers each profile with its rows alone, as main does. */
   credentials?: (BrowserCredential & { profileId?: string })[];
   credentialStatus?: CredentialStatus;
   /** Each profile's unlock policy, by profile id; a profile absent here is on Touch ID. `refuseUnlock`
@@ -407,6 +425,7 @@ export type FakeData = {
   delegatedRuns?: Record<string, DelegatedRun[]>;
   /** Each lead session's sub-agents — what `delegation.children` answers. */
   delegatedChildren?: Record<string, DelegatedChild[]>;
+  dismissedSubagents?: Record<string, string[]>;
   /** What `delegation.models` answers, for every session. */
   delegableModels?: DelegableModels;
   /** What `search.query` answers (Plan 16 W2), regardless of query — palette tests script the groups.
@@ -423,6 +442,15 @@ export type FakeData = {
   libraryAdd?: ((input: LibraryAddInput) => LibraryAddResult) | null;
   /** The paths `library.add` should treat as folders, with what each holds. */
   addFolders?: Record<string, { files: string[]; bytes: number; subfolders: number }>;
+  /** Realm Mobile's status, as `remote.status` answers it. Defaults to what a Mac that has never paired
+   *  says: the link off, no phones, no window. `startRemotePairing` opens a window here and
+   *  `answerRemotePairing` adds the phone a yes answered, so a test reads the server's side back. */
+  remote?: RemoteStatus;
+  /** When set, `remote.status` fails with this message — a server without Realm Mobile, say. */
+  remoteError?: string | null;
+  /** The phones waiting to pair, by request id: what a yes adds. A test announces one to the store
+   *  with `applyPairRequest`, as the `remote.pairRequest` broadcast would. */
+  remoteRequests?: Record<string, PairRequest>;
   /** What `sessions.digest` answers per session id: where each left off. Absent = no replies. */
   lastReplies?: Record<string, string>;
   /** `iconAssets.list` by profile id — the space icon picker's "Generated"/"Uploaded" library. */
@@ -505,6 +533,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     gitInfo: overrides.gitInfo ?? {},
     diffs: overrides.diffs ?? {},
     patches: overrides.patches ?? {},
+    headImages: overrides.headImages ?? {},
     shipResult: overrides.shipResult ?? {
       commit: { state: "committed", sha: "abc1234", subject: "a commit", reason: null },
       push: { state: "pushed", remote: "origin", branch: "main", reason: null },
@@ -526,7 +555,6 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     commands: overrides.commands ?? {},
     commandsRoot: overrides.commandsRoot ?? "/realm-home/commands",
     scripts: overrides.scripts ?? {},
-    keybindings: overrides.keybindings ?? { path: "/realm-home/keybindings.json", rules: [...DEFAULT_KEYBINDINGS], error: null },
     sandbox: overrides.sandbox ?? {
       prefs: { posture: "off", network: true }, inherited: true, defaults: { posture: "off", network: true },
       policy: { posture: "off", network: true, writableRoots: [], readableRoots: [], readOnlyPaths: [], protectedRoots: [] },
@@ -648,6 +676,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     reviews: overrides.reviews ?? {},
     delegatedRuns: overrides.delegatedRuns ?? {},
     delegatedChildren: overrides.delegatedChildren ?? {},
+    dismissedSubagents: overrides.dismissedSubagents ?? {},
     delegableModels: overrides.delegableModels ?? { models: [], own: { kind: "claude", label: "Fable 5.1" } },
     searchResults: overrides.searchResults ?? { sessions: [], items: [], skills: [], memory: [] },
     artifacts: overrides.artifacts ?? [],
@@ -657,6 +686,9 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     iconAssets: overrides.iconAssets ?? {},
     lastReplies: overrides.lastReplies ?? {},
     pickIconImage: overrides.pickIconImage ?? null,
+    remote: overrides.remote ?? remoteStatus(),
+    remoteError: overrides.remoteError ?? null,
+    remoteRequests: overrides.remoteRequests ?? {},
   };
   let n = 100;
   /** `library.remove`'s holds, by removal id: what each took from `artifacts`, and where it stood. */
@@ -1218,9 +1250,6 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       data.sandbox = { ...data.sandbox, prefs: prefs ?? data.sandbox.defaults, inherited: prefs === null };
       return { ...data.sandbox };
     },
-    getKeybindings: async () => { calls.push("getKeybindings"); return { ...data.keybindings }; },
-    writeKeybindings: async (rules) => { calls.push("writeKeybindings"); data.keybindings = { ...data.keybindings, rules: [...rules], error: null }; return { ...data.keybindings }; },
-    resetKeybindings: async () => { calls.push("resetKeybindings"); data.keybindings = { path: data.keybindings.path, rules: [...DEFAULT_KEYBINDINGS], error: null }; return { ...data.keybindings }; },
     listCommands: async (spaceId) => { calls.push(`listCommands:${spaceId}`); return { root: data.commandsRoot, commands: [...(data.commands[spaceId ?? ""] ?? [])] }; },
     expandCommand: async (spaceId, name, args) => {
       calls.push(`expandCommand:${spaceId}:${name}`);
@@ -1535,7 +1564,6 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       if (i >= 0) data.sessions[i] = { ...data.sessions[i]!, terminalItemId: made.itemId };
       return made;
     },
-    writeTerminal: async (terminalId, data) => { calls.push(`writeTerminal:${terminalId}=${data}`); },
     prefillTerminal: async (terminalId, command) => { calls.push(`prefillTerminal:${terminalId}=${command}`); },
     tccProbe: async () => { calls.push("tccProbe"); return [...data.tccRows]; },
     // The fake store mirrors main's asymmetry exactly: `credentials` holds no value field, and
@@ -1632,7 +1660,6 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       data.computerAccess = { ...data.computerAccess, rows };
       return structuredClone(data.computerAccess);
     },
-    computerAccessOpenSettings: async (id) => { calls.push(`computerAccessOpenSettings:${id}`); },
     macAccessRevealApp: async () => { calls.push("macAccessRevealApp"); },
     updateStatus: async () => { calls.push("updateStatus"); return { ...data.updateStatus }; },
     // Mirrors main's gate: a disabled updater answers its state unchanged — the fake never checks.
@@ -1782,12 +1809,28 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     teamRoleArchive: async (id) => { calls.push(`teamRoleArchive:${id}`); },
     teamRoleRun: async (id, message) => { calls.push(`teamRoleRun:${id}:${message ?? ""}`); throw new Error("not faked"); },
     teamRoleRuns: async (id) => { calls.push(`teamRoleRuns:${id}`); return data.teamRoleRuns[id] ?? []; },
+    teamRoleMessage: async (id, text) => {
+      calls.push(`teamRoleMessage:${id}:${text}`);
+      const spaceId = data.teams.find((t) => t.roles.some((r) => r.id === id))?.spaceId ?? "";
+      return runRow(`run-${calls.length}`, spaceId, { roleId: id, wokeOn: "manual" });
+    },
     teamReview: async (id) => { calls.push(`teamReview:${id}`); const r = data.teamReviews[id]; if (!r) throw new Error("no review"); return structuredClone(r); },
     teamReviewDecide: async (id, decision) => {
       calls.push(`teamReviewDecide:${id}:${decision}`);
       const r = data.teamReviews[id]!;
       r.state = decision === "approve" ? "approved" : decision === "done" ? "done" : "dismissed";
       for (const t of data.teams) { const s = t.reviews.find((x) => x.id === id); if (s) s.state = r.state; }
+      return r;
+    },
+    teamReviewUndoApproval: async (id) => {
+      calls.push(`teamReviewUndoApproval:${id}`);
+      const r = data.teamReviews[id]!;
+      if (r.tickets.some((t) => t.state === "done" || t.state === "acting")) {
+        throw new RpcError("TEAM_REVIEW_WENT_OUT", "It's too late to undo: a post already went out. Close stops whatever hasn't gone out.");
+      }
+      const back = { state: "waiting" as const, decidedAt: null, actsTotal: 0, actsDone: 0, actsWaiting: 0, actsFailed: 0, nextActAt: null };
+      Object.assign(r, back, { tickets: [] });
+      for (const t of data.teams) { const s = t.reviews.find((x) => x.id === id); if (s) Object.assign(s, back); }
       return r;
     },
     teamReviewRequestChanges: async (id, note) => {
@@ -1860,7 +1903,10 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       for (const t of data.teams) { const r = t.recordTypes.find((x) => x.id === id); if (r) { r.archived = archived; t.recordTypes = t.recordTypes.filter((x) => !x.archived); return r; } }
       throw new Error("no record type");
     },
-    teamActivity: async (spaceId) => { calls.push(`teamActivity:${spaceId}`); return data.teamActivity[spaceId] ?? []; },
+    teamActivity: async (spaceId, _limit, roleId) => {
+      calls.push(`teamActivity:${spaceId}${roleId ? `:${roleId}` : ""}`);
+      return (data.teamActivity[spaceId] ?? []).filter((a) => !roleId || a.actor === `role:${roleId}` || a.detail.roleId === roleId);
+    },
     teamRoleHandoffs: async (input) => {
       calls.push(`teamRoleHandoffs:${input.id}:${(input.handsOffTo ?? []).join(",")}:${input.wakeOnMention ?? ""}`);
       for (const t of data.teams) { const r = t.roles.find((x) => x.id === input.id); if (r) { Object.assign(r, input); return r; } }
@@ -1961,6 +2007,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return data.patches[`${cwd}|${path}|${staged}`]
         ?? { path, oldPath: null, staged, binary: false, hunks: [], truncated: false, truncatedReason: null, additions: 0, deletions: 0 };
     },
+    headImage: async (cwd, path) => { calls.push(`headImage:${cwd}|${path}`); return data.headImages[`${cwd}|${path}`] ?? null; },
     stagePaths: async (cwd, paths) => { calls.push(`stage:${cwd}|${paths.join(",")}`); },
     unstagePaths: async (cwd, paths) => { calls.push(`unstage:${cwd}|${paths.join(",")}`); },
     ship: async (input) => {
@@ -2245,6 +2292,40 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return { notifications: page, nextCursor: page.length === cap && page.length > 0 ? `${page.at(-1)!.createdAt}:${page.at(-1)!.id}` : null,
         unread: data.notifications.filter((x) => x.readAt === null).length };
     },
+    remoteStatus: async () => {
+      calls.push("remoteStatus");
+      if (data.remoteError) throw new Error(data.remoteError);
+      return structuredClone(data.remote);
+    },
+    // A second start replaces the first window, as the server's does: the old code stops working.
+    startRemotePairing: async () => {
+      calls.push("startRemotePairing");
+      // As long as a real one (16 bytes, base64url), so the link and its code are a real link's size.
+      const windowId = `w${++n}`.padEnd(22, "x");
+      const expiresAt = Date.now() + 5 * 60_000;
+      const pairing = { windowId, url: pairingLink(windowId, expiresAt), expiresAt };
+      data.remote = { ...data.remote, pairing };
+      return { ...pairing };
+    },
+    cancelRemotePairing: async () => {
+      calls.push("cancelRemotePairing");
+      data.remote = { ...data.remote, pairing: null };
+    },
+    // Only a yes adds the phone, and only one that really asked: the server knows its requests, and a
+    // fake that paired any id it was handed could pass a test the server fails.
+    answerRemotePairing: async (requestId, accept) => {
+      calls.push(`answerRemotePairing:${requestId}=${accept}`);
+      const asked = data.remoteRequests[requestId];
+      if (!asked) throw new Error(`no pair request ${requestId}`);
+      delete data.remoteRequests[requestId];
+      if (!accept) return;
+      const at = Date.now();
+      data.remote = { ...data.remote, phones: [...data.remote.phones, { phoneId: `ph-${requestId}`, name: asked.name, model: asked.model, addedAt: at, lastSeen: at }] };
+    },
+    removeRemotePhone: async (phoneId) => {
+      calls.push(`removeRemotePhone:${phoneId}`);
+      data.remote = { ...data.remote, phones: data.remote.phones.filter((p) => p.phoneId !== phoneId) };
+    },
     markNotificationsRead: async (input) => {
       calls.push(`markNotificationsRead:${input.all ? "all" : (input.ids ?? []).join(",")}`);
       const t = Date.now();
@@ -2260,7 +2341,13 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     getReview: async (environmentId) => { calls.push(`getReview:${environmentId}`); return { review: data.reviews[environmentId] ?? null }; },
     dismissReview: async (environmentId) => { calls.push(`dismissReview:${environmentId}`); data.reviews[environmentId] = null; },
     listDelegatedRuns: async (sessionId) => { calls.push(`listDelegatedRuns:${sessionId}`); return data.delegatedRuns[sessionId] ?? []; },
-    listDelegatedChildren: async (sessionId) => { calls.push(`listDelegatedChildren:${sessionId}`); return data.delegatedChildren[sessionId] ?? []; },
+    listDelegatedChildren: async (sessionId) => { calls.push(`listDelegatedChildren:${sessionId}`); return { children: data.delegatedChildren[sessionId] ?? [], dismissed: data.dismissedSubagents[sessionId] ?? [] }; },
+    addTeammate: async (input) => { calls.push(`addTeammate:${JSON.stringify(input)}`); return { childId: "01ARZ3NDEKTSV4RRFFQ69G5TMT" }; },
+    dismissSubagent: async (sessionId, id) => {
+      calls.push(`dismissSubagent:${sessionId}:${id}`);
+      data.dismissedSubagents[sessionId] = [...(data.dismissedSubagents[sessionId] ?? []), id];
+      return { dismissed: data.dismissedSubagents[sessionId] };
+    },
     delegableModels: async (sessionId) => { calls.push(`delegableModels:${sessionId}`); return data.delegableModels; },
     agentsTab: async (sessionId) => {
       calls.push(`agentsTab:${sessionId}`);

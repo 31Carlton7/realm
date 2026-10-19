@@ -1,0 +1,542 @@
+{
+  "note": "Written by apps/server/src/remote/api-fixtures.test.ts from the real projector and MobileApi. RealmKit must decode every one.",
+  "calls": {
+    "home.get": {
+      "mac": {
+        "name": "MacBook Pro"
+      },
+      "needsYou": [
+        {
+          "id": "01JSESSION00000000000000000",
+          "title": "Theme column",
+          "spaceId": "sp1",
+          "spaceName": "Realm",
+          "agent": "claude",
+          "model": "claude-opus-5-5",
+          "status": "waiting",
+          "needsYou": true,
+          "unread": false,
+          "updatedAt": 1790000000000,
+          "agentName": "Claude",
+          "agentMark": "claude",
+          "modelLabel": "Opus 5.5"
+        },
+        {
+          "id": "01JCODEX000000000000000000",
+          "title": "The deck",
+          "spaceId": "sp2",
+          "spaceName": "Deck",
+          "agent": "codex",
+          "model": null,
+          "status": "error",
+          "needsYou": true,
+          "unread": true,
+          "updatedAt": 1790000100000,
+          "agentName": "Codex",
+          "agentMark": "openai",
+          "modelLabel": "GPT-5.6"
+        }
+      ],
+      "spaces": [
+        {
+          "id": "sp1",
+          "name": "Realm",
+          "icon": "code",
+          "color": "#7c6cff",
+          "iconKind": "glyph",
+          "glyph": "code",
+          "sessions": [
+            {
+              "id": "01JSESSION00000000000000000",
+              "title": "Theme column",
+              "spaceId": "sp1",
+              "spaceName": "Realm",
+              "agent": "claude",
+              "model": "claude-opus-5-5",
+              "status": "waiting",
+              "needsYou": true,
+              "unread": false,
+              "updatedAt": 1790000000000,
+              "agentName": "Claude",
+              "agentMark": "claude",
+              "modelLabel": "Opus 5.5"
+            }
+          ],
+          "more": 0
+        },
+        {
+          "id": "sp2",
+          "name": "Deck",
+          "icon": "emoji:🌊",
+          "color": "#7c6cff",
+          "iconKind": "emoji",
+          "emoji": "🌊",
+          "sessions": [
+            {
+              "id": "01JCODEX000000000000000000",
+              "title": "The deck",
+              "spaceId": "sp2",
+              "spaceName": "Deck",
+              "agent": "codex",
+              "model": null,
+              "status": "error",
+              "needsYou": true,
+              "unread": true,
+              "updatedAt": 1790000100000,
+              "agentName": "Codex",
+              "agentMark": "openai",
+              "modelLabel": "GPT-5.6"
+            }
+          ],
+          "more": 0
+        },
+        {
+          "id": "sp3",
+          "name": "School",
+          "icon": "asset:01JASSET",
+          "color": "#7c6cff",
+          "iconKind": "picture",
+          "sessions": [
+            {
+              "id": "01JQUIET000000000000000000",
+              "title": "Lecture notes",
+              "spaceId": "sp3",
+              "spaceName": "School",
+              "agent": "acp:cursor",
+              "model": "composer-2",
+              "status": "idle",
+              "needsYou": false,
+              "unread": false,
+              "updatedAt": 1790000200000,
+              "agentName": "Cursor",
+              "agentMark": "cursor",
+              "modelLabel": "composer-2"
+            }
+          ],
+          "more": 0
+        }
+      ]
+    },
+    "session.open": {
+      "session": {
+        "id": "01JSESSION00000000000000000",
+        "title": "Theme column",
+        "spaceId": "sp1",
+        "spaceName": "Realm",
+        "agent": "claude",
+        "model": "claude-opus-5-5",
+        "status": "waiting",
+        "needsYou": true,
+        "unread": false,
+        "updatedAt": 1790000000000,
+        "agentName": "Claude",
+        "agentMark": "claude",
+        "modelLabel": "Opus 5.5"
+      },
+      "rows": [
+        {
+          "key": "u:1",
+          "seq": 1,
+          "kind": "user",
+          "text": "File the issue, then plan the column"
+        },
+        {
+          "key": "k:k1",
+          "seq": 2,
+          "kind": "thinking",
+          "text": "Linear first."
+        },
+        {
+          "key": "m:m1",
+          "seq": 3,
+          "kind": "assistant",
+          "text": "Filing it in **Linear**.",
+          "streaming": false
+        },
+        {
+          "key": "t:t1",
+          "seq": 5,
+          "kind": "tool",
+          "name": "Bash",
+          "summary": "pnpm test --silent",
+          "state": "done",
+          "detail": "Tests  12 passed"
+        },
+        {
+          "key": "r:q-open",
+          "seq": 6,
+          "kind": "request",
+          "requestId": "q-open",
+          "tool": "mcp__linear__create_issue",
+          "title": "Linear asks",
+          "summary": "mcp__linear__create_issue",
+          "state": "pending",
+          "questions": [
+            {
+              "question": "Which team?",
+              "header": "",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "Engineering",
+                  "description": "Builds it",
+                  "value": "eng"
+                },
+                {
+                  "label": "Operations",
+                  "value": "ops"
+                }
+              ],
+              "id": "team",
+              "kind": "choice",
+              "allowOther": true,
+              "secret": false
+            },
+            {
+              "question": "Which labels?",
+              "header": "Labels",
+              "multiSelect": true,
+              "options": [
+                {
+                  "label": "Bug",
+                  "value": "bug"
+                },
+                {
+                  "label": "Urgent",
+                  "value": "p1"
+                }
+              ],
+              "id": "labels",
+              "kind": "multi",
+              "allowOther": true,
+              "secret": false
+            },
+            {
+              "question": "Paste the deploy token",
+              "header": "",
+              "multiSelect": false,
+              "options": [],
+              "id": "token",
+              "kind": "text",
+              "allowOther": false,
+              "secret": true,
+              "required": true
+            },
+            {
+              "question": "Ship it now?",
+              "header": "",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "Yes",
+                  "value": "yes"
+                },
+                {
+                  "label": "No",
+                  "value": "no"
+                }
+              ],
+              "id": "ship",
+              "kind": "confirm",
+              "allowOther": false,
+              "secret": false
+            }
+          ],
+          "asker": "Linear's MCP server",
+          "message": "To file the issue"
+        },
+        {
+          "key": "r:q-done",
+          "seq": 8,
+          "kind": "request",
+          "requestId": "q-done",
+          "tool": "mcp__linear__create_issue",
+          "title": "Linear asks",
+          "summary": "mcp__linear__create_issue",
+          "state": "allowed",
+          "questions": [
+            {
+              "question": "Which team?",
+              "header": "",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "Engineering",
+                  "description": "Builds it",
+                  "value": "eng"
+                },
+                {
+                  "label": "Operations",
+                  "value": "ops"
+                }
+              ],
+              "id": "team",
+              "kind": "choice",
+              "allowOther": true,
+              "secret": false
+            },
+            {
+              "question": "Which labels?",
+              "header": "Labels",
+              "multiSelect": true,
+              "options": [
+                {
+                  "label": "Bug",
+                  "value": "bug"
+                },
+                {
+                  "label": "Urgent",
+                  "value": "p1"
+                }
+              ],
+              "id": "labels",
+              "kind": "multi",
+              "allowOther": true,
+              "secret": false
+            },
+            {
+              "question": "Paste the deploy token",
+              "header": "",
+              "multiSelect": false,
+              "options": [],
+              "id": "token",
+              "kind": "text",
+              "allowOther": false,
+              "secret": true,
+              "required": true
+            },
+            {
+              "question": "Ship it now?",
+              "header": "",
+              "multiSelect": false,
+              "options": [
+                {
+                  "label": "Yes",
+                  "value": "yes"
+                },
+                {
+                  "label": "No",
+                  "value": "no"
+                }
+              ],
+              "id": "ship",
+              "kind": "confirm",
+              "allowOther": false,
+              "secret": false
+            }
+          ],
+          "asker": "Linear's MCP server",
+          "message": "To file the issue",
+          "answers": {
+            "team": "eng",
+            "labels": [
+              "bug",
+              "Regression"
+            ],
+            "token": "••••••",
+            "ship": "yes"
+          }
+        },
+        {
+          "key": "p:p1",
+          "seq": 9,
+          "kind": "plan",
+          "text": null,
+          "steps": [
+            {
+              "text": "Add the column",
+              "status": "completed"
+            },
+            {
+              "text": "Backfill it",
+              "status": "in_progress"
+            }
+          ]
+        },
+        {
+          "key": "r:x1",
+          "seq": 10,
+          "kind": "request",
+          "requestId": "x1",
+          "tool": "ExitPlanMode",
+          "title": "Approve the plan?",
+          "summary": "## Theme column",
+          "state": "pending",
+          "questions": null,
+          "plan": {
+            "text": "## Theme column\n\nAdd it, then backfill it.",
+            "steps": [
+              {
+                "text": "Add the column",
+                "status": "completed"
+              },
+              {
+                "text": "Backfill it",
+                "status": "in_progress"
+              }
+            ]
+          }
+        },
+        {
+          "key": "e:11",
+          "seq": 11,
+          "kind": "notice",
+          "text": "Context compacted"
+        },
+        {
+          "key": "c:01JCHECKPOINT0000000000000",
+          "seq": 12,
+          "kind": "notice",
+          "text": "Changed 2 files: theme.ts, new-name.ts",
+          "checkpointId": "01JCHECKPOINT0000000000000"
+        },
+        {
+          "key": "m:7",
+          "seq": 13,
+          "kind": "notice",
+          "text": "Made 3 files: slide.png, notes.md, walkthrough.mp4",
+          "files": [
+            {
+              "path": "/Users/me/Desktop/Deck/slide.png",
+              "size": 1024
+            },
+            {
+              "path": "/Users/me/Desktop/Deck/notes.md",
+              "size": 1024
+            },
+            {
+              "path": "/Users/me/Desktop/Deck/walkthrough.mp4",
+              "size": 1024
+            }
+          ]
+        },
+        {
+          "key": "e:14",
+          "seq": 14,
+          "kind": "error",
+          "text": "Claude hit its usage limit",
+          "hint": "Continue on Codex"
+        }
+      ],
+      "hasMore": false,
+      "hint": "Approve the plan and run the migration"
+    },
+    "session.changes": {
+      "checkpointId": "01JCHECKPOINT0000000000000",
+      "files": [
+        {
+          "path": "src/theme.ts",
+          "oldPath": null,
+          "status": "modified",
+          "additions": 2,
+          "deletions": 1
+        },
+        {
+          "path": "src/new-name.ts",
+          "oldPath": "src/old-name.ts",
+          "status": "renamed",
+          "additions": 0,
+          "deletions": 0
+        }
+      ],
+      "totalFiles": 2
+    },
+    "session.diff": {
+      "path": "src/theme.ts",
+      "oldPath": null,
+      "status": "modified",
+      "binary": false,
+      "additions": 2,
+      "deletions": 1,
+      "lines": [
+        "--- a/src/theme.ts",
+        "+++ b/src/theme.ts",
+        "@@ -3,3 +3,4 @@ export function theme()",
+        "   const mode = read();",
+        "-  return mode;",
+        "+  const column = mode ?? \"system\";",
+        "+  return column;",
+        "\\ No newline at end of file"
+      ],
+      "from": 0,
+      "next": null,
+      "total": 8,
+      "truncated": false,
+      "truncatedReason": null
+    },
+    "session.file:image": {
+      "path": "/Users/me/Desktop/Deck/slide.png",
+      "name": "slide.png",
+      "size": 3,
+      "mime": "image/png",
+      "preview": {
+        "kind": "image",
+        "mime": "image/jpeg",
+        "data": "anBlZw=="
+      }
+    },
+    "session.file:text": {
+      "path": "/Users/me/Desktop/Deck/notes.md",
+      "name": "notes.md",
+      "size": 28,
+      "mime": "text/markdown",
+      "preview": {
+        "kind": "text",
+        "text": "# Deck notes\n\nThree slides.\n",
+        "truncated": false
+      }
+    },
+    "session.file:none": {
+      "path": "/Users/me/Desktop/Deck/walkthrough.mp4",
+      "name": "walkthrough.mp4",
+      "size": 3,
+      "mime": "video/mp4",
+      "preview": {
+        "kind": "none",
+        "reason": "Open this on your Mac to play it."
+      }
+    },
+    "space.icon": {
+      "mime": "image/png",
+      "data": "YSBwaWN0dXJl"
+    }
+  },
+  "events": {
+    "session.hint": [
+      {
+        "id": "01JSESSION00000000000000000",
+        "text": "Approve the plan and run the migration"
+      },
+      {
+        "id": "01JSESSION00000000000000000",
+        "text": null
+      }
+    ]
+  },
+  "answer": {
+    "picks": {
+      "team": [
+        "Operations"
+      ],
+      "labels": [
+        "Bug"
+      ],
+      "ship": [
+        "No"
+      ]
+    },
+    "own": {
+      "labels": "Regression",
+      "token": "tok_live_123"
+    },
+    "values": {
+      "team": "ops",
+      "labels": [
+        "bug",
+        "Regression"
+      ],
+      "token": "tok_live_123",
+      "ship": "no"
+    }
+  }
+}

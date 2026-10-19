@@ -1,6 +1,7 @@
 import { Icon } from "@realm/ui";
 import { useState } from "react";
 import { editTotals, type EditedFile, type TurnEdits, type UndoOffer } from "./turn-edits";
+import { changePhrase } from "../diff/what-changed";
 
 /** Rows before "Show all": a turn that touched forty files is still one card a reader can scan. */
 const SHOWN = 8;
@@ -53,7 +54,8 @@ function FileRow({ file, source, onOpen }: { file: EditedFile; source: TurnEdits
 }
 
 /**
- * What a turn did to the checkout, at its end: Codex's "Edited 2 files +20 −3" card — a row per file,
+ * What a turn did to the checkout, at its end: Codex's "Edited 2 files +20 −3" card, in Realm's words
+ * ("Changed 2 documents") — a row per file,
  * Review for the turn's own diff, and Undo where a checkpoint really covers the turn.
  *
  * Undo is offered only when restoring the turn's checkpoint would put back exactly this turn's work
@@ -78,10 +80,13 @@ export function EditSummary({ edits, undo, onOpen, onReview, onUndo, enter = fal
   const totals = editTotals(edits.files);
   const rows = all ? edits.files : edits.files.slice(0, SHOWN);
   const unlisted = edits.totalFiles - edits.files.length;
+  // The words the prompter's pill and the Changes view use, so a turn's card and the review it opens
+  // say the same thing about the same files.
+  const phrase = changePhrase(edits.files.map((f) => ({ path: f.shown, status: f.status })), edits.totalFiles) ?? `Changed ${plural(edits.totalFiles)}`;
   return (
-    <section className="edit-summary" aria-label={`Edited ${plural(edits.totalFiles)}`} data-source={edits.source} data-enter={enter || undefined}>
+    <section className="edit-summary" aria-label={phrase} data-source={edits.source} data-enter={enter || undefined}>
       <div className="edit-summary-head">
-        <span className="edit-summary-title">Edited {plural(edits.totalFiles)}</span>
+        <span className="edit-summary-title">{phrase}</span>
         {totals && <Counts additions={totals.additions} deletions={totals.deletions} />}
         <span className="edit-summary-actions">
           {undo.kind === "undo" && (

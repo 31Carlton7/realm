@@ -61,6 +61,17 @@ describe("the Usage panel", () => {
     await waitFor(() => expect(api.calls.some((c) => c.endsWith(":s1"))).toBe(true));
   });
 
+  it("labels every step of a small spend's axis differently", async () => {
+    // A cent's worth of spend makes the steps 0.005, 0.01 and 0.015, and the axis printed the top two
+    // as "$0.01" each, beside a "$0.0050". THE mutant: cents for every figure under ten dollars.
+    const tiny = summary();
+    tiny.breakdowns.agent = [{ key: "claude", label: "Claude", colorIndex: 0, totals: usageTotals({ costUsd: 0.012, reportedUsd: 0.012, sessions: 1 }),
+      buckets: [{ costUsd: 0, tokens: 0 }, { costUsd: 0, tokens: 0 }, { costUsd: 0.012, tokens: 100 }] }];
+    const { container } = await mount({ usageSummary: tiny });
+    const axis = [...container.querySelectorAll('text.chart-tick[text-anchor="end"]')].map((t) => t.textContent);
+    expect(axis).toEqual(["$0", "$0.005", "$0.01", "$0.015"]);
+  });
+
   it("splits reported dollars from estimated ones, because they are different kinds of fact", async () => {
     await mount();
     expect(screen.getByText("$12.50")).toBeInTheDocument();

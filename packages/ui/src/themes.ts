@@ -19,13 +19,6 @@ import { CODEX_EXTRA_VARS, CODEX_LIGHT_SEED, deriveCodex } from "./codex-theme";
  *  overrides at all, so the default experience is byte-for-byte the static CSS it has always been —
  *  the theme mechanism cannot regress the theme nobody chose. */
 
-/** What a theme has to state. Every property in `THEME_VARS` is derived from these — see
- *  `themeVars` — because a palette is a set of RELATIONSHIPS (a surface ladder, an ink ramp, a
- *  border overlay ramp) and only the anchors of those relationships are a matter of taste.
- *
- *  The border ramp, the shadow stacks and the scrims state nothing here on purpose: tembo's ramps are
- *  ALPHA overlays over whatever ground they land on, so they already follow a repainted surface. That
- *  is the property that makes a thirteen-value seed enough. */
 /** Every hue below is the value its upstream PUBLISHES, not a value tuned to clear Realm's floors.
  *  It can be, because `lift` corrects a stated hue along lightness until it clears — and refuses to
  *  move it further than `LIFT_BUDGET`, which is what makes "vendored" mean something. Hand-brightening

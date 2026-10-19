@@ -6,7 +6,7 @@ import { AsyncQueue } from "../event-queue";
 import { createSdkMapper, type ChainCursor } from "./map-sdk-message";
 import { probeClaude } from "./probe";
 import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
-import { GATEWAY_TOOL_TIMEOUT_MS } from "../types";
+import { GATEWAY_TOOL_TIMEOUT_MS, RestartRequiredError } from "../types";
 
 type QueryFn = typeof sdkQuery;
 /** The keys `Settings` actually declares. The SDK's type ends in `[k: string]: unknown`, so a
@@ -177,6 +177,24 @@ export function claudeSdkPermissionMode(mode: string | null | undefined): string
   return mode === ASK_PERMISSION_MODE || !mode ? "default" : mode;
 }
 
+/**
+ * Whether the CLI can be launched able to switch into `bypassPermissions` later
+ * (`--allow-dangerously-skip-permissions`). Not as root: there the CLI exits at boot when either bypass
+ * flag is on its argv ("cannot be used with root/sudo privileges"), unless `IS_SANDBOX=1` says the root
+ * is a container's — so the flag would cost every session its start, not only its switch.
+ */
+function bypassSwitchable(env: Record<string, string | undefined>): boolean {
+  return process.getuid?.() !== 0 || env.IS_SANDBOX === "1";
+}
+
+/** What to say when Claude Code keeps a session out of Full access, in place of its own words, which
+ *  name a mode id and a flag the person never chose. */
+function fullAccessRefusal(reason: string, switchable: boolean): string {
+  if (!switchable) return "Claude Code doesn't allow Full access while Realm runs as root. The session keeps its current mode.";
+  if (reason.includes("disabled by settings")) return "Full access is turned off in Claude Code's settings (permissions.disableBypassPermissionsMode). The session keeps its current mode.";
+  return `Claude Code didn't switch this session to Full access, so it keeps its current mode. It said: ${reason}`;
+}
+
 /** Who asks when Claude's own `AskUserQuestion` reaches the card. */
 const CLAUDE_ASKER = { kind: "agent", name: "Claude", agent: "claude" } as const;
 
@@ -286,6 +304,9 @@ export class ClaudeAdapter implements AgentAdapter {
       if (toolName.startsWith("mcp__") && opts.gatewayDecides && await opts.gatewayDecides(toolName).catch(() => false)) {
         return { behavior: "allow", updatedInput: toolInput };
       }
+      // Cancelled while the policy decided: the abort has already fired, and the listener below
+      // would never hear it, so a card drawn now could never be cleared.
+      if (o.signal.aborted) return { behavior: "deny", message: "aborted" };
       const requestId = newId();
       const suggestions = o.suggestions ?? [];
       // A question travels on this channel too, and is marked as one HERE — from the SDK's own tool
@@ -305,11 +326,18 @@ export class ClaudeAdapter implements AgentAdapter {
       return result;
     };
 
+    const env = { ...process.env, ...opts.env };
+    const switchable = bypassSwitchable(env);
     const options: Options = {
       cwd: opts.cwd,
       model: opts.model ?? undefined,
       effort: claudeEffort(opts.effort),
       permissionMode: claudeSdkPermissionMode(opts.permissionMode) as Options["permissionMode"],
+      // On every launch and every resume, so Full access is reachable from whatever mode the session
+      // started in. Without it the CLI takes `bypassPermissions` only in a session that STARTED there,
+      // and refuses a later switch: "the session was not launched with --dangerously-skip-permissions".
+      // It grants nothing on its own — the session runs `permissionMode` until it is switched.
+      allowDangerouslySkipPermissions: switchable,
       canUseTool,
       includePartialMessages: true,
       abortController: abort,
@@ -352,7 +380,7 @@ export class ClaudeAdapter implements AgentAdapter {
       // and the repo's `.claude/` settings. That is why the option is only present when the space
       // actually has enabled skills — a space that manages none is left exactly as it was.
       ...(opts.skills ? { settingSources: [], plugins: [{ type: "local" as const, path: opts.skills.pluginPath, skipMcpDiscovery: true }] } : {}),
-      env: { ...process.env, ...opts.env },
+      env,
       stderr: onStderr,
       pathToClaudeCodeExecutable: process.env.REALM_CLAUDE_BIN,
       // Realm's execution sandbox. The SDK owns the argv — which node, which cli.js, which flags —
@@ -698,8 +726,9 @@ export class ClaudeAdapter implements AgentAdapter {
         // ERROR result carrying its own diagnostic (`[ede_diagnostic] result_type=user …`), which is
         // true of the API call and useless to the person who pressed the button: they know why it
         // stopped. The flag is what lets the result branch tell "you cancelled this" apart from
-        // "this failed", which nothing in the message itself can.
-        interrupted = true;
+        // "this failed", which nothing in the message itself can. Only while a turn runs: an idle CLI
+        // produces no result to clear it, and the next turn would settle as stopped.
+        if (running) interrupted = true;
         denyAllPending();
         try { await q?.interrupt(); } catch { /* process may already be gone; result/ended will report */ }
       },
@@ -717,10 +746,20 @@ export class ClaudeAdapter implements AgentAdapter {
           if (level !== undefined) await q?.applyFlagSettings({ effortLevel: level });
         }
         if (o.permissionMode) {
-          // Realm's own record moves FIRST: it is what the gate above reads, and it must hold even
-          // if the SDK call throws.
+          // Realm's own record moves FIRST: it is what the gate above reads, and Ask must hold even
+          // if the SDK call throws. Any other mode the CLI did not take goes back to the one it runs.
+          const inForce = permissionMode;
           permissionMode = o.permissionMode;
-          await q?.setPermissionMode(claudeSdkPermissionMode(o.permissionMode) as never);
+          try {
+            await q?.setPermissionMode(claudeSdkPermissionMode(o.permissionMode) as never);
+          } catch (e) {
+            if (o.permissionMode !== ASK_PERMISSION_MODE) permissionMode = inForce;
+            if (o.permissionMode !== "bypassPermissions") throw e;
+            const reason = e instanceof Error ? e.message : String(e);
+            // The one refusal a restart answers: a CLI that takes bypass only from launch.
+            if (switchable && reason.includes("not launched with")) throw new RestartRequiredError(reason);
+            throw new Error(fullAccessRefusal(reason, switchable));
+          }
         }
       },
       dispose: async () => {

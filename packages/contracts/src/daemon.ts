@@ -36,17 +36,6 @@ export const DAEMON_STATE_FILE = "daemon.json";
 export const DAEMON_LOCK_FILE = "daemon.lock";
 
 /**
- * The wire's version, for a client deciding whether it can talk to a daemon it did not start.
- *
- * Separate from `SERVER_VERSION`, which is a hardcoded string that has never moved and so cannot
- * answer the question. Bump `DAEMON_PROTOCOL` when a change to the RPC surface would make an older
- * renderer misbehave rather than merely miss a feature — added methods and added optional fields do
- * not qualify, since a client that does not call them cannot notice.
- *
- * The MIN/MAX pair is the range THIS app can drive. An adopted daemon outside it is a handoff, not a
- * refusal: the app restarts the daemon rather than telling the user their own server is too old.
- */
-/**
  * How a handoff is taken when the running daemon is not this build's.
  *
  * `restart` — stop it, start ours. The default, and always correct: sessions resume from their
@@ -61,6 +50,17 @@ export const DAEMON_HANDOFF_MODE_DEFAULT: DaemonHandoffMode = "restart";
 export const resolveHandoffMode = (raw: unknown): DaemonHandoffMode =>
   (DAEMON_HANDOFF_MODES as readonly string[]).includes(raw as string) ? (raw as DaemonHandoffMode) : DAEMON_HANDOFF_MODE_DEFAULT;
 
+/**
+ * The wire's version, for a client deciding whether it can talk to a daemon it did not start.
+ *
+ * Separate from `SERVER_VERSION`, which is a hardcoded string that has never moved and so cannot
+ * answer the question. Bump `DAEMON_PROTOCOL` when a change to the RPC surface would make an older
+ * renderer misbehave rather than merely miss a feature — added methods and added optional fields do
+ * not qualify, since a client that does not call them cannot notice.
+ *
+ * The MIN/MAX pair is the range THIS app can drive. An adopted daemon outside it is a handoff, not a
+ * refusal: the app restarts the daemon rather than telling the user their own server is too old.
+ */
 export const DAEMON_PROTOCOL = 1;
 export const DAEMON_PROTOCOL_MIN = 1;
 export const DAEMON_PROTOCOL_MAX = 1;

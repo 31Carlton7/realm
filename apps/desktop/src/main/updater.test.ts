@@ -170,6 +170,20 @@ describe("RealmUpdater", () => {
     expect(fake.installed).toBe(0);
   });
 
+  it("an install that fails after the download says so, and a later check can run", async () => {
+    // Squirrel's hand-off fails as an `error` AFTER `update-downloaded`. Left at `downloaded`, Restart
+    // kept asking for an install that had already failed, and `check` refuses to run from there.
+    const fake = fakeUpdater();
+    const up = new RealmUpdater({ version: "1.0.0", decision: { enabled: true }, load: async () => fake });
+    fake.nextResult = { isUpdateAvailable: true, updateInfo: { version: "1.1.0" } };
+    await up.check();
+    fake.fireDownloaded("1.1.0");
+    up.install();
+    fake.fireError("Could not locate update bundle");
+    expect(up.status().state).toEqual({ kind: "error", message: "Could not locate update bundle" });
+    expect((await up.check()).state).toEqual({ kind: "downloading", version: "1.1.0", percent: null });
+  });
+
   it("a check's own failure is the check's error, not a lost download", async () => {
     const fake = fakeUpdater();
     const up = new RealmUpdater({ version: "1.0.0", decision: { enabled: true }, load: async () => fake });

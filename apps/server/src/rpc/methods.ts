@@ -1,6 +1,6 @@
 import { DAEMON_PROTOCOL, Methods, type MethodName, type MethodResult } from "@realm/contracts";
 import type { z } from "zod";
-import type { RpcServer } from "./server";
+import type { CallContext, RpcServer } from "./server";
 import { TERMINALS_HISTORY_KEY } from "@realm/contracts";
 import { BOOT_ID } from "../daemon/state";
 
@@ -63,6 +63,7 @@ import type { CodeReviewService } from "../code-review/service";
 import type { DelegationEngine } from "../delegation/engine";
 import type { DelegatedChildren } from "../delegation/children";
 import type { AgentRunService } from "../delegation/agent-run";
+import type { Teammates } from "../delegation/teammates";
 import type { SearchService } from "../search/service";
 import type { ArtifactsStore } from "../store/artifacts";
 import type { SavedTurnsStore } from "../store/saved-turns";
@@ -82,6 +83,9 @@ import type { PortAllocator } from "../workspace/ports";
 import type { ExecutionSandboxService } from "../sandbox/service";
 import type { LayaService } from "../laya/service";
 import type { AppViewService } from "../apps/service";
+import type { RemoteService } from "../remote/service";
+import type { Presence } from "../remote/presence";
+import { remoteSecretBox } from "../remote/secret";
 import { NotFoundError, RpcError } from "../store/rows";
 
 /** Parsed (post-default) params, i.e. what the handler actually receives. */
@@ -100,6 +104,9 @@ export type Deps = {
   /** A session's sub-agents read back from the tables, and its Agents tab. */
   children: DelegatedChildren;
   agentRuns: AgentRunService;
+  /** The agents a person adds to a session from its prompter's "+". Optional where a test builds the
+   *  methods without the delegation stack. */
+  teammates?: Teammates;
   laya: LayaService;
   agentSignIn: AgentSignInService;
   /** The views MCP servers draw for tool calls (MCP Apps). */
@@ -110,6 +117,9 @@ export type Deps = {
   savedTurns: SavedTurnsStore;
   /** The files a person added to the Library themselves, copied in under the profile. */
   libraryFiles: LibraryFilesStore;
+  /** Realm Mobile (Plan 28): Settings ▸ Devices, and whether the owner is at this Mac. */
+  remote: RemoteService;
+  presence: Presence;
 };
 
 export function registerMethods(d: Deps): void {
@@ -126,8 +136,8 @@ export function registerMethods(d: Deps): void {
     if (draining) throw new RpcError("DAEMON_DRAINING", `Realm is finishing an update — you can ${what} again in a moment`);
   };
   const { rpc } = d;
-  const reg = <M extends MethodName>(name: M, fn: (p: Params<M>) => Result<M>) =>
-    rpc.register(name, Methods[name].params, async (p) => fn(p as Params<M>));
+  const reg = <M extends MethodName>(name: M, fn: (p: Params<M>, ctx: CallContext) => Result<M>) =>
+    rpc.register(name, Methods[name].params, async (p, ctx) => fn(p as Params<M>, ctx));
 
   reg("system.info", () => ({ realmHome: d.home, version: d.version, machineName: d.machineName, userName: d.userName, bootId: BOOT_ID, protocol: DAEMON_PROTOCOL, detachedSince: d.browserBridge.detachedSince }));
 
@@ -168,6 +178,7 @@ export function registerMethods(d: Deps): void {
   reg("workspace.gitInfo", (p) => d.gitInfo.get(p.cwd));
   reg("workspace.diff", (p) => d.gitDiff.summary(p.cwd));
   reg("workspace.fileDiff", (p) => d.gitDiff.file(p.cwd, p.path, p.staged));
+  reg("workspace.headImage", (p) => d.gitDiff.headImage(p.cwd, p.path));
   reg("project.grep", (p) => d.projectSearch.grep(p.cwd, p.query, { limit: p.limit }));
   reg("project.files", (p) => d.projectSearch.files(p.cwd, p.query, p.limit));
   // The session's own checkout, resolved here from the row — never a directory the caller names.
@@ -900,6 +911,9 @@ export function registerMethods(d: Deps): void {
   // because it is the one method that needs its caller's socket — the bridge sends that exact client
   // its `browserHost.op` events from then on.
   rpc.register("browserHost.register", Methods["browserHost.register"].params, async (p, ctx) => {
+    // The executor IS a socket: everything after this line answers it by `sendTo`. An in-process call
+    // has none to adopt, and a phone is never the Mac's own Electron.
+    if (!ctx.client || ctx.principal !== "local") throw new RpcError("FORBIDDEN", "only Realm's own app can register as the browser host");
     d.browserBridge.register(ctx.client, { hasWindow: p.hasWindow });
     // Adopt the `oauth` domain key from main's Keychain-anchored keyring, so `oauthJson` stops being
     // plaintext in realm.db. Fire-and-forget on purpose: registration must not block on it, and a
@@ -934,6 +948,12 @@ export function registerMethods(d: Deps): void {
         if (d.eggs.restore() > 0) rpc.broadcast("eggs.changed", {});
       })
       .catch(() => {});
+    /* …and the `remote` key (Plan 28), which opens this Mac's Realm Mobile identity. Machine's failure
+       mode, not oauth's: no key, no identity written in the clear, and the service reports itself
+       locked until one arrives. Once it does, a Mac with a phone paired dials the relay. */
+    void d.browserBridge.call("remoteKey", {})
+      .then((r) => { remoteSecretBox.setKey(typeof (r as { key?: unknown })?.key === "string" ? (r as { key: string }).key : null); d.remote.keyChanged(); })
+      .catch(() => { /* no key: Realm Mobile stays locked, and Settings says so */ });
     return { ok: true as const };
   });
   reg("browserHost.result", (p) => { d.browserBridge.handleResult(p); return { ok: true as const }; });
@@ -970,8 +990,10 @@ export function registerMethods(d: Deps): void {
   reg("team.roleArchive", (p) => { d.team.archiveRole(p.id); return { archived: true }; });
   reg("team.roleRun", (p) => { refuseWhileDraining("start a role's run"); return d.team.runRole(p.id, p.message); });
   reg("team.roleRuns", (p) => d.team.roleRuns(p.id, p.limit));
+  reg("team.roleMessage", (p) => { refuseWhileDraining("message a teammate"); return d.team.messageRole(p.id, p.text); });
   reg("team.review", (p) => d.team.review(p.id));
   reg("team.reviewApprove", (p) => d.team.approve(p.id));
+  reg("team.reviewUndoApproval", (p) => d.team.undoApproval(p.id));
   reg("team.reviewRequestChanges", (p) => d.team.requestChanges(p.id, p.note));
   reg("team.reviewDone", (p) => d.team.markDone(p.id));
   reg("team.reviewDismiss", (p) => d.team.dismiss(p.id));
@@ -982,7 +1004,7 @@ export function registerMethods(d: Deps): void {
   reg("team.record", (p) => d.team.record(space(p.spaceId), p.path));
   reg("team.recordWrite", (p) => d.team.writeRecord(space(p.spaceId), p.path, p.markdown));
   reg("team.recordCreate", (p) => d.team.createRecord(space(p.spaceId), p.name, p.type));
-  reg("team.activity", (p) => d.team.activity(space(p.spaceId), p.limit, p.before));
+  reg("team.activity", (p) => d.team.activity(space(p.spaceId), p.limit, p.before, p.roleId));
   reg("team.roleHandoffs", (p) => handoffs().setRoleHandoffs(p));
   reg("team.roleGoal", (p) => { refuseWhileDraining("give a role a goal"); return handoffs().setGoal(p.id, p.objective); });
   reg("team.setLimits", (p) => { handoffs().setLimits(space(p.spaceId), p); return d.team.space(p.spaceId); });
@@ -997,6 +1019,20 @@ export function registerMethods(d: Deps): void {
 
   reg("notifications.list", (p) => d.notifications.list(p));
   reg("notifications.markRead", (p) => d.notifications.markRead(p));
+
+  /* Realm Mobile (Plan 28): Settings ▸ Devices, and Electron main's report of whether the owner is at
+     this Mac. The mobile API has no path to any of these, and each refuses a phone's principal all the
+     same: a phone must never open a pairing window, answer one, remove a phone, or vouch for the
+     owner being at the Mac — which would hold its own pushes back. */
+  const fromTheMac = (ctx: CallContext): void => {
+    if (ctx.principal !== "local") throw new RpcError("FORBIDDEN", "only this Mac can do that");
+  };
+  reg("remote.status", (_p, ctx) => { fromTheMac(ctx); return d.remote.status(); });
+  reg("remote.pair.start", (_p, ctx) => { fromTheMac(ctx); return d.remote.pairStart(); });
+  reg("remote.pair.cancel", (_p, ctx) => { fromTheMac(ctx); d.remote.pairCancel(); return { ok: true as const }; });
+  reg("remote.pair.answer", (p, ctx) => { fromTheMac(ctx); d.remote.pairAnswer(p.requestId, p.accept); return { ok: true as const }; });
+  reg("remote.phones.remove", (p, ctx) => { fromTheMac(ctx); d.remote.removePhone(p.phoneId); return { ok: true as const }; });
+  reg("remote.away", (p, ctx) => { fromTheMac(ctx); d.presence.set(p.away); return { ok: true as const }; });
 
   // The reviewer recipe (Plan 13 W3). `request` returns the moment the reviewer session exists; the
   // verdict arrives later as `review.changed` + a `review_done` notification. Reads and dismissal go
@@ -1029,7 +1065,16 @@ export function registerMethods(d: Deps): void {
   // a pane mounting mid-run has no other way to learn what its session is waiting on.
   reg("delegation.running", (p) => ({ running: d.delegation.liveRuns(p.sessionId) }));
   // The tables' side of the same subject: every child a session ever started, settled ones included.
-  reg("delegation.children", (p) => ({ children: d.children.list(p.sessionId) }));
+  reg("delegation.children", (p) => ({ children: d.children.list(p.sessionId), dismissed: d.teammates?.dismissed(p.sessionId) ?? [] }));
+  reg("delegation.addTeammate", (p) => {
+    if (!d.teammates) throw new RpcError("UNAVAILABLE", "this Realm cannot add teammates");
+    refuseWhileDraining("add a teammate");
+    return d.teammates.add(p);
+  });
+  reg("delegation.dismiss", (p) => {
+    if (!d.teammates) throw new RpcError("UNAVAILABLE", "this Realm cannot dismiss sub-agents");
+    return { dismissed: d.teammates.dismiss(p.sessionId, p.id) };
+  });
   reg("delegation.models", (p) => d.agentRuns.catalogFor(p.sessionId));
   reg("delegation.tab", (p) => d.children.tab(p.sessionId));
 
@@ -1095,7 +1140,9 @@ export function registerMethods(d: Deps): void {
   reg("sessions.send", async (p) => {
     // A teammate named in the message is woken first, as this session's sub-agent, so the message the
     // agent reads already says which sub-agent it is (`HandoffService.wakeMentioned`).
-    const mentionRefs = p.mentionRefs?.some((r) => r.kind === "role") && d.handoffs ? await d.handoffs.wakeMentioned(p.id, p.text, p.mentionRefs) : p.mentionRefs;
+    const woken = p.mentionRefs?.some((r) => r.kind === "role") && d.handoffs ? await d.handoffs.wakeMentioned(p.id, p.text, p.mentionRefs) : p.mentionRefs;
+    // And a sub-agent named in it is passed the message too, its chip told whether it was.
+    const mentionRefs = woken?.some((r) => r.kind === "agent") && d.teammates ? await d.teammates.passMentioned(p.id, p.text, woken) : woken;
     await d.sessions.send(p.id, { text: p.text, attachments: p.attachments, mentions: p.mentions, elements: p.elements, sessionRefs: p.sessionRefs, mentionRefs }, p.delivery);
     return { ok: true as const };
   });

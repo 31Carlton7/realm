@@ -104,6 +104,10 @@ export const LibraryQuerySchema = z.object({
 });
 export type LibraryQuery = z.input<typeof LibraryQuerySchema>;
 
+/** Files one add may bring in, a folder's included. Past this a drop is far more likely a mistake — a
+ *  whole project, a home folder — than a choice, and saying so beats a copy that runs for a minute. */
+export const LIBRARY_ADD_MAX = 200;
+
 /**
  * Adding files to the Library (`library.add`): the Files toolbar's Add, or files dropped on the page.
  *
@@ -111,10 +115,6 @@ export type LibraryQuery = z.input<typeof LibraryQuerySchema>;
  * Library keeps the file whatever happens to the one it came from. Paths are what crosses, because the
  * native picker and a drop both name files on this Mac, and the server is what reads them.
  */
-/** Files one add may bring in, a folder's included. Past this a drop is far more likely a mistake — a
- *  whole project, a home folder — than a choice, and saying so beats a copy that runs for a minute. */
-export const LIBRARY_ADD_MAX = 200;
-
 export const LibraryAddSchema = z.object({
   profileId: IdSchema,
   /** Absolute paths, as the picker or the drop named them. */

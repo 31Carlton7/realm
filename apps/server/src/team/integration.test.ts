@@ -257,6 +257,23 @@ describe("teams over the wire", () => {
     c.close();
   });
 
+  it("undoes a yes over the socket: the batch waits again with its tickets taken back, and a second Undo is no change", async () => {
+    const { c, spaceId, roleId } = await boot();
+    await keepRecord(c, roleId);
+    await c.must("team.roleRun", { id: roleId, message: "make the slides" });
+    await waitFor(async () => (await c.must("team.space", { spaceId })).reviews.length === 1, { timeout: 8000 });
+    const id = (await c.must("team.space", { spaceId })).reviews[0].id;
+    await c.must("team.reviewApprove", { id });
+    expect(await c.must("team.tickets", { spaceId })).toHaveLength(2);
+    // THE MUTANT: the method in the contract and never registered — the toast's Undo would only ever fail.
+    expect(await c.must("team.reviewUndoApproval", { id })).toMatchObject({ state: "waiting", actsTotal: 0 });
+    expect(await c.must("team.tickets", { spaceId })).toEqual([]);
+    expect(await c.must("team.reviewUndoApproval", { id })).toMatchObject({ state: "waiting" });
+    const log = await c.must("team.activity", { spaceId, limit: 50 });
+    expect(log.filter((a: Any) => a.verb === "undid_approval")).toHaveLength(1);
+    c.close();
+  });
+
   it("request changes wakes the run that made it, in its session, and the revision replaces the batch in place", async () => {
     const { c, spaceId, roleId } = await boot();
     await keepRecord(c, roleId);
@@ -340,6 +357,8 @@ describe("teams over the wire", () => {
     const pre = app.runs.extraSystemContext(sid)!;
     expect(pre).toContain("You are Content Producer");
     expect(pre).toContain("review_submit");
+    // Without it the role never writes one, and Review never shows why a draft was made.
+    expect(pre).toContain("Give each review a `note`");
     expect(pre).toContain("review_close");
     expect(pre).toContain("stops at $3 or 20 minutes");
     void run;
@@ -394,6 +413,18 @@ describe("choosing who is on the team", () => {
     // The week cannot go under what the shares already come to.
     expect((await c.call("team.setBudget", { spaceId, weekBudgetUsd: 50 })).error.code).toBe("TEAM_BUDGET_OVER");
     expect((await c.must("team.setBudget", { spaceId, weekBudgetUsd: 100 })).weekBudgetUsd).toBe(100);
+    c.close();
+  });
+
+  it("refuses a teammate whose schedule will never run before making any of it, so a retry works", async () => {
+    // The role row went in first and the schedule was refused after it: an error, a role with no
+    // clock, and a retry told the name was taken.
+    const { c, spaceId } = await boot();
+    const role = { spaceId, name: "Night owl", brief: "Watch.", realmite: { seed: "n" } };
+    expect((await c.call("team.roleCreate", { ...role, cron: "every monday" })).error.code).toBe("SCHEDULE_CRON");
+    expect((await c.call("team.make", { spaceId, templates: [], roles: [{ ...role, spaceId: undefined, cron: "every monday" }] })).error.code).toBe("SCHEDULE_CRON");
+    expect((await c.must("team.space", { spaceId })).roles.map((r: Any) => r.name)).not.toContain("Night owl");
+    expect((await c.must("team.roleCreate", { ...role, cron: "0 9 * * 1" })).name).toBe("Night owl");
     c.close();
   });
 

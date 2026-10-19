@@ -564,7 +564,16 @@ a {
    * corner is a painted superellipse the ring cuts across the fill and the painter has to stroke the
    * edge itself (--card-ring), leaving box-shadow only the lift. Every other card keeps the whole
    * stack, and there is still one place either half is written. */
-  --card-ring: var(--overlay-lighten-300); /* one rung softer, with --line above */
+  /* The card's edge sits AT the line's rung, not above it: the surface step under it already carries
+   * the boundary, and a step brighter read as an outline round the prompter and every card that
+   * wears this stack (the owner, 10-18: "lighter and cleaner"). */
+  --card-ring: var(--overlay-lighten-200);
+  /* A CARD has no edge drawn round it at all (the owner, 10-19: "I don't like having borders") — not a
+   * ring, and not a light along its top either, which at 4× read as a top border. It is the surface
+   * step and a soft lift, and nothing else. The lift has no ring layer: a close soft shadow that gives
+   * the card its edge on a ground near the card's tone, and a wide faint one that stands it off the
+   * page (styles.css, "One card"). */
+  --card-lift: 0 1px 2px #00000029, 0 4px 14px -4px #00000038;
   /* A floating WINDOW's own edge, resting and under the pointer — the quick chat today.
    * Its own pair rather than the card ring: a card sits on a pane and takes most of its boundary
    * from the surface step, where a window floats over whatever happens to be behind it and the line
@@ -573,12 +582,14 @@ a {
    * be visible at a glance or the window looks inert. */
   --window-ring: var(--overlay-lighten-600);
   --window-ring-hover: var(--overlay-lighten-800);
-  --shadow-card-lift: 0 1px 2px #00000033, 0 2px 6px #00000033;
+  /* A contact shadow and a wide, faint ambient one, both lighter than the tight pair this replaced,
+   * which pooled dark under the prompter's tiles and round its foot. */
+  --shadow-card-lift: 0 1px 1px #0000001f, 0 4px 14px #0000001a;
   /* The same lift as a filter. A box-shadow is drawn from the border box, so on the squircle
      surfaces — whose border-radius is 0 because the curve is painted, not declared — it lands as a
      SQUARE behind a rounded card. `drop-shadow` traces the rendered alpha instead, which is the
      worklet's actual path. Neither layer has a spread, which is what makes the two forms equal. */
-  --shadow-card-lift-filter: drop-shadow(0 1px 2px #00000033) drop-shadow(0 2px 6px #00000033);
+  --shadow-card-lift-filter: drop-shadow(0 1px 1px #0000001f) drop-shadow(0 4px 14px #0000001a);
   /* The overlay lift as a FILTER, for the same reason its card cousin exists: a painted surface has
      `border-radius: 0`, and `box-shadow` draws from the border box — so the overlay's four layers
      came out as a hard square halo sitting over the curve the worklet had just drawn correctly.
@@ -615,14 +626,21 @@ a {
   --shadow-pill: 0 2px 9px 0 #0000000f;
   --shadow-btn: 0 0 0 var(--hairline-w) var(--overlay-darken-200), 0 1px 2px #03071214;
   --btn-ring: var(--overlay-darken-200);
-  --card-ring: #0307120e; /* the same tint, one step lighter — with --line above */
+  --card-ring: #0307120a; /* the same tint at the line's rung, for the dark face's reason */
+  /* A white card on a near-white ground: the close layer is what draws its edge, so it is heavier
+     than the dark face's in proportion, and it has to reach the top edge too — hence no offset. */
+  --card-lift: 0 0 2px #0307121a, 0 2px 8px -2px #03071214;
+  /* The same lift as a filter, for a card made of several boxes (a run of settings rows), which casts
+     it from the run as one shape. A drop-shadow's blur is a standard deviation where a box-shadow's
+     is twice one, hence the halved blurs; it has no spread, hence the far layer's lighter alpha. */
+  --card-lift-filter: drop-shadow(0 0 1px #0307121a) drop-shadow(0 2px 3px #0307120d);
   /* Heavier steps than the dark face, not the mirrored ones: black on a near-white ground loses more
      of itself than white on a near-black one, so the same rungs would land as no border and no
      hover. Same correction the pane divider needed. */
   --window-ring: var(--overlay-darken-400);
   --window-ring-hover: var(--overlay-darken-600);
-  --shadow-card-lift: 0 2px 4px 0 #0307120a;
-  --shadow-card-lift-filter: drop-shadow(0 2px 4px #0307120a);
+  --shadow-card-lift: 0 1px 1px #03071205, 0 4px 14px #03071205;
+  --shadow-card-lift-filter: drop-shadow(0 1px 1px #03071205) drop-shadow(0 4px 14px #03071205);
   --shadow-overlay-filter: drop-shadow(0 4px 6px #0307121f) drop-shadow(0 16px 32px #1c284024);
   --shadow-card: 0 0 0 var(--hairline-w) var(--card-ring), var(--shadow-card-lift);
   --shadow-raised: 0 0 0 var(--hairline-w) #03071214, 0 8px 16px 0 #0307120a, 0 24px 117px 0 #1c284024;

@@ -1,13 +1,14 @@
 import { Icon } from "@realm/ui";
 import { memo, useState } from "react";
-import { AGENT_META, itemIdOfLeaf, type Item } from "@realm/contracts";
+import { itemIdOfLeaf, type Item } from "@realm/contracts";
 import { sessionMark } from "../../state/attention";
 import { useApp } from "../../state/store";
 import { RenameInput } from "../RenameInput";
+import { SpaceIcon } from "../SpaceIcon";
 import { useItemContextMenu } from "./ItemContextMenu";
 import { ItemGlyph } from "./ItemList";
 import { sameRow, tallyWords, type FanOutRow, type ListRow, type SessionRow, type Tally } from "./model";
-import { useArchiveAnywhere } from "./use-sidebar-model";
+import { useArchiveAnywhere, useSpaceTint } from "./use-sidebar-model";
 
 /**
  * A tally at a row's far end: how many are waiting on you and how many are working, each a count
@@ -70,9 +71,11 @@ export function useOpenSessionRow(row: SessionRow): () => Promise<void> {
  * in focus is lit, whichever space it is in. A session a schedule started wears a clock — in
  * the gutter under its section's icon when nested, so its title stays on the column the others use.
  *
- * `pinned` is the same row under Pinned: its lead is the agent's mark rather than the chat glyph, its
- * space goes to the name and the tooltip rather than the line (the title is what tells pins apart),
- * and the one action under the pointer is Unpin — what a person does to a pin.
+ * `pinned` is the same row under Pinned: its lead is its space's icon, in the space's colour as its
+ * section wears it, rather than the chat glyph — pins come from every space, and which one is the
+ * thing to tell at a glance. Its space's name goes to the name and the tooltip rather than the line
+ * (the title is what tells pins apart), and the one action under the pointer is Unpin — what a
+ * person does to a pin.
  */
 export function SessionRowView({ row, where, nested = false, pinned = false, onChanged }: {
   row: SessionRow; where?: string; nested?: boolean; pinned?: boolean; onChanged: () => void;
@@ -86,7 +89,8 @@ export function SessionRowView({ row, where, nested = false, pinned = false, onC
   const [dragging, setDragging] = useState(false);
   const { onContextMenu, element } = useItemContextMenu(() => setRenaming(true), { onChanged });
   const { mark, agents, said } = sessionWords(row, where);
-  const agent = row.session ? AGENT_META[row.session.agentKind] : null;
+  const space = useApp((s) => (pinned ? s.spaces.find((x) => x.id === row.spaceId) : undefined));
+  const tint = useSpaceTint(space?.color);
   const open = useOpenSessionRow(row);
   return (
     // Every space of the profile is loaded, so any row can be dragged into the view or lit as its focus.
@@ -100,7 +104,8 @@ export function SessionRowView({ row, where, nested = false, pinned = false, onC
             onClick={(e) => run(() => (e.metaKey ? openItemBeside(row.item.id) : open()))}>
             {nested
               ? <span className="sb-gutter" title={row.scheduled ? "Started by a schedule" : undefined}>{row.scheduled && <Icon name="clock" size={12} />}</span>
-              : <Icon name={pinned && agent ? agent.icon : row.scheduled ? "clock" : "session"} size={16} />}
+              : pinned ? <span className="sb-space-icon" style={tint ? { color: tint } : undefined}><SpaceIcon icon={space?.icon || "folder"} size={16} /></span>
+              : <Icon name={row.scheduled ? "clock" : "session"} size={16} />}
             <span className="item-title">{row.title}</span>
             {where && !pinned && <span className="item-where">{where}</span>}
             <span className="item-trail">

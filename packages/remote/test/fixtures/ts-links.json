@@ -1,0 +1,48 @@
+[
+ {
+  "now": 1790000000000,
+  "url": "https://realm.computer/pair#1.eyJyIjoid3NzOi8vcmVsYXkuZXhhbXBsZSIsIm0iOiJHOGJtT29JeldHaVlxNkxleTZFOFhnIiwiayI6Inl6MS0yRmFfWnZMdEh0VUlNMnZHQ3hJZEFzdVhrSGxqTDh6TEFjUXhlQmsiLCJzIjoiVkRXeXZIX3VpXzh3dU5xWV93czkyNmh4YmJtNy1pTWEyaVJ4Mk5fdkpuOCIsInciOiItMUljR1NFYXB2WEJ3RGx0MEFGRnFnIiwibiI6Ik1hY0Jvb2sgUHJvIiwiZSI6MTc5MDAwMDMwMDAwMH0",
+  "fields": {
+   "relay": "wss://relay.example",
+   "macId": "G8bmOoIzWGiYq6Ley6E8Xg",
+   "macKey": "yz1-2Fa_ZvLtHtUIM2vGCxIdAsuXkHljL8zLAcQxeBk",
+   "secret": "VDWyvH_ui_8wuNqY_ws926hxbbm7-iMa2iRx2N_vJn8",
+   "windowId": "-1IcGSEapvXBwDlt0AFFqg",
+   "macName": "MacBook Pro",
+   "expiresAt": 1790000300000
+  },
+  "error": null
+ },
+ {
+  "now": 1790000000000,
+  "url": "realm-mobile://pair#1.eyJyIjoid3NzOi8vcmVsYXkuZXhhbXBsZSIsIm0iOiJHOGJtT29JeldHaVlxNkxleTZFOFhnIiwiayI6Inl6MS0yRmFfWnZMdEh0VUlNMnZHQ3hJZEFzdVhrSGxqTDh6TEFjUXhlQmsiLCJzIjoiVkRXeXZIX3VpXzh3dU5xWV93czkyNmh4YmJtNy1pTWEyaVJ4Mk5fdkpuOCIsInciOiItMUljR1NFYXB2WEJ3RGx0MEFGRnFnIiwibiI6Ik1hY0Jvb2sgUHJvIiwiZSI6MTc5MDAwMDMwMDAwMH0",
+  "fields": {
+   "relay": "wss://relay.example",
+   "macId": "G8bmOoIzWGiYq6Ley6E8Xg",
+   "macKey": "yz1-2Fa_ZvLtHtUIM2vGCxIdAsuXkHljL8zLAcQxeBk",
+   "secret": "VDWyvH_ui_8wuNqY_ws926hxbbm7-iMa2iRx2N_vJn8",
+   "windowId": "-1IcGSEapvXBwDlt0AFFqg",
+   "macName": "MacBook Pro",
+   "expiresAt": 1790000300000
+  },
+  "error": null
+ },
+ {
+  "now": 1790000300000,
+  "url": "https://realm.computer/pair#1.eyJyIjoid3NzOi8vcmVsYXkuZXhhbXBsZSIsIm0iOiJHOGJtT29JeldHaVlxNkxleTZFOFhnIiwiayI6Inl6MS0yRmFfWnZMdEh0VUlNMnZHQ3hJZEFzdVhrSGxqTDh6TEFjUXhlQmsiLCJzIjoiVkRXeXZIX3VpXzh3dU5xWV93czkyNmh4YmJtNy1pTWEyaVJ4Mk5fdkpuOCIsInciOiItMUljR1NFYXB2WEJ3RGx0MEFGRnFnIiwibiI6Ik1hY0Jvb2sgUHJvIiwiZSI6MTc5MDAwMDMwMDAwMH0",
+  "fields": null,
+  "error": "expired"
+ },
+ {
+  "now": 1790000000000,
+  "url": "https://realm.computer/pair#2.eyJyIjoid3NzOi8vcmVsYXkuZXhhbXBsZSIsIm0iOiJHOGJtT29JeldHaVlxNkxleTZFOFhnIiwiayI6Inl6MS0yRmFfWnZMdEh0VUlNMnZHQ3hJZEFzdVhrSGxqTDh6TEFjUXhlQmsiLCJzIjoiVkRXeXZIX3VpXzh3dU5xWV93czkyNmh4YmJtNy1pTWEyaVJ4Mk5fdkpuOCIsInciOiItMUljR1NFYXB2WEJ3RGx0MEFGRnFnIiwibiI6Ik1hY0Jvb2sgUHJvIiwiZSI6MTc5MDAwMDMwMDAwMH0",
+  "fields": null,
+  "error": "version"
+ },
+ {
+  "now": 1790000000000,
+  "url": "https://realm.computer/pair#1.not-json",
+  "fields": null,
+  "error": "malformed"
+ }
+]

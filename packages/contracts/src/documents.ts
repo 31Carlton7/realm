@@ -12,6 +12,10 @@ export const DOCUMENT_MAX_BYTES = 2 * 1024 * 1024;
 /** Extensions the sheet editor claims. Kept separate so `documents.list` can filter with the same set. */
 const SHEET_EXT = new Set(["csv", "tsv"]);
 
+/** The pictures among the previews. A picture has no text to select and no pages to run out of, so
+ *  the note a document's preview carries about both would be wrong under one. */
+const PICTURE_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp", "heic", "tif", "tiff", "bmp"]);
+
 /**
  * Files macOS can preview and Realm cannot edit — Word, Excel, PowerPoint, the iWork three, the
  * open-format and e-book equivalents, and pictures.
@@ -25,10 +29,6 @@ const SHEET_EXT = new Set(["csv", "tsv"]);
  * to select and long documents may render as a first page. That is what makes this a `preview` kind
  * rather than a `doc`.
  */
-/** The pictures among the previews. A picture has no text to select and no pages to run out of, so
- *  the note a document's preview carries about both would be wrong under one. */
-const PICTURE_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp", "heic", "tif", "tiff", "bmp"]);
-
 const PREVIEW_EXT = new Set([
   "doc", "docx", "xls", "xlsx", "ppt", "pptx",
   "pages", "numbers", "key",
@@ -62,16 +62,6 @@ export const isPictureFile = (path: string): boolean => {
 };
 
 /**
- * Path → editor, by extension alone. Deliberately pure and content-blind so it can run on a directory
- * listing where nothing has been read yet.
- *
- * The one case extension cannot settle is **slides**: a Marp deck is a `.md` file, indistinguishable
- * from a document until you read its front-matter. This function therefore answers "doc" for every
- * plain `.md`, and `refineDocumentKind` promotes it once the text is in hand. The naming conventions
- * `*.slides.md` and `*.deck.md` are honoured here as an explicit opt-in that does not need a read —
- * which is what lets the picker show the right icon before opening anything.
- */
-/**
  * Source files, opened in the code editor.
  *
  * An ALLOWLIST, not a fallback, and that is the whole design. This function is content-blind by
@@ -97,6 +87,16 @@ const CODE_EXT = new Set([
   "gitattributes", "npmrc", "nvmrc", "prettierignore", "eslintignore", "dockerignore",
 ]);
 
+/**
+ * Path → editor, by extension alone. Deliberately pure and content-blind so it can run on a directory
+ * listing where nothing has been read yet.
+ *
+ * The one case extension cannot settle is **slides**: a Marp deck is a `.md` file, indistinguishable
+ * from a document until you read its front-matter. This function therefore answers "doc" for every
+ * plain `.md`, and `refineDocumentKind` promotes it once the text is in hand. The naming conventions
+ * `*.slides.md` and `*.deck.md` are honoured here as an explicit opt-in that does not need a read —
+ * which is what lets the picker show the right icon before opening anything.
+ */
 export function documentKindFor(path: string): DocumentKind {
   const name = path.split("/").pop()?.toLowerCase() ?? "";
   const ext = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1) : "";

@@ -24,13 +24,6 @@ export function rubberband(over: number, dim: number, c = RESISTANCE): number {
   return (over * dim * c) / (dim + c * Math.abs(over));
 }
 
-/** The inverse: how far past the end the content must have been pulled to sit at offset `x`. */
-export function unrubberband(x: number, dim: number, c = RESISTANCE): number {
-  if (dim <= 0 || x === 0) return 0;
-  const ax = Math.min(Math.abs(x), dim * 0.999);
-  return (Math.sign(x) * ax * dim) / (c * (dim - ax));
-}
-
 /** The curve's constant, and its slope at the end: the first pixel past the end moves the content c px. */
 const RESISTANCE = 0.55;
 /** The spring home, critically damped, in s⁻¹: a full stretch is back within half a second. */

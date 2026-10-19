@@ -96,7 +96,7 @@ export type UserCommand = z.infer<typeof UserCommandSchema>;
  *
  * Derived from `SESSION_MODES` where it can be — the mode commands ARE that list (`SessionPane`
  * builds them with `offeredModes`), so a fourth mode reserves its own name without anyone
- * remembering to — and hardcoded for the six that are literals in the prompter. `commands.test.ts`
+ * remembering to — and hardcoded for the seven that are literals in the prompter. `commands.test.ts`
  * greps `SessionPane.tsx` to keep the hardcoded half honest: an app command added without a line
  * here would silently take a name a user's file may already be using.
  *
@@ -105,7 +105,7 @@ export type UserCommand = z.infer<typeof UserCommandSchema>;
  */
 export const RESERVED_COMMAND_NAMES: readonly string[] = [
   ...SESSION_MODES.map((m) => m.id),
-  "attach", "connections", "diff", "export", "goal", "skills",
+  "attach", "connections", "diff", "export", "goal", "share", "skills",
 ].sort();
 
 export const isReservedCommandName = (name: string): boolean => RESERVED_COMMAND_NAMES.includes(name);

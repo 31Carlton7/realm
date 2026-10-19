@@ -106,17 +106,8 @@ const P = {
     fix: z.object({ title: z.string(), hint: z.string(), command: z.string().nullable() }).optional(),
   }),
   /**
-   * The provider's accounting of the ACCOUNT's plan quota, as it changes.
-   *
-   * Carried on the session's event channel because that is the only wire an adapter has, but it is
-   * not about this session and is deliberately absent from `PERSISTED_EVENT_TYPES`: a transcript is
-   * what happened in a conversation, and "your weekly window is at 78%" was true of the account for
-   * a moment and will be wrong by the time anyone re-reads the log. The server folds it into
-   * per-agent state instead, where the newest reading simply replaces the last.
-   */
-  /**
    * The next-move suggestion the prompter offers as its hint text, written by a model once per
-   * settled turn (`PromptHintService`).
+   * settled turn (`SessionSummaryService`).
    *
    * Persisted, and `throughSeq` is why: a hint is about the turn that just ended, so reopening a
    * session should find the same suggestion rather than pay for it again — and an out-of-order
@@ -128,6 +119,15 @@ const P = {
    * ladder in `prompt-hint.ts`.
    */
   prompt_hint: z.object({ text: z.string(), throughSeq: z.number().int() }),
+  /**
+   * The provider's accounting of the ACCOUNT's plan quota, as it changes.
+   *
+   * Carried on the session's event channel because that is the only wire an adapter has, but it is
+   * not about this session and is deliberately absent from `PERSISTED_EVENT_TYPES`: a transcript is
+   * what happened in a conversation, and "your weekly window is at 78%" was true of the account for
+   * a moment and will be wrong by the time anyone re-reads the log. The server folds it into
+   * per-agent state instead, where the newest reading simply replaces the last.
+   */
   rate_limit: z.object({
     subscriptionType: z.string().nullable(),
     organization: z.string().nullable(),

@@ -1,4 +1,4 @@
-import type { Skill } from "@realm/contracts";
+import { AGENT_META } from "@realm/contracts";
 import { Icon, Realmite, parseRealmiteSpec } from "@realm/ui";
 import { Fragment, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -30,9 +30,6 @@ export function usePickerScroller(active: number) {
   return { list, hovered };
 }
 
-/** The characters a skill id may contain — must agree with contracts/mentions.ts, or the popover
- *  would offer a completion the send-time scan then refuses to recognise. */
-const ID_CHAR = /[A-Za-z0-9._-]/;
 /** What the QUERY after an `@` may contain: an id's characters, and a path's `/` — a file is found
  *  by `src/au` as often as by `auth`. What a pick inserts is always a whole token of its own, so a
  *  slash typed here never ends up inside one. */
@@ -58,21 +55,13 @@ export function mentionQueryAt(text: string, caret: number): { start: number; en
   return { start, end, query: text.slice(i, caret) };
 }
 
-/** Case-insensitive substring filter over id and display name — the same "filtered as you type"
- *  contract as the model picker's search, and nothing more: matching here only narrows the MENU;
- *  what resolves at send stays exact-match only. */
-export function filterMentionSkills(skills: readonly Skill[], query: string): Skill[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return [...skills];
-  return skills.filter((s) => s.id.toLowerCase().includes(q) || s.name.toLowerCase().includes(q));
-}
-
 /** A row's DOM id — what the textarea's `aria-activedescendant` names. Whitespace is not allowed in
  *  an id, and a file's path may hold some. */
 export const mentionOptionId = (key: string): string => `mention-${key.replace(/\s/g, "_")}`;
 
 /** The mark at the head of a row: what KIND of thing it names, at a glance — an app's own icon, a
- *  file's type, a skill's spark, and for @Mac the Apple mark Realm already draws for this Mac. */
+ *  file's type, a skill's spark, a sub-agent's harness, and for @Mac the Apple mark Realm already
+ *  draws for this Mac. */
 function RowMark({ row, appIcons }: { row: MentionRow; appIcons: Readonly<Record<string, string | null>> }) {
   if (row.kind === "app") {
     const src = appIcons[row.app.path];
@@ -80,6 +69,8 @@ function RowMark({ row, appIcons }: { row: MentionRow; appIcons: Readonly<Record
     return <span className="mention-row-mark" data-app="">{src ? <img src={src} alt="" width={16} height={16} draggable={false} /> : src === null ? <Icon name="pointer" size={14} /> : null}</span>;
   }
   if (row.kind === "role") return <span className="mention-row-mark"><Realmite spec={parseRealmiteSpec(row.role.realmite, row.role.id)} size={16} state={realmiteState(row.role)} /></span>;
+  // Which agent it is, as the prompter's row of active agents draws it: its harness's own mark.
+  if (row.kind === "agent") return <span className="mention-row-mark">{row.agentKind ? <Icon name={AGENT_META[row.agentKind].icon} size={16} colored /> : <Icon name="bot" size={16} />}</span>;
   const name = row.kind === "mac" ? "apple" : row.kind === "skill" ? "sparkles" : fileMark(row.path);
   return <span className="mention-row-mark"><Icon name={name} size={row.kind === "mac" ? 14 : 16} /></span>;
 }

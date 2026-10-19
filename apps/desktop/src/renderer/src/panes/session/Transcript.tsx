@@ -25,13 +25,13 @@ import { useDissolve } from "../../components/ScrollFades";
 import { runLabelFor, type RunLabel } from "./run-label";
 import { formatTokens } from "./SessionUsage";
 import { useEnterTracker } from "./transcript-enter";
-import { SubagentStrip } from "./SubagentStrip";
 import { TranscriptSummary } from "./TranscriptSummary";
 import { MediaStrip } from "./media/MediaView";
 import { useMediaFiles } from "./media/use-media";
 import { NEAR_END_PX, SETTLE_MS, applyScrollTop, markOf, recallScroll, rememberScroll, type ScrollMark } from "../scroll-memory";
 import { ScrollTrack } from "./ScrollTrack";
 import { samePrompts, trackPrompts, type TrackPrompt } from "./scroll-track";
+import { prefersReducedMotion } from "../../reduced-motion";
 
 /** Permission cards share the blocks' key space; the prefix keeps a requestId from colliding with one. */
 const permKey = (requestId: string) => `perm:${requestId}`;
@@ -105,19 +105,13 @@ const NO_PROMPTS: readonly TrackPrompt[] = [];
 const NO_SAVED: readonly number[] = [];
 const NO_WAITING: ReadonlySet<string> = new Set();
 
-const reducedMotion = (): boolean => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+/** An error's own words, capped, in a box that dissolves at an end once there is more of them. */
+function ErrorText({ text }: { text: string }) {
+  const box = useRef<HTMLPreElement>(null);
+  useDissolve(box);
+  return <pre ref={box}>{text}</pre>;
+}
 
-/**
- * A user message's text, with its chips drawn as chips.
- *
- * The runs between chips stay PLAIN TEXT, not markdown: the transcript's job is to show what the user
- * typed, markers and all, and parsing it would change the words in the record. `chipRuns` partitions
- * rather than rewrites, which is what makes drawing them safe at all.
- *
- * A mention is recognised against the LIVE library, exactly as the composer recognises it, so a skill
- * deleted since the message was sent goes back to being the `@name` the user typed — which is also
- * what the agent was told, the server having failed to resolve it too.
- */
 /**
  * A turn goal mode started, in the log: one line, and the prompt behind it.
  *
@@ -131,13 +125,6 @@ const reducedMotion = (): boolean => window.matchMedia?.("(prefers-reduced-motio
  * HERE — what the agent was handed is a fact about the run, and a log that hid it would be lying by
  * omission — it is just not the loudest thing in the column.
  */
-/** An error's own words, capped, in a box that dissolves at an end once there is more of them. */
-function ErrorText({ text }: { text: string }) {
-  const box = useRef<HTMLPreElement>(null);
-  useDissolve(box);
-  return <pre ref={box}>{text}</pre>;
-}
-
 function GoalTurn({ kind, text }: { kind: "continuation" | "budget"; text: string }) {
   const [open, setOpen] = useState(false);
   return (
@@ -154,9 +141,21 @@ function GoalTurn({ kind, text }: { kind: "continuation" | "budget"; text: strin
 /** What a named thing's chip says under the pointer: where the file is, what the app mention did. */
 function refTitle(ref: MentionRef): string {
   if (ref.kind === "role") return ref.childId ? `${ref.label} — started as this session's sub-agent` : `${ref.label} — not started${ref.refused ? `: ${ref.refused}` : ""}`;
+  if (ref.kind === "agent") return ref.delivered ? `${ref.label} — passed this message too` : `${ref.label} — not passed on${ref.refused ? `: ${ref.refused}` : ""}`;
   return ref.kind === "app" ? `${ref.name} — computer use for this session (${ref.bundleId})` : ref.path;
 }
 
+/**
+ * A user message's text, with its chips drawn as chips.
+ *
+ * The runs between chips stay PLAIN TEXT, not markdown: the transcript's job is to show what the user
+ * typed, markers and all, and parsing it would change the words in the record. `chipRuns` partitions
+ * rather than rewrites, which is what makes drawing them safe at all.
+ *
+ * A mention is recognised against the LIVE library, exactly as the composer recognises it, so a skill
+ * deleted since the message was sent goes back to being the `@name` the user typed — which is also
+ * what the agent was told, the server having failed to resolve it too.
+ */
 function UserText({ text, mentionIds, refs, appIcons }: { text: string; mentionIds: readonly string[]; refs?: readonly MentionRef[]; appIcons: Readonly<Record<string, string | null>> }) {
   const runs = useMemo(() => chipRuns(text, mentionIds), [text, mentionIds]);
   const byLabel = useMemo(() => new Map((refs ?? []).map((r) => [r.label, r])), [refs]);
@@ -168,7 +167,7 @@ function UserText({ text, mentionIds, refs, appIcons }: { text: string; mentionI
         const ref = r.chip.kind === "element" ? byLabel.get(r.chip.label) ?? null : null;
         const appIcon = ref?.kind === "app" ? appIcons[ref.path] : null;
         const icon = r.chip.kind === "link" && r.chip.service ? LINK_SERVICE_META[r.chip.service].icon
-          : ref ? (ref.kind === "app" ? "pointer" : ref.kind === "role" ? "team" : fileMark(ref.path))
+          : ref ? (ref.kind === "app" ? "pointer" : ref.kind === "role" ? "team" : ref.kind === "agent" ? "bot" : fileMark(ref.path))
           : r.chip.kind === "element" ? "target"
           : r.text === `@${MAC_SKILL_ID}` ? "apple" : "sparkles";
         return (
@@ -543,7 +542,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
     restore.current = null;
     const to = Math.max(0, Math.min(top, el.scrollHeight - el.clientHeight));
     pin({ top: to, atEnd: el.scrollHeight - to - el.clientHeight < NEAR_END_PX });
-    el.scrollTo({ top: to, behavior: instant || reducedMotion() ? "instant" : "smooth" });
+    el.scrollTo({ top: to, behavior: instant || prefersReducedMotion() ? "instant" : "smooth" });
   };
   const jump = useCallback((top: number, instant?: boolean) => jumpRef.current(top, instant), []);
 
@@ -785,9 +784,6 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             The word is this run's (run-label.ts), and `run.startedAt` holds it still: seeding it on
             anything that moves would re-roll the verb on every streaming delta. */}
         {sessionStatus === "running" && (!lastText || lastText.kind !== "assistant" || !lastText.streaming) && <div className="msg-working muted"><span className="shimmer-text">{runLabelFor(transcript.run?.startedAt ?? 0, mode, eggs, packLabels).present}…</span></div>}
-        {/* The sub-agents this session has out — and, once they are back, how they ended — under the
-            last thing said, which is where a turn that left them working used to just stop. */}
-        {sessionId && <SubagentStrip sessionId={sessionId} blocks={transcript.blocks} />}
         {/* Last in the column, so it reads as the closing line of the session rather than as another
             message in it. Draws nothing while a turn is live, and nothing on a session with nothing
             to count. */}

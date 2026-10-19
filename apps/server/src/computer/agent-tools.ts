@@ -604,8 +604,6 @@ function observed(e: ComputerElement): ObservedElement {
   return { id: String(e.index), role: e.role, label: clip(e.name, 200), ...(e.value ? { value: clip(e.value, 200) } : {}) };
 }
 
-/** What the act addressed: the element at its index, the point it names, or nothing (a key, a scroll
- *  or a typed string sent to whatever has focus). A drag names the element it picks up. */
 /** computer_act as listed while Assist can act: the same tool, plus a click target in words. */
 function withComputerTarget(t: Tool): Tool {
   if (t.name !== "computer_act") return t;
@@ -615,6 +613,8 @@ function withComputerTarget(t: Tool): Tool {
   } } } };
 }
 
+/** What the act addressed: the element at its index, the point it names, or nothing (a key, a scroll
+ *  or a typed string sent to whatever has focus). A drag names the element it picks up. */
 function chosenOf(action: ComputerAction, elements: ObservedElement[]): ActObservation["chosen"] {
   if (action.index !== undefined) {
     const element = elements.find((e) => e.id === String(action.index));

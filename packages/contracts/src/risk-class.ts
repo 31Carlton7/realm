@@ -48,8 +48,8 @@ const SHOWS_ELSEWHERE = "it shows what is outside this space";
 
 /**
  * Every tool Realm's own providers list, by the name the gateway lists it under (`<provider>__<tool>`).
- * Exhaustive: `realm-tool-classes.test.ts` lists every provider through the real gateway and fails on
- * a name that is missing here.
+ * Exhaustive: `policies-app.test.ts` lists every provider through the real gateway and fails on a
+ * name that is missing here.
  *
  * The acting tools (a page, a device, an app, a machine) are `reversible-external`: what they do lands
  * outside Realm, and a team may raise a surface past that once policies exist. A tool that types into

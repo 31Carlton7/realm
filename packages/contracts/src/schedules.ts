@@ -148,34 +148,58 @@ const SEARCH_MINUTES = 4 * 366 * 24 * 60;
 /**
  * The first minute strictly after `after` that matches, or null when nothing does within four years.
  *
- * Minute-stepping rather than arithmetic, and it steps in LOCAL time by construction: the loop
- * advances a `Date` by one minute and re-reads its fields, so the hour that repeats when the clocks
- * go back and the hour that does not exist when they go forward are both handled by the calendar
- * rather than by a correction. Closed-form next-fire arithmetic is where every DST bug in every
- * scheduler lives.
+ * Minute-stepping rather than arithmetic, over WALL-CLOCK minutes: the walk keeps a calendar in UTC,
+ * where no minute is skipped or repeated, and places each match on the local clock (`localInstant`)
+ * only once it matches. That is where the two days a year the clocks change are decided, once, rather
+ * than in a correction to every step. Closed-form next-fire arithmetic is where every DST bug in
+ * every scheduler lives.
  *
  * It is not as slow as it looks: the coarse fields are checked first and a non-matching hour skips
  * the whole hour rather than sixty minutes one at a time.
  */
 export function nextCronFire(cron: Cron, after: number): number | null {
-  const d = new Date(after);
-  d.setSeconds(0, 0);
-  d.setMinutes(d.getMinutes() + 1); // strictly after
+  const from = new Date(after);
+  const wall = new Date(Date.UTC(from.getFullYear(), from.getMonth(), from.getDate(), from.getHours(), from.getMinutes() + 1));
+  const everyHour = cron.hour.size === 24;
   for (let steps = 0; steps < SEARCH_MINUTES; ) {
-    if (!cron.month.has(d.getMonth() + 1)) {
+    if (!cron.month.has(wall.getUTCMonth() + 1)) {
       // Jump to the first minute of the next month rather than walking a whole one.
-      d.setDate(1); d.setHours(0, 0, 0, 0); d.setMonth(d.getMonth() + 1);
+      wall.setUTCDate(1); wall.setUTCHours(0, 0, 0, 0); wall.setUTCMonth(wall.getUTCMonth() + 1);
       steps += 60; continue;
     }
-    const dom = cron.dayOfMonth.has(d.getDate());
-    const dow = cron.dayOfWeek.has(d.getDay());
+    const dom = cron.dayOfMonth.has(wall.getUTCDate());
+    const dow = cron.dayOfWeek.has(wall.getUTCDay());
     const dayOk = cron.domRestricted && cron.dowRestricted ? dom || dow
       : cron.domRestricted ? dom : cron.dowRestricted ? dow : true;
-    if (!dayOk) { d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + 1); steps += 60; continue; }
-    if (!cron.hour.has(d.getHours())) { d.setMinutes(0, 0, 0); d.setHours(d.getHours() + 1); steps += 60; continue; }
-    if (cron.minute.has(d.getMinutes())) return d.getTime();
-    d.setMinutes(d.getMinutes() + 1);
+    if (!dayOk) { wall.setUTCHours(0, 0, 0, 0); wall.setUTCDate(wall.getUTCDate() + 1); steps += 60; continue; }
+    if (!cron.hour.has(wall.getUTCHours())) { wall.setUTCMinutes(0, 0, 0); wall.setUTCHours(wall.getUTCHours() + 1); steps += 60; continue; }
+    if (cron.minute.has(wall.getUTCMinutes())) {
+      // Strictly after: in the hour that repeats, a reading `after` has already passed through lands
+      // on its first pass, behind `after`, and the walk moves on.
+      const at = localInstant(wall, everyHour);
+      if (at !== null && at > after) return at;
+    }
+    wall.setUTCMinutes(wall.getUTCMinutes() + 1);
     steps += 1;
+  }
+  return null;
+}
+
+/**
+ * The instant a wall-clock minute (read off `wall`'s UTC fields) names on the local clock.
+ *
+ * In the hour that repeats when the clocks go back, its first pass, so each reading fires once. In the
+ * hour the clocks skip, the first minute after the gap: a daily 02:30 runs at 03:00 that day rather
+ * than not at all, and every minute the gap swallowed lands on that one instant, so it runs once. A
+ * schedule that runs every hour is the exception — its skipped minute is null, because the next hour
+ * is its next run anyway, and firing at 03:00 as well would run it twice in thirty minutes.
+ */
+function localInstant(wall: Date, everyHour: boolean): number | null {
+  const [y, mo, d, h, mi] = [wall.getUTCFullYear(), wall.getUTCMonth(), wall.getUTCDate(), wall.getUTCHours(), wall.getUTCMinutes()];
+  for (let late = 0; late < 24 * 60; late++) {
+    const t = new Date(y, mo, d, h, mi + late);
+    const reads = Date.UTC(t.getFullYear(), t.getMonth(), t.getDate(), t.getHours(), t.getMinutes());
+    if (reads === Date.UTC(y, mo, d, h, mi + late)) return late === 0 || !everyHour ? t.getTime() : null;
   }
   return null;
 }

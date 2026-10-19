@@ -263,7 +263,7 @@ async function settingsSeam(c, face) {
 }
 
 /** The old rule, put back for one measurement: the mutant the seam check has to be able to see. */
-const DOUBLED = `.settings-row:has(+ .settings-row) { border-bottom: var(--hairline-w) solid var(--rl-card-rim) !important; }`;
+const DOUBLED = `.settings-row:has(+ .settings-row) { border-bottom: var(--hairline-w) solid var(--rl-line) !important; }`;
 async function seamCheck(c, where, upperSel) {
   const fixed = await seam(c, upperSel);
   await evalIn(c, `(() => { const st = document.createElement('style'); st.id = 'live-doubled'; st.textContent = ${JSON.stringify(DOUBLED)}; document.head.append(st); return true; })()`);

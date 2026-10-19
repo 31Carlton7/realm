@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { chordsForCommand, displayKeyChord, type Item } from "@realm/contracts";
 import { spaceColor } from "@realm/ui";
-import { useApp, useAppStore, useProfileSpaces, type SpacePageTab } from "../../state/store";
+import { useApp, useProfileSpaces, type SpacePageTab } from "../../state/store";
 import { useResolvedMode } from "../../theme/useTheme";
 import { listedSessions, orderSpaces, type SessionRow, type SidebarState } from "./model";
 

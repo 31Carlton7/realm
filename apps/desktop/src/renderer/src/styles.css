@@ -31,7 +31,7 @@
    so there is no standard ligature to win there, and buying calt would cost the app its tracking. */
 .activity-call, .activity-duration, .activity-time, .agent-hint-text code, .cli-job-output,
 .cmd-cwd, .cmd-line, .code-body, .code-gutter, .code-preview, .composer-attach-note .attach-note-files,
-.diff-counts, .diff-hunk-head, .diff-line, .diff-status, .documents-picker-head, .documents-raw,
+.diff-counts, .diff-hunk-head, .diff-line, .diff-meta-branch, .diff-status, .documents-picker-head, .documents-raw,
 .documents-rich-surface code, .documents-source, .env-branch, .env-path, .failover-pos, .fd-line, .fd-path, .fd-stat,
 .files-crumbs, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
 .mcp-tool-name, .md code, .md-code-lang, .media-name, .media-time, .video-btn, .video-time, .video-scrub-hover, .mention-row-id, .mp-about code,
@@ -108,13 +108,17 @@
   --rl-frame-raised: var(--page);
   --rl-frame-raised-hover: var(--rl-hover);
   /* A card in Codex's grammar, measured off its window: a step ABOVE the ground it stands on — where
-     --rl-frame is a well below it — under a rim the rung lighter than both sides (Codex: page 41,
-     card 47, rim 57). An overlay rather than a colour, because the ground under a page is the pane's
-     translucent canvas: the card has to lift whatever that came to, on any desktop. The light face
-     sets its own pair below — a white card on the grey ground, ringed a rung darker. */
+     --rl-frame is a well below it. An overlay rather than a colour, because the ground under a page is
+     the pane's translucent canvas: the card has to lift whatever that came to, on any desktop.
+     The fill is the boundary, and nothing is drawn round it. Codex rings its card a rung lighter than
+     both sides (page 41, card 47, rim 57); here a rim like that measured +12 levels over a card that
+     stood +9 over the ground and read as a border fighting the card (the owner, 10-18), and softened
+     to +4 it still read as one (10-19: "I don't like having borders"). The card's lift (`--card-lift`)
+     is what it has instead. A divider between a card's rows, or the edge of a field
+     written on one, is a line and keeps the line's weight (`--rl-line`). The light face sets its own
+     pair below — a white card on the grey ground. */
   --rl-card: var(--overlay-lighten-100);
   --rl-card-hover: var(--overlay-lighten-200);
-  --rl-card-rim: var(--line);
   /* A file's tile, which Codex raises further than a settings card — its tiles are sixteen levels
      over the page where its cards are six — because a tile is an object you pick up, not a group of
      controls you read. */
@@ -122,15 +126,14 @@
   --rl-tile-hover: var(--overlay-lighten-300);
   --rl-tile-press: var(--overlay-lighten-400);
   /* What an OBJECT rests on — a file's tile and its square in a row, a saved turn, a file on a message
-     or in the prompter, and the device's toolbar: a light border and a very slight shadow, the card
-     stack (the owner, 10-05, of the toolbar: "That should be the shadow and border used for any
-     library item"). Named once for all of them, so the toolbar pointed at and the files it was
+     or in the prompter, and the device's toolbar: one surface for all of them (the owner, 10-05, of
+     the toolbar: "That should be the shadow and border used for any library item"), and since 10-19
+     ("I don't like having borders") that surface is a card's — its lift, with no edge
+     drawn round it. Named once for all of them, so the toolbar pointed at and the files it was
      pointed at for cannot drift apart; `styles.test.ts` holds each to it. */
-  --rl-object-shadow: var(--shadow-card);
-  /* …and the same two halves for a surface the worklet paints, where a box-shadow ring would trace the
-     square border box: the border goes to the painter and the shadow becomes a filter (tokens.css
-     splits the card stack the same way, for the same reason). */
-  --rl-object-ring: var(--card-ring);
+  --rl-object-shadow: var(--card-lift);
+  /* …and the lift as a filter, for a surface the worklet paints inside a clip of its own (the
+     prompter's file well), where a box-shadow would trace the square border box. */
   --rl-object-lift-filter: var(--shadow-card-lift-filter);
   /* borders: BUI hairlines are solid and crisp, not alpha — hairline = line now */
   --rl-line: var(--line);                        /* BUI --line */
@@ -302,13 +305,23 @@ button { font: inherit; color: inherit; background: none; border: none; padding:
    row that points, or a search inside a label, would point too. */
 :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="button"], [type="submit"], [type="reset"], [type="image"]),
   textarea, [contenteditable="true"]) { cursor: text; }
-/* Chrome is not text. A double-click on a button's label, or a drag that starts on a sidebar row,
-   selects the words on it in a browser and does nothing in an AppKit window, and ⌘A sweeping the
-   whole interface blue is the same tell at full size. Content — the transcript, documents, code,
-   fields — keeps selection because nothing here names it. The images and glyphs chrome is drawn
-   with do not lift off as drag ghosts either. */
+/* Chrome is not text. A double-click on a heading, a card's title or a status line selects its words in
+   a browser and does nothing in an AppKit window, where only a text view selects; and ⌘A sweeping the
+   whole interface blue is the same tell at full size. So nothing selects until it is named as content
+   below — a header, a chip or a page of settings written tomorrow is chrome without a rule of its
+   own. The images and glyphs chrome is drawn with do not lift off as drag ghosts either. */
+body { -webkit-user-select: none; user-select: none; }
+/* Content: what a person reads or copies. Prose, either side's — a message, a report, a plan, a skill
+   (`.md`, and the user's own words); a finished question's answers; a diff, in a tool's card or a pane;
+   a tool's search hits; a document in its editor, a PDF's text, a file a teammate handed over for
+   review. Code, output and fields follow. A surface of content that is none of these says so with
+   `data-selectable` rather than as one more name here; a terminal draws its own selection. */
+.md, .msg-user, .question-answered-list, .fd-body, .matches, .diff-hunks, .diff-split, .cm-editor, .ProseMirror, .textLayer,
+.rv-frame, .rv-caption, .tp-prose, [data-selectable] { -webkit-user-select: text; user-select: text; }
+/* A control is chrome wherever it stands, content included — a code block's copy button, a callout's
+   name, a message's retry. */
 :is(button, [role="button"], [role="tab"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"],
-  [role="option"], [role="switch"], label, summary, .sidebar, .panel-bar, .menu, .settings-tabs) {
+  [role="option"], [role="switch"], label, summary, .sidebar, .panel-bar, .menu, .settings-tabs, .md-code-head, .md-callout-head) {
   -webkit-user-select: none; user-select: none; }
 /* A field inside one of those (a label wrapping its input, the sidebar's rename) is still a field. */
 :is(input, textarea, [contenteditable="true"]) { -webkit-user-select: text; user-select: text; }
@@ -2886,7 +2899,8 @@ button.panel-title:hover { background: var(--rl-hover); }
    wrong build. Danger rather than warning because the two ask for different things: warning means
    hold on, danger means do something. */
 .conn-banner[data-tone="bad"] { background: color-mix(in srgb, var(--rl-danger) 8%, var(--surface)); color: var(--rl-danger); }
-.conn-banner button { color: inherit; font-weight: var(--fw-title); padding: 2px 6px; border-radius: var(--r-chip); }
+/* The action keeps its words on one line; a long line beside it (a log's path) wraps instead. */
+.conn-banner button { flex: none; white-space: nowrap; color: inherit; font-weight: var(--fw-title); padding: 2px 6px; border-radius: var(--r-chip); }
 .conn-banner button:hover { background: var(--rl-hover); }
 /* A system notice ARRIVES; it does not blink into being. The banner is drawn by something the user
    did not ask for — the socket dropping — and a cut straight to a finished bar at the top of the
@@ -3169,13 +3183,14 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
 .toast[data-tone="error"] { --toast-tone: var(--rl-danger); }
 .toast[data-tone="warning"] { --toast-tone: var(--rl-warning); }
 .toast[data-tone="success"] { --toast-tone: var(--rl-success); }
-/* The glyph that says what kind of notice it is, the words, and the way to dismiss it. The words are
-   CONTENT — the path in an error is the part someone copies — so they select, where chrome does not. */
+/* The glyph that says what kind of notice it is, the words, and the way to dismiss it. The words select
+   (`data-selectable`, the owner, 10-19) so an error's wording can be copied; the glyph and the buttons
+   stay chrome. */
 .toast-body { display: flex; align-items: flex-start; gap: 10px; padding: 12px 8px 12px 12px;
   transition: opacity var(--dur-swap) var(--ease-fade); }
 .toast-icon { flex: none; display: grid; place-items: center; height: 18px; color: var(--toast-tone); }
 .toast-text { flex: 1; min-width: 0; margin: 0; font-size: 13px; line-height: 18px; font-weight: var(--fw-medium);
-  overflow-wrap: anywhere; text-wrap: pretty; -webkit-user-select: text; user-select: text; cursor: text; }
+  overflow-wrap: anywhere; text-wrap: pretty; }
 /* Off its own line box at the top, so a 28px target does not make a one-line toast taller. */
 .toast-close { flex: none; margin: -5px 0; color: var(--rl-text-faint); }
 /* The one thing a toast can do, an Undo: a word in the link's ink at the toast's own size, on the
@@ -3325,7 +3340,13 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
 .palette-hint kbd { padding: 1px 5px; border: var(--hairline-w) solid var(--rl-line-strong); border-radius: var(--r-chip); }
 .palette-icon { display: grid; place-items: center; width: 20px; color: var(--rl-text-dim); }
 .palette-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.palette-hint { font-size: 11px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+.palette-hint { font-size: 11px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums;
+  min-width: 0; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Another space's item: the space's name is the part that gives way, so a long one never takes the
+   row from the item's own title, which is what the search was for. The age keeps its width. */
+.palette-hint-where { display: flex; gap: .3em; min-width: 0; }
+.palette-hint-space { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.palette-hint-where > :last-child { flex: none; }
 /* Deep-search snippets (Plan 16 W2): one clipped line; matches brighten, they do not highlight —
    a row is a glance, and a yellow smear would out-shout the label. */
 .palette-snippet { display: inline-block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -4028,7 +4049,6 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
   border-radius: var(--r-ctl); text-align: left; font-size: 12px; color: var(--ink); }
 .delegation-item:hover { background: var(--rl-hover); }
 .delegation-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.delegation-dim { flex: none; font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 
 /* ── A session's Agents tab (panes/agents-tab) ─────────────────────────────
    The session's sub-agents above, the composer that hands it work below, in one column on the pane's
@@ -4053,10 +4073,10 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* A card is the sub-agent; its summary is the disclosure, and what opens under it — the request to
    answer, the brief, what can be done — is part of the same card rather than a panel of its own. */
 .subagent-card { display: flex; flex-direction: column; min-width: 0;
-  border: var(--hairline-w) solid var(--rl-card-rim); border-radius: var(--r-panel); background: var(--rl-card); color: var(--ink);
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); color: var(--ink);
   transition: box-shadow var(--dur-slow) ease; }
 .subagent-summary { display: flex; flex-direction: column; gap: 4px; width: 100%; min-width: 0; padding: 10px 12px 11px; text-align: left;
-  border: none; border-radius: var(--r-panel); background: transparent; color: inherit; font: inherit; }
+  border: none; border-radius: var(--r-squircle-card); background: transparent; color: inherit; font: inherit; }
 .subagent-summary:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--rl-accent); }
 /* Asked for from a transcript line: lit long enough to be found, then let go. */
 .subagent-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
@@ -4175,15 +4195,20 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .subagent-view-where { flex: 0 1000 auto; color: var(--ink-3); }
 .subagent-view-where[data-branch] { font-family: var(--font-mono); }
 .subagent-view-model > svg, .subagent-view-where > svg { flex: none; }
-/* What it came back with, pinned under the head: a card of fill, capped so a long report leaves the
-   log room, and scrolling inside itself past that. */
-.subagent-view-result { flex: 0 1 auto; max-height: 40%; min-height: 0; display: flex; flex-direction: column; gap: 4px; margin: 0 12px 8px; padding: 10px 4px 4px 12px;
-  border: var(--hairline-w) solid var(--rl-card-rim); border-radius: var(--r-panel); background: var(--rl-card); }
-.subagent-view-result-head { flex: none; display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; line-height: 16px; font-weight: var(--fw-title); color: var(--ink-2); }
+/* What it came back with, pinned under the head: the reason anyone delegated, so it is a card as tall
+   as the report, up to most of the viewer, scrolling inside itself only past that. It never gives way
+   to the log under it — `flex: none`, because shrink is shared in proportion to size, and beside a
+   long transcript a report of a dozen lines came out a strip two lines high. Read at the body size
+   in the primary ink, with the padding a card the eye rests in gets; the right edge is the scroller's,
+   so a bar has somewhere to go. */
+.subagent-view-result { flex: none; max-height: 60%; display: flex; flex-direction: column; gap: 8px; margin: 0 12px 10px; padding: 12px 6px 14px 16px;
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); }
+.subagent-view-result-head { flex: none; display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; line-height: 18px; font-weight: var(--fw-title); color: var(--ink); }
 .subagent-view-result-head > svg { color: var(--ink-3); }
 .subagent-view-result[data-error] .subagent-view-result-head > svg { color: var(--rl-danger); }
-.subagent-view-result-scroll { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 8px; --fade-h: 20px; --fade-top-h: 16px; }
+.subagent-view-result-scroll { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 10px; --fade-h: 20px; --fade-top-h: 16px; }
 .subagent-view-prose { font-size: 13px; color: var(--ink-2); }
+.subagent-view-result .subagent-view-prose { font-size: 14px; color: var(--ink); }
 /* The log: a delegated child's own transcript, set compact, or a harness agent's calls. */
 .subagent-view-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .subagent-view .transcript { padding: 8px 12px 16px; }
@@ -4222,30 +4247,6 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .delegation-line[data-state="failed"] .tool-status, .delegation-line[data-state="timeout"] .tool-status { color: var(--rl-danger); }
 .delegation-line .tool-row:disabled { color: var(--ink); opacity: 1; }
 
-/* The session's sub-agents under its last message (SubagentStrip.tsx): the pane-bar chip, readable.
-   A card at the hairline on the card ground, so it reads as a thing the session has out rather than
-   one more line the agent said; the accent only on its mark, as the chip carries it, and the state
-   colours the Agents tab's own marks use. Settled, it is the head row alone. */
-.subagent-strip { display: flex; flex-direction: column; margin: 12px 0 0; padding: 4px;
-  border: var(--hairline-w) solid var(--rl-card-rim); border-radius: var(--r-panel); background: var(--rl-card); }
-.subagent-strip-head, .subagent-strip-row { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 0 8px; border: none;
-  border-radius: var(--r-ctl); background: transparent; font: inherit; text-align: left; transition: background-color var(--dur-hover) ease; }
-.subagent-strip-head { height: 30px; font-size: 13px; color: var(--ink); }
-.subagent-strip-head > svg:first-child { flex: none; color: var(--rl-accent); }
-.subagent-strip[data-settled] .subagent-strip-head { color: var(--ink-2); }
-.subagent-strip[data-settled] .subagent-strip-head > svg:first-child { color: var(--ink-3); }
-.subagent-strip-head:hover, .subagent-strip-row:hover { background: var(--rl-hover); transition: none; }
-.subagent-strip-head:focus-visible, .subagent-strip-row:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--rl-accent); }
-.subagent-strip-line { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.subagent-strip-go { flex: none; color: var(--ink-3); }
-.subagent-strip-list { list-style: none; margin: 0; padding: 0 0 2px; display: flex; flex-direction: column; gap: 2px; }
-.subagent-strip-row { height: 28px; font-size: 12px; color: var(--ink-2); }
-.subagent-strip-mark { flex: none; display: inline-flex; justify-content: center; width: 14px; color: var(--ink-3); }
-.subagent-strip-row[data-state="failed"] .subagent-strip-mark, .subagent-strip-row[data-state="timeout"] .subagent-strip-mark { color: var(--rl-danger); }
-.subagent-strip-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--ink); }
-.subagent-strip-state { flex: none; color: var(--ink-3); }
-.subagent-strip-row[data-state="waiting"] .subagent-strip-state { color: var(--ink); }
-.subagent-strip-time { flex: none; color: var(--ink-3); font-size: 12px; font-variant-numeric: tabular-nums; }
 .plan-implement-with { gap: 5px; }
 /* The settled twin of .msg-working: the same verb in the past tense, with the wait it cost. Quieter
    than the live label — it is scrollback now, not the thing to watch — and tabular so a column of
@@ -4256,12 +4257,12 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    it was a timestamp a reader had to squint at. */
 .msg-run-at { color: var(--rl-text-faint); }
 /* ── A turn's edits (EditSummary.tsx): Codex's "Edited 2 files +20 −3" card ───────────────────────
-   A card the eye rests in, so it wears the curve and no ring: the surface fill is the whole boundary,
-   and its head is not ruled off from its rows — the title and its two actions are chrome for the
+   A card the eye rests in, so it is drawn as every card is: the curve, no ring, the fill as its
+   boundary with the card's light and lift, and its head not ruled off from its rows — the title and its two actions are chrome for the
    card, not a section of it. The card's curve is the picker cards' rung so the rows' own corners
    nest inside it (20 = 12 of padding + the 8 a row rounds by). */
 .edit-summary { display: flex; flex-direction: column; gap: 2px; margin: 2px 0; padding: 12px;
-  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--surface); }
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--surface); box-shadow: var(--card-lift); }
 /* The actions wrap under the title in a narrow pane rather than pushing Review off the card's edge;
    the title itself never breaks — "Edited / 2 files" is one phrase. */
 .edit-summary-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-height: 30px; padding: 0 8px 6px; }
@@ -4605,7 +4606,7 @@ button.edit-file:hover { background: var(--rl-hover); }
 /* What a view asked to do, held for the user (ViewRequestCard.tsx). The request card's shell — a
    raised surface with the lift every card that waits on an answer wears — set under the frame and
    outside it, where nothing the view draws can reach. */
-.app-view-request { margin-top: 8px; padding: 14px; border-radius: var(--r-panel); background: var(--rl-raised); box-shadow: var(--shadow-card);
+.app-view-request { margin-top: 8px; padding: 14px; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-raised); box-shadow: var(--card-lift);
   display: flex; flex-direction: column; gap: 8px; }
 .app-view-request-title { margin: 0; color: var(--ink); font-size: 14px; line-height: 20px; font-weight: var(--fw-label); }
 .app-view-request-note { margin: 0; color: var(--ink-2); font-size: 12px; }
@@ -4826,12 +4827,12 @@ button.edit-file:hover { background: var(--rl-hover); }
    can act on, and the source is. */
 .math-raw { font-family: var(--font-mono); font-size: .92em; color: var(--rl-warning); }
 
-/* Plan 9 W2: the permission card wears BUI ApprovalCard's shell — a surface card on shadow-card
-   (BUI cards rest; the old floating overlay shadow is gone), radius-card, 12px card pad, and a
-   hairline-topped footer. The behaviour underneath is Realm's, verbatim: numbered options with kbd
+/* Plan 9 W2: the permission card wears BUI ApprovalCard's shell — a surface card (BUI cards rest;
+   the old floating overlay shadow is gone), 12px card pad, and a hairline-topped footer — drawn as
+   every card is, with no edge round it and on the painted curve ("One card", further down). The behaviour underneath is Realm's, verbatim: numbered options with kbd
    chips, ↑↓/bare-digit keys, the Enter-on-Deny guard, Esc→deny. The amber wash stays gone; colour
    survives as the 6px dot and the "Waiting" pill. */
-.permission-card { border-radius: var(--r-panel); padding: 14px; background: var(--surface); box-shadow: var(--shadow-card); display: flex; flex-direction: column; gap: 8px; }
+.permission-card { border-radius: var(--r-squircle-card); corner-shape: squircle; padding: 14px; background: var(--surface); box-shadow: var(--card-lift); display: flex; flex-direction: column; gap: 8px; }
 .permission-head { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: var(--fw-label); color: var(--ink); }
 .permission-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--rl-warning); flex: none; animation: rl-pulse 0.9s ease-in-out infinite; }
 .permission-head .status-pill { margin-left: auto; font-weight: 400; }
@@ -4884,7 +4885,7 @@ button.edit-file:hover { background: var(--rl-hover); }
    labels rather than Allow/Deny. Rows are taller than a permission's because each may carry a
    description line, and they separate themselves the way .permission-options' do — a hover fill on a
    rounded row, with a hairline between them as well saying the same thing twice. */
-.question-card { border-radius: var(--r-panel); padding: 16px; background: var(--surface); box-shadow: var(--shadow-card);
+.question-card { border-radius: var(--r-squircle-card); corner-shape: squircle; padding: 16px; background: var(--surface); box-shadow: var(--card-lift);
   display: flex; flex-direction: column; gap: 10px; container: question-card / inline-size; }
 .question-head { display: flex; align-items: flex-start; gap: 10px; }
 .question-title { flex: 1; min-width: 0; margin: 0; font-size: 15px; font-weight: var(--fw-label); line-height: 1.4; color: var(--ink); text-wrap: balance; }
@@ -5025,10 +5026,10 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    quiet — the host is what says whose page this is. */
 .question-link { margin: 0; padding: 8px 10px; border-radius: var(--r-ctl); background: var(--field); font: 12px/18px var(--font-mono); color: var(--ink-3); overflow-wrap: anywhere; }
 .question-link-host { color: var(--rl-text-bright); font-weight: var(--fw-title); }
-/* A question after the fact: the card's own shell, at rest — no lift, nothing to press — with each
-   question over what was answered. The answer is the thing a reader comes back for, so it takes the
+/* A question after the fact: the card's own shell, with nothing to press — each question over what
+   was answered. The answer is the thing a reader comes back for, so it takes the
    primary ink and the question the secondary; an outcome with no answer under it says so in words. */
-.question-answered { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: var(--r-panel); background: var(--surface); }
+.question-answered { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--surface); box-shadow: var(--card-lift); }
 .question-answered-head { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; line-height: 16px; color: var(--ink-2); }
 .question-answered-head > svg { flex: none; }
 .question-answered-outcome { flex: none; margin-left: auto; color: var(--ink-3); }
@@ -5143,7 +5144,9 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 
 /* The card (Plan 9 W3 — BUI PromptBar): a surface field on shadow-card (the hairline ring is part
    of the stack), --r-float, borderless. Focus is BUI's border-brighten — the ring steps to
-   line-strong — replacing the old 30% accent glow (PromptBar's focus-within:border-line-strong). */
+   line-strong — replacing the old 30% accent glow (PromptBar's focus-within:border-line-strong).
+   It brightens and stays a hairline: the keyboard is in the prompter most of the day, and a ring that
+   doubled in width on focus was the heaviest edge in the window (the owner, 10-18). */
 /* Squircle prompter. What is written here is the FALLBACK — a circular corner at --r-squircle,
    which is its own rung because a squircle reads visually smaller than a circular corner at the
    same radius and the two scales cannot track by arithmetic — plus `corner-shape`,
@@ -5153,7 +5156,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .composer { width: 100%; border-radius: var(--r-squircle); corner-shape: squircle; background: var(--surface);
   box-shadow: var(--shadow-card); display: flex; flex-direction: column; position: relative; z-index: 1; }
 .composer:focus-within {
-  box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-card); }
+  box-shadow: 0 0 0 var(--hairline-w) var(--line-strong), var(--shadow-card-lift); }
 /* ── The prompter wears its mode ─────────────────────────────────────────
    Ask and Plan both mean "the agent will not change anything on disk", which is the single most
    consequential fact about the next send. It was said by one chip in a row of chips; it is said by
@@ -5605,7 +5608,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .market-lede { margin: 0; font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); max-width: 60ch; }
 .market-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
 .market-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; min-height: 150px;
-  background: var(--rl-frame); border-radius: var(--r-panel); corner-shape: squircle; }
+  background: var(--rl-frame); border-radius: var(--r-squircle-card); corner-shape: squircle; }
 /* The well is a near-white tile in BOTH themes: brand marks are drawn for white ground, and Slack's
    aubergine or Sentry's violet on a dark surface is a mark you cannot see. A tile is the one place
    a colour that is not Realm's belongs, and it is 40px. */
@@ -5669,28 +5672,6 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .composer-opts { display: flex; align-items: center; gap: 4px; flex: none; flex-wrap: nowrap; }
 .composer-opts > * { flex: none; }
 .perm-short { display: none; }
-/* The branch group (§3): still one button, still the way into the diff pane.
-   `--branch-reserved` is everything of FIXED width the row has to fit before the branch name gets
-   any: the card's margins and padding, the "+" and mode chips, the model chip and the send button,
-   plus whichever of the two number chips is still on the row (the narrow steps below restate it as
-   they drop them). Whatever is left over is the name's. Measured with
-   apps/desktop/scripts/composer-bar-live.mjs, which sweeps the row across pane widths and fails on
-   any chip the group has clipped. It is deliberately the figure for the COLLAPSED row: sized for the
-   wider un-collapsed one, panes between the two would fold the permission chip away to buy the
-   branch pixels it did not need. */
-.composer-git { --branch-reserved: 456px; display: inline-flex; align-items: center; gap: 2px; padding: 0; border-radius: var(--r-chip); background: transparent; min-width: 0; }
-.composer-git:hover .ghost-chip { --fill: var(--rl-hover); color: var(--rl-text-bright); }
-/* A branch name is the one thing on this row whose width is user data, and the flat 160px cap it had
-   was wrong at both ends: it truncated a 30-character branch in a 1000px pane with 500px going
-   spare, and in anything under ~565px the chip was amputated outright by the group's clip — a button
-   sliced down the middle, which reads as a rendering fault rather than as a name that did not fit.
-   Capped against the pane instead, the name grows and shrinks with the room it actually has. The
-   chip stays `flex: none` with everything else on the row, so the collapse measurement above still
-   sees a real overflow rather than one this chip quietly absorbed. */
-.composer-git .git-branch { max-width: clamp(0px, calc(100cqw - var(--branch-reserved)), 240px); }
-.composer-git .git-diff { gap: 6px; font-variant-numeric: tabular-nums; }
-.composer-git .diff-add { color: var(--rl-success); }
-.composer-git .diff-del { color: var(--rl-danger); }
 /* Borderless ghost chips (§4): text-dim, hover fill, menus open upward. The agent glyph is one of
    them now (W3) — a picker until the session's first event, a plain label after. */
 .ghost-chip { display: inline-flex; align-items: center; gap: 4px; --btn-h: 28px; height: var(--btn-h); padding: 0 8px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
@@ -5731,20 +5712,6 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    red chip through an orange button would read as two different warnings about one decision. */
 .bypass-confirm { color: var(--rl-danger); background: var(--red-tint); }
 .bypass-confirm:hover { background: color-mix(in srgb, var(--red) 24%, transparent); }
-/* Narrow panes, in the order the row can afford to lose things. Every threshold is the pane width at
-   which the branch would otherwise be squeezed under its floor, read off a measured sweep rather than
-   guessed, and every one is the SESSION PANE's own width — a session in a three-way split is narrow
-   on a wide screen, which no window query would notice.
-   "N changed" goes first: the +/− pair beside it answers the same question and the file count is in
-   the button's own tip, so it is the only thing here that is purely a second telling. The pair
-   follows. Last the name itself gives way to the mark it already carries — a branch nobody can read
-   is a worse chip than a glyph that still opens the diff, and the name stays legible to a screen
-   reader (`.visually-hidden`'s own declarations) and one hover away for everyone else. */
-@container (max-width: 520px) { .composer-git { --branch-reserved: 376px; } .composer-git .git-dirty { display: none; } }
-@container (max-width: 460px) { .composer-git { --branch-reserved: 310px; } .composer-git .git-diff { display: none; } }
-@container (max-width: 360px) {
-  .composer-git .git-branch .chip-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-}
 /* The right group is what gives, and inside it only the model chip: the send button never shrinks. */
 .composer-actions { display: flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0; }
 .composer-actions > .model-chip { flex: 0 1 auto; }
@@ -5824,32 +5791,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    running off the end of the list must not carry the scroll into the log behind it. */
 .composer-todos .todo-list { margin-top: 8px; max-height: 248px; overflow-y: auto; overscroll-behavior: contain; --fade-h: 24px; --fade-top-h: 16px; }
 
-/* ── Running agents: a count in the session's bar, and the list it opens ──────────────
-   A chip in the bar's meta rather than a strip on the prompter: the agents a session has working are
-   context about the SESSION, read where its status dot is, and a strip above the composer took
-   transcript height for as long as anything ran. The count is quiet ink with the accent on its mark,
-   the same weight the status dot beside it carries. */
-.agents-chip { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border-radius: var(--r-chip);
-  font-size: 12px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; white-space: nowrap;
-  transition: background-color var(--dur-hover) var(--ease-out-strong), color var(--dur-hover) var(--ease-out-strong); }
-.agents-chip > svg { flex: none; color: var(--rl-accent); }
-.agents-chip-needs { display: inline-flex; align-items: center; gap: 6px; }
-.agents-chip-sep { color: var(--rl-text-faint); }
-.agents-chip:hover, .agents-chip[aria-expanded="true"] { background: var(--rl-hover); color: var(--rl-text-bright); }
-.agents-pop { width: 340px; max-width: calc(100vw - 24px); }
-.agents-pop-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px 4px;
-  font-size: 12px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
-/* Bounded for a fan-out of twenty: the list scrolls inside the popover, and running off its end must
-   not carry the scroll into the transcript under it. */
-.agents-pop .delegation-list { margin: 0; padding: 0; border: none; max-height: 280px; overflow-y: auto; overscroll-behavior: contain; --fade-h: 24px; --fade-top-h: 24px; }
-/* The row whose agent the drawer is showing. It needs to be told apart from a HOVERED row, and the
-   active fill alone cannot do it — `--rl-active` and `--rl-hover` are one rung apart, so the two read
-   as the same state and the pointer decides which. The fill says "this one", and the mark going
-   accent is what says it is still true once the pointer has moved away. */
-.delegation-item[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); }
-.delegation-item[data-selected] > svg:first-child { color: var(--rl-accent); }
 
-/* ── Over-strip: the branch group, on a tab of its own above the card ─────────────────
+/* ── Over-strip: what the checkout has changed, on a tab of its own above the card ─────
    The to-do strip's geometry exactly — same frame fill, same 10px side inset, the same 10px of
    overlap sliding it behind the card, the same radii — because it is the same kind of object: a
    narrower tab attached to the prompter's top edge. 6px of strip shows above the chip and 16 − 10
@@ -5860,29 +5803,78 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    has a yielding order to arbitrate (machine, workspace, meter) and reads left to right; this holds
    one object, so there is nothing to order and it sits on the card's centre line.
 
-   Nothing in it is selectable, for the under-strip's reason: dragging across it to reach the diff
-   would leave the strip highlighted behind the pane that just opened, and the one string a reader
-   might want to copy — the branch name — is on the button's own tooltip. */
+   Nothing in it is selectable, for the under-strip's reason: dragging across it to reach the review
+   would leave the strip highlighted behind the pane that just opened. */
 .composer-overstrip { display: flex; align-items: center; justify-content: center; gap: 2px; min-width: 0;
   margin: 0 10px -10px; padding: 6px 10px 16px; background: var(--rl-frame);
   user-select: none; -webkit-user-select: none;
   border-radius: var(--r-squircle) var(--r-squircle) 0 0; corner-shape: squircle; }
 .composer-overstrip .ghost-chip { height: 22px; font-size: 11px; gap: 5px; color: var(--rl-text-faint); max-width: 260px; }
 .composer-overstrip .ghost-chip:hover:not([data-static]) { color: var(--rl-text-dim); }
-/* Alone on the strip, so `--branch-reserved` is only what sits BESIDE the name — the two number
-   chips, the gaps, and the strip's own inset — and the rest of the pane is the branch's, up to the
-   240px cap the chip carries. Restated at the two narrow steps because this selector outranks the
-   bare `.composer-git` ones that drop those chips: a reserve that still counts a chip the pane has
-   already hidden is a name cut short for room nobody is using. */
-.composer-overstrip .composer-git { --branch-reserved: 200px; }
-@container (max-width: 520px) { .composer-overstrip .composer-git { --branch-reserved: 120px; } }
-@container (max-width: 460px) { .composer-overstrip .composer-git { --branch-reserved: 48px; } }
+/* What changed (WhatChanged.tsx): the kinds of file involved, then what happened to them. The marks
+   overlap as a stack, each on a quiet disc, and the one behind is cut round the one in front by a mask
+   rather than ringed in the strip's colour — so the gap reads the same on the strip, under the
+   pointer's fill and on either face. The overlap is less than the margin round each mark, so the cut
+   takes the disc's edge and leaves the glyph whole. The disc's left edge sits closer to the chip's than
+   text would: a round edge reads further in than a straight one. */
+.composer-overstrip .what-changed { padding-left: 3px; }
+.what-changed-kinds { display: inline-flex; flex: none; }
+.what-changed-kind { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--rl-hover); }
+.what-changed-kind + .what-changed-kind { margin-left: -3px; }
+.what-changed-kind:not(:last-child) {
+  -webkit-mask: radial-gradient(circle at calc(100% + 6px) 50%, transparent 10px, #000 10.5px);
+  mask: radial-gradient(circle at calc(100% + 6px) 50%, transparent 10px, #000 10.5px); }
 /* Tabs stacked into one band. The corners belong to whichever is on TOP, and every strip below it
    goes square — each drawn from the strip that arrives underneath, never by reaching up into the one
    above to make room for itself. */
 .composer-goal + .composer-todos,
 .composer-goal + .composer-overstrip,
 .composer-todos + .composer-overstrip { border-radius: 0; }
+
+/* ── Who is working: the session's agents, on the over-strip ──
+   The strip's own ghost chips (22px, 11px, faint), so the row reads as part of the strip rather than
+   a toolbar laid on it. Each is its state's mark — the sidebar's dot and ring while it works or needs
+   you, the transcript's glyph once it has ended — and its name, cut short so a few fit beside the
+   branch. Set a step apart from the branch, which is a fact of another kind. */
+.active-agents { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.composer-overstrip > * + .active-agents { margin-left: 8px; }
+.active-agents .active-agent { max-width: 200px; }
+@container (max-width: 520px) { .active-agents .active-agent { max-width: 140px; } }
+@container (max-width: 460px) { .active-agents .active-agent { max-width: 96px; } }
+/* The agent's own mark with its state on the corner: a badge cut out of the mark by a ring of the
+   ground under it, so the two read as one object at 14px — the menu's surface in "+N", the strip's
+   below. */
+.active-agent-mark { position: relative; flex: none; display: inline-flex; width: 14px; height: 14px; }
+.active-agent-badge { position: absolute; right: -3px; bottom: -3px; display: grid; place-items: center; width: 10px; height: 10px;
+  border-radius: 50%; background: var(--surface); color: var(--rl-text-dim); }
+/* On the strip: the chip's own fill over the strip's ground, so the cut-out matches at rest and under
+   the pointer alike. */
+.active-agent .active-agent-badge { background: linear-gradient(var(--fill), var(--fill)), var(--rl-frame); }
+.active-agent-badge .status-dot { width: 6px; height: 6px; }
+/* The sidebar's dot, without its ping (`.item-status::after`): the strip under the transcript already
+   pings for these same agents, and two rings moving for one fact is the sidebar's reason not to. */
+.active-agent-badge .status-dot::after { content: none; }
+.active-agent-mark[data-state="failed"] .active-agent-badge, .active-agent-mark[data-state="timeout"] .active-agent-badge { color: var(--rl-danger); }
+/* Needs you is the one state the person has to act on, so its name is a rung brighter. */
+.composer-overstrip .active-agent[data-state="waiting"] { color: var(--rl-text-dim); }
+/* The count never yields: "+" alone says nothing. */
+.active-agents-more { flex: none; font-variant-numeric: tabular-nums; }
+/* Narrow, two or more agents give up their names before anything else on the strip does: each is its
+   mark and its state, the name in its tooltip. A name cut to two letters says less than the mark. One
+   agent alone keeps its name. */
+@container (max-width: 520px) { .active-agents:has(> .active-agent + .active-agent) .active-agent .chip-label { display: none; } }
+
+/* ── "+ → Add teammate…" ──
+   A popover off the "+", in the code review sheet's anatomy at the prompter's scale: a title, the
+   model picker's own chip, one line for the brief, where it works, and the action. */
+.teammate-pop { z-index: 100; width: 360px; max-width: calc(100vw - 24px); display: flex; flex-direction: column; gap: 12px; padding: 16px;
+  background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-float); box-shadow: var(--shadow-overlay);
+  animation: rl-menu-in var(--dur-pop) var(--spring-smooth); }
+.teammate-pop[data-closing] { animation: rl-menu-out var(--dur-press) var(--ease-out-strong) forwards; pointer-events: none; }
+.teammate-pop-title { margin: 0; font-size: 14px; line-height: 20px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.teammate-pop-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--rl-text-dim); }
+.teammate-pop-note { margin: -4px 0 0; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+.teammate-pop-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 /* ── Under-strip (§4 + Plan 12 W1): machine label + workspace selector, one size quieter than the
    control row (11px on faint vs 12px on dim), on a frame fill sliding out from beneath the card
@@ -6031,7 +6023,6 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 :root[data-squircle] .tool-panel,
 :root[data-squircle] .tool-body .fd-file,
 :root[data-squircle] .ui-block,
-:root[data-squircle] .edit-summary,
 :root[data-squircle] .subagents-compose,
 :root[data-squircle] .subagent-view-compose,
 :root[data-squircle] .diff-review,
@@ -6296,8 +6287,6 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   border-radius: 0;
   background: paint(rl-squircle);
   --sq-fill: var(--field);
-  --sq-ring: var(--rl-object-ring);
-  --sq-ring-w: var(--hairline-w);
   --sq-radius-top: calc(var(--attach-tile) * var(--sq-ratio-media));
   --sq-radius-bottom: calc(var(--attach-tile) * var(--sq-ratio-media));
   box-shadow: none;
@@ -6332,9 +6321,6 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card); }
 /* A drawn block is the same panel the code it replaced was, painted the same way. */
 :root[data-squircle] .ui-block { --sq-fill: var(--surface); box-shadow: none; }
-/* A turn's edit card is content in the log for the same reason, and on the card rung (see the card). */
-:root[data-squircle] .edit-summary { --sq-fill: var(--surface); box-shadow: none;
-  --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card); }
 /* The Agents tab's composer, on the prompter's curve and painted like it; its focus edge moves to
    the painter, because a box-shadow would trace the square border box `border-radius: 0` leaves. */
 :root[data-squircle] :is(.subagents-compose, .subagent-view-compose) { --sq-fill: var(--surface); }
@@ -6362,6 +6348,122 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   --sq-ring: color-mix(in srgb, var(--rl-accent) 35%, transparent); --sq-ring-w: 2px;
   box-shadow: none;
 }
+/* ── One card ──────────────────────────────────────────────────────────────
+   Every card in the app — a thing the session has out, a request, a group of settings, a file you
+   pick up, a draft the team made — is drawn ONE way (the owner, 10-19: no borders, and the corners
+   a squircle, not "normal rounding"): its fill, a soft lift, and the painter's superellipse. Nothing
+   is drawn round it or along any edge of it.
+
+   The painter draws the face and the box keeps a CIRCULAR
+   `border-radius` of half the curve's. That half is the one measured number this rests on: a circle
+   of radius R/2 contains the superellipse of radius R (n = 4) and never sits more than 0.024R
+   outside it, under half a pixel at the card rung. So the background clip never shaves the painted
+   corner; the lift stays a plain `box-shadow`, cast from a box that follows the curve to within that
+   half pixel (no filter, no extra layer — there are dozens of these in a long transcript or a
+   Library, and a filter is a compositing pass each); a child clipped by `overflow` lands on the curve;
+   and a focus `outline` traces it, offset and all. Without the painter, the card is the same fill
+   and lift on a circle of the full radius (each card's own rule). */
+:root[data-squircle] .subagent-card,
+:root[data-squircle] .subagent-view-result,
+:root[data-squircle] .edit-summary,
+:root[data-squircle] .permission-card,
+:root[data-squircle] .question-card,
+:root[data-squircle] .question-answered,
+:root[data-squircle] .plan-card,
+:root[data-squircle] .plan-decision,
+:root[data-squircle] .app-view-request,
+:root[data-squircle] .settings-row,
+:root[data-squircle] .sched-card,
+:root[data-squircle] .cr-note,
+:root[data-squircle] .library-offer,
+:root[data-squircle] .saved-turn-open,
+:root[data-squircle] .library-tile,
+:root[data-squircle] .agent-card,
+:root[data-squircle] .tc-card,
+:root[data-squircle] .rv-why,
+:root[data-squircle] .rv-caption,
+:root[data-squircle] .rv-paper,
+:root[data-squircle] .rv-post,
+:root[data-squircle] .rv-files,
+:root[data-squircle] .rv-table .md-scroll,
+:root[data-squircle] .ps-rows,
+:root[data-squircle] .tp-card,
+:root[data-squircle] .tp-wait-row,
+:root[data-squircle] .tp-props,
+:root[data-squircle] .tp-message,
+:root[data-squircle] .tp-prose,
+:root[data-squircle] .tp-goal,
+:root[data-squircle] .stat-tile,
+:root[data-squircle] .usage-card,
+:root[data-squircle] .usage-figures,
+:root[data-squircle] .plan-account,
+:root[data-squircle] .market-card {
+  border-radius: calc(var(--r-squircle-card) / 2);
+  background: paint(rl-squircle);
+  --sq-fill: var(--rl-card);
+  --sq-radius-top: var(--r-squircle-card);
+  --sq-radius-bottom: var(--r-squircle-card);
+  box-shadow: var(--card-lift);
+}
+/* The fill each card already had, read by the painter in place of `background`. */
+:root[data-squircle] .edit-summary,
+:root[data-squircle] .permission-card,
+:root[data-squircle] .question-card,
+:root[data-squircle] .question-answered,
+:root[data-squircle] .plan-card,
+:root[data-squircle] .plan-decision,
+:root[data-squircle] .app-view-request { --sq-fill: var(--surface); }
+:root[data-squircle] .library-tile,
+:root[data-squircle] .agent-card { --sq-fill: var(--rl-tile); }
+:root[data-squircle] .stat-tile,
+:root[data-squircle] .usage-card,
+:root[data-squircle] .usage-figures,
+:root[data-squircle] .plan-account { --sq-fill: var(--chart-surface); }
+:root[data-squircle] .saved-turn-open:hover { --sq-fill: var(--rl-card-hover); }
+:root[data-squircle] .library-tile:hover { --sq-fill: var(--rl-tile-hover); }
+:root[data-squircle] .library-tile:is([data-pressed], :active:focus-visible) { --sq-fill: var(--rl-tile-press); }
+:root[data-squircle] button.tp-card:hover { --sq-fill: var(--rl-card-hover); }
+/* The marketplace's card is a well the page is cut into, not a card standing on it: the curve, with
+   no lift. */
+:root[data-squircle] .market-card { --sq-fill: var(--rl-frame); box-shadow: none; }
+/* The slot for a role of your own is an outline of a card that does not exist yet. */
+:root[data-squircle] .tp-card-custom { --sq-fill: transparent; box-shadow: none; }
+:root[data-squircle] .tp-card-custom:hover { --sq-fill: var(--rl-card); }
+/* A chosen card, and keyboard focus in one, are the only edges a card shows — on the curve, inside it. */
+:root[data-squircle] .tp-pick[data-on] { --sq-ring: color-mix(in srgb, var(--rl-accent) 55%, transparent); --sq-ring-w: 1px; box-shadow: var(--card-lift); }
+:root[data-squircle] .agent-card[data-selected] { --sq-ring: var(--rl-accent); --sq-ring-w: 1.5px; box-shadow: var(--card-lift); }
+:root[data-squircle] .agent-card:has(.agent-card-pick > input:focus-visible) { --sq-ring: var(--rl-accent); --sq-ring-w: 2px; box-shadow: var(--card-lift); }
+/* A sub-agent's card is its summary until it opens, so the summary's focus ring is the card's shape. */
+:root[data-squircle] .subagent-summary { border-radius: calc(var(--r-squircle-card) / 2); }
+/* A run of settings rows is one card, painted a row at a time: the first row takes the top corners,
+   the last the bottom corners, and no row casts the lift onto its neighbour. */
+:root[data-squircle] .settings-row { border-radius: 0; --sq-radius-top: 0px; --sq-radius-bottom: 0px; box-shadow: none; }
+:root[data-squircle] .settings-row:not(.settings-row + .settings-row) {
+  border-start-start-radius: calc(var(--r-squircle-card) / 2); border-start-end-radius: calc(var(--r-squircle-card) / 2);
+  --sq-radius-top: var(--r-squircle-card); }
+:root[data-squircle] .settings-row:not(:has(+ .settings-row)) {
+  border-end-start-radius: calc(var(--r-squircle-card) / 2); border-end-end-radius: calc(var(--r-squircle-card) / 2);
+  --sq-radius-bottom: var(--r-squircle-card); }
+/* …and on the light face, where the card is white on a near-white ground and needs its lift to be seen
+   at all, the run casts it as one shape from the list that holds it — a list of rows and nothing else,
+   so no heading or note beside the card is lifted with it. The dark face's card is a translucent
+   overlay, whose alpha would cast next to nothing. */
+:root[data-mode="light"] :has(> .settings-row):not(:has(> :not(.settings-row))),
+:root[data-mode="light"] .engines-list { filter: var(--card-lift-filter); }
+/* The engines' run, the same way. */
+:root[data-squircle] .engine-card { border-radius: 0; background: paint(rl-squircle); --sq-fill: var(--rl-card); }
+:root[data-squircle] .engine-card:first-child {
+  border-start-start-radius: calc(var(--r-squircle-card) / 2); border-start-end-radius: calc(var(--r-squircle-card) / 2);
+  --sq-radius-top: var(--r-squircle-card); }
+:root[data-squircle] .engine-card:last-child {
+  border-end-start-radius: calc(var(--r-squircle-card) / 2); border-end-end-radius: calc(var(--r-squircle-card) / 2);
+  --sq-radius-bottom: var(--r-squircle-card); }
+:root[data-squircle] .mode-card {
+  border-radius: calc(var(--r-squircle-card) / 2); background: paint(rl-squircle); --sq-fill: var(--rl-frame-raised);
+  --sq-radius-top: var(--r-squircle-card); --sq-radius-bottom: var(--r-squircle-card); }
+:root[data-squircle] .mode-card[data-selected] { --sq-fill: var(--accent-tint); }
+:root[data-squircle] .scope-doc-row:has(.memory-doc:focus) {
+  --sq-ring: color-mix(in srgb, var(--rl-accent) 55%, transparent); --sq-ring-w: 1px; box-shadow: none; }
 /*
  * Buttons declare the curve but are NOT painted, and that is deliberate.
  *
@@ -6377,7 +6479,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
  */
 /* Focus is still PromptBar's border-brighten, now traced on the curve instead of around it. */
 :root[data-squircle] .composer:focus-within, :root[data-squircle] .commit-card:focus-within {
-  --sq-ring: var(--line-strong); --sq-ring-w: 1px;
+  --sq-ring: var(--line-strong); --sq-ring-w: var(--hairline-w);
   box-shadow: none;
 }
 :root[data-squircle] .composer[data-dropping] {
@@ -6514,8 +6616,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    tile — raised off the ground, ringed a rung lighter — and the chosen one wears the accent's ring. */
 .agent-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 12px; }
 .agent-card {
-  display: flex; flex-direction: column; min-width: 0; border-radius: var(--r-panel); corner-shape: squircle;
-  background: var(--rl-tile); box-shadow: inset 0 0 0 var(--hairline-w) var(--rl-card-rim);
+  display: flex; flex-direction: column; min-width: 0; border-radius: var(--r-squircle-card); corner-shape: squircle;
+  background: var(--rl-tile); box-shadow: var(--card-lift);
   transition: box-shadow var(--dur-hover) ease;
 }
 .agent-card[data-selected] { box-shadow: inset 0 0 0 1.5px var(--rl-accent); }
@@ -6691,6 +6793,8 @@ select { appearance: none; padding-right: 22px;
   /* chrome and navigation. `.space-body` is NOT here — see the carve-out below. */
   .menu-list, .mention-list, .skill-picker-list, .mp-list, .ip-grid,
   .palette-list, .spaces-list, .sheet, .onboarding-stage, .page-content, .settings-rail-lists, .sb-page-nav, .summary-scroll, .ql-view,
+  /* a teammate's chat and its details */
+  .tc-scroll, .tc-drawer-body,
   /* the transcript and everything it draws inside itself */
   .transcript, .md pre, .msg-error pre, .tool-well, .tool-panel-text, .tool-body pre, .permission-details pre, .app-view-request-well,
   .code-block, .code-body, .fd-file, .fd-body, .term-out, .md-scroll, .math-display, .ui-block-scroll, .ui-diagram,
@@ -6703,7 +6807,7 @@ select { appearance: none; padding-right: 22px;
   .documents-picker-list, .documents-rich-scroll, .documents-rich-surface, .documents-rich .tiptap, .documents-raw,
   .docs-home-scroll, .code-file-languages, .pdf-view, .pdf-strip,
   /* the prompter — only the pinned strips' copies of the lists are bounded enough to scroll */
-  .composer-todos .todo-list, .agents-pop .delegation-list,
+  .composer-todos .todo-list,
   /* a session's Agents tab: its list of sub-agents and the composer's model chooser — and its viewer:
      a harness agent's log, and the pinned report */
   .subagents-scroll, .subagents-chooser-list, .subagent-view-log, .subagent-view-result-scroll,
@@ -7056,8 +7160,21 @@ select { appearance: none; padding-right: 22px;
    and was clipped. An inline-size container so the head and the commit bar can re-flow to the PANE. */
 .diff-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--rl-panel); container-type: inline-size; }
 .diff-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: var(--hairline-w) solid var(--rl-hairline); }
-.diff-head-count { font-size: 12px; color: var(--rl-text-dim); }
 .diff-head-spacer { flex: 1; }
+/* The head leads with what changed, in the words the prompter's pill uses, and puts how git keeps it —
+   the branch, what is still to push or pull, the lines — on a quiet line under it. */
+.diff-summary { flex: 0 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.diff-summary-title { margin: 0; font-size: 14px; line-height: 20px; font-weight: var(--fw-title); color: var(--rl-text-bright);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diff-summary-meta { margin: 0; display: flex; flex-wrap: wrap; align-items: center; column-gap: 6px; min-width: 0;
+  font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+.diff-summary-meta > * + *::before { content: "·"; margin-right: 6px; color: var(--rl-text-faint); }
+.diff-meta-branch { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; font-family: var(--font-mono); }
+.diff-meta-conflict { color: var(--rl-warning); }
+/* A head per kind once the list holds more than one: the caption rung, the kind's mark beside it. */
+.diff-group-head { display: flex; align-items: center; gap: 6px; margin: 0; padding: 12px 14px 4px;
+  font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
+.diff-group-count { color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 /* A full band of bottom padding, not a fraction of one: scrolled to the end, the last row has to sit
    clear of the ramp entirely. Rows are 30px of dense text with no internal padding, so a row that
    ends inside the blur is a filename you scrolled down to read and then cannot. */
@@ -7080,6 +7197,24 @@ select { appearance: none; padding-right: 22px;
 .diff-status[data-status="deleted"] { color: var(--rl-danger); }
 .diff-status[data-status="conflicted"] { color: var(--rl-warning); }
 .diff-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+/* What happened to the file, in a word, toned by its state as the letter it replaced was. The path is
+   the row's unbounded item and keeps the slack; a long "Renamed from …" gives way after it. */
+.diff-what { flex: 0 1 auto; min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; color: var(--rl-text-faint); }
+.diff-what[data-status="added"], .diff-what[data-status="untracked"] { color: var(--rl-success); }
+.diff-what[data-status="deleted"] { color: var(--rl-danger); }
+.diff-what[data-status="conflicted"] { color: var(--rl-warning); }
+/* A changed picture as pictures: the last commit's, an arrow, the one on disk. Whole, not cropped —
+   the comparison is the point — on the well's ground, under the outline every picture wears. */
+.diff-thumbs { flex: none; display: flex; align-items: center; gap: 4px; padding: 2px 0; }
+.diff-thumb { display: block; width: 44px; height: 44px; object-fit: contain; border-radius: var(--r-chip); background: var(--inset);
+  outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
+:root[data-mode="light"] .diff-thumb { outline-color: rgba(0, 0, 0, 0.1); }
+.diff-thumb-arrow { flex: none; color: var(--rl-text-faint); }
+/* The lines of a document or a picture drawn as text, one click past opening it. */
+.diff-disclose { flex: none; width: 22px; --btn-h: 22px; }
+.diff-disclose svg { transition: transform var(--dur-pop) var(--ease-out-strong); }
+.diff-disclose[aria-expanded="true"] svg { transform: rotate(180deg); }
 .diff-dir { color: var(--rl-text-faint); }
 /* The message that asked for the turn a review is showing — what names it. The unbounded item in the
    head, so it is the one that gives way. */
@@ -7156,14 +7291,14 @@ select { appearance: none; padding-right: 22px;
 .diff-commit { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 6px 12px 12px; }
 .commit-card { display: flex; flex-direction: column; border-radius: var(--r-squircle); corner-shape: squircle;
   background: var(--surface); box-shadow: var(--shadow-card); }
-.commit-card:focus-within { box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-card); }
+.commit-card:focus-within { box-shadow: 0 0 0 var(--hairline-w) var(--line-strong), var(--shadow-card-lift); }
 .commit-message { border: none; outline: none; resize: none; background: transparent; color: var(--rl-text-bright);
   font: inherit; font-size: 14px; line-height: 1.5; padding: 12px 14px 4px; caret-color: var(--caret); }
 .commit-message::placeholder { color: var(--rl-text-faint); }
 .diff-commit-bar { display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 8px 8px; }
 .diff-staged-count { flex: 1; min-width: 0; padding-left: 6px; font-size: 12px; color: var(--rl-text-faint);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Narrow: the branch and the file count keep the first line, the buttons take their own. The spacer
+/* Narrow: the summary keeps the first line, the buttons take their own. The spacer
    becoming a full-width break is what forces the split — left to itself the buttons would wrap one
    at a time and leave a ragged half-row. */
 @container (max-width: 560px) {
@@ -7401,6 +7536,10 @@ select { appearance: none; padding-right: 22px;
 /* An import's receipt is a sentence of counts, so it wraps rather than pushing the buttons off. */
 .share-note.passwords-import-note { white-space: normal; max-width: 260px; }
 .password-actions { display: inline-flex; align-items: center; gap: 8px; }
+/* A store Realm could not read and kept aside: the sentence takes the line, and the path in it may
+   break anywhere — it is one long word — rather than push the two buttons off the end. */
+.passwords-unreadable, .passwords-keychain { display: flex; align-items: center; gap: 8px; }
+.passwords-unreadable p, .passwords-keychain p { flex: 1; margin: 0; overflow-wrap: anywhere; }
 /* Share with ▸'s receipt: the copy went elsewhere, so nothing in this list changes — the line beside
    the button is the only place that says it happened. Quiet, and on the button's own baseline. */
 .share-note { align-self: center; font-size: 12px; color: var(--rl-text-dim); white-space: nowrap; }
@@ -7413,11 +7552,12 @@ select { appearance: none; padding-right: 22px;
 /* The document's card is a scope-grouped row (`.scope-doc-row`) holding the page you write on: a
    head with what the page has done with your words and the Write/Preview choice, the text at reading
    size in the content face, and the count at the foot. No field inside the card — the card IS the
-   field, so its rim takes the accent while you are in it, the way a text field's edge would. */
+   field, so its edge lights in the accent while you are in it, the way a text field's would — the one
+   time a card shows an edge, and only while the keyboard is in it. */
 /* Two classes, because `.settings-row` (declared further down) makes every row a flex ROW, and a
    document beside nothing in a flex row sizes to its own content — a 160px column in a 700px card. */
 .settings-row.scope-doc-row { display: block; }
-.scope-doc-row:has(.memory-doc:focus) { border-color: color-mix(in srgb, var(--rl-accent) 55%, var(--rl-card-rim)); }
+.scope-doc-row:has(.memory-doc:focus) { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rl-accent) 55%, transparent); }
 .memory-doc-card { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .memory-doc-head { display: flex; align-items: center; gap: 12px; min-height: 28px; }
 .memory-doc-status { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--rl-text-dim); }
@@ -7465,9 +7605,9 @@ select { appearance: none; padding-right: 22px;
 .memory-space-gist { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--rl-text-dim); }
 .memory-space-gist[data-empty] { font-style: italic; }
 .memory-space-size { flex: none; font-size: 12.5px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.memory-space-facts { display: flex; flex-direction: column; margin-top: 12px; border-top: var(--hairline-w) solid var(--rl-card-rim); }
+.memory-space-facts { display: flex; flex-direction: column; margin-top: 12px; border-top: var(--hairline-w) solid var(--rl-line); }
 .memory-fact { display: flex; align-items: center; gap: 12px; min-height: 44px; margin: 0; padding: 8px 0; }
-.memory-fact + .memory-fact { border-top: var(--hairline-w) solid var(--rl-card-rim); }
+.memory-fact + .memory-fact { border-top: var(--hairline-w) solid var(--rl-line); }
 .memory-fact-label { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13.5px; color: var(--rl-text-bright); }
 .memory-fact-sub { font-size: 12.5px; line-height: 1.45; color: var(--rl-text-dim); }
 .memory-fact .env-path { color: var(--rl-text-dim); word-break: normal; overflow-wrap: anywhere; }
@@ -7510,6 +7650,10 @@ select { appearance: none; padding-right: 22px;
   transition: box-shadow var(--dur-hover) ease;
 }
 .settings-input-label input::placeholder { color: var(--rl-text-faint); }
+/* The light face's default palette (Codex's) fills a control with the sheet's own white, so a fill
+   alone left these fields invisible until focused. There they take the hairline every other field in
+   a light sheet wears. */
+:root[data-mode="light"] .settings-input-label input:not(:focus) { box-shadow: inset 0 0 0 var(--hairline-w) var(--rl-line); }
 .settings-input-label input:focus { box-shadow: 0 0 0 1.5px var(--rl-accent); }
 /* 12.5 in the secondary ink. It was 11px in the tertiary one, which measures 3.5:1 on the dark ground
    — under AA for text that size — and a page of it is what read as "small and hard to read". */
@@ -7577,20 +7721,20 @@ select { appearance: none; padding-right: 22px;
 .settings-row {
   position: relative;
   display: flex; align-items: center; gap: 12px; padding: 14px 16px;
-  background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); border-radius: 0; corner-shape: squircle;
+  background: var(--rl-card); border-radius: 0; corner-shape: squircle;
 }
-/* The rim runs round the RUN, not round each row: a row under another row hands its top edge to the
-   divider, which is inset from both ends as Codex's is, so the card reads as one object ruled
-   inside rather than as a stack of boxes. The row above hands over its bottom edge too: with it,
-   every boundary was drawn twice — the full-width border, and the inset divider right under it. */
-.settings-row + .settings-row { border-top: 0; }
-.settings-row:has(+ .settings-row) { border-bottom: 0; }
-.settings-row:not(.settings-row + .settings-row) { border-start-start-radius: var(--r-panel); border-start-end-radius: var(--r-panel); }
-.settings-row:not(:has(+ .settings-row)) { border-end-start-radius: var(--r-panel); border-end-end-radius: var(--r-panel); }
+/* The run is ONE card, drawn as every card is: no edge round it, the curve at its four corners. A
+   row under another hands its top to the divider, which is inset from both
+   ends as Codex's is, so the card reads as one object ruled inside rather than as a stack of boxes.
+   The lift a free-standing card casts is not drawn per row — a row's shadow would fall across the
+   row above it — so the light face, whose white card needs it, casts it from the run's own list
+   (`:has`, below). */
+.settings-row:not(.settings-row + .settings-row) { border-start-start-radius: var(--r-squircle-card); border-start-end-radius: var(--r-squircle-card); }
+.settings-row:not(:has(+ .settings-row)) { border-end-start-radius: var(--r-squircle-card); border-end-end-radius: var(--r-squircle-card); }
 /* The divider, inset to the label's own edge. Drawn on the LOWER row, so a run's last row can never
    end on a rule with nothing under it. */
 .settings-row + .settings-row::before {
-  content: ""; position: absolute; inset: 0 16px auto 16px; height: var(--hairline-w); background: var(--rl-card-rim);
+  content: ""; position: absolute; inset: 0 16px auto 16px; height: var(--hairline-w); background: var(--rl-line);
 }
 /* A run of rows that are NOT peers — a theme grid, a slider, a pair of selects — so the container
    is a plain box rather than a list element claiming they are the same kind of thing. No gap, for
@@ -8107,7 +8251,7 @@ select { appearance: none; padding-right: 22px;
    what it holds, capped at the view it stands in. */
 .sched-card { flex: none; align-self: flex-start; width: 300px; max-height: calc(100% - 24px); overflow-y: auto; margin: 12px 12px 12px 0;
   padding: 14px 16px 12px; display: flex; flex-direction: column; gap: 10px;
-  border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); }
 .sched-card-head { display: flex; align-items: flex-start; gap: 2px; margin: -4px -8px -6px 0; }
 .sched-card-name { flex: 1; min-width: 0; margin: 4px 0 0; font-size: 14px; line-height: 20px; font-weight: var(--fw-label);
   color: var(--rl-text-bright); overflow-wrap: anywhere; }
@@ -8115,7 +8259,7 @@ select { appearance: none; padding-right: 22px;
 .sched-card-goal { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); white-space: pre-wrap; overflow-wrap: anywhere;
   display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
 /* The one rule inside the card, between what the task is and what it works with — Codex's. */
-.sched-card-facts { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: var(--hairline-w) solid var(--rl-card-rim); }
+.sched-card-facts { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: var(--hairline-w) solid var(--rl-line); }
 .sched-card-fact { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
 .sched-card-fact > svg { flex: none; color: var(--rl-text-faint); }
 .sched-card-fact[data-tone="warn"], .sched-card-fact[data-tone="warn"] > svg { color: var(--rl-warning); }
@@ -8374,14 +8518,14 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .diff-split-notes > * { grid-column: 2; margin: 0 10px; }
 .diff-split-notes[data-side="LEFT"] > * { grid-column: 1; }
 /* A finding or a comment under its line: a card in Codex's grammar, a step above the patch. */
-.cr-note { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--r-panel); corner-shape: squircle;
-  background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+.cr-note { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--r-squircle-card); corner-shape: squircle;
+  background: var(--rl-card); box-shadow: var(--card-lift); }
 /* Who said it, over what was said: under someone's line, a finding is the reviewer's word. */
 .cr-note-by { display: flex; align-items: center; gap: 5px; margin: 0; font-size: 12px; line-height: 16px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
 .cr-note-by > svg { flex: none; }
 .cr-note-body { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
 .cr-note-actions { display: flex; align-items: center; gap: 6px; }
-.cr-field { width: 100%; padding: 10px 12px; border-radius: var(--r-panel); border: var(--hairline-w) solid var(--rl-card-rim);
+.cr-field { width: 100%; padding: 10px 12px; border-radius: var(--r-panel); border: var(--hairline-w) solid var(--rl-line);
   background: var(--rl-card); color: var(--rl-text-bright); font: inherit; font-size: 14px; line-height: 20px; resize: vertical; outline: none;
   transition: box-shadow var(--dur-hover) ease; }
 .cr-field::placeholder { color: var(--rl-text-faint); }
@@ -8463,8 +8607,9 @@ button.cr-finding-where:hover { text-decoration: underline; }
 /* The Schedule a task modal. Its body scrolls between a head and a foot that stay put, as Codex's
    does, so Create is reachable however long the instructions grow. */
 .sched-modal { display: flex; flex-direction: column; gap: 12px; }
-/* The two text fields wear the card's own fill and rim, so the form reads as one set of surfaces. */
-.sched-modal-name, .sched-modal-goal { width: 100%; padding: 0 14px; border-radius: var(--r-panel); border: var(--hairline-w) solid var(--rl-card-rim);
+/* The two text fields wear the card's own fill, so the form reads as one set of surfaces, and a field's
+   edge at the line's weight, so they still read as places to type. */
+.sched-modal-name, .sched-modal-goal { width: 100%; padding: 0 14px; border-radius: var(--r-panel); border: var(--hairline-w) solid var(--rl-line);
   background: var(--rl-card); color: var(--rl-text-bright); font: inherit; font-size: 14px; outline: none;
   transition: box-shadow var(--dur-hover) ease; }
 .sched-modal-name { height: 44px; }
@@ -8472,10 +8617,6 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .sched-modal-name::placeholder, .sched-modal-goal::placeholder { color: var(--rl-text-faint); }
 .sched-modal-name:focus, .sched-modal-goal:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
 .sched-modal .settings-row { min-height: 48px; padding: 8px 12px 8px 16px; }
-/* A row with another under it hands its bottom edge to that row's inset divider. Left on, the two
-   lines stack into one twice as heavy that runs the card's full width — measured, 2px at the ends
-   and 4px through the middle. */
-.sched-modal .settings-row:has(+ .settings-row) { border-bottom-color: transparent; }
 /* A setting's value, as Codex sets it: quiet text at the row's end that is a menu, the control's ring
    only under the pointer. Still a native select — a Mac menu, type-to-select and all. */
 .sched-select { flex: none; max-width: 60%; field-sizing: content; border-color: transparent; background-color: transparent; color: var(--rl-text-dim);
@@ -8529,7 +8670,7 @@ button.cr-finding-where:hover { text-decoration: underline; }
    answered — a decision stays (design.md). The sentence is read, so it is the body's second rung in
    the secondary ink. */
 .library-offer { display: flex; align-items: center; gap: 12px; margin: 0 0 18px; padding: 12px 12px 12px 16px;
-  background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); border-radius: var(--r-panel); corner-shape: squircle; }
+  background: var(--rl-card); box-shadow: var(--card-lift); border-radius: var(--r-squircle-card); corner-shape: squircle; }
 .library-offer-text { flex: 1; min-width: 0; margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: pretty; }
 .library-offer-actions { flex: none; display: flex; gap: 8px; }
 /* Files held over the page: a pane's own glow, inset from the page's edge as a session pane's is from
@@ -8548,8 +8689,8 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .saved-turns { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .saved-turn { position: relative; display: flex; }
 .saved-turn-open { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 12px 48px 12px 16px; text-align: left;
-  background: var(--rl-card); box-shadow: var(--rl-object-shadow); border-radius: var(--r-panel);
-  transition: background-color var(--dur-hover) ease; }
+  background: var(--rl-card); box-shadow: var(--rl-object-shadow); border-radius: var(--r-squircle-card); corner-shape: squircle;
+  transition: background-color var(--dur-hover) ease, --sq-fill var(--dur-hover) ease; }
 .saved-turn-open:hover { background: var(--rl-card-hover); }
 .saved-turn-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 14px; line-height: 20px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
@@ -8578,9 +8719,9 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .library-tile {
   position: relative; display: flex; flex-direction: column; gap: 6px;
   width: 100%; aspect-ratio: 1; padding: 14px 14px 12px; text-align: left; font: inherit; border: none; overflow: hidden;
-  border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-tile);
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-tile);
   box-shadow: var(--rl-object-shadow);
-  transition: background var(--dur-hover) ease;
+  transition: background var(--dur-hover) ease, --sq-fill var(--dur-hover) ease;
 }
 /* Every card opens, so every card answers the mouse — the preview is where "what can Realm do with
    this" gets answered, and it exists for every file. */
@@ -8762,14 +8903,15 @@ button.cr-finding-where:hover { text-decoration: underline; }
    `.settings-row` above, and the same mechanics, on the list where the count makes it matter most. */
 .engines-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0; }
 /* A card, not a row. Twelve engines each carrying a status, a version, a sign-in and sometimes a
-   command block is more than a hairline-separated list can hold legibly. */
+   command block is more than a hairline-separated list can hold legibly. The run is one card drawn as
+   a settings run is: the card's fill (a group of settings is not a well) and its curve at both ends. */
 .engine-card {
   position: relative;
   display: flex; flex-direction: column; gap: 8px; padding: 14px 16px;
-  background: var(--rl-frame); border-radius: 0; corner-shape: squircle;
+  background: var(--rl-card); border-radius: 0; corner-shape: squircle;
 }
-.engine-card:first-child { border-start-start-radius: var(--r-panel); border-start-end-radius: var(--r-panel); }
-.engine-card:last-child { border-end-start-radius: var(--r-panel); border-end-end-radius: var(--r-panel); }
+.engine-card:first-child { border-start-start-radius: var(--r-squircle-card); border-start-end-radius: var(--r-squircle-card); }
+.engine-card:last-child { border-end-start-radius: var(--r-squircle-card); border-end-end-radius: var(--r-squircle-card); }
 .engine-card + .engine-card::before {
   content: ""; position: absolute; inset: 0 0 auto 16px; height: var(--hairline-w); background: var(--rl-hairline);
 }
@@ -8895,6 +9037,38 @@ button.cr-finding-where:hover { text-decoration: underline; }
    end of the row rather than squeezing the name to make room. */
 .archived-row { align-items: center; }
 .archived-actions { flex: none; display: flex; gap: 4px; }
+/* Settings ▸ Devices: the page's one action at its head, as Engines' checks stand at theirs, then a
+   card of phones — each its glyph, its name, what it is and when it was last heard from. */
+.devices-head { display: flex; align-items: center; gap: 12px; }
+.device-mark { flex: none; display: inline-flex; color: var(--rl-text-dim); }
+.device-actions { flex: none; display: flex; gap: 8px; }
+/* The empty card's label is a sentence about nothing yet, so it takes the secondary ink (`.creds-empty`). */
+.device-empty .settings-row-name { color: var(--rl-text-dim); font-weight: var(--fw-medium); }
+/* A link inside a page's note: the link ink at the label weight, underlined only under the pointer. */
+.settings-link { padding: 0; border: none; background: none; font: inherit; color: var(--accent-ink);
+  font-weight: var(--fw-label); text-underline-offset: 2px; }
+.settings-link:hover { text-decoration: underline; }
+.settings-link:focus-visible { outline: 1.5px solid var(--rl-accent); outline-offset: 2px; border-radius: 2px; }
+/* The pairing sheet: the code, centred, over what to do with it. The code is a picture and wears the
+   edge every picture does (`.md img`); its own white quiet zone is what a scanner reads it by, so it
+   stays white on both faces. */
+.pair-scan { display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 4px; text-align: center; }
+.pairing-code { display: block; margin-bottom: 6px; border-radius: var(--r-chip);
+  outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
+:root[data-mode="light"] .pairing-code { outline-color: rgba(0, 0, 0, 0.1); }
+/* The code's place once it has run out. `--field`, not `--inset`: on the light face the inset tone is a
+   step off white nobody can see, and the box has to read as the code's place on both. */
+.pair-code-gone { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  margin-bottom: 6px; border-radius: var(--r-chip); background: var(--field); }
+.pair-code-gone p { margin: 0; font-size: 14px; line-height: 20px; color: var(--rl-text-bright); }
+.pair-instruction { margin: 0; font-size: 14px; line-height: 20px; color: var(--rl-text-bright); }
+.pair-expiry { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+.pair-scan[data-gone] > :is(.pair-instruction, .pair-expiry) { visibility: hidden; }
+/* The two questions the page asks — pair this phone, remove that one — each name what is asked
+   about, then the one sentence the answer rests on, in the reading ink rather than a lede's. */
+.pair-device { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.pair-device > svg { flex: none; }
+.device-consequence { margin: 0; font-size: 14px; line-height: 20px; color: var(--rl-text-bright); text-wrap: balance; }
 .settings-page-pane .settings-tabs { max-width: 340px; }
 /* Every Settings tab is a stack of titled groups now, and `.form`'s 12px gap already separates
    them — so the heads drop the top margin they carry where they punctuate free-standing controls. */
@@ -9414,6 +9588,14 @@ span.documents-name:hover { background: none; }
   color: var(--rl-text-faint); }
 .sheet-lede { margin: 0; font-size: 13px; color: var(--rl-text-dim); line-height: 1.5; }
 .sheet-lede code { font-size: 12px; }
+/* Share as web page (ShareSheet): the switches as one settings card under the lede, the file's size
+   at the far end of the foot from Save, read before it is pressed. */
+.share-sheet-options { margin-top: 16px; }
+.share-sheet-reading { display: flex; align-items: center; gap: 8px; margin: 16px 0 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.share-sheet-note { margin: 12px 0 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: pretty; }
+.share-sheet-note[data-tone="danger"] { color: var(--rl-danger); }
+.share-sheet-status { flex: 1; min-width: 0; align-self: center; margin: 0 8px 0 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim);
+  font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* What's new (WhatsNewSheet): the app's icon and the version over the notes, then the notes as a
    list, read at the body size in the secondary ink with each bold lead in the primary. */
 .whats-new-hero { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0 6px; text-align: center; }
@@ -9844,13 +10026,17 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
 .theme-detail:not([open]) { gap: 0; }
 .theme-other { display: flex; flex-direction: column; }
 
+/* The three faces to choose from, set into the settings card: each a well in it — the step a card set
+   into a raised surface takes, measured for the light face's white — on the card's curve, with no edge
+   (the owner, 10-19). The chosen one is the accent's tint, a selection, never a ring round it. */
 .mode-card {
   display: flex; flex-direction: column; gap: 7px; padding: 7px;
-  border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-panel); corner-shape: squircle; background: var(--rl-panel);
-  transition: box-shadow var(--dur-hover) ease;
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-frame-raised);
+  transition: background-color var(--dur-hover) ease, --sq-fill var(--dur-hover) ease;
 }
 .mode-card input { position: absolute; opacity: 0; pointer-events: none; }
-.mode-card[data-selected] { box-shadow: 0 0 0 2px var(--rl-accent); }
+.mode-card[data-selected] { background: var(--accent-tint); }
+.mode-card[data-selected] .mode-card-name { color: var(--accent-ink); }
 .mode-card:has(input:focus-visible) { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
 .mode-card-name { font-size: 13px; font-weight: var(--fw-label); text-align: center; }
 /* The System card shows both faces side by side, each clipped to half the frame — the choice cannot
@@ -10021,7 +10207,7 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
    (tokens.css). On the shipped palette the two are the same value. */
 .stat-tile {
   display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 12px;
-  border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-panel); background: var(--chart-surface);
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--chart-surface); box-shadow: var(--card-lift);
 }
 .stat-label { font-size: 12.5px; color: var(--rl-text-dim); }
 /* Proportional figures, deliberately: `tabular-nums` gives every digit a zero's width, which makes
@@ -10035,7 +10221,7 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
 /* ——— cards ——— */
 .usage-card {
   display: flex; flex-direction: column; gap: 10px; padding: 14px;
-  border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-panel); background: var(--chart-surface);
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--chart-surface); box-shadow: var(--card-lift);
 }
 .usage-card-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
 .usage-card-head h3 { margin: 0; font-size: 13px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
@@ -10182,7 +10368,7 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
    provider's own alert (`data-alert`), never a percentage compared against a threshold picked here. */
 .plan-accounts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
 .plan-account { --plan-hue: var(--rl-accent); display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: 14px 16px;
-  border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-panel); background: var(--chart-surface); }
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--chart-surface); box-shadow: var(--card-lift); }
 .plan-account-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
 .plan-account-name { font-size: 14px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
 .plan-account-tier, .plan-account-org { font-size: 13px; color: var(--rl-text-dim); }
@@ -10215,7 +10401,7 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
    One strip, four cells divided by hairlines: one reading of one range, so one object. The spend
    leads at the title rung; the rest sit a rung down. The cells wrap to two-by-two, then one column. */
 .usage-figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); min-width: 0;
-  border: var(--hairline-w) solid var(--rl-line); border-radius: var(--r-panel); background: var(--chart-surface); overflow: hidden; }
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--chart-surface); box-shadow: var(--card-lift); overflow: hidden; }
 .usage-figure { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 14px 16px;
   box-shadow: calc(-1 * var(--hairline-w)) 0 0 var(--rl-line), 0 calc(-1 * var(--hairline-w)) 0 var(--rl-line); }
 .usage-figure-label { font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
@@ -10318,11 +10504,11 @@ img.avatar { outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; 
 }
 
 /* ── The agent's plan, as a transcript block ──────────────────────────────────
-   A card on the permission card's bones (opaque --surface, --shadow-card) rather than the tool
+   A card on the permission card's bones (opaque --surface, the card's depth) rather than the tool
    card's, because a plan is addressed TO the reader: it is the one thing in a Plan-mode turn they
    are meant to actually read, and the tool card's collapsed ledger row is built to be skipped.
    The checklist inside reuses `.todo` wholesale — a plan with per-step status IS a to-do list. */
-.plan-card { border-radius: var(--r-panel); padding: 14px; background: var(--surface); box-shadow: var(--shadow-card);
+.plan-card { border-radius: var(--r-squircle-card); corner-shape: squircle; padding: 14px; background: var(--surface); box-shadow: var(--card-lift);
   display: flex; flex-direction: column; gap: 10px; }
 .plan-head { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: var(--fw-label); color: var(--ink); }
 /* The card's actions, pushed right and quiet until the card is under the pointer — a plan is
@@ -10349,7 +10535,7 @@ img.avatar { outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; 
 /* The answer to a plan, not a permission on one: two named outcomes, no "always". Sits directly
    under the plan block it answers, so it carries no copy of the plan. */
 .plan-decision { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  padding: 10px 12px; border-radius: var(--r-panel); background: var(--surface); box-shadow: var(--shadow-card); }
+  padding: 10px 12px; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--surface); box-shadow: var(--card-lift); }
 .plan-decision-ask { flex: 1; min-width: 0; font-size: 13px; color: var(--ink); }
 .plan-decision-actions { display: flex; gap: 6px; }
 .plan-decision button { padding: 6px 12px; border-radius: var(--r-ctl); font-size: 13px; }
@@ -10508,105 +10694,205 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .t-dot[data-s="idle"] { background: var(--mark); }
 .t-dot[data-s="failed"] { background: var(--rl-danger); }
 
-/* The Review pane: the batches beside the one being read (Mail). */
-.rv { display: grid; grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); height: 100%; min-height: 0; }
-.rv-list { display: flex; flex-direction: column; min-height: 0; border-right: var(--hairline-w) solid var(--rl-divider); }
-.rv-list-head { display: flex; align-items: baseline; gap: 8px; padding: 18px 16px 10px; }
+/* A team's Review (panes/team/review): the inbox beside the draft being read. The inbox is the Code
+   review column's grammar — a head, groups named at the caption rung, two-line rows that take the
+   active fill when chosen and nothing under a passing pointer — with the role's Realmite where a
+   person's monogram would be. The reader is Code review's summary: the work in a reading column, the
+   facts that decide it in a column beside, and the decision docked at the foot as the prompter is. */
+.rv { position: relative; flex: 1; display: grid; grid-template-columns: minmax(260px, 320px) minmax(0, 1fr); height: 100%; min-height: 0; min-width: 0; }
+.rv-list { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: var(--hairline-w) solid var(--rl-divider); }
+.rv-list-head { flex: none; display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 18px 16px 6px 20px; }
 .rv-list-head h2 { margin: 0; font-size: 18px; line-height: 24px; font-weight: var(--fw-title); color: var(--rl-text-bright); letter-spacing: -0.01em; }
-.rv-scroll { flex: 1; min-height: 0; overflow: auto; padding: 0 10px 16px; display: flex; flex-direction: column; gap: 6px; }
-.rv-empty { margin: 8px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
-.rv-group { font-size: 12px; line-height: 16px; color: var(--rl-text-faint); padding: 12px 8px 4px; }
-.rv-card { width: 100%; display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 4px 12px; align-items: start; padding: 10px;
-  border-radius: var(--r-row); text-align: left; background: transparent; }
-.rv-card:hover { background: var(--rl-hover); }
-.rv-card[data-selected] { background: var(--rl-active); }
-.rv-card:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: -2px; }
-.rv-thumb { grid-row: span 3; width: 44px; height: 78px; border-radius: var(--r-chip); object-fit: cover; background: var(--inset);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 9%, transparent); }
-.rv-thumb-glyph { grid-row: span 3; width: 44px; height: 44px; border-radius: var(--r-ctl); display: grid; place-items: center;
-  background: var(--rl-card); color: var(--rl-text-dim); }
-.rv-title { font-size: 14px; line-height: 20px; font-weight: var(--fw-medium); color: var(--rl-text-bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rv-meta { grid-column: 2 / 4; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rv-age { font-size: 12px; line-height: 20px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
-.rv-state { grid-column: 2 / 4; display: flex; align-items: center; gap: 6px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.rv-list-count { min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rv-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 10px 16px; }
+.rv-group { display: flex; flex-direction: column; gap: 2px; }
+.rv-group-label { margin: 0; padding: 14px 10px 4px; }
 
-.rv-detail { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.rv-detail-scroll { flex: 1; min-height: 0; overflow: auto; padding: 22px 28px 24px; }
-.rv-head { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; }
-/* A long batch's stepper (sixteen DMs) goes under the title rather than squeezing it into a column. */
-.rv-head-text { flex: 1 1 320px; min-width: 0; }
-.rv-head h1 { margin: 0; font-size: 20px; line-height: 28px; font-weight: var(--fw-title); letter-spacing: -0.012em; color: var(--rl-text-bright); text-wrap: balance; }
-.rv-byline { display: flex; flex-wrap: wrap; align-items: center; margin-top: 2px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
-.rv-byline b { font-weight: var(--fw-medium); color: var(--rl-text-bright); }
-.rv-stepper { flex: none; }
-.rv-version { margin: 10px 0 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
-.rv-strip { display: grid; gap: 10px; margin: 20px 0 6px; }
-.rv-slide { position: relative; aspect-ratio: 9 / 16; border-radius: var(--r-row); overflow: hidden; background: var(--inset); padding: 0;
-  box-shadow: var(--rl-object-shadow); }
+/* A row: who made it, what it is, how long ago. Two lines, one hit. Chosen, it takes the active fill
+   at once (design.md: a choice is never half-made); a passing pointer lights nothing. */
+.rv-row { display: grid; grid-template-rows: 1fr; min-width: 0; border-radius: var(--r-row); outline: none; }
+.rv-row-body { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 0; overflow: hidden; padding: 8px 10px; border-radius: inherit; }
+.rv-row[data-selected] .rv-row-body { background: var(--rl-active); }
+.rv-row:focus-visible .rv-row-body { box-shadow: inset 0 0 0 2px var(--rl-accent); }
+.rv-row-text { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* The title is the row's unbounded text and gives way first; the age keeps its width. */
+.rv-row-top { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.rv-row-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 14px; line-height: 20px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
+.rv-row-age { flex: none; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+.rv-row-line { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.rv-row-line > svg { flex: none; }
+.rv-row[data-tone="bad"] .rv-row-line > :is(svg, .rv-row-what) { color: var(--rl-danger); }
+.rv-row[data-tone="ok"] .rv-row-line > svg { color: var(--rl-success); }
+.rv-row-who { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-row-who::after { content: "·"; margin-left: 5px; color: var(--rl-text-faint); }
+.rv-row-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A decision moves a row: it folds away from the group it left and rises into the one it joins, on the
+   list rungs the prompter's queue moves on. The inbox as first drawn does not animate. */
+.rv-row[data-arrived] { animation: rl-rv-row-in var(--dur-enter) var(--ease-out-strong); }
+.rv-row[data-leaving] { animation: rl-rv-row-out var(--dur-swap) var(--ease-fade) forwards; pointer-events: none; }
+@keyframes rl-rv-row-in { from { grid-template-rows: 0fr; opacity: 0; } }
+@keyframes rl-rv-row-out { to { grid-template-rows: 0fr; opacity: 0; } }
+
+/* Who made it: the role's Realmite at a glyph's size, or the draft's own glyph on a disc. */
+.rv-mark { flex: none; display: inline-grid; place-items: center; }
+.rv-mark[data-size="32"] { width: 32px; height: 32px; }
+.rv-mark[data-size="24"] { width: 24px; height: 24px; }
+.rv-mark[data-size="16"] { width: 16px; height: 16px; }
+.rv-mark-glyph { border-radius: 50%; background: var(--rl-hover); color: var(--rl-text-dim); }
+
+/* The team's kill switch, at the head of its Review, and the line that says it is on. */
+.rv-hold { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 6px; }
+.rv-held { flex: none; display: flex; align-items: center; gap: 8px; margin: 4px 10px 8px; padding: 8px 10px 8px 12px; border-radius: var(--r-row);
+  background: var(--orange-tint); color: var(--rl-text-bright); font-size: 13px; line-height: 18px; }
+.rv-held > svg { flex: none; color: var(--rl-warning); }
+.rv-held > span { flex: 1; min-width: 0; }
+
+/* Nothing to review: the team that would send something, standing together, and what it would be. */
+/* With nothing to review there is no inbox to list: the empty state takes the whole pane. */
+.rv[data-empty] { grid-template-columns: minmax(0, 1fr); }
+.rv[data-empty] .rv-list { display: none; }
+.rv-detail-empty { display: flex; }
+.rv-empty { margin: auto; max-width: 420px; padding: 24px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+.rv-empty-team { display: flex; gap: 6px; margin-bottom: 6px; }
+.rv-empty-mate { display: inline-grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: var(--rl-hover); }
+.rv-empty-title { margin: 0; font-size: 18px; line-height: 24px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.rv-empty-line { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: balance; }
+.rv-empty-next { color: var(--rl-text-faint); }
+
+/* The reader: a column of the work and a column of facts, the decision docked under both. */
+.rv-detail { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; animation: rl-rv-read-in var(--dur-swap) var(--ease-fade); }
+@keyframes rl-rv-read-in { from { opacity: 0; } }
+.rv-back { display: none; }
+.rv-back .btn-quiet { display: inline-flex; align-items: center; gap: 4px; margin-left: -4px; }
+/* The reader measures itself: its facts go under the work when the column cannot hold both. */
+.rv-detail-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 24px 28px 28px; container: rv-read / inline-size; }
+.rv-reader { display: flex; justify-content: center; gap: 36px; min-width: 0; }
+.rv-reader-main { flex: 1 1 auto; min-width: 0; max-width: 720px; display: flex; flex-direction: column; gap: 18px; }
+.rv-head { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.rv-head-line { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.rv-head-for { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 18px; color: var(--rl-text-faint); }
+.rv-title { margin: 0; font-size: 24px; line-height: 30px; font-weight: var(--fw-title); letter-spacing: -0.014em; color: var(--rl-text-bright); text-wrap: balance; overflow-wrap: anywhere; }
+.rv-byline { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-faint); }
+.rv-byline-who { color: var(--rl-text-bright); font-weight: var(--fw-medium); }
+/* A review's state as a pill, the one place on the page a state is a pill (Code review's rule). */
+.rv-pill { flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px 2px 7px; border-radius: var(--r-pill);
+  font-size: 12px; line-height: 16px; font-weight: var(--fw-label); background: var(--rl-hover); color: var(--rl-text-dim); }
+.rv-pill[data-tone="waiting"] { background: var(--orange-tint); color: var(--orange); }
+.rv-pill[data-tone="bad"] { background: var(--red-tint); color: var(--red); }
+.rv-pill[data-tone="ok"] { background: var(--green-tint); color: var(--green); }
+/* The role's note: its words about the work, set apart from the work and above it. */
+.rv-why { margin: 0; display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card);
+  box-shadow: var(--card-lift); }
+.rv-why-who { font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+.rv-why-text { margin: 0; font-size: 14px; line-height: 21px; color: var(--rl-text-bright); text-wrap: pretty; max-width: 68ch; }
+.rv-version { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.rv-stepper { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+.rv-stepper-label { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.rv-stepper-tabs { flex: none; }
+.rv-section { display: flex; flex-direction: column; gap: 8px; }
+.rv-caption { padding: 14px 16px; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); font-size: 14px; line-height: 20px; color: var(--rl-text-bright);
+  white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* The facts beside the work: what Realm checked, and how it was made. */
+.rv-facts { flex: 0 0 260px; align-self: flex-start; display: flex; flex-direction: column; gap: 24px; padding-top: 34px; min-width: 0; }
+.rv-fact { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.rv-fact-label { margin: 0; font-size: 13px; line-height: 18px; font-weight: var(--fw-medium); color: var(--rl-text-faint); }
+.rv-checks, .rv-ledger { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.rv-checks li { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); }
+.rv-checks li > svg { flex: none; margin-top: 2px; color: var(--rl-text-faint); }
+.rv-checks li[data-tone="ok"] > svg { color: var(--rl-success); }
+.rv-checks li[data-tone="bad"] > svg { color: var(--rl-warning); }
+.rv-checks small, .rv-ledger small { display: block; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); overflow-wrap: anywhere; }
+.rv-ledger li { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 8px; align-items: start; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); }
+.rv-ledger-glyph { display: grid; place-items: center; height: 18px; color: var(--rl-text-faint); }
+.rv-ledger-text { min-width: 0; overflow-wrap: anywhere; }
+.rv-ledger-time { font-size: 12px; line-height: 18px; color: var(--rl-text-faint); }
+.rv-goal { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); overflow-wrap: anywhere; }
+.rv-run-link { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; margin-left: -7px; }
+
+/* The decision, docked: the action surface of the reader, as the commit card is the diff's. Outside
+   the scroller, so it never dissolves with the work, and over it on the prompter's layer, so its shadow
+   is never cut by what scrolls. A toast stands above it, never over its answers (`data-lifts-toasts`). */
+.rv-dock { position: relative; z-index: 2; flex: none; padding: 0 20px 16px; }
+.rv-dock-card { max-width: 1016px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; padding: 10px 10px 10px 16px;
+  border-radius: var(--r-squircle-card); background: var(--surface); box-shadow: var(--shadow-card); }
+.rv-dock-card:focus-within { box-shadow: 0 0 0 var(--hairline-w) var(--line-strong), var(--shadow-card); }
+.rv-dock-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+/* The consequence is the row's sentence and gives way first; the answers keep their width. */
+.rv-dock-note { flex: 1 1 260px; min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: pretty; }
+.rv-dock-note[data-tone="bad"] { color: var(--rl-danger); }
+/* The answers are one group that wraps under the sentence whole, never one button at a time. */
+.rv-dock-actions { flex: none; margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.rv-dock-quiet { flex: none; display: inline-flex; align-items: center; gap: 2px; margin-right: 4px; }
+.rv-dock-ask { margin: 2px 0 0; font-size: 14px; line-height: 20px; color: var(--rl-text-bright); text-wrap: pretty; }
+/* Send back and Reject open in the dock as a field addressed to the role, the prompter's grammar. */
+.rv-sendback-field { display: flex; align-items: flex-start; gap: 10px; min-width: 0; padding-top: 2px; }
+.rv-sendback-field > .rv-mark { margin-top: 1px; }
+.rv-sendback-field textarea { flex: 1; min-width: 0; min-height: 44px; resize: none; padding: 2px 0 0; border: none; outline: none; background: transparent;
+  font: inherit; font-size: 15px; line-height: 22px; color: var(--rl-text-bright); caret-color: var(--caret); field-sizing: content; max-height: 160px; }
+.rv-sendback-field textarea::placeholder { color: var(--rl-text-faint); }
+
+/* The work, drawn as what it is (review/renderers). Every drawing sits in one place under the head, so
+   stepping through a batch of mixed formats moves nothing else. */
+.rv-deliverable { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.rv-meta-rows { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 0; }
+.rv-meta-rows > div { display: flex; gap: 6px; min-width: 0; font-size: 13px; line-height: 18px; }
+.rv-meta-rows dt { color: var(--rl-text-faint); }
+.rv-meta-rows dd { margin: 0; min-width: 0; color: var(--rl-text-bright); overflow-wrap: anywhere; }
+/* Paper: the surface a document, a mail or a thread is read on — a step above the ground, under its
+   rim, its words at the transcript's reading size and measure. */
+.rv-paper { margin: 0; padding: 16px 18px; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift);
+  font-size: 15px; line-height: 24px; color: var(--rl-text-bright); min-width: 0; }
+.rv-text, .rv-mail-body, .rv-bubble, .rv-post-caption, .rv-attached-note { white-space: pre-wrap; overflow-wrap: anywhere; }
+.rv-text { max-width: 68ch; }
+.rv-doc { padding: 24px 28px 26px; }
+.rv-doc .rv-md { max-width: 68ch; font-size: 15px; line-height: 24px; }
+.rv-paper-name { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+
+/* A mail as a mail client draws one: who, the subject as its head, then the words. */
+.rv-mail { padding: 0; }
+.rv-mail-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px 0; }
+.rv-mail-avatar { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--accent-tint); color: var(--rl-accent);
+  font-size: 14px; line-height: 20px; font-weight: var(--fw-title); }
+.rv-mail-who { margin: 0; display: flex; flex-direction: column; min-width: 0; }
+.rv-mail-who > div { display: flex; gap: 6px; min-width: 0; font-size: 13px; line-height: 18px; }
+.rv-mail-who dt { flex: none; color: var(--rl-text-faint); }
+.rv-mail-who dd { margin: 0; min-width: 0; color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-mail-subject { margin: 0; padding: 14px 18px 0; font-size: 18px; line-height: 24px; font-weight: var(--fw-title); color: var(--rl-text-bright); text-wrap: balance; }
+.rv-mail-body { padding: 10px 18px 20px; max-width: 68ch; }
+
+/* A DM in its thread, the bubble on the sender's side; a text post as the account's own. */
+.rv-chat { display: flex; flex-direction: column; gap: 14px; padding: 12px 16px 16px; }
+.rv-chat-head { display: flex; align-items: center; gap: 6px; padding-bottom: 10px; border-bottom: var(--hairline-w) solid var(--rl-line);
+  font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.rv-chat-head b { font-weight: var(--fw-medium); color: var(--rl-text-bright); }
+.rv-chat-thread { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.rv-chat[data-dm] .rv-chat-thread { align-items: flex-end; }
+.rv-bubble { max-width: min(85%, 52ch); padding: 9px 14px; border-radius: 20px; background: var(--rl-raised);
+  font-size: 15px; line-height: 22px; color: var(--rl-text-bright); }
+.rv-bubble-from { font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+
+/* A post as its platform lays it out: the account, the slides at their own 9:16, the caption. */
+.rv-post { margin: 0; display: flex; flex-direction: column; gap: 12px; padding: 12px; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card);
+  box-shadow: var(--card-lift); min-width: 0; }
+.rv-post-head { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 2px 4px 0; font-size: 13px; line-height: 18px; }
+.rv-post-avatar { flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--rl-hover); color: var(--rl-text-bright);
+  font-size: 12px; line-height: 16px; font-weight: var(--fw-title); }
+.rv-post-account { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
+.rv-post-channel { flex: none; color: var(--rl-text-faint); }
+.rv-post-caption { padding: 0 4px 4px; font-size: 15px; line-height: 22px; color: var(--rl-text-bright); max-width: 68ch; }
+.rv-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(120px, 100%), 1fr)); gap: 8px; }
+.rv-strip[data-count="1"] { grid-template-columns: minmax(0, 220px); }
+.rv-slide { position: relative; aspect-ratio: 9 / 16; border-radius: calc(var(--r-squircle-card) - 12px); overflow: hidden; background: var(--inset); padding: 0; }
 .rv-slide img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .rv-slide::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 10%, transparent); }
 .rv-slide:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
-.rv-slide-n { position: absolute; left: 8px; bottom: 8px; font-size: 11px; line-height: 14px; padding: 2px 6px; border-radius: var(--r-chip);
-  background: color-mix(in srgb, var(--page) 72%, transparent); color: var(--rl-text-bright); font-variant-numeric: tabular-nums; }
+.rv-slide-n { position: absolute; left: 6px; bottom: 6px; min-width: 18px; padding: 0 5px; border-radius: var(--r-pill); text-align: center;
+  font-size: 11px; line-height: 16px; background: color-mix(in srgb, var(--page) 72%, transparent); color: var(--rl-text-bright); font-variant-numeric: tabular-nums; }
 .rv-strip-note { margin: 0; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
-.rv-files { margin-top: 16px; }
 
-.rv-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 22px; }
-.rv-section h3 { margin: 0 0 8px; font-size: 15px; line-height: 20px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
-.rv-made { margin-top: 22px; }
-.rv-caption { padding: 14px 16px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim);
-  font-size: 14px; line-height: 20px; color: var(--rl-text-bright); white-space: pre-wrap; overflow-wrap: anywhere; }
-.rv-checks { margin: 0; padding: 0; list-style: none; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
-.rv-checks li { display: flex; gap: 10px; align-items: flex-start; padding: 10px 14px; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); position: relative; }
-.rv-checks li + li::before { content: ""; position: absolute; top: 0; left: 14px; right: 14px; border-top: var(--hairline-w) solid var(--rl-card-rim); }
-.rv-checks .ok { color: var(--rl-success); display: grid; }
-.rv-checks .warn { color: var(--rl-warning); display: grid; }
-.rv-checks .quiet { color: var(--rl-text-faint); display: grid; }
-.rv-checks small { display: block; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
-
-/* The decision stays put while the deliverable scrolls: outside the scroller, so never in its dissolve. */
-.rv-decide-wrap { flex: none; }
-.rv-decide { display: flex; align-items: center; gap: 10px; padding: 12px 28px 14px; }
-.rv-decide-note { margin-right: auto; min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
-.rv-ask { display: flex; align-items: center; gap: 8px; padding: 12px 28px 0; }
-.rv-ask-field { flex: 1; min-width: 0; height: 30px; padding: 0 10px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
-  background: var(--field); color: var(--rl-text-bright); font: inherit; font-size: 14px; outline: none; }
-.rv-ask-field:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
-/* Close's strip says what it will stop before it does; it reads as the bar's own sentence does. */
-.rv-ask-text { flex: 1; min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); }
-
-/* The team's kill switch, at the head of its Review, and the line that says it is on. */
-.rv-hold { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; line-height: 18px; }
-.rv-held { display: flex; align-items: center; gap: 8px; margin: 0 10px 8px; padding: 8px 10px 8px 12px; border-radius: var(--r-row);
-  background: color-mix(in srgb, var(--rl-warning) 12%, transparent); color: var(--rl-text-bright); font-size: 13px; line-height: 18px; }
-.rv-held > svg { flex: none; color: var(--rl-warning); }
-.rv-held > span { flex: 1; min-width: 0; }
-
-/* Generic deliverables (panes/team/renderers): each format drawn in one frame under the head, so a
-   change of format moves nothing else on the pane. A frame is the caption's card — a step above the
-   ground under its rim — and text that IS the deliverable reads at the body size, at a reading measure. */
-.rv-deliverable { margin-top: 20px; }
-.rv-deliverable > * + * { margin-top: 12px; }
-.rv-meta-rows { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 0 0 12px; }
-.rv-meta-rows > div { display: flex; gap: 6px; min-width: 0; font-size: 13px; line-height: 18px; }
-.rv-meta-rows dt { color: var(--rl-text-dim); }
-.rv-meta-rows dd { margin: 0; min-width: 0; color: var(--rl-text-bright); overflow-wrap: anywhere; }
-.rv-frame { margin: 0; padding: 14px 16px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim);
-  font-size: 14px; line-height: 20px; color: var(--rl-text-bright); min-width: 0; }
-.rv-text, .rv-mail-body, .rv-message-text { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 72ch; }
-.rv-doc { padding: 18px 22px; }
-.rv-doc .rv-md { max-width: 72ch; }
-.rv-mail { padding: 0; }
-.rv-mail-head { margin: 0; padding: 4px 16px; }
-.rv-mail-head > div { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px; padding: 7px 0; position: relative; }
-.rv-mail-head > div + div::before { content: ""; position: absolute; top: 0; left: 0; right: 0; border-top: var(--hairline-w) solid var(--rl-card-rim); }
-.rv-mail-head dt { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
-.rv-mail-head dd { margin: 0; min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); overflow-wrap: anywhere; }
-.rv-mail-subject dd { font-weight: var(--fw-medium); }
-.rv-mail-body { padding: 14px 16px 16px; border-top: var(--hairline-w) solid var(--rl-card-rim); }
-.rv-message { display: flex; flex-direction: column; gap: 8px; }
-.rv-message-who { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
 /* The picture or the PDF page as the object it is: a frame a person picks up, at the width it reads at. */
 .rv-picture { display: block; padding: 0; max-width: min(100%, 560px); border-radius: var(--r-row); overflow: hidden; background: var(--inset);
   box-shadow: var(--rl-object-shadow); position: relative; }
@@ -10614,7 +10900,7 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .rv-picture::after, .rv-pdf-page::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 10%, transparent); }
 .rv-picture:focus-visible, .rv-pdf-page:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
-.rv-pdf { margin: 0; display: flex; flex-direction: column; gap: 10px; max-width: min(100%, 560px); }
+.rv-pdf { margin: 0; display: flex; flex-direction: column; gap: 10px; max-width: min(100%, 480px); }
 /* The page is the preview's own pixels — white paper on both faces, because the file is the file — and
    the ground under it is the pane's until it arrives. */
 .rv-pdf-page { position: relative; display: block; padding: 0; width: 100%; border-radius: var(--r-chip); overflow: hidden;
@@ -10624,32 +10910,68 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .rv-pdf-foot { display: flex; align-items: center; gap: 10px; }
 .rv-pdf-name { margin-right: auto; min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); overflow-wrap: anywhere; }
 .rv-pdf-name small { font-size: 12px; color: var(--rl-text-dim); }
-.rv-links { list-style: none; padding: 6px 16px; }
+.rv-attached-note { margin: 0; font-size: 14px; line-height: 21px; color: var(--rl-text-dim); max-width: 68ch; }
+
+/* A bundle of files as one stack: a card of rows, each a file the Finder would recognise. */
+.rv-files { list-style: none; margin: 0; padding: 4px 0; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); }
+.rv-file { position: relative; display: flex; flex-direction: column; min-width: 0; }
+.rv-file + .rv-file::before { content: ""; position: absolute; top: 0; left: 56px; right: 14px; border-top: var(--hairline-w) solid var(--rl-line); }
+.rv-file-row { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 8px 10px 8px 12px; }
+.rv-file-mark, .rv-file-thumb { flex: none; width: 32px; height: 32px; border-radius: var(--r-chip); }
+.rv-file-mark { display: grid; place-items: center; background: var(--field); box-shadow: var(--rl-object-shadow); }
+.rv-file-thumb { object-fit: cover; box-shadow: var(--rl-object-shadow); }
+.rv-file-text { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.rv-file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; line-height: 20px; color: var(--rl-text-bright); }
+.rv-file-where { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 16px; color: var(--rl-text-faint); }
+.rv-file-open, .rv-file-look { flex: none; }
+.rv-file-body { margin: 0 12px 12px; min-width: 0; }
+
+.rv-links { list-style: none; padding: 6px 18px; }
 .rv-links li { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; padding: 8px 0; position: relative; }
-.rv-links li + li::before { content: ""; position: absolute; top: 0; left: 0; right: 0; border-top: var(--hairline-w) solid var(--rl-card-rim); }
+.rv-links li + li::before { content: ""; position: absolute; top: 0; left: 0; right: 0; border-top: var(--hairline-w) solid var(--rl-line); }
 .rv-links .msg-chip { gap: 4px; font-size: 13px; }
 .rv-link-where { min-width: 0; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); overflow-wrap: anywhere; }
 .rv-table { padding: 0; }
-.rv-table .md-scroll { max-height: 480px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+.rv-table .md-scroll { max-height: 480px; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); }
 .rv-table .rv-strip-note { margin-top: 6px; }
 .rv-diff { min-width: 0; }
 /* Edit, then approve: the control at the text's corner, and the field that takes its place. */
 .rv-editable { position: relative; }
-.rv-edit { position: absolute; top: 8px; right: 8px; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; line-height: 18px; }
+.rv-edit { position: absolute; top: 10px; right: 10px; display: inline-flex; align-items: center; gap: 6px; }
 .rv-editing { display: flex; flex-direction: column; gap: 10px; }
 .rv-edit-field { width: 100%; min-height: 120px; resize: vertical; padding: 10px 12px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
-  background: var(--field); color: var(--rl-text-bright); font: inherit; font-size: 14px; line-height: 20px; outline: none; }
+  background: var(--field); color: var(--rl-text-bright); font: inherit; font-size: 15px; line-height: 22px; outline: none; }
 .rv-edit-field:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
 .rv-edit-foot { display: flex; align-items: center; gap: 8px; }
 .rv-edit-note { margin-right: auto; min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+
+/* Narrower, the facts go under the work; in a side panel's width, the pane shows the inbox or the
+   review chosen, never both — the inbox until a row is opened, and the review with its way back. The
+   second query is the pane's (`.panel` is the container every pane measures against). */
+@container rv-read (max-width: 860px) {
+  .rv-reader { flex-direction: column; gap: 22px; }
+  .rv-reader-main { max-width: none; }
+  .rv-facts { flex: none; align-self: stretch; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; padding-top: 0; }
+}
+@container (max-width: 720px) {
+  .rv { grid-template-columns: minmax(0, 1fr); }
+  .rv-list { border-right: none; }
+  .rv[data-reading] .rv-list, .rv:not([data-reading]):not([data-empty]) .rv-detail { display: none; }
+  .rv-back { display: flex; flex: none; padding: 10px 14px 0; }
+  .rv-detail-scroll { padding: 14px 18px 22px; }
+  .rv-dock { padding: 0 10px 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rv-row[data-arrived], .rv-row[data-leaving], .rv-detail { animation: none; }
+}
 
 /* The post sheet (mock 04): the consequence in a sentence, the facts in a card of rows, and a button
    that says the action and its time. */
 .sheet:has(.ps) .sheet-head h3 { font-size: 18px; line-height: 24px; }
 .ps-lede { margin: 0 0 14px; font-size: 14px; line-height: 20px; color: var(--rl-text-dim); text-wrap: pretty; }
-.ps-rows { margin: 0; padding: 0 14px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+.ps-rows { margin: 0; padding: 0 14px; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); }
 .ps-rows > div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; padding: 11px 0; position: relative; }
-.ps-rows > div + div::before { content: ""; position: absolute; top: 0; left: 0; right: 0; border-top: var(--hairline-w) solid var(--rl-card-rim); }
+.ps-rows > div + div::before { content: ""; position: absolute; top: 0; left: 0; right: 0; border-top: var(--hairline-w) solid var(--rl-line); }
 .ps-rows dt { font-size: 14px; line-height: 20px; color: var(--rl-text-dim); }
 .ps-rows dd { margin: 0; min-width: 0; font-size: 14px; line-height: 20px; color: var(--rl-text-bright); overflow-wrap: anywhere; }
 .ps-rows small { font-size: 14px; color: var(--rl-text-dim); }
@@ -10668,9 +10990,9 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .tp-make { align-items: center; }
 .tp-make .tp-make-note { margin-right: auto; }
 .tp-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); gap: 12px; }
-.tp-card { padding: 14px 16px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim);
+.tp-card { padding: 14px 16px; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift);
   display: flex; flex-direction: column; gap: 6px; min-width: 0; text-align: left; }
-button.tp-card:hover { border-color: var(--rl-line-strong); }
+button.tp-card:hover { background: var(--rl-card-hover); }
 button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
 .tp-card-note { justify-content: center; align-items: flex-start; }
 /* Its words stand on the note's left edge, the pill's padding hung outside it: `.page .btn-quiet`
@@ -10682,9 +11004,7 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tp-card-foot { display: flex; align-items: center; gap: 10px; margin-top: 4px; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
 .tp-mark { width: 32px; height: 32px; border-radius: var(--r-ctl); display: grid; place-items: center; flex: none; color: var(--rl-text-bright); }
 /* A role page's hero: the creature large beside its name, as the maker shows it. */
-.tp-hero { flex: none; display: grid; place-items: center; width: 168px; height: 168px; margin: -8px 4px -8px -8px; align-self: center; }
-.tp-role-head { padding-bottom: 26px; }
-.tp-pick[data-on] { border-color: color-mix(in srgb, var(--rl-accent) 55%, var(--rl-card-rim)); }
+.tp-pick[data-on] { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rl-accent) 55%, transparent), var(--card-lift); }
 .tp-pick-box { margin-left: auto; }
 .tp-meter { position: relative; flex: 1; height: 4px; border-radius: var(--r-sm); background: var(--mark); overflow: hidden; max-width: 120px; }
 .tp-meter > i { position: absolute; inset: 0 auto 0 0; border-radius: var(--r-sm); background: var(--rl-text-dim); transition: width var(--dur-pop) var(--ease-out-strong); }
@@ -10700,7 +11020,7 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 
 .tp-wait { display: flex; flex-direction: column; gap: 6px; }
 .tp-wait-row { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 12px;
-  border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); }
 .tp-wait-row img { width: 36px; height: 64px; border-radius: var(--r-chip); object-fit: cover; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 9%, transparent); }
 .tp-wait-row .tp-mark { width: 36px; height: 36px; background: var(--rl-hover); color: var(--rl-text-dim); }
 .tp-wait-text { min-width: 0; }
@@ -10712,12 +11032,12 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tp-feed .t-glyph { align-self: center; }
 .tp-feed small { color: var(--rl-text-dim); font-size: 13px; }
 
-.tp-props { display: grid; grid-template-columns: 150px minmax(0, 1fr); border-radius: var(--r-panel); background: var(--rl-card);
-  border: var(--hairline-w) solid var(--rl-card-rim); overflow: hidden; }
+.tp-props { display: grid; grid-template-columns: 150px minmax(0, 1fr); border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card);
+  box-shadow: var(--card-lift); overflow: hidden; }
 .tp-props > div { padding: 10px 16px; font-size: 14px; line-height: 20px; position: relative; min-width: 0; overflow-wrap: anywhere; }
 .tp-props > div:nth-child(odd) { color: var(--rl-text-dim); }
 .tp-props > div:nth-child(even) { color: var(--rl-text-bright); }
-.tp-props > div:nth-child(n+3)::before { content: ""; position: absolute; top: 0; left: 0; right: 0; border-top: var(--hairline-w) solid var(--rl-card-rim); }
+.tp-props > div:nth-child(n+3)::before { content: ""; position: absolute; top: 0; left: 0; right: 0; border-top: var(--hairline-w) solid var(--rl-line); }
 .tp-props > div:nth-child(odd):nth-child(n+3)::before { left: 16px; }
 .tp-props > div:nth-child(even):nth-child(n+3)::before { right: 16px; }
 .tp-props > .tp-prop-full { grid-column: 1 / -1; color: var(--rl-text-bright); }
@@ -10727,10 +11047,9 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 
 .tp-table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 18px; }
 .tp-table th { text-align: left; font-weight: var(--fw-medium); color: var(--rl-text-dim); font-size: 12px; padding: 0 12px 6px 0; }
-.tp-table td { padding: 9px 12px 9px 0; color: var(--rl-text-bright); border-top: var(--hairline-w) solid var(--rl-card-rim); vertical-align: middle; white-space: nowrap; }
+.tp-table td { padding: 9px 12px 9px 0; color: var(--rl-text-bright); border-top: var(--hairline-w) solid var(--rl-line); vertical-align: middle; white-space: nowrap; }
 .tp-table td.t-dim { color: var(--rl-text-dim); }
 .tp-table td.num, .tp-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
-.tp-table td.tp-what { white-space: normal; width: 40%; }
 .tp-run-link { padding: 0; background: none; color: inherit; text-align: left; font: inherit; }
 .tp-run-link:hover { color: var(--rl-text-bright); text-decoration: underline; }
 
@@ -10742,11 +11061,10 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 
 .tp-brief-wrap { position: relative; }
 .tp-brief { display: block; width: 100%; min-height: 96px; padding: 14px 16px 26px; border-radius: var(--r-panel); background: var(--rl-card);
-  border: var(--hairline-w) solid var(--rl-card-rim); font: inherit; font-size: 14px; line-height: 21px; color: var(--rl-text-bright); resize: none; outline: none; overflow: hidden; }
+  border: var(--hairline-w) solid var(--rl-line); font: inherit; font-size: 14px; line-height: 21px; color: var(--rl-text-bright); resize: none; outline: none; overflow: hidden; }
 .tp-brief:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
 .tp-brief-state { position: absolute; right: 14px; bottom: 8px; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
-.tp-role-head { align-items: center; }
-.tp-message { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+.tp-message { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); }
 .tp-message-field { width: 100%; padding: 4px 4px; border: none; background: transparent; font: inherit; font-size: 14px; line-height: 20px; color: var(--rl-text-bright); resize: vertical; outline: none; }
 .tp-message-foot { display: flex; align-items: center; gap: 8px; }
 .tp-message-foot .tp-make-note { margin-right: auto; }
@@ -10764,7 +11082,7 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tp-new-type { align-self: flex-start; margin-top: 8px; display: inline-flex; align-items: center; gap: 4px; }
 .tp-other + .tp-other { margin-top: 12px; }
 .tp-other > .settings-row-title { margin: 0 0 6px; color: var(--rl-text-dim); }
-.tp-prose { padding: 12px 16px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+.tp-prose { padding: 12px 16px; border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); }
 .tp-prose p { max-width: 72ch; }
 .tp-prose p { margin: 0; font-size: 14px; line-height: 21px; color: var(--rl-text-bright); }
 .tp-prose p + p { margin-top: 8px; }
@@ -10787,13 +11105,11 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 /* A folder that records use is fixed: its field reads as a value, not as something to type in. */
 .settings-row > .settings-text:disabled { background: transparent; color: var(--rl-text-dim); }
 .tp-record-source { width: 100%; min-height: 420px; padding: 14px 16px; border-radius: var(--r-panel); background: var(--rl-card);
-  border: var(--hairline-w) solid var(--rl-card-rim); font-family: var(--font-mono); font-size: 13px; line-height: 20px; color: var(--rl-text-bright); resize: vertical; outline: none; }
+  border: var(--hairline-w) solid var(--rl-line); font-family: var(--font-mono); font-size: 13px; line-height: 20px; color: var(--rl-text-bright); resize: vertical; outline: none; }
 .tp-record-pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 0; }
 
-/* The column's sections: a member of Creators or Roles sits under its group, lit when open. */
+/* The column's sections: a record sits under its kind, lit when open. */
 .settings-tab.page-rail-tab.tp-sub { padding-left: 34px; }
-.settings-tab.page-rail-tab.tp-sub-role { padding-left: 34px; }
-.tp-rail-realmite { display: grid; place-items: center; width: 16px; height: 16px; }
 .tp-rail-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tp-rail-count { flex: none; }
 
@@ -10811,7 +11127,7 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tp-shelf-note { margin-top: -4px; }
 .tp-pick[data-there] .tp-pick-box { color: var(--rl-text-dim); }
 .tp-pick-acts { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; flex: none; }
-.tp-card-custom { border-style: dashed; background: transparent; }
+.tp-card-custom { border: var(--hairline-w) dashed var(--rl-line-strong); background: transparent; box-shadow: none; }
 .tp-card-custom:hover { background: var(--rl-card); }
 .tp-mark-add { background: var(--rl-hover); color: var(--rl-text-dim); }
 .tp-picker { gap: 22px; }
@@ -10881,7 +11197,7 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tp-banner-text { font-size: 13px; line-height: 18px; color: var(--rl-text-bright); }
 .tp-handoffs { margin: 0; padding: 0; list-style: none; }
 .tp-handoffs li { display: grid; grid-template-columns: 64px 48px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 7px 0;
-  font-size: 13px; line-height: 18px; color: var(--rl-text-bright); border-top: var(--hairline-w) solid var(--rl-card-rim); }
+  font-size: 13px; line-height: 18px; color: var(--rl-text-bright); border-top: var(--hairline-w) solid var(--rl-line); }
 .tp-handoffs li:first-child { border-top: none; }
 .tp-handoffs time { font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 .tp-handoff-pair { display: inline-flex; align-items: center; gap: 2px; color: var(--rl-text-faint); }
@@ -10903,7 +11219,7 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tp-edge:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 .tp-edge[aria-pressed="true"] { color: var(--rl-text-bright); background: var(--rl-hover); border-color: color-mix(in srgb, var(--rl-accent) 45%, transparent); }
 .tp-goal { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 14px;
-  border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+  border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); }
 .tp-goal-glyph { color: var(--rl-text-dim); }
 .tp-goal-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .tp-goal-objective { font-size: 14px; line-height: 20px; color: var(--rl-text-bright); overflow-wrap: anywhere; }
@@ -10913,3 +11229,154 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 /* The Team fold's way to add one: a row like the roles above it, in the quieter ink. */
 .sb-team-add .item-title, .sb-team-add .sb-gutter { color: var(--rl-text-dim); }
 
+
+/* ── A teammate's chat (panes/team/chat) ──────────────────────────────────────────────────────────
+   A conversation per teammate, in a messenger's grammar: the team's chats in the column, and the open
+   one as a head, a thread and a prompter, all on one centred measure. The person's words sit right on
+   the accent's tint, the teammate's left on the raised surface beside its Realmite; lines across the
+   middle say what happened to it. A run of bubbles from one side tucks its inner corners and wears
+   its avatar and time once, at its end. The details drawer is a column that opens at the side, its
+   content riding the moving edge. */
+.page:has(.tc-chat) .page-body { max-width: none; padding: 0; }
+.tc-chat { --tc-col: 720px; --tc-drawer-w: 380px; --tc-tuck: calc(var(--r-sm) * 2);
+  flex: 1; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 0px;
+  transition: grid-template-columns var(--dur-move) var(--spring-smooth); }
+.tc-chat[data-drawer] { grid-template-columns: minmax(0, 1fr) var(--tc-drawer-w); }
+.tc-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.tc-head { flex: none; display: flex; align-items: center; gap: 12px; width: 100%; max-width: calc(var(--tc-col) + 48px); margin: 0 auto; padding: 18px 24px 8px; }
+.tc-head-mite { flex: none; display: grid; place-items: center; width: 32px; height: 32px; }
+.tc-head-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tc-head-name { margin: 0; font-size: 18px; line-height: 24px; font-weight: var(--fw-title); color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tc-head-line { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tc-scroll { flex: 1; min-height: 0; overflow-y: auto; --fade-h: 24px; --fade-top-h: 16px; }
+/* Short or long, a conversation stands on its prompter: its newest line is always the lowest. */
+.tc-col { box-sizing: border-box; min-height: 100%; max-width: calc(var(--tc-col) + 48px); margin: 0 auto; padding: 8px 24px 20px;
+  display: flex; flex-direction: column; justify-content: flex-end; }
+.tc-loading { margin: auto; }
+.tc-thread { display: flex; flex-direction: column; }
+.tc-day { display: flex; justify-content: center; margin: 22px 0 6px; }
+.tc-day span { font-size: 12px; line-height: 16px; font-weight: var(--fw-label); color: var(--rl-text-faint); }
+.tc-row { display: flex; align-items: flex-start; gap: 8px; margin-top: 2px; min-width: 0; }
+.tc-row[data-start] { margin-top: 14px; }
+.tc-row[data-side="you"] { justify-content: flex-end; }
+.tc-row[data-side="center"] { justify-content: center; margin-top: 14px; }
+.tc-row[data-enter], .tc-note[data-enter] { animation: tc-in var(--dur-enter) var(--spring-smooth) both; }
+.tc-row[data-pending] { opacity: .6; }
+@keyframes tc-in { from { opacity: 0; transform: translateY(6px); } }
+.tc-avatar { flex: none; display: grid; place-items: center; width: 32px; height: 32px; }
+.tc-stack { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; max-width: min(560px, 84%); }
+.tc-row[data-side="you"] .tc-stack { align-items: flex-end; }
+.tc-stack:has(> .tc-runlog) { flex: 1; max-width: none; }
+.tc-bubble { max-width: 100%; padding: 9px 14px; border-radius: var(--r-float); font-size: 15px; line-height: 22px; color: var(--rl-text-bright);
+  background: var(--tc-them); overflow-wrap: anywhere; }
+/* The teammate's bubble is a step off the canvas on each face: the raised surface on dark, and on
+   light — where the raised surface is the canvas's own white — the grey a light messenger draws. */
+.tc-chat { --tc-them: var(--rl-raised); }
+:root[data-mode="light"] .tc-chat { --tc-them: var(--hover-2); }
+.tc-row[data-side="you"] .tc-bubble { background: var(--accent-tint); white-space: pre-wrap; }
+.tc-row[data-side="them"]:not([data-start]) .tc-bubble { border-top-left-radius: var(--tc-tuck); }
+.tc-row[data-side="them"]:not([data-end]) .tc-bubble { border-bottom-left-radius: var(--tc-tuck); }
+.tc-row[data-side="you"]:not([data-start]) .tc-bubble { border-top-right-radius: var(--tc-tuck); }
+.tc-row[data-side="you"]:not([data-end]) .tc-bubble { border-bottom-right-radius: var(--tc-tuck); }
+.tc-said .md { font-size: 15px; line-height: 22px; }
+.tc-said .md > :last-child { margin-bottom: 0; }
+.tc-time { padding: 0 6px; font-size: 11px; line-height: 14px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+/* Under a report: its time, what the run took, and the way into it, on one quiet line. */
+.tc-meta { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 2px 6px; padding: 0 6px; }
+.tc-meta .tc-time { padding: 0; }
+.tc-meta > * + *::before { content: "·"; margin-right: 6px; color: var(--rl-text-faint); }
+.tc-meta > .tc-run-toggle::before { margin-right: 4px; }
+.tc-about { display: inline-flex; align-items: center; gap: 4px; padding: 0 6px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.tc-goal { display: flex; flex-direction: column; gap: 2px; }
+.tc-goal-state { font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.tc-card-kicker { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; line-height: 16px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
+/* Typing: three dots that rise in turn a few times and then hold, which still says it (design.md, Motion). */
+.tc-typing { display: inline-flex; align-items: center; gap: 4px; padding: 15px 16px; }
+.tc-typing i, .tc-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--rl-text-dim); opacity: .45;
+  animation: tc-dot 1.4s var(--ease-fade) 4 both; }
+.tc-typing i:nth-child(2), .tc-dots i:nth-child(2) { animation-delay: calc(40ms * 4); }
+.tc-typing i:nth-child(3), .tc-dots i:nth-child(3) { animation-delay: calc(40ms * 8); }
+@keyframes tc-dot { 0%, 60%, 100% { opacity: .45; transform: none; } 30% { opacity: 1; transform: translateY(-2px); } }
+.tc-typing-line { display: inline-flex; align-items: center; gap: 8px; padding: 0 6px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+.tc-run-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 0 4px; margin: 0 -4px; border-radius: var(--r-chip); background: none;
+  font-size: 11px; line-height: 14px; color: var(--rl-text-dim); }
+.tc-run-toggle:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+.tc-run-meta { font-size: 11px; line-height: 14px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+/* The whole run, drawn by the transcript in a well of its own height. */
+.tc-runlog { align-self: stretch; display: flex; max-height: min(480px, 60vh); border-radius: var(--r-panel); background: var(--rl-frame); overflow: hidden; }
+.tc-runlog .transcript { padding: 16px 16px 24px; }
+.tc-runlog > .tp-empty { margin: auto; }
+/* A line across the thread: a wake, an end, a skip. */
+.tc-note { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 16px auto 2px; max-width: 100%;
+  font-size: 12px; line-height: 16px; color: var(--rl-text-dim); text-align: center; }
+.tc-note > svg { flex: none; color: var(--rl-text-faint); }
+.tc-note[data-tone="warn"] > svg { color: var(--rl-warning); }
+.tc-note[data-tone="bad"] > svg { color: var(--rl-danger); }
+.tc-note-detail { color: var(--rl-text-faint); }
+/* Cards for what the teammate made and passed on: a draft, a handoff, a record, a question. */
+.tc-card { display: flex; flex-direction: column; gap: 6px; width: min(400px, 100%); padding: 12px 14px; border-radius: var(--r-squircle-card); corner-shape: squircle;
+  background: var(--rl-card); box-shadow: var(--card-lift); }
+.tc-card-title { font-size: 14px; line-height: 20px; font-weight: var(--fw-label); color: var(--rl-text-bright); overflow-wrap: anywhere; }
+.tc-card-line { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); overflow-wrap: anywhere; }
+.tc-card-link { align-self: flex-start; margin-left: -8px; }
+.tc-draft-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.tc-draft-thumb { flex: none; width: 36px; height: 64px; border-radius: var(--r-chip); object-fit: cover; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 9%, transparent); }
+.tc-draft-glyph { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--r-ctl); background: var(--rl-hover); color: var(--rl-text-dim); }
+.tc-draft-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tc-draft-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.tc-draft-actions > .btn ~ .btn-quiet { margin-left: auto; }
+.tc-draft-actions > .btn-quiet:first-child { margin-left: -8px; }
+.tc-ask-text, .tc-handoff-note { font-size: 14px; line-height: 20px; color: var(--rl-text-bright); overflow-wrap: anywhere; }
+.tc-row[data-side="center"] .tc-handoff { width: min(440px, 100%); }
+/* The prompter: the Agents tab's card, one line until there is more to say, its send at the line's end. */
+.tc-composer { flex: none; width: 100%; max-width: calc(var(--tc-col) + 48px); margin: 0 auto; padding: 4px 24px 18px; }
+/* It stands on the canvas as the session's prompter does: its ring and a slight lift, which on the
+   light face are what separate a white card from the near-white ground. */
+.tc-compose-card { flex-direction: row; flex-wrap: wrap; align-items: flex-end; box-shadow: var(--shadow-card); }
+:root[data-squircle] .tc-compose-card { box-shadow: none; --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w); filter: var(--shadow-card-lift-filter); }
+:root[data-squircle] .tc-compose-card:focus-within { --sq-ring: var(--line-strong); }
+.tc-compose-card .tc-field { flex: 1; width: auto; min-width: 0; min-height: 44px; padding: 12px 16px; }
+.tc-compose-card .subagents-compose-foot { flex: none; padding: 6px 6px 6px 0; }
+.tc-compose-note { margin: 6px 16px 0; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.tc-reply { flex: 0 0 100%; display: flex; align-items: center; gap: 6px; padding: 8px 8px 0 16px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.tc-reply-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A chat with nothing said yet, and a team with nobody on it. */
+.tc-col:has(> .tc-empty) { justify-content: center; }
+.tc-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: auto; max-width: 420px; padding: 32px 24px; text-align: center; }
+.tc-empty-team { flex: 1; justify-content: center; }
+.tc-empty-glyph { margin-bottom: 6px; color: var(--rl-text-dim); }
+.tc-empty-name { margin: 0; font-size: 20px; line-height: 28px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.tc-empty-line { margin: 0; font-size: 14px; line-height: 20px; color: var(--rl-text-dim); text-wrap: pretty; }
+.tc-empty-hint { margin: 6px 0 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: pretty; }
+.tc-empty-team .btn { margin-top: 10px; }
+/* The details drawer. */
+.tc-drawer { min-width: 0; min-height: 0; overflow: hidden; border-left: var(--hairline-w) solid var(--rl-divider); }
+.tc-drawer-in { width: var(--tc-drawer-w); height: 100%; display: flex; flex-direction: column; }
+.tc-drawer-bar { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 18px 16px 4px 24px; }
+.tc-drawer-title { font-size: 13px; line-height: 18px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
+.tc-drawer-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 24px 24px; --fade-h: 24px; --fade-top-h: 12px; }
+.tc-who { display: flex; flex-direction: column; align-items: center; gap: 2px; padding-bottom: 4px; text-align: center; }
+.tc-who-name { margin-top: 4px; font-size: 20px; line-height: 28px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.tc-who-kind { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.tc-who-line { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: pretty; }
+.tc-who .btn { margin-top: 10px; }
+.tc-records { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.tc-record-link { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; border-radius: var(--r-ctl); background: none;
+  font-size: 14px; line-height: 20px; color: var(--rl-text-bright); text-align: left; }
+.tc-record-link:hover { background: var(--rl-hover); }
+.tc-record-link > svg { flex: none; color: var(--rl-text-dim); }
+/* The team's chats in the column: a two-line row per teammate, its Realmite beside it. */
+.page-rail .settings-tab.tc-chat-row { align-items: center; gap: 10px; min-height: 54px; padding: 8px; }
+.tc-chat-mite { flex: none; display: grid; place-items: center; width: 32px; height: 32px; }
+.tc-chat-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tc-chat-top { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.tc-chat-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; line-height: 20px;
+  font-weight: var(--fw-label); color: var(--rl-text-bright); }
+.tc-chat-kind { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+.tc-chat-time { flex: none; margin-left: auto; font-size: 12px; line-height: 16px; font-weight: var(--fw-body); color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.tc-chat-preview { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; line-height: 18px; font-weight: var(--fw-body); color: var(--rl-text-dim); }
+.tc-chat-preview-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tc-chat-row[data-unread] .tc-chat-preview { color: var(--rl-text-bright); }
+.tc-chat-mark { flex: none; margin-left: auto; }
+.tc-dots { flex: none; display: inline-flex; align-items: center; gap: 3px; }
+.tc-dots i { width: 4px; height: 4px; }

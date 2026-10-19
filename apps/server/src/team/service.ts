@@ -1,10 +1,10 @@
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
-  CreateRoleSchema, CustomRoleSchema, ROLE_TEMPLATES, teamShares, type CustomRoleInput, TEAM_DEFAULTS, UpdateRoleSchema, USAGE_REPORTING, amrRepoSourceLink,
-  ACT_PACING, CREATOR_PRESET, EDITABLE_FORMATS, inferFormat, isLegacyLabel, itemActKind, itemTarget, lineDiff, reviewVerb, verbFamily, recordTemplate,
-  type DeliverableFormat, type ProposedAction, type ReviewAction, type RecordType, isRunLive, isRunTerminal, parseMemoryEntry, parseRecord, recordAccounts, recordField, recordSlug, recordTitle, sessionEvent, usageDeltas, weekStart,
-  type ActTicket, type AgentKind, FINAL_REVIEW_STATES, type CreateRoleInput, type ParsedRecord, type LedgerLine, type ReviewCheck, type ReviewCloseOutcome, type ReviewKind, type ReviewState, type ReviewTarget, type RoleRun,
+  CreateRoleSchema, CustomRoleSchema, ROLE_TEMPLATES, nextFireOf, teamShares, type CustomRoleInput, TEAM_DEFAULTS, UpdateRoleSchema, USAGE_REPORTING, amrRepoSourceLink,
+  ACT_PACING, CREATOR_PRESET, EDITABLE_FORMATS, inferFormat, isLegacyLabel, itemActKind, itemTarget, itemTicketKind, lineDiff, reviewVerb, verbFamily, recordTemplate,
+  type DeliverableFormat, type ProposedAction, type ReviewAction, type RecordType, isRunLive, isRunTerminal, parseBlockRequest, parseMemoryEntry, parseRecord, recordAccounts, recordField, recordSlug, recordTitle, sessionEvent, usageDeltas, weekStart,
+  type ActTicket, type AgentKind, FINAL_REVIEW_STATES, type CreateRoleInput, type ParsedRecord, type LedgerLine, type ReviewCheck, type ReviewCloseOutcome, ReviewCloseOutcomeSchema, type ReviewKind, type ReviewState, type ReviewTarget, type RoleRun,
   type Run, type Schedule, type Session, type SessionEvent, type TeamActivity, type TeamRecord, type TeamRecordSummary,
   type TeamReviewDetail, type TeamReviewItem, type TeamReviewSummary, type TeamRole, type TeamSpace, type UpdateRoleInput, type WokeOn,
 } from "@realm/contracts";
@@ -39,6 +39,8 @@ export type SubmitInput = {
   kind?: ReviewKind | undefined;
   title: string;
   record?: string | undefined;
+  /** The role's word to the person about the batch: why it made it, and what to look at first. */
+  note?: string | undefined;
   items: {
     files: string[]; body?: string | undefined;
     format?: DeliverableFormat | undefined; meta?: Record<string, string> | undefined;
@@ -84,7 +86,7 @@ export class TeamService {
 
   constructor(private readonly d: {
     store: TeamStore;
-    runs: Pick<RunService, "create" | "get" | "listForRole" | "spentSince" | "listLive" | "recordCost" | "stopAtLimit" | "pump">;
+    runs: Pick<RunService, "create" | "get" | "listForRole" | "spentSince" | "listLive" | "recordCost" | "stopAtLimit" | "pump" | "approve">;
     schedules: Pick<ScheduleService, "createForRole" | "forRole" | "update" | "remove">;
     sessions: Pick<SessionService, "get" | "events" | "publishServerEvent">;
     repos: Pick<MemoryRepoService, "config" | "create" | "defaultPath" | "read" | "writeFile" | "lastChange">;
@@ -105,7 +107,9 @@ export class TeamService {
       issue(reviewId: string): ActTicket[];
       cancelForReview(reviewId: string, why: string): void;
       tickets(reviewId: string): ActTicket[];
-      counts(reviewId: string): { total: number; done: number };
+      /** `ready` waits for its press, `failed` came back from the platform with an error, and `nextAt`
+       *  is the soonest pressed slot — absent where the counter does not know them. */
+      counts(reviewId: string): { total: number; done: number; ready?: number; failed?: number; nextAt?: number | null };
       held(spaceId: string): boolean;
       today(kind: "post" | "dm" | "email", channel: string, account: string): { count: number; cap: number };
     };
@@ -208,6 +212,7 @@ export class TeamService {
     const twice = names.find((n, i) => names.indexOf(n) !== i);
     if (twice) throw new RpcError("TEAM_ROLE_NAME", `two of the roles are called ${[...picked, ...custom].find((r) => r.name.toLowerCase() === twice)!.name} — give one another name`);
     for (const r of custom) if (this.d.store.roleByName(spaceId, r.name)) throw new RpcError("TEAM_ROLE_NAME", `this team already has a role called ${r.name}`);
+    for (const r of custom) refuseUnfireable(r.cron);
     const cap = o.weekBudgetUsd ?? this.teamBudget(spaceId);
     this.checkShares(spaceId, cap, { add: [...picked.map((t) => t.weekBudgetUsd), ...custom.map((r) => r.weekBudgetUsd ?? null)] });
     if (!this.repoPath(spaceId)) await this.d.repos.create({ scope: "space", id: spaceId }, o.repoPath);
@@ -306,6 +311,7 @@ export class TeamService {
     if (!this.d.spaceExists(p.spaceId)) throw new NotFoundError("space", p.spaceId);
     if (this.d.store.roleByName(p.spaceId, p.name)) throw new RpcError("TEAM_ROLE_NAME", `this team already has a role called ${p.name}`);
     this.checkShares(p.spaceId, this.teamBudget(p.spaceId), { add: [p.weekBudgetUsd ?? null] });
+    refuseUnfireable(p.cron);
     const row = this.d.store.createRole({
       spaceId: p.spaceId, name: p.name, brief: p.brief, realmite: p.realmite, template: p.template ?? null,
       agentKind: p.agentKind ?? this.d.defaultKind ?? "claude", model: p.model ?? null, effort: p.effort ?? null,
@@ -372,7 +378,7 @@ export class TeamService {
         wokeNote: typeof woke?.detail.note === "string" ? woke.detail.note : null,
         wokeBy: typeof woke?.detail.by === "string" ? woke.detail.by : null,
         sessionId: run.sessionId, createdAt: run.createdAt, startedAt: run.startedAt, settledAt: run.settledAt,
-        costUsd: run.costUsd, summary: firstLine(run.result), error: run.error,
+        costUsd: run.costUsd, summary: firstLine(run.result), report: run.result ? clip(run.result.trim(), REPORT_CAP) : null, error: run.error,
         stoppedAtCap: capped ? (capped.detail.cap === "time" ? "time" : "usd") : null,
         reviewId: review?.id ?? null, reviewState: review?.state ?? null,
       };
@@ -390,6 +396,29 @@ export class TeamService {
       ? `${role.name}, a person on your team asked:\n\n${message.trim()}`
       : `${role.name}: a person started this run by hand. Do what your brief says is due now.`;
     return this.wake(role, "manual", task, { note: message?.trim() || null });
+  }
+
+  /**
+   * A person's message to a teammate, from its chat. A run parked on a question (NEEDS-HUMAN) takes the
+   * message as its answer and goes on. Otherwise it is a new run that continues the role's newest
+   * run's session, so the role reads the conversation it is part of — and while a run is live, the
+   * new one waits its turn behind it (`admit`), in the same session.
+   */
+  messageRole(id: string, text: string): Run {
+    const role = this.d.store.role(id);
+    if (!role || role.archived) throw new NotFoundError("role", id);
+    const said = text.trim();
+    if (!said) throw new RpcError("TEAM_MESSAGE_EMPTY", "say something to send");
+    const runs = this.d.runs.listForRole(id, 20);
+    const asking = runs.find((r) => r.state === "blocked");
+    if (asking) {
+      this.log(role.spaceId, "user", "replied", role.name, { roleId: role.id, note: said, question: parseBlockRequest(asking.result) }, asking);
+      const answered = this.d.runs.approve(asking.id, true, said);
+      this.changed(role.spaceId);
+      return answered;
+    }
+    const latest = runs.find((r) => r.sessionId);
+    return this.wake(role, "manual", `${role.name}, a person on your team asked:\n\n${said}`, { note: said, sessionId: latest?.sessionId ?? null });
   }
 
   /* ── the run seams ── */
@@ -449,6 +478,7 @@ export class TeamService {
       "",
       "Team rules (Realm):",
       "- Deliver with `review_submit` (the realm-team tools). Never send, post, sign or pay: a person approves everything in Review, then presses each post or send themselves, one at a time, at Realm's paced slots. No tool lets you post, send or DM, and none ever will.",
+      "- Give each review a `note`: a sentence or two on why you made it, which the person reads above the work.",
       "- A review you sent that is no longer wanted — replaced, done another way, or withdrawn — you close with `review_close`, so it stops waiting on the person.",
       this.d.recordTypes.preambleLine(role.spaceId),
       "- Save what you make inside this space's folder; Review only takes files from there.",
@@ -624,6 +654,9 @@ export class TeamService {
       };
     });
     const label = given ?? inferFormat(items[0]!);
+    const note = input.note?.trim() || null;
+    const noteSecret = note ? secretShapeIn(note) : null;
+    if (noteSecret) throw new RpcError("TEAM_REVIEW_SECRET", `the note holds what looks like ${noteSecret}. Review never takes a secret.`);
 
     const run = this.d.runs.listLive().find((r) => r.sessionId === ctx.sessionId) ?? null;
     const roleId = run?.roleId ?? null;
@@ -634,7 +667,7 @@ export class TeamService {
       ? this.d.store.revise(prior.id, { runId: run?.id ?? null, sessionId: ctx.sessionId, title }, items)
       : this.d.store.createReview({ spaceId: ctx.spaceId, roleId, runId: run?.id ?? null, sessionId: ctx.sessionId, recordPath, kind: label, title }, items);
     this.log(ctx.spaceId, roleId ? `role:${roleId}` : "realm", prior ? "revised" : "submitted", title,
-      { reviewId: row.id, kind: label, items: items.length, version: row.version }, run ?? { sessionId: ctx.sessionId });
+      { reviewId: row.id, kind: label, items: items.length, version: row.version, ...(note ? { note } : {}) }, run ?? { sessionId: ctx.sessionId });
 
     // The files are the session's work, so they belong in Documents and the Library like any other.
     const abs = [...new Set(items.flatMap((it) => it.files))].map((f) => join(root, f)).filter((p) => existsSync(p));
@@ -739,13 +772,27 @@ export class TeamService {
       itemCount: items.length, thumb: first,
       channels: [...new Set(items.map((i) => itemTarget(i)?.channel).filter((c): c is string => !!c))],
       account: (items[0] ? itemTarget(items[0])?.account : null) ?? null,
+      to: (items[0] ? itemTarget(items[0])?.to : null) ?? null,
       format: items[0] ? inferFormat(items[0]) : null,
       verb: reviewVerb(r.kind, items),
       editedItems: items.filter((i) => i.editedBy === "user").map((i) => i.ord + 1),
       changedSinceApproval: items.some((i) => i.approvedHash !== null && i.approvedHash !== i.contentHash),
-      ...(() => { const c = this.d.acts?.counts(r.id) ?? { total: 0, done: 0 }; return { actsTotal: c.total, actsDone: c.done }; })(),
+      ...(() => {
+        const c = this.d.acts?.counts(r.id) ?? { total: 0, done: 0 };
+        return { actsTotal: c.total, actsDone: c.done, actsWaiting: c.ready ?? 0, actsFailed: c.failed ?? 0, nextActAt: c.nextAt ?? null };
+      })(),
+      closedAs: this.closedAs(r),
       createdAt: r.createdAt, decidedAt: r.decidedAt, updatedAt: r.updatedAt,
     };
+  }
+
+  /** How a role closed its own review (`review_close`), so a list can tell "replaced by a newer one"
+   *  from "no longer wanted" — the state alone says only "put away" or "done". */
+  private closedAs(r: ReviewRow): ReviewCloseOutcome | null {
+    // Only a role's close leaves the review done or put away; the person's own close is `closed`.
+    if (r.state !== "dismissed" && r.state !== "done") return null;
+    const outcome = ReviewCloseOutcomeSchema.safeParse(this.d.store.reviewActivity(r, ["closed"])?.detail.outcome);
+    return outcome.success ? outcome.data : null;
   }
 
   review(id: string): TeamReviewDetail {
@@ -774,7 +821,15 @@ export class TeamService {
       root,
       tickets: this.d.acts?.tickets(id) ?? [],
       fileTexts: root ? this.fileTexts(root, all) : {},
+      why: this.why(fresh),
     };
+  }
+
+  /** The role's note on the version being read — or on the newest one it sent, when the person's own
+   *  edit made this version. */
+  private why(r: ReviewRow): string | null {
+    const line = this.d.store.reviewActivity(r, ["submitted", "revised"]);
+    return typeof line?.detail.note === "string" ? line.detail.note : null;
   }
 
   /** The text files the items name (a table, a diff, Markdown), read for the window, which cannot read
@@ -829,7 +884,7 @@ export class TeamService {
     }
     // Today's pacing for the account, as Realm will keep it — or, for work aimed nowhere, the plain
     // fact that a yes marks it and a person sends it. A message is sent, not posted.
-    const act = aimed && target?.account ? itemActKind(kind, aimed) : null;
+    const act = aimed ? itemTicketKind(kind, aimed) : null;
     if (act && target?.account && target.channel && this.d.acts) {
       const today = this.d.acts.today(act, target.channel, target.account);
       const noun = act === "post" ? "posts" : act === "dm" ? "DMs" : "emails";
@@ -844,8 +899,10 @@ export class TeamService {
   /** The line for work Realm will not act on itself. The legacy labels keep their words; anything
    *  else says what its action is, or that nothing leaves Realm. */
   private goesNowhere(kind: ReviewKind, items: TeamReviewItem[], family: "post" | "send" | null): ReviewCheck {
-    if (kind === "message" || (isLegacyLabel(kind) && family === "send"))
-      return { ok: null, title: "Realm does not send this", detail: "It names no account and no one to send it to. Approving marks it ready; send it yourself." };
+    if (kind === "message" || (isLegacyLabel(kind) && family === "send")) {
+      const named = items.some((i) => itemTarget(i)?.account) ? "It names no one to send it to" : "It names no account and no one to send it to";
+      return { ok: null, title: "Realm does not send this", detail: `${named}. Approving marks it ready; send it yourself.` };
+    }
     if (isLegacyLabel(kind))
       return { ok: null, title: "Realm does not post this", detail: "It names no account. Approving marks it ready; post it by hand from the space folder." };
     const action = items.find((i) => i.action)?.action ?? null;
@@ -863,7 +920,10 @@ export class TeamService {
     if (!run) return lines;
     for (const a of this.d.store.activityForRun(run.id)) {
       if (a.verb === "woke") {
-        const why = a.detail.wokeOn === "schedule" ? "Woke on its schedule" : a.detail.wokeOn === "review" ? "Woke when you asked for changes" : "Started by you";
+        const by = typeof a.detail.by === "string" ? a.detail.by : null;
+        const why = a.detail.wokeOn === "schedule" ? "Woke on its schedule" : a.detail.wokeOn === "review" ? "Woke when you asked for changes"
+          : a.detail.wokeOn === "handoff" ? (by ? `Woke on ${by}'s handoff` : "Woke on a handoff")
+          : a.detail.wokeOn === "goal" ? "Started on its goal" : "Started by you";
         lines.push({ ts: a.ts, glyph: "alarm", text: why, detail: typeof a.detail.note === "string" ? `“${clip(a.detail.note, 80)}”` : null });
       } else if (a.verb === "read_record") {
         lines.push({ ts: a.ts, glyph: "note", text: `Read ${a.object ?? "a record"}`, detail: typeof a.detail.path === "string" ? a.detail.path : null });
@@ -907,6 +967,41 @@ export class TeamService {
     this.d.acts?.issue(id);
     this.changed(r.spaceId);
     return this.summary(next);
+  }
+
+  /**
+   * Undo a yes while nothing of it has left Realm: the same draft waits for the person again, its files
+   * and hashes as they were, and every ticket the yes issued is taken back — a press set for its slot
+   * included, since that has not gone out either. Approving again pins the hashes again. Once a post or
+   * a send went out, is going out, or was handed to the platform at all, the yes stands and Close is
+   * what stops the rest. A review already waiting is left as it is, so a second Undo changes nothing.
+   */
+  undoApproval(id: string): TeamReviewSummary {
+    const r = this.mustReview(id);
+    if (r.state === "waiting") return this.summary(r);
+    if (r.state !== "approved") throw new RpcError("TEAM_REVIEW_STATE", `this review is ${STATE_CLOSED[r.state]}, so there is no approval to undo`);
+    const gone = this.wentOut(r);
+    if (gone) throw new RpcError("TEAM_REVIEW_WENT_OUT", `It's too late to undo: ${gone}. Close stops whatever hasn't gone out.`);
+    const next = this.d.store.unapprove(id, r.version);
+    this.log(r.spaceId, "user", "undid_approval", r.title, { reviewId: id, version: r.version });
+    this.d.acts?.cancelForReview(id, "you undid the approval");
+    this.changed(r.spaceId);
+    return this.summary(next);
+  }
+
+  /** What of an approved batch has left Realm, in words — null while all of it is still here. An act
+   *  handed to the platform that came back with an error counts: whether it went out is the
+   *  platform's to say. */
+  private wentOut(r: ReviewRow): string | null {
+    const tickets = this.d.acts?.tickets(r.id) ?? [];
+    const noun = (kind: string) => (kind === "post" ? "a post" : kind === "dm" ? "a DM" : "an email");
+    const done = tickets.find((t) => t.state === "done");
+    if (done) return `${noun(done.kind)} already went out`;
+    const going = tickets.find((t) => t.state === "acting");
+    if (going) return `${noun(going.kind)} is going out right now`;
+    const tried = this.d.store.reviewActivity(r, ["acted", "act_failed"]);
+    if (tried) return `${noun(String(tried.detail.kind))} was already handed to ${typeof tried.detail.channel === "string" ? tried.detail.channel : "the platform"}`;
+    return null;
   }
 
   /**
@@ -1239,7 +1334,7 @@ export class TeamService {
 
   /* ═══════════════════════════════ activity ═══════════════════════════════ */
 
-  activity(spaceId: string, limit: number, before?: number): TeamActivity[] { return this.d.store.activity(spaceId, limit, before); }
+  activity(spaceId: string, limit: number, before?: number, roleId?: string): TeamActivity[] { return this.d.store.activity(spaceId, limit, before, roleId); }
 
   private runFor(sessionId: string): Run | null {
     return this.d.runs.listLive().find((r) => r.sessionId === sessionId) ?? null;
@@ -1262,6 +1357,8 @@ export class TeamService {
   }
 }
 
+/** How much of a run's report its role's chat is sent; the whole run is one click further, in its session. */
+const REPORT_CAP = 8_000;
 const round = (n: number): number => Math.round(n * 10_000) / 10_000;
 const usd = (n: number): string => `$${n % 1 === 0 ? n.toFixed(0) : n.toFixed(2)}`;
 const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
@@ -1269,3 +1366,9 @@ const firstLine = (s: string | null): string | null => {
   const l = s?.trim().split("\n").find((x) => x.trim())?.trim() ?? "";
   return l ? clip(l.replace(/^#+\s*/, ""), 200) : null;
 };
+
+/** A role's schedule is checked before anything of the role is written: the row goes in first, and a
+ *  schedule refused after it left a role with no clock whose name a retry was then told was taken. */
+function refuseUnfireable(cron: string | null | undefined): void {
+  if (cron && nextFireOf(cron, Date.now()) === null) throw new RpcError("SCHEDULE_CRON", `\`${cron}\` is not a schedule that will ever run — check the expression`);
+}

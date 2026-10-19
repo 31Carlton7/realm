@@ -494,18 +494,30 @@ export class McpOauth {
       this.markReconnectNeeded(serverId, state);
       throw reconnectError(name);
     }
+    // What the token endpoint answered, if it answered at all: see the catch.
+    const answer = { status: 0 };
+    const fetchFn: FetchLike = async (url, init) => {
+      const res = await (this.d.fetchFn ?? fetch)(url, init);
+      answer.status = res.status;
+      return res;
+    };
     try {
       const next = await refreshAuthorization(state.discovery.authorizationServerUrl, {
         metadata: state.discovery.metadata,
         clientInformation: state.client,
         refreshToken: tokens.refresh_token,
         resource: state.discovery.resource ? new URL(state.discovery.resource) : undefined,
-        fetchFn: this.d.fetchFn,
+        fetchFn,
       });
       redact.add(next.access_token, next.refresh_token);
       this.write(serverId, { ...state, tokens: withExpiry(next) });
       return bearer(next.access_token);
     } catch (err) {
+      // Nobody answering — offline after a sleep, a 5xx, a rate limit — leaves the refresh token as good
+      // as it was, and the next call tries again. Only the endpoint refusing it needs the user.
+      if (answer.status === 0 || answer.status >= 500 || answer.status === 429) {
+        throw redact.wrap("MCP_OAUTH_REFRESH_FAILED", err, `could not refresh the sign-in for "${name}"`);
+      }
       this.markReconnectNeeded(serverId, state);
       // The upstream reason is carried through (a 401 reads very differently from a DNS failure) but
       // scrubbed first — `parseErrorResponse` copies an unrecognized error body into the message
@@ -626,10 +638,6 @@ export class McpOauth {
     this.d.onStatus?.(serverId);
   }
 
-  /** Persist, tolerating a row deleted underneath an in-flight flow. `setOauth` throws `NotFoundError`
-   *  for a missing row, and a refresh racing a `mcp.remove` must surface the OAuth problem the caller
-   *  was actually asking about (or, for `handleCallback`, a clean failure page) rather than a confusing
-   *  "not found" from a write nobody asked for. */
   /**
    * A client the USER registered with the authorization server, for vendors that issue none on the
    * fly. Replaces any dynamic registration and any tokens — they belonged to the old client — and
@@ -644,6 +652,10 @@ export class McpOauth {
     this.d.onStatus?.(serverId);
   }
 
+  /** Persist, tolerating a row deleted underneath an in-flight flow. `setOauth` throws `NotFoundError`
+   *  for a missing row, and a refresh racing a `mcp.remove` must surface the OAuth problem the caller
+   *  was actually asking about (or, for `handleCallback`, a clean failure page) rather than a confusing
+   *  "not found" from a write nobody asked for. */
   private write(serverId: string, state: McpOauthState): void {
     try { this.d.servers.setOauth(serverId, oauthSecretBox.seal(JSON.stringify(state))); } catch { /* row deleted mid-flow; nothing to persist to */ }
   }

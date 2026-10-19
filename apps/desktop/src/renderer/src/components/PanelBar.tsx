@@ -105,7 +105,7 @@ export function PanelBar({ item, leafId, tabs, owners, onSplit, splitRefusal, on
    * The browser keeps it because W2.3 forbids its bar a dropdown (the native view paints over
    * anything that opens below), and a focus reachable only from a shortcut is not reachable.
    *
-   * `data-on` and one glyph, which is the treatment `SessionSummaryButton` already wears: the icon
+   * `data-on` and one glyph, which is the treatment the session bar's toggles already wear: the icon
    * cannot fill (only the stroke pack ships), so the BUTTON does. Swapping the glyph as well would
    * say the same thing twice, in two directions — maximize/minimize argues with the fill about which
    * way the control is pointing.

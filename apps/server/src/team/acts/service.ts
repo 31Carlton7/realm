@@ -1,8 +1,8 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
 import {
-  ACT_LATE_MS, ACT_PACING, ACT_SLOT_TOLERANCE_MS, DISCLOSURE, FINAL_REVIEW_STATES, actAccountKey, actKindFor, itemActKind, itemTarget, planSlot, recordAccounts, slotProblem, slotWhyWords,
-  type ActKind, type ActTicket, type ParsedRecord, type PlannedAct, type RecordAccount, type ReviewState, type ReviewTarget, type SlotWhy,
+  ACT_LATE_MS, ACT_PACING, ACT_SLOT_TOLERANCE_MS, DISCLOSURE, FINAL_REVIEW_STATES, actAccountKey, itemActKind, itemTarget, planSlot, recordAccounts, slotProblem, slotWhyWords,
+  type ActKind, type ActTicket, type ParsedRecord, type PlannedAct, type RecordAccount, type ReviewState, type SlotWhy,
 } from "@realm/contracts";
 import type { RpcServer } from "../../rpc/server";
 import { NotFoundError, RpcError } from "../../store/rows";
@@ -145,9 +145,17 @@ export class ActService {
 
   ticket(id: string): ActTicket { return this.view(this.must(id)); }
 
-  counts(reviewId: string): { total: number; done: number } {
+  counts(reviewId: string): { total: number; done: number; ready: number; failed: number; nextAt: number | null } {
     const all = this.d.store.forReview(reviewId);
-    return { total: all.length, done: all.filter((t) => t.state === "done").length };
+    // A refused act goes back to `ready` with its error: it waits for a press like any other, and is
+    // counted apart because the person has to read why before pressing again.
+    const ready = all.filter((t) => t.state === "ready");
+    const pressed = all.filter((t) => t.state === "scheduled").map((t) => t.slotAt);
+    return {
+      total: all.length, done: all.filter((t) => t.state === "done").length,
+      ready: ready.filter((t) => !t.error).length, failed: ready.filter((t) => t.error).length,
+      nextAt: pressed.length > 0 ? Math.min(...pressed) : null,
+    };
   }
 
   held(spaceId: string): boolean { return this.d.store.held(spaceId); }
@@ -489,6 +497,3 @@ const HELD = "Held with the rest of the team's posts. Press again once posting i
 const STOPPED_BY: Partial<Record<ReviewState, string>> = { closed: "you closed it", rejected: "you rejected it", dismissed: "it was put away", done: "you marked it done" };
 
 function startOfDay(t: number): number { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); }
-
-/** An item's target as the ticket names it — exported for the Review checks. */
-export const targetKind = (reviewKind: string, target: ReviewTarget | null): ActKind | null => actKindFor(reviewKind, target?.channel);

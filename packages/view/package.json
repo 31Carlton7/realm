@@ -1,0 +1,11 @@
+{
+  "name": "@realm/view",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": { "build": "tsc -p tsconfig.json --noEmit", "typecheck": "tsc -p tsconfig.json --noEmit" },
+  "//": "What Realm shows, as pure functions both of its readers run: the desktop's renderer, and realm-server answering Realm Mobile (Plan 28). Starts with Needs you, so the phone's list is the sidebar's by construction.",
+  "dependencies": { "@realm/contracts": "workspace:*" }
+}

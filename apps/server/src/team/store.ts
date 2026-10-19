@@ -225,6 +225,18 @@ export class TeamStore {
     this.db.prepare("UPDATE team_review_items SET approved_hash = content_hash, act_state = 'ready' WHERE review_id = ? AND version = ?").run(reviewId, version);
   }
 
+  /** A yes taken back: the items hold no approved hash and nothing ready to act on, and the review
+   *  waits for the person again, undecided. Its items, their files and their hashes are untouched. */
+  unapprove(reviewId: string, version: number): ReviewRow {
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare("UPDATE team_review_items SET approved_hash = NULL, act_state = 'none' WHERE review_id = ? AND version = ?").run(reviewId, version);
+      this.db.prepare("UPDATE team_reviews SET state = 'waiting', decided_at = NULL, updated_at = ? WHERE id = ?").run(this.clock(), reviewId);
+      this.db.exec("COMMIT");
+    } catch (e) { this.db.exec("ROLLBACK"); throw e; }
+    return this.review(reviewId)!;
+  }
+
   /** A file changed under an item: its hash moves, and a yes given to the old bytes no longer covers it. */
   setItemHash(itemId: string, hash: string): void {
     this.db.prepare("UPDATE team_review_items SET content_hash = ?, act_state = CASE WHEN approved_hash IS NOT NULL AND approved_hash <> ? THEN 'none' ELSE act_state END WHERE id = ?")
@@ -240,11 +252,22 @@ export class TeamStore {
     return toActivity(this.db.prepare("SELECT * FROM team_activity WHERE id = ?").get(id) as RawActivity);
   }
 
-  activity(spaceId: string, limit: number, before?: number): TeamActivity[] {
-    const rows = before === undefined
-      ? this.db.prepare("SELECT * FROM team_activity WHERE space_id = ? ORDER BY ts DESC, rowid DESC LIMIT ?").all(spaceId, limit)
-      : this.db.prepare("SELECT * FROM team_activity WHERE space_id = ? AND ts < ? ORDER BY ts DESC, rowid DESC LIMIT ?").all(spaceId, before, limit);
+  /** Newest first. With `roleId`, the lines the role wrote and the ones about it (`detail.roleId`). */
+  activity(spaceId: string, limit: number, before?: number, roleId?: string): TeamActivity[] {
+    const where = ["space_id = ?"];
+    const args: (string | number)[] = [spaceId];
+    if (before !== undefined) { where.push("ts < ?"); args.push(before); }
+    if (roleId !== undefined) { where.push("(actor = ? OR json_extract(detail_json, '$.roleId') = ?)"); args.push(`role:${roleId}`, roleId); }
+    const rows = this.db.prepare(`SELECT * FROM team_activity WHERE ${where.join(" AND ")} ORDER BY ts DESC, rowid DESC LIMIT ?`).all(...args, limit);
     return (rows as RawActivity[]).map(toActivity);
+  }
+
+  /** The newest line among `verbs` about one review, from its creation on — what a role said when it
+   *  sent the review, or how it closed it. */
+  reviewActivity(review: Pick<ReviewRow, "id" | "spaceId" | "createdAt">, verbs: readonly string[]): TeamActivity | null {
+    const row = this.db.prepare(`SELECT * FROM team_activity WHERE space_id = ? AND ts >= ? AND verb IN (${verbs.map(() => "?").join(", ")})
+      AND json_extract(detail_json, '$.reviewId') = ? ORDER BY ts DESC, rowid DESC LIMIT 1`).get(review.spaceId, review.createdAt, ...verbs, review.id);
+    return row ? toActivity(row as RawActivity) : null;
   }
 
   activityForRun(runId: string): TeamActivity[] {

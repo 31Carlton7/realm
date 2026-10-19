@@ -29,6 +29,8 @@ export type PaneHostProps = {
   sidePanesHidden?: boolean;
   /** The panel's share of the host, for the frame before the host has measured itself. */
   panelShare?: number;
+  /** A page is over the host (PageOverlay): what it covers takes neither the keyboard nor a pointer. */
+  covered?: boolean;
   /** The host measured itself: the room the main panes and the panel share. */
   onRoom?: (room: Room) => void;
   /** The panel's edge dragged (or reset) to `share` of the host. */
@@ -251,7 +253,7 @@ export function PaneHost(p: PaneHostProps) {
     : undefined;
   return (
     <OwnerCueContext.Provider value={cue}>
-      <div className="panehost" ref={host} data-zoomed={zoomed ? true : undefined} data-panel={panel ? place.kind : undefined}>
+      <div className="panehost" ref={host} data-zoomed={zoomed ? true : undefined} data-panel={panel ? place.kind : undefined} inert={p.covered || undefined}>
         {shownMain && <div key="main" className="view-main">{renderNode(shownMain)}</div>}
         {panel && place.kind === "beside" && (
           <PanelEdge key="edge" width={place.width} roomWidth={roomWidth} need={need} column={column} onResize={p.onResizePanel ?? (() => {})} />

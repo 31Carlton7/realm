@@ -1,7 +1,9 @@
-import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import { createWriteStream } from "node:fs";
 import { mkdir, writeFile, rm, stat } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
+import { setTimeout as sleep } from "node:timers/promises";
+import { promisify } from "node:util";
 import { buildQemuArgv, diskPath, logPath, nvramPath, portForDisplay, qemuBinary, secretPath, qmpSocketPath, QMP_DIR, UNIX_PATH_MAX, NVRAM_BYTES, type QemuSpec } from "./qemu-argv";
 import { QmpClient } from "./qmp";
 
@@ -232,12 +234,9 @@ export class QemuManager {
 
 /** `qemu-img create`, which is the only thing that writes a valid qcow2 header. */
 async function defaultCreateDisk(path: string, gb: number): Promise<void> {
-  const { execFile } = await import("node:child_process");
-  const { promisify } = await import("node:util");
   await promisify(execFile)("qemu-img", ["create", "-f", "qcow2", path, `${gb}G`], { timeout: 30_000 });
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** True if `p` settled first. */
 const raced = (p: Promise<void>, ms: number): Promise<boolean> =>
   Promise.race([p.then(() => true), sleep(ms).then(() => false)]);

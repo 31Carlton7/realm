@@ -1,7 +1,7 @@
 import { realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
-import { CODEX_SANDBOX_REFUSAL, type AdapterRegistry, type AgentAdapter, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
+import { CODEX_SANDBOX_REFUSAL, RestartRequiredError, type AdapterRegistry, type AgentAdapter, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
 import type { ItemsStore } from "../store/items";
@@ -48,7 +48,11 @@ export type SendMessage = { text: string; attachments: { path: string; mime: str
   scheduled?: { task: string; note: string };
   /** Written by another session's agent (`session_open`'s first message) — transcript-only, as `goal`
    *  is, so the pane never shows an agent's words as something the user typed. */
-  from?: { sessionId: string; title: string } };
+  from?: { sessionId: string; title: string };
+  /** Realm's word to the agent about what changed around it since its last message — the teammates it
+   *  was given. On the wire after the user's text, and never on the transcript, which keeps what the
+   *  user typed. */
+  note?: string };
 
 /* The placeholder a session wears until its first message names it. Not "<Agent> session": the
  * agent is already shown on the row, and repeating it there says nothing about WHICH session this
@@ -159,6 +163,9 @@ export class SessionService {
   /** Sessions whose settle reached a held head and so did not drain: the drain is owed, and paid when
    *  the hold lets go. A settle the user caused never owes one — Stop has to mean stop. */
   private drainOwed = new Set<string>();
+  /** Sessions switched to a permission mode their running engine takes only at launch. The engine is
+   *  started again — same conversation, the row's mode — before the next message goes out. */
+  private restartOwed = new Set<string>();
   /** `QUEUE_HOLD_TTL_MS`, as a field so a test can wait out a hold without waiting ten minutes. */
   queueHoldTtlMs = QUEUE_HOLD_TTL_MS;
   /** Called on the next settle of each session — see `interruptAndSettle`. */
@@ -284,6 +291,9 @@ export class SessionService {
       decides(sessionId: string, spaceId: string, gatewayTool: string): Promise<boolean>;
       isRoleRun(sessionId: string): boolean;
     };
+    /** Teammates the person added (`delegation/teammates.ts`): what this session's agent is told about
+     *  them on its next message, spent by asking. Optional — without it nothing is ever added. */
+    teammates?: { joinedNote(sessionId: string): string };
   }) {
     // Unref'd: a sweep with nothing to do must not be what keeps a finished process alive.
     this.reapTimer = setInterval(() => { void this.reapIdle().catch(() => {}); }, REAP_SWEEP_MS);
@@ -681,6 +691,9 @@ export class SessionService {
     // An app the message mentions is granted BEFORE the handle starts, so a session that starts on
     // this message lists the computer tools from its first read of them.
     await this.grantMentionedApps(id, msg);
+    // Stopped the way the idle sweep stops an engine, so this message starts a fresh one that resumes
+    // the conversation in the mode the old one could not switch to.
+    if (this.restartOwed.delete(id)) void this.reap(id);
     await this.reaping.get(id);
     const handle = this.ensureLive(id);
     // A start that carried a restore's fork can be refused at fork time, before the model sees a word
@@ -688,6 +701,10 @@ export class SessionService {
     // does not. Only on this path: `deliverInterjection` and `resendTurn` do their own bookkeeping, and
     // a peer's question re-sent behind the user's back is not a recovery anyone asked for.
     if (this.forkInFlight.has(id)) this.rewindTurns.set(id, msg);
+    // The teammates this session was given since its last message, told on this one — before the
+    // failover keeps the message, so a retry of the turn says it again.
+    const joined = this.d.teammates?.joinedNote(id);
+    if (joined) msg = { ...msg, note: joined };
     // Recorded BEFORE the message goes out, because the failure this enables recovery from can
     // arrive on the very first event back. A new turn also clears the previous one's retry budget
     // and chain position — those are per-turn, not per-session.
@@ -776,7 +793,7 @@ export class SessionService {
     // text rather than sent as a system note, because all three agent wires take one markdown string
     // and nothing else. A pick in Realm's window names its picture only if it is still attached.
     const context = elementContext(msg.elements ?? [], msg.attachments) + sessionRefContext(msg.sessionRefs ?? [])
-      + mentionRefContext(refs, { macSkill: mac ? this.canonical(mac.path) : null, missing: files.missing, withheld: files.withheld });
+      + mentionRefContext(refs, { macSkill: mac ? this.canonical(mac.path) : null, missing: files.missing, withheld: files.withheld }) + (msg.note ?? "");
     const attachments = [...msg.attachments, ...files.attach];
     if (tokens.length === 0) return { text: msg.text + context, attachments };
     let skill: SkillMention | undefined;
@@ -811,7 +828,7 @@ export class SessionService {
     const attach: Attachment[] = [];
     const missing = new Set<string>(), withheld = new Set<string>();
     for (const r of refs) {
-      if (r.kind === "app" || r.kind === "role") continue;
+      if (r.kind === "app" || r.kind === "role" || r.kind === "agent") continue;
       if (isSecretPath(r.path)) { withheld.add(r.path); continue; }
       let st;
       try { st = statSync(r.path); } catch { missing.add(r.path); continue; }
@@ -863,6 +880,8 @@ export class SessionService {
     // After the interrupt, not before: the turn it stopped is measured from that settle, and this
     // message's turn must not write until git has finished looking (`deliver` waits in its own place).
     await this.measuring.get(id);
+    // This turn is the peer's, so failover has nothing of the user's to replay if it fails.
+    this.d.failover?.cancel(id);
     this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: [], from: msg.from }));
     await handle.send({ text: msg.text, attachments: [] });
     return { interrupted };
@@ -925,12 +944,24 @@ export class SessionService {
     this.onEvent(id, sessionEvent("feedback", { messageId, rating }));
   }
   async setOptions(id: string, o: { model?: string; effort?: string | null; permissionMode?: string; fastMode?: boolean }): Promise<Session> {
+    const modeInForce = this.get(id).permissionMode;
     const s = this.d.sessions.update({ id, ...o });
     // The row moves whether or not a process is live. A session that has not started yet keeps the
     // request in the column and hands it over at `start` (ensureLive reads the row), which is what
     // makes the switch mean the same thing before the first message as after it. The level goes to a
     // live one too: Claude and Codex both take it on the next turn.
-    await this.live.get(id)?.handle.setOptions({ model: o.model, effort: o.effort, permissionMode: o.permissionMode, fastMode: o.fastMode });
+    try {
+      await this.live.get(id)?.handle.setOptions({ model: o.model, effort: o.effort, permissionMode: o.permissionMode, fastMode: o.fastMode });
+    } catch (e) {
+      if (!(e instanceof RestartRequiredError)) {
+        // The agent still runs the mode it had, so the row says so too: a prompter showing a mode
+        // nothing is running in, and the next start quietly launching it, would both be lies.
+        if (o.permissionMode !== undefined) this.d.sessions.update({ id, permissionMode: modeInForce });
+        throw e;
+      }
+      // Not reaped here: a turn may be running on this engine, and the switch is about the next one.
+      this.restartOwed.add(id);
+    }
     // A lead's children run in its mode; lowering it lowers them, before this returns.
     if (o.permissionMode !== undefined) await this.d.browserAgents?.modeSet?.(id, o.permissionMode);
     return s;
@@ -1097,6 +1128,7 @@ export class SessionService {
     clearTimeout(this.queueHolds.get(id)?.timer);
     this.queueHolds.delete(id);
     this.drainOwed.delete(id);
+    this.restartOwed.delete(id);
     // …and the rewind bookkeeping. The row carrying the durable half goes below; these two are what a
     // still-draining pump could otherwise read after the session it describes has stopped existing.
     this.forkInFlight.delete(id);
@@ -1927,7 +1959,9 @@ export class SessionService {
       // stops moving, and it is the only one worth summarizing. Fired after the events of the turn
       // are persisted below on their own passes — the summary reads the log, so it must not run
       // until the log is the log. `void`, because a turn is never held up for a nicety.
-      if (ev.payload.status === "idle" && before.status !== "idle") {
+      // Not from `ended`: that idle is a fresh engine reporting it has booted (Codex and the ACP agents
+      // do), with the turn it is about to run not yet started.
+      if (ev.payload.status === "idle" && before.status !== "idle" && before.status !== "ended") {
         // Where the provider's chain now stands, taken on the settle and nowhere else: this is the one
         // moment the answer is complete (the turn's `result` has been mapped) and not yet overwritten
         // (the next turn has not begun). Synchronous and first, ahead of every `void` below — one of

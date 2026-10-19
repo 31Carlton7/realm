@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { daemonModeEnabled, decideLaunch, ensureDaemon, type Probe } from "./daemon";
+import { daemonModeEnabled, decideLaunch, ensureDaemon, followDaemon, type Probe } from "./daemon";
 import type { DaemonState } from "@realm/contracts";
 
 const OURS = { bundleId: "100:200" };
@@ -173,6 +173,27 @@ describe("ensureDaemon", () => {
   it("leaves `stale` null on an ordinary adopt", async () => {
     const w = world(state());
     expect((await ensureDaemon(w.deps())).stale).toBeNull();
+});
+
+describe("followDaemon", () => {
+  const known = { port: 8790, token: "t" };
+
+  it("follows a server started since to its new port and token", () => {
+    // MUTANT: return `known` here and every window stays dialing the crashed server's port forever.
+    expect(followDaemon(known, state({ pid: 5151, port: 61_234, token: "t2", bootId: "boot-b" }), () => true))
+      .toEqual({ port: 61_234, token: "t2" });
+  });
+
+  it("stays put when the file names the server it already knows, or nothing at all", () => {
+    expect(followDaemon(known, state(), () => true)).toBe(known);
+    expect(followDaemon(known, null, () => true)).toBe(known);
+  });
+
+  it("does not follow a file whose writer is dead, or one on its way out", () => {
+    // A crash does not clear the file. Its pid is gone, and the supervisor has not written a new one yet.
+    expect(followDaemon(known, state({ port: 61_234, token: "t2" }), () => false)).toBe(known);
+    expect(followDaemon(known, state({ port: 61_234, token: "t2", state: "draining" }), () => true)).toBe(known);
+  });
 });
 
 describe("daemonModeEnabled", () => {

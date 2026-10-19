@@ -105,7 +105,24 @@ describe("the quick chat", () => {
     const w = within(await openChat());
     fireEvent.click(w.getByRole("button", { name: "Add" }));
     const menu = await screen.findByRole("menu", { name: "Add" });
-    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual([expect.stringContaining("Files…")]);
+    // A teammate is not a fact about where the session runs: it is someone to ask for help, and a
+    // quick question is as good a place to want one as any.
+    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual([expect.stringContaining("Files…"), expect.stringContaining("Add teammate…")]);
+  });
+
+  it("names who is working on it above the card — the one strip it carries", async () => {
+    /* A teammate can be added from this "+", so this is where it has to be seen. THE MUTANT: the
+       over-strip kept off a compact prompter, as the branch is. */
+    const { store } = await mount();
+    await openChat();
+    const sid = store.getState().quickChat!.sessionId;
+    expect(chat().querySelector(".composer-overstrip")).toBeNull();
+    const helper = { ...store.getState().sessions[sid]!, id: "01ARZ3NDEKTSV4RRFFQ69G5TMT", title: "Check the sources", status: "running" as const,
+      dispatchedBy: { sessionId: sid, kind: "agent_run" as const } };
+    store.setState({ sessionStatus: { ...store.getState().sessionStatus, [helper.id]: "running" }, dismissedSubagents: { [sid]: [] },
+      subagents: { [sid]: [{ session: helper, goal: "Check the sources", startedAt: Date.now(), settledAt: null, outcome: null, report: null, activity: null }] } });
+    const row = await within(chat()).findByRole("group", { name: "Agents in this session" });
+    expect(row).toHaveTextContent("Check the sources");
   });
 
   it("has no browser, documents, terminal or summary — one close and nothing else", async () => {

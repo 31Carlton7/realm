@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http";
 import { timingSafeEqual, randomBytes } from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
-import { SIM_WS_OPCODE, SIMULATOR_BUTTONS, type SimulatorButton } from "@realm/contracts";
+import { SIM_WS_OPCODE, type SimulatorButton } from "@realm/contracts";
 import type { Android } from "./android";
 
 /**
@@ -193,4 +193,4 @@ const HID_TO_KEYCODE: Record<number, string> = {
   82: "KEYCODE_DPAD_UP",
 };
 
-export { KEYCODES as ANDROID_BUTTON_KEYCODES, HID_TO_KEYCODE, TAP_SLOP_PX, BOUNDARY as ANDROID_FRAME_BOUNDARY };
+export { KEYCODES as ANDROID_BUTTON_KEYCODES, HID_TO_KEYCODE, TAP_SLOP_PX };

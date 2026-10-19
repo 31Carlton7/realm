@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { StoreApi } from "zustand";
 import {
-  ALWAYS_SWALLOWED_CHORDS, DEFAULT_KEYBINDINGS, commandForChord, type Keybinding,
+  ALWAYS_SWALLOWED_CHORDS, DEFAULT_KEYBINDINGS, chordFromEvent, commandForChord, type Keybinding,
 } from "@realm/contracts";
 import type { AppState } from "../state/store";
-import { chordFromEvent } from "./chord";
 import { appCommands, keyContext } from "./commands";
 
 /**

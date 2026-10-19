@@ -8,23 +8,24 @@ import { Menu, type MenuItem } from "../../components/Menu";
 import { MAX_ZOOM, MIN_ZOOM, clampZoom, stepZoom, zoomLabel } from "../../components/viewer/zoom";
 import { typingIn } from "../../components/viewer/ViewerStage";
 import {
-  PAD_Y, PT_TO_PX, anchorZoom, currentPage, layoutPages, pagesInReach, placeOf, recallPdfPlace, rememberPdfPlace,
+  PAD_Y, PT_TO_PX, anchorZoom, clampPlace, currentPage, layoutPages, pagesInReach, placeOf, recallPdfPlace, rememberPdfPlace,
   scaleFor, scrollTopFor, stripShown, type PageSize, type PdfLayout, type PdfPlace, type PdfZoom,
 } from "./pdf-layout";
 import { findInPage, findLabel, type PdfHit } from "./pdf-find";
 import { canOpenInPreview, openInPreview } from "./shown-file";
 import { PdfOpenError, openPdf, type PdfDocument, type PdfLink, type PdfTextLayer } from "./pdf-source";
+import { prefersReducedMotion } from "../../reduced-motion";
 
 /** How long a zoom has to hold still before the pages are drawn again at the new scale. Until then
  *  the bitmaps already drawn are stretched, so a pinch never waits on paint. */
 const REPAINT_MS = 120;
 
+/** The keys that scroll a focused scroller by themselves. */
+const SCROLL_KEYS = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
+
 /** Under this, the page strip would take the pages' room: it is put away, and its toggle shows it over
  *  the pages as a side sheet instead. */
 const STRIP_MIN_PANE = 560;
-
-const reducedMotion = (): boolean => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-
 
 /**
  * A PDF, drawn by Realm rather than by Chromium's viewer (pdf.js through `pdf-source.ts`).
@@ -150,11 +151,21 @@ export function PdfView({ documentsId, path, version, scrollKey, head, filePath 
     rememberPdfPlace(scrollKey, place.current, zoom);
   };
 
+  /* The page a jump — ‹ ›, the page field, a thumbnail, a link, a find — last sent the reader to. It is
+     the page they are on until they move the pages themselves (a wheel, a key that scrolls, a press on
+     the scroll bar), because where the pages are cannot always say it: while a jump is still scrolling
+     they are on the page being left, so three quick presses of › moved one page; and the last pages of
+     a file never reach the top of the view, so › stopped short of the end and stayed lit. */
+  const [jumped, setJumped] = useState<number | null>(null);
+  const endJump = useCallback(() => setJumped(null), []);
+
   const zoomTo = useCallback((to: PdfZoom, at?: { x: number; y: number }) => {
     const el = scroller.current;
     if (el && layout.tops.length > 0) {
       pending.current = { from: layout, at: at ?? { x: el.clientWidth / 2, y: el.clientHeight / 2 }, scroll: { left: el.scrollLeft, top: el.scrollTop } };
     }
+    // A zoom keeps the point it is made round, not the top of the view: the page there may change.
+    setJumped(null);
     setZoom(typeof to === "number" ? clampZoom(to) : to);
   }, [layout]);
 
@@ -182,13 +193,15 @@ export function PdfView({ documentsId, path, version, scrollKey, head, filePath 
   }, [doc]);
 
   // ---- pages -------------------------------------------------------------------------------------
-  const page = currentPage(layout, scrollTop, box.h);
+  // A rewrite can leave a jump past the new file's end; the reader's place has already been clamped.
+  const page = jumped !== null && jumped < layout.tops.length ? jumped : currentPage(layout, scrollTop, box.h);
   const reach = pagesInReach(layout, scrollTop, box.h);
   const goTo = useCallback((to: PdfPlace, smooth = true) => {
     const el = scroller.current; if (!el || layout.tops.length === 0) return;
     // A page jump lands with a little of the ground above the page, as the column starts.
     const top = Math.max(0, scrollTopFor(layout, to) - (to.fraction === 0 ? PAD_Y : 0));
-    el.scrollTo({ top, behavior: smooth && !reducedMotion() ? "smooth" : "auto" });
+    setJumped(clampPlace(to, layout.tops.length).page);
+    el.scrollTo({ top, behavior: smooth && !prefersReducedMotion() ? "smooth" : "auto" });
   }, [layout]);
   const follow = useCallback(async (link: PdfLink) => {
     if (!doc || link.dest == null) return;
@@ -241,6 +254,7 @@ export function PdfView({ documentsId, path, version, scrollKey, head, filePath 
   const current = hits[hit] ?? null;
   useEffect(() => {
     if (!current || !reveal.current) return;
+    setJumped(current.page);
     const el = scroller.current; if (!el) return;
     const top = layout.tops[current.page];
     if (top === undefined) return;
@@ -355,7 +369,9 @@ export function PdfView({ documentsId, path, version, scrollKey, head, filePath 
       )}
       {/* The scroller is focusable so a click on a page puts the keyboard in it — which is what ⌘F,
           the zoom keys and the arrow keys ask about. */}
-      <div ref={scroller} className="pdf-view" role="region" aria-label={`PDF ${name}`} tabIndex={0} onScroll={onScroll}>
+      <div ref={scroller} className="pdf-view" role="region" aria-label={`PDF ${name}`} tabIndex={0} onScroll={onScroll}
+        onWheel={endJump} onKeyDown={(e) => { if (SCROLL_KEYS.has(e.key)) endJump(); }}
+        onPointerDown={(e) => { if (e.target === e.currentTarget) endJump(); }}>
         {!doc ? <div className="pane-placeholder muted">Loading preview…</div> : (
           <div className="pdf-pages" style={{ height: layout.height, width: Math.max(layout.width, box.w) }}>
             {layout.sizes.map((size, i) => (

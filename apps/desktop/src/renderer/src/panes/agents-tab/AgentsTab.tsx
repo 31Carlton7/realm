@@ -1,7 +1,7 @@
 import { AGENT_META, sessionModeOf, type AgentKind, type DelegatedChild, type Session } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { ScrollFades, useDissolve } from "../../components/ScrollFades";
+import { ScrollFades } from "../../components/ScrollFades";
 import { activityOf, type SessionActivity } from "../../state/session-activity";
 import { useApp, type DelegableModels } from "../../state/store";
 import type { PaneProps } from "../registry";
@@ -37,8 +37,8 @@ const NO_CHILDREN: readonly DelegatedChild[] = [];
  * sends an ordinary message in the user's name.
  *
  * It is also where ONE sub-agent is looked at. Clicking a sub-agent anywhere — its line in the lead's
- * transcript, the strip under the last message, the bar's chip, a card here — opens it in this tab's
- * viewer, with its siblings a tab away along the top. Beside the lead rather than over it, so the
+ * transcript, its chip over the lead's prompter, a card here — opens it in this tab's viewer, with its
+ * siblings a tab away along the top. Beside the lead rather than over it, so the
  * lead stays readable and its prompter stays live (design.md: what a session's agents open arrives as
  * a tab of the one side panel). Which one is showing is remembered per lead (`agentsShown`).
  */

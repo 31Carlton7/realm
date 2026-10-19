@@ -92,7 +92,6 @@ export class MachineHub {
     });
   }
 
-  has(machineId: string): boolean { return this.entries.has(machineId); }
   /** The live connection, for the pane bar's Send key and Clipboard rows — the two things that have
    *  to reach `RFB` itself rather than going through the server's own channel. */
   entry(machineId: string): MachineEntry | null { return this.entries.get(machineId) ?? null; }
@@ -163,11 +162,6 @@ export class MachineHub {
     this.urls.delete(machineId);
     this.connected.delete(machineId);
     this.connectListeners.delete(machineId);
-  }
-
-  disposeAll(): void {
-    for (const id of [...this.entries.keys()]) this.dispose(id);
-    this.unsubscribe?.(); this.unsubscribe = null;
   }
 }
 

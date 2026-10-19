@@ -211,11 +211,12 @@ export class ScheduleService {
   update(input: UpdateScheduleInput): Schedule {
     const before = this.d.store.get(input.id);
     if (!before) throw new NotFoundError("schedule", input.id);
-    // Same gate as create, against the expression the edit would LEAVE behind rather than the one it
-    // sent: an edit that only flips `enabled` must not be re-validated into a failure, and an edit
-    // that changes the expression must be.
+    // Same gate as create, but only for an edit that changes WHEN or resumes the task: a rename, new
+    // instructions or a pause leave the expression alone and must not be re-validated into a failure
+    // — a finished one-shot's moment is behind it for good, and it is still the task's to rename.
     const cron = input.cron ?? before.cron;
-    if (nextFireOf(cron, this.now()) === null) throw this.unfireable(cron);
+    const resumes = input.enabled === true && !before.enabled;
+    if ((cron !== before.cron || resumes) && nextFireOf(cron, this.now()) === null) throw this.unfireable(cron);
     if (input.spaceId !== undefined && input.spaceId !== before.spaceId && this.d.spaceExists && !this.d.spaceExists(input.spaceId))
       throw new NotFoundError("space", input.spaceId);
     const next = this.d.store.update(input.id, input)!;

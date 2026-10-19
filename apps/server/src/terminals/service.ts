@@ -17,10 +17,6 @@ import { sandboxWrapFor, type SpawnWrap } from "../sandbox/spawn-wrap";
 import { TerminalManager } from "./manager";
 import { ForegroundWatcher, readForegroundArgv } from "./foreground";
 
-/**
- * Owns the terminal trio: DB row + sidebar item + pty. Nothing else should
- * touch the `terminals` table or spawn ptys directly.
- */
 /** How often the in-memory buffer is written to disk, when the setting is on. A SIGKILL loses at most
  *  this much; anything shorter would be paying SQLite for output nobody has asked for yet. */
 export const HISTORY_FLUSH_MS = 5_000;
@@ -35,6 +31,10 @@ export const HISTORY_FLUSH_MS = 5_000;
  */
 export const isSandboxRefusal = (e: unknown): boolean => e instanceof RpcError && e.code.startsWith("SANDBOX_");
 
+/**
+ * Owns the terminal trio: DB row + sidebar item + pty. Nothing else should
+ * touch the `terminals` table or spawn ptys directly.
+ */
 export class TerminalService {
   readonly manager: TerminalManager;
   /** Always on, and NOT what the `terminals.history` setting gates. It holds bytes that were

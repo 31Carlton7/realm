@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES, AgentKindSchema, AgentRunConstraintsSchema, DEFAULT_MODEL_LABEL, MAX_DELEGATION_DEPTH, type AgentKind, type AgentRunConstraints, type DelegableModel, type DelegationOutcome, type Environment, type Session } from "@realm/contracts";
+import { AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES, AgentKindSchema, AgentRunConstraintsSchema, DEFAULT_MODEL_LABEL, MAX_DELEGATION_DEPTH, type AgentKind, type AgentRunConstraints, type DelegableModel, type DelegationOutcome, type Session } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { fenceAgentOutput } from "@realm/contracts";
 import { childPermissionMode, cleanupWorktree, errorMessage, modeLabel, rank, resolveAgentKind, resolveEnvironment, resolveSkillSubset, taskName, type ChildMode, type EnvironmentDeps } from "./dispatch";
@@ -402,6 +402,23 @@ export class AgentRunService {
     return renamed;
   }
 
+  /**
+   * A run lives in the engine's memory, so a restart ends every one still going without writing how —
+   * and a child with no outcome that had said anything reads as finished. Once per boot, before any
+   * run can start, each such record is settled as stopped, with why. Returns how many.
+   */
+  settleCutOffChildren(): number {
+    let settled = 0;
+    for (const s of this.d.sessions.listAll()) {
+      if (s.dispatchedBy?.kind !== "agent_run") continue;
+      const record = this.childRecord(s.id);
+      if (!record || record.outcome) continue;
+      this.d.settings.set(childKey(s.id), { ...record, settledAt: s.updatedAt, outcome: "stopped", stopNote: "Realm restarted while it was working, before it finished." } satisfies AgentChildRecord);
+      settled += 1;
+    }
+    return settled;
+  }
+
   /* ------------------------------------- the tool itself ------------------------------------- */
 
   /**
@@ -412,7 +429,7 @@ export class AgentRunService {
    *
    * Returns the registered run on success, or the caller's refusal already worded.
    */
-  private async spawn(ctx: ProviderCallContext, rawArgs: unknown, detached: boolean): Promise<Spawned | CallToolResult> {
+  private async spawn(ctx: ProviderCallContext, rawArgs: unknown, detached: boolean, byPerson = false): Promise<Spawned | CallToolResult> {
     const parsed = RunArgs.safeParse(rawArgs ?? {});
     if (!parsed.success) return err(`invalid arguments: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
     const { goal, constraints } = parsed.data;
@@ -478,7 +495,7 @@ export class AgentRunService {
       });
     } catch (e) {
       await cleanupWorktree(createdWorktree, this.d.environments);
-      return err(`could not create the delegated session: ${message(e)}`);
+      return err(`could not create the delegated session: ${errorMessage(e)}`);
     }
     const childId = created.session.id;
     const t = this.d.timeouts ?? DEFAULT_TIMEOUTS;
@@ -499,7 +516,7 @@ export class AgentRunService {
     // the layout BESIDE the parent (the fixed openItemBeside path), never replacing it.
     this.d.rpc.broadcast("session.agentOpened", { spaceId: ctx.spaceId, sessionId: childId, itemId: created.itemId });
 
-    const run = this.d.engine.begin(ctx.sessionId, childId, { detached });
+    const run = this.d.engine.begin(ctx.sessionId, childId, { detached, byPerson });
     const fromSeq = created.session.lastEventSeq;
     // The watcher is started BEFORE the first send and owns the execution deadline whether or not
     // anyone ever waits — that is what keeps a forgotten detached child from running forever.
@@ -521,7 +538,7 @@ export class AgentRunService {
       await this.d.sessions.send(childId, { text: childMessage(goal), attachments: [] });
     } catch (e) {
       this.d.engine.end(ctx.sessionId, run);
-      return err(`could not send the goal to the delegated session: ${message(e)}`);
+      return err(`could not send the goal to the delegated session: ${errorMessage(e)}`);
     }
     return { spawned: true, run, childId, title: created.session.title, budgetMs, mode: modeSentence(granted, parent.permissionMode, constraints?.permissionMode, agentKind), on: `${AGENT_META[agentKind].label} · ${modelLabel}` };
   }
@@ -588,9 +605,11 @@ export class AgentRunService {
 
   /** `agent_start` for Realm itself rather than an agent: a team role woken by a mention is started
    *  as the mentioning session's sub-agent by exactly this path, and the answer is the child's id or
-   *  the refusal's words. */
-  async startChild(ctx: ProviderCallContext, args: { goal: string; title?: string; constraints?: AgentRunConstraints }): Promise<{ ok: true; childId: string } | { ok: false; message: string }> {
-    const spawned = await this.spawn(ctx, args, true);
+   *  the refusal's words. `byPerson` marks one the person started themselves — a teammate — which the
+   *  stop of the session's turn leaves running. */
+  async startChild(ctx: ProviderCallContext, args: { goal: string; title?: string; constraints?: AgentRunConstraints },
+    opts: { byPerson?: boolean } = {}): Promise<{ ok: true; childId: string } | { ok: false; message: string }> {
+    const spawned = await this.spawn(ctx, args, true, opts.byPerson ?? false);
     if (!isSpawned(spawned)) return { ok: false, message: spawned.content.map((c) => (c.type === "text" ? c.text : "")).join(" ").trim() };
     return { ok: true, childId: spawned.childId };
   }
@@ -856,8 +875,6 @@ export const AGENT_STATUS_TOOL: Tool = {
     `List this session's delegated agents: which are still running, and which have finished with a report waiting to be collected by ${AGENT_WAIT_TOOL_NAME}. Read-only — it never blocks and never starts or stops anything.`,
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
 };
-
-const message = errorMessage;
 
 /** "2:10" — a duration the way a clock shows it. */
 function clock(ms: number): string {

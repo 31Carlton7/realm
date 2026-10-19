@@ -127,6 +127,21 @@ export class DaemonSupervisor {
     }, backoffFor(this.attempt));
   }
 
+  /**
+   * The person pressed "Restart Realm's server". Start one now, whatever the crash-loop count says —
+   * `failed` included, since giving up was about the automatic tries, not theirs. The count starts
+   * over, so if this one dies too the ordinary backoff takes it from here.
+   */
+  restartNow(): void {
+    if (this.stopped) return;
+    this.cancelTimer();
+    this.restarts = [];
+    this.attempt = 0;
+    this.d.spawn();
+    this.downSince = this.now();
+    this.set({ kind: "disconnected" });
+  }
+
   stop(): void {
     this.stopped = true;
     this.cancelTimer();

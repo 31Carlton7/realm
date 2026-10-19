@@ -1,6 +1,9 @@
-import { WebContentsView, screen, session, type BrowserWindow, type WebContents } from "electron";
+import { WebContentsView, app, screen, session, type BrowserWindow, type HandlerDetails, type WebContents, type WindowOpenHandlerResponse } from "electron";
 import { FAVICON_MAX_BYTES, type BrowserLoadError } from "@realm/contracts";
-import { BrowserPaneHost, FAVICON_FETCH_MS, PageLoad, browserUserAgent, createFaviconResolver, isFindShortcut, readCapped, shownPage, type FaviconFetch, type ViewFactory } from "./browser-host";
+import {
+  BrowserPaneHost, FAVICON_FETCH_MS, PageLoad, browserUserAgent, createFaviconResolver, isFindShortcut, normalizeAddress, popupBounds, popupTitle, readCapped,
+  shownPage, windowOpenAction, type FaviconFetch, type ViewFactory,
+} from "./browser-host";
 import { attachTextContextMenu } from "./text-context-menu";
 import { refuseCapture } from "./capture-guard";
 import type { CdpBinding } from "./browser-agent-host";
@@ -134,9 +137,67 @@ export function electronViewFactory(
         ])
       : Promise.resolve();
 
-    // Guard 1: no popups, ever — a window.open becomes an in-place navigation (allowlist-checked
-    // inside the host's navigate), so the pane can never spawn a window Realm does not manage.
-    wc.setWindowOpenHandler(({ url }) => { hooks.openInPlace(url); return { action: "deny" }; });
+    /* Guard 1: a page's request for a new window (`windowOpenAction`). A link is navigated in place,
+       allowlist-checked inside the host's navigate, as it always was. A popup — a sign-in, mostly — is
+       a real window, because the page that opened it is waiting for it to post back and close.
+
+       Every popup is this pane's and nobody else's: Chromium makes it in its opener's session (which
+       is what lets the two script each other), so it signs in to the pane's profile; it gets the same
+       sandbox, the allowlist on every page it goes to, these same rules for its own `window.open`, and
+       it closes with the pane. It is a child of the Realm window, so it stays above it. What it does
+       not get is the pane's saved passwords and passkeys: those are installed per pane and answer for
+       the pane's page, never for another. */
+    const popups = new Set<BrowserWindow>();
+    const openWindow = (opener: WebContents) => (details: HandlerDetails): WindowOpenHandlerResponse => {
+      const action = windowOpenAction(details, popups.size);
+      if (action === "in-place") {
+        if (opener === wc) { hooks.openInPlace(details.url); return { action: "deny" }; }
+        // A link in a popup opens in the popup: the page behind it is waiting on the popup, not on this.
+        const url = normalizeAddress(details.url);
+        if (url && hooks.allowNavigate(url)) opener.loadURL(url).catch(() => { /* the popup's own page reports it */ });
+        return { action: "deny" };
+      }
+      if (action === "refuse" || win.isDestroyed() || !hooks.allowNavigate(details.url)) return { action: "deny" };
+      const around = win.getBounds();
+      return {
+        action: "allow",
+        overrideBrowserWindowOptions: {
+          ...popupBounds(details.features, around, screen.getDisplayMatching(around).workArea),
+          useContentSize: true, // `width`/`height` in the features are the page's viewport
+          parent: win,
+          show: false,
+          // A window that cannot take the keyboard (a live check's, live-scratch.ts) opens none that can.
+          focusable: win.isFocusable(),
+          autoHideMenuBar: true,
+          title: popupTitle(details.url, ""),
+          // `partition` is for the window Electron makes itself — a shift-clicked link, which it loads
+          // in a webContents of its own, in the app's default session unless told otherwise (measured:
+          // none of the pane's cookies). One Chromium makes for a `window.open` is already the pane's.
+          webPreferences: { partition, sandbox: true, contextIsolation: true, nodeIntegration: false },
+        },
+      };
+    };
+    const adoptPopup = (popup: BrowserWindow) => {
+      popups.add(popup);
+      popup.once("closed", () => popups.delete(popup));
+      const popupWc = popup.webContents;
+      popupWc.setWindowOpenHandler(openWindow(popupWc));
+      popupWc.on("did-create-window", adoptPopup);
+      popupWc.on("will-navigate", guard);
+      popupWc.on("will-redirect", guard);
+      attachTextContextMenu(popupWc, { page: true });
+      const retitle = () => { if (!popup.isDestroyed()) popup.setTitle(popupTitle(popupWc.getURL(), popupWc.getTitle())); };
+      popup.on("page-title-updated", (e) => { e.preventDefault(); retitle(); });
+      popupWc.on("did-navigate", retitle);
+      popupWc.on("did-navigate-in-page", retitle);
+      // Shown here rather than on creation, so one opened while Realm is not the app in front — a
+      // page's timer, an agent working in a pane off screen — does not take the keyboard from whatever
+      // the person is typing into.
+      if (win.isFocused()) popup.show();
+      else popup.showInactive();
+    };
+    wc.setWindowOpenHandler(openWindow(wc));
+    wc.on("did-create-window", adoptPopup);
     // Guard 2: page-initiated navigations (and per-hop redirects) consult the per-space allowlist.
     const guard = (e: { preventDefault(): void }, url: string) => { if (!hooks.allowNavigate(url)) e.preventDefault(); };
     wc.on("will-navigate", guard);
@@ -238,7 +299,9 @@ export function electronViewFactory(
       setZoomFactor: (factor) => wc.setZoomFactor(factor),
       // The system dialog, attached to the window. A failure or a cancel is the dialog's to report.
       print: () => wc.print({}, () => {}),
+      popups: () => [...popups].filter((popup) => !popup.isDestroyed()).map((popup) => popup.webContents.getURL()),
       destroy: () => {
+        for (const popup of popups) if (!popup.isDestroyed()) popup.destroy();
         onView?.(id, null);
         // On window close, Electron tears the child views down WITH the window before our "closed"
         // listener runs — destroying again throws "Object has been destroyed" (user-hit crash,
@@ -265,8 +328,9 @@ export type BrowserPane = {
   hasView(id: string): boolean;
   /** Trustworthy page identity, straight off the webContents — never page-authored text — whether it
    *  is still loading, which is what the pane's own spinner shows, and why it did not load, if it did
-   *  not: the page Realm draws in its place is not in the page's DOM for an agent to read. */
-  pageState(id: string): { url: string; title: string; loading: boolean; error: BrowserLoadError | null } | null;
+   *  not: the page Realm draws in its place is not in the page's DOM for an agent to read. `popups` are
+   *  the addresses of the windows the page has open over it, which no read of the page can see. */
+  pageState(id: string): { url: string; title: string; loading: boolean; error: BrowserLoadError | null; popups: string[] } | null;
   /** browser id for a WebContents id — how the partition-wide download handler finds its pane. */
   browserIdForWebContents(webContentsId: number): string | null;
   /** Re-request a URL as a download, on the view's own session so its cookies apply (Plan 23 W4's
@@ -323,7 +387,7 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
     hasView: (id) => { const wc = views.get(id); return !!wc && !wc.isDestroyed(); },
     pageState: (id) => {
       const wc = views.get(id);
-      return wc && !wc.isDestroyed() ? { url: wc.getURL(), title: wc.getTitle(), loading: wc.isLoading(), error: host.loadErrorOf(id) } : null;
+      return wc && !wc.isDestroyed() ? { url: wc.getURL(), title: wc.getTitle(), loading: wc.isLoading(), error: host.loadErrorOf(id), popups: host.popupsOf(id) } : null;
     },
     browserIdForWebContents: (webContentsId) => {
       for (const [id, wc] of views) if (!wc.isDestroyed() && wc.id === webContentsId) return id;
@@ -374,11 +438,18 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
  * Deliberately reads the session's CURRENT default rather than a constant, so the string tracks
  * whatever Chromium the app ships without anyone remembering to update it — which is the failure
  * mode a hardcoded UA has, and it fails by claiming an engine version that no longer exists.
+ *
+ * The app's fallback gets it too, for a pane's popups. Neither the session's user agent nor a
+ * `setUserAgent` reaches the first page of a window Chromium made for a `window.open`: that page is
+ * requested by the opener, from a webContents with no history, and Electron never asks Chromium to
+ * override the agent there — so it went out as the fallback, `Electron/37` token and all (measured,
+ * Electron 37: on the wire and in `navigator.userAgent`), which is the token sign-in pages refuse.
  */
 const userAgentApplied = new Set<string>();
 export function applyBrowserUserAgent(partition: string): void {
   if (userAgentApplied.has(partition)) return;
   userAgentApplied.add(partition);
+  app.userAgentFallback = browserUserAgent(app.userAgentFallback);
   const ses = session.fromPartition(partition);
   ses.setUserAgent(browserUserAgent(ses.getUserAgent()));
   refuseCapture(ses);

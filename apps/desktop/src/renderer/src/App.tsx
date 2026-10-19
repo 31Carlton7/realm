@@ -11,6 +11,7 @@ import { NewProfileSheet } from "./components/profiles/NewProfileSheet";
 import { ProfileWindowBridge } from "./components/profiles/ProfileWindowBridge";
 import { NewLectureSheet, WrapUpLectureSheet } from "./components/LectureSheets";
 import { SessionPlanSheet } from "./panes/session/SessionSummary";
+import { ShareSheet } from "./panes/session/share/ShareSheet";
 import { PlynnImportSheet } from "./components/PlynnImportSheet";
 import { RemoveWorktreeSheet } from "./components/RemoveWorktreeSheet";
 import { NewWorktreeSheet } from "./components/NewWorktreeSheet";
@@ -34,7 +35,7 @@ import { getTerminalHub } from "./panes/terminal-hub";
 import { getBrowserBridges } from "./panes/browser/browser-client";
 import { persistBrowserPages } from "./panes/browser/persist-pages";
 import { Onboarding } from "./components/Onboarding";
-import { StoreContext, createAppStore, memoryRepoKey, useApp, useAppStore, type AppState } from "./state/store";
+import { StoreContext, createAppStore, memoryRepoKey, useApp, useAppStore, whenBooted, type AppState } from "./state/store";
 import { sidebarHidden } from "./state/selectors";
 import { drawnShare, panelPlace } from "./state/view-room";
 import { useStore, type StoreApi } from "zustand";
@@ -146,7 +147,6 @@ function useSidebarFolded(collapsed: boolean): boolean {
   return folded;
 }
 
-/** Writes the active space's palette to :root; lives under the store provider so it can read state. */
 /**
  * Whether the app's decorative motion is allowed to run right now, stamped on `:root` for the
  * stylesheet to answer to.
@@ -294,6 +294,7 @@ function RubberBandBridge() {
   return null;
 }
 
+/** Writes the active space's palette to :root; lives under the store provider so it can read state. */
 export function ThemeBridge() {
   const color = useApp((s) => s.activeSpace()?.color ?? null);
   const pref = useApp((s) => s.themePref);
@@ -350,14 +351,25 @@ export function ThemeBridge() {
  */
 function ConnectionBanner() {
   const connectionDown = useApp((s) => s.connectionState !== "connected");
+  const offline = useApp((s) => s.connectionState === "offline");
   const [daemon, setDaemon] = useState<DaemonUiState | null>(null);
-  useEffect(() => window.realm?.onDaemonState?.((state) => setDaemon(state as DaemonUiState)), []);
-  const copy = bannerFor({ connectionDown, daemon });
+  useEffect(() => window.realm?.onDaemonState?.((state) => {
+    setDaemon(state as DaemonUiState);
+    // Main is on the server again — very likely a new one, on a new port. Dial it now rather than at
+    // the end of whatever backoff this window is part-way through.
+    if (state.kind === "connected") rpc().retryNow();
+  }), []);
+  const restart = async () => {
+    await window.realm?.restartServer?.().catch(() => {});
+    rpc().retryNow();
+  };
+  const copy = bannerFor({ connectionDown, offline, daemon });
   if (!copy) return null;
   return (
     <div className="conn-banner" data-tone={copy.tone} role={copy.tone === "bad" ? "alert" : "status"}>
       <span>{copy.text}</span>
       {copy.action === "retry" && <button onClick={() => rpc().retryNow()}>Retry</button>}
+      {copy.action === "restart" && <button onClick={() => void restart()}>Restart Realm's server</button>}
       {copy.action === "quit-and-stop" && (
         <button onClick={() => void window.realm?.quitAndStopAgents?.()}>Quit &amp; stop agents</button>
       )}
@@ -381,6 +393,7 @@ function SheetHost() {
   if (sheet.kind === "wrap-up-lecture") return <WrapUpLectureSheet />;
   if (sheet.kind === "plynn-import") return <PlynnImportSheet />;
   if (sheet.kind === "session-plan") return <SessionPlanSheet sessionId={sheet.sessionId} planId={sheet.planId} />;
+  if (sheet.kind === "share-session") return <ShareSheet sessionId={sheet.sessionId} />;
   return null;
 }
 
@@ -414,6 +427,7 @@ export function Main() {
   const setViewRoom = useApp((s) => s.setViewRoom);
   const resizePanel = useApp((s) => s.resizePanel);
   const splitRefusal = useApp((s) => s.splitRefusal);
+  const covered = useApp((s) => s.pageOverlay !== null);
   // Where the panel stands, from the room the host last measured (state/view-room.ts).
   const place = useMemo(() => panelPlace({ layout, view, viewRoom, sidePanesHidden }), [layout, view, viewRoom, sidePanesHidden]);
   const focusPaneFull = useApp((s) => s.focusPaneFull);
@@ -432,7 +446,7 @@ export function Main() {
     <>
       <PaneHost layout={layout ?? emptyLayout()} items={items} focusedLeafId={focusedLeafId}
         zoomedLeafId={zoomedLeafId} sidePanesHidden={sidePanesHidden}
-        panelPlace={place} panelShare={drawnShare({ layout, view })}
+        panelPlace={place} panelShare={drawnShare({ layout, view })} covered={covered}
         onRoom={setViewRoom} onResizePanel={resizePanel}
         // Read with the room it was measured in, which is why `viewRoom` is subscribed above.
         splitRefusal={(leafId, dir) => (viewRoom ? splitRefusal(dir, leafId) : null)}
@@ -508,12 +522,12 @@ export function subscribeSpaceLists(store: StoreApi<AppState>, on: Subscribe): (
   return () => { for (const off of offs) off(); };
 }
 
-/** The broadcasts that bring an agent-opened pane into the layout. Exported for its test. */
 /** How recent a keystroke into a field or a terminal keeps an agent's `space_switch` from moving the
  *  window: long enough to cover the pause between two words, short enough that a person who has
  *  stopped is not in the way. */
 const TYPING_QUIET_MS = 4_000;
 
+/** The broadcasts that bring an agent-opened pane into the layout. Exported for its test. */
 export const AGENT_PANE_EVENTS = ["browser.agentOpened", "simulator.agentOpened", "terminal.agentOpened"] as const;
 
 /**
@@ -687,18 +701,26 @@ export function App() {
     // The feed (Plan 12 W5): every change carries the server's unread count for the sidebar pill, and
     // a surfaced row for the focused-pane auto-read — see applyNotificationsChanged.
     const offN = rpc().on("notifications.changed", (p) => store.getState().applyNotificationsChanged(p));
+    // Realm Mobile: the whole status on every change, and a phone waiting on the owner's yes. Applied
+    // in every window — the request is held until it is answered, whichever window answers it.
+    const offRm = rpc().on("remote.changed", (status) => store.getState().applyRemoteChanged(status));
+    const offPr = rpc().on("remote.pairRequest", (request) => store.getState().applyPairRequest(request));
     // A clicked OS toast, arriving from main as a bare row id (main/notify.ts). Optional-chained like
     // onScrollPhase: a renderer running outside the Electron preload (tests, a browser) simply never
     // hears one. Main has already raised the window; the store owns landing on the row.
     const offDN = window.realm?.notify?.onActivate((id) => {
-      const st = store.getState();
-      st.run(() => st.activateDesktopNotification(id));
+      void whenBooted(store).then(() => {
+        const st = store.getState();
+        st.run(() => st.activateDesktopNotification(id));
+      });
     });
     // A session chosen from the menu-bar item while this window did not exist. Main has already
     // brought the window back; landing on the pane is the store's job, exactly as it is for a toast.
     const offOS = window.realm?.onOpenSession?.(({ sessionId, spaceId }) => {
-      const st = store.getState();
-      st.run(() => st.revealSession(sessionId, spaceId));
+      void whenBooted(store).then(() => {
+        const st = store.getState();
+        st.run(() => st.revealSession(sessionId, spaceId));
+      });
     });
     // A link clicked to open in a Realm Browser tab (Settings ▸ General ▸ Links, ⌘-click, or the
     // link's right-click menu): main routed it here, and the tab goes beside the session in view.
@@ -709,6 +731,7 @@ export function App() {
     // A review verdict landed (or was dismissed/cleared) for an environment (Plan 13 W3): apply the
     // payload directly — the diff pane's review section reads `reviews[environmentId]`.
     const offR = rpc().on("review.changed", (p) => store.getState().applyReviewChanged(p));
+    const offBC = rpc().on("browsers.closed", ({ browserId }) => store.getState().applyBrowserClosed(browserId));
     // The set of sessions a session is waiting on. Applied in every window and gated on
     // nothing: the delegating session's pane may be open in any of them, and the payload is a
     // handful of ids — the store drops the key when the set is empty.
@@ -756,7 +779,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offW(); offSh(); offRun(); offSched(); offTeam(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); offSet(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
+      offS(); offI(); offW(); offSh(); offRun(); offSched(); offTeam(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); offSet(); offRm(); offPr(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offBC(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       offEggs();

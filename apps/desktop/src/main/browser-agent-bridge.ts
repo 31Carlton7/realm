@@ -75,12 +75,13 @@ export type BridgeClient = { call(method: string, params: unknown): Promise<unkn
 
 const RECONNECT_MS = 2_000;
 
-/** Connect (and keep reconnecting) to realm-server on the given port. Uses Node's built-in global
- *  WebSocket — no dependency, and main already knows the port from the server's ready line. `token`
- *  is read from the daemon state file and offered as the `realm.<token>` subprotocol; the server
- *  refuses the handshake without it. */
+/** Connect (and keep reconnecting) to realm-server. Uses Node's built-in global WebSocket — no
+ *  dependency. `endpoint` is asked before every dial, not once: a server started after a crash has
+ *  its own port and token (read from the daemon state file; the token is offered as the
+ *  `realm.<token>` subprotocol, and the server refuses the handshake without it). Each dial is a new
+ *  socket that registers afresh, so the server hands over its keys and sees the host attach again. */
 export function startBrowserAgentBridge(opts: {
-  port: number; token: string; handleOp: HandleOp; onLog?: (line: string) => void;
+  endpoint: () => { port: number; token: string }; handleOp: HandleOp; onLog?: (line: string) => void;
   /** Liveness, for the daemon supervisor. This socket is the only continuous signal main has about a
    *  server it may not own — there is no child to watch exit — and it already redials forever, so
    *  `onDisconnected` fires once per failed attempt and is the supervisor's tick as well as its
@@ -99,21 +100,27 @@ export function startBrowserAgentBridge(opts: {
 
   const connect = (): void => {
     if (stopped) return;
-    const socket = new WebSocket(`ws://127.0.0.1:${opts.port}`, [`realm.${opts.token}`]);
+    const { port, token } = opts.endpoint();
+    const socket = new WebSocket(`ws://127.0.0.1:${port}`, [`realm.${token}`]);
     ws = socket;
     const core = createBridgeCore(opts.handleOp, (json) => {
       if (socket.readyState === WebSocket.OPEN) socket.send(json);
     }, opts.onEvent, opts.hasWindow);
     socket.addEventListener("open", () => { opts.onLog?.("[browser-agent] bridge connected"); core.onOpen(); opts.onConnected?.(core); });
     socket.addEventListener("message", (ev) => { void core.onMessage(typeof ev.data === "string" ? ev.data : ""); });
-    socket.addEventListener("close", () => {
-      if (stopped || ws !== socket) return;
+    let dropped = false;
+    const drop = (): void => {
+      if (stopped || ws !== socket || dropped) return;
+      dropped = true;
       opts.onLog?.("[browser-agent] bridge disconnected; retrying");
       core.onClose();
       opts.onDisconnected?.();
       timer = setTimeout(connect, RECONNECT_MS);
-    });
-    socket.addEventListener("error", () => { /* close fires next; reconnect happens there */ });
+    };
+    socket.addEventListener("close", drop);
+    // Node's WebSocket reports a refused dial as `error` alone, with no `close` after it — so a dial to
+    // a server that is not up yet ends here, or the bridge never dials again after its first miss.
+    socket.addEventListener("error", drop);
   };
   connect();
 
