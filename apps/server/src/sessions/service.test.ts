@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
-import { FakeAdapter } from "@realm/adapters";
+import { FakeAdapter, RestartRequiredError } from "@realm/adapters";
 import { createApp, type App } from "../app";
 import { DEFAULT_PERMISSION_MODE_KEY } from "@realm/contracts";
 import { AGENT_PROBE_TTL_MS, ENGINE_IDLE_MINUTES_KEY, PROBE_CRASH_BACKOFF_MS, titleFromMessage, TITLE_MAX } from "./service";
@@ -291,6 +291,69 @@ describe("SessionService over rpc", () => {
     await waitFor(() => starts.length === 2);
     expect(starts).toEqual([null, provider]);
     await waitFor(async () => (await status()).status === "idle" && (await status()).lastEventSeq > seq);
+    c.close();
+  });
+
+  it("a mode the running engine takes only at launch starts it again on the same conversation, before the next message", async () => {
+    // Claude Code takes Full access from launch on a CLI that will not switch a running session into
+    // it. The switch must still land — and the person must never see the CLI's refusal.
+    const starts: { resume: string | null | undefined; mode: string | undefined }[] = [];
+    class LaunchOnly extends FakeAdapter {
+      override start(opts: Parameters<FakeAdapter["start"]>[0]) {
+        starts.push({ resume: opts.resume, mode: opts.permissionMode });
+        const handle = super.start(opts);
+        return { ...handle, setOptions: async (o: Parameters<typeof handle.setOptions>[0]) => {
+          if (o.permissionMode === "bypassPermissions") throw new RestartRequiredError("not launched with it");
+          await handle.setOptions(o);
+        } };
+      }
+    }
+    const { c, sp } = await boot(new LaunchOnly({ script: [
+      { on: "go", emit: [{ kind: "tool", name: "Bash", input: { command: "ls" }, needsPermission: true, result: "x" }] },
+    ] }));
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake", permissionMode: "default" })).result;
+    const status = async () => (await c.call("sessions.get", { id: session.id })).result;
+    const cards = () => c.eventTypes(session.id).filter((t) => t === "permission_request").length;
+    const results = () => c.eventTypes(session.id).filter((t) => t === "tool_result").length;
+
+    // Switched while the turn waits on a card — the moment someone reaches for Full access.
+    await c.call("sessions.send", { id: session.id, text: "go" });
+    await waitFor(async () => (await status()).status === "waiting_permission");
+    const provider = (await status()).providerSessionId;
+    // The named mutant for the server half: letting the error through, so the switch reads as a failure.
+    const switched = await c.call("sessions.setOptions", { id: session.id, permissionMode: "bypassPermissions" });
+    expect(switched.ok).toBe(true);
+    expect(switched.result.permissionMode).toBe("bypassPermissions");
+
+    // Nothing is torn down under the turn: its card is still there to answer, and it finishes.
+    const req = c.events.find((e) => e.event === "session.event" && e.payload.event.type === "permission_request")!.payload.event.payload.requestId;
+    expect((await c.call("sessions.respondPermission", { id: session.id, requestId: req, decision: "allow" })).ok).toBe(true);
+    await waitFor(async () => (await status()).status === "idle" && results() === 1);
+
+    await c.call("sessions.send", { id: session.id, text: "go" });
+    await waitFor(async () => (await status()).status === "idle" && results() === 2);
+    expect(starts).toEqual([{ resume: null, mode: "default" }, { resume: provider, mode: "bypassPermissions" }]);
+    // …and the engine that answered runs it: the command went through with no second card. Kept on the
+    // old engine (the mutant that never restarts), it would have asked again.
+    expect(cards()).toBe(1);
+    c.close();
+  });
+
+  it("a mode the agent refuses outright leaves the row on the mode it still runs, and says why", async () => {
+    const refusal = "Full access is turned off in Claude Code's settings (permissions.disableBypassPermissionsMode). The session keeps its current mode.";
+    class Refusing extends FakeAdapter {
+      override start(opts: Parameters<FakeAdapter["start"]>[0]) {
+        return { ...super.start(opts), setOptions: async () => { throw new Error(refusal); } };
+      }
+    }
+    const { c, sp } = await boot(new Refusing({ script: [{ on: "hi", emit: [{ kind: "text", text: "hello" }] }] }));
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake", permissionMode: "acceptEdits" })).result;
+    await c.call("sessions.send", { id: session.id, text: "hi" });
+    await waitFor(async () => (await c.call("sessions.get", { id: session.id })).result.status === "idle");
+    const switched = await c.call("sessions.setOptions", { id: session.id, permissionMode: "bypassPermissions" });
+    expect(switched.error.message).toBe(refusal);
+    // The mutant: the row left on Full access, which the prompter would show and the next start launch.
+    expect((await c.call("sessions.get", { id: session.id })).result.permissionMode).toBe("acceptEdits");
     c.close();
   });
 

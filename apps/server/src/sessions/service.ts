@@ -1,7 +1,7 @@
 import { realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
-import { CODEX_SANDBOX_REFUSAL, type AdapterRegistry, type AgentAdapter, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
+import { CODEX_SANDBOX_REFUSAL, RestartRequiredError, type AdapterRegistry, type AgentAdapter, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
 import type { ItemsStore } from "../store/items";
@@ -159,6 +159,9 @@ export class SessionService {
   /** Sessions whose settle reached a held head and so did not drain: the drain is owed, and paid when
    *  the hold lets go. A settle the user caused never owes one — Stop has to mean stop. */
   private drainOwed = new Set<string>();
+  /** Sessions switched to a permission mode their running engine takes only at launch. The engine is
+   *  started again — same conversation, the row's mode — before the next message goes out. */
+  private restartOwed = new Set<string>();
   /** `QUEUE_HOLD_TTL_MS`, as a field so a test can wait out a hold without waiting ten minutes. */
   queueHoldTtlMs = QUEUE_HOLD_TTL_MS;
   /** Called on the next settle of each session — see `interruptAndSettle`. */
@@ -681,6 +684,9 @@ export class SessionService {
     // An app the message mentions is granted BEFORE the handle starts, so a session that starts on
     // this message lists the computer tools from its first read of them.
     await this.grantMentionedApps(id, msg);
+    // Stopped the way the idle sweep stops an engine, so this message starts a fresh one that resumes
+    // the conversation in the mode the old one could not switch to.
+    if (this.restartOwed.delete(id)) void this.reap(id);
     await this.reaping.get(id);
     const handle = this.ensureLive(id);
     // A start that carried a restore's fork can be refused at fork time, before the model sees a word
@@ -925,12 +931,24 @@ export class SessionService {
     this.onEvent(id, sessionEvent("feedback", { messageId, rating }));
   }
   async setOptions(id: string, o: { model?: string; effort?: string | null; permissionMode?: string; fastMode?: boolean }): Promise<Session> {
+    const modeInForce = this.get(id).permissionMode;
     const s = this.d.sessions.update({ id, ...o });
     // The row moves whether or not a process is live. A session that has not started yet keeps the
     // request in the column and hands it over at `start` (ensureLive reads the row), which is what
     // makes the switch mean the same thing before the first message as after it. The level goes to a
     // live one too: Claude and Codex both take it on the next turn.
-    await this.live.get(id)?.handle.setOptions({ model: o.model, effort: o.effort, permissionMode: o.permissionMode, fastMode: o.fastMode });
+    try {
+      await this.live.get(id)?.handle.setOptions({ model: o.model, effort: o.effort, permissionMode: o.permissionMode, fastMode: o.fastMode });
+    } catch (e) {
+      if (!(e instanceof RestartRequiredError)) {
+        // The agent still runs the mode it had, so the row says so too: a prompter showing a mode
+        // nothing is running in, and the next start quietly launching it, would both be lies.
+        if (o.permissionMode !== undefined) this.d.sessions.update({ id, permissionMode: modeInForce });
+        throw e;
+      }
+      // Not reaped here: a turn may be running on this engine, and the switch is about the next one.
+      this.restartOwed.add(id);
+    }
     // A lead's children run in its mode; lowering it lowers them, before this returns.
     if (o.permissionMode !== undefined) await this.d.browserAgents?.modeSet?.(id, o.permissionMode);
     return s;
@@ -1097,6 +1115,7 @@ export class SessionService {
     clearTimeout(this.queueHolds.get(id)?.timer);
     this.queueHolds.delete(id);
     this.drainOwed.delete(id);
+    this.restartOwed.delete(id);
     // …and the rewind bookkeeping. The row carrying the durable half goes below; these two are what a
     // still-draining pump could otherwise read after the session it describes has stopped existing.
     this.forkInFlight.delete(id);
