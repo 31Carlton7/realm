@@ -30,7 +30,7 @@ import { Signature } from "./Signature";
 import { KeybindingsPanel } from "../../components/settings/KeybindingsPanel";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import { ShareWith } from "../../components/profiles/ShareWith";
-import { EditPasswordSheet, ImportPasswordsButton, KeychainPasswords, PasswordExceptions, PasswordRowActions, matchesPasswordSearch } from "./PasswordsSection";
+import { EditPasswordSheet, ImportPasswordsButton, KeychainPasswords, PasswordExceptions, PasswordRowActions, UnreadablePasswordsNotice, matchesPasswordSearch } from "./PasswordsSection";
 import { PageRail } from "../../components/page-nav";
 import { CATEGORY_COPY, SETTINGS_INDEX, searchSettings, settingPlace, settingsTabLabel, tabAvailable, visibleSettingsGroups, type SettingEntry, type SettingsTab } from "./settings-index";
 import { capabilities } from "../../platform";
@@ -1957,6 +1957,7 @@ function SignInsTab() {
   return (
     <div className="form signins">
 
+      <UnreadablePasswordsNotice />
       {status !== null && !status.available && (
         <p className="settings-hint settings-alert" role="alert">
           macOS isn't offering Realm an encryption key right now, so sign-ins can't be saved. Realm

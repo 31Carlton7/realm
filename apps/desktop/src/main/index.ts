@@ -66,6 +66,7 @@ import { registerKeyWindowQuery, wireKeyWindow } from "./key-window";
 import { popupNativeMenu, registerNativeMenus } from "./native-menu";
 import { PasswordAutofill } from "./password-autofill";
 import { registerPasswordsIpc } from "./passwords-ipc";
+import { readSecretsFile, setAsideSecretsFile, writeSecretsFile } from "./secrets-file";
 import { keychainHelper, keychainSourceFor } from "./keychain-passwords";
 import { attachTextContextMenu } from "./text-context-menu";
 import { windowOpenTarget } from "./link-open";
@@ -1019,10 +1020,15 @@ function secrets(): SecretStore | null {
   const standIn = livePresenceStandIn({ packaged: app.isPackaged, env: process.env });
   secretStore = new SecretStore({
     safeStorage,
-    readFile: () => (existsSync(file) ? readFileSync(file, "utf8") : null),
+    readFile: () => readSecretsFile(file),
     // 0600: the ciphertext is useless without the Keychain item, but a file only the user can read
     // costs nothing and is what anyone auditing this would expect to find.
-    writeFile: (text) => writeFileSync(file, text, { mode: 0o600 }),
+    writeFile: (text) => writeSecretsFile(file, text),
+    setAside: () => {
+      const aside = setAsideSecretsFile(file, new Date());
+      console.error(`[secrets] ${file} could not be read; kept it at ${aside} and started a new store`);
+      return aside;
+    },
     appendAudit: (line) => {
       mkdirSync(join(home, "logs"), { recursive: true });
       appendFileSync(auditFile, line, { mode: 0o600 });
@@ -1210,6 +1216,7 @@ registerPasswordsIpc({
   },
   clipboard: { writeText: (t) => clipboard.writeText(t), readText: () => clipboard.readText(), clear: () => clipboard.clear() },
   setTimer: (fn, ms) => { setTimeout(fn, ms).unref?.(); },
+  reveal: (path) => shell.showItemInFolder(path),
 });
 registerVaultIpc({
   handle: (channel, fn) => ipcMain.handle(channel, (_e, ...args: unknown[]) => fn(...args)),
@@ -2075,7 +2082,8 @@ app.whenReady().then(async () => {
     // Before the first window, so its first browser panes and the sign-ins page find every profile —
     // and so sign-ins saved before profiles had their own are handed to their profile at launch.
     await profileDirectory.refresh();
-    secrets()?.adoptUnownedRows();
+    // A store that cannot be read this moment is left as it is, and read again on its next use.
+    try { secrets()?.adoptUnownedRows(); } catch (e) { console.error("[secrets]", e instanceof Error ? e.message : e); }
     // Media streaming opens only once home is known: `media:poster` writes QuickLook scratch under it.
     handleMediaProtocol();
     // Sweep once at launch; saveTempAttachment sweeps again on every paste, so a session that never

@@ -360,6 +360,10 @@ contextBridge.exposeInMainWorld("realm", {
     reveal: (profileId: string, id: string, action: "show" | "copy"): Promise<PasswordRevealResult> =>
       ipcRenderer.invoke("credentials:reveal", profileId, id, action),
     keychainStatus: (): Promise<KeychainPasswordsStatus> => ipcRenderer.invoke("credentials:keychain-status"),
+    /** A store Realm could not read, and where it kept the file: Settings ▸ Passwords says so once. */
+    unreadable: (): Promise<{ path: string; at: number } | null> => ipcRenderer.invoke("credentials:unreadable"),
+    revealUnreadable: (): Promise<void> => ipcRenderer.invoke("credentials:reveal-unreadable"),
+    dismissUnreadable: (): Promise<void> => ipcRenderer.invoke("credentials:dismiss-unreadable"),
     setKeychain: (enabled: boolean): Promise<KeychainPasswordsStatus> => ipcRenderer.invoke("credentials:set-keychain", enabled),
     keychainList: (): Promise<BrowserCredential[]> => ipcRenderer.invoke("credentials:keychain-list"),
     neverList: (profileId: string): Promise<string[]> => ipcRenderer.invoke("credentials:never-list", profileId),

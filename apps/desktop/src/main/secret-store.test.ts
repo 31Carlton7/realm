@@ -37,7 +37,8 @@ function fakeSafeStorage(available = true) {
 }
 
 function makeStore(over: Partial<SecretStoreDeps> & { available?: boolean } = {}) {
-  const disk = { file: null as string | null, audit: [] as string[] };
+  /** `aside`: every file the store moved out of the way, as it was when it went. */
+  const disk = { file: null as string | null, audit: [] as string[], aside: [] as (string | null)[] };
   const clock = { now: 1_000_000 };
   const presence = { asked: [] as string[], grant: true };
   let n = 0;
@@ -45,6 +46,7 @@ function makeStore(over: Partial<SecretStoreDeps> & { available?: boolean } = {}
     safeStorage: fakeSafeStorage(over.available ?? true),
     readFile: () => disk.file,
     writeFile: (t) => { disk.file = t; },
+    setAside: () => { disk.aside.push(disk.file); disk.file = null; return `/realm/secrets.unreadable-${disk.aside.length}.json`; },
     appendAudit: (l) => { disk.audit.push(l); },
     promptPresence: async (reason) => { presence.asked.push(reason); return presence.grant; },
     now: () => clock.now,
@@ -366,22 +368,84 @@ describe("SecretStore — persistence and the keyring", () => {
     const { store, disk, deps } = makeStore();
     store.addCredential(P, input());
     expect(store.listCredentials(P)).toHaveLength(1);
+    const before = disk.file;
 
     // The real scenario: the file restored onto another Mac, whose Keychain has no matching item.
     const foreign = new SecretStore({
       ...deps,
-      readFile: () => disk.file,
       safeStorage: { ...fakeSafeStorage(), decryptString: () => { throw new Error("item not found"); } },
     });
     expect(foreign.listCredentials(P)).toEqual([]);
+    // The file holding them went aside whole first — the Keychain that sealed them may still open it.
+    // MUTANT: drop the set-aside and the fresh keyring below is written over every one of them.
+    expect(disk.aside).toEqual([before]);
+    expect(foreign.unreadableNotice()).toEqual({ path: "/realm/secrets.unreadable-1.json", at: 1_000_000 });
     // ...and it is usable again immediately, with a fresh keyring rather than a wedged one.
     expect(foreign.addCredential(P, input({ value: "new" })).origin).toBe("https://example.com");
   });
 
-  it("a corrupt file degrades to an empty store instead of throwing on every read", () => {
-    const { deps } = makeStore();
-    const store = new SecretStore({ ...deps, readFile: () => "{ not json" });
+  it("a file that is not JSON is kept aside, not written over, and the store starts empty", () => {
+    const { store, disk } = makeStore();
+    disk.file = "{ not json";
     expect(store.listCredentials(P)).toEqual([]);
+    // MUTANT: parse it as "no file" and the next write replaces it — every saved sign-in gone.
+    expect(disk.aside).toEqual(["{ not json"]);
+    expect(JSON.parse(disk.file!)).toMatchObject({ credentials: [], unreadable: { path: "/realm/secrets.unreadable-1.json", at: 1_000_000 } });
+  });
+
+  it("an empty file, or JSON that is no store, is unreadable too", () => {
+    for (const text of ["", "null", "[]", "\"secrets\""]) {
+      const { store, disk } = makeStore();
+      disk.file = text;
+      store.listCredentials(P);
+      expect(disk.aside, JSON.stringify(text)).toEqual([text]);
+    }
+  });
+
+  it("leaves a file it cannot read this moment exactly where it is, and reads it next time", () => {
+    const { store, disk, deps } = makeStore();
+    store.addCredential(P, input());
+    const saved = disk.file;
+    let busy = true;
+    const writes: string[] = [];
+    const later = new SecretStore({
+      ...deps,
+      readFile: () => { if (busy) throw Object.assign(new Error("EBUSY: resource busy"), { code: "EBUSY" }); return disk.file; },
+      writeFile: (t) => { writes.push(t); disk.file = t; },
+    });
+    expect(() => later.listCredentials(P)).toThrow("EBUSY");
+    // MUTANT: catch the read error as an empty store and this is a set-aside, or a fresh file over it.
+    expect(disk.aside).toEqual([]);
+    expect(writes).toEqual([]);
+    expect(disk.file).toBe(saved);
+    busy = false;
+    expect(later.listCredentials(P)).toHaveLength(1);
+    expect(later.unreadableNotice()).toBeNull();
+  });
+
+  it("writes nothing over an unreadable file it could not move", () => {
+    const { deps, disk } = makeStore();
+    disk.file = "{ not json";
+    const writes: string[] = [];
+    const store = new SecretStore({ ...deps, writeFile: (t) => { writes.push(t); }, setAside: () => { throw new Error("EACCES: permission denied"); } });
+    expect(() => store.listCredentials(P)).toThrow("EACCES");
+    expect(writes).toEqual([]);
+    // Without a way to move it at all, the same: refused, not replaced.
+    const unmovable = new SecretStore({ ...deps, writeFile: (t) => { writes.push(t); }, setAside: undefined });
+    expect(() => unmovable.listCredentials(P)).toThrow(SecretStoreError);
+    expect(writes).toEqual([]);
+    expect(disk.file).toBe("{ not json");
+  });
+
+  it("says so until the person has read it, once", () => {
+    const { store, disk, deps } = makeStore();
+    disk.file = "{ not json";
+    store.listCredentials(P);
+    expect(store.unreadableNotice()).not.toBeNull();
+    store.dismissUnreadableNotice();
+    expect(store.unreadableNotice()).toBeNull();
+    // Read back from the file: closed for good, not for this launch.
+    expect(new SecretStore(deps).unreadableNotice()).toBeNull();
   });
 });
 

@@ -4,7 +4,7 @@ import {
   type BrowserCredential, type KeychainPasswordsStatus, type PasswordFillAllow, type PasswordImportResult, type PasswordRevealResult,
 } from "@realm/contracts";
 import { PASSWORD_EXPORT_MAX_BYTES, parsePasswordExport } from "./password-csv";
-import { SecretStoreError, type SecretStore } from "./secret-store";
+import { SecretStoreError, type SecretStore, type SetAside } from "./secret-store";
 
 /**
  * Settings ▸ Passwords over renderer IPC: import, edit, Show, Copy, the login keychain switch, the
@@ -34,6 +34,8 @@ export type PasswordsIpcDeps = {
   showPassword(sender: unknown, title: string, value: string): Promise<boolean>;
   clipboard: { writeText(text: string): void; readText(): string; clear(): void };
   setTimer(fn: () => void, ms: number): void;
+  /** Select a file in Finder. */
+  reveal(path: string): void;
 };
 
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
@@ -120,6 +122,15 @@ export function registerPasswordsIpc(d: PasswordsIpcDeps): void {
     const ready = await owned(profileId);
     return ready ? ready.store.setNeverSave(ready.owner.id, str(origin), never === true) : [];
   });
+
+  /* A store Realm could not read, kept aside: what the notice says, its Show in Finder, and the
+     person having read it. The path comes from the store, never from the renderer. */
+  d.handle("credentials:unreadable", (): SetAside | null => d.secrets()?.unreadableNotice() ?? null);
+  d.handle("credentials:reveal-unreadable", (): void => {
+    const notice = d.secrets()?.unreadableNotice();
+    if (notice) d.reveal(notice.path);
+  });
+  d.handle("credentials:dismiss-unreadable", (): void => { d.secrets()?.dismissUnreadableNotice(); });
 
   d.handle("credentials:fill-allows", async (_sender, profileId): Promise<PasswordFillAllow[]> => {
     const ready = await owned(profileId);

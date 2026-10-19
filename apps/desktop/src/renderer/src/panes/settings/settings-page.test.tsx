@@ -1059,6 +1059,44 @@ describe("Sign-ins tab", () => {
     });
   });
 
+  describe("a saved-passwords file Realm could not read", () => {
+    const realm = window as unknown as { realm?: { credentials?: Record<string, unknown> } };
+    const ASIDE = "/Users/ada/Realm/secrets.unreadable-2026-10-19T03-58-12-345Z.json";
+    let saved: typeof realm.realm;
+    beforeEach(() => { saved = realm.realm; });
+    afterEach(() => { realm.realm = saved; });
+
+    function stub(notice: { path: string; at: number } | null) {
+      const pressed: string[] = [];
+      realm.realm = { ...(saved ?? {}), credentials: { ...(saved?.credentials ?? {}),
+        unreadable: async () => notice,
+        revealUnreadable: async () => { pressed.push("reveal"); },
+        dismissUnreadable: async () => { pressed.push("dismiss"); },
+      } };
+      return pressed;
+    }
+
+    it("says where the file went and that nothing was deleted, with Show in Finder, until it is closed", async () => {
+      const pressed = stub({ path: ASIDE, at: 1 });
+      await signIns({ credentials: [cred] });
+      const notice = await screen.findByText(/Realm couldn't read your saved passwords/);
+      expect(notice).toHaveTextContent(`so it kept the file aside at ${ASIDE} and started fresh. Nothing was deleted.`);
+      // A quiet line on the page, not a sheet in the way.
+      expect(screen.queryByRole("dialog")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Show in Finder" }));
+      fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+      expect(screen.queryByText(/Realm couldn't read your saved passwords/)).toBeNull();
+      await waitFor(() => expect(pressed).toEqual(["reveal", "dismiss"]));
+    });
+
+    it("says nothing when there is nothing to say", async () => {
+      stub(null);
+      await signIns({ credentials: [cred] });
+      await screen.findByRole("listitem", { name: "https://example.com: ada" });
+      expect(screen.queryByText(/Realm couldn't read your saved passwords/)).toBeNull();
+    });
+  });
+
   it("marks a Realm-generated row as one, and says where the user's way back in actually is", async () => {
     const generated: BrowserCredential = { id: "cred-2", origin: "https://signup.example", username: "ada", label: "Sign-up", createdAt: 2, generated: true };
     await signIns({ credentials: [cred, generated] });

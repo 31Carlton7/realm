@@ -258,6 +258,10 @@ interface Window {
       setNever?(profileId: string, origin: string, never: boolean): Promise<string[]>;
       fillAllows?(profileId: string): Promise<import("@realm/contracts").PasswordFillAllow[]>;
       clearFillAllow?(profileId: string, credentialId: string, origin: string): Promise<boolean>;
+      /** A store Realm could not read and kept aside, until the person has read the notice. */
+      unreadable?(): Promise<{ path: string; at: number } | null>;
+      revealUnreadable?(): Promise<void>;
+      dismissUnreadable?(): Promise<void>;
     };
     /** A team's post sheet: the one click that lets an act ticket go out (main/ticket-presses.ts).
      *  Optional like every bridge: jsdom has none, and without it nothing can be posted. */
