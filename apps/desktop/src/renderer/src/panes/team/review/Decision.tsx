@@ -1,7 +1,7 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FINAL_REVIEW_STATES, reviewVerb, verbFamily, type ActTicket, type TeamReviewDetail, type TeamReviewItem, type TeamSpace } from "@realm/contracts";
-import { useApp } from "../../../state/store";
+import { useApp, useAppStore } from "../../../state/store";
 import { ACT_WORDS, plainError } from "../team-format";
 import { POST_SHEET_NO_AGENT, PostSheet } from "../PostSheet";
 import { approveConsequence, approvedLine, closeConsequence, finishedLine, receipt, reviewPhase, type Decision as DecisionKind } from "./review-model";
@@ -10,6 +10,21 @@ import { reviewRole, RoleMark } from "./RoleMark";
 /** A press on Approve this soon after the reader changed what it shows is the tail of a double click
  *  aimed at the review before — it lands on nothing. */
 const SETTLE_MS = 350;
+
+/**
+ * The receipt a yes leaves, offering the Undo that takes it back — said the same way wherever a draft
+ * is approved, Review's dock or a teammate's chat. Called once the approval is in, when the review's
+ * detail is held (`decideTeamReview` reads it again). `onUndone` runs once the draft waits again,
+ * whether or not the surface that approved it is still on screen. Returns the toast's id.
+ */
+export function useApprovalReceipt(): (id: string, onUndone?: (id: string) => void) => string {
+  const store = useAppStore();
+  return useCallback((id, onUndone) => {
+    const s = store.getState();
+    return s.toast({ tone: "success", icon: "check", text: receipt("approve", s.teamReviewDetail[id]!, { wakes: false }),
+      action: { label: "Undo", run: () => s.run(async () => { await s.undoTeamReviewApproval(id); onUndone?.(id); }) } });
+  }, [store]);
+}
 
 /**
  * The decision, docked under the draft and outside its scroller so it never dissolves with it. It
@@ -34,7 +49,7 @@ export function DecisionDock({ team, detail, item, onDecided, onUndone }: {
   onUndone: (id: string) => void;
 }) {
   const decide = useApp((s) => s.decideTeamReview);
-  const undoApproval = useApp((s) => s.undoTeamReviewApproval);
+  const approvalReceipt = useApprovalReceipt();
   const dismissToast = useApp((s) => s.dismissToast);
   const requestChanges = useApp((s) => s.requestTeamReviewChanges);
   const reject = useApp((s) => s.rejectTeamReview);
@@ -54,11 +69,11 @@ export function DecisionDock({ team, detail, item, onDecided, onUndone }: {
   /** The approval's toast, while its Undo can still do what it says. */
   const undoOffer = useRef<string | null>(null);
   useEffect(() => { shownAt.current = Date.now(); setAsking(null); setError(null); }, [detail.id]);
-  const undoable = detail.state === "approved" && !detail.tickets.some((t) => t.state === "done" || t.state === "acting");
+  const wentOut = detail.tickets.some((t) => t.state === "done" || t.state === "acting");
   const finished = FINAL_REVIEW_STATES.includes(detail.state);
   useEffect(() => {
-    if (undoOffer.current && (finished || !undoable)) { dismissToast(undoOffer.current); undoOffer.current = null; }
-  }, [finished, undoable, dismissToast]);
+    if (undoOffer.current && (finished || wentOut)) { dismissToast(undoOffer.current); undoOffer.current = null; }
+  }, [finished, wentOut, dismissToast]);
   useEffect(() => { if (asking === "send-back" || asking === "reject") field.current?.focus(); }, [asking]);
 
   const role = reviewRole(team, detail.roleId);
@@ -74,22 +89,15 @@ export function DecisionDock({ team, detail, item, onDecided, onUndone }: {
   const reveal = window.realm?.files?.reveal;
   const n = detail.items.length;
 
-  const undoTheYes = () => {
-    undoOffer.current = null;
-    run(async () => { await undoApproval(detail.id); onUndone(detail.id); });
-  };
   const act = (decision: DecisionKind | null, fn: () => Promise<void>, reason?: string | null) => {
     setBusy(true); setError(null);
     run(async () => {
       try {
         await fn();
         setAsking(null); setNote("");
-        if (decision) {
-          const id = toast({ tone: "success", text: receipt(decision, detail, { wakes, reason: reason ?? null }), icon: decision === "approve" ? "check" : decision === "send-back" ? "undo" : undefined,
-            ...(decision === "approve" ? { action: { label: "Undo", run: undoTheYes } } : {}) });
-          if (decision === "approve") undoOffer.current = id;
-          onDecided(detail.id, decision);
-        }
+        if (decision === "approve") undoOffer.current = approvalReceipt(detail.id, onUndone);
+        else if (decision) toast({ tone: "success", text: receipt(decision, detail, { wakes, reason: reason ?? null }), icon: decision === "send-back" ? "undo" : undefined });
+        if (decision) onDecided(detail.id, decision);
       } catch (e) { setError(plainError(e)); } finally { setBusy(false); }
     });
   };
