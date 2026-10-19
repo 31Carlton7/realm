@@ -36,6 +36,11 @@ const UNTHROTTLED = ["--disable-backgrounding-occluded-windows", "--disable-rend
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9263);
 const SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8823);
 const OUT_DIR = process.env.LIVE_OUT ?? path.join(os.tmpdir(), "realm-review-undo-live");
+/** Posts are planned between 8 AM and 10 PM: U3 needs a press that waits for its slot and a post the
+ *  script writes rather than makes, so the app (it inherits this environment) and this script both
+ *  run in a zone where it is the small hours, and the check reads the same whenever it is run. */
+const off = ((3 - new Date().getUTCHours() + 36) % 24) - 12;
+process.env.TZ = off === 0 ? "Etc/UTC" : `Etc/GMT${off > 0 ? "-" : "+"}${Math.abs(off)}`;
 fs.mkdirSync(OUT_DIR, { recursive: true });
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "realm-review-undo-"));
 const home = path.join(scratch, "home");
