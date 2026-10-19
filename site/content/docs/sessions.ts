@@ -18,10 +18,10 @@ export default page({
       ["Start one in another space", "The **+** on that space's header in the sidebar (**New session here**)"],
       ["Start one beside this one", "[[⌘\\]] splits right with a new session, [[⌘⇧\\]] splits down"],
       ["Send this draft to a fresh session instead", "[[⌘⇧↩]] (**Dispatch the draft**): same agent, model, effort and mode, opened beside you"],
-      ["Ask something without changing your layout", "[[⌘⇧N]] (**Quick chat**): a session in a small window over whatever is on screen, listed in its space like any other"],
+      ["Ask something without changing your layout", "[[⌘⇧N]] (**Quick chat**): a session in a small window over whatever is on screen. It isn't listed anywhere, and closing it deletes the chat."],
     ),
     p(
-      "A session takes its title from the first line of your first message. Its agent and its checkout can be changed until that message is sent, and not after: the conversation lives inside that agent and that folder from then on.",
+      "A session is titled from the first line of your first message, then given a short summary title. Its agent and its checkout can be changed until that message is sent, and not after: the conversation lives inside that agent and that folder from then on.",
     ),
     figure(
       { part: "turn" },
@@ -148,7 +148,7 @@ Write release notes for $1 from the merged pull requests since the previous tag.
       "A strip above the prompter shows the goal's state (**Pursuing**, **Paused**, **Blocked**, **Budget spent**, **Done** or **Dropped**) and its progress, with **Mark done**, **Pause**, **Resume** and **Drop**. Dropping forgets the objective, not the work.",
     ),
     p(
-      "A goal stops itself after three turns in a row with no progress, after three errors in a row, when the agent reports it complete or blocked, or after 200 turns. The agent can report on the goal but can't change it.",
+      "A goal stops itself after three turns in a row with no progress, after three errors in a row, when the agent reports it complete or blocked, or, when it has no budget, after 200 turns. The agent can report on the goal but can't change it.",
     ),
 
     h2("Messages typed while the agent works"),

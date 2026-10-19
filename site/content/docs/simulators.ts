@@ -21,13 +21,13 @@ export default page({
       ["**Rotate**", "Rotate the device"],
       ["**Screenshot**", "Save a screenshot of the device into the space's `simulator/` folder"],
       ["**Elements**", "Show the device's elements: the accessibility tree behind the screen"],
-      ["**More device controls**", "Light or dark appearance, text size, Reduce Motion, Reduce Transparency, Increase Contrast, colour filters, slow animations and the debug overlays, the side and action buttons"],
+      ["**More device controls**", "Volume, the side button, the device's apps, the device frame, and **Device settings…**: light or dark appearance, text size, Reduce Motion, Reduce Transparency, Increase Contrast, colour filters, slow animations and the debug overlays"],
     ),
     note("Simulators need Xcode for iOS, and the Android SDK's `adb` for Android. They're a Mac feature, so on Linux and Windows the menu doesn't offer them."),
 
     h2("A real iPhone"),
     p(
-      "An iPhone or iPad on a cable shows up under **Devices connected to this Mac**. Realm reaches it through Xcode with a small test runner it installs on the phone while the pane is open, and the pane says what's missing when something is:",
+      "An iPhone or iPad on a cable shows up under **Connected devices**. Realm reaches it through Xcode with a small test runner it installs on the phone while the pane is open, and the pane says what's missing when something is:",
     ),
     ul(
       "Developer Mode on the phone (**Settings ▸ Privacy & Security ▸ Developer Mode**)",

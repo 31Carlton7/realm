@@ -16,7 +16,7 @@ export default page({
     h2("Schedule a task"),
     steps(
       "Press **Scheduled tasks** on the rail, then **New task**.",
-      "Give it a **Task name** and write its **Instructions**. Write them for an agent that has never seen your conversation, because that's what a scheduled run is.",
+      "Give it a **Task name** and write its instructions. Write them for an agent that has never seen your conversation, because that's what a scheduled run is.",
       "Leave **Repeat task** on and choose how often, or turn it off to run it once at a date and time.",
       "Under **Advanced**, choose the **Space** it runs in and its **Model**, and whether each run starts a new session.",
       "Press **Create**.",

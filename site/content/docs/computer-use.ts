@@ -12,8 +12,8 @@ export default page({
     ),
     h3("Turn it on"),
     steps(
-      "Open **Settings ▸ Computer use**. Under **Computer control**, give Realm the two macOS grants it needs, Accessibility and Screen Recording. **Grant** asks macOS and opens the right pane of System Settings, and the row turns **Granted** when you switch Realm on there.",
-      "Under **Spaces**, switch on **Let agents in <space> control this Mac** for the spaces that should have it.",
+      "Open **Settings ▸ Computer use**. Under **Computer control**, give Realm the two macOS grants it needs, Accessibility and Screen Recording. **Allow in System Settings** asks macOS and opens the right pane, and the row turns **Granted** when you switch Realm on there.",
+      "Under **Spaces**, switch on the row of each space that should have it.",
     ),
     p(
       "If a row says a grant isn't being honoured, which can happen after an update, **Repair** asks for it again.",
@@ -30,7 +30,7 @@ export default page({
 
     h2("Apps Realm reads directly"),
     p(
-      "Some of your Mac's own apps are reached without driving their windows. **Settings ▸ Permissions ▸ Apps on this Mac** lists the macOS grants for Calendar, Reminders, Contacts, Mail, Messages and Notes, and **Realm's own access** lists Realm's access to your files and folders. Mention `@mac` in a message to point an agent at them.",
+      "Some of your Mac's own apps are reached without driving their windows. **Settings ▸ Permissions ▸ Apps on this Mac** lists the macOS grants for apps such as Calendar, Reminders, Contacts, Mail, Messages, Notes, Music, Shortcuts, Finder and the iWork apps, and **Realm's own access** lists Realm's access to your files and folders. Mention `@mac` in a message to point an agent at them.",
     ),
 
     h2("Another machine"),
@@ -64,7 +64,7 @@ export default page({
     h3("Installing"),
     ul(
       "Laya installs itself a few minutes after Realm opens, once your agents are idle and the disk has at least 10 GB free. The install is about 3 GB (PyTorch and the model) and needs a Python on your Mac; Realm looks for one and never guesses.",
-      "The rail shows the install while it runs. **Settings ▸ Engines ▸ Laya (local decisions)** shows where it stands, with **Install** or **Try again** when it needs one.",
+      "The rail shows the install while it runs. **Settings ▸ Engines ▸ Laya (local decisions)** shows where it stands, with **Install**, **Install again**, **Try again** or **Check again** when it needs one.",
       "Choosing **Off** stops an install that started on its own, and Laya stays off.",
     ),
     h3("Recordings and training"),

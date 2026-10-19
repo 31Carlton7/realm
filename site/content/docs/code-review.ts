@@ -14,7 +14,7 @@ export default page({
       "**Stage** and **Unstage** each file, or **Stage all**.",
       "Write a message and choose **Commit only**, or **Commit, push & PR** [[⌘↩]] to push the branch and open a pull request.",
       "**Request review** starts a read-only reviewer session over the checkout. Its verdict lands back in the diff.",
-      "**History** lists the session's checkpoints, to restore any of them (see [Sessions](/docs/sessions#undo-what-a-turn-changed)).",
+      "**History** lists the checkpoints taken in this checkout, to restore any of them (see [Sessions](/docs/sessions#undo-what-a-turn-changed)).",
     ),
     p("The card at the end of a turn that edited files has **Review**, which opens the diff of that turn alone."),
 
@@ -45,11 +45,11 @@ export default page({
       "Add line comments of your own on the **Changes** tab.",
       "Press **Submit review**, choose **Comment**, **Approve** or **Request changes**, write the review comment (it's required), and post it with [[⌘↩]].",
     ),
-    note("GitHub lets the author of a pull request comment on it but not approve it or request changes, so on your own pull requests only Comment is offered."),
+    note("GitHub lets the author of a pull request comment on it but not approve it or request changes, so on your own pull requests Approve and Request changes are greyed out."),
 
     h2("Ask about a pull request"),
     p(
-      "The prompter at the foot of a pull request asks about it. **Ask in** chooses the space, and the first question starts a session there with the pull request attached. Its answers show beside the pull request, and **Hide answers** folds them away.",
+      "The prompter at the foot of a pull request asks about it. The chip beside it, named for where it asks, chooses the space, and the first question starts a session there with the pull request attached. Its answers show beside the pull request, and **Hide answers** folds them away.",
     ),
     tip("Each review runs as a session in a space, named for its pull request, so the palette finds it again: type the repository or the number."),
   ],

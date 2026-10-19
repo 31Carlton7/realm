@@ -23,7 +23,7 @@ export default page({
     ),
     ul(
       "**Any model you have.** A sub-agent can run on a different model from its lead, named the way you'd say it, and Realm runs it on the agent that has that model. Left unnamed, it runs on the lead's model.",
-      "**Its own checkout.** Sub-agents working in parallel should each get a [worktree](/docs/spaces-and-worktrees#worktrees), and the lead can give them one. Otherwise they work in the lead's checkout.",
+      "**Its own checkout.** Sub-agents working in parallel should each get a [worktree](/docs/spaces-and-worktrees#worktrees), and the lead can give them one. Otherwise they work in the space's own folder, or a checkout the lead names.",
       "**The space's tools.** A sub-agent has the space's connections and skills, and the lead can narrow its skills further.",
     ),
     p(
@@ -38,7 +38,6 @@ export default page({
       "where it stands (**Needs you**, working, **Done**) and for how long",
       "the model and agent it runs on, its checkout and its permission mode",
       "how much of its time budget it has used",
-      "**Open transcript**, **Message** and **Stop**",
     ),
     figure(
       { detail: subAgents },
@@ -46,7 +45,7 @@ export default page({
       "Two sub-agents in the transcript, one waiting on you and one finished.",
     ),
     p(
-      "Clicking a sub-agent opens it in the side panel: its live transcript, its state, what it was asked, and what it reported once it finishes. Its requests can be answered there, and you can message it directly.",
+      "Click a card, or a sub-agent's line in the transcript, to open it in the side panel: its live transcript, its state, what it was asked, and what it reported once it finishes. Its requests can be answered there; **Message this sub-agent** writes to it alone, **Stop** stops it, and **Open as session** opens it with its own prompter.",
     ),
 
     h2("Permissions"),

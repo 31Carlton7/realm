@@ -35,7 +35,7 @@ export default page({
     steps(
       "Press **New space** at the foot of the sidebar, or choose **New space…** in the palette.",
       "Give it a **Name**, and an icon and colour if you like.",
-      "Under **Folder**, press **Choose folder…** or drop a repository on the sheet. Leave it empty and sessions run in the folder the sheet names.",
+      "Under **Folder**, press **Choose folder…** or drop a repository onto it. Leave it empty and sessions run in the folder the sheet names.",
       "Pick the **Profile** it belongs to. **Memory ▸ Write…** lets you give it standing instructions straight away, such as \"Use pnpm. Never push to main.\"",
       "Press **Create**. The space opens on a new session, ready to type in.",
     ),
@@ -90,7 +90,7 @@ export default page({
 
     h2("Worktrees"),
     p(
-      "In a git repository, a session can work in a worktree of its own: a separate checkout on its own branch. Two agents changing code at the same time each get a worktree, and neither overwrites the other's files. Realm keeps worktrees under `~/Realm/worktrees/<space>/`, outside your repository, so they never show in its `git status`.",
+      "In a git repository, a session can work in a worktree of its own: a separate checkout on its own branch. Two agents changing code at the same time each get a worktree, and neither overwrites the other's files. Realm keeps worktrees under `~/Realm/worktrees/`, in a folder for each space, outside your repository, so they never show in its `git status`.",
     ),
     h3("Start a session in a worktree"),
     ul(
@@ -103,7 +103,7 @@ export default page({
     ),
     h3("The Worktrees tab"),
     p(
-      "A space's **Worktrees** tab lists every checkout it has, the space's own folder first. Each one shows its kind (**Space folder**, **Linked checkout** or **Worktree**), its branch, how many files have changed, how far it's ahead of or behind its upstream, when it was last active, which sessions use it, and its path. **Changes** opens its diff. **New worktree…** at the top makes another.",
+      "A space's **Worktrees** tab lists every checkout it has, the space's own folder first. Each one shows its kind (**Space folder**, **Linked checkout** or **Worktree**), its branch, how many files have changed, how far it's ahead of or behind its upstream, when it was last active, how many sessions use it, and its path. **Changes** opens its diff. **New worktree…** at the top makes another.",
     ),
     h3("Remove a worktree"),
     p(
@@ -111,7 +111,7 @@ export default page({
     ),
     ul(
       "**Also delete the branch** starts ticked only when every commit on the branch is pushed. Untick it and the branch stays, with its commits.",
-      "A session still running there blocks the removal until you stop it.",
+      "A session still running there blocks the removal until you stop it. Sessions in the worktree go with it, once you tick **Delete this session and its transcript too**.",
       "Realm only removes checkouts it made itself.",
     ),
     note(
@@ -120,7 +120,7 @@ export default page({
 
     h2("Bring in your history from other agents"),
     p(
-      "**Settings ▸ Import** reads what Claude Code, Codex and Cursor already have on your Mac (transcripts, memory and skills) and lets you choose what to bring into Realm. It only reads `~/.claude`, `~/.codex` and `~/.cursor` and never writes to them, and nothing is created until you press **Import**. Sessions it can't match to a space go to an **Imported** space in your profile.",
+      "**Settings ▸ Import** reads what Claude Code, Codex and Cursor already have on your Mac (transcripts, memory and skills) and lets you choose what to bring into Realm. It reads `~/.claude`, `~/.codex` and `~/.cursor`, and skills from `~/.agents` and `~/.gemini`, and never writes to any of them. Nothing is created until you press the **Import** button, which says what it will bring in. Sessions it can't match to a space go to an **Imported** space in your profile.",
     ),
   ],
 })

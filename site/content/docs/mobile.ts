@@ -21,7 +21,6 @@ export default page({
     ),
     ul(
       "Only waiting permissions, finished or failed sessions, and unattended runs that stopped to ask for a person are sent, and each one once.",
-      "They're only sent when Realm isn't the app you're in.",
       "**Notify me about** on the same page decides which kinds of moment count at all.",
     ),
 

@@ -34,14 +34,14 @@ export default page({
     h3("Editing"),
     ul(
       "A Markdown file opens as rich text, and **Source** shows the file as written. A CSV opens as a grid. Code opens in an editor with line numbers; long lines scroll sideways.",
-      "There's no Save button: a pause in typing saves, and the head says **Edited**, **Saving…**, then **Saved**.",
+      "There's no Save button: a pause in typing saves, and the head says **Saving…**, then **Saved**.",
       "If the file changes on disk while you're editing it, Realm asks which to keep: **Keep mine** or **Take theirs**.",
       "A file outside the space, such as one an agent wrote to `/tmp` or your Downloads, opens read-only.",
     ),
 
     h2("Looking at a file"),
     p(
-      "Every file Realm shows (a picture in a message, an attachment, a Library tile, a row in Documents) opens in the same viewer. Markdown is rendered and code is highlighted, PDFs open in a PDF viewer, and videos play in Realm's own player.",
+      "Every file Realm shows outside the Documents tab (a picture in a message, an attachment, a Library tile) opens in the same viewer. Markdown is rendered and code is highlighted, PDFs open in a PDF viewer, and videos play in Realm's own player.",
     ),
     p(
       "Under the file is its session's prompter. A question asked there is a turn of the session the file came from, with the file attached, because that agent knows what the file is for. Marks you draw on a picture go to the agent as part of the picture.",
@@ -85,7 +85,7 @@ export default page({
 
     h2("Memory"),
     p(
-      "Memory is what your agents read before they start. A space's memory document (its page's **Memory** tab) is read by every session in that space; write conventions, links and standing instructions there, anything you'd otherwise retype at the start of every session. Realm never edits it for you.",
+      "Memory is what your agents read before they start. A space's memory document (its page's **Memory** tab) is read by every session in that space; write conventions, links and standing instructions there, anything you'd otherwise retype at the start of every session. No agent edits it; only an import you run adds to it.",
     ),
     p(
       "**Library ▸ Memory** shows the memory at each level (the space, the profile) and, session by session, the exact files each agent loads. **Also write AGENTS.md** puts the space's memory into an `AGENTS.md` in its folder, for agents that read that file.",

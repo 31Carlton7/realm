@@ -13,7 +13,7 @@ export default page({
     ul(
       "A Mac with Apple silicon. The Mac build is made for Apple silicon only.",
       "An account with the agent you want to use, such as a Claude or ChatGPT plan.",
-      "For agents other than Claude and Codex, their own installer's requirements. Most install from npm, so they need Node.js; **Settings ▸ Engines** names each one's command.",
+      "For agents other than Claude, their own installer's requirements. Claude comes with Realm; Codex and most others install from npm, so they need Node.js. **Settings ▸ Engines** names each one's command.",
     ),
     note(
       "Realm 2.3 also comes as previews for Linux (AppImage and .deb) and Windows. They are unsigned, they don't update themselves yet, and they hide the features that only exist on a Mac, such as computer use and simulators.",
@@ -39,7 +39,7 @@ export default page({
       "Realm opens on one page, **Welcome to Realm**. Its first step, **Choose your agent**, has a card for Claude and one for Codex, and each card does whatever its state needs, in place:",
     ),
     ul(
-      "**Install Claude** or **Install Codex** when the agent isn't on your Mac yet.",
+      "**Install Codex** when Codex isn't on your Mac yet. Claude needs no install: Realm carries the copy its sessions run.",
       "**Sign in with Claude** or **Sign in with ChatGPT** when it's installed but signed out. Your browser opens the provider's sign-in page. If that page shows you a code, paste it into the field on the card and press **Continue**.",
       "**Signed in** or **Ready** once it can run. Pick the card you want your first session to use.",
     ),
@@ -51,7 +51,7 @@ export default page({
     p("The second step, **Name your space**, makes your first space. A space keeps one project's sessions, files and memory together."),
     steps(
       "Type a **Name**. The tile beside it and the swatches under it set the space's icon and colour.",
-      "Under **Folder**, press **Choose folder…** or drop a repository onto the page. The folder is optional: without one, the page shows the folder Realm will make for the space under `~/Realm`, and sessions run there.",
+      "Under **Folder**, press **Choose folder…** or drop a repository onto it. The folder is optional: without one, the page shows the folder Realm will make for the space under `~/Realm`, and sessions run there.",
       "Press **Start**, or [[↩]].",
     ),
     p(
@@ -71,7 +71,7 @@ export default page({
 
     h2("Sign in to more agents"),
     p(
-      "**Settings ▸ Engines** lists every agent Realm can run, each on a card that says whether it's **Ready**, **Signed out** or **Not installed**. A card can install or update its agent, and its details hold the sign-in command with **Copy command**, to run in a terminal yourself.",
+      "**Settings ▸ Engines** lists every agent Realm can run, each on a card that says whether it's **Ready**, **Signed out** or **Not installed**. A card can install or update its agent, and its details hold the sign-in command with a copy button, to run in a terminal yourself.",
     ),
     p(
       "You can also fix an agent where you notice it: when a session's agent can't run, a card takes the prompter's place with **Install** or **Sign in**, **Open in terminal** and **Check again**. **Sign in** runs the agent's own sign-in and opens its page beside the session.",

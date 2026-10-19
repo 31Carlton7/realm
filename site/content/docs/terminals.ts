@@ -15,8 +15,8 @@ export default page({
     h2("Open a terminal"),
     table(
       ["To", "Do this"],
-      ["Open a new terminal in this space", "[[⌘T]], **File ▸ New Terminal**, or the side panel's **+ ▸ Terminal**"],
-      ["Show this session's terminal", "[[⌘J]], or **View ▸ Show Terminal**"],
+      ["Open a new terminal in this space", "[[⌘T]], or **File ▸ New Terminal**"],
+      ["Show this session's terminal", "[[⌘J]], **View ▸ Show Terminal**, or the side panel's **+ ▸ Terminal**"],
       ["Run one of the space's scripts", "**Run** on the space page's **Scripts** tab"],
     ),
     p(
@@ -48,9 +48,9 @@ export default page({
       "Agents run their own commands with their own shell tools; those show in the transcript, not in a terminal. A terminal is for the programs that need one to talk back to: an interactive sign-in, a prompt that asks a question, a full-screen program. With Realm's terminal tools an agent can open a terminal in the space, read what's on its screen, type into it and wait for something to appear.",
     ),
     ul(
-      "Opening, typing into or closing a terminal asks you first, in every mode but Full access. Reading one doesn't.",
+      "Opening, typing into or closing a terminal asks you first in Ask each time and Accept edits, goes ahead in Full access, and is refused in Plan and Ask. Reading one never asks.",
       "An agent working in a terminal it didn't open, such as one of yours, asks you first.",
-      "When an agent's CLI is signed out, its agent can open a terminal, run the CLI's own sign-in and open the sign-in page in a browser tab. Approving the sign-in on that page is your click.",
+      "When an agent's CLI is signed out, its agent can open a terminal, run the CLI's own sign-in and open the sign-in page in a browser tab. Approving the sign-in on that page is your click, unless the space lets Realm finish sign-ins.",
     ),
     careful("An agent can't type at a password prompt, in any permission mode. Type the password yourself, in the terminal."),
     tip(

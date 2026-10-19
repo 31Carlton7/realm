@@ -20,7 +20,7 @@ export default page({
       "Three of the apps a space can connect, each with what it lets an agent do.",
     ),
     p(
-      "**Connections** on the rail, or a space's **Connections** tab, starts with **Connect an app**: a card for each app whose own remote MCP server Realm can sign you in to. Press **Connect** and sign in on the app's own page. From then on it's an ordinary server in the list below.",
+      "**Connections** on the rail starts with **Connect an app**: a card for each app whose own remote MCP server Realm can sign you in to. Press **Connect** and sign in on the app's own page. From then on it's an ordinary server in the list below.",
     ),
     table(
       ["App", "What its agents can do"],
@@ -55,8 +55,8 @@ export default page({
       ["**Name**", "Letters, digits, underscore or hyphen"],
       ["**Transport**", "`stdio` for a program Realm starts, or `http` or `sse` for a server at a URL"],
       ["**Command** and **Arguments**", "The program to start (stdio)"],
-      ["**Server URL**", "Where the server is (http, sse)"],
-      ["**Authentication**", "OAuth, where the server offers it, or a token"],
+      ["**URL**", "Where the server is (http, sse)"],
+      ["**Authentication**", "**OAuth**, where the server offers it, or **API key headers**"],
       ["**Environment variables** or **Headers**", "Values the server needs, such as an API key"],
     ),
     p(
@@ -87,7 +87,7 @@ export default page({
       "A skill is a folder with a `SKILL.md` in it: instructions, and any files they need, that teach an agent how to do one thing your way. Realm keeps your skills in `~/Realm/skills`, and can also read the folders you point it at.",
     ),
     ul(
-      "**Library ▸ Skills**, or a space's **Skills** tab, lists every skill Realm found. Each has a switch for the space, **On in this space** or **Off in this space**.",
+      "**Library ▸ Skills**, or a space's **Skills** tab, lists every skill Realm found, each with a switch for this space. A skill's own page says whether it's **On in this space** or **Off in this space**.",
       "Like servers, a skill can belong to **This space**, your profile, or **Everywhere**.",
       "**Add a folder…** adds another place to look. **Where Realm looks for skills** lists every place and how many skills each holds.",
       "In a session, **+ ▸ Skills** turns one on, and `@` with a skill's name mentions it in a message.",

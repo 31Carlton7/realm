@@ -11,7 +11,7 @@ export default page({
       "When a session's agent can't run, a card takes the prompter's place. **Install** runs the install command and shows what it says. **Sign in** opens a terminal, runs the agent's own sign-in, and opens its sign-in page beside it; approving there is yours to do. **Open in terminal** types the command into the session's terminal for you to run. Realm checks again when you come back to the window, or press **Check again**.",
     ),
     p(
-      "**Settings ▸ Engines** shows every agent's state and the exact command to install or sign in to it. Realm checks the agents again every 15 minutes on its own.",
+      "**Settings ▸ Engines** shows every agent's state and the exact command to install or sign in to it. Realm checks an agent again when its last answer is more than 15 minutes old.",
     ),
     h3("Claude says its sign-in expired"),
     p("An expired Claude sign-in shows as an error in the transcript. Sign in again in a terminal, then send your message again:"),
@@ -52,7 +52,7 @@ export default page({
 
     h2("Linux and Windows"),
     p(
-      "The Linux (AppImage and .deb) and Windows builds of Realm 2.3 are previews. They are unsigned, so Windows SmartScreen warns on first run (choose **More info**, then **Run anyway**), and they don't update themselves: install a new version from the releases page. Features that exist only on a Mac, such as computer use, Laya, simulators, the Dock icon and window translucency, aren't shown there. On those systems Ctrl takes the place of [[⌘]] in every shortcut.",
+      "The Linux (AppImage and .deb) and Windows builds of Realm 2.3 are previews. They are unsigned, so Windows SmartScreen warns on first run (choose **More info**, then **Run anyway**), and they don't update themselves: install a new version from the releases page. Features that exist only on a Mac, such as computer use, Laya, simulators, the Dock icon and window translucency, aren't shown there. On those systems Ctrl takes the place of [[⌘]] in every shortcut, and the Super or Windows key takes the place of [[⌃]].",
     ),
 
     h2("A copy you built yourself"),

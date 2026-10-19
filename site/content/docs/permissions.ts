@@ -95,7 +95,7 @@ export default page({
     ),
     h3("Questions that aren't permissions"),
     p(
-      "Agents also ask questions, which arrive as cards that say who is asking. Answering one grants nothing. A form from an agent or an MCP server that asks for a key or a password is declined without being shown to you: secrets reach a site through [saved passwords](/docs/browser#saved-passwords), and reach a connection through its own sign-in.",
+      "Agents also ask questions, which arrive as cards that say who is asking. Answering one grants nothing. A form from an MCP server, Codex or another agent's own protocol that asks for a key or a password is declined, and its card says so, without the form ever being drawn, because such a form can't mask what you type. Secrets reach a site through [saved passwords](/docs/browser#saved-passwords), and a connection through its own sign-in. When an agent asks through Realm's own question card, a secret field is masked and your answer is kept out of Realm's records.",
     ),
   ],
 })

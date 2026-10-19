@@ -35,7 +35,7 @@ export default page({
     ul(
       "**Name** and **Realmite**, the small creature that marks it. Shuffle one, or make it part by part. Its face shows the role's state (idle, working, needs you, asleep), never a mood.",
       "**What they do**: the brief. Say what it does, for whom, and what it must never do.",
-      "**Model**: the agent's default, or a model such as Opus, Sonnet or Haiku.",
+      "**Model**: the newest Claude Sonnet, Opus or Haiku, or a specific Claude model. A new teammate starts on Sonnet.",
       "**Wakes**: a clock, such as every weekday at 9:00 AM, or **Only when you run it**.",
       "**A week, at most ($)**: its share of the team's weekly budget. A role whose week is spent pauses until the next.",
       "**Skills**: the skills it may use.",

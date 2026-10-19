@@ -44,11 +44,11 @@ export default page({
     h2("Keyboard shortcuts"),
     figure(
       { crop: "keys-list" },
-      "Settings ▸ Keys. A search field reading Search 47 commands, then the Panes group: Split right ⌘\\, Split down ⌘⇧\\, Close tab or split ⌘W, Focus pane full-screen ⌘⇧F, the four Focus the pane commands on ⌘⌥ and an arrow, Back in this pane ⌘[, Forward in this pane ⌘], Rename the focused pane (not bound), New tab in the side pane ⌘⇧B and New tab in full view ⌘⌥B.",
+      "Settings ▸ Keys. A search field over every command, then the Panes group: Split right ⌘\\, Split down ⌘⇧\\, Close tab or split ⌘W, Focus pane full-screen ⌘⇧F, the four Focus the pane commands on ⌘⌥ and an arrow, Back in this pane ⌘[, Forward in this pane ⌘], Rename the focused pane (not bound), New tab in the side pane ⌘⇧B and New tab in full view ⌘⌥B.",
       "Settings ▸ Keys, with the Panes group.",
     ),
     p(
-      "These are the defaults. Most don't fire while you're typing in a field, so they never take a letter from your message; the ones marked as working in the prompter do.",
+      "These are the defaults. Most don't fire while you're typing in a field, so they never take a letter from your message. The ones marked as working in the prompter do, and so do the palette, Open a file, Find in files, All spaces, Settings, Go back and Go forward.",
     ),
     h3("App"),
     table(
