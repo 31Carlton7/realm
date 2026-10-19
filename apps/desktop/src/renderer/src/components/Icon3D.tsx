@@ -46,9 +46,10 @@ export function icon3dSources(name: Icon3DName, size: Icon3DSize): { src: string
 
 /**
  * A 3D icon on its rung. It leans and lifts under the pointer of the control it is in, is pushed down
- * by a press, and settles with one small bounce when its row becomes the chosen one — not when it is drawn
- * already chosen, so opening a page does not set its column bouncing. All of it is the stylesheet's,
- * so Reduce motion stills it (styles.css, 3D icons). Decorative: the row's own words name it.
+ * by a press, and settles with one small bounce when its row becomes the chosen one — not when it is
+ * drawn already chosen, so opening a page does not set its column bouncing. All of it is the
+ * stylesheet's, so Reduce motion stills it (styles.css, 3D icons). Decorative: the row's own words
+ * name it.
  */
 export function Icon3D({ name, size, selected = false, className }: { name: Icon3DName; size: Icon3DSize; selected?: boolean; className?: string }) {
   const [settling, setSettling] = useState(false);
