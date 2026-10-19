@@ -4,14 +4,13 @@
  * Boots the BUILT app on a scratch REALM_HOME with the scripted agent standing in for Claude. The
  * lead's script ("Restart the stalled agents") runs one blocking Task and starts two of the harness's
  * own background agents, then ends its turn while they work — the shape of the turn the owner
- * screenshotted, where the only sign of them was the pane-bar chip. Checks, in the window:
+ * screenshotted. Checks, in the window:
  *
  *   1. Each launch is a sub-agent line in the transcript, not a generic tool card.
- *   2. Under the last message, a strip says "2 sub-agents working · 1 done" and lists all three —
- *      after the turn has ended — agreeing with the chip's count.
- *   3. A click on a strip row opens the session's Agents tab on that sub-agent's viewer.
- *   4. Once both background agents stop, the strip folds to "3 sub-agents finished", and that line
- *      opens the Agents tab again.
+ *   2. After the turn has ended, the row over the prompter names all three — two working, one done —
+ *      and nothing else does: no strip under the last message, no count in the session's bar.
+ *   3. A click on a chip opens the session's Agents tab on that sub-agent's viewer.
+ *   4. Once both background agents stop, every chip says done, and a chip opens the Agents tab again.
  *
  * Captured dark and light. Ports: LIVE_SERVER_PORT (8829), LIVE_CDP_PORT (9269). Screenshots go to
  * LIVE_OUT_DIR. Kills only what listens on its own ports.
@@ -198,9 +197,15 @@ async function main() {
 
   // ── The turn: a blocking Task, two background agents, and the turn ends ────────────────────
   await api.call("sessions.send", { id: lead, text: "Restart the stalled agents.", attachments: [], mentions: [] });
-  const stripLine = () => evalIn(c, `document.querySelector('.subagent-strip .subagent-strip-line')?.textContent ?? null`);
+  /** The row over the prompter: each chip's name and state. */
+  const rowNow = () => evalIn(c, `[...document.querySelectorAll('.composer-overstrip .active-agent')].map((b) => ({ name: b.querySelector('.chip-label').textContent, state: b.dataset.state }))`);
+  const states = async () => (await rowNow()).map((a) => a.state).sort().join(",");
+  const clickChip = (name) => evalIn(c, `(() => { [...document.querySelectorAll('.composer-overstrip .active-agent')].find((b) => b.textContent.includes(${JSON.stringify(name)})).click(); return true; })()`);
+  /** The lead's pane: its bar, the transcript down to its last line, and the row over the prompter. */
+  const paneClip = () => evalIn(c, `(() => { const p = document.querySelector('.composer-dock').closest('.panel').getBoundingClientRect();
+    return { x: p.left, y: p.top, width: p.width, height: p.height }; })()`);
   const leadStatus = async () => (await api.call("sessions.get", { id: lead }).catch(() => null))?.status ?? null;
-  await until(async () => (await stripLine()) === "2 sub-agents working · 1 done", 30_000, "strip running").catch(async (e) => { note("strip at timeout", await stripLine()); throw e; });
+  await until(async () => (await states()) === "done,working,working", 30_000, "row running").catch(async (e) => { note("row at timeout", await rowNow()); throw e; });
   await until(() => evalIn(c, `!document.querySelector('.msg-working')`), 15_000, "turn over");
   await sleep(1500);
   note("lead status after the turn", await leadStatus());
@@ -210,62 +215,61 @@ async function main() {
   check("each launch is a sub-agent line", lines.length === 3 && lines.includes("Sub-agent working: Teams rule engine, general-purpose")
     && lines.includes("Sub-agent working: Realmite runner game, general-purpose") && lines.includes("Sub-agent finished: Check the policies page, Explore"), lines);
   check("no launch is left as a generic Agent card", await evalIn(c, `![...document.querySelectorAll('.transcript .tool-row')].some((b) => b.getAttribute('aria-label') === 'Agent tool call')`));
-  const rows = await evalIn(c, `[...document.querySelectorAll('.subagent-strip-row')].map((r) => ({ title: r.querySelector('.subagent-strip-title').textContent, state: r.dataset.state, time: r.querySelector('.subagent-strip-time').textContent }))`);
-  note("strip rows", rows);
-  check("the strip lists all three after the turn ended, two working", rows.length === 3 && rows.filter((r) => r.state === "working").length === 2, rows);
-  const chip = await evalIn(c, `document.querySelector('.agents-chip')?.textContent ?? null`);
-  check("the chip counts the same two", chip === "2 working", chip);
-  const geom = await evalIn(c, `(() => { const s = document.querySelector('.subagent-strip').getBoundingClientRect(), col = document.querySelector('.transcript-col').getBoundingClientRect(),
-    last = [...document.querySelectorAll('.transcript .msg-assistant, .transcript .msg-run')].pop()?.getBoundingClientRect();
-    return { stripTop: Math.round(s.top), stripBottom: Math.round(s.bottom), left: Math.round(s.left - col.left), right: Math.round(col.right - s.right), lastBottom: last ? Math.round(last.bottom) : null, vh: innerHeight }; })()`);
-  note("strip geometry", geom);
-  check("the strip sits under the last message, on screen", geom.lastBottom !== null && geom.stripTop >= geom.lastBottom && geom.stripBottom <= geom.vh, geom);
+  const row = await rowNow();
+  note("the row", row);
+  check("the row names all three after the turn ended, two working and one done", row.length === 3
+    && row.filter((r) => r.state === "working").length === 2 && row.some((r) => r.name === "Check the policies page" && r.state === "done"), row);
+  check("nothing under the last message names them again", await evalIn(c, `!document.querySelector('.transcript [aria-label="Sub-agents"]')`));
+  check("the session's bar names none of them", await evalIn(c, `![...document.querySelectorAll('.panel-bar')].some((b) => /working/.test(b.textContent) || b.querySelector('[aria-label*="working"]'))`));
+  const geom = await evalIn(c, `(() => { const g = document.querySelector('.composer-overstrip .active-agents').getBoundingClientRect(), box = document.querySelector('.composer-input').getBoundingClientRect();
+    return { rowTop: Math.round(g.top), rowBottom: Math.round(g.bottom), boxTop: Math.round(box.top), vh: innerHeight }; })()`);
+  note("row geometry", geom);
+  check("the row sits over the prompter, on screen", geom.rowBottom <= geom.boxTop && geom.rowTop >= 0, geom);
   for (const face of ["dark", "light"]) {
     await evalIn(c, `(() => { document.documentElement.dataset.mode = ${JSON.stringify(face)}; return true; })()`);
     await sleep(500);
-    await shot(c, `1-strip-running-${face}`);
+    await shot(c, `1-row-running-${face}`, await paneClip());
   }
   await evalIn(c, `(() => { document.documentElement.dataset.mode = "dark"; return true; })()`);
 
-  // ── A row opens the Agents tab on its viewer ─────────────────────────────────────────────────
-  await evalIn(c, `(() => { [...document.querySelectorAll('.subagent-strip-row')].find((r) => r.textContent.includes('Teams rule engine')).click(); return true; })()`);
+  // ── A chip opens the Agents tab on its viewer ────────────────────────────────────────────────
+  await clickChip("Teams rule engine");
   const lit = await until(() => evalIn(c, `document.querySelector('.subagent-view-title')?.textContent ?? null`), 10_000, "viewer").catch(() => null);
-  check("a strip row opens the Agents tab on that sub-agent's viewer", lit === "Teams rule engine", lit);
+  check("a chip opens the Agents tab on that sub-agent's viewer", lit === "Teams rule engine", lit);
   const tabCards = await evalIn(c, `[...document.querySelectorAll('.subagent-switch-tab')].slice(1).map((t) => ({ task: t.textContent, state: t.dataset.state }))`);
   note("Agents tab switcher", tabCards);
   check("the Agents tab lists the lead's own background agents", tabCards.length === 3, tabCards);
   await shot(c, "2-agents-tab-focused-dark");
-  await evalIn(c, `(() => { [...document.querySelectorAll('.subagent-strip-row')].find((r) => r.textContent.includes('Realmite runner game')).click(); return true; })()`);
+  await clickChip("Realmite runner game");
   await until(() => evalIn(c, `document.querySelector('.subagent-view-title')?.textContent === 'Realmite runner game'`), 10_000, "second viewer");
   await evalIn(c, `(() => { document.documentElement.dataset.mode = "light"; return true; })()`);
   await sleep(400);
   await shot(c, "3-agents-tab-focused-light");
   await evalIn(c, `(() => { document.documentElement.dataset.mode = "dark"; return true; })()`);
-  // Keyboard: the strip's rows are buttons in the tab order, and Enter on one does what a click does.
-  const keyboard = await evalIn(c, `(() => { const r = document.querySelector('.subagent-strip-row'); r.focus(); return document.activeElement === r && r.tagName === 'BUTTON'; })()`);
-  check("a strip row takes keyboard focus as a button", keyboard);
+  // Keyboard: the chips are buttons in the tab order, and Enter on one does what a click does.
+  const keyboard = await evalIn(c, `(() => { const r = document.querySelector('.composer-overstrip .active-agent'); r.focus(); return document.activeElement === r && r.tagName === 'BUTTON'; })()`);
+  check("a chip takes keyboard focus as a button", keyboard);
+  await evalIn(c, `(() => { document.activeElement?.blur(); return true; })()`);
 
-  // ── They finish: the strip folds to one line ─────────────────────────────────────────────────
-  await until(async () => (await stripLine()) === "3 sub-agents finished", 90_000, "strip settled").catch(async (e) => { note("strip at timeout", await stripLine()); throw e; });
+  // ── They finish: every chip says done ────────────────────────────────────────────────────────
+  await until(async () => (await states()) === "done,done,done", 90_000, "row settled").catch(async (e) => { note("row at timeout", await rowNow()); throw e; });
   await sleep(600);
-  check("the settled strip lists no rows", await evalIn(c, `document.querySelectorAll('.subagent-strip-row').length === 0`));
   const doneLines = await evalIn(c, `[...document.querySelectorAll('.transcript .delegation-line .tool-row')].map((b) => b.getAttribute('aria-label') + ' ' + (b.querySelector('.delegation-line-time')?.textContent ?? ''))`);
   note("launch lines once done", doneLines);
   check("the launch lines say finished, with how long", doneLines.filter((l) => l.startsWith("Sub-agent finished")).length === 3, doneLines);
-  check("the chip leaves once none is working", await evalIn(c, `!document.querySelector('.agents-chip')`));
   // Close the Agents tab's pane, so the click below has to bring it back.
   await evalIn(c, `(() => { document.querySelector('.pane-tab-close[aria-label="Close Agents"], .pane-tab-close[aria-label="Delete Agents"]')?.click(); return true; })()`);
   const closed = await until(() => evalIn(c, `!document.querySelector('.subagents')`), 5_000, "tab closed").then(() => true, () => false);
-  check("the Agents tab is closed before the folded line is clicked", closed);
+  check("the Agents tab is closed before a chip is clicked", closed);
   for (const face of ["dark", "light"]) {
     await evalIn(c, `(() => { document.documentElement.dataset.mode = ${JSON.stringify(face)}; return true; })()`);
     await sleep(500);
-    await shot(c, `4-strip-finished-${face}`);
+    await shot(c, `4-row-finished-${face}`, await paneClip());
   }
   await evalIn(c, `(() => { document.documentElement.dataset.mode = "dark"; return true; })()`);
-  await evalIn(c, `(() => { document.querySelector('.subagent-strip-head').click(); return true; })()`);
-  const back = await until(() => evalIn(c, `document.querySelectorAll('.subagents li.subagent').length`), 10_000, "tab back").catch(() => 0);
-  check("the folded line opens the Agents tab", back === 3, back);
+  await clickChip("Teams rule engine");
+  const back = await until(() => evalIn(c, `document.querySelector('.subagent-view-title')?.textContent ?? null`), 10_000, "tab back").catch(() => null);
+  check("a finished agent's chip opens the Agents tab on it", back === "Teams rule engine", back);
   await sleep(500);
   await shot(c, "5-finished-agents-tab-dark");
 }
@@ -274,10 +278,10 @@ async function main() {
  *  nothing and the PNG comes out see-through — measured: the sidebar at alpha 140. For the capture
  *  alone the root is painted with a ground that stands in for the material over a plain wallpaper,
  *  dark or light as the face is, and put back after. */
-async function shot(c, tag) {
+async function shot(c, tag, clip = null) {
   await evalIn(c, `(() => { const r = document.documentElement; r.style.background = r.dataset.mode === "light" ? "#e9e9ec" : "#17181b"; return true; })()`);
   try {
-    const { data } = await c.send("Page.captureScreenshot", { format: "png" });
+    const { data } = await c.send("Page.captureScreenshot", { format: "png", ...(clip ? { clip: { ...clip, scale: 1 } } : {}) });
     fs.writeFileSync(OUT(tag), Buffer.from(data, "base64"));
     console.log(`SCREENSHOT ${tag} ${OUT(tag)}`);
   } catch (e) { note("screenshot failed", String(e)); }

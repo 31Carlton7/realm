@@ -853,8 +853,8 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   each opening a browser once filled a window with eight columns a fifth of it wide, every title an
   ellipsis and every page unreadable. In the panel's bar the tabs are the data of unbounded length,
   so they keep the width and the shown item's own actions go to its menu. The agents still working
-  are a count in the session's bar, and their list previews one on request; a tab dragged to an edge
-  is how something becomes part of the user's own layout.
+  are chips over the session's prompter, and a click on one previews it; a tab dragged to an edge is
+  how something becomes part of the user's own layout.
 - A split holds as many panes as the person makes, split right or down and nested as they were made
   (the owner, 10-05: "allow opening as many as the user wants"). The limit is room, never a count: a
   pane is never drawn below the floor a session pane was measured to work at (`PANE_MIN`), so a split
@@ -885,13 +885,13 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   one draft and a strip that could not say whose its tabs were; opening a session that is on screen
   goes to it, and dropping it on an edge moves it.
 - A pane's bar carries what is about the thing it heads; what is opened BESIDE it is launched from
-  where it lands. A session's bar is its crumb, the count of its agents working, its status, one
-  control for what it made — the summary and the files, told apart in the dock's own head — and its
-  menu. Documents, its terminal, its agents, a page, a device and a machine are rows of the side
-  panel's "+" and of a new tab's page, with their chords, and in the palette. Seven glyphs that each
-  opened something somewhere else were the loudest thing at the top of the window and said nothing
-  about the session (the owner, 10-05); a "+" is the one control a strip of tabs can spare, because
-  every button beside it comes out of the tabs' width.
+  where it lands. A session's bar is its crumb, its status, one control for what it made — the
+  summary and the files, told apart in the dock's own head — and its menu. Documents, its terminal,
+  its agents, a page, a device and a machine are rows of the side panel's "+" and of a new tab's
+  page, with their chords, and in the palette. Seven glyphs that each opened something somewhere
+  else were the loudest thing at the top of the window and said nothing about the session (the
+  owner, 10-05); a "+" is the one control a strip of tabs can spare, because every button beside it
+  comes out of the tabs' width.
 - What a pane SHOWS keeps its controls with it, not in the pane's bar, which in the side panel is the
   tab strip: the simulator's state and eight buttons there once left the tabs no width at all. A device
   wears a toolbar centred over it — its state and the presses used every minute, the rest one click
@@ -978,6 +978,11 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   message, by handle, and can wait on it, ask it and plan around it. Who is working is said on the
   prompter's over-strip, a chip each with the sidebar's still dot, the one that needs you first and
   the rest folded past three; a person addresses one by its `@`, which passes it the message too.
+- Who is working is said in that one place (the owner, 10-19). The same agents were also a count in
+  the session's bar and a strip under the last message — three surfaces saying one thing, two of them
+  in the corner of the eye while the person read the third. The transcript keeps each agent's own
+  line where it was started, so the history still reads; what only the bar showed, a session that
+  was merely asked a question, is a chip on the row while it answers, and opens as that session.
 - A sub-agent in its lead's transcript is a line of its own — "Sub-agent finished · <task>", its model,
   its time — and is never folded into the ledger. A fan-out is two starts and a wait in a row, which
   is a run, and a settled run collapses to "Worked for 8s": the one thing a reader of a delegation
@@ -987,7 +992,7 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   time is spent. A card waiting on a request is open with the request in it, answered there through
   the same call the transcript uses. What a sub-agent started of its own nests under it, never beside it.
 - A sub-agent is looked at in ONE place, whichever surface it was clicked on — its line in the lead's
-  transcript, the strip under the last message, the bar's chip, a card: the lead's Agents tab, on that
+  transcript, its chip over the prompter, a card: the lead's Agents tab, on that
   sub-agent, beside the lead and never over it, with the keyboard left in the lead's prompter. Its
   siblings are tabs along the top with their state's mark; its head says the state in words, the
   clock, the model and the checkout; its report is pinned under the head once it has one, as tall as it
