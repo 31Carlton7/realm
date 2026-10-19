@@ -4,7 +4,7 @@ import {
   CreateRoleSchema, CustomRoleSchema, ROLE_TEMPLATES, nextFireOf, teamShares, type CustomRoleInput, TEAM_DEFAULTS, UpdateRoleSchema, USAGE_REPORTING, amrRepoSourceLink,
   ACT_PACING, CREATOR_PRESET, EDITABLE_FORMATS, inferFormat, isLegacyLabel, itemActKind, itemTarget, lineDiff, reviewVerb, verbFamily, recordTemplate,
   type DeliverableFormat, type ProposedAction, type ReviewAction, type RecordType, isRunLive, isRunTerminal, parseBlockRequest, parseMemoryEntry, parseRecord, recordAccounts, recordField, recordSlug, recordTitle, sessionEvent, usageDeltas, weekStart,
-  type ActTicket, type AgentKind, FINAL_REVIEW_STATES, type CreateRoleInput, type ParsedRecord, type LedgerLine, type ReviewCheck, type ReviewCloseOutcome, type ReviewKind, type ReviewState, type ReviewTarget, type RoleRun,
+  type ActTicket, type AgentKind, FINAL_REVIEW_STATES, type CreateRoleInput, type ParsedRecord, type LedgerLine, type ReviewCheck, type ReviewCloseOutcome, ReviewCloseOutcomeSchema, type ReviewKind, type ReviewState, type ReviewTarget, type RoleRun,
   type Run, type Schedule, type Session, type SessionEvent, type TeamActivity, type TeamRecord, type TeamRecordSummary,
   type TeamReviewDetail, type TeamReviewItem, type TeamReviewSummary, type TeamRole, type TeamSpace, type UpdateRoleInput, type WokeOn,
 } from "@realm/contracts";
@@ -39,6 +39,8 @@ export type SubmitInput = {
   kind?: ReviewKind | undefined;
   title: string;
   record?: string | undefined;
+  /** The role's word to the person about the batch: why it made it, and what to look at first. */
+  note?: string | undefined;
   items: {
     files: string[]; body?: string | undefined;
     format?: DeliverableFormat | undefined; meta?: Record<string, string> | undefined;
@@ -105,7 +107,9 @@ export class TeamService {
       issue(reviewId: string): ActTicket[];
       cancelForReview(reviewId: string, why: string): void;
       tickets(reviewId: string): ActTicket[];
-      counts(reviewId: string): { total: number; done: number };
+      /** `ready` waits for its press, `failed` came back from the platform with an error, and `nextAt`
+       *  is the soonest pressed slot — absent where the counter does not know them. */
+      counts(reviewId: string): { total: number; done: number; ready?: number; failed?: number; nextAt?: number | null };
       held(spaceId: string): boolean;
       today(kind: "post" | "dm" | "email", channel: string, account: string): { count: number; cap: number };
     };
@@ -649,6 +653,9 @@ export class TeamService {
       };
     });
     const label = given ?? inferFormat(items[0]!);
+    const note = input.note?.trim() || null;
+    const noteSecret = note ? secretShapeIn(note) : null;
+    if (noteSecret) throw new RpcError("TEAM_REVIEW_SECRET", `the note holds what looks like ${noteSecret}. Review never takes a secret.`);
 
     const run = this.d.runs.listLive().find((r) => r.sessionId === ctx.sessionId) ?? null;
     const roleId = run?.roleId ?? null;
@@ -659,7 +666,7 @@ export class TeamService {
       ? this.d.store.revise(prior.id, { runId: run?.id ?? null, sessionId: ctx.sessionId, title }, items)
       : this.d.store.createReview({ spaceId: ctx.spaceId, roleId, runId: run?.id ?? null, sessionId: ctx.sessionId, recordPath, kind: label, title }, items);
     this.log(ctx.spaceId, roleId ? `role:${roleId}` : "realm", prior ? "revised" : "submitted", title,
-      { reviewId: row.id, kind: label, items: items.length, version: row.version }, run ?? { sessionId: ctx.sessionId });
+      { reviewId: row.id, kind: label, items: items.length, version: row.version, ...(note ? { note } : {}) }, run ?? { sessionId: ctx.sessionId });
 
     // The files are the session's work, so they belong in Documents and the Library like any other.
     const abs = [...new Set(items.flatMap((it) => it.files))].map((f) => join(root, f)).filter((p) => existsSync(p));
@@ -764,13 +771,27 @@ export class TeamService {
       itemCount: items.length, thumb: first,
       channels: [...new Set(items.map((i) => itemTarget(i)?.channel).filter((c): c is string => !!c))],
       account: (items[0] ? itemTarget(items[0])?.account : null) ?? null,
+      to: (items[0] ? itemTarget(items[0])?.to : null) ?? null,
       format: items[0] ? inferFormat(items[0]) : null,
       verb: reviewVerb(r.kind, items),
       editedItems: items.filter((i) => i.editedBy === "user").map((i) => i.ord + 1),
       changedSinceApproval: items.some((i) => i.approvedHash !== null && i.approvedHash !== i.contentHash),
-      ...(() => { const c = this.d.acts?.counts(r.id) ?? { total: 0, done: 0 }; return { actsTotal: c.total, actsDone: c.done }; })(),
+      ...(() => {
+        const c = this.d.acts?.counts(r.id) ?? { total: 0, done: 0 };
+        return { actsTotal: c.total, actsDone: c.done, actsWaiting: c.ready ?? 0, actsFailed: c.failed ?? 0, nextActAt: c.nextAt ?? null };
+      })(),
+      closedAs: this.closedAs(r),
       createdAt: r.createdAt, decidedAt: r.decidedAt, updatedAt: r.updatedAt,
     };
+  }
+
+  /** How a role closed its own review (`review_close`), so a list can tell "replaced by a newer one"
+   *  from "no longer wanted" — the state alone says only "put away" or "done". */
+  private closedAs(r: ReviewRow): ReviewCloseOutcome | null {
+    // Only a role's close leaves the review done or put away; the person's own close is `closed`.
+    if (r.state !== "dismissed" && r.state !== "done") return null;
+    const outcome = ReviewCloseOutcomeSchema.safeParse(this.d.store.reviewActivity(r, ["closed"])?.detail.outcome);
+    return outcome.success ? outcome.data : null;
   }
 
   review(id: string): TeamReviewDetail {
@@ -799,7 +820,15 @@ export class TeamService {
       root,
       tickets: this.d.acts?.tickets(id) ?? [],
       fileTexts: root ? this.fileTexts(root, all) : {},
+      why: this.why(fresh),
     };
+  }
+
+  /** The role's note on the version being read — or on the newest one it sent, when the person's own
+   *  edit made this version. */
+  private why(r: ReviewRow): string | null {
+    const line = this.d.store.reviewActivity(r, ["submitted", "revised"]);
+    return typeof line?.detail.note === "string" ? line.detail.note : null;
   }
 
   /** The text files the items name (a table, a diff, Markdown), read for the window, which cannot read
@@ -888,7 +917,10 @@ export class TeamService {
     if (!run) return lines;
     for (const a of this.d.store.activityForRun(run.id)) {
       if (a.verb === "woke") {
-        const why = a.detail.wokeOn === "schedule" ? "Woke on its schedule" : a.detail.wokeOn === "review" ? "Woke when you asked for changes" : "Started by you";
+        const by = typeof a.detail.by === "string" ? a.detail.by : null;
+        const why = a.detail.wokeOn === "schedule" ? "Woke on its schedule" : a.detail.wokeOn === "review" ? "Woke when you asked for changes"
+          : a.detail.wokeOn === "handoff" ? (by ? `Woke on ${by}'s handoff` : "Woke on a handoff")
+          : a.detail.wokeOn === "goal" ? "Started on its goal" : "Started by you";
         lines.push({ ts: a.ts, glyph: "alarm", text: why, detail: typeof a.detail.note === "string" ? `“${clip(a.detail.note, 80)}”` : null });
       } else if (a.verb === "read_record") {
         lines.push({ ts: a.ts, glyph: "note", text: `Read ${a.object ?? "a record"}`, detail: typeof a.detail.path === "string" ? a.detail.path : null });

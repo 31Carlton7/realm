@@ -170,3 +170,53 @@ describe("review_close", () => {
     expect(store.review(r.id)!.state).toBe("waiting");
   });
 });
+
+describe("what Review is told about a review", () => {
+  it("says how a role closed its own review, and nothing for the person's close or dismiss", async () => {
+    const { team, store, running, draft, call, tick } = setup();
+    const ctx = running("R1", "SESS");
+    const [replaced, withdrawn, mine, putAway] = ["a", "b", "c", "d"].map((t) => draft(ctx, t));
+    tick();
+    await call(ctx, { id: replaced!.id, outcome: "superseded", reason: "the new batch replaces it" });
+    await call(ctx, { id: withdrawn!.id, outcome: "withdrawn" });
+    team.closeReview(mine!.id);
+    team.dismiss(putAway!.id);
+    const byTitle = Object.fromEntries(store.reviews("S1").map((r) => [r.title, team.summary(r)]));
+    // THE MUTANT: `closedAs` read off the state — every put-away review would read "replaced".
+    expect(byTitle.a).toMatchObject({ state: "dismissed", closedAs: "superseded", note: "the new batch replaces it" });
+    expect(byTitle.b).toMatchObject({ state: "dismissed", closedAs: "withdrawn" });
+    // The person's close and the old Dismiss carry no outcome of a role's.
+    expect(byTitle.c).toMatchObject({ state: "closed", closedAs: null });
+    expect(byTitle.d).toMatchObject({ state: "dismissed", closedAs: null });
+  });
+
+  it("names who the first item goes to, so the list can say where a draft is going", () => {
+    const { team, running } = setup();
+    const r = team.submit(running("R1", "SESS"), { kind: "replies", title: "Reply to Dana",
+      items: [{ files: [], body: "Hi Dana", action: { connector: "mcp:gmail", verb: "send", account: "me@versed.app", to: "dana@acme.com" } }] });
+    // THE MUTANT: `to` read off the account — the row would say the email goes to its own sender.
+    expect(r).toMatchObject({ account: "me@versed.app", to: "dana@acme.com" });
+    expect(team.submit(running("R1", "SESS2"), { kind: "note", title: "Note", items: [{ files: [], body: "x" }] }).to).toBeNull();
+  });
+
+  it("carries the role's note to the reader, refuses a secret in it, and drops it from a revision that says nothing new", async () => {
+    const { team, store, live, running } = setup();
+    const ctx = running("R1", "SESS");
+    const tools = createTeamAgentProvider({ team, types: { describe: () => "", descriptions: () => ({ types: "", list: "", read: "", update: "", path: "", section: "" }) } as never, mcp: { providerEnabled: () => true } });
+    const submit = (args: unknown) => tools.call(ctx as never, "review_submit", args);
+    await submit({ label: "replies", title: "Reply to Dana", note: "She asked for the date in writing.", items: [{ body: "Hi Dana" }] });
+    const r = store.reviews("S1")[0]!;
+    // THE MUTANT: the note dropped between the tool and the activity line — the reader has nothing to quote.
+    expect(team.review(r.id).why).toBe("She asked for the date in writing.");
+    // The person's own edit is a new version, and the note still speaks for the work.
+    team.editItem(r.id, team.review(r.id).items[0]!.id, "Hi Dana, the 14th.");
+    expect(team.review(r.id)).toMatchObject({ version: 2, why: "She asked for the date in writing." });
+    const refused = await submit({ label: "replies", title: "Key", note: "use sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789", items: [{ body: "x" }] });
+    expect(refused.isError).toBe(true);
+    expect(store.reviews("S1").map((x) => x.title)).not.toContain("Key");
+    // A revision the role sends without a note says nothing about why — not the first version's reason.
+    live[0]!.dedupeKey = `review:${r.id}:2` as never;
+    await submit({ label: "replies", title: "Reply to Dana", items: [{ body: "Hi Dana, Wednesday the 14th." }] });
+    expect(team.review(r.id)).toMatchObject({ version: 3, why: null });
+  });
+});

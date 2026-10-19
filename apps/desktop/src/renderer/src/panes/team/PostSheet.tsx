@@ -20,6 +20,7 @@ export const POST_SHEET_NO_AGENT = "post sheet";
  */
 export function PostSheet({ detail, ticket, onClose }: { detail: TeamReviewDetail; ticket: ActTicket; onClose: () => void }) {
   const post = useApp((s) => s.postTeamTicket);
+  const toast = useApp((s) => s.toast);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [label, setLabel] = useState(false);
@@ -43,7 +44,11 @@ export function PostSheet({ detail, ticket, onClose }: { detail: TeamReviewDetai
 
   const press = async () => {
     setBusy(true); setError(null);
-    try { await post(ticket, { label }); onClose(); } catch (e) { setError(plainError(e)); } finally { setBusy(false); }
+    try {
+      await post(ticket, { label });
+      onClose();
+      toast({ tone: "success", icon: "send", text: when === "now" ? `${words.verb === "Post" ? "Posting" : "Sending"} it now.` : `Set for ${when}. You can take it back until then.` });
+    } catch (e) { setError(plainError(e)); } finally { setBusy(false); }
   };
 
   return (

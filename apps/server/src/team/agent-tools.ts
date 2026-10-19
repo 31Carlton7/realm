@@ -36,6 +36,7 @@ const SubmitArgs = z.object({
   kind: ReviewLabelSchema.optional(),
   title: z.string().trim().min(1).max(200),
   record: z.string().min(1).max(200).optional(),
+  note: z.string().max(1_000).optional(),
   items: z.array(z.object({
     files: z.array(z.string().min(1).max(1_000)).max(40).default([]),
     body: z.string().max(20_000).optional(),
@@ -93,6 +94,7 @@ const TOOLS: Tool[] = [
       `\`format\` says how Review draws it (${DELIVERABLE_FORMATS.join(", ")}); leave it out and Realm infers it from the files and the text. \`meta\` is up to 20 short key/values the person should see (\"Subject\", \"Due\", \"Version\").`,
       "`action` is the outward act it proposes, if any: `connector` (`channel:tiktok`, `channel:instagram`, `channel:email` for the team's own accounts), `verb` (post, dm, email, send), `account` (the @handle or address it goes out as) and `to` (who a DM or an email is for). `target` {channel, account, to} is the old way to say the same. Realm checks the record's `consent:` for that account, the disclosure and the pacing, reports them to the person, and enforces them when anything would go out. Never put a password, key or token in any field; it is refused.",
       "Once approved, each post, DM or email waits for a person to press it, one at a time, at Realm's paced slots (3 posts a day per account, 15 DMs). You cannot post or send it, and nothing you call will.",
+      "`note` is a sentence or two for the person, shown above the work: why you made it and what to look at first. Say what they cannot see in the work itself; never restate it.",
       "If a person asked for changes and woke you, submitting again replaces that review in place as its next version.",
     ].join(" "),
     inputSchema: {
@@ -102,6 +104,7 @@ const TOOLS: Tool[] = [
         kind: { type: "string", description: "the old name for `label`" },
         title: { type: "string", description: "what the person will read in the list, e.g. \"6 slideshows for Nathan\"" },
         record: { type: "string", description: "the record it is for: creators/<name>.md" },
+        note: { type: "string", description: "for the person, above the work: why you made it and what to look at first" },
         items: {
           type: "array",
           items: {
