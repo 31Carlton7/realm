@@ -154,6 +154,28 @@ describe("the tick", () => {
     expect(created.length).toBeLessThanOrEqual(1);
   });
 
+  it("runs a daily task once on each day the clocks change, ticked minute by minute in Los Angeles", () => {
+    // THE MUTANT: the gap skipped. A daily 02:30 makes no run on 2026-03-08, and the row records
+    // no skip either. The day the clocks go back, 01:30 happens twice and must still run once.
+    const zone = process.env.TZ;
+    try {
+      process.env.TZ = "America/Los_Angeles";
+      const { svc } = service();
+      clock = at(2026, 3, 7, 12);
+      const spring = svc.create(input({ cron: "30 2 * * *" }));
+      for (const end = at(2026, 3, 8, 12); clock < end; clock += 60_000) svc.tick();
+      expect(created.map((r) => r.dedupeKey)).toEqual([`schedule:${spring.id}:${at(2026, 3, 8, 3)}`]);
+
+      created = [];
+      clock = at(2026, 10, 31, 12);
+      const fall = svc.create(input({ cron: "30 1 * * *" }));
+      for (const end = at(2026, 11, 1, 12); clock < end; clock += 60_000) svc.tick();
+      expect(created.map((r) => r.dedupeKey)).toEqual([`schedule:${fall.id}:${at(2026, 11, 1, 1, 30)}`, `schedule:${spring.id}:${at(2026, 11, 1, 2, 30)}`]);
+    } finally {
+      if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone;
+    }
+  });
+
   it("records the run it made, so the row can point at it", () => {
     const { svc, store } = service();
     const s = svc.create(input());
