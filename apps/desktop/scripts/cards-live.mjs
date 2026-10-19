@@ -5,17 +5,18 @@
  * scripted agent standing in for every engine, so nothing reaches an account. One session runs a
  * turn that drafts a plan and really edits its checkout (a git repository made for it), then fans out
  * five of the harness's own background agents and ends its turn while they work — the "5 sub-agents
- * working" card the owner screenshotted — then asks a permission and a question. A second session
- * orchestrates four delegated children, for the Agents tab's cards and the pinned report.
+ * working" the owner screenshotted, which now lives on the row over the prompter and, a click away,
+ * as five cards in the session's Agents tab — then asks a permission and a question. A second session
+ * orchestrates four delegated children, for the pinned report.
  *
- * Every card family is photographed in both faces: the strip, the Agents tab, the report, the plan,
+ * Every card family is photographed in both faces: the Agents tab, the report, the plan,
  * the edit card, the permission and question cards, a settings group, the engines, Usage, the theme's
  * Light / Dark / System tiles, the Library, a scheduled task,
  * and — for the families that take a team or a pull request to reach — the same classes laid into the
- * window as a gallery, under the real stylesheet and the real painter. A corner of the strip is
- * captured at 4× in both faces.
+ * window as a gallery, under the real stylesheet and the real painter. A corner of the first of the
+ * five cards is captured at 4× in both faces, beside the same corner under the old rules.
  *
- * Measured, on the strip, in the composited pixels:
+ * Measured, on that card, in the composited pixels:
  *   - its corner is the painter's superellipse, not a circular arc (the fill covers ~0.927 of the
  *     corner square, a circle ~0.785) — and with the gate off, the same measurement finds the circle
  *   - no rim: the pixel just inside its side edge is the fill, not a line brighter (dark) or darker
@@ -204,7 +205,9 @@ const HELPERS = `globalThis.__live = {
     const R = Math.round(parseFloat(cs.getPropertyValue("--sq-radius-top")) || parseFloat(cs.borderTopLeftRadius) || 0);
     if (R < 8) return { error: "radius too small to measure", R };
     const inside = s.tone(box.left + R + 2, box.top + 1.5, Math.min(box.right - 2, box.left + 3 * R), box.top + 4.5);
-    const outside = s.tone(box.left - 30, box.top - 30, box.left - 8, box.top - 8);
+    /* The ground BESIDE the card, in the padding of the column it stands in: above a list's first card
+       is the list's heading, and further out is another pane. */
+    const outside = s.tone(box.left - 12, box.top + R, box.left - 6, box.bottom - R);
     if (Math.abs(inside - outside) < 3) return { error: "fill and ground are indistinguishable", inside, outside };
     const mid = (inside + outside) / 2;
     const isFill = (x, y) => (inside > outside ? s.lum(x, y) > mid : s.lum(x, y) < mid);
@@ -228,6 +231,14 @@ const HELPERS = `globalThis.__live = {
     return { profile: out, dpr: s.dpr };
   },
 }; true`;
+
+/** A sub-agent's card as it was (275ee38a): its rim, at the old token's value per face, and its
+ *  circular corner, laid back over the painted card. Also the live mutant for "no rim". */
+const OLD_CARD = {
+  dark: `.subagents-list .subagent-card { border: var(--hairline-w) solid #ffffff05 !important; border-radius: var(--r-panel) !important;
+  background: var(--rl-card) !important; box-shadow: none !important; }`,
+  light: `.subagents-list .subagent-card { border-color: #03071208 !important; }`,
+};
 
 /** The theme tiles' rules before this change, word for word, for the before shot. */
 const OLD_TILES = `.mode-card { border: var(--hairline-w) solid var(--rl-line) !important; border-radius: var(--r-panel) !important;
@@ -314,15 +325,21 @@ async function main() {
   await api.call("sessions.send", { id: session.id, text: "Draft the rollout and make the default follow the Mac.", attachments: [], mentions: [] });
   await idle(session.id);
   await api.call("sessions.send", { id: session.id, text: "Fan out the release work.", attachments: [], mentions: [] });
-  await until(() => evalIn(c, `document.querySelectorAll('.subagent-strip-row').length >= 5`), 30_000, "five strip rows");
+  await until(() => evalIn(c, `!!document.querySelector('.composer-overstrip .active-agent')`), 30_000, "the agents on the row over the prompter");
   await idle(session.id);
   await sleep(1200);
-  await evalIn(c, `(() => { const t = document.querySelector('.panel .transcript'); t.scrollTop = t.scrollHeight; return true; })()`);
-  await sleep(500);
-  note("strip", await evalIn(c, `document.querySelector('.subagent-strip')?.innerText`));
 
-  // ── The strip: measured, then photographed ─────────────────────────────────────────────────────
-  const STRIP = ".panel .subagent-strip";
+  // ── The five, on the Agents tab: measured, then photographed ─────────────────────────────────────
+  /* The card the owner screenshotted — "5 sub-agents working" under the last message — is retired;
+     the five now live on the row over the prompter, and each is a card in the session's Agents tab.
+     A chip on the row opens the tab on its agent; the first of the tabs along its top goes back to all. */
+  await evalIn(c, `document.querySelector('.composer-overstrip .active-agent')?.click(), true`);
+  await until(() => evalIn(c, `!!document.querySelector('.subagent-switch-tab')`), 10_000, "the Agents tab");
+  await evalIn(c, `[...document.querySelectorAll('.subagent-switch-tab')][0].click(), true`);
+  await until(() => evalIn(c, `document.querySelectorAll('.subagents-list .subagent-card').length >= 5`), 10_000, "five cards");
+  await sleep(800);
+  note("cards", await evalIn(c, `[...document.querySelectorAll('.subagents-list .subagent-card')].map((c) => c.querySelector('.subagent-task')?.textContent)`));
+  const CARD = ".subagents-list .subagent-card";
   const shot = async () => (await c.send("Page.captureScreenshot", { format: "png" })).data;
   await groundFor(c, "dark");
   /** Read across the left edge: the ground well outside, the ground just outside (the lift), the
@@ -335,42 +352,49 @@ async function main() {
   for (const face of ["dark", "light"]) {
     await setFace(c, face);
     const b64 = await shot();
-    const corner = await evalIn(c, `__live.cornerFill(${JSON.stringify(b64)}, ${JSON.stringify(STRIP)})`);
-    note(`${face}: the strip's corner`, corner);
-    const edge = await evalIn(c, `__live.edgeProfile(${JSON.stringify(b64)}, ${JSON.stringify(STRIP)})`);
-    note(`${face}: the strip's left edge, 4px out to 8px in`, edge.profile.join(" "));
+    const corner = await evalIn(c, `__live.cornerFill(${JSON.stringify(b64)}, ${JSON.stringify(CARD)})`);
+    note(`${face}: the card's corner`, corner);
+    const edge = await evalIn(c, `__live.edgeProfile(${JSON.stringify(b64)}, ${JSON.stringify(CARD)})`);
+    note(`${face}: the card's left edge, 4px out to 8px in`, edge.profile.join(" "));
     const e = edgeOf(edge);
     check(`${face}: no rim — the card's first pixel is its fill, not a line ${face === "dark" ? "lighter" : "darker"} than it`,
       Math.abs(e.rim - e.fill) <= 1.5, e);
     check(`${face}: the lift — the ground at the card's edge is darker than the ground away from it`, e.near < e.far - 1, e);
     if (face === "dark") {
       check("dark: the corner is the painter's superellipse, not a circular arc", Math.abs(corner.fraction - SQUIRCLE) < TOL, corner);
-      const sheen = await evalIn(c, `(async () => { const s = await __live.sampler(${JSON.stringify(b64)}); const b = document.querySelector(${JSON.stringify(STRIP)}).getBoundingClientRect();
+      const top = await evalIn(c, `(async () => { const s = await __live.sampler(${JSON.stringify(b64)}); const b = document.querySelector(${JSON.stringify(CARD)}).getBoundingClientRect();
         const x = b.left + b.width * 0.6; return { top: s.lum(x, b.top + 0.25), below: s.lum(x, b.top + 3) }; })()`);
-      check("dark: nothing along the top edge either — its first pixel is the fill", Math.abs(sheen.top - sheen.below) <= 1.5, sheen);
+      check("dark: nothing along the top edge either — its first pixel is the fill", Math.abs(top.top - top.below) <= 1.5, top);
       check("dark: the card stands off its ground by its fill alone — at least 8 levels", e.fill - e.far >= 8, { fill: e.fill, ground: e.far });
       // The live mutant: the old rim put back. The same reading has to see it.
-      await evalIn(c, `(() => { const st = document.createElement('style'); st.id = 'live-rim'; st.textContent = '.subagent-strip { border: var(--hairline-w) solid var(--overlay-lighten-50) !important; }'; document.head.append(st); return true; })()`);
+      await evalIn(c, `(() => { const st = document.createElement('style'); st.id = 'live-rim'; st.textContent = ${JSON.stringify(OLD_CARD.dark)}; document.head.append(st); return true; })()`);
       await sleep(300);
-      const rimmed = edgeOf(await evalIn(c, `__live.edgeProfile(${JSON.stringify(await shot())}, ${JSON.stringify(STRIP)})`));
+      const rimmed = edgeOf(await evalIn(c, `__live.edgeProfile(${JSON.stringify(await shot())}, ${JSON.stringify(CARD)})`));
       check("the mutant: with the old rim put back, the same reading finds a line lighter than the fill", rimmed.rim > rimmed.fill + 1.5, rimmed);
       await evalIn(c, `document.getElementById('live-rim')?.remove(), true`);
       await sleep(300);
     }
-    const style = await evalIn(c, `(() => { const cs = getComputedStyle(document.querySelector(${JSON.stringify(STRIP)}));
+    const style = await evalIn(c, `(() => { const cs = getComputedStyle(document.querySelector(${JSON.stringify(CARD)}));
       return { border: cs.borderLeftWidth + " " + cs.borderLeftStyle, radius: cs.borderTopLeftRadius, image: cs.backgroundImage.slice(0, 40), shadow: cs.boxShadow }; })()`);
-    note(`${face}: the strip's computed edge`, style);
-    await shotOf(c, ".panel .transcript-col", "strip", face, { tail: 360 });
-    await zoomCorner(c, STRIP, "strip-corner", face);
+    note(`${face}: the card's computed edge`, style);
+    await shotOf(c, ".subagents-list", "agents-cards", face, { pad: 16 });
+    await zoomCorner(c, CARD, "agents-corner", face);
+    // The card as it was (275ee38a), for the before half of the corner sheet: its old rules laid back on.
+    await evalIn(c, `(() => { const st = document.createElement('style'); st.id = 'live-old-card'; st.textContent = ${JSON.stringify(OLD_CARD.dark)}.concat(document.documentElement.dataset.mode === "light" ? ${JSON.stringify(OLD_CARD.light)} : ""); document.head.append(st); return true; })()`);
+    await sleep(300);
+    await zoomCorner(c, CARD, "agents-corner-old", face);
+    await evalIn(c, `document.getElementById('live-old-card')?.remove(), true`);
+    await sleep(300);
   }
   await setFace(c, "dark");
   // The mutant for the corner measurement: without the gate the fallback's circle has to come back.
   await evalIn(c, `document.documentElement.removeAttribute('data-squircle'), true`);
   await sleep(300);
-  const unpainted = await evalIn(c, `__live.cornerFill(${JSON.stringify(await shot())}, ${JSON.stringify(STRIP)})`);
+  const unpainted = await evalIn(c, `__live.cornerFill(${JSON.stringify(await shot())}, ${JSON.stringify(CARD)})`);
   check("the mutant: with the painter's gate off, the same measurement finds the fallback's circle", Math.abs(unpainted.fraction - CIRCLE) < TOL, unpainted);
-  await shotOf(c, ".panel .transcript-col", "strip-unpainted", "dark", { tail: 360 });
   if (runtime.squircle) await evalIn(c, `document.documentElement.setAttribute('data-squircle', ''), true`);
+  await sleep(300);
+  await evalIn(c, `(() => { const t = document.querySelector('.panel .transcript'); t.scrollTop = t.scrollHeight; return true; })()`);
   await sleep(300);
 
   // ── The turn above it: the plan, the edit card, a tool's panel ───────────────────────────────
@@ -405,19 +429,6 @@ async function main() {
     await evalIn(c, `[...document.querySelectorAll('.panel .question-card .question-option')].find((x) => x.textContent.includes("Beta")).click(), true`);
   }
   await idle(session.id).catch(() => null);
-
-  // ── The Agents tab, from the strip ────────────────────────────────────────────────────────────
-  await evalIn(c, `(() => { const t = document.querySelector('.panel .transcript'); t.scrollTop = t.scrollHeight; return true; })()`);
-  await sleep(300);
-  await evalIn(c, `document.querySelector('.panel .subagent-strip-row')?.click(), true`);
-  if (await until(() => evalIn(c, `!!document.querySelector('.subagent-view')`), 10_000, "viewer").catch(() => false)) {
-    await evalIn(c, `(() => { [...document.querySelectorAll('.subagent-switch-tab')][0].click(); return true; })()`);
-    if (await until(() => evalIn(c, `document.querySelectorAll('.subagent-card').length >= 5`), 10_000, "cards").catch(() => false)) {
-      await sleep(500);
-      for (const face of ["dark", "light"]) { await setFace(c, face); await shotOf(c, ".subagents-list", "agents-cards", face, { pad: 16 }); }
-      await setFace(c, "dark");
-    }
-  }
 
   // ── A second lead, for the pinned report ──────────────────────────────────────────────────────
   try {
