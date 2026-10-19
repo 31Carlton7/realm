@@ -443,6 +443,10 @@ async function main() {
   await until(() => evalIn(c, `!!__live.q('[data-review="${email.id}"]')`), 8_000, "v2 listed");
   await evalIn(c, `__live.click(__live.q('[data-review="${email.id}"]'))`);
   await until(() => evalIn(c, `/Version 2/.test(__live.text('.rv-version') ?? '')`), 8_000, "v2 drawn");
+  // It names no account to send from, so Realm lines up no send: the dock says so, as the checks beside it do.
+  const said = await evalIn(c, `({ dock: __live.text('.rv-dock-note'), checks: __live.qa('.rv-checks li').map((l) => l.textContent) })`);
+  check("S3 the email Realm does not send says so before the yes, as its checks do", said.dock === "Approving marks it ready. Realm doesn't send this — you send it yourself."
+    && said.checks.some((t) => t.startsWith("Realm does not send this")), said);
   await shot(c, "01d-email-version-2-dark");
 
   /* ── S4: the dollar cap ──────────────────────────────────────────────────────────────────────── */

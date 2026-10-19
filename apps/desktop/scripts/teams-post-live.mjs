@@ -249,16 +249,17 @@ async function boot() {
 }
 
 /**
- * The cards this check expects, allowed. `record_read` asks first in every mode (the read goes on the
- * team's activity), so a role's run that reads a record stops on a card until someone answers it. And
- * the team's rules ask before a tool they have no class for, which is what a role's made-up posting
- * tools are: allowed, so P3 sees what even a yes leads to. Any other card is left standing and named,
- * so a check that waits on one says which.
+ * `record_read` asks first in every mode (the read goes on the team's activity), so a role's run that
+ * reads a record stops on a card until someone answers it. Answered here as the person would; any
+ * other card — one for a made-up posting tool included, which is refused as unknown before any card —
+ * is left standing and named, so a check that waits on one says which.
  */
+const cards = [];
 function answerRecordReads(event, payload) {
   if (event !== "session.event" || payload.ephemeral || payload.event?.type !== "permission_request") return;
   const card = payload.event.payload;
-  if (!/(record_read|ticket_post|review_act)$/.test(card.toolName)) { console.log(`CARD left standing: ${card.toolName} in ${payload.sessionId}`); return; }
+  cards.push(card.toolName);
+  if (!/record_read$/.test(card.toolName)) { console.log(`CARD left standing: ${card.toolName} in ${payload.sessionId}`); return; }
   void api.call("sessions.respondPermission", { id: payload.sessionId, requestId: card.requestId, decision: "allow" }).catch((e) => console.log(`CARD ${e.message}`));
 }
 
@@ -360,6 +361,7 @@ async function main() {
   const ev = await api.call("sessions.events", { id: attempt.sessionId, afterSeq: 0, limit: 500 }).catch(() => []);
   const results = ev.filter((e) => e.event.type === "tool_result").map((e) => JSON.stringify(e.event.payload));
   check("P3 a role asked to post has no tool for it — each call is an unknown tool", results.length >= 2 && results.every((r) => /unknown tool/.test(r)), results.map((r) => r.slice(0, 120)));
+  check("P3 and nobody was asked to approve a tool that does not exist", !cards.some((t) => /ticket_post|review_act/.test(t)), cards);
   tickets = (await api.call("team.tickets", { spaceId: space.id, reviewId: slideshows.id })).sort((a, b) => a.ord - b.ord);
   check("P3 nothing went out, and every ticket still waits for its press", actsSent().length === 0 && tickets.every((t) => t.state === "ready"));
   const refusals = (await api.call("team.activity", { spaceId: space.id, limit: 200 })).filter((a) => a.verb === "refused" && a.detail.why === "no_press");
