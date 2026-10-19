@@ -189,12 +189,13 @@ describe("adding to a team that exists", () => {
   });
 });
 
-describe("a role's page: duplicate and remove", () => {
+describe("a teammate's chat: duplicate and remove", () => {
   const editor = teamRole("r2", "s1", "Editor", { cron: "0 9 * * 1-5", scheduleEnabled: true, weekBudgetUsd: 5 });
 
   it("Remove asks first, names what stays, and only the confirm removes", async () => {
     const { api } = await mount(base({ teams: [teamSpace("s1", [editor])] }), <TeamPage spaceId="s1" tab="role:r2" />);
-    fireEvent.click(screen.getByRole("button", { name: "Remove Editor from the team…" }));
+    fireEvent.click(screen.getByRole("button", { name: "More for Editor" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove Editor from the team…" }));
     const dialog = await screen.findByRole("dialog", { name: "Remove Editor from the team?" });
     expect(dialog).toHaveTextContent("its schedule is deleted");
     expect(dialog).toHaveTextContent("lines in Activity stay, under its name");

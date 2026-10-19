@@ -956,9 +956,9 @@ export function parseTerminalPanels(raw: unknown): Record<string, TerminalPanel>
 export type SessionDock = { kind: "summary" } | { kind: "files" } | { kind: "terminal" };
 
 export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "scripts" | "sandbox" | "sessions" | "worktrees" | "tasks" | "history"
-  /* A team's pages, in the same column under a "Team" head (TeamPages.tsx): the Overview, the records
-     and one of them, a role, the log. */
-  | "team" | "records" | "roles" | "policies" | "vault" | "activity" | `role:${string}` | `record:${string}`
+  /* A team's pages, in the same column under a "Team" head (TeamPages.tsx): its chats — the one it
+     lands on, and a teammate's — the Overview, the records and one of them, the log. */
+  | "team" | "overview" | "records" | "roles" | "policies" | "vault" | "activity" | `role:${string}` | `record:${string}`
   /* A kind of record's list, and the page its fields are shaped on (`recordtype:new` makes one). */
   | `records:${string}` | `recordtype:${string}`;
 /** The profile page's rail (Plan 14 W2). */

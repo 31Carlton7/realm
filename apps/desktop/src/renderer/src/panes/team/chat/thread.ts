@@ -26,7 +26,7 @@ export type ThreadEntry = Base & (
   /** A run parked on a question for the person. */
   | { kind: "ask"; question: string }
   /** A line across the thread: a wake by the clock, an end, a skip. */
-  | { kind: "note"; text: string; detail: string | null; tone: "plain" | "warn" | "bad"; glyph: "clock" | "play" | "stop" | "alert" | "at" | "queue" }
+  | { kind: "note"; text: string; detail: string | null; tone: "plain" | "warn" | "bad"; glyph: "clock" | "play" | "stop" | "alert" | "comment" | "pending" }
   | { kind: "draft"; review: TeamReviewSummary }
   | { kind: "handoff"; handoff: HandoffView; direction: "in" | "out" }
   | { kind: "record"; name: string; path: string | null; line: string | null }
@@ -95,9 +95,10 @@ export function assembleThread(input: ThreadInput): ThreadItem[] {
     place({ kind: "draft", key: `draft:${review.id}`, ts: review.createdAt, runId: review.runId, review }, PHASE.drafts);
   }
 
-  // A handoff this role made belongs to the run whose session made it.
+  // A handoff this role made belongs to the run whose session made it — of the runs that session has
+  // served (a conversation continues one session), the one that had started by then.
   for (const h of handoffs.filter((x) => x.fromRoleId === role.id)) {
-    const from = runs.find((r) => r.sessionId !== null && r.sessionId === h.fromSessionId);
+    const from = runs.find((r) => r.sessionId !== null && r.sessionId === h.fromSessionId && r.createdAt <= h.createdAt);
     place({ kind: "handoff", key: `handoff-out:${h.id}`, ts: h.createdAt, runId: from?.id ?? null, direction: "out", handoff: handoffView(h, h.toRoleId, names) }, PHASE.along);
   }
 
@@ -136,7 +137,7 @@ function runEntries(run: RoleRun, role: ThreadInput["role"], reviews: readonly T
     at({ ...base("woke", run.createdAt), kind: "goal", objective: run.wokeNote ?? "" }, PHASE.trigger);
   } else if (run.wokeOn === "mention") {
     const by = run.wokeBy && run.wokeBy !== "You" ? `${run.wokeBy} mentioned it` : "You mentioned it in a session";
-    at({ ...base("woke", run.createdAt), kind: "note", text: by, detail: run.wokeNote, tone: "plain", glyph: "at" }, PHASE.trigger);
+    at({ ...base("woke", run.createdAt), kind: "note", text: by, detail: run.wokeNote, tone: "plain", glyph: "comment" }, PHASE.trigger);
   } else if (run.wokeNote) {
     at({ ...base("woke", run.createdAt), kind: "you", text: run.wokeNote, about: run.wokeOn === "review" ? reviewAsked(run.wokeNote, reviews) : null }, PHASE.trigger);
   } else {
@@ -151,7 +152,7 @@ function runEntries(run: RoleRun, role: ThreadInput["role"], reviews: readonly T
 
   // How it ended, or that it is still going.
   if (run.state === "running") at({ ...base("typing", now), kind: "typing", sessionId: run.sessionId, since: start }, PHASE.live);
-  else if (run.state === "queued") at({ ...base("queued", run.createdAt), kind: "note", text: "Waiting for a free slot", detail: null, tone: "plain", glyph: "queue" }, PHASE.live);
+  else if (run.state === "queued") at({ ...base("queued", run.createdAt), kind: "note", text: "Waiting for a free slot", detail: null, tone: "plain", glyph: "pending" }, PHASE.live);
   else if (run.state === "blocked") at({ ...base("ask", start), kind: "ask", question: parseBlockRequest(run.report ?? null) ?? "It needs you before it goes on." }, PHASE.live);
   else if (run.stoppedAtCap) {
     const cap = run.stoppedAtCap === "usd" ? `its ${money(role.runCapUsd)} limit` : `its ${Math.round(role.runCapMs / 60_000)}-minute limit`;
@@ -188,7 +189,13 @@ function withoutAsk(text: string): string {
   return text.split("\n").filter((l) => !l.trim().toUpperCase().startsWith(RUN_BLOCK_SENTINEL)).join("\n").trim();
 }
 
-const sideOf = (e: ThreadEntry): ThreadSide => (e.kind === "you" ? "you" : e.kind === "note" ? "center" : "them");
+/** The person's words and the goal they gave are theirs; a line across the thread, and work another
+ *  teammate handed over, belong to neither side; everything else is the teammate's. */
+function sideOf(e: ThreadEntry): ThreadSide {
+  if (e.kind === "you" || e.kind === "goal") return "you";
+  if (e.kind === "note" || (e.kind === "handoff" && e.direction === "in")) return "center";
+  return "them";
+}
 
 function withDaysAndGroups(entries: ThreadEntry[], now: number): ThreadItem[] {
   const rows: ThreadRow[] = entries.map((e) => ({ ...e, side: sideOf(e), groupStart: true, groupEnd: true }));

@@ -183,11 +183,12 @@ describe("the grant sheet", () => {
 });
 
 describe("the team's column", () => {
-  it("lists the Vault between Roles and Activity", async () => {
+  it("lists the Vault between Policies and Activity", async () => {
     const team = teamSpace(S, [ANALYST]);
     const store = createAppStore(fakeApi({ profiles: [profile("p1", "Work")], spaces: [space(S, "p1", "Versed")], teams: [team] }));
     render(<StoreContext.Provider value={store}><TeamRailList spaceId={S} team={team} tab="vault" pick={() => undefined} /></StoreContext.Provider>);
-    expect(screen.getAllByRole("radio").map((r) => r.closest("label")!.textContent?.replace(/\d+$/, ""))).toEqual(["Overview", "Creators", "Roles", "Policies", "Vault", "Activity"]);
+    const group = screen.getByRole("group", { name: "Team" });
+    expect(within(group).getAllByRole("radio").map((r) => r.closest("label")!.textContent?.replace(/\d+$/, ""))).toEqual(["Overview", "Creators", "Policies", "Vault", "Activity"]);
     expect(screen.getByRole("radio", { name: "Vault" })).toBeChecked();
   });
 });

@@ -17,6 +17,7 @@ export type TeamApi = {
   teamRoleArchive(id: string): Promise<void>;
   teamRoleRun(id: string, message: string | null): Promise<Run>;
   teamRoleRuns(id: string): Promise<RoleRun[]>;
+  teamRoleMessage(id: string, text: string): Promise<Run>;
   teamReview(id: string): Promise<TeamReviewDetail>;
   teamReviewDecide(id: string, decision: "approve" | "done" | "dismiss"): Promise<TeamReviewSummary>;
   teamReviewRequestChanges(id: string, note: string): Promise<TeamReviewSummary>;
@@ -30,7 +31,7 @@ export type TeamApi = {
   teamRecordTypeCreate(input: CreateRecordTypeInput): Promise<TeamRecordType>;
   teamRecordTypeUpdate(input: UpdateRecordTypeInput): Promise<TeamRecordType>;
   teamRecordTypeArchive(id: string, archived: boolean): Promise<TeamRecordType>;
-  teamActivity(spaceId: string, limit: number): Promise<TeamActivity[]>;
+  teamActivity(spaceId: string, limit: number, roleId?: string): Promise<TeamActivity[]>;
   teamRoleHandoffs(input: SetRoleHandoffsInput): Promise<TeamRole>;
   teamRoleGoal(id: string, objective: string): Promise<Run>;
   teamSetBudget(spaceId: string, weekBudgetUsd: number): Promise<TeamSpace>;
@@ -59,6 +60,8 @@ export type TeamSlice = {
   teamRoleRuns: Record<string, RoleRun[]>;
   teamRecords: Record<string, TeamRecordSummary[]>;
   teamActivity: Record<string, TeamActivity[]>;
+  /** A role's own log lines, by role — what its chat draws besides its runs. */
+  teamRoleActivity: Record<string, TeamActivity[]>;
   /** Spaces whose Team row is folded shut (`ui.sidebarTeamFolded`). Open unless listed. */
   sidebarTeamFolded: string[];
 
@@ -73,7 +76,10 @@ export type TeamSlice = {
   updateRole(input: UpdateRoleInput): Promise<TeamRole>;
   archiveRole(id: string, spaceId: string): Promise<void>;
   runRole(id: string, message: string | null): Promise<Run>;
+  /** The person's message from a teammate's chat: an answer to its question, or a run that continues its conversation. */
+  messageRole(id: string, text: string): Promise<Run>;
   loadRoleRuns(roleId: string): Promise<void>;
+  loadRoleActivity(roleId: string, spaceId: string): Promise<void>;
   loadTeamReview(id: string): Promise<TeamReviewDetail>;
   selectTeamReview(spaceId: string, id: string): void;
   decideTeamReview(id: string, decision: "approve" | "done" | "dismiss"): Promise<void>;
@@ -118,6 +124,7 @@ type Host = {
   teamRoleRuns: Record<string, RoleRun[]>;
   teamRecords: Record<string, TeamRecordSummary[]>;
   teamActivity: Record<string, TeamActivity[]>;
+  teamRoleActivity: Record<string, TeamActivity[]>;
   sidebarTeamFolded: string[];
   spaces: readonly { id: string }[];
 };
@@ -132,7 +139,7 @@ export function teamSlice<S extends Host & TeamSlice>(
   const put = <K extends keyof TeamSlice>(key: K, id: string, value: TeamSlice[K] extends Record<string, infer V> ? V : never) =>
     set({ [key]: { ...(get()[key] as object), [id]: value } } as Partial<TeamSlice>);
   return {
-    teams: {}, teamReviewDetail: {}, teamReviewSelected: {}, teamRoleRuns: {}, teamRecords: {}, teamActivity: {}, sidebarTeamFolded: [],
+    teams: {}, teamReviewDetail: {}, teamReviewSelected: {}, teamRoleRuns: {}, teamRecords: {}, teamActivity: {}, teamRoleActivity: {}, sidebarTeamFolded: [],
 
     async refreshTeams() {
       const all = await api.teamOverview();
@@ -146,6 +153,7 @@ export function teamSlice<S extends Host & TeamSlice>(
       const held = [
         ...Object.values(s.teamReviewDetail).filter((r) => r.spaceId === spaceId).map((r) => s.loadTeamReview(r.id)),
         ...team.roles.filter((r) => s.teamRoleRuns[r.id]).map((r) => s.loadRoleRuns(r.id)),
+        ...team.roles.filter((r) => s.teamRoleActivity[r.id]).map((r) => s.loadRoleActivity(r.id, spaceId)),
         ...(s.teamRecords[spaceId] ? [s.loadTeamRecords(spaceId)] : []),
         ...(s.teamActivity[spaceId] ? [s.loadTeamActivity(spaceId)] : []),
       ];
@@ -176,7 +184,13 @@ export function teamSlice<S extends Host & TeamSlice>(
       await Promise.all([get().refreshTeam(run.spaceId), get().loadRoleRuns(id)]);
       return run;
     },
+    async messageRole(id, text) {
+      const run = await api.teamRoleMessage(id, text);
+      await Promise.all([get().refreshTeam(run.spaceId), get().loadRoleRuns(id), get().loadRoleActivity(id, run.spaceId)]);
+      return run;
+    },
     async loadRoleRuns(roleId) { put("teamRoleRuns", roleId, await api.teamRoleRuns(roleId)); },
+    async loadRoleActivity(roleId, spaceId) { put("teamRoleActivity", roleId, await api.teamActivity(spaceId, TEAM_ACTIVITY_PAGE, roleId)); },
     async loadTeamReview(id) {
       const detail = await api.teamReview(id);
       put("teamReviewDetail", id, detail);

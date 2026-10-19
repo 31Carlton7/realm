@@ -129,6 +129,18 @@ describe("a teammate's thread", () => {
     ]);
   });
 
+  it("files a handoff under the run that made it when the conversation's next run continues the same session", () => {
+    const items = assembleThread(input({
+      runs: [
+        run("b", { createdAt: at(10), settledAt: at(10, 5), sessionId: "ses-1", wokeNote: "lay out next week", report: "Laid out." }),
+        run("a", { createdAt: at(9), settledAt: at(9, 5), sessionId: "ses-1", wokeNote: "pass it on", report: "Handed over." }),
+      ],
+      handoffs: [handoff("h1", { fromRoleId: "r1", toRoleId: "r2", fromSessionId: "ses-1", createdAt: at(9, 2), note: "Proof this." })],
+    }));
+    // THE MUTANT: the first run with the session, newest first — the handoff lands under the later message.
+    expect(shape(items)).toEqual(["day Today", "you pass it on", "handoff-out Editor: Proof this.", "said Handed over.", "you lay out next week", "said Laid out."]);
+  });
+
   it("ends a run that failed or was stopped with a line saying so", () => {
     const items = assembleThread(input({
       runs: [
@@ -165,6 +177,16 @@ describe("a teammate's thread", () => {
       // Twenty-six minutes on, a new group.
       "you you []", "them said []",
     ]);
+  });
+
+  it("breaks a group at midnight, even inside one run, so each day's head stands over its own bubbles", () => {
+    const items = assembleThread(input({
+      runs: [run("n", { createdAt: at(23, 50, 1), startedAt: at(23, 50, 1), settledAt: at(0, 5), wokeNote: "late one", report: "Done after midnight." })],
+      activity: [line("l1", "updated_record", { runId: "n", ts: at(23, 58, 1), object: "Nathan", detail: { path: "creators/nathan.md" } })],
+    }));
+    const rows = items.map((i) => (i.kind === "day" ? `— ${i.label}` : `${i.kind} ${i.groupStart ? "[" : ""}${i.groupEnd ? "]" : ""}`));
+    // THE MUTANT: grouping by run alone — the record's group would run on past the Today head.
+    expect(rows).toEqual(["— Yesterday", "you []", "record []", "— Today", "said []"]);
   });
 
   it("leaves out what is older than the oldest run when the runs were a full page, and the other roles' reviews always", () => {

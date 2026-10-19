@@ -1782,6 +1782,11 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     teamRoleArchive: async (id) => { calls.push(`teamRoleArchive:${id}`); },
     teamRoleRun: async (id, message) => { calls.push(`teamRoleRun:${id}:${message ?? ""}`); throw new Error("not faked"); },
     teamRoleRuns: async (id) => { calls.push(`teamRoleRuns:${id}`); return data.teamRoleRuns[id] ?? []; },
+    teamRoleMessage: async (id, text) => {
+      calls.push(`teamRoleMessage:${id}:${text}`);
+      const spaceId = data.teams.find((t) => t.roles.some((r) => r.id === id))?.spaceId ?? "";
+      return runRow(`run-${calls.length}`, spaceId, { roleId: id, wokeOn: "manual" });
+    },
     teamReview: async (id) => { calls.push(`teamReview:${id}`); const r = data.teamReviews[id]; if (!r) throw new Error("no review"); return structuredClone(r); },
     teamReviewDecide: async (id, decision) => {
       calls.push(`teamReviewDecide:${id}:${decision}`);
@@ -1860,7 +1865,10 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       for (const t of data.teams) { const r = t.recordTypes.find((x) => x.id === id); if (r) { r.archived = archived; t.recordTypes = t.recordTypes.filter((x) => !x.archived); return r; } }
       throw new Error("no record type");
     },
-    teamActivity: async (spaceId) => { calls.push(`teamActivity:${spaceId}`); return data.teamActivity[spaceId] ?? []; },
+    teamActivity: async (spaceId, _limit, roleId) => {
+      calls.push(`teamActivity:${spaceId}${roleId ? `:${roleId}` : ""}`);
+      return (data.teamActivity[spaceId] ?? []).filter((a) => !roleId || a.actor === `role:${roleId}` || a.detail.roleId === roleId);
+    },
     teamRoleHandoffs: async (input) => {
       calls.push(`teamRoleHandoffs:${input.id}:${(input.handsOffTo ?? []).join(",")}:${input.wakeOnMention ?? ""}`);
       for (const t of data.teams) { const r = t.roles.find((x) => x.id === input.id); if (r) { Object.assign(r, input); return r; } }
