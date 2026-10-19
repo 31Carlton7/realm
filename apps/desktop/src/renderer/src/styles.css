@@ -10508,105 +10508,207 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .t-dot[data-s="idle"] { background: var(--mark); }
 .t-dot[data-s="failed"] { background: var(--rl-danger); }
 
-/* The Review pane: the batches beside the one being read (Mail). */
-.rv { display: grid; grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); height: 100%; min-height: 0; }
-.rv-list { display: flex; flex-direction: column; min-height: 0; border-right: var(--hairline-w) solid var(--rl-divider); }
-.rv-list-head { display: flex; align-items: baseline; gap: 8px; padding: 18px 16px 10px; }
+/* A team's Review (panes/team/review): the inbox beside the draft being read. The inbox is the Code
+   review column's grammar — a head, groups named at the caption rung, two-line rows that take the
+   active fill when chosen and nothing under a passing pointer — with the role's Realmite where a
+   person's monogram would be. The reader is Code review's summary: the work in a reading column, the
+   facts that decide it in a column beside, and the decision docked at the foot as the prompter is. */
+.rv { position: relative; flex: 1; display: grid; grid-template-columns: minmax(260px, 320px) minmax(0, 1fr); height: 100%; min-height: 0; min-width: 0; }
+.rv-list { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: var(--hairline-w) solid var(--rl-divider); }
+.rv-list-head { flex: none; display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 18px 16px 6px 20px; }
 .rv-list-head h2 { margin: 0; font-size: 18px; line-height: 24px; font-weight: var(--fw-title); color: var(--rl-text-bright); letter-spacing: -0.01em; }
-.rv-scroll { flex: 1; min-height: 0; overflow: auto; padding: 0 10px 16px; display: flex; flex-direction: column; gap: 6px; }
-.rv-empty { margin: 8px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
-.rv-group { font-size: 12px; line-height: 16px; color: var(--rl-text-faint); padding: 12px 8px 4px; }
-.rv-card { width: 100%; display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 4px 12px; align-items: start; padding: 10px;
-  border-radius: var(--r-row); text-align: left; background: transparent; }
-.rv-card:hover { background: var(--rl-hover); }
-.rv-card[data-selected] { background: var(--rl-active); }
-.rv-card:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: -2px; }
-.rv-thumb { grid-row: span 3; width: 44px; height: 78px; border-radius: var(--r-chip); object-fit: cover; background: var(--inset);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 9%, transparent); }
-.rv-thumb-glyph { grid-row: span 3; width: 44px; height: 44px; border-radius: var(--r-ctl); display: grid; place-items: center;
-  background: var(--rl-card); color: var(--rl-text-dim); }
-.rv-title { font-size: 14px; line-height: 20px; font-weight: var(--fw-medium); color: var(--rl-text-bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rv-meta { grid-column: 2 / 4; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rv-age { font-size: 12px; line-height: 20px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
-.rv-state { grid-column: 2 / 4; display: flex; align-items: center; gap: 6px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.rv-list-count { min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rv-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 10px 16px; }
+.rv-group { display: flex; flex-direction: column; gap: 2px; }
+.rv-group-label { margin: 0; padding: 14px 10px 4px; }
 
-.rv-detail { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.rv-detail-scroll { flex: 1; min-height: 0; overflow: auto; padding: 22px 28px 24px; }
-.rv-head { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; }
-/* A long batch's stepper (sixteen DMs) goes under the title rather than squeezing it into a column. */
-.rv-head-text { flex: 1 1 320px; min-width: 0; }
-.rv-head h1 { margin: 0; font-size: 20px; line-height: 28px; font-weight: var(--fw-title); letter-spacing: -0.012em; color: var(--rl-text-bright); text-wrap: balance; }
-.rv-byline { display: flex; flex-wrap: wrap; align-items: center; margin-top: 2px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
-.rv-byline b { font-weight: var(--fw-medium); color: var(--rl-text-bright); }
-.rv-stepper { flex: none; }
-.rv-version { margin: 10px 0 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
-.rv-strip { display: grid; gap: 10px; margin: 20px 0 6px; }
-.rv-slide { position: relative; aspect-ratio: 9 / 16; border-radius: var(--r-row); overflow: hidden; background: var(--inset); padding: 0;
-  box-shadow: var(--rl-object-shadow); }
+/* A row: who made it, what it is, how long ago. Two lines, one hit. Chosen, it takes the active fill
+   at once (design.md: a choice is never half-made); a passing pointer lights nothing. */
+.rv-row { display: grid; grid-template-rows: 1fr; min-width: 0; border-radius: var(--r-row); outline: none; }
+.rv-row-body { display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 0; overflow: hidden; padding: 8px 10px; border-radius: inherit; }
+.rv-row[data-selected] .rv-row-body { background: var(--rl-active); }
+.rv-row:focus-visible .rv-row-body { box-shadow: inset 0 0 0 2px var(--rl-accent); }
+.rv-row-text { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* The title is the row's unbounded text and gives way first; the age keeps its width. */
+.rv-row-top { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.rv-row-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 14px; line-height: 20px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
+.rv-row-age { flex: none; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+.rv-row-line { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.rv-row-line > svg { flex: none; }
+.rv-row[data-tone="bad"] .rv-row-line > :is(svg, .rv-row-what) { color: var(--rl-danger); }
+.rv-row[data-tone="ok"] .rv-row-line > svg { color: var(--rl-success); }
+.rv-row-who { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-row-who::after { content: "·"; margin-left: 5px; color: var(--rl-text-faint); }
+.rv-row-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A decision moves a row: it folds away from the group it left and rises into the one it joins, on the
+   list rungs the prompter's queue moves on. The inbox as first drawn does not animate. */
+.rv-row[data-arrived] { animation: rl-rv-row-in var(--dur-enter) var(--ease-out-strong); }
+.rv-row[data-leaving] { animation: rl-rv-row-out var(--dur-swap) var(--ease-fade) forwards; pointer-events: none; }
+@keyframes rl-rv-row-in { from { grid-template-rows: 0fr; opacity: 0; } }
+@keyframes rl-rv-row-out { to { grid-template-rows: 0fr; opacity: 0; } }
+
+/* Who made it: the role's Realmite at a glyph's size, or the draft's own glyph on a disc. */
+.rv-mark { flex: none; display: inline-grid; place-items: center; }
+.rv-mark[data-size="32"] { width: 32px; height: 32px; }
+.rv-mark[data-size="24"] { width: 24px; height: 24px; }
+.rv-mark[data-size="16"] { width: 16px; height: 16px; }
+.rv-mark-glyph { border-radius: 50%; background: var(--rl-hover); color: var(--rl-text-dim); }
+
+/* The team's kill switch, at the head of its Review, and the line that says it is on. */
+.rv-hold { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 6px; }
+.rv-held { flex: none; display: flex; align-items: center; gap: 8px; margin: 4px 10px 8px; padding: 8px 10px 8px 12px; border-radius: var(--r-row);
+  background: var(--orange-tint); color: var(--rl-text-bright); font-size: 13px; line-height: 18px; }
+.rv-held > svg { flex: none; color: var(--rl-warning); }
+.rv-held > span { flex: 1; min-width: 0; }
+
+/* Nothing to review: the team that would send something, standing together, and what it would be. */
+/* With nothing to review there is no inbox to list: the empty state takes the whole pane. */
+.rv[data-empty] { grid-template-columns: minmax(0, 1fr); }
+.rv[data-empty] .rv-list { display: none; }
+.rv-detail-empty { display: flex; }
+.rv-empty { margin: auto; max-width: 420px; padding: 24px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+.rv-empty-team { display: flex; gap: 6px; margin-bottom: 6px; }
+.rv-empty-mate { display: inline-grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: var(--rl-hover); }
+.rv-empty-title { margin: 0; font-size: 18px; line-height: 24px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.rv-empty-line { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: balance; }
+.rv-empty-next { color: var(--rl-text-faint); }
+
+/* The reader: a column of the work and a column of facts, the decision docked under both. */
+.rv-detail { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; animation: rl-rv-read-in var(--dur-swap) var(--ease-fade); }
+@keyframes rl-rv-read-in { from { opacity: 0; } }
+.rv-back { display: none; }
+.rv-back .btn-quiet { display: inline-flex; align-items: center; gap: 4px; margin-left: -4px; }
+/* The reader measures itself: its facts go under the work when the column cannot hold both. */
+.rv-detail-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 24px 28px 28px; container: rv-read / inline-size; }
+.rv-reader { display: flex; justify-content: center; gap: 36px; min-width: 0; }
+.rv-reader-main { flex: 1 1 auto; min-width: 0; max-width: 720px; display: flex; flex-direction: column; gap: 18px; }
+.rv-head { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.rv-head-line { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.rv-head-for { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 18px; color: var(--rl-text-faint); }
+.rv-title { margin: 0; font-size: 24px; line-height: 30px; font-weight: var(--fw-title); letter-spacing: -0.014em; color: var(--rl-text-bright); text-wrap: balance; overflow-wrap: anywhere; }
+.rv-byline { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-faint); }
+.rv-byline-who { color: var(--rl-text-bright); font-weight: var(--fw-medium); }
+/* A review's state as a pill, the one place on the page a state is a pill (Code review's rule). */
+.rv-pill { flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px 2px 7px; border-radius: var(--r-pill);
+  font-size: 12px; line-height: 16px; font-weight: var(--fw-label); background: var(--rl-hover); color: var(--rl-text-dim); }
+.rv-pill[data-tone="waiting"] { background: var(--orange-tint); color: var(--orange); }
+.rv-pill[data-tone="bad"] { background: var(--red-tint); color: var(--red); }
+.rv-pill[data-tone="ok"] { background: var(--green-tint); color: var(--green); }
+/* The role's note: its words about the work, set apart from the work and above it. */
+.rv-why { margin: 0; display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: var(--r-panel); background: var(--rl-card);
+  box-shadow: 0 0 0 var(--hairline-w) var(--rl-card-rim); }
+.rv-why-who { font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+.rv-why-text { margin: 0; font-size: 14px; line-height: 21px; color: var(--rl-text-bright); text-wrap: pretty; max-width: 68ch; }
+.rv-version { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.rv-stepper { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+.rv-stepper-label { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.rv-stepper-tabs { flex: none; }
+.rv-section { display: flex; flex-direction: column; gap: 8px; }
+.rv-caption { padding: 14px 16px; border-radius: var(--r-panel); background: var(--rl-card); font-size: 14px; line-height: 20px; color: var(--rl-text-bright);
+  white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* The facts beside the work: what Realm checked, and how it was made. */
+.rv-facts { flex: 0 0 260px; align-self: flex-start; display: flex; flex-direction: column; gap: 24px; padding-top: 34px; min-width: 0; }
+.rv-fact { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.rv-fact-label { margin: 0; font-size: 13px; line-height: 18px; font-weight: var(--fw-medium); color: var(--rl-text-faint); }
+.rv-checks, .rv-ledger { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.rv-checks li { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); }
+.rv-checks li > svg { flex: none; margin-top: 2px; color: var(--rl-text-faint); }
+.rv-checks li[data-tone="ok"] > svg { color: var(--rl-success); }
+.rv-checks li[data-tone="bad"] > svg { color: var(--rl-warning); }
+.rv-checks small, .rv-ledger small { display: block; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); overflow-wrap: anywhere; }
+.rv-ledger li { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 8px; align-items: start; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); }
+.rv-ledger-glyph { display: grid; place-items: center; height: 18px; color: var(--rl-text-faint); }
+.rv-ledger-text { min-width: 0; overflow-wrap: anywhere; }
+.rv-ledger-time { font-size: 12px; line-height: 18px; color: var(--rl-text-faint); }
+.rv-goal { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); overflow-wrap: anywhere; }
+.rv-run-link { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; margin-left: -7px; }
+
+/* The decision, docked: the action surface of the reader, as the commit card is the diff's. Outside
+   the scroller, so it never dissolves with the work. It wears `.composer-dock` for the one thing that
+   class promises the rest of the window — a toast stands above it, never over its answers — and
+   takes none of the prompter's column geometry. */
+.rv-dock { flex: none; padding: 0 20px 16px; }
+.rv-dock.composer-dock { width: auto; margin: 0; transition: none; }
+.rv-dock-card { max-width: 1016px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; padding: 10px 10px 10px 16px;
+  border-radius: var(--r-squircle-card); background: var(--surface); box-shadow: var(--shadow-card); }
+.rv-dock-card:focus-within { box-shadow: 0 0 0 var(--hairline-w) var(--line-strong), var(--shadow-card); }
+.rv-dock-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+/* The consequence is the row's sentence and gives way first; the answers keep their width. */
+.rv-dock-note { flex: 1 1 260px; min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: pretty; }
+.rv-dock-note[data-tone="bad"] { color: var(--rl-danger); }
+/* The answers are one group that wraps under the sentence whole, never one button at a time. */
+.rv-dock-actions { flex: none; margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.rv-dock-quiet { flex: none; display: inline-flex; align-items: center; gap: 2px; margin-right: 4px; }
+.rv-dock-ask { margin: 2px 0 0; font-size: 14px; line-height: 20px; color: var(--rl-text-bright); text-wrap: pretty; }
+/* Send back and Reject open in the dock as a field addressed to the role, the prompter's grammar. */
+.rv-sendback-field { display: flex; align-items: flex-start; gap: 10px; min-width: 0; padding-top: 2px; }
+.rv-sendback-field > .rv-mark { margin-top: 1px; }
+.rv-sendback-field textarea { flex: 1; min-width: 0; min-height: 44px; resize: none; padding: 2px 0 0; border: none; outline: none; background: transparent;
+  font: inherit; font-size: 15px; line-height: 22px; color: var(--rl-text-bright); caret-color: var(--caret); field-sizing: content; max-height: 160px; }
+.rv-sendback-field textarea::placeholder { color: var(--rl-text-faint); }
+
+/* The work, drawn as what it is (review/renderers). Every drawing sits in one place under the head, so
+   stepping through a batch of mixed formats moves nothing else. */
+.rv-deliverable { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.rv-meta-rows { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 0; }
+.rv-meta-rows > div { display: flex; gap: 6px; min-width: 0; font-size: 13px; line-height: 18px; }
+.rv-meta-rows dt { color: var(--rl-text-faint); }
+.rv-meta-rows dd { margin: 0; min-width: 0; color: var(--rl-text-bright); overflow-wrap: anywhere; }
+/* Paper: the surface a document, a mail or a thread is read on — a step above the ground, under its
+   rim, its words at the transcript's reading size and measure. */
+.rv-paper { margin: 0; padding: 16px 18px; border-radius: var(--r-squircle-card); background: var(--rl-card); box-shadow: 0 0 0 var(--hairline-w) var(--rl-card-rim);
+  font-size: 15px; line-height: 24px; color: var(--rl-text-bright); min-width: 0; }
+.rv-text, .rv-mail-body, .rv-bubble, .rv-post-caption, .rv-attached-note { white-space: pre-wrap; overflow-wrap: anywhere; }
+.rv-text { max-width: 68ch; }
+.rv-doc { padding: 24px 28px 26px; }
+.rv-doc .rv-md { max-width: 68ch; font-size: 15px; line-height: 24px; }
+.rv-paper-name { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+
+/* A mail as a mail client draws one: who, the subject as its head, then the words. */
+.rv-mail { padding: 0; }
+.rv-mail-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px 0; }
+.rv-mail-avatar { flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--accent-tint); color: var(--rl-accent);
+  font-size: 14px; line-height: 20px; font-weight: var(--fw-title); }
+.rv-mail-who { margin: 0; display: flex; flex-direction: column; min-width: 0; }
+.rv-mail-who > div { display: flex; gap: 6px; min-width: 0; font-size: 13px; line-height: 18px; }
+.rv-mail-who dt { flex: none; color: var(--rl-text-faint); }
+.rv-mail-who dd { margin: 0; min-width: 0; color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-mail-subject { margin: 0; padding: 14px 18px 0; font-size: 18px; line-height: 24px; font-weight: var(--fw-title); color: var(--rl-text-bright); text-wrap: balance; }
+.rv-mail-body { padding: 10px 18px 20px; max-width: 68ch; }
+
+/* A DM in its thread, the bubble on the sender's side; a text post as the account's own. */
+.rv-chat { display: flex; flex-direction: column; gap: 14px; padding: 12px 16px 16px; }
+.rv-chat-head { display: flex; align-items: center; gap: 6px; padding-bottom: 10px; border-bottom: var(--hairline-w) solid var(--rl-line);
+  font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.rv-chat-head b { font-weight: var(--fw-medium); color: var(--rl-text-bright); }
+.rv-chat-thread { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.rv-chat[data-dm] .rv-chat-thread { align-items: flex-end; }
+.rv-bubble { max-width: min(85%, 52ch); padding: 9px 14px; border-radius: 20px; background: var(--rl-raised); box-shadow: 0 0 0 var(--hairline-w) var(--rl-card-rim);
+  font-size: 15px; line-height: 22px; color: var(--rl-text-bright); }
+.rv-bubble-from { font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+
+/* A post as its platform lays it out: the account, the slides at their own 9:16, the caption. */
+.rv-post { margin: 0; display: flex; flex-direction: column; gap: 12px; padding: 12px; border-radius: var(--r-squircle-card); background: var(--rl-card);
+  box-shadow: 0 0 0 var(--hairline-w) var(--rl-card-rim); min-width: 0; }
+.rv-post-head { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 2px 4px 0; font-size: 13px; line-height: 18px; }
+.rv-post-avatar { flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--rl-hover); color: var(--rl-text-bright);
+  font-size: 12px; line-height: 16px; font-weight: var(--fw-title); }
+.rv-post-account { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
+.rv-post-channel { flex: none; color: var(--rl-text-faint); }
+.rv-post-caption { padding: 0 4px 4px; font-size: 15px; line-height: 22px; color: var(--rl-text-bright); max-width: 68ch; }
+.rv-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(120px, 100%), 1fr)); gap: 8px; }
+.rv-strip[data-count="1"] { grid-template-columns: minmax(0, 220px); }
+.rv-slide { position: relative; aspect-ratio: 9 / 16; border-radius: calc(var(--r-squircle-card) - 12px); overflow: hidden; background: var(--inset); padding: 0; }
 .rv-slide img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .rv-slide::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 10%, transparent); }
 .rv-slide:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
-.rv-slide-n { position: absolute; left: 8px; bottom: 8px; font-size: 11px; line-height: 14px; padding: 2px 6px; border-radius: var(--r-chip);
-  background: color-mix(in srgb, var(--page) 72%, transparent); color: var(--rl-text-bright); font-variant-numeric: tabular-nums; }
+.rv-slide-n { position: absolute; left: 6px; bottom: 6px; min-width: 18px; padding: 0 5px; border-radius: var(--r-pill); text-align: center;
+  font-size: 11px; line-height: 16px; background: color-mix(in srgb, var(--page) 72%, transparent); color: var(--rl-text-bright); font-variant-numeric: tabular-nums; }
 .rv-strip-note { margin: 0; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
-.rv-files { margin-top: 16px; }
 
-.rv-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 22px; }
-.rv-section h3 { margin: 0 0 8px; font-size: 15px; line-height: 20px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
-.rv-made { margin-top: 22px; }
-.rv-caption { padding: 14px 16px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim);
-  font-size: 14px; line-height: 20px; color: var(--rl-text-bright); white-space: pre-wrap; overflow-wrap: anywhere; }
-.rv-checks { margin: 0; padding: 0; list-style: none; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
-.rv-checks li { display: flex; gap: 10px; align-items: flex-start; padding: 10px 14px; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); position: relative; }
-.rv-checks li + li::before { content: ""; position: absolute; top: 0; left: 14px; right: 14px; border-top: var(--hairline-w) solid var(--rl-card-rim); }
-.rv-checks .ok { color: var(--rl-success); display: grid; }
-.rv-checks .warn { color: var(--rl-warning); display: grid; }
-.rv-checks .quiet { color: var(--rl-text-faint); display: grid; }
-.rv-checks small { display: block; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
-
-/* The decision stays put while the deliverable scrolls: outside the scroller, so never in its dissolve. */
-.rv-decide-wrap { flex: none; }
-.rv-decide { display: flex; align-items: center; gap: 10px; padding: 12px 28px 14px; }
-.rv-decide-note { margin-right: auto; min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
-.rv-ask { display: flex; align-items: center; gap: 8px; padding: 12px 28px 0; }
-.rv-ask-field { flex: 1; min-width: 0; height: 30px; padding: 0 10px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
-  background: var(--field); color: var(--rl-text-bright); font: inherit; font-size: 14px; outline: none; }
-.rv-ask-field:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
-/* Close's strip says what it will stop before it does; it reads as the bar's own sentence does. */
-.rv-ask-text { flex: 1; min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); }
-
-/* The team's kill switch, at the head of its Review, and the line that says it is on. */
-.rv-hold { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; line-height: 18px; }
-.rv-held { display: flex; align-items: center; gap: 8px; margin: 0 10px 8px; padding: 8px 10px 8px 12px; border-radius: var(--r-row);
-  background: color-mix(in srgb, var(--rl-warning) 12%, transparent); color: var(--rl-text-bright); font-size: 13px; line-height: 18px; }
-.rv-held > svg { flex: none; color: var(--rl-warning); }
-.rv-held > span { flex: 1; min-width: 0; }
-
-/* Generic deliverables (panes/team/renderers): each format drawn in one frame under the head, so a
-   change of format moves nothing else on the pane. A frame is the caption's card — a step above the
-   ground under its rim — and text that IS the deliverable reads at the body size, at a reading measure. */
-.rv-deliverable { margin-top: 20px; }
-.rv-deliverable > * + * { margin-top: 12px; }
-.rv-meta-rows { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 0 0 12px; }
-.rv-meta-rows > div { display: flex; gap: 6px; min-width: 0; font-size: 13px; line-height: 18px; }
-.rv-meta-rows dt { color: var(--rl-text-dim); }
-.rv-meta-rows dd { margin: 0; min-width: 0; color: var(--rl-text-bright); overflow-wrap: anywhere; }
-.rv-frame { margin: 0; padding: 14px 16px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim);
-  font-size: 14px; line-height: 20px; color: var(--rl-text-bright); min-width: 0; }
-.rv-text, .rv-mail-body, .rv-message-text { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 72ch; }
-.rv-doc { padding: 18px 22px; }
-.rv-doc .rv-md { max-width: 72ch; }
-.rv-mail { padding: 0; }
-.rv-mail-head { margin: 0; padding: 4px 16px; }
-.rv-mail-head > div { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px; padding: 7px 0; position: relative; }
-.rv-mail-head > div + div::before { content: ""; position: absolute; top: 0; left: 0; right: 0; border-top: var(--hairline-w) solid var(--rl-card-rim); }
-.rv-mail-head dt { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
-.rv-mail-head dd { margin: 0; min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); overflow-wrap: anywhere; }
-.rv-mail-subject dd { font-weight: var(--fw-medium); }
-.rv-mail-body { padding: 14px 16px 16px; border-top: var(--hairline-w) solid var(--rl-card-rim); }
-.rv-message { display: flex; flex-direction: column; gap: 8px; }
-.rv-message-who { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
 /* The picture or the PDF page as the object it is: a frame a person picks up, at the width it reads at. */
 .rv-picture { display: block; padding: 0; max-width: min(100%, 560px); border-radius: var(--r-row); overflow: hidden; background: var(--inset);
   box-shadow: var(--rl-object-shadow); position: relative; }
@@ -10614,7 +10716,7 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .rv-picture::after, .rv-pdf-page::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 10%, transparent); }
 .rv-picture:focus-visible, .rv-pdf-page:focus-visible { outline: 2px solid var(--rl-accent); outline-offset: 2px; }
-.rv-pdf { margin: 0; display: flex; flex-direction: column; gap: 10px; max-width: min(100%, 560px); }
+.rv-pdf { margin: 0; display: flex; flex-direction: column; gap: 10px; max-width: min(100%, 480px); }
 /* The page is the preview's own pixels — white paper on both faces, because the file is the file — and
    the ground under it is the pane's until it arrives. */
 .rv-pdf-page { position: relative; display: block; padding: 0; width: 100%; border-radius: var(--r-chip); overflow: hidden;
@@ -10624,24 +10726,60 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .rv-pdf-foot { display: flex; align-items: center; gap: 10px; }
 .rv-pdf-name { margin-right: auto; min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); overflow-wrap: anywhere; }
 .rv-pdf-name small { font-size: 12px; color: var(--rl-text-dim); }
-.rv-links { list-style: none; padding: 6px 16px; }
+.rv-attached-note { margin: 0; font-size: 14px; line-height: 21px; color: var(--rl-text-dim); max-width: 68ch; }
+
+/* A bundle of files as one stack: a card of rows, each a file the Finder would recognise. */
+.rv-files { list-style: none; margin: 0; padding: 4px 0; border-radius: var(--r-panel); background: var(--rl-card); box-shadow: 0 0 0 var(--hairline-w) var(--rl-card-rim); }
+.rv-file { position: relative; display: flex; flex-direction: column; min-width: 0; }
+.rv-file + .rv-file::before { content: ""; position: absolute; top: 0; left: 56px; right: 14px; border-top: var(--hairline-w) solid var(--rl-line); }
+.rv-file-row { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 8px 10px 8px 12px; }
+.rv-file-mark, .rv-file-thumb { flex: none; width: 32px; height: 32px; border-radius: var(--r-chip); }
+.rv-file-mark { display: grid; place-items: center; background: var(--field); box-shadow: var(--rl-object-shadow); }
+.rv-file-thumb { object-fit: cover; box-shadow: var(--rl-object-shadow); }
+.rv-file-text { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.rv-file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; line-height: 20px; color: var(--rl-text-bright); }
+.rv-file-where { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 16px; color: var(--rl-text-faint); }
+.rv-file-open, .rv-file-look { flex: none; }
+.rv-file-body { margin: 0 12px 12px; min-width: 0; }
+
+.rv-links { list-style: none; padding: 6px 18px; }
 .rv-links li { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; padding: 8px 0; position: relative; }
-.rv-links li + li::before { content: ""; position: absolute; top: 0; left: 0; right: 0; border-top: var(--hairline-w) solid var(--rl-card-rim); }
+.rv-links li + li::before { content: ""; position: absolute; top: 0; left: 0; right: 0; border-top: var(--hairline-w) solid var(--rl-line); }
 .rv-links .msg-chip { gap: 4px; font-size: 13px; }
 .rv-link-where { min-width: 0; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); overflow-wrap: anywhere; }
 .rv-table { padding: 0; }
-.rv-table .md-scroll { max-height: 480px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+.rv-table .md-scroll { max-height: 480px; border-radius: var(--r-panel); background: var(--rl-card); box-shadow: 0 0 0 var(--hairline-w) var(--rl-card-rim); }
 .rv-table .rv-strip-note { margin-top: 6px; }
 .rv-diff { min-width: 0; }
 /* Edit, then approve: the control at the text's corner, and the field that takes its place. */
 .rv-editable { position: relative; }
-.rv-edit { position: absolute; top: 8px; right: 8px; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; line-height: 18px; }
+.rv-edit { position: absolute; top: 10px; right: 10px; display: inline-flex; align-items: center; gap: 6px; }
 .rv-editing { display: flex; flex-direction: column; gap: 10px; }
 .rv-edit-field { width: 100%; min-height: 120px; resize: vertical; padding: 10px 12px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
-  background: var(--field); color: var(--rl-text-bright); font: inherit; font-size: 14px; line-height: 20px; outline: none; }
+  background: var(--field); color: var(--rl-text-bright); font: inherit; font-size: 15px; line-height: 22px; outline: none; }
 .rv-edit-field:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
 .rv-edit-foot { display: flex; align-items: center; gap: 8px; }
 .rv-edit-note { margin-right: auto; min-width: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+
+/* Narrower, the facts go under the work; in a side panel's width, the pane shows the inbox or the
+   review chosen, never both — the inbox until a row is opened, and the review with its way back. The
+   second query is the pane's (`.panel` is the container every pane measures against). */
+@container rv-read (max-width: 860px) {
+  .rv-reader { flex-direction: column; gap: 22px; }
+  .rv-reader-main { max-width: none; }
+  .rv-facts { flex: none; align-self: stretch; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; padding-top: 0; }
+}
+@container (max-width: 720px) {
+  .rv { grid-template-columns: minmax(0, 1fr); }
+  .rv-list { border-right: none; }
+  .rv[data-reading] .rv-list, .rv:not([data-reading]):not([data-empty]) .rv-detail { display: none; }
+  .rv-back { display: flex; flex: none; padding: 10px 14px 0; }
+  .rv-detail-scroll { padding: 14px 18px 22px; }
+  .rv-dock { padding: 0 10px 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rv-row[data-arrived], .rv-row[data-leaving], .rv-detail { animation: none; }
+}
 
 /* The post sheet (mock 04): the consequence in a sentence, the facts in a card of rows, and a button
    that says the action and its time. */

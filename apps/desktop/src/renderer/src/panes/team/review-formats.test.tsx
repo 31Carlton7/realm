@@ -63,12 +63,12 @@ describe("one renderer per format, in the same frame", () => {
     ["rpdf", "pdf", ".rv-pdf .rv-pdf-page"],
     ["rmd", "markdown", ".rv-doc .md h1"],
     ["rmail", "email", ".rv-mail .rv-mail-head"],
-    ["rmsg", "message", ".rv-message .rv-message-who"],
+    ["rmsg", "message", ".rv-chat .rv-bubble"],
     ["rdiff", "diff", ".rv-diff .fd-file"],
     ["rlinks", "links", ".rv-links a.msg-chip"],
     ["rtable", "table", ".rv-table table"],
     ["rtext", "text", ".rv-text"],
-    ["rfiles", "files", ".rv-files .settings-row"],
+    ["rfiles", "files", ".rv-files .rv-file"],
   ])("%s draws as %s", async (id, format, sel) => {
     await mount(FORMATS);
     fireEvent.click(document.querySelector(`[data-review="${id}"]`)!);
@@ -77,12 +77,13 @@ describe("one renderer per format, in the same frame", () => {
     expect(document.querySelector(sel)).not.toBeNull();
   });
 
-  it("draws an email as a mail card — from, to, subject, then the text, once — with its other meta quiet above it", async () => {
+  it("draws an email as a mail — from, to, its subject as the head, then the text, once — with its other meta quiet above it", async () => {
     await mount(FORMATS);
     fireEvent.click(document.querySelector('[data-review="rmail"]')!);
     await waitFor(() => expect(document.querySelector(".rv-mail")).not.toBeNull());
-    const head = Object.fromEntries([...document.querySelectorAll(".rv-mail-head > div")].map((r) => [r.querySelector("dt")!.textContent, r.querySelector("dd")!.textContent]));
-    expect(head).toEqual({ From: "me@versed.app", To: "dana@acme.com", Subject: "Following up" });
+    const head = Object.fromEntries([...document.querySelectorAll(".rv-mail-who > div")].map((r) => [r.querySelector("dt")!.textContent, r.querySelector("dd")!.textContent]));
+    expect(head).toEqual({ From: "me@versed.app", To: "dana@acme.com" });
+    expect(screen.getByRole("heading", { level: 2, name: "Following up" })).toHaveClass("rv-mail-subject");
     expect(document.querySelector(".rv-meta-rows")).toHaveTextContent("DueTue");
     expect(document.querySelector(".rv-meta-rows")).not.toHaveTextContent("Subject");
     // THE MUTANT: `drawsBody` false for email — the text under the card again, headed Message.
@@ -98,6 +99,15 @@ describe("one renderer per format, in the same frame", () => {
     // THE MUTANT: `drawsBody` left to the no-files rule — an email with a file draws its text twice.
     expect(screen.getAllByText("Invoice attached.")).toHaveLength(1);
     expect(document.querySelector(".rv-files")).toHaveTextContent("invoice.pdf");
+  });
+
+  it("draws a PDF that came with other files as one file of the stack, not as a page over them", async () => {
+    const bundle = detail("rkit", "Press kit", [it0("rkit", { files: ["kit/one-pager.pdf", "kit/logo.png", "kit/notes.zip"] })], { kind: "assets" });
+    await mount([bundle]);
+    await waitFor(() => expect(document.querySelector(".rv-deliverable")).toHaveAttribute("data-format", "pdf"));
+    // THE MUTANT: the bundle drawn as its PDF's page, the other files under the fold.
+    expect(document.querySelector(".rv-pdf")).toBeNull();
+    expect([...document.querySelectorAll(".rv-files .rv-file-name")].map((n) => n.textContent)).toEqual(["one-pager.pdf", "logo.png", "notes.zip"]);
   });
 
   it("names a link by the title its line gave, and otherwise by its host and path — never by a made-up title", async () => {
@@ -120,19 +130,22 @@ describe("one renderer per format, in the same frame", () => {
     await mount(FORMATS);
     fireEvent.click(document.querySelector('[data-review="rtext"]')!);
     await waitFor(() => expect(document.querySelector(".rv-text")).not.toBeNull());
-    // THE MUTANT: the legacy fallback — "Nothing posts until you approve." over a note that goes nowhere.
-    expect(document.querySelector(".rv-decide-note")).toHaveTextContent("Nothing leaves Realm until you approve.");
+    // THE MUTANT: the legacy fallback — a promise to post over a note that goes nowhere.
+    expect(document.querySelector(".rv-dock-note")).toHaveTextContent("Approving marks it approved. Nothing leaves Realm.");
     expect(screen.getByRole("heading", { name: "Before it can go" })).toBeInTheDocument();
   });
 
-  it("still draws a legacy slideshow batch as its strip, with its caption headed Caption", async () => {
+  it("still draws a legacy slideshow batch as a post: its account, its strip and its caption under it", async () => {
     const slides = ["deck/01.png", "deck/02.png", "deck/03.png"];
     const legacy = detail("rold", "6 slideshows for Nathan", [it0("rold", { files: slides, body: "caption #ad", format: "images", target: { channel: "TikTok", account: "@versed.nathan" },
       action: { connector: "channel:tiktok", verb: "post", account: "@versed.nathan", to: null, legacy: 1 } })], { kind: "slideshows", channels: ["TikTok"] });
     await mount([legacy]);
-    expect(document.querySelectorAll(".rv-strip .rv-slide")).toHaveLength(3);
-    expect(screen.getByRole("heading", { name: "Caption" }).nextElementSibling).toHaveTextContent("caption #ad");
-    expect(document.querySelector(".rv-card .rv-meta")).toHaveTextContent("TikTok");
+    expect(document.querySelectorAll(".rv-post .rv-strip .rv-slide")).toHaveLength(3);
+    expect(document.querySelector(".rv-post-head")).toHaveTextContent("@versed.nathanTikTok");
+    // THE MUTANT: `drawsBody` false for pictures — the caption under the post AND again under a head.
+    expect(screen.getAllByText("caption #ad")).toHaveLength(1);
+    expect(document.querySelector(".rv-post-caption")).toHaveTextContent("caption #ad");
+    expect(document.querySelector(".rv-row .rv-row-line")).toHaveTextContent("TikTok");
   });
 });
 
@@ -158,13 +171,13 @@ describe("edit, then approve", () => {
     fireEvent.click(document.querySelector('[data-review="rtext"]')!);
     await waitFor(() => expect(document.querySelector(".rv-text")).not.toBeNull());
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-    fireEvent.keyDown(screen.getByRole("textbox", { name: "The text's text" }), { key: "Escape" });
-    expect(screen.queryByRole("textbox", { name: "The text's text" })).toBeNull();
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "The note's text" }), { key: "Escape" });
+    expect(screen.queryByRole("textbox", { name: "The note's text" })).toBeNull();
     expect(api.calls.some((c) => c.startsWith("teamReviewEditItem"))).toBe(false);
   });
 
   it("offers no Edit for a picture, a PDF, or anything already approved", async () => {
-    const approved = detail("rdone", "Approved note", [it0("rdone", { body: "done", approvedHash: "h" })], { state: "approved" });
+    const approved = detail("rdone", "Approved note", [it0("rdone", { body: "done", approvedHash: "h" })], { state: "approved", decidedAt: Date.now() });
     await mount([...FORMATS, approved]);
     for (const [id, title] of [["rimg", "One picture"], ["rpdf", "The brief"], ["rdone", "Approved note"]] as const) {
       fireEvent.click(document.querySelector(`[data-review="${id}"]`)!);

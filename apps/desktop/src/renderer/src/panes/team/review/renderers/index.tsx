@@ -1,35 +1,39 @@
-import { Icon } from "@realm/ui";
+import { Icon, type IconName } from "@realm/ui";
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import {
-  EDITABLE_FORMATS, inferFormat, isImageFile, itemTarget, mediaUrl,
+  EDITABLE_FORMATS, inferFormat, isImageFile, itemTarget, itemVerb, mediaUrl, verbFamily,
   type DeliverableFormat, type TeamReviewDetail, type TeamReviewItem,
 } from "@realm/contracts";
 import { useApp } from "../../../../state/store";
 import { Markdown } from "../../../session/Markdown";
 import { DiffView } from "../../../session/rich/DiffView";
 import { parseUnifiedDiff } from "../../../session/rich/diff";
+import { FileMark } from "../../../../components/file-icon";
 import { canQuickLook, fileDragProps, quickLook, quickLookOnSpace } from "../../../../components/file-actions";
 import { numericColumns, parseDelimited, parseLinks } from "./parse";
 
 /**
- * Review's renderers, one per format (team-deliverables.ts): the deliverable drawn as what it IS — a
- * strip of pictures, a PDF's first page, Markdown at the reading measure, a mail card, a message as
- * it would read, a diff, link chips, a table, plain prose, or file rows. `inferFormat` picks one when
- * the item does not say. Each draws in the same frame under the head, so changing format moves
- * nothing else on the pane.
+ * A draft drawn as the thing itself (team-deliverables.ts): a post as it would sit on its platform —
+ * the account, the slides, the caption under them — an email as a mail with its subject and its
+ * recipient, a DM as the message in its thread, a document as a page, a bundle of files as a stack the
+ * Finder would recognise, a diff in the diff component's own colours. `inferFormat` picks the drawing
+ * when the item does not say. Every drawing sits in the same place under the reader's head, so
+ * stepping between items of different formats moves nothing else.
  *
- * Where the text IS the deliverable (an email, a Markdown note, a message) it is drawn here, and may
- * be edited in place before the yes; where it rides with files (a caption under slides) the pane
- * draws it under its own head instead (`drawsBody`).
+ * `Deliverable` is the piece other surfaces reuse — a team chat's draft card draws the same preview.
+ * Where the text IS the deliverable (an email, a note, a message) it may be edited in place before
+ * the yes; a picture or a PDF is edited in Documents instead.
  */
 
 export type EditBody = { save: (body: string) => Promise<void> };
 type Props = { detail: TeamReviewDetail; item: TeamReviewItem; edit: EditBody | null };
 
-/** Whether the renderer draws the item's text itself — so the pane does not draw it twice. */
+/** Whether the drawing carries the item's text itself — so the reader does not draw it twice. A
+ *  post's caption is part of the post and a PDF's note rides under its page; a document, a diff, links
+ *  or a table that came as a file are the file, and their text is the reader's to show apart. */
 export function drawsBody(format: DeliverableFormat, item: TeamReviewItem): boolean {
-  if (format === "email" || format === "message") return true;
-  return item.files.length === 0 && format !== "images" && format !== "pdf" && format !== "files";
+  if (format === "email" || format === "message" || format === "images" || format === "pdf" || format === "files") return true;
+  return item.files.length === 0;
 }
 
 /** Whether the person may edit this item's text here, before approving. */
@@ -49,8 +53,8 @@ export function Deliverable({ detail, item, edit }: Props) {
   );
 }
 
-/** The item's own key/values, quiet above it — except what the renderer already draws (an email's
- *  Subject is its card's). */
+/** The item's own key/values, quiet above it — except what the drawing already shows (an email's
+ *  Subject is its own line). */
 function MetaRows({ item, format }: { item: TeamReviewItem; format: DeliverableFormat }) {
   const rows = Object.entries(item.meta ?? {}).filter(([k]) => !(format === "email" && k.toLowerCase() === "subject"));
   if (rows.length === 0) return null;
@@ -63,53 +67,90 @@ function MetaRows({ item, format }: { item: TeamReviewItem; format: DeliverableF
 
 const abs = (detail: TeamReviewDetail, f: string): string => `${detail.root}/${f}`;
 const textOf = (detail: TeamReviewDetail, f: string): string | null => detail.fileTexts?.[f] ?? null;
+const nameOf = (f: string): string => f.split("/").pop() ?? f;
+const folderOf = (rel: string) => (rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : ".");
 
-/* ── images ─────────────────────────────────────────────────────────────────────────────────────── */
+/** A platform's own mark, where Realm's icon set has one. */
+const CHANNEL_MARK: Record<string, IconName> = { tiktok: "tiktok", instagram: "instagram", youtube: "youtube", x: "x", twitter: "x", email: "mail", mail: "mail" };
+const channelMark = (channel: string | undefined): IconName | null => (channel ? CHANNEL_MARK[channel.trim().toLowerCase()] ?? null : null);
+/** "instagram" from a connector reads as the platform writes its name. */
+const channelName = (c: string): string => (c === c.toLowerCase() ? c.charAt(0).toUpperCase() + c.slice(1) : c);
 
-/** A strip of 9:16 slides — today's — opening the media viewer; one picture is one large frame. */
+/* ── a post: its account, its pictures, its caption ─────────────────────────────────────────────── */
+
+/**
+ * Pictures. With a caption going out somewhere, a post as the platform lays it out: who it goes out
+ * as, the slides in order at their own 9:16, the caption under them. One picture on its own is one
+ * large frame. Each opens in the media viewer, where it can be asked about.
+ */
 function Images({ detail, item }: Props) {
   const openViewer = useApp((s) => s.openViewer);
   const pictures = item.files.filter(isImageFile);
   const others = item.files.filter((f) => !isImageFile(f));
   if (!detail.root) return null;
+  const t = itemTarget(item);
   const open = (i: number, opener: HTMLElement) =>
     openViewer({ files: pictures.map((p) => ({ path: abs(detail, p) })), index: i, sessionId: detail.sessionId, spaceId: detail.spaceId, opener });
+  const post = !!item.body || !!t?.channel;
   return (
     <>
-      {pictures.length === 1 && (
-        <button type="button" className="rv-picture" aria-label={`${pictures[0]}. Open it large`} onClick={(e) => open(0, e.currentTarget)}>
+      {post ? (
+        <figure className="rv-post">
+          {(t?.account || t?.channel) && <PostHead account={t.account} channel={t.channel} />}
+          {pictures.length > 0 && (
+            <div className="rv-strip" data-count={pictures.length}>
+              {pictures.map((f, i) => (
+                <button key={f} type="button" className="rv-slide" aria-label={`Slide ${i + 1} of ${pictures.length}, ${nameOf(f)}. Open it large`} onClick={(e) => open(i, e.currentTarget)}>
+                  <img src={mediaUrl(abs(detail, f))} alt="" draggable={false} />
+                  {pictures.length > 1 && <span className="rv-slide-n">{i + 1}</span>}
+                </button>
+              ))}
+            </div>
+          )}
+          {item.body && <figcaption className="rv-post-caption" data-selectable="">{item.body}</figcaption>}
+        </figure>
+      ) : pictures.length === 1 ? (
+        <button type="button" className="rv-picture" aria-label={`${nameOf(pictures[0]!)}. Open it large`} onClick={(e) => open(0, e.currentTarget)}>
           <img src={mediaUrl(abs(detail, pictures[0]!))} alt="" draggable={false} />
         </button>
-      )}
-      {pictures.length > 1 && (
-        <div className="rv-strip" style={{ gridTemplateColumns: `repeat(${Math.max(pictures.length, 5)}, minmax(0, 1fr))` }}>
+      ) : (
+        <div className="rv-strip" data-count={pictures.length}>
           {pictures.map((f, i) => (
-            <button key={f} type="button" className="rv-slide" aria-label={`Slide ${i + 1}, ${f}. Open it large`} onClick={(e) => open(i, e.currentTarget)}>
+            <button key={f} type="button" className="rv-slide" aria-label={`Picture ${i + 1} of ${pictures.length}, ${nameOf(f)}. Open it large`} onClick={(e) => open(i, e.currentTarget)}>
               <img src={mediaUrl(abs(detail, f))} alt="" draggable={false} />
-              <span className="rv-slide-n">{i + 1}</span>
             </button>
           ))}
         </div>
       )}
-      {pictures.length > 0 && (
-        <p className="rv-strip-note">{pictures.length === 1 ? "1 picture" : `${pictures.length} slides`} in <span className="t-mono">{folderOf(pictures[0]!)}</span>. Open one to see it full size, or to ask {detail.roleName ?? "the role"} about it.</p>
-      )}
-      {others.length > 0 && <FileRows detail={detail} files={others} />}
+      {others.length > 0 && <FileStack detail={detail} files={others} />}
     </>
+  );
+}
+
+function PostHead({ account, channel }: { account?: string | undefined; channel?: string | undefined }) {
+  const mark = channelMark(channel);
+  return (
+    <div className="rv-post-head">
+      <span className="rv-post-avatar" aria-hidden="true">{mark ? <Icon name={mark} size={16} /> : (account ?? "?").replace(/^@/, "").charAt(0).toUpperCase()}</span>
+      {account && <span className="rv-post-account">{account}</span>}
+      {channel && <span className="rv-post-channel">{channelName(channel)}</span>}
+    </div>
   );
 }
 
 /* ── pdf ────────────────────────────────────────────────────────────────────────────────────────── */
 
-/** The PDF's first page as paper, at width, opening in Realm's own PDF viewer in Documents. */
+/** A PDF on its own as paper — its first page, opening in Realm's own PDF viewer in Documents. A PDF
+ *  that came with other files is one file of a bundle, and sits in the stack with them. */
 function Pdf({ detail, item }: Props) {
   const pdfs = item.files.filter((f) => f.toLowerCase().endsWith(".pdf"));
-  const others = item.files.filter((f) => !f.toLowerCase().endsWith(".pdf"));
+  const bundle = pdfs.length < item.files.length;
   if (!detail.root) return null;
   return (
     <>
-      {pdfs.map((f) => <PdfPage key={f} detail={detail} file={f} />)}
-      {others.length > 0 && <FileRows detail={detail} files={others} />}
+      {!bundle && pdfs.map((f) => <PdfPage key={f} detail={detail} file={f} />)}
+      {item.body && <p className="rv-attached-note" data-selectable="">{item.body}</p>}
+      {bundle && <FileStack detail={detail} files={item.files} />}
     </>
   );
 }
@@ -127,7 +168,7 @@ function PdfPage({ detail, file }: { detail: TeamReviewDetail; file: string }) {
     preview(path, "page").then((url) => { if (live) setPage(url); }).catch(() => { if (live) setPage(null); });
     return () => { live = false; };
   }, [path]);
-  const name = file.split("/").pop() ?? file;
+  const name = nameOf(file);
   return (
     <figure className="rv-pdf">
       <button type="button" className="rv-pdf-page" aria-label={`${name}, its first page. Open it large`} {...fileDragProps(path)} onKeyDown={quickLookOnSpace(path)}
@@ -145,64 +186,84 @@ function PdfPage({ detail, file }: { detail: TeamReviewDetail; file: string }) {
 
 /* ── text that is the deliverable ───────────────────────────────────────────────────────────────── */
 
-/** Markdown at the reading measure: a `.md` file's text, or the body. */
+/** A document as a page: a `.md` file's text, or the body, at the reading measure. */
 function MarkdownDoc({ detail, item, edit }: Props) {
   const file = item.files.find((f) => /\.(md|markdown)$/i.test(f));
   const text = file ? textOf(detail, file) : item.body;
   return (
     <>
       {text !== null && (
-        <Editable body={file ? null : item.body} edit={file ? null : edit} label="note">
-          <article className="rv-frame rv-doc"><Markdown text={text} className="rv-md" /></article>
+        <Editable body={file ? null : item.body} edit={file ? null : edit} label="document">
+          <article className="rv-paper rv-doc" data-selectable="">
+            {file && <div className="rv-paper-name"><FileMark path={file} size={16} />{nameOf(file)}</div>}
+            <Markdown text={text} className="rv-md" />
+          </article>
         </Editable>
       )}
-      <FileRows detail={detail} files={item.files.filter((f) => f !== file || text === null)} />
+      <FileStack detail={detail} files={item.files.filter((f) => f !== file || text === null)} />
     </>
   );
 }
 
 function Text({ item, edit }: Props) {
   return (
-    <Editable body={item.body} edit={edit} label="text">
-      <div className="rv-frame rv-text">{item.body}</div>
+    <Editable body={item.body} edit={edit} label="note">
+      <div className="rv-paper rv-text" data-selectable="">{item.body}</div>
     </Editable>
   );
 }
 
-/** A mail card: who it goes out as, to whom, its subject, then the text; attachments under it. */
+/**
+ * An email as a mail reads: who it is from and to, its subject as the head, then the text; its
+ * attachments under it as files. Realm sends none of it on its own — the decision area says who does.
+ */
 function Email({ detail, item, edit }: Props) {
   const t = itemTarget(item);
   const subject = Object.entries(item.meta ?? {}).find(([k]) => k.toLowerCase() === "subject")?.[1] ?? null;
+  const from = t?.account ?? "You";
   return (
     <>
       <Editable body={item.body} edit={edit} label="email">
-        <div className="rv-frame rv-mail">
-          <dl className="rv-mail-head">
-            <div><dt>From</dt><dd>{t?.account ?? "You"}</dd></div>
-            {t?.to && <div><dt>To</dt><dd>{t.to}</dd></div>}
-            {subject && <div className="rv-mail-subject"><dt>Subject</dt><dd>{subject}</dd></div>}
-          </dl>
-          <div className="rv-mail-body">{item.body}</div>
-        </div>
+        <article className="rv-paper rv-mail">
+          <header className="rv-mail-head">
+            <span className="rv-mail-avatar" aria-hidden="true">{from.charAt(0).toUpperCase()}</span>
+            <dl className="rv-mail-who">
+              <div><dt>From</dt><dd>{from}</dd></div>
+              {t?.to && <div><dt>To</dt><dd>{t.to}</dd></div>}
+            </dl>
+          </header>
+          {subject && <h2 className="rv-mail-subject" data-selectable="">{subject}</h2>}
+          <div className="rv-mail-body" data-selectable="">{item.body}</div>
+        </article>
       </Editable>
-      <FileRows detail={detail} files={item.files} />
+      <FileStack detail={detail} files={item.files} />
     </>
   );
 }
 
-/** A DM or a post's words as they would read, the account it goes out as above them. */
+/** A DM or a text post as it would read: the platform and the account it goes out as, then the words
+ *  in their bubble — a DM in its thread, a post as the account's own. */
 function Message({ detail, item, edit }: Props) {
   const t = itemTarget(item);
-  const who = [t?.account, t?.channel].filter(Boolean).join(" · ");
+  const dm = verbFamily(itemVerb(detail.kind, item)) === "send" || !!t?.to;
+  const mark = channelMark(t?.channel);
   return (
     <>
       <Editable body={item.body} edit={edit} label="message">
-        <div className="rv-frame rv-message">
-          {(who || t?.to) && <div className="rv-message-who">{who}{t?.to && <span> to {t.to}</span>}</div>}
-          <div className="rv-message-text">{item.body}</div>
+        <div className="rv-paper rv-chat" data-dm={dm || undefined}>
+          <div className="rv-chat-head">
+            {mark && <Icon name={mark} size={14} />}
+            <span className="rv-chat-where">
+              {dm ? <>{t?.to ? <b>{t.to}</b> : "A DM"}{t?.channel && <> on {channelName(t.channel)}</>}</> : <><b>{t?.account ?? "A post"}</b>{t?.channel && <> on {channelName(t.channel)}</>}</>}
+            </span>
+          </div>
+          <div className="rv-chat-thread">
+            <div className="rv-bubble" data-selectable="">{item.body}</div>
+            {dm && t?.account && <span className="rv-bubble-from">from {t.account}</span>}
+          </div>
         </div>
       </Editable>
-      <FileRows detail={detail} files={item.files} />
+      <FileStack detail={detail} files={item.files} />
     </>
   );
 }
@@ -217,9 +278,9 @@ function Diff({ detail, item }: Props) {
   return (
     <>
       {files.length > 0
-        ? <div className="rv-diff"><DiffView files={files} /></div>
-        : text && <div className="rv-frame md"><pre><code>{text}</code></pre></div>}
-      <FileRows detail={detail} files={item.files.filter((f) => f !== file || files.length === 0)} />
+        ? <div className="rv-diff diff-hunks" data-selectable=""><DiffView files={files} /></div>
+        : text && <div className="rv-paper md" data-selectable=""><pre><code>{text}</code></pre></div>}
+      <FileStack detail={detail} files={item.files.filter((f) => f !== file || files.length === 0)} />
     </>
   );
 }
@@ -231,7 +292,7 @@ function Links({ detail, item }: Props) {
   return (
     <>
       {links.length > 0 && (
-        <ul className="rv-frame rv-links">
+        <ul className="rv-paper rv-links" data-selectable="">
           {links.map((l, i) => (
             <li key={`${l.url}:${i}`}>
               <a className="msg-chip" href={l.url} target="_blank" rel="noreferrer" title={l.url}><Icon name="link" size={12} />{l.title ?? l.host}</a>
@@ -240,7 +301,7 @@ function Links({ detail, item }: Props) {
           ))}
         </ul>
       )}
-      <FileRows detail={detail} files={item.files.filter((f) => f !== file || links.length === 0)} />
+      <FileStack detail={detail} files={item.files.filter((f) => f !== file || links.length === 0)} />
     </>
   );
 }
@@ -249,14 +310,14 @@ function Links({ detail, item }: Props) {
 function Table({ detail, item }: Props) {
   const file = item.files.find((f) => /\.(csv|tsv)$/i.test(f));
   const text = file ? textOf(detail, file) : null;
-  if (!file) return <div className="rv-frame rv-doc rv-table-md"><Markdown text={item.body ?? ""} className="rv-md" /></div>;
+  if (!file) return <div className="rv-paper rv-doc rv-table-md" data-selectable=""><Markdown text={item.body ?? ""} className="rv-md" /></div>;
   const rows = text ? parseDelimited(text, /\.tsv$/i.test(file) ? "\t" : ",") : [];
   const right = numericColumns(rows);
   const [head = [], ...body] = rows;
   return (
     <>
       {rows.length > 0 && (
-        <div className="rv-table md">
+        <div className="rv-table md" data-selectable="">
           <div className="md-scroll">
             <table>
               <thead><tr>{head.map((h, c) => <th key={c} align={right[c] ? "right" : undefined}>{h}</th>)}</tr></thead>
@@ -266,35 +327,71 @@ function Table({ detail, item }: Props) {
           <p className="rv-strip-note">{body.length} row{body.length === 1 ? "" : "s"} from <span className="t-mono">{file}</span></p>
         </div>
       )}
-      <FileRows detail={detail} files={item.files.filter((f) => f !== file || rows.length === 0)} />
+      <FileStack detail={detail} files={item.files.filter((f) => f !== file || rows.length === 0)} />
     </>
   );
 }
 
 function Files({ detail, item }: Props) {
-  return <FileRows detail={detail} files={item.files} />;
+  return (
+    <>
+      {item.body && <p className="rv-attached-note" data-selectable="">{item.body}</p>}
+      <FileStack detail={detail} files={item.files} />
+    </>
+  );
 }
 
-/** Today's file rows, each one a file the Finder would recognise: Quick Look on Space, a drag out. */
-function FileRows({ detail, files }: { detail: TeamReviewDetail; files: readonly string[] }) {
+/**
+ * A bundle of files as one tidy stack: each file's own mark (its picture, where it is one), its name
+ * and its folder, and what a Mac does with a file — Quick Look on Space, a drag out to the Finder.
+ * A text file Realm has read opens in place, a diff in the diff's colours.
+ */
+function FileStack({ detail, files }: { detail: TeamReviewDetail; files: readonly string[] }) {
   if (files.length === 0 || !detail.root) return null;
   return (
-    <ul className="settings-list rv-files">
-      {files.map((f) => {
-        const path = abs(detail, f);
-        return (
-          <li key={f} className="settings-row" {...fileDragProps(path)}>
-            <Icon name="artifact" size={16} />
-            <div className="settings-row-main"><span className="settings-row-name">{f.split("/").pop()}</span><span className="settings-row-detail t-mono">{f}</span></div>
-            {canQuickLook() && <button type="button" className="btn" onClick={() => quickLook(path)}>Quick Look</button>}
-          </li>
-        );
-      })}
+    <ul className="rv-files" aria-label={files.length === 1 ? "1 file" : `${files.length} files`}>
+      {files.map((f) => <StackFile key={f} detail={detail} file={f} />)}
     </ul>
   );
 }
 
-const folderOf = (rel: string) => (rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : ".");
+function StackFile({ detail, file }: { detail: TeamReviewDetail; file: string }) {
+  const [open, setOpen] = useState(false);
+  const path = abs(detail, file);
+  const text = textOf(detail, file);
+  const diff = text && /\.(diff|patch)$/i.test(file) ? parseUnifiedDiff(text, file) : [];
+  return (
+    <li className="rv-file" data-open={open || undefined}>
+      <div className="rv-file-row" {...fileDragProps(path)}>
+        {isImageFile(file)
+          ? <img className="rv-file-thumb" src={mediaUrl(path)} alt="" draggable={false} />
+          : <span className="rv-file-mark"><FileMark path={file} size={20} /></span>}
+        <span className="rv-file-text">
+          <span className="rv-file-name">{nameOf(file)}</span>
+          <span className="rv-file-where t-mono">{folderOf(file)}</span>
+        </span>
+        {text !== null && (
+          <button type="button" className="btn-quiet rv-file-open" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+            {open ? "Hide" : diff.length > 0 ? "Show the diff" : "Show"}
+          </button>
+        )}
+        {canQuickLook() && <button type="button" className="btn-quiet rv-file-look" onClick={() => quickLook(path)}>Quick Look</button>}
+      </div>
+      {open && text !== null && (
+        diff.length > 0
+          ? <div className="rv-file-body rv-diff diff-hunks" data-selectable=""><DiffView files={diff} /></div>
+          : <div className="rv-file-body" data-selectable=""><Markdown text={/\.(md|markdown)$/i.test(file) ? text : fenced(text, file)} /></div>
+      )}
+    </li>
+  );
+}
+
+/** A text file's words as a fenced block in its own language, so the Markdown renderer draws it as
+ *  code — with a fence the text cannot close early. */
+function fenced(text: string, file: string): string {
+  const fence = text.includes("```") ? "~~~~" : "```";
+  return `${fence}${file.split(".").pop() ?? ""}\n${text}\n${fence}`;
+}
 
 /* ── edit, then approve ─────────────────────────────────────────────────────────────────────────── */
 
@@ -325,7 +422,7 @@ function Editable({ body, edit, label, children }: { body: string | null; edit: 
     try { await edit.save(draft); setDraft(null); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   };
   return (
-    <form className="rv-frame rv-editing" onSubmit={(e) => { e.preventDefault(); void save(); }}>
+    <form className="rv-paper rv-editing" onSubmit={(e) => { e.preventDefault(); void save(); }}>
       <textarea ref={field} className="rv-edit-field" value={draft} aria-label={`The ${label}'s text`} rows={Math.min(24, Math.max(6, draft.split("\n").length + 1))}
         onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setDraft(null); } }} />
       <div className="rv-edit-foot">
