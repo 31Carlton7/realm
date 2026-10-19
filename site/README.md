@@ -8,7 +8,9 @@ Three routes and nothing else:
 | --- | --- |
 | `/` | The landing page, laid out in [The landing page](#the-landing-page) below. |
 | `/changelog`, `/changelog/[slug]` | Every notable change under one date marker per day, eight at a time behind a **Load more**; each one opens as an article. |
-| `/features` | One non-scrolling screen: a carousel of real captures of the app, arrow keys included. |
+| `/docs`, `/docs/[slug]` | The documentation, described in [The docs](#the-docs) below. |
+
+`/features` redirects to `/`, which shows every feature it listed with its capture.
 
 The entries live in `content/changelog.ts` as typed blocks rather than Markdown — the site sits
 outside the workspace's vitest projects, so a union the compiler checks beats a parser nothing can
@@ -55,6 +57,30 @@ The rules it keeps: every effect argues something the copy also says, motion fol
 rather than looping, `prefers-reduced-motion` drops the transitions, and a picture is either a real
 capture or plainly drawn. Focus rings draw inside a clipped surface (the hero window, a card, a
 scrolling tab row) so the clip cannot cut them off.
+
+## The docs
+
+`/docs` is how Realm works, page by page, written for the shipped app: every label is the one the app
+shows, read from its source at the release the pages name (Realm 2.4). When the app changes, the page
+changes with it, and a feature the source does not have is not documented.
+
+Each page is a module in `content/docs/`, written with the small constructors in
+`lib/docs-blocks.ts` (`p`, `h2`, `steps`, `table`, `note`, `figure`…) so a page reads close to its
+prose. The groups and their order are `content/docs/index.ts`, and the nav, the docs home and each
+page's previous and next all read them from there. Inline, any text may carry `` `code` ``,
+`**bold**` for a label the app shows, `[a link](/docs/sessions#goals)`, and keys as `[[⌘⇧P]]`, each
+modifier its own keycap.
+
+`lib/docs.ts` refuses a broken page at build: a slug used twice, a link to a docs page or heading
+that is not there, or a figure whose capture was never taken. A figure is a whole scene, a part
+(`public/product/parts.json`), one of the changelog's crops, or one of the docs' own crops
+(`public/docs/`), which `node scripts/docs-crops.mjs` cuts from the 4320px scenes so each page shows
+the one surface it is about at the size it has in the app. Re-run it after a capture run retakes a
+scene, and re-read every caption beside what it rewrote.
+
+The layout (`app/docs/layout.tsx`) is the site's header and footer round a map of every page and the
+page itself; beside a wide page, the changelog's rail (`components/changelog/Rail`) marks the section
+being read. Below 1024px the map folds into one control at the head of the page.
 
 ## Why it is not in the pnpm workspace
 

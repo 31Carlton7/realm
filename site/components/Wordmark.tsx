@@ -6,6 +6,7 @@
  *
  * In the header and footer the mark is one colour, drawn inline so it takes the text's colour. The
  * share card stands in for the app, so it carries the app icon's three flat planes instead.
+ * `nameClassName` lets a crowded bar keep the name for screen readers while it shows the mark alone.
  * scripts/render-icons.mjs draws both from the same silhouette and doorway.
  */
 const sizes = {
@@ -16,7 +17,7 @@ const sizes = {
 const MARK =
   "M0.5196 24.9A1.8 1.8 0 0 1 0.5196 23.1L9.4804 7.5795A1.8 1.8 0 0 1 11.0392 6.6795L28.9608 6.6795A1.8 1.8 0 0 1 30.5196 7.5795L39.4804 23.1A1.8 1.8 0 0 1 39.4804 24.9L30.5196 40.4205A1.8 1.8 0 0 1 28.9608 41.3205L11.0392 41.3205A1.8 1.8 0 0 1 9.4804 40.4205ZM24.4 20.8823L28.2 14.3005L35.9 27.6373L32.1 34.2191Z"
 
-export function Wordmark({ className, size = "nav" }: { className?: string; size?: keyof typeof sizes }) {
+export function Wordmark({ className, size = "nav", nameClassName = "" }: { className?: string; size?: keyof typeof sizes; nameClassName?: string }) {
   const s = sizes[size]
   return (
     <span className={`inline-flex items-center ${s.gap} ${className ?? ""}`}>
@@ -27,7 +28,7 @@ export function Wordmark({ className, size = "nav" }: { className?: string; size
           <path fillRule="evenodd" d={MARK} />
         </svg>
       )}
-      <span className={`${s.name} font-semibold tracking-[-0.02em]`}>Realm</span>
+      <span className={`${s.name} font-semibold tracking-[-0.02em] ${nameClassName}`}>Realm</span>
     </span>
   )
 }

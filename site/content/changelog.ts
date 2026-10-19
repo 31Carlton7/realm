@@ -21,6 +21,59 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-4-0",
+    title: "Realm v2.4.0",
+    date: "2026-10-19",
+    version: "v2.4.0",
+    area: "Release",
+    summary:
+      "A team you message like a chat, one teammate to a thread, a redesigned Review with Undo, teammates you add to any session from the prompter, what changed in plain words, sessions shared as one web page, Full access from any mode, Sign in with Google in the browser, and a Realm that comes back after its server crashes.",
+    body: [
+      { kind: "h", text: "Teams" },
+      { kind: "ul", items: [
+        "**A team is a messenger.** Each teammate is a chat with its Realmite. Its runs, drafts, handoffs, questions, scheduled runs and budget stops are all in one thread, with a prompter to message it. A message answers the question it's waiting on, or carries on its last session.",
+        "**Review, redesigned.** An inbox in plain words (\"Email to dana@acme.com\"), and each draft shown as the thing itself: a post with its slides, an email with its subject, a document as a page, a diff, a stack of files. The role's \"why I made this\" sits above it, and the decision bar says exactly what Approve will do. Send back and Reject open in place.",
+        "**Undo an approval.** Approving in Review or in a teammate's chat leaves a toast with Undo, which puts the draft back in Waiting for you until something has left Realm.",
+        "Review no longer contradicts itself about drafts Realm doesn't send, and a role that calls a tool that doesn't exist is told so before anyone is asked to approve it.",
+      ] },
+      { kind: "h", text: "Sessions" },
+      { kind: "ul", items: [
+        "**Add a teammate from (+).** Bring another agent into any session to help, with a brief, in the same folder or its own worktree. The session's agent is told it joined, an @mention sends it a message, and stopping your turn leaves the teammates you added running.",
+        "**The agents at work sit over the prompter.** One row shows every agent in the session, teammates and sub-agents alike, each with its own mark and state. It replaces the strip under the transcript and the count in the session bar.",
+        "**What changed, in plain words.** The branch and line counts over the prompter became a pill, \"Changed 3 files\" or \"Added 2 images\", that opens a review grouped by kind: pictures before and after, documents rendered, code as diffs. The branch and counts live inside it.",
+        "**Share a session as a web page.** ⋯ ▸ Share as web page… (or `/share`) saves one HTML file that reads well on a phone or a desktop, in light or dark, fetches nothing, and hides tokens and your home folder.",
+        "**Full access from any mode.** A Claude session switches to Full access mid-session, whatever mode it started in.",
+      ] },
+      { kind: "h", text: "Look and feel" },
+      { kind: "ul", items: [
+        "**Cards without borders, on true squircles.** Every card has a continuous corner and no outline; its fill and a soft shadow give it depth. The theme picker's tiles match.",
+        "**Chrome doesn't select.** Headers, labels, chips and status lines no longer highlight. Messages, code, diffs and documents still do, and so does the text of a toast.",
+        "**Lighter shadows** under the prompter and its files, and a sub-agent's \"What it reported\" card is big enough to read.",
+        "**Pinned sessions show their space's icon** instead of the model's.",
+      ] },
+      { kind: "h", text: "Browser and documents" },
+      { kind: "ul", items: [
+        "**Sign in with Google works.** Sign-in popups open as real windows, so the page that opened one gets the answer and the popup closes itself.",
+        "**PDF arrows step one page at a time**, on slide decks and right to the last page.",
+      ] },
+      { kind: "h", text: "Reliability" },
+      { kind: "ul", items: [
+        "**Realm comes back after its server crashes.** Windows reconnect on their own, keeping drafts and panes. If the server won't come back, the banner offers to restart it. A paired iPhone finds its Mac again too.",
+        "**Saved passwords are never thrown away.** `secrets.json` is written all at once; an unreadable one is kept aside and Settings ▸ Passwords says where. A Keychain that refuses access leaves the file alone and offers Try again.",
+        "**More than thirty bugs fixed.** Among them: scheduled tasks firing every minute through the hour that repeats when the clocks go back; a restore deleting gitignored files like `.env`; a failed send wiping what you typed; a lead's running sub-agents vanishing from its list; Restart to update stopping every agent; the monthly budget alert never firing; Settings ▸ Import freezing Realm while it read your agents' history; and ⇧⏎ on a permission card not allowing always.",
+        "Finished one-time tasks can be renamed, and on the day the clocks go forward a daily 2:30 task runs at 3:00 instead of being skipped.",
+      ] },
+      { kind: "h", text: "Realm for iPhone" },
+      { kind: "ul", items: [
+        "**Pair an iPhone in Settings ▸ Devices.** The phone reaches your Mac through Realm's relay, encrypted end to end, shows Needs you by the sidebar's own rule, and gets notifications. In TestFlight for now.",
+      ] },
+      { kind: "h", text: "Docs" },
+      { kind: "ul", items: [
+        "**Docs on realm.computer**, and an architecture map in `docs/architecture`: the whole system, how each feature works, and a poster you can pan and zoom.",
+      ] },
+    ],
+  },
+  {
     slug: "v2-3-0",
     title: "Realm v2.3.0",
     date: "2026-10-14",

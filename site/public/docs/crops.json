@@ -1,0 +1,47 @@
+{
+  "keys-list": {
+    "width": 721,
+    "height": 816,
+    "radius": 12
+  },
+  "new-space-sheet": {
+    "width": 461,
+    "height": 451,
+    "radius": 16
+  },
+  "onboarding-agents": {
+    "width": 680,
+    "height": 232,
+    "radius": 12
+  },
+  "permission-card": {
+    "width": 481,
+    "height": 307,
+    "radius": 12
+  },
+  "palette": {
+    "width": 560,
+    "height": 498,
+    "radius": 16
+  },
+  "library-files": {
+    "width": 653,
+    "height": 562,
+    "radius": 12
+  },
+  "documents-home": {
+    "width": 553,
+    "height": 511,
+    "radius": 12
+  },
+  "terminal-panel": {
+    "width": 553,
+    "height": 456,
+    "radius": 12
+  },
+  "scripts": {
+    "width": 760,
+    "height": 393,
+    "radius": 12
+  }
+}
