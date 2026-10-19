@@ -11064,7 +11064,67 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tp-card-custom { border-style: dashed; background: transparent; }
 .tp-card-custom:hover { background: var(--rl-card); }
 .tp-mark-add { background: var(--rl-hover); color: var(--rl-text-dim); }
+/* A picture is its own object: the disc was there to give a bare glyph a place to stand. */
+.tp-mark-add:has(> .i3d[data-art]) { background: none; }
 .tp-picker { gap: 22px; }
+
+/* ── 3D icons (Icon3D) ─────────────────────────────────────────────────────────
+   The team's pictures, on three rungs. Each stands on a contact shadow drawn here rather than in its
+   render, so the set sits on a page alike, in both faces, and the cut from white keeps a clean edge.
+   Under the pointer of the control it is in, a picture leans and lifts on a spring with a little
+   overshoot (the owner's ask, 10-19: icons with Airbnb's life in them), is pushed down onto its
+   shadow by a press — never shrunk: the control's press is still its fill — and settles with one
+   bounce when its row is chosen. The settle moves `translate`/`scale`/`rotate`,
+   which compose with the lean's `transform`, so a click that chooses a hovered row bounces out of the
+   lean and back into it instead of snapping out of it when the bounce ends. Only a picture moves: the
+   glyph standing in for a missing one is an ordinary glyph. */
+.i3d {
+  /* An under-damped spring (damping 0.6, 9.5% overshoot), sampled to rest at the end of its run. */
+  --i3d-spring: linear(0, 0.081 5%, 0.266 10%, 0.484 15%, 0.689 20%, 0.856 25%, 0.976 30%, 1.05 35%, 1.086 40%, 1.095 45%,
+    1.086 50%, 1.067 55%, 1.037 63%, 1.012 70%, 0.995 80%, 0.993 90%, 1);
+  /* A spring needs room to overshoot and come back: one and a half of the travel rung. */
+  --i3d-run: calc(var(--dur-move) * 1.5);
+  --i3d-shade: 0.55;
+  position: relative; flex: none; display: inline-grid; place-items: center; width: var(--i3d-size); height: var(--i3d-size);
+}
+:root[data-mode="light"] .i3d { --i3d-shade: 0.24; }
+.i3d[data-size="20"] { --i3d-size: 20px; }
+.i3d[data-size="32"] { --i3d-size: 32px; }
+.i3d[data-size="64"] { --i3d-size: 64px; }
+img.i3d-art { position: relative; display: block; width: 100%; height: 100%; -webkit-user-drag: none; }
+.i3d[data-art] .i3d-art { transform-origin: 50% 80%; transition: transform var(--i3d-run) var(--i3d-spring); }
+.i3d[data-art]::before {
+  content: ""; position: absolute; left: 18%; right: 18%; bottom: 1%; height: 12%; border-radius: 50%;
+  background: radial-gradient(closest-side, oklch(0 0 0 / var(--i3d-shade)), transparent);
+  transition: transform var(--i3d-run) var(--i3d-spring), opacity var(--i3d-run) var(--i3d-spring);
+}
+@media (hover: hover) and (pointer: fine) {
+  :is(button:not(:disabled), a, label:not(:has(:disabled))):hover .i3d[data-art] .i3d-art { transform: translateY(-7%) rotate(-7deg) scale(1.08); }
+  :is(button:not(:disabled), a, label:not(:has(:disabled))):hover .i3d[data-art]::before { transform: scaleX(0.82); opacity: 0.65; }
+}
+:is(button:not(:disabled), a, label:not(:has(:disabled))):is(:active, [data-pressed]) .i3d[data-art] .i3d-art {
+  transform: translateY(5%) rotate(-2deg); transition-duration: var(--dur-press); transition-timing-function: var(--ease-out-strong);
+}
+:is(button:not(:disabled), a, label:not(:has(:disabled))):is(:active, [data-pressed]) .i3d[data-art]::before {
+  transform: none; opacity: 1; transition-duration: var(--dur-press); transition-timing-function: var(--ease-out-strong);
+}
+@keyframes i3d-settle {
+  0% { translate: 0 0; scale: 1; rotate: 0deg; }
+  28% { translate: 0 -12%; scale: 1.14; rotate: -6deg; }
+  52% { translate: 0 0; scale: 0.94; rotate: 3deg; }
+  74% { translate: 0 0; scale: 1.03; rotate: -1deg; }
+  100% { translate: 0 0; scale: 1; rotate: 0deg; }
+}
+.i3d[data-art][data-settle] .i3d-art { animation: i3d-settle var(--i3d-run) ease-in-out; }
+/* The global block stops the spring and the bounce; this stops the lean, which would otherwise jump. */
+@media (prefers-reduced-motion: reduce) {
+  .i3d .i3d-art, .i3d::before { transform: none !important; translate: none !important; scale: none !important; rotate: none !important; }
+}
+/* Add teammate under the chats stands its picture in the Realmites' column, so its words start where
+   the teammates' names do. */
+.page-rail .settings-tab.tc-add { padding-left: 8px; }
+.tc-add-mark { flex: none; display: grid; place-items: center; width: 32px; }
+.rv-empty-picture { margin-bottom: 6px; }
 .tp-said { display: flex; flex-direction: column; gap: 12px; }
 /* A field's own problem, said under it in words. */
 .tp-field-error { font-size: 12px; line-height: 16px; color: var(--rl-danger); }

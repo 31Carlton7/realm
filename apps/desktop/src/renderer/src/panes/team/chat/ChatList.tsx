@@ -1,6 +1,7 @@
-import { Icon, Realmite, parseRealmiteSpec } from "@realm/ui";
+import { Realmite, parseRealmiteSpec } from "@realm/ui";
 import { useEffect } from "react";
 import type { TeamRole, TeamSpace } from "@realm/contracts";
+import { Icon3D } from "../../../components/Icon3D";
 import { realmiteState, roleStateWords } from "../../../components/sidebar/TeamRows";
 import { useApp, type SpacePageTab } from "../../../state/store";
 import { ageShort } from "../team-format";
@@ -40,7 +41,7 @@ export function ChatList({ spaceId, team, tab, pick }: { spaceId: string; team: 
           preview={chatPreview(r, runsByRole[r.id], team.reviews)} needs={needsYou(r, team.reviews)} onPick={() => pick(`role:${r.id}`)} />
       ))}
       <button type="button" className="settings-tab page-rail-tab tc-add" onClick={() => openSheet({ kind: "add-teammates", spaceId })}>
-        <Icon name="add" size={16} className="page-rail-glyph" />
+        <span className="tc-add-mark"><Icon3D name="add-teammate" size={20} /></span>
         <span className="tp-rail-label">Add teammate</span>
       </button>
     </fieldset>
