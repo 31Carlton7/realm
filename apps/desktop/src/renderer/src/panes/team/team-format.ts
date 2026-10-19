@@ -243,6 +243,7 @@ export function activitySentence(a: TeamActivity, actorName: string): { text: st
     case "submitted": return { text: `${actorName} sent ${a.object} to Review`, detail: num("items") !== null ? `${num("items")} item${num("items") === 1 ? "" : "s"}` : null };
     case "revised": return { text: `${actorName} sent a new version of ${a.object}`, detail: num("version") !== null ? `version ${num("version")}` : null };
     case "approved": return { text: `You approved ${a.object}`, detail: null };
+    case "undid_approval": return { text: `You undid your approval of ${a.object}`, detail: "before any of it went out" };
     case "asked_changes": return { text: `You asked for changes to ${a.object}`, detail: str("note") ? `“${str("note")}”` : null };
     case "marked_done": return a.actor === "realm" ? { text: `Everything in ${a.object} went out`, detail: null } : { text: `You marked ${a.object} done`, detail: null };
     case "dismissed": return { text: `You put away ${a.object}`, detail: null };

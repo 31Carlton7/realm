@@ -310,8 +310,8 @@ button { font: inherit; color: inherit; background: none; border: none; padding:
 /* Chrome is not text. A double-click on a heading, a card's title or a status line selects its words in
    a browser and does nothing in an AppKit window, where only a text view selects; and ⌘A sweeping the
    whole interface blue is the same tell at full size. So nothing selects until it is named as content
-   below — a header, a chip, a toast or a page of settings written tomorrow is chrome without a rule of
-   its own. The images and glyphs chrome is drawn with do not lift off as drag ghosts either. */
+   below — a header, a chip or a page of settings written tomorrow is chrome without a rule of its
+   own. The images and glyphs chrome is drawn with do not lift off as drag ghosts either. */
 body { -webkit-user-select: none; user-select: none; }
 /* Content: what a person reads or copies. Prose, either side's — a message, a report, a plan, a skill
    (`.md`, and the user's own words); a finished question's answers; a diff, in a tool's card or a pane;
@@ -3184,8 +3184,9 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
 .toast[data-tone="error"] { --toast-tone: var(--rl-danger); }
 .toast[data-tone="warning"] { --toast-tone: var(--rl-warning); }
 .toast[data-tone="success"] { --toast-tone: var(--rl-success); }
-/* The glyph that says what kind of notice it is, the words, and the way to dismiss it. The words are
-   chrome, as a notice's are in any Mac app (the owner, 10-18): a toast is read and let go. */
+/* The glyph that says what kind of notice it is, the words, and the way to dismiss it. The words select
+   (`data-selectable`, the owner, 10-19) so an error's wording can be copied; the glyph and the buttons
+   stay chrome. */
 .toast-body { display: flex; align-items: flex-start; gap: 10px; padding: 12px 8px 12px 12px;
   transition: opacity var(--dur-swap) var(--ease-fade); }
 .toast-icon { flex: none; display: grid; place-items: center; height: 18px; color: var(--toast-tone); }
@@ -10745,11 +10746,9 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .rv-run-link { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; margin-left: -7px; }
 
 /* The decision, docked: the action surface of the reader, as the commit card is the diff's. Outside
-   the scroller, so it never dissolves with the work. It wears `.composer-dock` for the one thing that
-   class promises the rest of the window — a toast stands above it, never over its answers — and
-   takes none of the prompter's column geometry. */
-.rv-dock { flex: none; padding: 0 20px 16px; }
-.rv-dock.composer-dock { width: auto; margin: 0; transition: none; }
+   the scroller, so it never dissolves with the work, and over it on the prompter's layer, so its shadow
+   is never cut by what scrolls. A toast stands above it, never over its answers (`data-lifts-toasts`). */
+.rv-dock { position: relative; z-index: 2; flex: none; padding: 0 20px 16px; }
 .rv-dock-card { max-width: 1016px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; padding: 10px 10px 10px 16px;
   border-radius: var(--r-squircle-card); background: var(--surface); box-shadow: var(--shadow-card); }
 .rv-dock-card:focus-within { box-shadow: 0 0 0 var(--hairline-w) var(--line-strong), var(--shadow-card); }

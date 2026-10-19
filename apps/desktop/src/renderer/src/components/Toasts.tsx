@@ -21,6 +21,9 @@ const ESTIMATE = 42;
 /** How long a leaving toast stays in the DOM — the same fact as its fade (`--dur-swap`), pinned to it
  *  by styles.test.ts, so the timer can neither clip the fade nor park a finished toast on screen. */
 export const TOAST_EXIT_MS = 160;
+/** What the stack stands above, never over: a prompter's dock, and any other dock of answers that says
+ *  so — Review's decision bar. */
+const LIFTS = ".composer-dock, [data-lifts-toasts]";
 
 const TONE_ICON: Record<ToastTone, IconName> = { error: "errorCircle", warning: "alert", success: "checkCircle", info: "info" };
 
@@ -57,8 +60,9 @@ const rectOf = (el: Element): Rect => {
  *
  * Where it stands is `placeToastStack`'s question: the bottom-right corner, moved along the foot off
  * any browser view (which would paint over it) and lifted above a prompter (whose send button is in
- * that corner). With no clear spot at all — a browser filling a window whose sidebar is folded away —
- * the view under the corner gives it up for as long as there is something to say (`toastReserve`).
+ * that corner) or Review's decision bar. A dock that arrives, goes or grows while a toast is up moves
+ * the stack with it. With no clear spot at all — a browser filling a window whose sidebar is folded
+ * away — the view under the corner gives it up for as long as there is something to say (`toastReserve`).
  *
  * Portalled to `document.body` for the reason `Sheet` is: a `.panel` is a containing block for fixed
  * descendants, and a toast placed in window coordinates has to be measured against the window.
@@ -96,10 +100,11 @@ export function Toasts() {
 
   useLayoutEffect(() => {
     if (toasts.length === 0) { setReserve(null); return; }
+    let docks: Element[] = [];
     const place = () => {
       const win = { width: window.innerWidth, height: window.innerHeight };
       const width = Math.min(WIDTH, win.width - 2 * MARGIN);
-      const lift = pageOverlay ? [] : [...document.querySelectorAll(".composer-dock")].map(rectOf);
+      const lift = pageOverlay ? [] : docks.map(rectOf);
       const placed = placeToastStack({ win, width, minWidth: Math.min(MIN_WIDTH, width), height: fannedHeight, margin: MARGIN, avoid: browserRects, lift });
       const next = placed ?? { left: win.width - MARGIN - width, bottom: MARGIN, width };
       setSpot((cur) => (cur && cur.left === next.left && cur.bottom === next.bottom && cur.width === next.width ? cur : next));
@@ -108,12 +113,29 @@ export function Toasts() {
         width: next.width + 2 * MARGIN, height: fannedHeight + next.bottom + MARGIN,
       });
     };
-    place();
-    window.addEventListener("resize", place);
     // A prompter that grows a line moves its top, and the stack standing over it has to move with it.
     const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(place);
-    for (const el of document.querySelectorAll(".composer-dock")) ro?.observe(el);
-    return () => { window.removeEventListener("resize", place); ro?.disconnect(); };
+    /** The docks in the window now, each watched for its size. True when the set changed. */
+    const track = () => {
+      const now = [...document.querySelectorAll(LIFTS)];
+      if (now.length === docks.length && now.every((el, k) => el === docks[k])) return false;
+      ro?.disconnect();
+      docks = now;
+      for (const el of docks) ro?.observe(el);
+      return true;
+    };
+    track();
+    place();
+    window.addEventListener("resize", place);
+    // A dock that arrives under a toast already up — Review's decision bar as the next review opens —
+    // or one that leaves. Only while there is a toast to move: the observer goes with the last one. It
+    // reads only what changed, since a transcript streaming beside the toast changes the DOM constantly.
+    const mo = new MutationObserver((changes) => {
+      const arrived = changes.some((m) => [...m.addedNodes].some((n) => n instanceof Element && (n.matches(LIFTS) || n.querySelector(LIFTS) !== null)));
+      if ((arrived || docks.some((el) => !el.isConnected)) && track()) place();
+    });
+    mo.observe(document.body, { childList: true, subtree: true });
+    return () => { window.removeEventListener("resize", place); ro?.disconnect(); mo.disconnect(); };
   }, [toasts.length, fannedHeight, browserRects, pageOverlay, setReserve]);
   useEffect(() => () => setReserve(null), [setReserve]);
 
@@ -193,7 +215,9 @@ function ToastCard({ toast, index, count, y, scale, height, paused, onHeight, on
       onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); leave(); } }}>
       <div ref={body} className="toast-body">
         <span className="toast-icon"><Icon name={toast.icon ?? TONE_ICON[toast.tone]} size={16} /></span>
-        <p className="toast-text">{toast.text}</p>
+        {/* The words select, so an error's wording can be copied; nothing on the card acts on a press
+            but its buttons, which stay chrome. */}
+        <p className="toast-text" data-selectable="">{toast.text}</p>
         {/* Taken, it is done with: the toast goes as the thing it offered happens. */}
         {toast.action && (
           <button type="button" className="btn-quiet toast-action" onClick={() => { toast.action!.run(); leave(); }}>

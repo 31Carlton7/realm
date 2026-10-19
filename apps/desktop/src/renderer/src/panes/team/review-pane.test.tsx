@@ -166,6 +166,8 @@ describe("the reader", () => {
     expect(dock.closest(".rv-detail-scroll")).toBeNull();
     expect(dock.closest(".rv-detail")).not.toBeNull();
     expect(within(dock as HTMLElement).getByRole("button", { name: /Approve all 2/ })).toBeEnabled();
+    // THE MUTANT: the hook dropped — a toast stands over Approve instead of above it.
+    expect(dock).toHaveAttribute("data-lifts-toasts");
   });
 
   it("says before Approve what it will do — posts nothing, each waits for its press — and that an email is the person's to send", async () => {
@@ -256,6 +258,61 @@ describe("deciding", () => {
     expect(screen.queryByRole("button", { name: "Don't post" })).toBeNull();
     fireEvent.click(within(document.querySelector(".rv-dock") as HTMLElement).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(api.calls).toContain("teamReviewClose:v1"));
+  });
+});
+
+describe("undoing an approval", () => {
+  const offered = (store: Awaited<ReturnType<typeof mount>>["store"]) => store.getState().toasts.find((t) => t.action?.label === "Undo") ?? null;
+
+  it("offers Undo on the yes's toast; Undo folds the row back into Waiting for you and the reader goes back to it", async () => {
+    const { api, store } = await mount(undefined, { select: "v2" });
+    settle();
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    // THE MUTANT: a receipt with no Undo — the yes can't be taken back.
+    await waitFor(() => expect(offered(store)?.text).toBe("Approved “Reply to Dana”."));
+    await waitFor(() => expect(reading()).toBe("3 slideshows for Nathan"));
+    await waitFor(() => expect(groups()).toEqual([["Waiting for you", ["v1"]], ["In progress", ["v2"]]]));
+    // Gone back to the inbox, as a narrow pane would be, before the Undo.
+    fireEvent.click(screen.getByRole("button", { name: "All reviews" }));
+    expect(document.querySelector(".rv")).not.toHaveAttribute("data-reading");
+    offered(store)!.action!.run();
+    await waitFor(() => expect(api.calls).toContain("teamReviewUndoApproval:v2"));
+    // Back where it arrived, behind the newer draft.
+    await waitFor(() => expect(groups()).toEqual([["Waiting for you", ["v1", "v2"]]]));
+    // THE MUTANT: the undo without the selection — the reader stays on the next draft, and the one
+    // given back to the person is a row they have to find.
+    await waitFor(() => expect(reading()).toBe("Reply to Dana"));
+    expect(document.querySelector(".rv")).toHaveAttribute("data-reading");
+    expect(within(document.querySelector(".rv-dock") as HTMLElement).getByRole("button", { name: "Approve" })).toBeEnabled();
+  });
+
+  it("takes the Undo away once a post of the batch has gone out", async () => {
+    const v1 = detail("v1", "3 slideshows for Nathan");
+    const { store } = await mount([v1]);
+    settle();
+    fireEvent.click(screen.getByRole("button", { name: /Approve all 2/ }));
+    await waitFor(() => expect(offered(store)).not.toBeNull());
+    // The person posts the first one: it goes out, and the window reads the batch again.
+    Object.assign(v1, approvedBatch([ticket(0, { state: "done", actedAt: realNow(), proofUrl: "https://fake-platform.invalid/1" }), ticket(1)]));
+    await store.getState().loadTeamReview("v1");
+    // THE MUTANT: the offer left standing — an Undo that can only be refused, on a toast saying
+    // nothing has posted.
+    await waitFor(() => expect(offered(store)).toBeNull());
+  });
+
+  it("says plainly that it is too late when the Undo comes after something went out", async () => {
+    const v1 = detail("v1", "3 slideshows for Nathan");
+    const { api, store } = await mount([v1]);
+    settle();
+    fireEvent.click(screen.getByRole("button", { name: /Approve all 2/ }));
+    await waitFor(() => expect(offered(store)).not.toBeNull());
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    // Out on the platform before the window has heard: the server is the one that says no.
+    v1.tickets = [ticket(0, { state: "done", actedAt: realNow() })];
+    offered(store)!.action!.run();
+    await waitFor(() => expect(api.calls).toContain("teamReviewUndoApproval:v1"));
+    await waitFor(() => expect(store.getState().toasts.map((t) => [t.tone, t.text])).toContainEqual(["error", "It's too late to undo: a post already went out. Close stops whatever hasn't gone out."]));
+    expect(document.querySelector(".rv-pill")).not.toHaveTextContent("Waiting for you");
   });
 });
 

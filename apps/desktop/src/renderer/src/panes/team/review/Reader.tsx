@@ -30,8 +30,9 @@ export function ReviewStatePill({ review }: { review: TeamReviewSummary }) {
  * facts beside a request, what Realm checked before anything can go and how the work was made. The
  * decision is docked at the foot (`DecisionDock`).
  */
-export function Reader({ team, summary, onBack, onDecided }: {
+export function Reader({ team, summary, onBack, onDecided, onUndone }: {
   team: TeamSpace | undefined; summary: TeamReviewSummary; onBack: () => void; onDecided: (id: string, decision: Decision) => void;
+  onUndone: (id: string) => void;
 }) {
   const detail = useApp((s) => s.teamReviewDetail[summary.id]);
   const loadTeamReview = useApp((s) => s.loadTeamReview);
@@ -50,7 +51,7 @@ export function Reader({ team, summary, onBack, onDecided }: {
       <div className="rv-detail-scroll" ref={scroller}>
         <ReaderBody team={team} detail={detail} step={step} setStep={setStep} />
       </div>
-      <DecisionDock team={team} detail={detail} item={item} onDecided={onDecided} />
+      <DecisionDock team={team} detail={detail} item={item} onDecided={onDecided} onUndone={onUndone} />
     </article>
   );
 }

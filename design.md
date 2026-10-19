@@ -579,10 +579,11 @@ acronym that is uppercase anyway (a file extension on a tile).
   sidebar's old Spaces | Recent segments, labels round hidden radios, answered only on the radio's 13px.
 - Chrome is not text. Nothing in the window selects on a drag or a double-click until it is named as
   content — a message's prose and the user's own words, code and a tool's output, a diff, a document in
-  its editor, a field. A header, a card's title, a status line, a toast or a page of settings is chrome
-  without a rule of its own (the owner, 10-18), and a new surface of content says so with
-  `data-selectable` rather than as one more name in the stylesheet. Chrome's glyphs do not lift off as
-  drag ghosts.
+  its editor, a field. A header, a card's title, a status line or a page of settings is chrome without
+  a rule of its own (the owner, 10-18), and a new surface of content says so with `data-selectable`
+  rather than as one more name in the stylesheet. A toast's words are content and its buttons are not
+  (the owner, 10-19): an error's wording is what gets pasted into a search or a bug report. Chrome's
+  glyphs do not lift off as drag ghosts.
 - A window that is not key greys its accent — selection, default button, checked boxes, lit
   switches — and keeps its LUMINANCE, so a label's contrast is unchanged under any theme. Build the
   grey where luminance is a channel (XYZ's Y), not from OKLCH's L, which is not luminance for a

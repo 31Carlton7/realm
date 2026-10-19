@@ -1,7 +1,7 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useRef, useState } from "react";
-import { reviewVerb, verbFamily, type ActTicket, type TeamReviewDetail, type TeamReviewItem, type TeamSpace } from "@realm/contracts";
-import { useApp } from "../../../state/store";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { FINAL_REVIEW_STATES, reviewVerb, verbFamily, type ActTicket, type TeamReviewDetail, type TeamReviewItem, type TeamSpace } from "@realm/contracts";
+import { useApp, useAppStore } from "../../../state/store";
 import { ACT_WORDS, plainError } from "../team-format";
 import { POST_SHEET_NO_AGENT, PostSheet } from "../PostSheet";
 import { approveConsequence, approvedLine, closeConsequence, finishedLine, receipt, reviewPhase, type Decision as DecisionKind } from "./review-model";
@@ -10,6 +10,21 @@ import { reviewRole, RoleMark } from "./RoleMark";
 /** A press on Approve this soon after the reader changed what it shows is the tail of a double click
  *  aimed at the review before — it lands on nothing. */
 const SETTLE_MS = 350;
+
+/**
+ * The receipt a yes leaves, offering the Undo that takes it back — said the same way wherever a draft
+ * is approved, Review's dock or a teammate's chat. Called once the approval is in, when the review's
+ * detail is held (`decideTeamReview` reads it again). `onUndone` runs once the draft waits again,
+ * whether or not the surface that approved it is still on screen. Returns the toast's id.
+ */
+export function useApprovalReceipt(): (id: string, onUndone?: (id: string) => void) => string {
+  const store = useAppStore();
+  return useCallback((id, onUndone) => {
+    const s = store.getState();
+    return s.toast({ tone: "success", icon: "check", text: receipt("approve", s.teamReviewDetail[id]!, { wakes: false }),
+      action: { label: "Undo", run: () => s.run(async () => { await s.undoTeamReviewApproval(id); onUndone?.(id); }) } });
+  }, [store]);
+}
 
 /**
  * The decision, docked under the draft and outside its scroller so it never dissolves with it. It
@@ -23,12 +38,19 @@ const SETTLE_MS = 350;
  * and can be taken back, a refused one says why and offers the press again, and one that went out
  * keeps its proof. Close stays until the batch has gone out, because after the yes is when it
  * matters most: it takes back every press still waiting.
+ *
+ * The yes itself is taken back from its toast's Undo, for as long as nothing of the batch has left
+ * Realm; the toast gives up the offer once something has, or once the batch is finished with.
  */
-export function DecisionDock({ team, detail, item, onDecided }: {
+export function DecisionDock({ team, detail, item, onDecided, onUndone }: {
   team: TeamSpace | undefined; detail: TeamReviewDetail; item: TeamReviewItem | null;
   onDecided: (id: string, decision: DecisionKind) => void;
+  /** The yes was undone from its toast — run whether or not this dock is still on screen. */
+  onUndone: (id: string) => void;
 }) {
   const decide = useApp((s) => s.decideTeamReview);
+  const approvalReceipt = useApprovalReceipt();
+  const dismissToast = useApp((s) => s.dismissToast);
   const requestChanges = useApp((s) => s.requestTeamReviewChanges);
   const reject = useApp((s) => s.rejectTeamReview);
   const close = useApp((s) => s.closeTeamReview);
@@ -44,7 +66,14 @@ export function DecisionDock({ team, detail, item, onDecided }: {
   const [sheet, setSheet] = useState<ActTicket | null>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   const shownAt = useRef(Date.now());
+  /** The approval's toast, while its Undo can still do what it says. */
+  const undoOffer = useRef<string | null>(null);
   useEffect(() => { shownAt.current = Date.now(); setAsking(null); setError(null); }, [detail.id]);
+  const wentOut = detail.tickets.some((t) => t.state === "done" || t.state === "acting");
+  const finished = FINAL_REVIEW_STATES.includes(detail.state);
+  useEffect(() => {
+    if (undoOffer.current && (finished || wentOut)) { dismissToast(undoOffer.current); undoOffer.current = null; }
+  }, [finished, wentOut, dismissToast]);
   useEffect(() => { if (asking === "send-back" || asking === "reject") field.current?.focus(); }, [asking]);
 
   const role = reviewRole(team, detail.roleId);
@@ -66,10 +95,9 @@ export function DecisionDock({ team, detail, item, onDecided }: {
       try {
         await fn();
         setAsking(null); setNote("");
-        if (decision) {
-          toast({ tone: "success", text: receipt(decision, detail, { wakes, reason: reason ?? null }), icon: decision === "approve" ? "check" : decision === "send-back" ? "undo" : undefined });
-          onDecided(detail.id, decision);
-        }
+        if (decision === "approve") undoOffer.current = approvalReceipt(detail.id, onUndone);
+        else if (decision) toast({ tone: "success", text: receipt(decision, detail, { wakes, reason: reason ?? null }), icon: decision === "send-back" ? "undo" : undefined });
+        if (decision) onDecided(detail.id, decision);
       } catch (e) { setError(plainError(e)); } finally { setBusy(false); }
     });
   };
@@ -92,7 +120,7 @@ export function DecisionDock({ team, detail, item, onDecided }: {
       : asking === "reject" ? { place: wakes ? `Why not? ${capital(roleName)} is told (optional)` : "Why not? (optional)", go: note.trim() && wakes ? `Reject and tell ${roleName}` : "Reject", label: `Why reject ${detail.title}? Optional` }
       : null;
     return (
-      <div className="rv-dock composer-dock" data-asking={asking}>
+      <div className="rv-dock" data-lifts-toasts="" data-asking={asking}>
         <form className="rv-dock-card rv-sendback" onSubmit={(e) => { e.preventDefault(); submit(); }}
           onKeyDown={(e) => {
             if (e.key === "Escape") { e.stopPropagation(); setAsking(null); }
@@ -122,7 +150,7 @@ export function DecisionDock({ team, detail, item, onDecided }: {
   }
 
   return (
-    <div className="rv-dock composer-dock">
+    <div className="rv-dock" data-lifts-toasts="">
       <div className="rv-dock-card">
         <div className="rv-dock-row">
           <span className="rv-dock-note" role={error ? "alert" : undefined} data-tone={error || phase === "failed" ? "bad" : undefined}>{sentence}</span>

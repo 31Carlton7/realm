@@ -257,6 +257,23 @@ describe("teams over the wire", () => {
     c.close();
   });
 
+  it("undoes a yes over the socket: the batch waits again with its tickets taken back, and a second Undo is no change", async () => {
+    const { c, spaceId, roleId } = await boot();
+    await keepRecord(c, roleId);
+    await c.must("team.roleRun", { id: roleId, message: "make the slides" });
+    await waitFor(async () => (await c.must("team.space", { spaceId })).reviews.length === 1, { timeout: 8000 });
+    const id = (await c.must("team.space", { spaceId })).reviews[0].id;
+    await c.must("team.reviewApprove", { id });
+    expect(await c.must("team.tickets", { spaceId })).toHaveLength(2);
+    // THE MUTANT: the method in the contract and never registered — the toast's Undo would only ever fail.
+    expect(await c.must("team.reviewUndoApproval", { id })).toMatchObject({ state: "waiting", actsTotal: 0 });
+    expect(await c.must("team.tickets", { spaceId })).toEqual([]);
+    expect(await c.must("team.reviewUndoApproval", { id })).toMatchObject({ state: "waiting" });
+    const log = await c.must("team.activity", { spaceId, limit: 50 });
+    expect(log.filter((a: Any) => a.verb === "undid_approval")).toHaveLength(1);
+    c.close();
+  });
+
   it("request changes wakes the run that made it, in its session, and the revision replaces the batch in place", async () => {
     const { c, spaceId, roleId } = await boot();
     await keepRecord(c, roleId);
