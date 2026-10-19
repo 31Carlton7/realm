@@ -289,6 +289,14 @@ async function main() {
   await sleep(300);
   const tip = await evalIn(c, `document.querySelector('.tooltip[data-open]')?.textContent ?? null`);
   check("a chip's tooltip names it, its model, where it stands and for how long", /^Write the parser tests · Claude · Opus 5\.5 · Working, \d+s/.test(tip ?? ""), tip);
+  // Hovered again just before the capture: the tooltip is the app's own layer, and it is only in the
+  // picture while it is up.
+  for (let i = 0; i < 3; i++) {
+    await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: at.x + 1 + i, y: at.y });
+    if (await until(() => evalIn(c, `!!document.querySelector('.tooltip[data-open]')`), 2_000, "tooltip again").catch(() => false)) break;
+  }
+  note("tooltip box", await evalIn(c, `(() => { const t = document.querySelector('.tooltip'); if (!t) return null; const r = t.getBoundingClientRect(), d = document.querySelector('.composer-dock').getBoundingClientRect();
+    return { open: t.hasAttribute('data-open'), side: t.dataset.side ?? null, opacity: getComputedStyle(t).opacity, visibility: getComputedStyle(t).visibility, top: Math.round(r.top), left: Math.round(r.left), w: Math.round(r.width), h: Math.round(r.height), dockTop: Math.round(d.top) }; })()`));
   await shot(c, "5-tooltip-dark", { pad: 120 });
   await c.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 10, y: 10 });
 
