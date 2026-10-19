@@ -190,6 +190,15 @@ describe("what Review is told about a review", () => {
     expect(byTitle.d).toMatchObject({ state: "dismissed", closedAs: null });
   });
 
+  it("names who the first item goes to, so the list can say where a draft is going", () => {
+    const { team, running } = setup();
+    const r = team.submit(running("R1", "SESS"), { kind: "replies", title: "Reply to Dana",
+      items: [{ files: [], body: "Hi Dana", action: { connector: "mcp:gmail", verb: "send", account: "me@versed.app", to: "dana@acme.com" } }] });
+    // THE MUTANT: `to` read off the account — the row would say the email goes to its own sender.
+    expect(r).toMatchObject({ account: "me@versed.app", to: "dana@acme.com" });
+    expect(team.submit(running("R1", "SESS2"), { kind: "note", title: "Note", items: [{ files: [], body: "x" }] }).to).toBeNull();
+  });
+
   it("carries the role's note to the reader, refuses a secret in it, and drops it from a revision that says nothing new", async () => {
     const { team, store, live, running } = setup();
     const ctx = running("R1", "SESS");

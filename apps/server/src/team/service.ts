@@ -746,6 +746,7 @@ export class TeamService {
       itemCount: items.length, thumb: first,
       channels: [...new Set(items.map((i) => itemTarget(i)?.channel).filter((c): c is string => !!c))],
       account: (items[0] ? itemTarget(items[0])?.account : null) ?? null,
+      to: (items[0] ? itemTarget(items[0])?.to : null) ?? null,
       format: items[0] ? inferFormat(items[0]) : null,
       verb: reviewVerb(r.kind, items),
       editedItems: items.filter((i) => i.editedBy === "user").map((i) => i.ord + 1),

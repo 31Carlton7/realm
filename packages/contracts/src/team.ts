@@ -387,6 +387,8 @@ export const TeamReviewSummarySchema = z.object({
   channels: z.array(z.string()),
   /** The first item's account, for a message's "Sends from". */
   account: z.string().nullable(),
+  /** Who the first item goes to — a DM's or an email's recipient — for the list's "to dana@acme.com". */
+  to: z.string().nullable().optional(),
   /** How the first item is drawn — the card's glyph and, with no label of the role's, its line. */
   format: DeliverableFormatSchema.nullable().optional(),
   /** What the batch does when it goes out — post, send, or null for nothing (`reviewVerb`). */
