@@ -437,6 +437,15 @@ describe("SecretStore — persistence and the keyring", () => {
     expect(disk.file).toBe("{ not json");
   });
 
+  it("keeps the notice on disk even when no keyring can be made yet", () => {
+    // macOS offering no encryption key this launch: nothing is minted or saved for the store's own
+    // sake, and the notice still has to outlive the launch.
+    const { store, disk, deps } = makeStore({ available: false });
+    disk.file = "{ not json";
+    expect(store.listCredentials(P)).toEqual([]);
+    expect(new SecretStore(deps).unreadableNotice()).toEqual({ path: "/realm/secrets.unreadable-1.json", at: 1_000_000 });
+  });
+
   it("says so until the person has read it, once", () => {
     const { store, disk, deps } = makeStore();
     disk.file = "{ not json";
