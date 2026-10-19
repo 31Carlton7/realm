@@ -229,8 +229,9 @@ export class AskService {
       return err(`invalid arguments: ${i.path.join(".") || "(root)"}: ${i.message}`);
     }
     // The provider refuses this tool for a delegated child too; this is the service's own belt, so a
-    // direct caller cannot route around it. A child can never be ASKED, so it can never hold a valid
-    // requestId — leaving this callable would be a surface with no legitimate use.
+    // direct caller cannot route around it. A child asked by its own lead answers in its reply, not
+    // through this tool, so it never needs a requestId — leaving this callable would be a surface with
+    // no legitimate use.
     if (this.d.delegated.isChild(ctx.sessionId)) return err(DEPTH_REFUSAL);
     const { requestId, answer } = parsed.data;
     const p = this.pending.get(requestId);

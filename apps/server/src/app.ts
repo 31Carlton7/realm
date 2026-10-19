@@ -1342,9 +1342,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     },
   }));
   // Plan 20's interjection. `delegated` fans across all THREE registries: a delegated child of any
-  // kind is neither a valid asker nor a valid target, because its own parent is already blocked inside
-  // an MCP call waiting for it. `permissions` is the SAME broker the browser tools gate on — the card
-  // appears on the asker, which is where the blocked call is.
+  // kind is never a valid asker, and a target only for the session that started it once its run is
+  // over (`parentOf`) — mid-run, its own parent is waiting on it. `permissions` is the SAME broker the
+  // browser tools gate on — the card appears on the asker, which is where the blocked call is.
   const reviewsFinal = reviews;
   asks = new AskService({
     sessions, engine: delegationEngine,
