@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allItems, navEntry } from "@realm/contracts";
+import { allItems, canNav, navEntry } from "@realm/contracts";
 import { createAppStore } from "./store";
 import { fakeApi, item, session, space, type FakeData } from "./store.test-fakes";
 
@@ -31,8 +31,8 @@ describe("store — per-pane back/forward", () => {
     await store.getState().openItem("i1", leaf);
     await store.getState().openItem("i2", leaf);
     await store.getState().openItem("i3", leaf);
-    expect(store.getState().canPaneNav(leaf, -1)).toBe(true);
-    expect(store.getState().canPaneNav(leaf, 1)).toBe(false);
+    expect(canNav(store.getState().paneHistory, leaf, -1)).toBe(true);
+    expect(canNav(store.getState().paneHistory, leaf, 1)).toBe(false);
 
     await store.getState().stepPaneNav(leaf, -1);
     expect(showing(store)).toEqual({ itemId: "i2", view: null });
@@ -53,7 +53,7 @@ describe("store — per-pane back/forward", () => {
     await store.getState().stepPaneNav(leaf, -1);
     await store.getState().stepPaneNav(leaf, 1);
     expect(store.getState().paneHistory).toBe(before);
-    expect(store.getState().canPaneNav(leaf, -1)).toBe(false);
+    expect(canNav(store.getState().paneHistory, leaf, -1)).toBe(false);
   });
 
   it("splits navigate independently — one pane's Back never moves its neighbour", async () => {
@@ -69,7 +69,7 @@ describe("store — per-pane back/forward", () => {
     await store.getState().stepPaneNav(b, -1);
     expect(navEntry(store.getState().paneHistory, b)).toEqual({ itemId: "i2", view: null });
     expect(navEntry(store.getState().paneHistory, a)).toEqual({ itemId: "i1", view: null });
-    expect(store.getState().canPaneNav(a, -1)).toBe(false); // pane A went nowhere
+    expect(canNav(store.getState().paneHistory, a, -1)).toBe(false); // pane A went nowhere
   });
 
   it("forgets a deleted item, so Back can never land on a pane that no longer exists", async () => {

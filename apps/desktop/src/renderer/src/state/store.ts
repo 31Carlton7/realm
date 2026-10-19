@@ -14,7 +14,7 @@ import {
   lectureWrapUpPrompt, localDateStamp, sessionEvent,
   groupsFromLayout, SpaceGroupsSchema,
   besidePane, clampPanelShare, columnOf, firstPaneLeaf, normalizeView, openBesideInView, parseStoredView, primaryLeaves, pruneView, rememberSidePane, showInView, splitEmptyInView, viewFromGroups, withoutItem, type BesideEdge, type Room, type StoredView, type WindowView,
-  canNav, forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
+  forgetNavItems, navEntry, pushNav, reconcileNav, stepNav,
   SETTING_ACTIVE_SPACE, SETTING_SIDE_PANES_HIDDEN, viewSettingKey, SETTING_THEME, SETTING_SUBMIT_KEY, AGENT_SETTINGS,
   AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, annotationChipLabel, basenameOf, elementChipLabel, elementChipToken, formatAttachmentSize, keepLiveChips, MAX_ELEMENT_CHIPS, MAX_ATTACHMENT_BYTES, mentionIds, mimeForPath, PAGE_REF_IDS,
   AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, LINKS_OPEN_IN_KEY, type LinksOpenIn, type EditorId, type InstalledEditor,
@@ -859,8 +859,6 @@ const SETTING_SIDEBAR_WIDTH = "ui.sidebarWidth";
 /** Whether the space strip sorts by activity instead of the user's own drag order. See
  *  `sidebarActivityOrder`. */
 const SETTING_SIDEBAR_ACTIVITY_ORDER = "ui.sidebarActivityOrder";
-/** Which other spaces show their live sessions under their sidebar row — see `sidebarOpenSpaces`. */
-const SETTING_SIDEBAR_OPEN_SPACES = "ui.sidebarOpenSpaces";
 /** Whether a delete asks first. On unless the user has said otherwise — see `confirmDelete`. */
 const SETTING_CONFIRM_DELETE = "ui.confirmDelete";
 /** How a session's file browser lays a folder out — see `filesView`. */
@@ -1003,13 +1001,11 @@ export type AppState = TeamSlice & LabSlice & {
    *  moved background gets the same surface ladder and the same contrast correction a vendored one
    *  does, rather than a raw value written past the machinery. */
   themeOverrides: ThemeOverrides;
-  /** Themes imported from VS Code colour files (`themes.list`), and the folder they live in. Held so
-   *  the picker can offer them; `setCustomThemes` is what makes their names actually resolve. */
+  /** Themes imported from VS Code colour files (`themes.list`). Held so the picker can offer them;
+   *  `setCustomThemes` is what makes their names actually resolve. */
   customThemes: StoredTheme[];
-  themesRoot: string;
-  /** Google Fonts families downloaded into `~/Realm/fonts`, and the folder itself. */
+  /** Google Fonts families downloaded into `~/Realm/fonts`. */
   installedFonts: InstalledFont[];
-  fontsRoot: string;
   /** Families installed on this Mac (`queryLocalFonts`). Empty where the API is missing or refused —
    *  an extra source of choices, never a dependency of the picker. */
   localFonts: string[];
@@ -1113,14 +1109,6 @@ export type AppState = TeamSlice & LabSlice & {
    * strip picks up exactly where it was left.
    */
   sidebarActivityOrder: boolean;
-  /**
-   * The other spaces whose live sessions are unfolded under their row in the sidebar, by space id.
-   *
-   * Remembered per space and across launches (`SETTING_SIDEBAR_OPEN_SPACES`): a space you opened to
-   * keep an eye on is one you want to find open again. A space with nothing live draws no disclosure
-   * at all, but keeps its entry, so it unfolds again the next time it has something to show.
-   */
-  sidebarOpenSpaces: string[];
   // ——— Plan 27: the sidebar's own remembered choices (one block; nothing else in this file is the
   //     sidebar's). Read by `hydrateSidebarPrefs` when the sidebar mounts, so boot is untouched. ———
   /** Which lens the sidebar's list wears: the profile's spaces as sections, or every session by time
@@ -1146,13 +1134,6 @@ export type AppState = TeamSlice & LabSlice & {
    * throws away a draft — nor the ones that spell out a named object and offer an explicit Cancel.
    */
   confirmDelete: boolean;
-  /** Which list the sidebar's body is showing: the space's own items, or the gateway's call log.
-   *
-   *  Store-held rather than local to the column because `applyMcpCall` reads it — a live call has to
-   *  know whether anything is looking at the feed. NOT persisted, deliberately: it is a lens you flip
-   *  while watching something, like the archived shelf's disclosure, and one that survived a restart
-   *  would be a preference nobody asked for. */
-  sidebarView: "space" | "activity";
   /** The items of every space of the active profile, archived ones included (the space's own lists
    *  show those apart). Each space's slice is refreshed on its own `items.changed`. */
   items: Item[];
@@ -1841,11 +1822,8 @@ export type AppState = TeamSlice & LabSlice & {
   setGroundAlpha(pct: number): Promise<void>;
   setPaneAlpha(pct: number): Promise<void>;
   setReduceMotion(pref: ReducedMotionPref): Promise<void>;
-  setSidebarActivityOrder(v: boolean): Promise<void>;
   setLowPower(v: boolean): Promise<void>;
   setSidebarActivityOrder(v: boolean): Promise<void>;
-  /** Unfold or fold another space's live sessions under its sidebar row, and remember it. */
-  setSpaceRowOpen(spaceId: string, open: boolean): Promise<void>;
   setConfirmDelete(v: boolean): Promise<void>;
   /** The window gained or lost focus. Called by App's own listeners; nothing else writes it. */
   setWindowActive(v: boolean): void;
@@ -1862,10 +1840,6 @@ export type AppState = TeamSlice & LabSlice & {
   setFilesView(view: FilesView): Promise<void>;
   /** Lay the Library's files out as `view`, and remember it (`SETTING_LIBRARY_VIEW`). */
   setLibraryView(view: FilesView): Promise<void>;
-  /** Show the space's items or the call feed. Turning the feed ON clears any narrowing the sheet
-   *  left behind — a filter nobody can see in this column would silently hide rows — and leaves the
-   *  reading to the feed itself. */
-  setSidebarView(view: "space" | "activity"): void;
   /** Set the sidebar's width, clamped to SIDEBAR_WIDTH and persisted on a debounce. */
   setSidebarWidth(px: number): Promise<void>;
   setSubmitKey(v: SubmitKey): Promise<void>;
@@ -2046,8 +2020,6 @@ export type AppState = TeamSlice & LabSlice & {
   stepWindow(delta: number): Promise<void>;
   /** Is there somewhere to go `delta` steps along the window's trail? */
   canStepWindow(delta: number): boolean;
-  /** Is there a stop `delta` steps from where `leafId` stands? What greys the arrows out. */
-  canPaneNav(leafId: string | null, delta: number): boolean;
   /** Move pane focus to the structural neighbor in that direction (see neighborLeafId); no-op without one. */
   focusNeighbor(dir: FocusDir): void;
   /** Functional sizes update for one split; persisted with a trailing debounce. No-op if unchanged.
@@ -3497,13 +3469,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  session's, whichever space the other pane on screen is from. */
     const besideSpace = (beside: Beside): string | null =>
       typeof beside === "object" ? get().sessions[beside.sessionId]?.spaceId ?? get().items.find((i) => i.kind === "session" && i.refId === beside.sessionId)?.spaceId ?? null : null;
-    /** Whether anything is looking at the gateway's call log — the sheet, or the sidebar's feed.
-     *
-     *  Four readers ask: both fetches' supersession guards, and the live-call gate. It is one
-     *  function because it went from one surface to two, and all four had spelled the single surface
-     *  out for themselves — so the feed would have shown the rows it was opened with and then gone
-     *  quietly stale, which is the one failure a feed cannot have. A third surface adds a term. */
-    const watchingCalls = () => get().sheet?.kind === "activity" || get().sidebarView === "activity";
+    /** Whether anything is looking at the gateway's call log — its sheet. Three readers ask: both
+     *  fetches' supersession guards, and the live-call gate; a second surface adds a term here rather
+     *  than to each of them. */
+    const watchingCalls = () => get().sheet?.kind === "activity";
     const mergeSpace = (s: Space) => set({ spaces: get().spaces.map((x) => (x.id === s.id ? s : x)) });
     /**
      * The write that says a session's conversation moved at `at` (`sessionActivityAt`), or undefined
@@ -4383,7 +4352,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       ...teamSlice(api, get, set),
       ...labSlice(api, get, set),
       booted: false,
-      sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], themesRoot: "", installedFonts: [], fontsRoot: "", localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, sidebarOpenSpaces: [], confirmDelete: true, sidebarView: "space", items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarOnPage: null, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
+      sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], installedFonts: [], localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, confirmDelete: true, items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarOnPage: null, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
       allItems: [], archivedSessions: null, lastAgentKind: null, lastModels: {}, renamingItemId: null,
       connectionState: "connected",
       appPick: null,
@@ -4409,9 +4378,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, openSpaces, askDelete, lastAgent, eggs, konami, panels, quick, filesView, libraryView, system, avatarPath, sidePanesHidden, lastModels] = await Promise.all([
+        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, panels, quick, filesView, libraryView, system, avatarPath, sidePanesHidden, lastModels] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_ACTIVE_PROFILE), api.getSetting(SETTING_THEME),
-          api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_PANE_ALPHA), api.getSetting(REDUCED_MOTION_KEY), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_SIDEBAR_OPEN_SPACES), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
+          api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_PANE_ALPHA), api.getSetting(REDUCED_MOTION_KEY), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
           api.getSetting(SETTING_TERMINAL_PANEL),
           api.getSetting(SETTING_QUICK_CHAT),
@@ -4459,7 +4428,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           sidebarActivityOrder: activityOrder === true,
           // Ids, and nothing else: a value an older or newer build wrote in another shape is read as
           // "nothing unfolded", which is the resting state rather than a guess at what was meant.
-          sidebarOpenSpaces: Array.isArray(openSpaces) ? openSpaces.filter((id): id is string => typeof id === "string") : [],
           // Only an explicit false turns it off: an unset key and a missing row both mean "nobody
           // has said", and the answer to that for a destructive step is to keep asking.
           confirmDelete: askDelete !== false,
@@ -4807,12 +4775,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await api.setSetting(SETTING_THEME_NAME[mode], name);
       },
       async refreshCustomThemes() {
-        const { root, themes } = await api.listThemes();
+        const { themes } = await api.listThemes();
         /* Published to `@realm/ui`'s registry BEFORE the store, because `applyTheme` resolves a name
            through it: setting the state first would re-render the window with a palette whose name
            does not resolve yet, which paints one frame of Realm's own colours over the theme. */
         setCustomThemes(themes.map(themeDefOf));
-        set({ customThemes: themes, themesRoot: root });
+        set({ customThemes: themes });
       },
       async importThemeFile() {
         const path = await api.pickThemeFile();
@@ -4822,11 +4790,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         return theme.id;
       },
       async refreshFonts() {
-        const { root, fonts } = await api.listInstalledFonts();
+        const { fonts } = await api.listInstalledFonts();
         /* Published BEFORE the state, for `refreshCustomThemes`'s reason: a preference naming a
            family whose `@font-face` is not in the document yet paints one frame in the fallback. */
         publishFontFaces(await loadInstalledFaces(fonts, (family) => api.fontFaces(family)));
-        set({ installedFonts: fonts, fontsRoot: root });
+        set({ installedFonts: fonts });
       },
       async refreshLocalFonts() { set({ localFonts: await localFamilies() }); },
       async refreshFontCatalog() {
@@ -4926,14 +4894,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ sidebarActivityOrder: v });
         await api.setSetting(SETTING_SIDEBAR_ACTIVITY_ORDER, v);
       },
-      async setSpaceRowOpen(spaceId, open) {
-        const known = new Set(get().spaces.map((s) => s.id));
-        // A deleted space's id is dropped on the way past, so the key never outgrows the home.
-        const kept = get().sidebarOpenSpaces.filter((id) => id !== spaceId && known.has(id));
-        const next = open ? [...kept, spaceId] : kept;
-        set({ sidebarOpenSpaces: next });
-        await api.setSetting(SETTING_SIDEBAR_OPEN_SPACES, next);
-      },
       // ——— Plan 27: the sidebar's remembered choices (see `sidebarLens`) ———
       sidebarLens: "spaces",
       sidebarCollapsedSpaces: [],
@@ -5022,12 +4982,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async setLibraryView(view) {
         set({ libraryView: view });
         await api.setSetting(SETTING_LIBRARY_VIEW, view);
-      },
-      setSidebarView(view) {
-        if (get().sidebarView === view) return;
-        // openActivity's reset, without the sheet or its fetch: the feed reads the log when it
-        // mounts, so doing it here as well would be two round trips per flip of the lens.
-        set(view === "activity" ? { sidebarView: view, mcpCallsFilter: {}, mcpCalls: [], mcpCallsHasMore: false } : { sidebarView: view });
       },
       async setSidebarWidth(px) {
         // Clamped before it is stored rather than only before it is painted, for the reason
@@ -5503,7 +5457,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (!leaf) return;
         set({ paneHistory: pushNav(get().paneHistory, leaf.id, { itemId, view }) });
       },
-      canPaneNav(leafId, delta) { return canNav(get().paneHistory, leafId, delta); },
       async stepPaneNav(leafId, delta) {
         const stepped = stepNav(get().paneHistory, leafId, delta);
         if (stepped === get().paneHistory) return; // nowhere to go — no layout write, nothing persisted
