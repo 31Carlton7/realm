@@ -8412,6 +8412,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       run(action) {
         action().catch((e: unknown) => {
           console.error(e);
+          // The socket dropped under it. The connection banner already says so, and says when it is
+          // back; a toast for every call that was in flight is the same news again, as an error.
+          if ((e as { code?: unknown } | null)?.code === "DISCONNECTED") return;
           get().toast({ tone: "error", text: e instanceof Error ? e.message : String(e) });
         });
       },

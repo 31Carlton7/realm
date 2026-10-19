@@ -2901,7 +2901,8 @@ button.panel-title:hover { background: var(--rl-hover); }
    wrong build. Danger rather than warning because the two ask for different things: warning means
    hold on, danger means do something. */
 .conn-banner[data-tone="bad"] { background: color-mix(in srgb, var(--rl-danger) 8%, var(--surface)); color: var(--rl-danger); }
-.conn-banner button { color: inherit; font-weight: var(--fw-title); padding: 2px 6px; border-radius: var(--r-chip); }
+/* The action keeps its words on one line; a long line beside it (a log's path) wraps instead. */
+.conn-banner button { flex: none; white-space: nowrap; color: inherit; font-weight: var(--fw-title); padding: 2px 6px; border-radius: var(--r-chip); }
 .conn-banner button:hover { background: var(--rl-hover); }
 /* A system notice ARRIVES; it does not blink into being. The banner is drawn by something the user
    did not ask for — the socket dropping — and a cut straight to a finished bar at the top of the

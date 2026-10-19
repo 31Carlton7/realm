@@ -1290,6 +1290,16 @@ describe("app store", () => {
     spy.mockRestore();
   });
 
+  it("run() leaves a dropped socket to the connection banner rather than toasting each call it cut off", async () => {
+    const store = createAppStore(api);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    store.getState().run(async () => { throw Object.assign(new Error("socket closed"), { code: "DISCONNECTED" }); });
+    store.getState().run(async () => { throw Object.assign(new Error("socket is closed"), { code: "DISCONNECTED" }); });
+    await tick();
+    expect(store.getState().toasts).toEqual([]);
+    spy.mockRestore();
+  });
+
   it("a toast's id is the handle a caller takes its own down by — and only its own", async () => {
     const store = createAppStore(api);
     const a = store.getState().toast({ text: "Added button to Session." });
