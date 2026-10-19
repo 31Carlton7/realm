@@ -1,4 +1,4 @@
-import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences, Tray, type MenuItemConstructorOptions, type WebContents } from "electron";
+import { clipboard, app, autoUpdater as electronAutoUpdater, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences, Tray, type MenuItemConstructorOptions, type WebContents, powerMonitor } from "electron";
 import { BrowserCredentialInputSchema, PasswordSaveAnswerSchema, newId, parseUnlockPolicy, type UnlockPolicyStatus, type BrowserAction, type BrowserAnnotateResult, type BrowserCredential, type BrowserMenuState, type BrowserScreenshotSaved, type BrowserSignInShare, type MediaFile, type Passkey } from "@realm/contracts";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { copyFile, readFile, writeFile } from "node:fs/promises";
@@ -59,6 +59,7 @@ import { PasskeyBroker } from "./passkeys";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
 import { applyReducedMotion } from "./reduced-motion";
 import { SleepGuard } from "./sleep-guard";
+import { PRESENCE_POLL_MS, PresenceReporter } from "./presence";
 import { installedEditors, openInEditor } from "./editors";
 import { InstalledApps, applicationDirs } from "./installed-apps";
 import { registerKeyWindowQuery, wireKeyWindow } from "./key-window";
@@ -261,13 +262,33 @@ async function refreshTray() {
  *  working with no window open, and only main is there for all of it. */
 const sleepGuard = new SleepGuard(powerSaveBlocker);
 
-/** Re-read whether anything is running, on the same event the tray's counts change on. A bridge
- *  that cannot answer reads as nothing running: with no daemon to ask there are no turns to keep a
- *  Mac awake for, and holding on to a blocker for an answer we cannot get is how one leaks. */
+/** Re-read whether anything is running or waiting, on the same event the tray's counts change on. A
+ *  bridge that cannot answer reads as nothing running: with no daemon to ask there are no turns to
+ *  keep a Mac awake for, and holding on to a blocker for an answer we cannot get is how one leaks. */
 async function refreshSleepGuard() {
   const counts = await daemonCounts();
   sleepGuard.setWorking(counts?.working ?? 0);
+  sleepGuard.setWaiting(counts?.needsYou ?? 0);
 }
+
+/** How many phones are paired with this Mac (Realm Mobile), asked when main connects and then kept
+ *  by `remote.changed`. A server that cannot say has none, as far as the guard is concerned. */
+async function readPairedPhones() {
+  try {
+    const status = await bridgeClient?.call("remote.status", {});
+    const phones = (status as { phones?: unknown } | undefined)?.phones;
+    sleepGuard.setPhones(Array.isArray(phones) ? phones.length : 0);
+  } catch { sleepGuard.setPhones(0); }
+}
+
+/** Whether the owner is at this Mac, for Realm Mobile's pushes (Plan 28): the server holds a push back
+ *  while they are and sends it at once when they are not. The lock, the idle clock and the windows are
+ *  all main's to see, so main is what reports. */
+const presence = new PresenceReporter({
+  idleSeconds: () => powerMonitor.getSystemIdleTime(),
+  windows: () => windows.size,
+  send: (away) => (bridgeClient ? bridgeClient.call("remote.away", { away }) : Promise.reject(new Error("realm-server is not connected"))),
+});
 
 /** The preference, read from the server when main (re)connects: the renderer pushes changes as they
  *  happen, but a launch with no window, or a daemon restarted under it, has to find out for itself. */
@@ -490,6 +511,7 @@ async function createWindow(info: { port: number; home: string; token: string },
         ...(profileId !== null ? [`--realm-profile=${profileId}`] : [])] },
   });
   windows.add(win, profileId);
+  presence.check();
   win.on("focus", () => windows.focused(win));
   // The title is the profile's name — what the Window menu, Mission Control and the Dock list the
   // window by — and main sets it, so the page's own <title> does not put "Realm" back over it.
@@ -551,6 +573,7 @@ async function createWindow(info: { port: number; home: string; token: string },
     appPicks.set(pickKey, false);
     phases.stop();
     windows.remove(win);
+    presence.check();
     windowPanes.delete(id);
     if (appDriveWindow === id) { appDriveHost.forget(); appDriveWindow = null; }
   });
@@ -2047,6 +2070,12 @@ app.whenReady().then(async () => {
       every: (fn, ms) => setInterval(fn, ms),
       onFocus: (fn) => app.on("browser-window-focus", fn),
     });
+    // Realm Mobile's presence: the lock is an event, the idle clock has none and is polled, and every
+    // window opening or closing looks again (createWindow). Only changes reach the server.
+    powerMonitor.on("lock-screen", () => presence.setLocked(true));
+    powerMonitor.on("unlock-screen", () => presence.setLocked(false));
+    powerMonitor.on("resume", () => presence.check());
+    setInterval(() => presence.check(), PRESENCE_POLL_MS);
     // W3: register main as the browser host executor on realm-server's RPC socket. Ops for a view
     // that does not exist fail honestly inside the executor; the bridge just relays.
     // The user chose to keep an older server working. Said once, and held, so a window opened later
@@ -2067,15 +2096,21 @@ app.whenReady().then(async () => {
     agentBridge = startBrowserAgentBridge({
       port: info.port, token: info.token,
       hasWindow: () => windows.size > 0,
-      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); void readSleepPreference().then(refreshSleepGuard); void profileDirectory.refresh(); void labOnConnected(labUpdate()); },
+      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); void readSleepPreference().then(refreshSleepGuard); void readPairedPhones(); presence.reset(); void profileDirectory.refresh(); void labOnConnected(labUpdate()); },
       // Both on the same event: the bridge redials every two seconds, which is exactly the cadence a
       // supervisor watching for a dead pid wants, so it needs no clock of its own.
-      onDisconnected: () => { bridgeClient = null; sleepGuard.setWorking(0); daemonSupervisor?.onDisconnected(); daemonSupervisor?.tick(); },
+      onDisconnected: () => { bridgeClient = null; sleepGuard.setWorking(0); sleepGuard.setWaiting(0); daemonSupervisor?.onDisconnected(); daemonSupervisor?.tick(); },
       onEvent: (event, payload) => {
         // A profile made, renamed or deleted: main's partitions, names and sign-ins follow.
         if (event === "profiles.changed") { void profileDirectory.refresh().then(retitleWindows); return; }
         // The counts the tray shows change on exactly one event.
         if (event === "session.status") { void refreshTray(); void refreshSleepGuard(); return; }
+        // A phone paired or removed: whether a waiting session keeps the Mac awake goes with it.
+        if (event === "remote.changed") {
+          const phones = (payload as { phones?: unknown } | undefined)?.phones;
+          sleepGuard.setPhones(Array.isArray(phones) ? phones.length : 0);
+          return;
+        }
         // The lab's update window drained the team's runs: install the update the updater holds.
         if (event === "lab.install") { labInstall(labUpdate(), payload); return; }
         // And the resident's own toasts, for the case the renderer used to own alone: with no window
@@ -2089,6 +2124,7 @@ app.whenReady().then(async () => {
         if (op === "oauthKey") return Promise.resolve({ key: secrets()?.exportOauthKey() ?? null });
         if (op === "machineKey") return Promise.resolve({ key: secrets()?.exportMachineKey() ?? null });
         if (op === "eggsKey") return Promise.resolve({ key: secrets()?.exportEggsKey() ?? null });
+        if (op === "remoteKey") return Promise.resolve({ key: secrets()?.exportRemoteKey() ?? null });
         // The team vault's ops need no window either: a key's request is made from main, not a pane.
         if (op.startsWith("vault")) return vaultHost.handleOp(op, params);
         // A ticket's press: read and spent, never made, from this side.

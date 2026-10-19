@@ -1205,4 +1205,23 @@ export const migrations: string[] = [
   CREATE TABLE IF NOT EXISTS event_payload_compaction (id INTEGER PRIMARY KEY CHECK (id = 1), done INTEGER NOT NULL);
   INSERT OR IGNORE INTO event_payload_compaction (id, done) VALUES (1, 0);
   `,
+  // The phones paired with this Mac (Plan 28, Realm Mobile), found by its text. One row per phone:
+  // its signing key, which the relay checks it against and its id is derived from; its Noise key,
+  // which every handshake must show again; and what Settings ▸ Devices lists. Public keys only, as `b64u` text —
+  // the Mac's own private keys are sealed under the `remote` secret domain and never come near here.
+  //
+  // Remove deletes the row rather than marking it: the relay is sent the new list at once and forgets
+  // the key, so a revoked row would describe a phone that can no longer connect to anything. Nothing
+  // to backfill — Phase 1 kept its pairings in a scratch home's `devices.json`, never in a real one —
+  // and `IF NOT EXISTS`, so the statement is safe to meet twice.
+  `
+  CREATE TABLE IF NOT EXISTS remote_devices (
+    phone_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    model TEXT NOT NULL,
+    dh_pub TEXT NOT NULL,
+    sign_pub TEXT NOT NULL,
+    added_at INTEGER NOT NULL,
+    last_seen INTEGER);
+  `,
 ];

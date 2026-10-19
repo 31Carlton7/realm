@@ -1,0 +1,493 @@
+import CryptoKit
+import Foundation
+
+/// What the phone says about itself in IK message 1: `{"v":1,"app":"<app version>","os":"<OS version>"}`.
+public struct ClientInfo: Codable, Sendable, Equatable {
+    public var v = 1
+    public let app: String
+    public let os: String
+
+    public init(app: String, os: String) {
+        self.app = app
+        self.os = os
+    }
+}
+
+/// IK message 2's payload: `{"v":1,"mac":"<Mac name>","server":"<Realm version>"}`.
+struct MacHello: Decodable {
+    let v: Int
+    let mac: String
+    let server: String?
+}
+
+public struct ConnectedMac: Sendable, Equatable {
+    public let name: String
+    public let server: String
+    /// IK message 1 sent → message 2 read: the Noise round trip through the relay and the Mac.
+    public let handshake: Duration
+    /// Socket created → channel ready: what a person waits for.
+    public let connect: Duration
+}
+
+public enum ConnectionState: Sendable, Equatable {
+    case idle
+    case connecting
+    case handshaking
+    case connected(ConnectedMac)
+    /// The relay is reachable and the Mac is not.
+    case macOffline(lastSeen: Millis?)
+    case retrying(in: Duration)
+    /// The relay or the Mac refused this phone; trying again would not help.
+    case refused(code: Int, reason: String)
+    case stopped
+
+    public var isConnected: Bool {
+        if case .connected = self { return true }
+        return false
+    }
+}
+
+/// `{"t":"apns","token":"<hex device token>","env":"sandbox"|"production"}` (§3.2).
+public struct PushRegistration: Encodable, Sendable, Equatable {
+    public var t = "apns"
+    public let token: String
+    public let env: String
+
+    public init(deviceToken: Data, environment: String) {
+        token = Hex.encode(deviceToken)
+        env = environment
+    }
+}
+
+public enum ChannelError: Error, Equatable, Sendable {
+    case notConnected
+    case timedOut
+    case connectionLost
+    case macOffline
+    case badResponse(String)
+    case rpc(RPCError)
+}
+
+/// A paired phone's connection to its Mac (PROTOCOL.md §4.2, §6): the relay socket, IK, frames, calls
+/// matched to responses by id, and events. It reconnects with backoff until stopped or refused.
+public actor MobileConnection {
+    public nonisolated let mac: PairedMac
+    public nonisolated let events: AsyncStream<MobileEvent>
+    public nonisolated let states: AsyncStream<ConnectionState>
+    private nonisolated let eventSink: AsyncStream<MobileEvent>.Continuation
+    private nonisolated let stateSink: AsyncStream<ConnectionState>.Continuation
+
+    public private(set) var state: ConnectionState = .idle
+
+    private let identity: DeviceIdentity
+    private let client: ClientInfo
+    private let factory: any WebSocketFactory
+    private let backoff: Backoff
+    private let handshakeTimeout: Duration
+    private let requestTimeout: Duration
+    private let heartbeat: Duration
+
+    private struct PendingHandshake {
+        var state: HandshakeState
+        let sentAt: ContinuousClock.Instant
+        let generation: Int
+    }
+
+    private struct OpenChannel {
+        var send: CipherState
+        var receive: CipherState
+        var assembler = Frames.Assembler()
+    }
+
+    private struct PendingCall {
+        let continuation: CheckedContinuation<Data, Error>
+        let timer: Task<Void, Never>
+    }
+
+    private var supervisor: Task<Void, Never>?
+    private var stopped = false
+    private var socket: RelaySocket?
+    private var socketCreatedAt = ContinuousClock.now
+    private var handshake: PendingHandshake?
+    private var channel: OpenChannel?
+    private var generation = 0
+    private var nextRequestId = 1
+    private var pending: [Int: PendingCall] = [:]
+    private var waiters: [UUID: CheckedContinuation<ConnectedMac, Error>] = [:]
+    private var pushRegistration: PushRegistration?
+    private var relayReady = false
+
+    public init(
+        mac: PairedMac,
+        identity: DeviceIdentity,
+        client: ClientInfo,
+        factory: any WebSocketFactory = URLSessionWebSocketFactory(),
+        backoff: Backoff = Backoff(),
+        handshakeTimeout: Duration = .seconds(10),
+        requestTimeout: Duration = .seconds(15),
+        heartbeat: Duration = RelaySocket.heartbeatInterval
+    ) {
+        self.mac = mac
+        self.identity = identity
+        self.client = client
+        self.factory = factory
+        self.backoff = backoff
+        self.handshakeTimeout = handshakeTimeout
+        self.requestTimeout = requestTimeout
+        self.heartbeat = heartbeat
+        (events, eventSink) = AsyncStream.makeStream(of: MobileEvent.self, bufferingPolicy: .unbounded)
+        (states, stateSink) = AsyncStream.makeStream(of: ConnectionState.self, bufferingPolicy: .unbounded)
+    }
+
+    deinit {
+        eventSink.finish()
+        stateSink.finish()
+    }
+
+    public func start() {
+        guard supervisor == nil else { return }
+        stopped = false
+        supervisor = Task { await self.supervise() }
+    }
+
+    public func stop() async {
+        stopped = true
+        supervisor?.cancel()
+        supervisor = nil
+        if let socket { await socket.close(code: 1000, reason: nil) }
+        socket = nil
+        dropChannel(failing: .connectionLost)
+        failWaiters(.connectionLost)
+        setState(.stopped)
+    }
+
+    /// Waits until the channel is open.
+    public func connected(timeout: Duration) async throws -> ConnectedMac {
+        if case .connected(let info) = state { return info }
+        if case .refused = state { throw ChannelError.notConnected }
+        let id = UUID()
+        return try await withCheckedThrowingContinuation { continuation in
+            waiters[id] = continuation
+            Task {
+                try? await Task.sleep(for: timeout)
+                self.expireWaiter(id)
+            }
+        }
+    }
+
+    /// Tells the relay where to send this phone's pushes, now and after every reconnect.
+    public func setPushRegistration(_ registration: PushRegistration) {
+        pushRegistration = registration
+        if relayReady { socket?.sendControl(registration) }
+    }
+
+    /// Calls a `mobile.v1` method and decodes its result.
+    public func call<Params: Encodable & Sendable, Result: Decodable & Sendable>(
+        _ method: String, params: Params, as type: Result.Type = Result.self, timeout: Duration? = nil
+    ) async throws -> Result {
+        let response = try await send(method: method, params: params, timeout: timeout ?? requestTimeout)
+        return try Envelope.result(Result.self, from: response)
+    }
+
+    public func call<Result: Decodable & Sendable>(_ method: String, as type: Result.Type = Result.self) async throws -> Result {
+        try await call(method, params: EmptyParams(), as: type)
+    }
+
+    // MARK: - Calls
+
+    private func send(method: String, params: some Encodable & Sendable, timeout: Duration) async throws -> Data {
+        guard var channel, let socket else { throw ChannelError.notConnected }
+        let id = nextRequestId
+        nextRequestId += 1
+        let frames = try Frames.seal(Envelope.request(id: id, method: method, params: params), with: &channel.send)
+        self.channel = channel
+        return try await withCheckedThrowingContinuation { continuation in
+            let timer = Task {
+                try? await Task.sleep(for: timeout)
+                self.expireCall(id)
+            }
+            pending[id] = PendingCall(continuation: continuation, timer: timer)
+            for frame in frames { socket.send(frame) }
+        }
+    }
+
+    private func expireCall(_ id: Int) {
+        guard let call = pending.removeValue(forKey: id) else { return }
+        call.continuation.resume(throwing: ChannelError.timedOut)
+    }
+
+    private func expireWaiter(_ id: UUID) {
+        waiters.removeValue(forKey: id)?.resume(throwing: ChannelError.timedOut)
+    }
+
+    private func failWaiters(_ error: ChannelError) {
+        let current = waiters
+        waiters.removeAll()
+        for waiter in current.values { waiter.resume(throwing: error) }
+    }
+
+    // MARK: - The connection
+
+    private func supervise() async {
+        var attempt = 0
+        while !stopped && !Task.isCancelled {
+            let socket = RelaySocket(
+                relay: mac.relay, macId: mac.macId,
+                role: .phone(phoneId: mac.phoneId, identity: identity),
+                factory: factory, heartbeat: heartbeat
+            )
+            self.socket = socket
+            socketCreatedAt = .now
+            relayReady = false
+            setState(.connecting)
+            await socket.start()
+            var closeInfo: WebSocketClose?
+            var reachedMac = false
+            for await event in socket.events {
+                switch event {
+                case .authSent:
+                    // Pipelined: message 1 goes right behind `auth`, without waiting for `ready`.
+                    beginHandshake()
+                case .ready(let presence):
+                    relayReady = true
+                    if let pushRegistration { socket.sendControl(pushRegistration) }
+                    if let presence, !presence.online { macWentOffline(lastSeen: presence.lastSeen) }
+                case .mac(let presence):
+                    // The Mac's channel state did not survive its going away, so every `online` starts over.
+                    if presence.online { beginHandshake() } else { macWentOffline(lastSeen: presence.lastSeen) }
+                case .data(let bytes):
+                    if receive(bytes) { reachedMac = true }
+                case .control:
+                    break
+                case .closed(let info):
+                    closeInfo = info
+                }
+            }
+            if self.socket === socket { self.socket = nil }
+            dropChannel(failing: .connectionLost)
+            if stopped || Task.isCancelled { return }
+            if let info = closeInfo, let reason = Self.refusal(info.code) {
+                setState(.refused(code: info.code, reason: reason))
+                failWaiters(.notConnected)
+                supervisor = nil
+                return
+            }
+            attempt = reachedMac ? 0 : attempt + 1
+            let delay = backoff.delay(attempt: attempt)
+            setState(.retrying(in: delay))
+            do { try await Task.sleep(for: delay) } catch { return }
+        }
+    }
+
+    /// Close codes after which reconnecting cannot help (§3.1).
+    public static func refusal(_ code: Int) -> String? {
+        switch code {
+        case 4401: "The relay could not verify this iPhone."
+        case 4403: "Your Mac does not list this iPhone. Pair it again."
+        case 4409: "This iPhone connected to your Mac again from somewhere else."
+        case 4410: "Your Mac removed this iPhone."
+        default: nil
+        }
+    }
+
+    private func beginHandshake() {
+        guard let socket else { return }
+        dropChannel(failing: .connectionLost)
+        generation += 1
+        do {
+            var state = try HandshakeState(
+                pattern: .IK, initiator: true,
+                prologue: Prologue.ik(macId: mac.macId, phoneId: mac.phoneId),
+                localStatic: identity.dh, remoteStatic: mac.macKey
+            )
+            let message = try state.writeMessage(try JSONEncoder.realm.encode(client))
+            handshake = PendingHandshake(state: state, sentAt: .now, generation: generation)
+            socket.send(message)
+            setState(.handshaking)
+            let generation = generation
+            Task {
+                try? await Task.sleep(for: handshakeTimeout)
+                await self.handshakeTimedOut(generation)
+            }
+        } catch {
+            Task { await socket.close(code: 4000, reason: "Could not start the handshake") }
+        }
+    }
+
+    private func handshakeTimedOut(_ generation: Int) async {
+        guard let handshake, handshake.generation == generation, let socket else { return }
+        self.handshake = nil
+        await socket.close(code: 4000, reason: "The Mac did not answer the handshake")
+    }
+
+    private func macWentOffline(lastSeen: Millis?) {
+        dropChannel(failing: .macOffline)
+        setState(.macOffline(lastSeen: lastSeen))
+    }
+
+    /// Takes one binary message: IK message 2 while handshaking, a transport frame after.
+    /// Returns true when it completed the handshake.
+    private func receive(_ bytes: Data) -> Bool {
+        if var inFlight = handshake {
+            handshake = nil
+            do {
+                let payload = try inFlight.state.readMessage(bytes)
+                let ciphers = try inFlight.state.split()
+                let hello = try JSONDecoder().decode(MacHello.self, from: payload)
+                channel = OpenChannel(send: ciphers.initiatorToResponder, receive: ciphers.responderToInitiator)
+                let now = ContinuousClock.now
+                let info = ConnectedMac(name: hello.mac, server: hello.server ?? "",
+                                        handshake: now - inFlight.sentAt, connect: now - socketCreatedAt)
+                setState(.connected(info))
+                let current = waiters
+                waiters.removeAll()
+                for waiter in current.values { waiter.resume(returning: info) }
+                return true
+            } catch {
+                // Not the Mac this phone paired with, or a broken message: start over on a new socket.
+                closeSocket(reason: "The Mac's answer did not open")
+                return false
+            }
+        }
+        guard var channel else { return false }
+        do {
+            let message = try channel.assembler.open(bytes, with: &channel.receive)
+            self.channel = channel
+            if let message { dispatch(message) }
+        } catch {
+            self.channel = nil
+            closeSocket(reason: "A frame did not open")
+        }
+        return false
+    }
+
+    private func dispatch(_ message: Data) {
+        switch Envelope.classify(message) {
+        case .response(let id):
+            guard let call = pending.removeValue(forKey: id) else { return }
+            call.timer.cancel()
+            call.continuation.resume(returning: message)
+        case .event(let event):
+            eventSink.yield(event)
+        case .unrecognized:
+            break
+        }
+    }
+
+    private func dropChannel(failing error: ChannelError) {
+        channel = nil
+        handshake = nil
+        let calls = pending
+        pending.removeAll()
+        for call in calls.values {
+            call.timer.cancel()
+            call.continuation.resume(throwing: error)
+        }
+    }
+
+    private func closeSocket(reason: String) {
+        guard let socket else { return }
+        Task { await socket.close(code: 4000, reason: reason) }
+    }
+
+    private func setState(_ newState: ConnectionState) {
+        guard !stopped || newState == .stopped else { return }
+        state = newState
+        stateSink.yield(newState)
+    }
+}
+
+/// Typed `mobile.v1` calls (PROTOCOL.md §8).
+public struct MobileAPI: Sendable {
+    public let connection: MobileConnection
+
+    public init(connection: MobileConnection) {
+        self.connection = connection
+    }
+
+    public func ping() async throws -> Pong {
+        try await connection.call("ping", as: Pong.self)
+    }
+
+    public func home() async throws -> Home {
+        try await connection.call("home.get", as: Home.self)
+    }
+
+    public func openSession(id: String, limit: Int? = nil) async throws -> OpenedSession {
+        struct Params: Encodable, Sendable { let id: String; let limit: Int? }
+        return try await connection.call("session.open", params: Params(id: id, limit: limit), as: OpenedSession.self)
+    }
+
+    public func closeSession(id: String) async throws {
+        _ = try await connection.call("session.close", params: SessionID(id: id), as: Acknowledged.self)
+    }
+
+    public func send(id: String, text: String, delivery: Delivery? = nil, timeout: Duration? = nil) async throws {
+        struct Params: Encodable, Sendable { let id: String; let text: String; let delivery: Delivery? }
+        _ = try await connection.call("session.send", params: Params(id: id, text: text, delivery: delivery), as: Acknowledged.self,
+                                      timeout: timeout)
+    }
+
+    /// `answers` maps a question's text to the chosen label; several labels for a multi-select
+    /// question are joined with ", ", as Phase 1's question card did.
+    public func answer(id: String, requestId: String, decision: Decision, answers: [String: String]? = nil,
+                       timeout: Duration? = nil) async throws {
+        try await answer(id: id, requestId: requestId, decision: decision, values: answers?.mapValues(AnswerValue.one), timeout: timeout)
+    }
+
+    /// `values` maps a question's key to its answer, several picks as a list, as the desktop's card
+    /// hands them back (`AnswerDraft.values`).
+    public func answer(id: String, requestId: String, decision: Decision, values: [String: AnswerValue]?,
+                       timeout: Duration? = nil) async throws {
+        struct Params: Encodable, Sendable { let id: String; let requestId: String; let decision: Decision; let answers: [String: AnswerValue]? }
+        _ = try await connection.call("session.answer",
+                                      params: Params(id: id, requestId: requestId, decision: decision, answers: values),
+                                      as: Acknowledged.self, timeout: timeout)
+    }
+
+    /// The files one of the session's turns changed, by the checkpoint in front of it.
+    public func changes(id: String, checkpointId: String) async throws -> TurnChanges {
+        struct Params: Encodable, Sendable { let id: String; let checkpointId: String }
+        return try await connection.call("session.changes", params: Params(id: id, checkpointId: checkpointId), as: TurnChanges.self)
+    }
+
+    /// One page of a changed file's diff, from line `from`.
+    public func diff(id: String, checkpointId: String, path: String, from: Int = 0) async throws -> DiffPage {
+        struct Params: Encodable, Sendable { let id: String; let checkpointId: String; let path: String; let from: Int }
+        return try await connection.call("session.diff", params: Params(id: id, checkpointId: checkpointId, path: path, from: from), as: DiffPage.self)
+    }
+
+    /// A preview of a file the session's turns made, by the path its row names.
+    public func file(id: String, path: String) async throws -> FilePreview {
+        struct Params: Encodable, Sendable { let id: String; let path: String }
+        return try await connection.call("session.file", params: Params(id: id, path: path), as: FilePreview.self)
+    }
+
+    /// A space's own picture, for a space whose icon is one.
+    public func spaceIcon(id: String) async throws -> SpacePicture {
+        try await connection.call("space.icon", params: SessionID(id: id), as: SpacePicture.self)
+    }
+
+    public func stop(id: String) async throws {
+        _ = try await connection.call("session.stop", params: SessionID(id: id), as: Acknowledged.self)
+    }
+
+    /// Marks the session read up to `seq`, as opening it on the Mac does. The Mac never moves it back.
+    public func seen(id: String, seq: Int) async throws {
+        struct Params: Encodable, Sendable { let id: String; let seq: Int }
+        _ = try await connection.call("session.seen", params: Params(id: id, seq: seq), as: Acknowledged.self)
+    }
+
+    public func createSession(spaceId: String, agent: String, text: String) async throws -> CreatedSession {
+        struct Params: Encodable, Sendable { let spaceId: String; let agent: String; let text: String }
+        return try await connection.call("session.create", params: Params(spaceId: spaceId, agent: agent, text: text),
+                                         as: CreatedSession.self)
+    }
+
+    public func debugReport(name: String, data: JSONValue) async throws {
+        struct Params: Encodable, Sendable { let name: String; let data: JSONValue }
+        _ = try await connection.call("debug.report", params: Params(name: name, data: data), as: Acknowledged.self)
+    }
+
+    private struct SessionID: Encodable, Sendable { let id: String }
+}

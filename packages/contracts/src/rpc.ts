@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PairRequestSchema, PairingWindowSchema, RemoteStatusSchema } from "./remote";
 import type { CliJobStart, CliStatus } from "./cli";
 import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, IdSchema, HexColorSchema, SessionSchema, AgentKindSchema, SessionStatusSchema, EnvironmentSchema, CheckpointSchema, BrowserSchema, BrowserHistoryPageSchema, IconAssetSchema, DocumentWorkspaceSchema, DocumentEntrySchema, DocumentKindSchema, QueuedPromptSchema } from "./entities";
 
@@ -1785,6 +1786,19 @@ export const Methods = {
     params: z.object({ ids: z.array(IdSchema).default([]), all: z.boolean().default(false) }),
     result: z.object({ ok: z.literal(true), unread: z.number().int() }),
   },
+  /** Realm Mobile (Plan 28): the link to the relay, the paired phones and any open pairing window. */
+  "remote.status": { params: z.object({}), result: RemoteStatusSchema },
+  /** Opens a pairing window at the relay (5 minutes, 5 attempts) and returns the link its QR code
+   *  carries. Starts the link if no phone was paired yet; a second call replaces the first window. */
+  "remote.pair.start": { params: z.object({}), result: PairingWindowSchema },
+  "remote.pair.cancel": { params: z.object({}), result: z.object({ ok: z.literal(true) }) },
+  /** The owner's answer to `remote.pairRequest`. Only a yes adds the phone. */
+  "remote.pair.answer": { params: z.object({ requestId: z.string(), accept: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
+  /** Remove: the relay forgets the phone's key and its open channel closes at once. */
+  "remote.phones.remove": { params: z.object({ phoneId: z.string() }), result: z.object({ ok: z.literal(true) }) },
+  /** Electron main's report of whether the owner is at this Mac: idle past two minutes, the screen
+   *  locked, or no Realm window. Pushes go at once while away and wait two minutes otherwise. */
+  "remote.away": { params: z.object({ away: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
   /**
    * The reviewer recipe (Plan 13 W3): spawn a read-only reviewer session over this environment. The
    * call returns as soon as the reviewer session exists — the review itself takes minutes, and the
@@ -2349,6 +2363,11 @@ export const Events = {
    *  (auto-reading a `session_done` for the pane the user is looking at) without a refetch race; null
    *  when the change was a markRead or a resolution, where a held list refetches instead. */
   "notifications.changed": z.object({ notification: NotificationSchema.nullable(), unread: z.number().int() }),
+  /** Realm Mobile's status changed: the link's state, a phone added, removed or seen, a window opened
+   *  or closed. Carries the whole status, so Settings applies it without a refetch. */
+  "remote.changed": RemoteStatusSchema,
+  /** A phone is waiting on the owner's yes to pair (answered with `remote.pair.answer`). */
+  "remote.pairRequest": PairRequestSchema,
   /** A run's row changed (created, dispatched, settled, approved). Carries the fresh row so a Tasks
    *  lens applies it directly — the `notifications.changed` posture, no refetch race. `run` is null
    *  only for a bulk change with no single subject, where a held list refetches instead. */

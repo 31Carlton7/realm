@@ -5,6 +5,7 @@ import type { AddMcpServerInput, AgentProbe, Api, BranchList, CredentialStatus, 
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
 import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, Schedule, SearchResults, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
 import type { SavedTurn } from "@realm/contracts";
+import { DEFAULT_REMOTE_RELAY, type PairRequest, type PairedPhone, type RemoteStatus } from "@realm/contracts";
 import { RpcError } from "../rpc/client";
 import type { RoleRun, TeamActivity, TeamRecord, TeamRecordType, TeamReviewDetail, TeamReviewSummary, TeamRole, TeamSpace } from "@realm/contracts";
 import { recordPreset, recordTemplate } from "@realm/contracts";
@@ -151,6 +152,24 @@ export const macRow = (id: string, label: string, group: MacAccessRow["group"], 
     needsSettings: state !== "granted" && (!hasCommand || state === "denied" || state === "writeOnly"),
     launchesApp: group === "automation",
   };
+};
+
+/** Realm Mobile's status on a Mac that has never paired: the link off, no phone, no window. */
+export const remoteStatus = (extra: Partial<RemoteStatus> = {}): RemoteStatus =>
+  ({ state: "off", relay: DEFAULT_REMOTE_RELAY, macName: "Carlton's MacBook Pro", phones: [], pairing: null, ...extra });
+
+/** A paired phone, seen a minute after it was added. */
+export const pairedPhone = (phoneId: string, extra: Partial<PairedPhone> = {}): PairedPhone =>
+  ({ phoneId, name: "Carlton's iPhone", model: "iPhone18,1", addedAt: 0, lastSeen: 60_000, ...extra });
+
+/** A pairing link the length a real one is (PROTOCOL.md §2): the relay, two ids, two 32-byte keys, the
+ *  Mac's name and the expiry, base64url'd after the `#`. A QR test drawing a toy string would be
+ *  testing a smaller code than the one a phone is shown. */
+export const pairingLink = (windowId: string, expiresAt: number): string => {
+  const key = (seed: string) => btoa(seed.repeat(32).slice(0, 32)).replace(/=+$/, "");
+  const data = { r: DEFAULT_REMOTE_RELAY, m: "q3VkM8Lw0FhZ1y2aYb9xXw", k: key("k"), s: key("s"), w: windowId, n: "Carlton's MacBook Pro", e: expiresAt };
+  const b64u = btoa(JSON.stringify(data)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return `https://realm.computer/pair#1.${b64u}`;
 };
 
 export type FakeData = {
@@ -423,6 +442,15 @@ export type FakeData = {
   libraryAdd?: ((input: LibraryAddInput) => LibraryAddResult) | null;
   /** The paths `library.add` should treat as folders, with what each holds. */
   addFolders?: Record<string, { files: string[]; bytes: number; subfolders: number }>;
+  /** Realm Mobile's status, as `remote.status` answers it. Defaults to what a Mac that has never paired
+   *  says: the link off, no phones, no window. `startRemotePairing` opens a window here and
+   *  `answerRemotePairing` adds the phone a yes answered, so a test reads the server's side back. */
+  remote?: RemoteStatus;
+  /** When set, `remote.status` fails with this message — a server without Realm Mobile, say. */
+  remoteError?: string | null;
+  /** The phones waiting to pair, by request id: what a yes adds. A test announces one to the store
+   *  with `applyPairRequest`, as the `remote.pairRequest` broadcast would. */
+  remoteRequests?: Record<string, PairRequest>;
   /** What `sessions.digest` answers per session id: where each left off. Absent = no replies. */
   lastReplies?: Record<string, string>;
   /** `iconAssets.list` by profile id — the space icon picker's "Generated"/"Uploaded" library. */
@@ -658,6 +686,9 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     iconAssets: overrides.iconAssets ?? {},
     lastReplies: overrides.lastReplies ?? {},
     pickIconImage: overrides.pickIconImage ?? null,
+    remote: overrides.remote ?? remoteStatus(),
+    remoteError: overrides.remoteError ?? null,
+    remoteRequests: overrides.remoteRequests ?? {},
   };
   let n = 100;
   /** `library.remove`'s holds, by removal id: what each took from `artifacts`, and where it stood. */
@@ -2249,6 +2280,40 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const page = rows.slice(0, cap);
       return { notifications: page, nextCursor: page.length === cap && page.length > 0 ? `${page.at(-1)!.createdAt}:${page.at(-1)!.id}` : null,
         unread: data.notifications.filter((x) => x.readAt === null).length };
+    },
+    remoteStatus: async () => {
+      calls.push("remoteStatus");
+      if (data.remoteError) throw new Error(data.remoteError);
+      return structuredClone(data.remote);
+    },
+    // A second start replaces the first window, as the server's does: the old code stops working.
+    startRemotePairing: async () => {
+      calls.push("startRemotePairing");
+      // As long as a real one (16 bytes, base64url), so the link and its code are a real link's size.
+      const windowId = `w${++n}`.padEnd(22, "x");
+      const expiresAt = Date.now() + 5 * 60_000;
+      const pairing = { windowId, url: pairingLink(windowId, expiresAt), expiresAt };
+      data.remote = { ...data.remote, pairing };
+      return { ...pairing };
+    },
+    cancelRemotePairing: async () => {
+      calls.push("cancelRemotePairing");
+      data.remote = { ...data.remote, pairing: null };
+    },
+    // Only a yes adds the phone, and only one that really asked: the server knows its requests, and a
+    // fake that paired any id it was handed could pass a test the server fails.
+    answerRemotePairing: async (requestId, accept) => {
+      calls.push(`answerRemotePairing:${requestId}=${accept}`);
+      const asked = data.remoteRequests[requestId];
+      if (!asked) throw new Error(`no pair request ${requestId}`);
+      delete data.remoteRequests[requestId];
+      if (!accept) return;
+      const at = Date.now();
+      data.remote = { ...data.remote, phones: [...data.remote.phones, { phoneId: `ph-${requestId}`, name: asked.name, model: asked.model, addedAt: at, lastSeen: at }] };
+    },
+    removeRemotePhone: async (phoneId) => {
+      calls.push(`removeRemotePhone:${phoneId}`);
+      data.remote = { ...data.remote, phones: data.remote.phones.filter((p) => p.phoneId !== phoneId) };
     },
     markNotificationsRead: async (input) => {
       calls.push(`markNotificationsRead:${input.all ? "all" : (input.ids ?? []).join(",")}`);

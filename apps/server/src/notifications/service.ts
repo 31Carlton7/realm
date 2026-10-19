@@ -3,7 +3,7 @@ import type { ProbeResult } from "@realm/adapters";
 import type { RpcServer } from "../rpc/server";
 import type { SettingsStore } from "../store/settings";
 import type { NotificationsStore } from "../store/notifications";
-import type { NotificationRelay } from "./relay";
+import type { NotificationRelay, RelayedNotification } from "./relay";
 
 /** Where `probeResults` remembers each CLI's last-known availability, so "previously available" is a
  *  durable fact (survives restart) rather than one process's memory. */
@@ -78,7 +78,8 @@ export class NotificationsService {
   }
 
   /** The one write path — dedup rule, toggle check, broadcast. */
-  private notify(input: { category: NotificationCategory; spaceId: string | null; sessionId: string | null; refId: string | null; title: string; body: string | null; acted: boolean }): void {
+  private notify(input: { category: NotificationCategory; spaceId: string | null; sessionId: string | null; refId: string | null; title: string; body: string | null; acted: boolean;
+    hint?: RelayedNotification["hint"] }): void {
     if (!this.enabled(input.category)) return;
     let surfaced: Notification | null = null;
     const open = input.refId ? this.d.store.findOpen(input.category, input.refId) : null;
@@ -95,7 +96,8 @@ export class NotificationsService {
     // is one story, and a phone that buzzed for every re-ask of one permission would be muted by
     // lunchtime. The category gate lives in the relay, beside the destinations it reads.
     if (surfaced) this.d.relay?.send({ category: input.category, title: input.title, body: input.body,
-      spaceName: input.spaceId ? this.d.spaces?.get(input.spaceId)?.name ?? null : null });
+      spaceName: input.spaceId ? this.d.spaces?.get(input.spaceId)?.name ?? null : null,
+      id: surfaced.id, refId: surfaced.refId, sessionId: surfaced.sessionId, ...(input.hint ? { hint: input.hint } : {}) });
   }
 
   /** Stamp a key's open row resolved (if any) and say how it ended. */
@@ -117,8 +119,12 @@ export class NotificationsService {
       // that says "needs you" — and never a text to a phone.
       if (ev.payload.ask?.refused) return;
       if (ev.payload.ask) { this.questions.add(ev.payload.requestId); if (this.questions.size > 512) this.questions.delete(this.questions.values().next().value!); }
+      // A phone shows a question as the question itself, not as "Allow AskUserQuestion?".
+      const asked = ev.payload.ask?.questions[0]?.prompt;
+      const question = ev.payload.ask !== undefined || ev.payload.toolName === "AskUserQuestion";
       this.notify({ category: "permission", spaceId: session.spaceId, sessionId: session.id, refId: ev.payload.requestId,
-        title: this.askerTitle(session), body: ev.payload.title || ev.payload.toolName, acted: false });
+        title: this.askerTitle(session), body: ev.payload.title || ev.payload.toolName, acted: false,
+        ...(question ? { hint: { kind: "question" as const, ...(asked ? { line: asked } : {}) } } : {}) });
       return;
     }
     if (ev.type === "permission_response") {
@@ -160,7 +166,8 @@ export class NotificationsService {
         }
       }
       this.notify({ category: "session_done", spaceId: session.spaceId, sessionId: session.id, refId: session.id,
-        title: session.title, body: SETTLE_WORD[ev.payload.status] ?? "Settled", acted: true });
+        title: session.title, body: SETTLE_WORD[ev.payload.status] ?? "Settled", acted: true,
+        ...(ev.payload.status === "error" ? { hint: { kind: "failed" as const } } : {}) });
     }
   }
 
