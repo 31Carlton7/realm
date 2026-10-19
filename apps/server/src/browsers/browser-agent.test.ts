@@ -18,7 +18,7 @@ import { createRealmAgentProvider, RUN_TOOL_NAME } from "./browser-agent";
  * (`createApp` + FakeAdapter): a real SessionService, real gateway, real settings persistence. The
  * named mutants this suite exists to kill:
  *
- *   - bypass inherited by the child            → "bypassPermissions is never inherited"
+ *   - the old Full access cap on the child     → "runs in its lead's mode, Full access included"
  *   - recursion guard dropped                  → "recursion guard" (+ the gateway suite's toolset tests)
  *   - child toolset containing user MCP servers → gateway.test.ts "per-session toolset restriction"
  *   - settle-wait returning before the turn ends → "the settle wait holds until the turn ends"

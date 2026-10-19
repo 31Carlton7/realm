@@ -1246,7 +1246,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // the SAME event off the same hook, so a run settles off exactly the status transition the feed
     // reports rather than off a poll of its own (runs/service.ts).
     notifications: {
-      handleSessionEvent: (session, ev) => { notifications.handleSessionEvent(session, ev); runs?.handleSessionEvent(session, ev); usage?.handleSessionEvent(session, ev); team?.handleSessionEvent(session, ev); handoffs?.handleSessionEvent(session, ev); },
+      handleSessionEvent: (session, ev) => {
+        notifications.handleSessionEvent(session, ev); runs?.handleSessionEvent(session, ev); team?.handleSessionEvent(session, ev); handoffs?.handleSessionEvent(session, ev);
+        // The usage hook reads the month's spend back from the saved events, and this runs BEFORE the
+        // event is saved — in the same call, so a microtask later it is there.
+        if (ev.type === "usage") queueMicrotask(() => usage?.handleSessionEvent(session, ev));
+      },
       probeResults: (results) => notifications.probeResults(results),
     },
     // One hook fanning out to BOTH delegation registries. `parentInterrupted` goes to either service
@@ -1288,6 +1293,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // Children named before they were named by their task wear "Agent: <first line>"; renamed once,
   // here, wherever that string is still exactly what both rows say.
   agentRuns.retitleLegacyChildren();
+  agentRuns.settleCutOffChildren();
   browserAgents.retitleLegacyChildren();
   // The reviewer recipe (W3): same engine, read-only cap, review-origin children. `otherDelegation`
   // fans across BOTH sibling registries — no delegated child of any kind may mint a reviewer.

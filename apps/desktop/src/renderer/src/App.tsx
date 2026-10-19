@@ -34,7 +34,7 @@ import { getTerminalHub } from "./panes/terminal-hub";
 import { getBrowserBridges } from "./panes/browser/browser-client";
 import { persistBrowserPages } from "./panes/browser/persist-pages";
 import { Onboarding } from "./components/Onboarding";
-import { StoreContext, createAppStore, memoryRepoKey, useApp, useAppStore, type AppState } from "./state/store";
+import { StoreContext, createAppStore, memoryRepoKey, useApp, useAppStore, whenBooted, type AppState } from "./state/store";
 import { sidebarHidden } from "./state/selectors";
 import { drawnShare, panelPlace } from "./state/view-room";
 import { useStore, type StoreApi } from "zustand";
@@ -691,14 +691,18 @@ export function App() {
     // onScrollPhase: a renderer running outside the Electron preload (tests, a browser) simply never
     // hears one. Main has already raised the window; the store owns landing on the row.
     const offDN = window.realm?.notify?.onActivate((id) => {
-      const st = store.getState();
-      st.run(() => st.activateDesktopNotification(id));
+      void whenBooted(store).then(() => {
+        const st = store.getState();
+        st.run(() => st.activateDesktopNotification(id));
+      });
     });
     // A session chosen from the menu-bar item while this window did not exist. Main has already
     // brought the window back; landing on the pane is the store's job, exactly as it is for a toast.
     const offOS = window.realm?.onOpenSession?.(({ sessionId, spaceId }) => {
-      const st = store.getState();
-      st.run(() => st.revealSession(sessionId, spaceId));
+      void whenBooted(store).then(() => {
+        const st = store.getState();
+        st.run(() => st.revealSession(sessionId, spaceId));
+      });
     });
     // A link clicked to open in a Realm Browser tab (Settings ▸ General ▸ Links, ⌘-click, or the
     // link's right-click menu): main routed it here, and the tab goes beside the session in view.
@@ -709,6 +713,7 @@ export function App() {
     // A review verdict landed (or was dismissed/cleared) for an environment (Plan 13 W3): apply the
     // payload directly — the diff pane's review section reads `reviews[environmentId]`.
     const offR = rpc().on("review.changed", (p) => store.getState().applyReviewChanged(p));
+    const offBC = rpc().on("browsers.closed", ({ browserId }) => store.getState().applyBrowserClosed(browserId));
     // The set of sessions a session is waiting on. Applied in every window and gated on
     // nothing: the delegating session's pane may be open in any of them, and the payload is a
     // handful of ids — the store drops the key when the set is empty.
@@ -756,7 +761,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offW(); offSh(); offRun(); offSched(); offTeam(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); offSet(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
+      offS(); offI(); offW(); offSh(); offRun(); offSched(); offTeam(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); offSet(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offBC(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       offEggs();

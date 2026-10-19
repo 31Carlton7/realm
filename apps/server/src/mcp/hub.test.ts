@@ -55,6 +55,20 @@ describe("lazy connect", () => {
   });
 });
 
+describe("a server that goes away", () => {
+  it("reconnects on the next call after its process exits, rather than failing until Retry", async () => {
+    // A stdio server that crashes or exits when idle closes its transport. The hub kept handing out
+    // the dead client, every call failed "Not connected", and three of those opened the breaker.
+    const row = newRow();
+    const stub = makeStubServer();
+    const { hub, connects } = hubFor(stub);
+    await hub.tools(row.id);
+    await stub.close();
+    expect(await hub.call(row.id, "echo", { x: 1 })).toMatchObject({ content: [{ type: "text", text: JSON.stringify({ x: 1 }) }] });
+    expect(connects.n).toBe(2);
+  });
+});
+
 describe("sharing an in-flight connect", () => {
   it("produces exactly one connect for two concurrent callers on the same server", async () => {
     // The named mutant: drop the `entry.connecting` promise and call `connect()` unconditionally from

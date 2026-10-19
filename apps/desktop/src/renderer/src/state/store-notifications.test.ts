@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createAppStore } from "./store";
+import { createAppStore, whenBooted } from "./store";
 import { fakeApi, item, notification, session } from "./store.test-fakes";
 import { allItems, navEntry, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY } from "@realm/contracts";
 
@@ -191,6 +191,21 @@ describe("store — the desktop (OS) hop", () => {
     const pane = store.getState().items.find((i) => i.refId === "se2")!;
     // The FOCUSED pane holds it — which is the half that surfaces the card, not just the space switch.
     expect(navEntry(store.getState().paneHistory, store.getState().focusedLeafId!)).toEqual({ itemId: pane.id, view: null });
+  });
+
+  it("a session asked for while the window is still booting is landed on once boot is done", async () => {
+    // Main sends `realm:open-session` (a tray click, a toast, with no window open) as soon as the new
+    // window's page loads — before the store has booted, when a reveal finds no space to land in.
+    const api = fakeApi({
+      items: { s1: [item("i1", "s1", { kind: "session", refId: "se1", title: "S" })], s2: [item("i2", "s2", { kind: "session", refId: "se2", title: "T" })] },
+      sessions: [session("se1", "s1"), session("se2", "s2", { status: "waiting_permission" })],
+    });
+    const store = createAppStore(api);
+    const booting = store.getState().boot();
+    const landed = whenBooted(store).then(() => store.getState().revealSession("se2", "s2"));
+    await booting;
+    expect(await landed).toBe(true);
+    expect(store.getState().activeSpaceId).toBe("s2");
   });
 
   it("a sub-agent's permission toast lands on its lead, in the Agents tab, on that sub-agent's card", async () => {

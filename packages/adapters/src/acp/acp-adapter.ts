@@ -1,6 +1,6 @@
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
-import { readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { readFile, readlink, realpath, stat, writeFile } from "node:fs/promises";
 import { acpAskMode, acpBuildMode, acpPlanMode, acpSessionConfig, askCardFromElicitation, ASK_PERMISSION_MODE, elicitationContent, loggableAnswers, normalizeAnswers, PLAN_PERMISSION_MODE, requiredAnswered, sessionEvent, type AcpSessionMode, type AgentKind, type AskAnswers, type AskCard, type SessionEvent } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { JsonRpcCallError, StdioJsonRpc, withTimeout, type JsonRpcId } from "../jsonrpc/stdio";
@@ -153,9 +153,13 @@ export const MAX_FS_READ_BYTES = 10 * 1024 * 1024;
 async function realpathOfDeepestExisting(p: string): Promise<string> {
   const tail: string[] = [];
   let cur = p;
-  for (;;) {
+  for (let hops = 0; ; ) {
     try { return join(await realpath(cur), ...tail); }
     catch { /* does not exist yet — keep walking up */ }
+    // A link to something that does not exist yet fails `realpath` too, but a write follows it: go
+    // where it points rather than taking it for a new file beside it.
+    const link = await readlink(cur).catch(() => null);
+    if (link !== null && hops++ < 40) { cur = resolve(dirname(cur), link); continue; }
     const parent = dirname(cur);
     if (parent === cur) return p; // ran out of ancestors; nothing left to resolve
     tail.unshift(basename(cur));
@@ -619,13 +623,18 @@ export class AcpAdapter implements AgentAdapter {
           (res) => {
             if (disposed) return;
             for (const e of mapper.flush()) events.push(e);
-            const failure = stopReasonError(str(obj(res).stopReason));
+            // A call the turn ended in the middle of (a stop, a refusal, a token limit) gets no update of
+            // its own, and its card would spin until the session closed.
+            const stopReason = str(obj(res).stopReason);
+            for (const e of mapper.closeOpenCalls(stopReason === "cancelled" ? "interrupted" : `turn ended without a result (${stopReason})`)) events.push(e);
+            const failure = stopReasonError(stopReason);
             if (failure) events.push(sessionEvent("error", { message: failure }));
             events.push(sessionEvent("status", { status: "idle" }));
           },
           (e) => {
             if (disposed) return; // the exit handler already reported why the turn died
             for (const e of mapper.flush()) events.push(e);
+            for (const c of mapper.closeOpenCalls(message(e))) events.push(c);
             events.push(sessionEvent("error", { message: message(e) }));
             events.push(sessionEvent("status", { status: "idle" }));
           },

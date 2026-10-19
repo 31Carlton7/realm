@@ -536,6 +536,8 @@ export class CodexAdapter implements AgentAdapter {
       if (disposed) return;
       disposed = true;
       denyAllPending();
+      // The process may outlive this session (another one holds it), and so would a turn left running.
+      if (conn && threadId && activeTurnId) void conn.request("turn/interrupt", { threadId, turnId: activeTurnId }).catch(() => {});
       if (conn && threadId) conn.detach(threadId);
       // Before releasing: the process may be about to go, but while other sessions still hold it their
       // union must stop including a root this session is no longer entitled to.
@@ -875,7 +877,8 @@ export class CodexAdapter implements AgentAdapter {
           activeTurnId = str(obj(started.turn).id) || null;
         } catch (e) {
           events.push(sessionEvent("error", { message: message(e) }));
-          events.push(sessionEvent("status", { status: "idle" }));
+          // A steer refused mid-turn leaves that turn running, and its own `turn/completed` settles it.
+          if (!activeTurnId) events.push(sessionEvent("status", { status: "idle" }));
         }
       },
       respondPermission: respond,

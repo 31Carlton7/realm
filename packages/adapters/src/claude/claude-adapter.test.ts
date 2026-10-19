@@ -857,6 +857,24 @@ describe("ClaudeAdapter", () => {
     expect(settle?.type === "status" && settle.payload.interrupted).toBeUndefined();
   });
 
+  it("a Stop that lands after the turn ended does not mark the next turn as stopped", async () => {
+    // Stop pressed as the turn finishes reaches an idle CLI: no result follows it, so a latch armed
+    // then would ride into the next turn and settle that one as "you stopped this".
+    const a = new ClaudeAdapter({ query: fakeQuery({ turns: 2, hang: true }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const seen: SessionEvent[] = [];
+    const settles = () => seen.filter((e) => e.type === "status" && e.payload.status === "idle");
+    const c = collectUntil(h.events, () => settles().length === 2, (e) => seen.push(e));
+    await h.send({ text: "one", attachments: [] });
+    await new Promise<void>((res) => { const t = setInterval(() => { if (settles().length === 1) { clearInterval(t); res(); } }, 5); });
+    await h.interrupt();
+    await h.send({ text: "two", attachments: [] });
+    await c;
+    const second = settles()[1];
+    expect(second?.type === "status" && second.payload.interrupted).toBeUndefined();
+    await h.dispose();
+  });
+
   it("send after dispose emits a single error and nothing else", async () => {
     const a = new ClaudeAdapter({ query: fakeQuery({ hang: true }) as never });
     const h = a.start({ cwd: "/tmp", mcpServers: [] });

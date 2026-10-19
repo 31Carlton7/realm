@@ -105,6 +105,34 @@ describe("failover over rpc", () => {
     c.close();
   });
 
+  it("never replays the user's last message when a peer's message fails", async () => {
+    const home = tempDir("realm-failover-peer-");
+    const fake = new RecordingFake({ script: [
+      { on: "first", emit: [{ kind: "text", text: "done" }] },
+      { on: "peer question", emit: [{ kind: "throw", message: "overloaded_error" }] },
+    ] });
+    const sent: string[] = [];
+    fake.start = (o: StartOptions) => {
+      const handle = FakeAdapter.prototype.start.call(fake, o);
+      return { ...handle, send: (m) => { sent.push(m.text); return handle.send(m); } };
+    };
+    app = await createApp({ home, port: 0, adapters: { fake } });
+    const c = await client(app.port);
+    const p = (await c.call("profiles.create", { name: "W" })).result;
+    const sp = (await c.call("spaces.create", { profileId: p.id, name: "S" })).result;
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "first" });
+    await waitFor(async () => (await c.call("sessions.get", { id: session.id })).result.status === "idle" && sent.length === 1);
+
+    await app.sessions.deliverInterjection(session.id, { text: "peer question", from: { sessionId: "peer", title: "Peer" } }, { interruptFirst: false });
+    await waitFor(async () => (await c.call("sessions.events", { id: session.id, afterSeq: 0, limit: 200 })).result
+      .some((e: Any) => e.event.type === "error"));
+    // Past the first rung of the backoff ladder, where a replay would have gone out.
+    await new Promise((r) => setTimeout(r, 1_500));
+    expect(sent).toEqual(["first", "peer question"]);
+    c.close();
+  });
+
   it("does nothing at all with the default policy, however the turn dies", async () => {
     const { c, sp, second } = await setup({ first: "usage limit reached", second: "ok" });
     const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;

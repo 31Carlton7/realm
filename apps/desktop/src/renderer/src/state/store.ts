@@ -2545,6 +2545,9 @@ export type AppState = TeamSlice & LabSlice & {
   /** The `review.changed` handler: apply the payload directly (no refetch race) and clear the
    *  in-flight flag. */
   applyReviewChanged(payload: { environmentId: string; review: ReviewResult | null }): void;
+  /** The `browsers.closed` handler: a browser closed anywhere — an agent, another window — has its page
+   *  shut down here too, not only when this window's own pane closed it. */
+  applyBrowserClosed(browserId: string): void;
   /** Fetch what this session is waiting on (session pane mount). Covers the runs that began before
    *  this window connected — every later change arrives as `delegation.changed`. */
   refreshDelegatedRuns(sessionId: string): Promise<void>;
@@ -3205,6 +3208,16 @@ function dropPatches(patches: Record<string, FileDiff>, cwd: string, paths: stri
 const scheduleFrame = (fn: () => void): number =>
   typeof requestAnimationFrame === "function" ? requestAnimationFrame(fn) : (setTimeout(fn, 16) as unknown as number);
 
+/** Resolves once the store has booted. What main asks of a window it has just opened (a tray or toast
+ *  click with no window up) arrives as soon as the page loads, while boot is still reading the home,
+ *  and a landing tried then finds no space to land in. */
+export function whenBooted(store: StoreApi<AppState>): Promise<void> {
+  if (store.getState().booted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const off = store.subscribe((s) => { if (s.booted) { off(); resolve(); } });
+  });
+}
+
 export function createAppStore(api: Api): StoreApi<AppState> {
   return createStore<AppState>((set, get, storeApi) => {
     let persistTimer: ReturnType<typeof setTimeout> | null = null;
@@ -3214,6 +3227,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  otherwise close the just-opened item. */
     const itemsFetchSeq = new Map<string, number>();
     const nextItemsSeq = (sid: string): number => { const n = (itemsFetchSeq.get(sid) ?? 0) + 1; itemsFetchSeq.set(sid, n); return n; };
+    /** Per checkout, the newest-started diff refresh: a Stage click starts two (its own and the
+     *  `workspace.changed` broadcast's), git may answer them in either order, and only the newest
+     *  describes the tree as it is now. */
+    const diffFetchSeq = new Map<string, number>();
     /** Bumped by every profile switch, so a response for the profile being left can never land. */
     let profileEpoch = 0;
     /** Bumped by every new watch, so only the newest one polls. */
@@ -6069,7 +6086,23 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const refs = get().draftSessionRefs[id] ?? [];
         // The named files and apps, re-derived from the FINAL text like the elements above.
         const named = keepLiveRefs(text, get().draftRefs[id] ?? []);
-        await api.sendMessage(id, wire, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements, undefined, refs, named);
+        // The prompter empties its box as this goes. A send that fails puts the draft back, chips and
+        // all, unless something new has been typed there since — the attachments above stay for the
+        // same reason.
+        const draft = (get().drafts[id] ?? "").trim() === text ? {
+          drafts: get().drafts[id] ?? "", draftMentions: get().draftMentions[id] ?? [], draftElements: get().draftElements[id] ?? [],
+          draftLinks: get().draftLinks[id] ?? [], draftRefs: get().draftRefs[id] ?? [],
+        } : null;
+        try {
+          await api.sendMessage(id, wire, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements, undefined, refs, named);
+        } catch (e) {
+          if (draft && !get().drafts[id]) {
+            set({ drafts: { ...get().drafts, [id]: draft.drafts }, draftMentions: { ...get().draftMentions, [id]: draft.draftMentions },
+              draftElements: { ...get().draftElements, [id]: draft.draftElements }, draftLinks: { ...get().draftLinks, [id]: draft.draftLinks },
+              draftRefs: { ...get().draftRefs, [id]: draft.draftRefs } });
+          }
+          throw e;
+        }
         // The quick chat's model is a throwaway choice, not the one the next session should start on.
         if (get().quickChat?.sessionId !== id) rememberSentOn(id);
         if (refs.length) set({ draftSessionRefs: { ...get().draftSessionRefs, [id]: [] } });
@@ -7034,17 +7067,22 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ gitInfo: { ...get().gitInfo, [cwd]: info } });
       },
       async refreshDiff(cwd) {
+        const seq = (diffFetchSeq.get(cwd) ?? 0) + 1;
+        diffFetchSeq.set(cwd, seq);
         set({ diffLoading: { ...get().diffLoading, [cwd]: true } });
         try {
           const summary = await api.diff(cwd);
+          if (seq !== diffFetchSeq.get(cwd)) return;
           // Patches for files that are no longer in the list are dropped here rather than left to
           // rot: a stale patch under a collapsed row is what makes a diff pane lie after a commit.
           const live = new Set((summary?.files ?? []).map((f) => f.path));
           const patches = Object.fromEntries(Object.entries(get().patches).filter(([key, p]) => !key.startsWith(`${cwd}\u0000`) || live.has(p.path)));
           set({ diffs: { ...get().diffs, [cwd]: summary }, patches });
         } finally {
-          const { [cwd]: _done, ...rest } = get().diffLoading;
-          set({ diffLoading: rest });
+          if (seq === diffFetchSeq.get(cwd)) {
+            const { [cwd]: _done, ...rest } = get().diffLoading;
+            set({ diffLoading: rest });
+          }
         }
         await get().refreshGitInfo(cwd);
       },
@@ -7240,6 +7278,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const { [environmentId]: _done, ...reviewing } = get().reviewing;
         set({ reviews: { ...get().reviews, [environmentId]: review }, reviewing });
       },
+      applyBrowserClosed(browserId) { api.destroyBrowserView(browserId); },
       async refreshDelegatedRuns(sessionId) {
         get().applyDelegationChanged({ sessionId, running: await api.listDelegatedRuns(sessionId) });
       },
@@ -8021,6 +8060,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           set({ checkpointAckStale: true });
           return;
         }
+        // The session the server rewinds is the checkpoint's own, whatever the sheet was opened for.
+        const checkpointSession = [...Object.values(get().checkpoints), ...Object.values(get().envCheckpoints)].flat().find((c) => c.id === id)?.sessionId ?? null;
         const result = await api.restoreCheckpoint(id, { filesChanged: fresh.filesChanged, commitsRolledBack: fresh.commitsRolledBack });
         set({ checkpointPreview: null, checkpointAckStale: false, restoreResult: result });
         // The tree was rewritten and a `pre-restore` checkpoint now exists: both views are stale.
@@ -8033,11 +8074,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
            forward from `lastSeq` — and after a truncation that mark is ahead of the server, so an
            incremental fetch returns nothing and the undone turns stay on screen looking like the
            restore did not work. Clearing it first makes the reopen re-derive from seq 0. */
-        if (result.conversationRewound && sessionId) {
-          const { [sessionId]: _dropped, ...rest } = get().transcripts;
-          const { [sessionId]: _mark, ...marks } = get().newSinceSeq;
+        const rewound = checkpointSession ?? sessionId;
+        if (result.conversationRewound && rewound) {
+          const { [rewound]: _dropped, ...rest } = get().transcripts;
+          const { [rewound]: _mark, ...marks } = get().newSinceSeq;
           set({ transcripts: rest, newSinceSeq: marks });
-          await get().openSession(sessionId);
+          await get().openSession(rewound);
         }
       },
       async refreshMcpServers(spaceId) {

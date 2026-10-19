@@ -402,6 +402,23 @@ export class AgentRunService {
     return renamed;
   }
 
+  /**
+   * A run lives in the engine's memory, so a restart ends every one still going without writing how —
+   * and a child with no outcome that had said anything reads as finished. Once per boot, before any
+   * run can start, each such record is settled as stopped, with why. Returns how many.
+   */
+  settleCutOffChildren(): number {
+    let settled = 0;
+    for (const s of this.d.sessions.listAll()) {
+      if (s.dispatchedBy?.kind !== "agent_run") continue;
+      const record = this.childRecord(s.id);
+      if (!record || record.outcome) continue;
+      this.d.settings.set(childKey(s.id), { ...record, settledAt: s.updatedAt, outcome: "stopped", stopNote: "Realm restarted while it was working, before it finished." } satisfies AgentChildRecord);
+      settled += 1;
+    }
+    return settled;
+  }
+
   /* ------------------------------------- the tool itself ------------------------------------- */
 
   /**

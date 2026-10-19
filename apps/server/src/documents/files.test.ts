@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { DOCUMENT_MAX_BYTES } from "@realm/contracts";
-import { TEXT_SNIFF_BYTES, hashText, isTempArtifact, readDocument, readIfExists, textRefusal, writeAtomic, writeDocument } from "./files";
+import { TEXT_SNIFF_BYTES, hashText, isTempArtifact, readDocument, readIfExists, renameDocument, textRefusal, writeAtomic, writeDocument } from "./files";
 
 let dir: string;
 const p = (name: string) => join(dir, name);
@@ -48,9 +48,42 @@ describe("writeAtomic", () => {
     expect(await readdir(dir)).toEqual(["a.md"]);
   });
 
+  it("saves through a symlink to the file it points at, and keeps the link", async () => {
+    // `CLAUDE.md -> AGENTS.md` is the usual way one instructions file serves two agents. Renaming the
+    // temp file over the link would make CLAUDE.md a plain copy and leave AGENTS.md as it was.
+    await writeFile(p("AGENTS.md"), "a");
+    await symlink("AGENTS.md", p("CLAUDE.md"));
+    await writeAtomic(p("CLAUDE.md"), "b");
+    expect((await lstat(p("CLAUDE.md"))).isSymbolicLink()).toBe(true);
+    expect(await readFile(p("AGENTS.md"), "utf8")).toBe("b");
+  });
+
+  it("keeps the file's permissions, so a script stays executable", async () => {
+    await writeFile(p("run.sh"), "echo a\n");
+    await chmod(p("run.sh"), 0o755);
+    await writeAtomic(p("run.sh"), "echo b\n");
+    expect((await stat(p("run.sh"))).mode & 0o777).toBe(0o755);
+  });
+
   it("names temp files so the watcher can recognise them", () => {
     expect(isTempArtifact("/x/.realm-tmp-123-a.md")).toBe(true);
     expect(isTempArtifact("/x/a.md")).toBe(false);
+  });
+});
+
+describe("renameDocument", () => {
+  it("changes only the capitalisation of a name", async () => {
+    // On the Mac's case-insensitive disk `notes.md` already "exists": it is this same file.
+    await writeFile(p("Notes.md"), "n");
+    await renameDocument(p("Notes.md"), p("notes.md"));
+    expect(await readdir(dir)).toEqual(["notes.md"]);
+  });
+
+  it("still refuses to land on a different file", async () => {
+    await writeFile(p("a.md"), "a");
+    await writeFile(p("b.md"), "b");
+    await expect(renameDocument(p("a.md"), p("b.md"))).rejects.toThrow(/already exists/);
+    expect(await readFile(p("b.md"), "utf8")).toBe("b");
   });
 });
 

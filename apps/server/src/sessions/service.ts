@@ -869,6 +869,8 @@ export class SessionService {
     // After the interrupt, not before: the turn it stopped is measured from that settle, and this
     // message's turn must not write until git has finished looking (`deliver` waits in its own place).
     await this.measuring.get(id);
+    // This turn is the peer's, so failover has nothing of the user's to replay if it fails.
+    this.d.failover?.cancel(id);
     this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: [], from: msg.from }));
     await handle.send({ text: msg.text, attachments: [] });
     return { interrupted };
@@ -1946,7 +1948,9 @@ export class SessionService {
       // stops moving, and it is the only one worth summarizing. Fired after the events of the turn
       // are persisted below on their own passes — the summary reads the log, so it must not run
       // until the log is the log. `void`, because a turn is never held up for a nicety.
-      if (ev.payload.status === "idle" && before.status !== "idle") {
+      // Not from `ended`: that idle is a fresh engine reporting it has booted (Codex and the ACP agents
+      // do), with the turn it is about to run not yet started.
+      if (ev.payload.status === "idle" && before.status !== "idle" && before.status !== "ended") {
         // Where the provider's chain now stands, taken on the settle and nowhere else: this is the one
         // moment the answer is complete (the turn's `result` has been mapped) and not yet overwritten
         // (the next turn has not begun). Synchronous and first, ahead of every `void` below — one of

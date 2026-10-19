@@ -140,6 +140,16 @@ describe("the tick", () => {
     expect(created[0]).toMatchObject({ spaceId, goal: "check the inbox", title: "Morning sweep" });
   });
 
+  it("does not fire on every tick through the hour that repeats when the clocks go back", () => {
+    // US clocks go back on 2026-11-01, so 01:00–01:59 happens twice; an hour after the first 01:20
+    // is the second. Passes trivially in a zone that does not change that night.
+    const { svc } = service();
+    clock = at(2026, 11, 1, 1, 20) + 3_600_000;
+    svc.create(input({ cron: "*/15 * * * *" }));
+    for (let i = 0; i < 3; i++) { clock += 60_000; svc.tick(); }
+    expect(created.length).toBeLessThanOrEqual(1);
+  });
+
   it("records the run it made, so the row can point at it", () => {
     const { svc, store } = service();
     const s = svc.create(input());

@@ -39,6 +39,18 @@ describe("browsers RPC", () => {
     c.close();
   });
 
+  it("close tells every window which browser ended, so the page behind it is shut down too", async () => {
+    // A close that did not come from a window's own pane (an agent, another window) took the row and
+    // the item away and left the page running in its view, popups and all.
+    const app = await createApp({ home: tempDir("realm-home-"), port: 0 }); apps.push(app);
+    const c = await client(app.port);
+    const space = await makeSpace(c);
+    const { browserId } = (await c.call("browsers.create", { spaceId: space.id, url: "https://example.com/" })).result;
+    await c.call("browsers.close", { browserId });
+    expect(c.events.some((e) => e.event === "browsers.closed" && e.payload.browserId === browserId)).toBe(true);
+    c.close();
+  });
+
   it("survives a restart: the row keeps its last committed url/title", async () => {
     const home = tempDir("realm-home-");
     const app1 = await createApp({ home, port: 0 }); apps.push(app1);
