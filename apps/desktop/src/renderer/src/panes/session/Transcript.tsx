@@ -25,7 +25,6 @@ import { useDissolve } from "../../components/ScrollFades";
 import { runLabelFor, type RunLabel } from "./run-label";
 import { formatTokens } from "./SessionUsage";
 import { useEnterTracker } from "./transcript-enter";
-import { SubagentStrip } from "./SubagentStrip";
 import { TranscriptSummary } from "./TranscriptSummary";
 import { MediaStrip } from "./media/MediaView";
 import { useMediaFiles } from "./media/use-media";
@@ -785,9 +784,6 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             The word is this run's (run-label.ts), and `run.startedAt` holds it still: seeding it on
             anything that moves would re-roll the verb on every streaming delta. */}
         {sessionStatus === "running" && (!lastText || lastText.kind !== "assistant" || !lastText.streaming) && <div className="msg-working muted"><span className="shimmer-text">{runLabelFor(transcript.run?.startedAt ?? 0, mode, eggs, packLabels).present}…</span></div>}
-        {/* The sub-agents this session has out — and, once they are back, how they ended — under the
-            last thing said, which is where a turn that left them working used to just stop. */}
-        {sessionId && <SubagentStrip sessionId={sessionId} blocks={transcript.blocks} />}
         {/* Last in the column, so it reads as the closing line of the session rather than as another
             message in it. Draws nothing while a turn is live, and nothing on a session with nothing
             to count. */}

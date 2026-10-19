@@ -236,20 +236,6 @@ describe("§6 motion table", () => {
     expect(bodiesFor(".delegation-line .tool-row > .tool-name:last-child").join(" ")).toMatch(/max-width:\s*none/);
   });
 
-  it("keeps the transcript's sub-agent strip quiet: the accent on its mark alone, and titles that give way", () => {
-    // Mutant: the accent on the strip's ground or rim — a loud card under every fan-out.
-    const strip = bodiesFor(".subagent-strip").join(" ");
-    expect(strip).toMatch(/background:\s*var\(--rl-card\)/);
-    expect(strip).not.toMatch(/--rl-accent/);
-    expect(bodiesFor(".subagent-strip-head > svg:first-child").join(" ")).toMatch(/color:\s*var\(--rl-accent\)/);
-    // Settled, the mark goes quiet with the line.
-    expect(bodiesFor(".subagent-strip[data-settled] .subagent-strip-head > svg:first-child").join(" ")).toMatch(/color:\s*var\(--ink-3\)/);
-    // A long task ellipsizes rather than pushing the state and clock out of the row.
-    const title = bodiesFor(".subagent-strip-title").join(" ");
-    expect(title).toMatch(/min-width:\s*0/);
-    expect(title).toMatch(/text-overflow:\s*ellipsis/);
-  });
-
   /* THE mutant is the card left to shrink (`flex: 0 1 auto`): shrink is shared in proportion to size,
      so beside a long log the report came out a strip two lines high — 126px of a 822px viewer, showing
      91px of a 314px report (calmer-surfaces-live.mjs). The rest is what reading it takes. */
