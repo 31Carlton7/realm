@@ -1631,6 +1631,9 @@ export const Methods = {
   "team.roleMessage": { params: z.object({ id: IdSchema, text: z.string().trim().min(1).max(20_000) }), result: RunSchema },
   "team.review": { params: z.object({ id: IdSchema }), result: TeamReviewDetailSchema },
   "team.reviewApprove": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
+  /** The yes taken back while nothing of it has left Realm: the same draft waits again, and approving
+   *  pins its hashes again. Refused once a post or a send went out; already waiting, nothing changes. */
+  "team.reviewUndoApproval": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
   "team.reviewRequestChanges": { params: z.object({ id: IdSchema, note: z.string().min(1).max(5_000) }), result: TeamReviewSummarySchema },
   "team.reviewDone": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
   "team.reviewDismiss": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },

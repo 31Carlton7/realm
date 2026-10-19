@@ -967,6 +967,41 @@ export class TeamService {
   }
 
   /**
+   * Undo a yes while nothing of it has left Realm: the same draft waits for the person again, its files
+   * and hashes as they were, and every ticket the yes issued is taken back — a press set for its slot
+   * included, since that has not gone out either. Approving again pins the hashes again. Once a post or
+   * a send went out, is going out, or was handed to the platform at all, the yes stands and Close is
+   * what stops the rest. A review already waiting is left as it is, so a second Undo changes nothing.
+   */
+  undoApproval(id: string): TeamReviewSummary {
+    const r = this.mustReview(id);
+    if (r.state === "waiting") return this.summary(r);
+    if (r.state !== "approved") throw new RpcError("TEAM_REVIEW_STATE", `this review is ${STATE_CLOSED[r.state]}, so there is no approval to undo`);
+    const gone = this.wentOut(r);
+    if (gone) throw new RpcError("TEAM_REVIEW_WENT_OUT", `It's too late to undo: ${gone}. Close stops whatever hasn't gone out.`);
+    const next = this.d.store.unapprove(id, r.version);
+    this.log(r.spaceId, "user", "undid_approval", r.title, { reviewId: id, version: r.version });
+    this.d.acts?.cancelForReview(id, "you undid the approval");
+    this.changed(r.spaceId);
+    return this.summary(next);
+  }
+
+  /** What of an approved batch has left Realm, in words — null while all of it is still here. An act
+   *  handed to the platform that came back with an error counts: whether it went out is the
+   *  platform's to say. */
+  private wentOut(r: ReviewRow): string | null {
+    const tickets = this.d.acts?.tickets(r.id) ?? [];
+    const noun = (kind: string) => (kind === "post" ? "a post" : kind === "dm" ? "a DM" : "an email");
+    const done = tickets.find((t) => t.state === "done");
+    if (done) return `${noun(done.kind)} already went out`;
+    const going = tickets.find((t) => t.state === "acting");
+    if (going) return `${noun(going.kind)} is going out right now`;
+    const tried = this.d.store.reviewActivity(r, ["acted", "act_failed"]);
+    if (tried) return `${noun(String(tried.detail.kind))} was already handed to ${typeof tried.detail.channel === "string" ? tried.detail.channel : "the platform"}`;
+    return null;
+  }
+
+  /**
    * Ask for changes. The note goes back to the run that made the batch — the same conversation, one
    * more turn, as a new run woken on the review — when the role wakes on reviews; its revision then
    * replaces this review's items in place.
