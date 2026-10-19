@@ -126,12 +126,12 @@ describe("undoing an approval", () => {
     team.undoApproval(r.id);
     writeFileSync(join(folder, "deck/1-a.png"), "a better first slide");
     // Read while waiting: the hash moves with the file, and nothing claims an approval was broken.
+    // THE MUTANT: the undo keeping the old approved hash — this draft would read "Approve again".
     expect(team.review(r.id)).toMatchObject({ state: "waiting", changedSinceApproval: false, note: null });
     const edited = store.items(r.id, 1)[0]!;
     team.approve(r.id);
     const pinned = store.items(r.id, 1);
-    // THE MUTANT: approving pins only what had no hash yet (`COALESCE(approved_hash, …)`) — with the
-    // old hash kept by the undo, the yes would cover bytes nobody looked at this time.
+    // The new yes covers the bytes as they are now, and the tickets it issues are bound to them.
     expect(pinned[0]!.approvedHash).toBe(edited.contentHash);
     expect(pinned.every((i) => i.approvedHash === i.contentHash)).toBe(true);
     const tickets = acts.tickets(r.id);
