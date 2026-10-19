@@ -7478,8 +7478,8 @@ select { appearance: none; padding-right: 22px;
 .password-actions { display: inline-flex; align-items: center; gap: 8px; }
 /* A store Realm could not read and kept aside: the sentence takes the line, and the path in it may
    break anywhere — it is one long word — rather than push the two buttons off the end. */
-.passwords-unreadable { display: flex; align-items: center; gap: 8px; }
-.passwords-unreadable p { flex: 1; margin: 0; overflow-wrap: anywhere; }
+.passwords-unreadable, .passwords-keychain { display: flex; align-items: center; gap: 8px; }
+.passwords-unreadable p, .passwords-keychain p { flex: 1; margin: 0; overflow-wrap: anywhere; }
 /* Share with ▸'s receipt: the copy went elsewhere, so nothing in this list changes — the line beside
    the button is the only place that says it happened. Quiet, and on the button's own baseline. */
 .share-note { align-self: center; font-size: 12px; color: var(--rl-text-dim); white-space: nowrap; }

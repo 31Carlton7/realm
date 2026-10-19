@@ -131,6 +131,9 @@ export function registerPasswordsIpc(d: PasswordsIpcDeps): void {
     if (notice) d.reveal(notice.path);
   });
   d.handle("credentials:dismiss-unreadable", (): void => { d.secrets()?.dismissUnreadableNotice(); });
+  /* Saved sign-ins the Keychain will not open for Realm right now, and Settings' Try again. */
+  d.handle("credentials:keychain-needed", (): boolean => d.secrets()?.keychainNeeded() ?? false);
+  d.handle("credentials:retry-keychain", (): boolean => d.secrets()?.retryKeychain() ?? false);
 
   d.handle("credentials:fill-allows", async (_sender, profileId): Promise<PasswordFillAllow[]> => {
     const ready = await owned(profileId);

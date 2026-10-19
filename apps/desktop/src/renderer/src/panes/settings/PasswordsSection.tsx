@@ -45,6 +45,29 @@ export function UnreadablePasswordsNotice() {
   );
 }
 
+/**
+ * Saved passwords the Keychain will not open for Realm right now — access refused, or not available
+ * yet. Nothing is wrong with them, and nothing was moved: Try again asks macOS once more, and
+ * `onUnlocked` runs once it says yes.
+ */
+export function KeychainNeededNotice({ onUnlocked }: { onUnlocked: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const retry = async () => {
+    setBusy(true);
+    try {
+      if ((await api()?.retryKeychain?.()) === false) onUnlocked();
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="settings-alert passwords-keychain" role="status" data-setting="passwords-keychain">
+      <p>Realm needs Keychain access to read your saved passwords.</p>
+      <button type="button" className="btn-quiet" disabled={busy} onClick={() => { void retry(); }}>Try again</button>
+    </div>
+  );
+}
+
 /** A row's actions: Show password, Copy password, Edit…. A note beside it says what happened. */
 export function PasswordRowActions({ profileId, credential, onEdit }: { profileId: string; credential: BrowserCredential; onEdit?: () => void }) {
   const [open, setOpen] = useState(false);

@@ -61,6 +61,30 @@ describe("a store Realm could not read", () => {
     expect(h.revealed).toEqual([ASIDE]);
   });
 
+  it("asks for the Keychain only when it is shut, and Try again answers whether it still is", async () => {
+    const h = harness();
+    h.store.addCredential(P, { origin: "https://example.com", username: "ada", label: "", value: SECRET });
+    expect(await h.call("credentials:keychain-needed")).toBe(false);
+    // The same file, on a launch macOS has not let into the Keychain yet.
+    let disk: string | null = null;
+    new SecretStore({
+      safeStorage: { isEncryptionAvailable: () => true, encryptString: (s) => Buffer.from(`kc:${s}`), decryptString: (b) => b.toString().slice(3) },
+      readFile: () => disk, writeFile: (t) => { disk = t; }, appendAudit: () => {},
+      promptPresence: async () => true, now: () => 1, newId: () => "c1", defaultProfileId: () => P,
+    }).addCredential(P, { origin: "https://example.com", username: "ada", label: "", value: SECRET });
+    let available = false;
+    const locked = new SecretStore({
+      safeStorage: { isEncryptionAvailable: () => available, encryptString: (s) => Buffer.from(`kc:${s}`), decryptString: (b) => b.toString().slice(3) },
+      readFile: () => disk, writeFile: (t) => { disk = t; }, appendAudit: () => {},
+      promptPresence: async () => true, now: () => 1, newId: () => "c2", defaultProfileId: () => P,
+    });
+    const shut = harness({ secrets: () => locked });
+    expect(await shut.call("credentials:keychain-needed")).toBe(true);
+    expect(await shut.call("credentials:retry-keychain")).toBe(true);
+    available = true;
+    expect(await shut.call("credentials:retry-keychain")).toBe(false);
+  });
+
   it("has nothing to say about a store it read", async () => {
     const h = harness();
     h.store.addCredential(P, { origin: "https://example.com", username: "ada", label: "", value: SECRET });

@@ -262,6 +262,9 @@ interface Window {
       unreadable?(): Promise<{ path: string; at: number } | null>;
       revealUnreadable?(): Promise<void>;
       dismissUnreadable?(): Promise<void>;
+      /** Saved passwords the Keychain will not open for Realm right now, and Try again. */
+      keychainNeeded?(): Promise<boolean>;
+      retryKeychain?(): Promise<boolean>;
     };
     /** A team's post sheet: the one click that lets an act ticket go out (main/ticket-presses.ts).
      *  Optional like every bridge: jsdom has none, and without it nothing can be posted. */

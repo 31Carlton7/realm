@@ -364,6 +364,10 @@ contextBridge.exposeInMainWorld("realm", {
     unreadable: (): Promise<{ path: string; at: number } | null> => ipcRenderer.invoke("credentials:unreadable"),
     revealUnreadable: (): Promise<void> => ipcRenderer.invoke("credentials:reveal-unreadable"),
     dismissUnreadable: (): Promise<void> => ipcRenderer.invoke("credentials:dismiss-unreadable"),
+    /** Saved passwords the Keychain will not open for Realm right now; `retryKeychain` asks again and
+     *  answers whether they are still shut. */
+    keychainNeeded: (): Promise<boolean> => ipcRenderer.invoke("credentials:keychain-needed"),
+    retryKeychain: (): Promise<boolean> => ipcRenderer.invoke("credentials:retry-keychain"),
     setKeychain: (enabled: boolean): Promise<KeychainPasswordsStatus> => ipcRenderer.invoke("credentials:set-keychain", enabled),
     keychainList: (): Promise<BrowserCredential[]> => ipcRenderer.invoke("credentials:keychain-list"),
     neverList: (profileId: string): Promise<string[]> => ipcRenderer.invoke("credentials:never-list", profileId),

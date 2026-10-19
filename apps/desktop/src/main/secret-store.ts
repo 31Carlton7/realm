@@ -422,6 +422,14 @@ type StoreFile = {
 /** A store file moved aside because it could not be read. */
 export type SetAside = { path: string; at: number };
 
+/**
+ * What safeStorage throws when the Keychain is shut to Realm rather than the blob being bad: access
+ * refused, or not available yet (Electron 37's own words). The keyring is fine then, and so is the
+ * file. Every other failure to open it — "Ciphertext does not appear to be encrypted", the bare
+ * "Error while decrypting…", a blob that opens to garbage — is the content.
+ */
+const KEYCHAIN_SHUT = /(De|En)cryption is not available|cannot be used before app is ready/;
+
 /** 2: every row names its profile. 1 had none — see `adopt`. Policies did not need a new version:
  *  a file without `unlock` is every scope on the default, which is exactly what it was. */
 const FILE_VERSION = 2;
@@ -1732,6 +1740,20 @@ export class SecretStore {
     this.save();
   }
 
+  /** Saved sign-ins this launch cannot open because macOS has not let Realm into the Keychain —
+   *  refused, or not available yet. The file is as it was; Settings ▸ Passwords offers Try again. */
+  keychainNeeded(): boolean {
+    const file = this.load();
+    return this.keys === null && file.keyring !== "";
+  }
+
+  /** Settings' Try again: read the file and ask the Keychain afresh. Whether it is still needed. */
+  retryKeychain(): boolean {
+    if (this.keys) return false;
+    this.file = null;
+    return this.keychainNeeded();
+  }
+
   /* ------------------------------------ file ------------------------------------ */
 
   private key(domain: SecretDomain): Buffer {
@@ -1865,7 +1887,11 @@ export class SecretStore {
           }
           return { oauth, credential, machine, eggs, passkey, unlock, "vault-key": vaultKey, "vault-allow": vaultAllow, "team-policy": teamPolicy, "fill-allow": fillAllow, remote };
         }
-      } catch { /* falls through to a fresh keyring */ }
+      } catch (e) {
+        // Refused, or not ready: nothing is moved or replaced, and `retryKeychain` asks again.
+        if (e instanceof Error && KEYCHAIN_SHUT.test(e.message)) return null;
+        /* otherwise falls through to a fresh keyring */
+      }
       file.unreadable = this.setAside();
       file.credentials = [];
       // Sealed under keys that are gone, so every assertion would refuse with no way for the user to

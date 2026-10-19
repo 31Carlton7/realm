@@ -384,6 +384,59 @@ describe("SecretStore — persistence and the keyring", () => {
     expect(foreign.addCredential(P, input({ value: "new" })).origin).toBe("https://example.com");
   });
 
+  it("a Keychain that refuses Realm is not a bad file: nothing is moved or replaced, and Try again opens it", async () => {
+    const { store, disk, deps } = makeStore();
+    const row = store.addCredential(P, input());
+    const saved = disk.file;
+    // Electron 37's words when the Keychain is shut — Deny pressed, or not available yet.
+    let shut: string | null = "Error while decrypting the ciphertext provided to safeStorage.decryptString. Decryption is not available.";
+    const later = new SecretStore({
+      ...deps,
+      safeStorage: { ...fakeSafeStorage(), decryptString: (b) => { if (shut) throw new Error(shut); return fakeSafeStorage().decryptString(b); } },
+    });
+    expect(later.keychainNeeded()).toBe(true);
+    // MUTANT: read the refusal as a bad keyring, and the file goes aside and a fresh store is written
+    // over every saved sign-in — for a person who only pressed Deny.
+    expect(disk.aside).toEqual([]);
+    expect(disk.file).toBe(saved);
+    expect(later.unreadableNotice()).toBeNull();
+    // Still listed — the rows are there, only locked.
+    expect(later.listCredentials(P)).toEqual([row]);
+    shut = "safeStorage cannot be used before app is ready";
+    expect(later.retryKeychain()).toBe(true);
+    expect(disk.file).toBe(saved);
+    shut = null;
+    expect(later.retryKeychain()).toBe(false);
+    let typed: string | null = null;
+    expect(await later.withCredentialValue(P, row.id, async (v) => { typed = v; })).toEqual({ ok: true });
+    expect(typed).toBe(SECRET);
+  });
+
+  it("no encryption key from macOS at all reads the same way: needed, and the file as it was", () => {
+    const { store, disk, deps } = makeStore();
+    store.addCredential(P, input());
+    const saved = disk.file;
+    let available = false;
+    const later = new SecretStore({ ...deps, safeStorage: { ...fakeSafeStorage(), isEncryptionAvailable: () => available } });
+    expect(later.keychainNeeded()).toBe(true);
+    expect(disk.aside).toEqual([]);
+    expect(disk.file).toBe(saved);
+    available = true;
+    expect(later.retryKeychain()).toBe(false);
+    expect(later.listCredentials(P)).toHaveLength(1);
+  });
+
+  it("a blob this Keychain cannot have sealed is the content, and goes aside", () => {
+    const { store, disk, deps } = makeStore();
+    store.addCredential(P, input());
+    const notOurs = new SecretStore({
+      ...deps,
+      safeStorage: { ...fakeSafeStorage(), decryptString: () => { throw new Error("Error while decrypting the ciphertext provided to safeStorage.decryptString. Ciphertext does not appear to be encrypted."); } },
+    });
+    expect(notOurs.keychainNeeded()).toBe(false);
+    expect(disk.aside).toHaveLength(1);
+  });
+
   it("a file that is not JSON is kept aside, not written over, and the store starts empty", () => {
     const { store, disk } = makeStore();
     disk.file = "{ not json";

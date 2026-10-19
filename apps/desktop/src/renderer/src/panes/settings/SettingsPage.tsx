@@ -30,7 +30,7 @@ import { Signature } from "./Signature";
 import { KeybindingsPanel } from "../../components/settings/KeybindingsPanel";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import { ShareWith } from "../../components/profiles/ShareWith";
-import { EditPasswordSheet, ImportPasswordsButton, KeychainPasswords, PasswordExceptions, PasswordRowActions, UnreadablePasswordsNotice, matchesPasswordSearch } from "./PasswordsSection";
+import { EditPasswordSheet, ImportPasswordsButton, KeychainNeededNotice, KeychainPasswords, PasswordExceptions, PasswordRowActions, UnreadablePasswordsNotice, matchesPasswordSearch } from "./PasswordsSection";
 import { PageRail } from "../../components/page-nav";
 import { CATEGORY_COPY, SETTINGS_INDEX, searchSettings, settingPlace, settingsTabLabel, tabAvailable, visibleSettingsGroups, type SettingEntry, type SettingsTab } from "./settings-index";
 import { capabilities } from "../../platform";
@@ -1918,6 +1918,14 @@ function SignInsTab() {
   const unlock = useApp((s) => (loaded ? s.unlockPolicy : null));
   const run = useApp((s) => s.run);
   useEffect(() => { if (profileId) void run(() => refreshCredentials(profileId)); }, [run, refreshCredentials, profileId]);
+  /* Saved passwords the Keychain will not open for Realm right now. Said instead of the line about
+     saving below, which is the same shut Keychain seen from the other side. */
+  const [keychainNeeded, setKeychainNeeded] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void window.realm?.credentials?.keychainNeeded?.().then((needed) => { if (live) setKeychainNeeded(needed); }, () => {});
+    return () => { live = false; };
+  }, []);
 
   const [origin, setOrigin] = useState("");
   const [username, setUsername] = useState("");
@@ -1958,7 +1966,10 @@ function SignInsTab() {
     <div className="form signins">
 
       <UnreadablePasswordsNotice />
-      {status !== null && !status.available && (
+      {keychainNeeded && (
+        <KeychainNeededNotice onUnlocked={() => { setKeychainNeeded(false); if (profileId) void run(() => refreshCredentials(profileId)); }} />
+      )}
+      {!keychainNeeded && status !== null && !status.available && (
         <p className="settings-hint settings-alert" role="alert">
           macOS isn't offering Realm an encryption key right now, so sign-ins can't be saved. Realm
           won't store one unencrypted.

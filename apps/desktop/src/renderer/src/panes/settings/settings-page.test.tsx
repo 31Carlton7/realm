@@ -1089,6 +1089,25 @@ describe("Sign-ins tab", () => {
       await waitFor(() => expect(pressed).toEqual(["reveal", "dismiss"]));
     });
 
+    it("asks for Keychain access instead of the line about saving, and Try again lifts it once macOS says yes", async () => {
+      let shut = true;
+      const asked: string[] = [];
+      realm.realm = { ...(saved ?? {}), credentials: { ...(saved?.credentials ?? {}),
+        keychainNeeded: async () => true,
+        retryKeychain: async () => { asked.push("retry"); return shut; },
+      } };
+      await signIns({ credentials: [cred], credentialStatus: { available: false, canPromptTouchID: true, canPromptDeviceOwner: true, presenceTtlMs: 0 } });
+      await screen.findByText("Realm needs Keychain access to read your saved passwords.");
+      // One voice for one shut Keychain: the saving line stays away while this one is up.
+      expect(screen.queryByText(/isn't offering Realm an encryption key/)).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+      await waitFor(() => expect(asked).toEqual(["retry"]));
+      expect(screen.getByText("Realm needs Keychain access to read your saved passwords.")).toBeInTheDocument();
+      shut = false;
+      fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+      await waitFor(() => expect(screen.queryByText("Realm needs Keychain access to read your saved passwords.")).toBeNull());
+    });
+
     it("says nothing when there is nothing to say", async () => {
       stub(null);
       await signIns({ credentials: [cred] });
