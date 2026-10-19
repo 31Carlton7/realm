@@ -9,7 +9,7 @@
  *       (the real forgot-it-by-lunch deck, copied into the space) to Review, and Creator Manager an
  *       email draft — the sidebar's Review row reads 2, and both are Needs you rows;
  *   S2  Approve from the Review pane — the state, an activity line, and no act;
- *   S3  Request changes on the email — the note reaches the run's session, and version 2 replaces it;
+ *   S3  Send back on the email — the note reaches the run's session, and version 2 replaces it;
  *   S4  a run past its dollar cap is stopped, with the reason and the line in the log;
  *   S5  the record page draws the record, and an edit commits it under the person's name;
  *   S6  every surface in dark and light, for comparing beside the mocks;
@@ -98,8 +98,9 @@ function cdp(wsUrl) {
   };
 }
 
-function rpc(port, token) {
+function rpc(port, token, onEvent = () => {}) {
   const s = socket(`ws://127.0.0.1:${port}`, tokenProtocols(token));
+  s.ws.addEventListener("message", (m) => { const msg = JSON.parse(m.data); if (msg.id === undefined && msg.event) onEvent(msg.event, msg.payload); });
   return {
     ready: s.ready,
     call: (method, params) => new Promise((res, rej) => {
@@ -270,9 +271,23 @@ async function boot() {
   await until(() => evalIn(c, `!!document.querySelector('.composer')`), 30_000, "composer");
   await holdKey(c);
   await c.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false });
-  api = rpc(SERVER_PORT, await daemonToken(home));
+  api = rpc(SERVER_PORT, await daemonToken(home), answerRecordReads);
   await api.ready;
   return c;
+}
+
+/**
+ * `record_read` asks first in every mode (the read goes on the team's activity), so a role's run that
+ * reads a record stops on a card until someone answers it. Answered here as the person would, and
+ * counted; any other card is left standing and named, so a check that waits on one says which.
+ */
+const recordReads = [];
+function answerRecordReads(event, payload) {
+  if (event !== "session.event" || payload.ephemeral || payload.event?.type !== "permission_request") return;
+  const card = payload.event.payload;
+  if (!/record_read$/.test(card.toolName)) { console.log(`CARD left standing: ${card.toolName} in ${payload.sessionId}`); return; }
+  recordReads.push(card.requestId);
+  void api.call("sessions.respondPermission", { id: payload.sessionId, requestId: card.requestId, decision: "allow" }).catch((e) => console.log(`CARD ${e.message}`));
 }
 
 const runsOf = async (roleId) => api.call("team.roleRuns", { id: roleId, limit: 30 });
@@ -282,8 +297,9 @@ const spaceOf = async () => (await api.call("spaces.list", {})).find((s) => s.na
 async function openTeamPage(c, label) {
   // The space's ⋯ menu names the team's page; Escape any page first so the sidebar is the spaces.
   await evalIn(c, `__live.click(__live.named('^More for Versed$'))`);
-  await until(() => evalIn(c, `!!__live.button(${JSON.stringify(label)})`), 5_000, `menu row ${label}`);
-  await evalIn(c, `__live.click(__live.button(${JSON.stringify(label)}))`);
+  // In the menu: the sidebar's own Team row says "Team" too.
+  await until(() => evalIn(c, `!!__live.button(${JSON.stringify(label)}, __live.q('[role=menu]') ?? undefined)`), 5_000, `menu row ${label}`);
+  await evalIn(c, `__live.click(__live.button(${JSON.stringify(label)}, __live.q('[role=menu]')))`);
   await until(() => evalIn(c, `!!__live.q('.sb-page-nav .page-rail')`), 8_000, "team page");
 }
 
@@ -329,8 +345,11 @@ async function main() {
     __live.set([...d.querySelectorAll('label.field')].find((l) => l.textContent.startsWith('Name')).querySelector('input'), 'Podcast Booker');
     __live.set([...d.querySelectorAll('label.field')].find((l) => l.textContent.startsWith('What they do')).querySelector('textarea'), 'Find podcast hosts whose listeners would care about this space, and draft a short pitch to each. Send the pitches to Review; never send them yourself.');
     const budget = [...d.querySelectorAll('label.field')].find((l) => l.textContent.startsWith('A week')).querySelector('input'); __live.set(budget, '8');
-    const mode = [...d.querySelectorAll('label.field')].find((l) => l.querySelector('span')?.textContent === 'Mode').querySelector('select'); mode.value = 'plan'; mode.dispatchEvent(new Event('change', { bubbles: true }));
     return true; })()`);
+  // A teammate's runs are unattended, so its Mode is Full access and not offered for a change.
+  const modeField = await evalIn(c, `(() => { const s = [...__live.q('[aria-modal=true]').querySelectorAll('label.field')].find((l) => l.querySelector('span')?.textContent === 'Mode').querySelector('select');
+    return { shown: s.selectedOptions[0]?.textContent, disabled: s.disabled }; })()`);
+  check("S7 the written teammate's Mode is Full access, and fixed", modeField.shown === "Full access" && modeField.disabled === true, modeField);
   await shot(c, "04b-custom-teammate-dark");
   await evalIn(c, `__live.click(__live.button('Add to the team', __live.q('[aria-modal=true]')))`);
   await until(() => evalIn(c, `!__live.q('[aria-modal=true]') && !!__live.q('[data-custom]')`), 5_000, "custom card");
@@ -338,11 +357,14 @@ async function main() {
   check("S7 the shares say what the picks come to", picked === "Shares come to $53 of the team's $60 a week", picked);
   await shot(c, "00a-make-team-picked-dark");
   await evalIn(c, `__live.click(__live.button('Make Versed a team'))`);
+  // A new team opens on its first teammate's chat; its Overview is a tab away.
+  await until(() => evalIn(c, `!!__live.tab('Overview')`), 15_000, "team made");
+  await evalIn(c, `__live.click(__live.tab('Overview'))`);
   await until(() => evalIn(c, `/Versed team/.test(__live.text('.page-head h1') ?? '')`), 15_000, "overview");
   let team = await api.call("team.space", { spaceId: space.id });
   check("S0 the starters are made, each with its clock, and the teammate written by hand", team.roles.map((r) => `${r.name}@${r.cron}`).join(", ") === "Creator Manager@0 9 * * 1-5, Content Producer@0 9 * * 1,4, Podcast Booker@null", team.roles.map((r) => r.name));
   const booker = team.roles.find((r) => r.name === "Podcast Booker");
-  check("S7 the written teammate keeps what was written", booker?.permissionMode === "plan" && booker?.weekBudgetUsd === 8 && /podcast hosts/.test(booker?.brief ?? ""), booker && { mode: booker.permissionMode, budget: booker.weekBudgetUsd });
+  check("S7 the written teammate keeps what was written", booker?.weekBudgetUsd === 8 && /podcast hosts/.test(booker?.brief ?? ""), booker && { budget: booker.weekBudgetUsd });
   check("S0 the space has its own memory repo for records", team.hasRepo === true);
   if (INSIDE) {
     check("S0 inside a project: the repo went to the fallback folder, not under the home", team.repoMoved === true && team.repoPath?.startsWith(FALLBACK) && !team.repoPath.startsWith(scratch), { repoPath: team.repoPath });
@@ -383,14 +405,16 @@ async function main() {
 
   /* ── S2: the Review pane, and Approve ──────────────────────────────────────────────────────── */
   await evalIn(c, `__live.click(__live.named('^6 slideshows for Nathan in Versed'))`);
-  await until(() => evalIn(c, `__live.qa('.rv-slide img').length === 7 && __live.qa('.rv-slide img').every((i) => i.complete && i.naturalWidth > 0)`), 15_000, "slides drawn");
-  const head = await evalIn(c, `({ h1: __live.text('.rv-head h1'), byline: __live.text('.rv-byline'), checks: __live.qa('.rv-checks li').map((l) => l.textContent), barOutside: !__live.q('.rv-decide').closest('.rv-detail-scroll') })`);
-  check("S2 the batch reads with its record, role and dollars", /6 slideshows for Nathan — slideshow 1 of 6/.test(head.h1) && /For Nathan Beyenhof/.test(head.byline) && /\$0\.84/.test(head.byline), head);
+  await until(() => evalIn(c, `__live.qa('.rv-slide img').length === 7 && __live.qa('.rv-slide img').every((i) => i.complete && i.naturalWidth > 0) && !!__live.q('.rv-dock')`), 15_000, "slides drawn");
+  const head = await evalIn(c, `({ h1: __live.text('.rv-head h1'), step: __live.text('.rv-stepper-label'), for: __live.text('.rv-head-for'), byline: __live.text('.rv-byline'),
+    checks: __live.qa('.rv-checks li').map((l) => l.textContent), barOutside: !__live.q('.rv-dock').closest('.rv-detail-scroll') })`);
+  check("S2 the batch reads with its record, role and dollars", head.h1 === "6 slideshows for Nathan" && head.step === "Slideshow 1 of 6" && head.for === "For Nathan Beyenhof"
+    && /Creator Manager|Content Producer/.test(head.byline ?? "") && /\$0\.84/.test(head.byline ?? ""), head);
   check("S2 Realm's own checks: consent on record, the disclosure", /Posts as @versed\.nathan/.test(head.checks[0] ?? "") && /Disclosed/.test(head.checks[1] ?? ""), head.checks);
-  check("S2 the decision bar is outside the scroller", head.barOutside);
+  check("S2 the decision dock is outside the scroller", head.barOutside);
   await shot(c, "01-sidebar-and-review-dark");
-  await evalIn(c, `__live.click(__live.qa('.rv-decide .btn.primary')[0])`);
-  await until(() => evalIn(c, `/Approved by you/.test(__live.text('.rv-decide-note') ?? '')`), 8_000, "approved");
+  await evalIn(c, `__live.click(__live.q('.rv-dock .rv-approve'))`);
+  await until(() => evalIn(c, `/Approved by you/.test(__live.text('.rv-dock-note') ?? '')`), 8_000, "approved");
   const approved = (await api.call("team.space", { spaceId: space.id })).reviews.find((r) => r.title === "6 slideshows for Nathan");
   const detail = await api.call("team.review", { id: approved.id });
   check("S2 approve: the batch is approved, each item ready, nothing acted", approved.state === "approved" && detail.items.every((i) => i.actState === "ready" && i.approvedHash === i.contentHash), { state: approved.state });
@@ -399,14 +423,15 @@ async function main() {
   check("S2 no act happened", !log.some((a) => a.verb === "acted"));
   await shot(c, "01b-review-approved-dark");
 
-  /* ── S3: Request changes on the email ───────────────────────────────────────────────────────── */
-  await evalIn(c, `__live.click(__live.q('[data-review]:not([data-selected])'))`);
-  await until(() => evalIn(c, `/Weekly check-in/.test(__live.text('.rv-head h1') ?? '')`), 8_000, "email selected");
-  await evalIn(c, `__live.click(__live.button('Request changes'))`);
-  await evalIn(c, `__live.set(__live.q('.rv-ask-field'), 'Make it warmer and mention Thursday as the day for two more posts.')`);
-  await shot(c, "01c-request-changes-dark");
-  await evalIn(c, `__live.click(__live.q('.rv-ask .btn.primary'))`);
+  /* ── S3: Send back on the email ─────────────────────────────────────────────────────────────── */
   const email = (await api.call("team.space", { spaceId: space.id })).reviews.find((r) => r.kind === "message");
+  await evalIn(c, `__live.click(__live.q('[data-review="${email.id}"]'))`);
+  await until(() => evalIn(c, `/Weekly check-in/.test(__live.text('.rv-head h1') ?? '') && !!__live.q('.rv-dock')`), 8_000, "email selected");
+  await evalIn(c, `__live.click(__live.button('Send back…', __live.q('.rv-dock')))`);
+  await until(() => evalIn(c, `!!__live.q('.rv-sendback textarea')`), 5_000, "send-back field");
+  await evalIn(c, `__live.set(__live.q('.rv-sendback textarea'), 'Make it warmer and mention Thursday as the day for two more posts.')`);
+  await shot(c, "01c-request-changes-dark");
+  await evalIn(c, `__live.click(__live.q('.rv-sendback .btn.primary'))`);
   await until(async () => (await api.call("team.review", { id: email.id })).version === 2, 30_000, "version 2");
   const v2 = await api.call("team.review", { id: email.id });
   const reviewRun = (await runsOf(cm.id))[0];
@@ -414,7 +439,14 @@ async function main() {
   const userTexts = (events ?? []).filter((e) => e.event.type === "user_message").map((e) => e.event.payload.text);
   check("S3 the note woke the role in the run's own session", reviewRun.wokeOn === "review" && userTexts.some((t) => t.includes("mention Thursday")), { wokeOn: reviewRun.wokeOn });
   check("S3 the revision replaced the review in place, version 1 one step back", v2.state === "waiting" && v2.previous.length === 1 && /Thursday/.test(v2.items[0].body), { version: v2.version });
+  // Sent back, it left Waiting for you and the reader moved on; version 2 is back in it, read again.
+  await until(() => evalIn(c, `!!__live.q('[data-review="${email.id}"]')`), 8_000, "v2 listed");
+  await evalIn(c, `__live.click(__live.q('[data-review="${email.id}"]'))`);
   await until(() => evalIn(c, `/Version 2/.test(__live.text('.rv-version') ?? '')`), 8_000, "v2 drawn");
+  // It names no account to send from, so Realm lines up no send: the dock says so, as the checks beside it do.
+  const said = await evalIn(c, `({ dock: __live.text('.rv-dock-note'), checks: __live.qa('.rv-checks li').map((l) => l.textContent) })`);
+  check("S3 the email Realm does not send says so before the yes, as its checks do", said.dock === "Approving marks it ready. Realm doesn't send this — you send it yourself."
+    && said.checks.some((t) => t.startsWith("Realm does not send this")), said);
   await shot(c, "01d-email-version-2-dark");
 
   /* ── S4: the dollar cap ──────────────────────────────────────────────────────────────────────── */
@@ -428,12 +460,12 @@ async function main() {
 
   /* ── the pages: Overview, a role, Creators and the record (S5) ─────────────────────────────── */
   await openTeamPage(c, "Team");
+  await evalIn(c, `__live.click(__live.tab('Overview'))`);
   await until(() => evalIn(c, `__live.qa('.tp-role-card').length === 4`), 8_000, "role cards");
   await shot(c, "02-team-home-dark");
-  await evalIn(c, `__live.click(__live.tab('Roles'))`);
-  await until(() => evalIn(c, `!!__live.tab('Creator Manager')`), 5_000, "roles unfold");
+  // A teammate's page is its chat: its runs in the thread, its details a drawer away.
   await evalIn(c, `__live.click(__live.tab('Creator Manager'))`);
-  await until(() => evalIn(c, `__live.qa('.tp-table tbody tr').length >= 3`), 8_000, "role runs");
+  await until(() => evalIn(c, `__live.text('.tc-head-name') === 'Creator Manager' && __live.qa('.tc-thread .tc-row').length >= 3`), 8_000, "role chat");
   await shot(c, "03-role-page-dark");
   await evalIn(c, `__live.click(__live.tab('Creators'))`);
   await until(() => evalIn(c, `!!__live.tab('Nathan Beyenhof')`), 8_000, "creators unfold");
@@ -470,7 +502,7 @@ async function main() {
   await shot(c, "04-add-teammates-over-dark");
   await evalIn(c, `__live.click([...__live.q('[aria-modal=true]').querySelectorAll('button')].find((b) => /^Raise the team's week/.test(b.textContent)))`);
   await evalIn(c, `__live.click(__live.button('Add 1 teammate', __live.q('[aria-modal=true]')))`);
-  await until(() => evalIn(c, `/Researcher/.test(__live.text('.page-head h1') ?? '')`), 8_000, "researcher page");
+  await until(() => evalIn(c, `__live.text('.tc-head-name') === 'Researcher'`), 8_000, "researcher chat");
   team = await api.call("team.space", { spaceId: space.id });
   check("S7 Researcher is on the team, the week raised to fit", team.roles.some((r) => r.name === "Researcher") && team.weekBudgetUsd === 68 && team.sharesUsd === 68, { week: team.weekBudgetUsd, shares: team.sharesUsd });
   await shot(c, "06-new-teammate-page-dark");
@@ -485,7 +517,10 @@ async function main() {
   check("S7 Duplicate starts from its fields under a free name, and says the copy would pass the week", dupName === "Researcher 2" && /\$78 of the team's \$68 a week — \$10 over/.test(dupNote ?? ""), { dupName, dupNote });
   await shot(c, "06b-duplicate-dark");
   await evalIn(c, `__live.click(__live.button('Cancel', __live.q('[aria-modal=true]')))`);
-  await evalIn(c, `__live.click(__live.button('Remove Researcher from the team…'))`);
+  await until(() => evalIn(c, `!__live.q('[aria-modal=true]')`), 5_000, "duplicate sheet gone");
+  await evalIn(c, `__live.click(__live.named('^More for Researcher$'))`);
+  await until(() => evalIn(c, `!!${menuRow("Remove Researcher")}`), 5_000, "role menu again");
+  await evalIn(c, `__live.click(${menuRow("Remove Researcher")})`);
   await until(() => evalIn(c, `/Remove Researcher from the team\?/.test(__live.q('[aria-modal=true]')?.textContent ?? '')`), 5_000, "remove sheet");
   await shot(c, "06c-remove-dark");
   check("S7 Remove asked first: nothing removed yet", (await api.call("team.space", { spaceId: space.id })).roles.some((r) => r.name === "Researcher"));
@@ -530,12 +565,11 @@ async function main() {
   await until(() => evalIn(c, `__live.qa('.rv-slide img').length === 7 && __live.qa('.rv-slide img').every((i) => i.complete && i.naturalWidth > 0)`), 15_000, "slides in light");
   await shot(c, "01-sidebar-and-review-light");
   await openTeamPage(c, "Team");
+  await evalIn(c, `__live.click(__live.tab('Overview'))`);
   await until(() => evalIn(c, `__live.qa('.tp-role-card').length >= 4`), 8_000, "cards in light");
   await shot(c, "02-team-home-light");
-  await evalIn(c, `__live.click(__live.tab('Roles'))`);
-  await until(() => evalIn(c, `!!__live.tab('Creator Manager')`), 5_000, "roles light");
   await evalIn(c, `__live.click(__live.tab('Creator Manager'))`);
-  await until(() => evalIn(c, `__live.qa('.tp-table tbody tr').length >= 3`), 8_000, "role light");
+  await until(() => evalIn(c, `__live.text('.tc-head-name') === 'Creator Manager' && __live.qa('.tc-thread .tc-row').length >= 3`), 8_000, "role chat light");
   await shot(c, "03-role-page-light");
   await evalIn(c, `__live.click(__live.tab('Creators'))`);
   await until(() => evalIn(c, `!!__live.tab('Nathan Beyenhof')`), 8_000, "creators light");

@@ -131,6 +131,52 @@ describe("nextCronFire", () => {
     expect(show(nextFireOf("30 1 * * *", at(2026, 11, 1, 1, 30)))).toBe(show(at(2026, 11, 2, 1, 30)));
   });
 
+  describe("the days the clocks change, in a fixed zone", () => {
+    /** Each firing from `from` on, as the wall clock and its UTC offset read it there. */
+    const firings = (expr: string, from: number, count: number) => {
+      const out: string[] = [];
+      for (let t: number | null = from; out.length < count; ) {
+        t = nextFireOf(expr, t)!;
+        const d = new Date(t);
+        const p = (n: number) => String(n).padStart(2, "0");
+        out.push(`${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())} ${-d.getTimezoneOffset() / 60}`);
+      }
+      return out;
+    };
+    const inZone = (tz: string, check: () => void) => {
+      const zone = process.env.TZ;
+      try { process.env.TZ = tz; check(); } finally { if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone; }
+    };
+
+    it("runs a daily task in the hour that does not exist once, at the first minute after it", () => {
+      // THE MUTANT: walk the local clock and skip the gap. "Every day at 02:30" then has no run on
+      // the day the clocks go forward, and nothing on the row says so.
+      inZone("America/Los_Angeles", () => {
+        expect(firings("30 2 * * *", at(2026, 3, 6, 12), 4)).toEqual(["03-07 02:30 -8", "03-08 03:00 -7", "03-09 02:30 -7", "03-10 02:30 -7"]);
+        // Four minutes the gap swallowed are still one run.
+        expect(firings("*/15 2 * * *", at(2026, 3, 7, 12), 2)).toEqual(["03-08 03:00 -7", "03-09 02:00 -7"]);
+      });
+      inZone("Europe/London", () => {
+        expect(firings("30 1 * * *", at(2026, 3, 27, 12), 3)).toEqual(["03-28 01:30 0", "03-29 02:00 1", "03-30 01:30 1"]);
+      });
+    });
+
+    it("does not add a run to a task that runs every hour, which has its next hour", () => {
+      inZone("America/Los_Angeles", () => {
+        expect(firings("30 * * * *", at(2026, 3, 8, 1), 2)).toEqual(["03-08 01:30 -8", "03-08 03:30 -7"]);
+      });
+    });
+
+    it("runs a daily task in the hour that repeats once, on its first pass", () => {
+      inZone("America/Los_Angeles", () => {
+        expect(firings("30 1 * * *", at(2026, 10, 31, 12), 2)).toEqual(["11-01 01:30 -7", "11-02 01:30 -8"]);
+      });
+      inZone("Europe/London", () => {
+        expect(firings("30 1 * * *", at(2026, 10, 24, 12), 2)).toEqual(["10-25 01:30 1", "10-26 01:30 0"]);
+      });
+    });
+  });
+
   it("every fire it reports actually matches", () => {
     // The two functions are separate implementations of the same predicate; this is what keeps the
     // fast-skip in `nextCronFire` honest against the plain check in `matchesCron`.

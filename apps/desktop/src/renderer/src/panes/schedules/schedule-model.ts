@@ -259,8 +259,10 @@ export function firstRun(d: Draft, now = Date.now()): number | null {
   return expr === null || expr === "" ? null : nextFireOf(expr, now);
 }
 
-export const draftValid = (d: Draft, now = Date.now()): boolean =>
-  d.title.trim() !== "" && d.goal.trim() !== "" && d.spaceId !== "" && firstRun(d, now) !== null;
+/** `kept` is the expression the task being edited opened on. A draft that still writes it needs no
+ *  first run: a one-shot that has run keeps its moment, and can still be renamed or told new things. */
+export const draftValid = (d: Draft, now = Date.now(), kept: string | null = null): boolean =>
+  d.title.trim() !== "" && d.goal.trim() !== "" && d.spaceId !== "" && (firstRun(d, now) !== null || (kept !== null && exprOf(d) === kept));
 
 /**
  * The run constraints a draft asks for, laid over what the task already carried: the modal owns the

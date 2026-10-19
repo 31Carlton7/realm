@@ -165,6 +165,19 @@ describe("what Approve says it will do", () => {
     expect(approveConsequence(mail)).toBe("Approving marks it ready. Realm doesn't send this — you send it yourself from me@versed.app.");
     expect(approveConsequence(detail({ kind: "answer" }))).toBe("Approving marks it approved. Nothing leaves Realm.");
   });
+
+  it("says the person sends what Realm issues no ticket for — no account, or nobody to send it to — as its checks do", () => {
+    // THE MUTANT: any channel verb read as a press to come. An email aimed only at "Email", slides aimed
+    // only at TikTok, a DM to no one: approving issues no ticket, and the line promised a press that never came.
+    const email = detail({ kind: "message", items: [item(0, { target: { channel: "Email" } })] });
+    expect(approveConsequence(email)).toBe("Approving marks it ready. Realm doesn't send this — you send it yourself.");
+    expect(approveConsequence(detail({ items: [item(0, { target: { channel: "TikTok" } })] })))
+      .toBe("Approving marks it ready. Realm doesn't post this — you post it yourself.");
+    const dm = detail({ kind: "DM", items: [item(0, { action: { connector: "channel:instagram", verb: "dm", account: "@versed.nathan" } })] });
+    expect(approveConsequence(dm)).toBe("Approving marks it ready. Realm doesn't send this — you send it yourself from @versed.nathan.");
+    // …and the receipt after the yes promises no press either.
+    expect(receipt("approve", email, { wakes: true })).toBe("Approved “3 slideshows for Nathan”.");
+  });
 });
 
 describe("what Close says it will do, and what a finished review says", () => {

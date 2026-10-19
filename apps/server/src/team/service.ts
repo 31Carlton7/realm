@@ -2,7 +2,7 @@ import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   CreateRoleSchema, CustomRoleSchema, ROLE_TEMPLATES, nextFireOf, teamShares, type CustomRoleInput, TEAM_DEFAULTS, UpdateRoleSchema, USAGE_REPORTING, amrRepoSourceLink,
-  ACT_PACING, CREATOR_PRESET, EDITABLE_FORMATS, inferFormat, isLegacyLabel, itemActKind, itemTarget, lineDiff, reviewVerb, verbFamily, recordTemplate,
+  ACT_PACING, CREATOR_PRESET, EDITABLE_FORMATS, inferFormat, isLegacyLabel, itemActKind, itemTarget, itemTicketKind, lineDiff, reviewVerb, verbFamily, recordTemplate,
   type DeliverableFormat, type ProposedAction, type ReviewAction, type RecordType, isRunLive, isRunTerminal, parseBlockRequest, parseMemoryEntry, parseRecord, recordAccounts, recordField, recordSlug, recordTitle, sessionEvent, usageDeltas, weekStart,
   type ActTicket, type AgentKind, FINAL_REVIEW_STATES, type CreateRoleInput, type ParsedRecord, type LedgerLine, type ReviewCheck, type ReviewCloseOutcome, ReviewCloseOutcomeSchema, type ReviewKind, type ReviewState, type ReviewTarget, type RoleRun,
   type Run, type Schedule, type Session, type SessionEvent, type TeamActivity, type TeamRecord, type TeamRecordSummary,
@@ -478,6 +478,7 @@ export class TeamService {
       "",
       "Team rules (Realm):",
       "- Deliver with `review_submit` (the realm-team tools). Never send, post, sign or pay: a person approves everything in Review, then presses each post or send themselves, one at a time, at Realm's paced slots. No tool lets you post, send or DM, and none ever will.",
+      "- Give each review a `note`: a sentence or two on why you made it, which the person reads above the work.",
       "- A review you sent that is no longer wanted — replaced, done another way, or withdrawn — you close with `review_close`, so it stops waiting on the person.",
       this.d.recordTypes.preambleLine(role.spaceId),
       "- Save what you make inside this space's folder; Review only takes files from there.",
@@ -883,7 +884,7 @@ export class TeamService {
     }
     // Today's pacing for the account, as Realm will keep it — or, for work aimed nowhere, the plain
     // fact that a yes marks it and a person sends it. A message is sent, not posted.
-    const act = aimed && target?.account ? itemActKind(kind, aimed) : null;
+    const act = aimed ? itemTicketKind(kind, aimed) : null;
     if (act && target?.account && target.channel && this.d.acts) {
       const today = this.d.acts.today(act, target.channel, target.account);
       const noun = act === "post" ? "posts" : act === "dm" ? "DMs" : "emails";
@@ -898,8 +899,10 @@ export class TeamService {
   /** The line for work Realm will not act on itself. The legacy labels keep their words; anything
    *  else says what its action is, or that nothing leaves Realm. */
   private goesNowhere(kind: ReviewKind, items: TeamReviewItem[], family: "post" | "send" | null): ReviewCheck {
-    if (kind === "message" || (isLegacyLabel(kind) && family === "send"))
-      return { ok: null, title: "Realm does not send this", detail: "It names no account and no one to send it to. Approving marks it ready; send it yourself." };
+    if (kind === "message" || (isLegacyLabel(kind) && family === "send")) {
+      const named = items.some((i) => itemTarget(i)?.account) ? "It names no one to send it to" : "It names no account and no one to send it to";
+      return { ok: null, title: "Realm does not send this", detail: `${named}. Approving marks it ready; send it yourself.` };
+    }
     if (isLegacyLabel(kind))
       return { ok: null, title: "Realm does not post this", detail: "It names no account. Approving marks it ready; post it by hand from the space folder." };
     const action = items.find((i) => i.action)?.action ?? null;
