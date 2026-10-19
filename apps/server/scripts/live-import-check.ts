@@ -60,7 +60,7 @@ const imports = new ImportService({
 });
 
 const t0 = Date.now();
-const scan = imports.scan();
+const scan = await imports.scan();
 const ms = Date.now() - t0;
 
 const spaceName = new Map(spaces.listAll().map((s) => [s.id, s.name]));
