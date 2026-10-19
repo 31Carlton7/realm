@@ -578,7 +578,7 @@ function HistoryTab({ spaceId }: { spaceId: string }) {
 }
 
 import { ScriptsPanel } from "../../components/settings/ScriptsPanel";
-import { TeamPage, TeamRailList, isTeamTab, teamTabLabel } from "../team/TeamPages";
+import { TeamPage, TeamRailList, isChatTab, isTeamTab, teamTabLabel } from "../team/TeamPages";
 import { SandboxPanel } from "../../components/settings/SandboxPanel";
 
 const PAGE_TABS: { id: SpacePageTab; label: string; icon: IconName }[] = [
@@ -671,6 +671,8 @@ export function SpacePage({ item }: PaneProps) {
           </fieldset>
         )}
         </PageRail>
+        {/* A teammate's chat scrolls its own conversation, with its prompter fixed under it. */}
+        {isChatTab(tab, team) ? <TeamPage spaceId={spaceId} tab={tab} /> : (
         <PageScroll wide={tab === "tasks" || tab === "sessions"} className={teamTab ? "tp-page" : undefined} foot={teamTab && !team?.enabled}>
           {teamTab ? <TeamPage spaceId={spaceId} tab={tab} /> : <>
           {/* The head names what the page SHOWS — the section — and the space it is seen from beside
@@ -705,6 +707,7 @@ export function SpacePage({ item }: PaneProps) {
           {tab === "history" && <HistoryTab spaceId={spaceId} />}
           </>}
         </PageScroll>
+        )}
       </div>
     </div>
   );

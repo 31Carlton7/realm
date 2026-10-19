@@ -39,9 +39,17 @@ async function mount(data: FakeData, ui: ReactNode) {
   return { api, store };
 }
 
-describe("a role's page", () => {
+/** A teammate's chat with its details drawer open — where the role page's settings live now. */
+async function details(data: FakeData, roleId: string) {
+  const mounted = await mount(data, <TeamPage spaceId="s1" tab={`role:${roleId}`} />);
+  const name = data.teams![0]!.roles.find((r) => r.id === roleId)!.name;
+  fireEvent.click(screen.getByRole("button", { name: `${name}, in detail` }));
+  return { ...mounted, drawer: screen.getByRole("complementary", { name: `${name}, in detail` }) };
+}
+
+describe("a teammate's details", () => {
   it("lists the team's other roles as switches, the ones it hands to pressed, and a press sends the new edges", async () => {
-    const { api } = await mount(base(), <TeamPage spaceId="s1" tab="role:r2" />);
+    const { api } = await details(base(), "r2");
     const group = screen.getByRole("group", { name: "Roles Creator Manager hands off to" });
     const cp = within(group).getByRole("button", { name: "Content Producer" });
     expect(cp).toHaveAttribute("aria-pressed", "false");
@@ -52,24 +60,28 @@ describe("a role's page", () => {
 
   it("a press adds to the roles it already hands to, and a second press takes one away", async () => {
     const editor = teamRole("r3", "s1", "Editor");
-    const { api } = await mount(base({ teams: [teamSpace("s1", [producer, manager, editor])] }), <TeamPage spaceId="s1" tab="role:r1" />);
+    const { api } = await details(base({ teams: [teamSpace("s1", [producer, manager, editor])] }), "r1");
     const group = screen.getByRole("group", { name: "Roles Content Producer hands off to" });
     expect(within(group).getByRole("button", { name: "Creator Manager" })).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(within(group).getByRole("button", { name: "Editor" }));
     await waitFor(() => expect(api.calls).toContain("teamRoleHandoffs:r1:r2,r3:"));
   });
 
-  it("shows its handoffs, each Realmite wearing its role's state", async () => {
-    await mount(base(), <TeamPage spaceId="s1" tab="role:r2" />);
-    const line = screen.getByText("Content Producer handed work to Creator Manager").closest("li")!;
-    expect(line).toHaveTextContent("creators/nathan-beyenhof.md");
-    expect(within(line).getByText("Working")).toHaveClass("tp-chip");
+  it("shows a handoff it made in its chat, the receiver's Realmite wearing its role's state", async () => {
+    const run = { id: "run0", roleId: "r1", state: "succeeded" as const, wokeOn: "manual" as const, wokeNote: "pass it on", wokeBy: null, sessionId: "se1",
+      createdAt: Date.now() - 60_000, startedAt: Date.now() - 60_000, settledAt: Date.now() - 1_000, costUsd: null, summary: null, report: "Handed over.", error: null,
+      stoppedAtCap: null, reviewId: null, reviewState: null };
+    await mount(base({ teamRoleRuns: { r1: [run] } }), <TeamPage spaceId="s1" tab="role:r1" />);
+    const card = (await screen.findByText("Handed work to Creator Manager")).closest(".tc-card")!;
+    expect(card).toHaveTextContent("“Six slides done; draft the message.”");
+    expect(card).toHaveTextContent("creators/nathan-beyenhof.md · 1 file");
+    expect(within(card as HTMLElement).getByText("Working")).toHaveClass("tp-chip");
     // THE MUTANT: the receiving Realmite drawn without its state — a working role shown at rest.
-    expect(line.querySelector("[data-state='working']")).not.toBeNull();
+    expect(card.querySelector("[data-state='working']")).not.toBeNull();
   });
 
   it("edits its week and run caps in place, and says the week is nearly spent in orange", async () => {
-    const { api } = await mount(base(), <TeamPage spaceId="s1" tab="role:r2" />);
+    const { api } = await details(base(), "r2");
     expect(screen.getByRole("meter", { name: "Spent this week" })).toHaveAttribute("data-high");
     const row = screen.getByText("Budget", { selector: ".settings-row-name" }).closest("li")!;
     fireEvent.click(within(row).getByRole("button", { name: "Edit" }));
@@ -81,7 +93,7 @@ describe("a role's page", () => {
   });
 
   it("offers a goal, and a mention switch", async () => {
-    await mount(base(), <TeamPage spaceId="s1" tab="role:r2" />);
+    await details(base(), "r2");
     fireEvent.click(screen.getByRole("button", { name: "Give Creator Manager a goal…" }));
     expect(screen.getByLabelText("A goal for Creator Manager")).toHaveFocus();
     expect(screen.getByRole("switch", { name: "When someone @mentions it, on" })).toBeChecked();
@@ -89,8 +101,8 @@ describe("a role's page", () => {
 
   it("a live goal shows its objective and where the loop stands, and offers no second one", async () => {
     const working = { ...manager, goal: { runId: "run9", sessionId: "se9", objective: "Keep every record current", status: "active" as const, turns: 3, note: null, startedAt: 0 } };
-    await mount(base({ teams: [teamSpace("s1", [producer, working])] }), <TeamPage spaceId="s1" tab="role:r2" />);
-    expect(screen.getByText("Keep every record current")).toBeInTheDocument();
+    const { drawer } = await details(base({ teams: [teamSpace("s1", [producer, working])] }), "r2");
+    expect(within(drawer).getByText("Keep every record current")).toBeInTheDocument();
     expect(screen.getByText("Working toward it · 3 turns")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /a goal…/ })).toBeNull();
   });
@@ -101,7 +113,7 @@ describe("the team's overview", () => {
     const until = Date.now() + 3_600_000;
     const { api } = await mount(base({ teams: [teamSpace("s1", [producer, manager], [], {
       limits: { teamMaxLive: 2, realmMaxUnattended: 3, teamRunning: 1, realmRunning: 2, teamQueued: 1, backoff: [{ agentKind: "claude", until, why: "Claude reported its plan limit", since: 0 }] },
-    })] }), <TeamPage spaceId="s1" tab="team" />);
+    })] }), <TeamPage spaceId="s1" tab="overview" />);
     expect(screen.getByRole("status")).toHaveTextContent("Claude reported its plan limit. Team runs on it wait until");
     // The plan-limit protection, surfaced where the budget is.
     expect(screen.getByText(/1 of 2 running for this team · 2 of 3 unattended across Realm · 1 waiting for a slot/)).toBeInTheDocument();
@@ -110,13 +122,13 @@ describe("the team's overview", () => {
   });
 
   it("changes how many runs go at once from the Budget section", async () => {
-    const { api } = await mount(base(), <TeamPage spaceId="s1" tab="team" />);
+    const { api } = await mount(base(), <TeamPage spaceId="s1" tab="overview" />);
     fireEvent.change(screen.getByLabelText("Unattended runs at once across Realm"), { target: { value: "2" } });
     await waitFor(() => expect(api.calls).toContain("teamSetLimits:s1::2"));
   });
 
   it("edits the team's week", async () => {
-    const { api } = await mount(base(), <TeamPage spaceId="s1" tab="team" />);
+    const { api } = await mount(base(), <TeamPage spaceId="s1" tab="overview" />);
     const row = screen.getByText("The team's week").closest("li")!;
     fireEvent.click(within(row).getByRole("button", { name: "Edit" }));
     fireEvent.change(screen.getByLabelText("The team's week, in dollars"), { target: { value: "80" } });

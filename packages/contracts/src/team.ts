@@ -144,6 +144,8 @@ export const RoleRunSchema = z.object({
   costUsd: z.number().nullable(),
   /** The run's report, first line — "what it did". */
   summary: z.string().nullable(),
+  /** The run's report in full, up to a cap — what its teammate's chat says. */
+  report: z.string().nullable().optional(),
   error: z.string().nullable(),
   /** Stopped at its $ or minutes cap. */
   stoppedAtCap: z.enum(["usd", "time"]).nullable(),
@@ -454,7 +456,9 @@ export const TEAM_VERBS = ["made_team", "edited_team", "made_role", "edited_role
   // Generic deliverables: the person's own edit of an item before the yes.
   "edited_item",
   // A role closing its own review, and the person rejecting or closing one.
-  "closed", "rejected"] as const;
+  "closed", "rejected",
+  // The person's answer to the question a role's run stopped on, from its chat.
+  "replied"] as const;
 export type TeamVerb = (typeof TEAM_VERBS)[number];
 
 export const TeamActivitySchema = z.object({

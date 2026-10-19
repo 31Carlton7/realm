@@ -3,7 +3,7 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   CreateRoleSchema, CustomRoleSchema, ROLE_TEMPLATES, nextFireOf, teamShares, type CustomRoleInput, TEAM_DEFAULTS, UpdateRoleSchema, USAGE_REPORTING, amrRepoSourceLink,
   ACT_PACING, CREATOR_PRESET, EDITABLE_FORMATS, inferFormat, isLegacyLabel, itemActKind, itemTarget, lineDiff, reviewVerb, verbFamily, recordTemplate,
-  type DeliverableFormat, type ProposedAction, type ReviewAction, type RecordType, isRunLive, isRunTerminal, parseMemoryEntry, parseRecord, recordAccounts, recordField, recordSlug, recordTitle, sessionEvent, usageDeltas, weekStart,
+  type DeliverableFormat, type ProposedAction, type ReviewAction, type RecordType, isRunLive, isRunTerminal, parseBlockRequest, parseMemoryEntry, parseRecord, recordAccounts, recordField, recordSlug, recordTitle, sessionEvent, usageDeltas, weekStart,
   type ActTicket, type AgentKind, FINAL_REVIEW_STATES, type CreateRoleInput, type ParsedRecord, type LedgerLine, type ReviewCheck, type ReviewCloseOutcome, type ReviewKind, type ReviewState, type ReviewTarget, type RoleRun,
   type Run, type Schedule, type Session, type SessionEvent, type TeamActivity, type TeamRecord, type TeamRecordSummary,
   type TeamReviewDetail, type TeamReviewItem, type TeamReviewSummary, type TeamRole, type TeamSpace, type UpdateRoleInput, type WokeOn,
@@ -84,7 +84,7 @@ export class TeamService {
 
   constructor(private readonly d: {
     store: TeamStore;
-    runs: Pick<RunService, "create" | "get" | "listForRole" | "spentSince" | "listLive" | "recordCost" | "stopAtLimit" | "pump">;
+    runs: Pick<RunService, "create" | "get" | "listForRole" | "spentSince" | "listLive" | "recordCost" | "stopAtLimit" | "pump" | "approve">;
     schedules: Pick<ScheduleService, "createForRole" | "forRole" | "update" | "remove">;
     sessions: Pick<SessionService, "get" | "events" | "publishServerEvent">;
     repos: Pick<MemoryRepoService, "config" | "create" | "defaultPath" | "read" | "writeFile" | "lastChange">;
@@ -374,7 +374,7 @@ export class TeamService {
         wokeNote: typeof woke?.detail.note === "string" ? woke.detail.note : null,
         wokeBy: typeof woke?.detail.by === "string" ? woke.detail.by : null,
         sessionId: run.sessionId, createdAt: run.createdAt, startedAt: run.startedAt, settledAt: run.settledAt,
-        costUsd: run.costUsd, summary: firstLine(run.result), error: run.error,
+        costUsd: run.costUsd, summary: firstLine(run.result), report: run.result ? clip(run.result.trim(), REPORT_CAP) : null, error: run.error,
         stoppedAtCap: capped ? (capped.detail.cap === "time" ? "time" : "usd") : null,
         reviewId: review?.id ?? null, reviewState: review?.state ?? null,
       };
@@ -392,6 +392,29 @@ export class TeamService {
       ? `${role.name}, a person on your team asked:\n\n${message.trim()}`
       : `${role.name}: a person started this run by hand. Do what your brief says is due now.`;
     return this.wake(role, "manual", task, { note: message?.trim() || null });
+  }
+
+  /**
+   * A person's message to a teammate, from its chat. A run parked on a question (NEEDS-HUMAN) takes the
+   * message as its answer and goes on. Otherwise it is a new run that continues the role's newest
+   * run's session, so the role reads the conversation it is part of — and while a run is live, the
+   * new one waits its turn behind it (`admit`), in the same session.
+   */
+  messageRole(id: string, text: string): Run {
+    const role = this.d.store.role(id);
+    if (!role || role.archived) throw new NotFoundError("role", id);
+    const said = text.trim();
+    if (!said) throw new RpcError("TEAM_MESSAGE_EMPTY", "say something to send");
+    const runs = this.d.runs.listForRole(id, 20);
+    const asking = runs.find((r) => r.state === "blocked");
+    if (asking) {
+      this.log(role.spaceId, "user", "replied", role.name, { roleId: role.id, note: said, question: parseBlockRequest(asking.result) }, asking);
+      const answered = this.d.runs.approve(asking.id, true, said);
+      this.changed(role.spaceId);
+      return answered;
+    }
+    const latest = runs.find((r) => r.sessionId);
+    return this.wake(role, "manual", `${role.name}, a person on your team asked:\n\n${said}`, { note: said, sessionId: latest?.sessionId ?? null });
   }
 
   /* ── the run seams ── */
@@ -1241,7 +1264,7 @@ export class TeamService {
 
   /* ═══════════════════════════════ activity ═══════════════════════════════ */
 
-  activity(spaceId: string, limit: number, before?: number): TeamActivity[] { return this.d.store.activity(spaceId, limit, before); }
+  activity(spaceId: string, limit: number, before?: number, roleId?: string): TeamActivity[] { return this.d.store.activity(spaceId, limit, before, roleId); }
 
   private runFor(sessionId: string): Run | null {
     return this.d.runs.listLive().find((r) => r.sessionId === sessionId) ?? null;
@@ -1264,6 +1287,8 @@ export class TeamService {
   }
 }
 
+/** How much of a run's report its role's chat is sent; the whole run is one click further, in its session. */
+const REPORT_CAP = 8_000;
 const round = (n: number): number => Math.round(n * 10_000) / 10_000;
 const usd = (n: number): string => `$${n % 1 === 0 ? n.toFixed(0) : n.toFixed(2)}`;
 const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);

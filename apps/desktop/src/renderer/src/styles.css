@@ -6726,6 +6726,8 @@ select { appearance: none; padding-right: 22px;
   /* chrome and navigation. `.space-body` is NOT here — see the carve-out below. */
   .menu-list, .mention-list, .skill-picker-list, .mp-list, .ip-grid,
   .palette-list, .spaces-list, .sheet, .onboarding-stage, .page-content, .settings-rail-lists, .sb-page-nav, .summary-scroll, .ql-view,
+  /* a teammate's chat and its details */
+  .tc-scroll, .tc-drawer-body,
   /* the transcript and everything it draws inside itself */
   .transcript, .md pre, .msg-error pre, .tool-well, .tool-panel-text, .tool-body pre, .permission-details pre, .app-view-request-well,
   .code-block, .code-body, .fd-file, .fd-body, .term-out, .md-scroll, .math-display, .ui-block-scroll, .ui-diagram,
@@ -10757,8 +10759,6 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tp-card-foot { display: flex; align-items: center; gap: 10px; margin-top: 4px; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
 .tp-mark { width: 32px; height: 32px; border-radius: var(--r-ctl); display: grid; place-items: center; flex: none; color: var(--rl-text-bright); }
 /* A role page's hero: the creature large beside its name, as the maker shows it. */
-.tp-hero { flex: none; display: grid; place-items: center; width: 168px; height: 168px; margin: -8px 4px -8px -8px; align-self: center; }
-.tp-role-head { padding-bottom: 26px; }
 .tp-pick[data-on] { border-color: color-mix(in srgb, var(--rl-accent) 55%, var(--rl-card-rim)); }
 .tp-pick-box { margin-left: auto; }
 .tp-meter { position: relative; flex: 1; height: 4px; border-radius: var(--r-sm); background: var(--mark); overflow: hidden; max-width: 120px; }
@@ -10805,7 +10805,6 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 .tp-table td { padding: 9px 12px 9px 0; color: var(--rl-text-bright); border-top: var(--hairline-w) solid var(--rl-line); vertical-align: middle; white-space: nowrap; }
 .tp-table td.t-dim { color: var(--rl-text-dim); }
 .tp-table td.num, .tp-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
-.tp-table td.tp-what { white-space: normal; width: 40%; }
 .tp-run-link { padding: 0; background: none; color: inherit; text-align: left; font: inherit; }
 .tp-run-link:hover { color: var(--rl-text-bright); text-decoration: underline; }
 
@@ -10820,7 +10819,6 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
   border: var(--hairline-w) solid var(--rl-line); font: inherit; font-size: 14px; line-height: 21px; color: var(--rl-text-bright); resize: none; outline: none; overflow: hidden; }
 .tp-brief:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
 .tp-brief-state { position: absolute; right: 14px; bottom: 8px; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
-.tp-role-head { align-items: center; }
 .tp-message { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: var(--r-panel); background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
 .tp-message-field { width: 100%; padding: 4px 4px; border: none; background: transparent; font: inherit; font-size: 14px; line-height: 20px; color: var(--rl-text-bright); resize: vertical; outline: none; }
 .tp-message-foot { display: flex; align-items: center; gap: 8px; }
@@ -10865,10 +10863,8 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
   border: var(--hairline-w) solid var(--rl-line); font-family: var(--font-mono); font-size: 13px; line-height: 20px; color: var(--rl-text-bright); resize: vertical; outline: none; }
 .tp-record-pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 0; }
 
-/* The column's sections: a member of Creators or Roles sits under its group, lit when open. */
+/* The column's sections: a record sits under its kind, lit when open. */
 .settings-tab.page-rail-tab.tp-sub { padding-left: 34px; }
-.settings-tab.page-rail-tab.tp-sub-role { padding-left: 34px; }
-.tp-rail-realmite { display: grid; place-items: center; width: 16px; height: 16px; }
 .tp-rail-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tp-rail-count { flex: none; }
 
@@ -10988,3 +10984,154 @@ button.tp-card:focus-visible, label.tp-card:has(:focus-visible) { outline: 2px s
 /* The Team fold's way to add one: a row like the roles above it, in the quieter ink. */
 .sb-team-add .item-title, .sb-team-add .sb-gutter { color: var(--rl-text-dim); }
 
+
+/* ── A teammate's chat (panes/team/chat) ──────────────────────────────────────────────────────────
+   A conversation per teammate, in a messenger's grammar: the team's chats in the column, and the open
+   one as a head, a thread and a prompter, all on one centred measure. The person's words sit right on
+   the accent's tint, the teammate's left on the raised surface beside its Realmite; lines across the
+   middle say what happened to it. A run of bubbles from one side tucks its inner corners and wears
+   its avatar and time once, at its end. The details drawer is a column that opens at the side, its
+   content riding the moving edge. */
+.page:has(.tc-chat) .page-body { max-width: none; padding: 0; }
+.tc-chat { --tc-col: 720px; --tc-drawer-w: 380px; --tc-tuck: calc(var(--r-sm) * 2);
+  flex: 1; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 0px;
+  transition: grid-template-columns var(--dur-move) var(--spring-smooth); }
+.tc-chat[data-drawer] { grid-template-columns: minmax(0, 1fr) var(--tc-drawer-w); }
+.tc-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.tc-head { flex: none; display: flex; align-items: center; gap: 12px; width: 100%; max-width: calc(var(--tc-col) + 48px); margin: 0 auto; padding: 18px 24px 8px; }
+.tc-head-mite { flex: none; display: grid; place-items: center; width: 32px; height: 32px; }
+.tc-head-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tc-head-name { margin: 0; font-size: 18px; line-height: 24px; font-weight: var(--fw-title); color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tc-head-line { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tc-scroll { flex: 1; min-height: 0; overflow-y: auto; --fade-h: 24px; --fade-top-h: 16px; }
+/* Short or long, a conversation stands on its prompter: its newest line is always the lowest. */
+.tc-col { box-sizing: border-box; min-height: 100%; max-width: calc(var(--tc-col) + 48px); margin: 0 auto; padding: 8px 24px 20px;
+  display: flex; flex-direction: column; justify-content: flex-end; }
+.tc-loading { margin: auto; }
+.tc-thread { display: flex; flex-direction: column; }
+.tc-day { display: flex; justify-content: center; margin: 22px 0 6px; }
+.tc-day span { font-size: 12px; line-height: 16px; font-weight: var(--fw-label); color: var(--rl-text-faint); }
+.tc-row { display: flex; align-items: flex-start; gap: 8px; margin-top: 2px; min-width: 0; }
+.tc-row[data-start] { margin-top: 14px; }
+.tc-row[data-side="you"] { justify-content: flex-end; }
+.tc-row[data-side="center"] { justify-content: center; margin-top: 14px; }
+.tc-row[data-enter], .tc-note[data-enter] { animation: tc-in var(--dur-enter) var(--spring-smooth) both; }
+.tc-row[data-pending] { opacity: .6; }
+@keyframes tc-in { from { opacity: 0; transform: translateY(6px); } }
+.tc-avatar { flex: none; display: grid; place-items: center; width: 32px; height: 32px; }
+.tc-stack { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; max-width: min(560px, 84%); }
+.tc-row[data-side="you"] .tc-stack { align-items: flex-end; }
+.tc-stack:has(> .tc-runlog) { flex: 1; max-width: none; }
+.tc-bubble { max-width: 100%; padding: 9px 14px; border-radius: var(--r-float); font-size: 15px; line-height: 22px; color: var(--rl-text-bright);
+  background: var(--tc-them); overflow-wrap: anywhere; }
+/* The teammate's bubble is a step off the canvas on each face: the raised surface on dark, and on
+   light — where the raised surface is the canvas's own white — the grey a light messenger draws. */
+.tc-chat { --tc-them: var(--rl-raised); }
+:root[data-mode="light"] .tc-chat { --tc-them: var(--hover-2); }
+.tc-row[data-side="you"] .tc-bubble { background: var(--accent-tint); white-space: pre-wrap; }
+.tc-row[data-side="them"]:not([data-start]) .tc-bubble { border-top-left-radius: var(--tc-tuck); }
+.tc-row[data-side="them"]:not([data-end]) .tc-bubble { border-bottom-left-radius: var(--tc-tuck); }
+.tc-row[data-side="you"]:not([data-start]) .tc-bubble { border-top-right-radius: var(--tc-tuck); }
+.tc-row[data-side="you"]:not([data-end]) .tc-bubble { border-bottom-right-radius: var(--tc-tuck); }
+.tc-said .md { font-size: 15px; line-height: 22px; }
+.tc-said .md > :last-child { margin-bottom: 0; }
+.tc-time { padding: 0 6px; font-size: 11px; line-height: 14px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+/* Under a report: its time, what the run took, and the way into it, on one quiet line. */
+.tc-meta { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 2px 6px; padding: 0 6px; }
+.tc-meta .tc-time { padding: 0; }
+.tc-meta > * + *::before { content: "·"; margin-right: 6px; color: var(--rl-text-faint); }
+.tc-meta > .tc-run-toggle::before { margin-right: 4px; }
+.tc-about { display: inline-flex; align-items: center; gap: 4px; padding: 0 6px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.tc-goal { display: flex; flex-direction: column; gap: 2px; }
+.tc-goal-state { font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.tc-card-kicker { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; line-height: 16px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
+/* Typing: three dots that rise in turn a few times and then hold, which still says it (design.md, Motion). */
+.tc-typing { display: inline-flex; align-items: center; gap: 4px; padding: 15px 16px; }
+.tc-typing i, .tc-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--rl-text-dim); opacity: .45;
+  animation: tc-dot 1.4s var(--ease-fade) 4 both; }
+.tc-typing i:nth-child(2), .tc-dots i:nth-child(2) { animation-delay: calc(40ms * 4); }
+.tc-typing i:nth-child(3), .tc-dots i:nth-child(3) { animation-delay: calc(40ms * 8); }
+@keyframes tc-dot { 0%, 60%, 100% { opacity: .45; transform: none; } 30% { opacity: 1; transform: translateY(-2px); } }
+.tc-typing-line { display: inline-flex; align-items: center; gap: 8px; padding: 0 6px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+.tc-run-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 0 4px; margin: 0 -4px; border-radius: var(--r-chip); background: none;
+  font-size: 11px; line-height: 14px; color: var(--rl-text-dim); }
+.tc-run-toggle:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+.tc-run-meta { font-size: 11px; line-height: 14px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+/* The whole run, drawn by the transcript in a well of its own height. */
+.tc-runlog { align-self: stretch; display: flex; max-height: min(480px, 60vh); border-radius: var(--r-panel); background: var(--rl-frame); overflow: hidden; }
+.tc-runlog .transcript { padding: 16px 16px 24px; }
+.tc-runlog > .tp-empty { margin: auto; }
+/* A line across the thread: a wake, an end, a skip. */
+.tc-note { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 16px auto 2px; max-width: 100%;
+  font-size: 12px; line-height: 16px; color: var(--rl-text-dim); text-align: center; }
+.tc-note > svg { flex: none; color: var(--rl-text-faint); }
+.tc-note[data-tone="warn"] > svg { color: var(--rl-warning); }
+.tc-note[data-tone="bad"] > svg { color: var(--rl-danger); }
+.tc-note-detail { color: var(--rl-text-faint); }
+/* Cards for what the teammate made and passed on: a draft, a handoff, a record, a question. */
+.tc-card { display: flex; flex-direction: column; gap: 6px; width: min(400px, 100%); padding: 12px 14px; border-radius: var(--r-panel);
+  background: var(--rl-card); border: var(--hairline-w) solid var(--rl-card-rim); }
+.tc-card-title { font-size: 14px; line-height: 20px; font-weight: var(--fw-label); color: var(--rl-text-bright); overflow-wrap: anywhere; }
+.tc-card-line { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); overflow-wrap: anywhere; }
+.tc-card-link { align-self: flex-start; margin-left: -8px; }
+.tc-draft-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.tc-draft-thumb { flex: none; width: 36px; height: 64px; border-radius: var(--r-chip); object-fit: cover; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 9%, transparent); }
+.tc-draft-glyph { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--r-ctl); background: var(--rl-hover); color: var(--rl-text-dim); }
+.tc-draft-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tc-draft-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.tc-draft-actions > .btn ~ .btn-quiet { margin-left: auto; }
+.tc-draft-actions > .btn-quiet:first-child { margin-left: -8px; }
+.tc-ask-text, .tc-handoff-note { font-size: 14px; line-height: 20px; color: var(--rl-text-bright); overflow-wrap: anywhere; }
+.tc-row[data-side="center"] .tc-handoff { width: min(440px, 100%); }
+/* The prompter: the Agents tab's card, one line until there is more to say, its send at the line's end. */
+.tc-composer { flex: none; width: 100%; max-width: calc(var(--tc-col) + 48px); margin: 0 auto; padding: 4px 24px 18px; }
+/* It stands on the canvas as the session's prompter does: its ring and a slight lift, which on the
+   light face are what separate a white card from the near-white ground. */
+.tc-compose-card { flex-direction: row; flex-wrap: wrap; align-items: flex-end; box-shadow: var(--shadow-card); }
+:root[data-squircle] .tc-compose-card { box-shadow: none; --sq-ring: var(--card-ring); --sq-ring-w: var(--hairline-w); filter: var(--shadow-card-lift-filter); }
+:root[data-squircle] .tc-compose-card:focus-within { --sq-ring: var(--line-strong); }
+.tc-compose-card .tc-field { flex: 1; width: auto; min-width: 0; min-height: 44px; padding: 12px 16px; }
+.tc-compose-card .subagents-compose-foot { flex: none; padding: 6px 6px 6px 0; }
+.tc-compose-note { margin: 6px 16px 0; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.tc-reply { flex: 0 0 100%; display: flex; align-items: center; gap: 6px; padding: 8px 8px 0 16px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.tc-reply-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A chat with nothing said yet, and a team with nobody on it. */
+.tc-col:has(> .tc-empty) { justify-content: center; }
+.tc-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: auto; max-width: 420px; padding: 32px 24px; text-align: center; }
+.tc-empty-team { flex: 1; justify-content: center; }
+.tc-empty-glyph { margin-bottom: 6px; color: var(--rl-text-dim); }
+.tc-empty-name { margin: 0; font-size: 20px; line-height: 28px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.tc-empty-line { margin: 0; font-size: 14px; line-height: 20px; color: var(--rl-text-dim); text-wrap: pretty; }
+.tc-empty-hint { margin: 6px 0 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: pretty; }
+.tc-empty-team .btn { margin-top: 10px; }
+/* The details drawer. */
+.tc-drawer { min-width: 0; min-height: 0; overflow: hidden; border-left: var(--hairline-w) solid var(--rl-divider); }
+.tc-drawer-in { width: var(--tc-drawer-w); height: 100%; display: flex; flex-direction: column; }
+.tc-drawer-bar { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 18px 16px 4px 24px; }
+.tc-drawer-title { font-size: 13px; line-height: 18px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
+.tc-drawer-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 24px 24px; --fade-h: 24px; --fade-top-h: 12px; }
+.tc-who { display: flex; flex-direction: column; align-items: center; gap: 2px; padding-bottom: 4px; text-align: center; }
+.tc-who-name { margin-top: 4px; font-size: 20px; line-height: 28px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.tc-who-kind { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.tc-who-line { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: pretty; }
+.tc-who .btn { margin-top: 10px; }
+.tc-records { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.tc-record-link { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; border-radius: var(--r-ctl); background: none;
+  font-size: 14px; line-height: 20px; color: var(--rl-text-bright); text-align: left; }
+.tc-record-link:hover { background: var(--rl-hover); }
+.tc-record-link > svg { flex: none; color: var(--rl-text-dim); }
+/* The team's chats in the column: a two-line row per teammate, its Realmite beside it. */
+.page-rail .settings-tab.tc-chat-row { align-items: center; gap: 10px; min-height: 54px; padding: 8px; }
+.tc-chat-mite { flex: none; display: grid; place-items: center; width: 32px; height: 32px; }
+.tc-chat-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tc-chat-top { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.tc-chat-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; line-height: 20px;
+  font-weight: var(--fw-label); color: var(--rl-text-bright); }
+.tc-chat-kind { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+.tc-chat-time { flex: none; margin-left: auto; font-size: 12px; line-height: 16px; font-weight: var(--fw-body); color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.tc-chat-preview { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; line-height: 18px; font-weight: var(--fw-body); color: var(--rl-text-dim); }
+.tc-chat-preview-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tc-chat-row[data-unread] .tc-chat-preview { color: var(--rl-text-bright); }
+.tc-chat-mark { flex: none; margin-left: auto; }
+.tc-dots { flex: none; display: inline-flex; align-items: center; gap: 3px; }
+.tc-dots i { width: 4px; height: 4px; }

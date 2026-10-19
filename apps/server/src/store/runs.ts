@@ -227,10 +227,12 @@ export class RunsStore {
   }
 
   /** The run (if any) whose CURRENT session is this one — the settle hook's lookup. Scoped to live
-   *  states so a terminal run's remembered `session_id` can never re-open it. */
+   *  states so a terminal run's remembered `session_id` can never re-open it. A run queued to continue
+   *  the session (a message to a working teammate) has not started in it yet, so the one that did comes
+   *  first. */
   findLiveBySessionId(sessionId: string): Run | null {
     const r = this.db.prepare(
-      `SELECT * FROM runs WHERE session_id = ? AND state IN ('queued', 'running', 'blocked') ORDER BY created_at DESC, id DESC LIMIT 1`,
+      `SELECT * FROM runs WHERE session_id = ? AND state IN ('queued', 'running', 'blocked') ORDER BY state = 'queued', created_at DESC, id DESC LIMIT 1`,
     ).get(sessionId) as Row | undefined;
     return r ? toRun(r) : null;
   }
