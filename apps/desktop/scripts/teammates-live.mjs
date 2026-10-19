@@ -6,13 +6,14 @@
  * from the prompter's "+" — one on the session's own model in its folder, one on GPT-6 Luna in a worktree
  * of its own — and watches the row above the prompter:
  *
- *   1. With no agents, the prompter has no row (the branch alone on its strip).
+ *   1. With no agents, the prompter has no row (what changed alone on its strip).
  *   2. "+" offers Add teammate…, whose picker carries the prompter's model chip, a line for the brief and,
  *      on a git checkout, where it works.
  *   3. Both teammates appear on the row: one working (the sidebar's ring), one needing you.
  *   4. Answered, both settle to done, and the row says so; a chip's tooltip names it, its model, its state
  *      and time; its menu stops, messages and dismisses; the `@` list names both.
  *   5. Crowded past three, the row names two and folds the rest into "+N", whose menu lists them.
+ *   6. Stop on the lead's turn stops the lead and leaves the teammates the person added working.
  *
  * Captured dark and light, at a normal and a narrow width. Ports: LIVE_SERVER_PORT (8809), LIVE_CDP_PORT
  * (9249). Screenshots go to LIVE_OUT_DIR. Kills only what listens on its own ports.
@@ -52,6 +53,10 @@ const check = (name, cond, detail) => {
 /** The children's turns. A teammate's message opens with its brief, so the brief is the trigger; the
  *  lead's own entry goes last, because every teammate's message carries the lead's conversation too. */
 const SCRIPT = [
+  // First: the lead's message carries the note naming its teammates, briefs and all.
+  { on: "Keep planning", emit: [
+    { kind: "text", paceMs: 400, text: "Going through the release checklist line by line: the migration, the parser, the docs, the flag, the version, the changelog, the release notes and the store listing, in that order." },
+  ] },
   { on: "Write the parser tests", emit: [
     { kind: "text", paceMs: 450, text: "Reading the parser and the tests beside it first, then adding the cases nobody covered yet: empty input, a trailing comma, a nested list, a list that never closes, and the two error messages the parser prints for them." },
     { kind: "text", text: "Added six parser tests. All of them pass." },
@@ -62,7 +67,7 @@ const SCRIPT = [
     { kind: "text", text: "Checked migration 0042: safe to ship." },
   ] },
   ...["Survey the docs", "Rename the flag", "Bump the version"].map((on) => ({ on, emit: [
-    { kind: "text", paceMs: 500, text: "Working through it one file at a time, reading each before changing anything, and keeping a list of what is left to do as I go." },
+    { kind: "text", paceMs: 600, text: "Working through it one file at a time, reading each before changing anything, and keeping a list of what is left to do as I go, then checking the list again before calling it done." },
     { kind: "text", text: "Done." },
   ] })),
   { on: "Plan the 2.4 release", emit: [{ kind: "text", text: "Here is the plan: land migration 0042, cover the parser, then cut the release candidate." }] },
@@ -242,11 +247,13 @@ async function main() {
   api = rpc(SERVER_PORT, await daemonToken(home));
   await api.ready;
   const [space] = await api.call("spaces.list", {});
-  // A git checkout, so the branch has a strip and a teammate can have a worktree of its own.
+  // A git checkout, so what changed has a pill and a teammate can have a worktree of its own.
   const git = (...args) => execFileSync("git", ["-c", "user.email=live@example.com", "-c", "user.name=live", "-c", "commit.gpgsign=false", ...args], { cwd: space.folderPath, encoding: "utf8" });
   git("init", "-b", "main");
   fs.writeFileSync(path.join(space.folderPath, "parser.ts"), "export const parse = (s: string) => s.split(',');\n");
   git("add", "."); git("commit", "-m", "init");
+  // Something changed, so the what-changed pill heads the strip the row joins.
+  fs.writeFileSync(path.join(space.folderPath, "parser.ts"), "export const parse = (s: string) => s.split(',').map((x) => x.trim());\n");
   await api.call("agents.probe", { force: false });
   const { session } = await api.call("sessions.create", { spaceId: space.id, agentKind: "claude", model: "claude-opus-5-5", title: TITLE, permissionMode: "default" });
   const lead = session.id;
@@ -259,7 +266,8 @@ async function main() {
   // ── The lead has a conversation for its teammates to be handed ──────────────────────────────
   await api.call("sessions.send", { id: lead, text: "Plan the 2.4 release.", attachments: [], mentions: [] });
   await until(async () => (await api.call("sessions.get", { id: lead })).status === "idle" && await evalIn(c, `!!document.querySelector('.msg-assistant')`), 20_000, "lead replied");
-  await until(() => evalIn(c, `!!document.querySelector('.composer-overstrip .composer-git')`), 20_000, "branch strip").catch(() => null);
+  await until(() => evalIn(c, `!!document.querySelector('.composer-overstrip .what-changed')`), 20_000, "what-changed pill").catch(() => null);
+  check("what changed heads the strip", await evalIn(c, `!!document.querySelector('.composer-overstrip .what-changed')`));
   await sleep(600);
   check("with no agents the prompter has no row", await evalIn(c, `document.querySelectorAll('.active-agents').length === 0`));
   await shot(c, "1-quiet-dark", { pad: 120 });
@@ -354,6 +362,22 @@ async function main() {
   const folded = await evalIn(c, `[...document.querySelectorAll('.menu [role=menuitem] .menu-label')].map((x) => x.textContent)`);
   check("+N opens a menu of the folded ones", folded.length === 2, folded);
   await shot(c, "11-more-menu-dark", { pad: 200 });
+  await evalIn(c, `(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return true; })()`);
+  await sleep(300);
+
+  // ── Stop on the lead's turn: the lead stops, the person's teammates keep working ─────────────
+  await api.call("sessions.send", { id: lead, text: "Keep planning.", attachments: [], mentions: [] });
+  await until(async () => (await api.call("sessions.get", { id: lead })).status === "running", 15_000, "lead running");
+  const workingBefore = (await rowNow(c)).filter((x) => x.state === "working").map((x) => x.name);
+  await until(() => evalIn(c, `document.querySelector('.composer-send')?.dataset.state === 'stop'`), 10_000, "stop button");
+  await evalIn(c, `(() => { document.querySelector('.composer-send').click(); return true; })()`);
+  await until(async () => (await api.call("sessions.get", { id: lead })).status === "idle", 15_000, "lead stopped");
+  await sleep(1500);
+  const kidsAfter = (await api.call("delegation.children", { sessionId: lead })).children;
+  const stillWorking = kidsAfter.filter((k) => k.session.status === "running").map((k) => k.session.title);
+  note("after Stop", { workingBefore, stillWorking, row: (await rowNow(c)).map((x) => `${x.name} (${x.state})`) });
+  check("Stop on the lead's turn leaves the person's teammates working", stillWorking.length >= 2 && (await rowNow(c)).every((x) => x.state === "working"), stillWorking);
+  await capture(c, "12-after-stop");
 }
 
 async function mode(c, face) {

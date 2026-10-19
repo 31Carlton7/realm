@@ -5878,7 +5878,12 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .active-agent-mark[data-state="failed"] .active-agent-badge, .active-agent-mark[data-state="timeout"] .active-agent-badge { color: var(--rl-danger); }
 /* Needs you is the one state the person has to act on, so its name is a rung brighter. */
 .composer-overstrip .active-agent[data-state="waiting"] { color: var(--rl-text-dim); }
-.active-agents-more { font-variant-numeric: tabular-nums; }
+/* The count never yields: "+" alone says nothing. */
+.active-agents-more { flex: none; font-variant-numeric: tabular-nums; }
+/* Narrow, two or more agents give up their names before anything else on the strip does: each is its
+   mark and its state, the name in its tooltip. A name cut to two letters says less than the mark. One
+   agent alone keeps its name. */
+@container (max-width: 520px) { .active-agents:has(> .active-agent + .active-agent) .active-agent .chip-label { display: none; } }
 
 /* ── "+ → Add teammate…" ──
    A popover off the "+", in the code review sheet's anatomy at the prompter's scale: a title, the
