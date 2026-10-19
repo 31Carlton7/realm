@@ -84,6 +84,27 @@ describe("cutting a render off its white ground", () => {
   });
 });
 
+describe("a ground that is not exactly one white", () => {
+  // Mutant killed: ground pixels kept at the alpha colour-to-alpha gives them — on a ground of 254, every
+  // 255 came out opaque white, a frame round the whole render that the trim could not see past.
+  it("clears all of it, so the trim finds the object's own edge", () => {
+    const { img } = fixture();
+    let seed = 7;
+    const noise = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % 3; };
+    for (let p = 0; p < SIZE * SIZE; p++) {
+      if (img.data[p * 4] !== 255) continue;
+      const v = 253 + noise();
+      img.data.set([v, v, v], p * 4);
+    }
+    const cut = cutFromGround(img, { minHole: 0.005 }) as Rgba;
+    const box = opaqueBounds(cut)!;
+    expect(box.left).toBeGreaterThanOrEqual(11);
+    expect(box.left + box.width).toBeLessThanOrEqual(53);
+    expect(px(cut, 0, 0)[3]).toBe(0);
+    expect(px(cut, 32, 40)).toEqual([...CREAM, 255]);
+  });
+});
+
 describe("squaring and shrinking the cut", () => {
   const cut = cutFromGround(fixture().img, { minHole: 0.005 }) as Rgba;
 

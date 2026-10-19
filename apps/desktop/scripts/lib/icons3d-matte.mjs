@@ -70,21 +70,19 @@ export function groundMask(img, { ground = groundOf(img), tolerance = groundTole
   return mask;
 }
 
-/** The least alpha that explains `c` as some colour laid over `ground` (the classic colour-to-alpha). */
+/** The least alpha that explains `c` as some darker colour laid over `ground` (colour-to-alpha). A
+ *  channel brighter than the ground explains nothing: on a ground of 254 a 255 is noise, not white
+ *  paint at full strength. */
 function leastAlpha(c, ground) {
   let a = 0;
-  for (let k = 0; k < 3; k++) {
-    const g = ground[k];
-    const step = c[k] < g ? (g - c[k]) / g : c[k] > g ? (c[k] - g) / (255 - g || 1) : 0;
-    if (step > a) a = step;
-  }
+  for (let k = 0; k < 3; k++) if (c[k] < ground[k]) a = Math.max(a, (ground[k] - c[k]) / ground[k]);
   return Math.min(1, a);
 }
 
 /**
- * The render with its ground taken out: straight-alpha RGBA of the same size. Ground goes clear
- * (its faint pixels keep the little alpha they explain), the object's inside stays opaque, and the
- * `band` pixels nearest the ground are unblended against the colour of the object just inside them.
+ * The render with its ground taken out: straight-alpha RGBA of the same size. Ground goes clear, the
+ * object's inside stays opaque, and the `band` pixels nearest the ground are unblended against the
+ * colour of the object just inside them.
  */
 export function cutFromGround(img, { band = 2, reach = 6, ...opts } = {}) {
   const { width: w, height: h, data } = img;
@@ -110,13 +108,9 @@ export function cutFromGround(img, { band = 2, reach = 6, ...opts } = {}) {
   for (let p = 0; p < n; p++) {
     const i = p * 4;
     c[0] = data[i]; c[1] = data[i + 1]; c[2] = data[i + 2];
-    if (mask[p]) {
-      const a = leastAlpha(c, ground);
-      if (a * 255 < 1) continue;
-      for (let k = 0; k < 3; k++) out[i + k] = (c[k] - (1 - a) * ground[k]) / a;
-      out[i + 3] = a * 255;
-      continue;
-    }
+    // Ground is clear, all of it. Its noise is a level or two either side of the median, and kept as
+    // alpha it is a faint frame round the whole picture that the trim then cannot see past.
+    if (mask[p]) continue;
     if (depth[p] > band) { out.set(data.subarray(i, i + 3), i); out[i + 3] = 255; continue; }
     const inner = innerColour(data, depth, w, h, p, band, reach);
     let a;
