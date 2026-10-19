@@ -478,6 +478,7 @@ export class TeamService {
       "",
       "Team rules (Realm):",
       "- Deliver with `review_submit` (the realm-team tools). Never send, post, sign or pay: a person approves everything in Review, then presses each post or send themselves, one at a time, at Realm's paced slots. No tool lets you post, send or DM, and none ever will.",
+      "- Give each review a `note`: a sentence or two on why you made it, which the person reads above the work.",
       "- A review you sent that is no longer wanted — replaced, done another way, or withdrawn — you close with `review_close`, so it stops waiting on the person.",
       this.d.recordTypes.preambleLine(role.spaceId),
       "- Save what you make inside this space's folder; Review only takes files from there.",
