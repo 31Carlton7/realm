@@ -123,8 +123,12 @@ describe("editing a schedule", () => {
     // A row whose stored expression the current parser refuses (written by another build, edited by
     // hand) must still be pausable — the edit is how a user gets out of that state.
     db.prepare("UPDATE schedules SET cron = 'garbage' WHERE id = ?").run(s.id);
-    expect(() => svc.update({ id: s.id, title: "Renamed" })).toThrow(/will ever run/);
-    expect(store.get(s.id)!.title).toBe("Morning sweep");
+    expect(svc.update({ id: s.id, title: "Renamed" }).title).toBe("Renamed");
+    expect(svc.update({ id: s.id, enabled: false }).enabled).toBe(false);
+    expect(store.get(s.id)!.cron).toBe("garbage");
+    // Resuming it, or writing a new expression, is still checked.
+    expect(() => svc.update({ id: s.id, enabled: true })).toThrow(/will ever run/);
+    expect(() => svc.update({ id: s.id, cron: "0 9 30 2 *" })).toThrow(/will ever run/);
   });
 });
 
@@ -335,6 +339,27 @@ describe("a task set for one moment", () => {
     const s = svc.create(input({ cron: onceExpr(IN_TWO_WEEKS) }));
     expect(svc.update({ id: s.id, enabled: false }).nextRunAt).toBeNull();
     expect(svc.update({ id: s.id, enabled: true }).nextRunAt).toBe(IN_TWO_WEEKS);
+  });
+
+  it("can be renamed and given new instructions once it has run", () => {
+    // THE MUTANT: re-validate the unchanged `once:` expression on every edit. Its moment is behind
+    // it for good, so every rename of a finished one-shot was refused as "already passed".
+    const { svc } = service();
+    const s = svc.create(input({ cron: onceExpr(IN_TWO_WEEKS) }));
+    clock = IN_TWO_WEEKS; svc.tick();
+    clock = IN_TWO_WEEKS + 60 * 60 * 1000;
+    const edited = svc.update({ id: s.id, title: "Shipped", goal: "open the PR again", cron: s.cron });
+    expect(edited).toMatchObject({ title: "Shipped", goal: "open the PR again", enabled: true, nextRunAt: null });
+    expect(() => svc.update({ id: s.id, cron: onceExpr(IN_TWO_WEEKS - 60_000) })).toThrow(/already passed/);
+  });
+
+  it("refuses to resume once its moment passed while it was paused", () => {
+    // Resuming would leave it reading Finished without ever having run.
+    const { svc } = service();
+    const s = svc.create(input({ cron: onceExpr(IN_TWO_WEEKS), enabled: false }));
+    clock = IN_TWO_WEEKS + 60_000;
+    expect(() => svc.update({ id: s.id, enabled: true })).toThrow(/already passed/);
+    expect(svc.update({ id: s.id, title: "Never mind" }).title).toBe("Never mind");
   });
 });
 
