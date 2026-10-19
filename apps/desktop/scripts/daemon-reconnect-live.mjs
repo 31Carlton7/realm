@@ -8,7 +8,8 @@
  *   R1  kill -9 the daemon: the window shows the quiet reconnecting line, and no error toasts;
  *   R2  the supervisor starts another on a new port with a new token, and the window reaches it by
  *       itself — no reload: the draft typed before the kill, the open session and a page marker are
- *       all still there;
+ *       all still there; a second window (another profile's) comes back the same way, and hears the
+ *       new server's events;
  *   R3  the window sends on the new server, and the fake agent's reply arrives in it;
  *   R4  main re-registered on the new server: Realm Mobile is not `locked`, and a window is attached;
  *   R5  a crash loop: the supervisor gives up, the banner offers "Restart Realm's server", and the
@@ -217,6 +218,23 @@ async function main() {
       for (const e of document.querySelectorAll('.toast[data-tone="error"]')) window.__errors.add(e.textContent);
     }, 100);
     return true; })()`);
+  // A second window: another profile's, open across the crash too.
+  const work = await api1.call("profiles.create", { name: "Work" });
+  // With a space of its own: a window on a profile with none moves itself to one that has some.
+  await api1.call("spaces.create", { profileId: work.id, name: "Work things" });
+  const firstTargetId = renderer.id;
+  await evalIn(c, `window.realm.windows.openProfile(${js(work.id)}).then(() => true)`);
+  const other = await until(async () => (await targets()).find((t) => t.type === "page" && t.url.startsWith("file://") && t.id !== firstTargetId), 30_000, "the second window");
+  const c2 = cdp(other.webSocketDebuggerUrl);
+  await c2.ready;
+  await c2.send("Runtime.enable");
+  await c2.send("Emulation.setFocusEmulationEnabled", { enabled: true });
+  await c2.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+  await until(() => evalIn(c2, `document.readyState === "complete" && !!window.realm?.serverEndpoint`), 30_000, "the second window's page");
+  await sleep(1500);
+  await until(() => evalIn(c2, `document.body.textContent.includes("Work things") || null`), 15_000, "the second window on Work");
+  await evalIn(c2, `(() => { window.__beforeTheCrash = ${Date.now()}; window.__sawBanner = false;
+    setInterval(() => { if (document.querySelector('.conn-banner')) window.__sawBanner = true; }, 100); return true; })()`);
   const lockedBefore = (await api1.call("remote.status", {})).state;
   check("before: Realm Mobile is unlocked (main handed over the key)", lockedBefore !== "locked", { state: lockedBefore });
   await shot(c, "01-before-the-crash");
@@ -252,6 +270,10 @@ async function main() {
   check("R1 no error toast while it was down — the banner said it", page.errors.length === 0, page.errors);
   console.log(`BANNERS ${js(page.banners)}`);
   await shot(c, "04-reconnected");
+  await until(async () => !(await evalIn(c2, `!!document.querySelector('.conn-banner')`)), 20_000, "the second window to reconnect");
+  const page2 = await evalIn(c2, `(async () => ({ marker: window.__beforeTheCrash ?? null, sawBanner: window.__sawBanner, endpoint: await window.realm.serverEndpoint() }))()`);
+  check("R2 the second window said so too, and came back without a reload", page2.sawBanner && page2.marker !== null, page2.sawBanner);
+  check("R2 the second window dials the new server", page2.endpoint?.port === second.port, page2.endpoint && { port: page2.endpoint.port });
 
   /* ── R3: the window sends on the new server ──────────────────────────────────────────────── */
   const api2 = rpc(second.port, second.token);
@@ -267,6 +289,13 @@ async function main() {
   const shown = await until(() => evalIn(c, `[...document.querySelectorAll('.msg-assistant')].length > 0 ? document.querySelectorAll('.msg-assistant').length : null`), 15_000, "the reply in the window");
   check("R3 the reply is in the window", shown > 0, { assistantMessages: shown });
   await shot(c, "05-sent-after-the-crash");
+
+  // The second window hears the new server: a space made in its profile turns up in its sidebar.
+  await api2.call("spaces.create", { profileId: work.id, name: "Made after the crash" });
+  const heard = await until(() => evalIn(c2, `document.body.textContent.includes("Made after the crash") || null`), 15_000, "the new space in the second window").catch(() => false);
+  check("R3 the second window hears the new server's events", heard === true);
+  await shot(c2, "05b-second-window-after-the-crash");
+  c2.close();
 
   /* ── R4: main re-registered ──────────────────────────────────────────────────────────────── */
   const remote = await until(async () => { const s = await api2.call("remote.status", {}); return s.state !== "locked" ? s : null; }, 10_000, "Realm Mobile unlocked");
