@@ -398,6 +398,14 @@ export const TeamReviewSummarySchema = z.object({
   /** Its act tickets (Phase 3): how many outward acts the yes issued, and how many went out. */
   actsTotal: z.number().int().default(0),
   actsDone: z.number().int().default(0),
+  /** Of those, how many wait for the person's press, how many the platform refused (back to waiting,
+   *  with its error), and when the soonest pressed one goes — so a list says which batch needs a hand. */
+  actsWaiting: z.number().int().optional(),
+  actsFailed: z.number().int().optional(),
+  nextActAt: z.number().int().nullable().optional(),
+  /** How the role that sent it closed it itself (`review_close`), when it did: a review put away as
+   *  `superseded` was replaced by a newer one, which the state alone cannot say. */
+  closedAs: ReviewCloseOutcomeSchema.nullable().optional(),
   createdAt: z.number().int(),
   decidedAt: z.number().int().nullable(),
   updatedAt: z.number().int(),
@@ -439,6 +447,8 @@ export const TeamReviewDetailSchema = TeamReviewSummarySchema.extend({
   /** The text of the items' text files (Markdown, CSV, a diff), by space-relative path, so a table or
    *  a diff draws without the window reading the disk. Capped; a file past the cap is absent. */
   fileTexts: z.record(z.string(), z.string()).optional(),
+  /** The role's note on the batch, in its own words: why it made it and what to look at first. */
+  why: z.string().nullable().optional(),
 });
 export type TeamReviewDetail = z.infer<typeof TeamReviewDetailSchema>;
 

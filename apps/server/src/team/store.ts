@@ -247,6 +247,14 @@ export class TeamStore {
     return (rows as RawActivity[]).map(toActivity);
   }
 
+  /** The newest line among `verbs` about one review, from its creation on — what a role said when it
+   *  sent the review, or how it closed it. */
+  reviewActivity(review: Pick<ReviewRow, "id" | "spaceId" | "createdAt">, verbs: readonly string[]): TeamActivity | null {
+    const row = this.db.prepare(`SELECT * FROM team_activity WHERE space_id = ? AND ts >= ? AND verb IN (${verbs.map(() => "?").join(", ")})
+      AND json_extract(detail_json, '$.reviewId') = ? ORDER BY ts DESC, rowid DESC LIMIT 1`).get(review.spaceId, review.createdAt, ...verbs, review.id);
+    return row ? toActivity(row as RawActivity) : null;
+  }
+
   activityForRun(runId: string): TeamActivity[] {
     return (this.db.prepare("SELECT * FROM team_activity WHERE run_id = ? ORDER BY ts ASC, rowid ASC").all(runId) as RawActivity[]).map(toActivity);
   }

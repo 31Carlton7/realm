@@ -145,9 +145,17 @@ export class ActService {
 
   ticket(id: string): ActTicket { return this.view(this.must(id)); }
 
-  counts(reviewId: string): { total: number; done: number } {
+  counts(reviewId: string): { total: number; done: number; ready: number; failed: number; nextAt: number | null } {
     const all = this.d.store.forReview(reviewId);
-    return { total: all.length, done: all.filter((t) => t.state === "done").length };
+    // A refused act goes back to `ready` with its error: it waits for a press like any other, and is
+    // counted apart because the person has to read why before pressing again.
+    const ready = all.filter((t) => t.state === "ready");
+    const pressed = all.filter((t) => t.state === "scheduled").map((t) => t.slotAt);
+    return {
+      total: all.length, done: all.filter((t) => t.state === "done").length,
+      ready: ready.filter((t) => !t.error).length, failed: ready.filter((t) => t.error).length,
+      nextAt: pressed.length > 0 ? Math.min(...pressed) : null,
+    };
   }
 
   held(spaceId: string): boolean { return this.d.store.held(spaceId); }
