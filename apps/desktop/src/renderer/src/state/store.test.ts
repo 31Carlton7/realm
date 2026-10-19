@@ -2290,6 +2290,21 @@ describe("app store", () => {
       expect(store.getState().transcripts.se1!.t.blocks.map((b) => b.kind)).toEqual(["user", "assistant"]);
     });
 
+    it("coming back after giving up refreshes the same way — the server it reaches may be a new one", async () => {
+      api = seed(); const store = createAppStore(api); await store.getState().boot();
+      await store.getState().openSession("se1");
+      api.data.sessionEvents.se1!.push(stored("se1", 2, sessionEvent("assistant_text", { messageId: "m1", text: "still here" })));
+      store.getState().applyConnectionState("reconnecting");
+      store.getState().applyConnectionState("offline");
+      expect(store.getState().connectionState).toBe("offline");
+      api.calls.length = 0;
+      store.getState().applyConnectionState("connected");
+      await tick(); await tick();
+      expect(api.calls).toContain("listSpaces");
+      expect(api.calls).toContain("sessionEvents:se1:1");
+      expect(store.getState().transcripts.se1!.lastSeq).toBe(2);
+    });
+
     it("a redundant connected notification does not refetch (refresh only fires on the reconnecting→connected edge)", async () => {
       api = seed(); const store = createAppStore(api); await store.getState().boot();
       api.calls.length = 0;
