@@ -10,7 +10,7 @@ import { useApp } from "../../state/store";
 import type { Item } from "@realm/contracts";
 import { ACT_WORDS, ageShort, agoPhrase, duration, feedTime, money, plainError, reviewGroups, reviewStateLine, slotPhrase } from "./team-format";
 import { POST_SHEET_NO_AGENT, PostSheet } from "./PostSheet";
-import { Deliverable, drawsBody, editable } from "./renderers";
+import { Deliverable, drawsBody, editable } from "./review/renderers";
 
 const EMPTY: readonly TeamReviewSummary[] = [];
 

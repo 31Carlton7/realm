@@ -4,11 +4,11 @@ import {
   EDITABLE_FORMATS, inferFormat, isImageFile, itemTarget, mediaUrl,
   type DeliverableFormat, type TeamReviewDetail, type TeamReviewItem,
 } from "@realm/contracts";
-import { useApp } from "../../../state/store";
-import { Markdown } from "../../session/Markdown";
-import { DiffView } from "../../session/rich/DiffView";
-import { parseUnifiedDiff } from "../../session/rich/diff";
-import { canQuickLook, fileDragProps, quickLook, quickLookOnSpace } from "../../../components/file-actions";
+import { useApp } from "../../../../state/store";
+import { Markdown } from "../../../session/Markdown";
+import { DiffView } from "../../../session/rich/DiffView";
+import { parseUnifiedDiff } from "../../../session/rich/diff";
+import { canQuickLook, fileDragProps, quickLook, quickLookOnSpace } from "../../../../components/file-actions";
 import { numericColumns, parseDelimited, parseLinks } from "./parse";
 
 /**

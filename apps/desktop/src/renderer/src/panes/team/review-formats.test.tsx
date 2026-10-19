@@ -4,7 +4,7 @@ import type { TeamReviewDetail, TeamReviewItem } from "@realm/contracts";
 import { ReviewPane } from "./ReviewPane";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, profile, space, teamReview, teamRole, teamSpace } from "../../state/store.test-fakes";
-import { numericColumns, parseDelimited, parseLinks } from "./renderers/parse";
+import { numericColumns, parseDelimited, parseLinks } from "./review/renderers/parse";
 
 /**
  * Review's renderers: one review per format, each drawn as what it is in the same frame under the
