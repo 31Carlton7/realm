@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdtempSync, rmSync, unlinkSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, rmSync, statSync, unlinkSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TURN_CHANGES_MAX_FILES, type FileDiff, type TurnChanges, type TurnFile } from "@realm/contracts";
@@ -192,7 +192,14 @@ export class CheckpointGit {
       // work into the user's index, which is precisely the disturbance a checkpoint must not cause.
       // A repository that has never had an index has no file to copy; git creates the scratch one.
       const realIndex = (await this.git(root, ["rev-parse", "--path-format=absolute", "--git-path", "index"])).stdout.trim();
-      if (realIndex && existsSync(realIndex)) copyFileSync(realIndex, index);
+      if (realIndex && existsSync(realIndex)) {
+        copyFileSync(realIndex, index);
+        // With the real index's times: git re-reads a file whose mtime falls in the second the index
+        // was written ("racily clean") and trusts the rest by size and mtime. A copy stamped now would
+        // trust a file rewritten at the same size in that second, and capture its old bytes.
+        const { atime, mtime } = statSync(realIndex);
+        utimesSync(index, atime, mtime);
+      }
 
       const indexTree = await this.writeTree(root, index, headSha);
       const added = await this.git(root, ["add", "-A", "--", "."], { env: { GIT_INDEX_FILE: index } });

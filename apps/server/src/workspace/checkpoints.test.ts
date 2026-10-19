@@ -354,6 +354,22 @@ describe("restore", () => {
     } finally { cleanup(repo); }
   });
 
+  it("captures a file rewritten at the same size in the second it was committed", async () => {
+    // git trusts an index entry whose size and mtime still match unless the INDEX was written in that
+    // same second ("racily clean"). The scratch index is a copy, written later — so a file the setup
+    // committed and then rewrote in one second could be captured as its committed bytes.
+    const repo = makeRepo();
+    try {
+      await new Promise((r) => setTimeout(r, 1000 - (Date.now() % 1000) + 20)); // the start of a second
+      writeFileSync(join(repo, "hero.png"), "AAAA");
+      git(repo, "add", "-A"); git(repo, "commit", "-qm", "art");
+      writeFileSync(join(repo, "hero.png"), "BBBB");
+      await new Promise((r) => setTimeout(r, 1100)); // the turn starts in a later second
+      const state = await svc().capture({ cwd: repo, ...ids(), message: "turn 1" });
+      expect(git(repo, "cat-file", "-p", `${state.worktreeTree}:hero.png`)).toBe("BBBB");
+    } finally { cleanup(repo); }
+  });
+
   it("rolls the branch back over commits the agent made", async () => {
     const repo = makeRepo();
     try {
