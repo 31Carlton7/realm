@@ -40,6 +40,11 @@ const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "realm-teams-post-"));
 const home = path.join(scratch, "home");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const H = 3_600_000;
+/** Posts are planned between 8 AM and 10 PM, so the first slot is "now" only in those hours. The app
+ *  (it inherits this environment) and this script both run in a zone where it is early afternoon, so
+ *  the check reads the same whenever it is run. */
+const off = ((13 - new Date().getUTCHours() + 36) % 24) - 12;
+process.env.TZ = off === 0 ? "Etc/UTC" : `Etc/GMT${off > 0 ? "-" : "+"}${Math.abs(off)}`;
 let electron = null;
 let api = null;
 let liveC = null;
@@ -92,8 +97,9 @@ function cdp(wsUrl) {
   };
 }
 
-function rpc(port, token) {
+function rpc(port, token, onEvent = () => {}) {
   const s = socket(`ws://127.0.0.1:${port}`, tokenProtocols(token));
+  s.ws.addEventListener("message", (m) => { const msg = JSON.parse(m.data); if (msg.id === undefined && msg.event) onEvent(msg.event, msg.payload); });
   const raw = (method, params) => new Promise((res) => {
     const i = String(s.next());
     s.pending.set(i, res);
@@ -237,9 +243,23 @@ async function boot() {
   await until(() => evalIn(c, `!!document.querySelector('.composer')`), 30_000, "composer");
   await holdKey(c);
   await c.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 2, mobile: false });
-  api = rpc(SERVER_PORT, await daemonToken(home));
+  api = rpc(SERVER_PORT, await daemonToken(home), answerRecordReads);
   await api.ready;
   return c;
+}
+
+/**
+ * The cards this check expects, allowed. `record_read` asks first in every mode (the read goes on the
+ * team's activity), so a role's run that reads a record stops on a card until someone answers it. And
+ * the team's rules ask before a tool they have no class for, which is what a role's made-up posting
+ * tools are: allowed, so P3 sees what even a yes leads to. Any other card is left standing and named,
+ * so a check that waits on one says which.
+ */
+function answerRecordReads(event, payload) {
+  if (event !== "session.event" || payload.ephemeral || payload.event?.type !== "permission_request") return;
+  const card = payload.event.payload;
+  if (!/(record_read|ticket_post|review_act)$/.test(card.toolName)) { console.log(`CARD left standing: ${card.toolName} in ${payload.sessionId}`); return; }
+  void api.call("sessions.respondPermission", { id: payload.sessionId, requestId: card.requestId, decision: "allow" }).catch((e) => console.log(`CARD ${e.message}`));
 }
 
 const runsOf = async (roleId) => api.call("team.roleRuns", { id: roleId, limit: 30 });
@@ -250,17 +270,17 @@ const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateStrin
 
 async function openReview(c, title) {
   await until(() => evalIn(c, `!!__live.q('[data-review]')`), 10_000, "review list");
-  await evalIn(c, `__live.click(__live.qa('[data-review]').find((b) => b.querySelector('.rv-title')?.textContent === ${JSON.stringify(title)}))`);
+  await evalIn(c, `__live.click(__live.qa('[data-review]').find((b) => b.querySelector('.rv-row-title')?.textContent === ${JSON.stringify(title)}))`);
   await until(() => evalIn(c, `(__live.text('.rv-head h1') ?? '').startsWith(${JSON.stringify(title)})`), 8_000, `reading ${title}`);
 }
 
 async function step(c, n) {
   await evalIn(c, `__live.click(__live.radio(${n}))`);
-  await until(() => evalIn(c, `/ ${n} of /.test(__live.text('.rv-head h1') ?? '')`), 5_000, `step ${n}`);
+  await until(() => evalIn(c, `/ ${n} of /.test(__live.text('.rv-stepper-label') ?? '')`), 5_000, `step ${n}`);
 }
 
 async function openSheet(c) {
-  await evalIn(c, `__live.click(__live.button('^(Post|Send|Send DM)…$'))`);
+  await evalIn(c, `__live.click(__live.button('^(Post|Send|Send DM)…$', __live.q('.rv-dock')))`);
   await until(() => evalIn(c, `!!__live.q('[role=dialog] .ps')`), 5_000, "post sheet");
 }
 
@@ -290,9 +310,10 @@ async function main() {
 
   await until(() => evalIn(c, `!!__live.named('^6 slideshows for Nathan in Versed')`), 10_000, "needs you row");
   await evalIn(c, `__live.click(__live.named('^6 slideshows for Nathan in Versed'))`);
-  await until(() => evalIn(c, `__live.qa('.rv-slide img').length === 7 && __live.qa('.rv-slide img').every((i) => i.complete && i.naturalWidth > 0)`), 15_000, "slides drawn");
-  await evalIn(c, `__live.click(__live.button('^Approve all 6$'))`);
-  await until(() => evalIn(c, `/Approved by you/.test(__live.text('.rv-decide-note') ?? '')`), 8_000, "approved");
+  await until(() => evalIn(c, `__live.qa('.rv-slide img').length === 7 && __live.qa('.rv-slide img').every((i) => i.complete && i.naturalWidth > 0) && !!__live.q('.rv-dock')`), 15_000, "slides drawn");
+  await sleep(400); // past the beat in which Approve ignores a press
+  await evalIn(c, `__live.click(__live.button('^Approve all 6$', __live.q('.rv-dock')))`);
+  await until(() => evalIn(c, `/Approved by you/.test(__live.text('.rv-dock-note') ?? '')`), 8_000, "approved");
   const reviews = (await api.call("team.space", { spaceId: space.id })).reviews;
   const slideshows = reviews.find((r) => r.title === "6 slideshows for Nathan");
   let tickets = (await api.call("team.tickets", { spaceId: space.id, reviewId: slideshows.id })).sort((a, b) => a.ord - b.ord);
@@ -304,8 +325,8 @@ async function main() {
   check("P1 at most three a day", perDay.every((n) => n <= 3), perDay);
   check("P1 between 8 AM and 10 PM", at.every((t) => new Date(t).getHours() >= 8 && new Date(t).getHours() < 22), at.map((t) => new Date(t).toString().slice(0, 21)));
   check("P1 the yes sent nothing", actsSent().length === 0);
-  const card = await evalIn(c, `__live.text('[data-review="${slideshows.id}"] .rv-state')`);
-  check("P1 the card counts what went out", card === "Approved by you · 0 of 6 posted", card);
+  const card = await evalIn(c, `__live.text('[data-review="${slideshows.id}"] .rv-row-what')`);
+  check("P1 the row counts what is left to post", card === "Approved · 6 to post", card);
 
   /* ── P2: the post sheet ─────────────────────────────────────────────────────────────────────── */
   await step(c, 2);
@@ -357,9 +378,9 @@ async function main() {
   check("P4 the ticket keeps its URL and screenshot", /^https:\/\/fake-platform\.invalid\/tiktok\//.test(done.proofUrl ?? "") && !!done.screenshot && fs.existsSync(done.screenshot), { url: done.proofUrl, shot: done.screenshot });
   const acted = (await api.call("team.activity", { spaceId: space.id, limit: 200 })).find((a) => a.verb === "acted");
   check("P4 and so does the log", acted?.detail.url === done.proofUrl && acted?.detail.screenshot === done.screenshot && acted?.detail.hash === done.contentHash, acted?.detail);
-  await until(() => evalIn(c, `/^Posted at /.test(__live.text('.rv-decide-note') ?? '')`), 8_000, "posted line");
-  const proofUi = await evalIn(c, `({ note: __live.text('.rv-decide-note'), link: __live.q('.rv-decide a.btn')?.getAttribute('href'), shot: !!__live.button('Screenshot'), card: __live.text('[data-review="${slideshows.id}"] .rv-state') })`);
-  check("P4 the bar says it went out, with the post and its screenshot", proofUi.link === done.proofUrl && proofUi.shot, proofUi);
+  await until(() => evalIn(c, `/^Posted at /.test(__live.text('.rv-dock-note') ?? '')`), 8_000, "posted line");
+  const proofUi = await evalIn(c, `({ note: __live.text('.rv-dock-note'), link: __live.q('.rv-dock a.btn')?.getAttribute('href'), shot: !!__live.button('Screenshot', __live.q('.rv-dock')), row: __live.text('[data-review="${slideshows.id}"] .rv-row-what') })`);
+  check("P4 the dock says it went out, with the post and its screenshot", proofUi.link === done.proofUrl && proofUi.shot, proofUi);
   await shot(c, "05-posted-proof-dark");
 
   await step(c, 2);
@@ -368,7 +389,7 @@ async function main() {
   await until(async () => (await api.call("team.tickets", { spaceId: space.id, reviewId: slideshows.id })).find((t) => t.ord === 1)?.state === "scheduled", 8_000, "scheduled");
   const second = (await api.call("team.tickets", { spaceId: space.id, reviewId: slideshows.id })).find((t) => t.ord === 1);
   check("P4 the second, pressed, waits for its slot two hours after the first", second.state === "scheduled" && second.slotAt - done.actedAt >= 2 * H - 60_000 && actsSent().length === 1, { slot: new Date(second.slotAt).toString().slice(0, 21) });
-  await until(() => evalIn(c, `/^Posts at /.test(__live.text('.rv-decide-note') ?? '')`), 8_000, "scheduled line");
+  await until(() => evalIn(c, `/^Posts .+\\. You can take it back until then\\.$/.test(__live.text('.rv-dock-note') ?? '')`), 8_000, "scheduled line");
   await shot(c, "06-scheduled-dark");
 
   /* ── P5: the kill switch ────────────────────────────────────────────────────────────────────── */
@@ -428,7 +449,7 @@ async function main() {
   await evalIn(c, `__live.click(__live.button('^Cancel$', __live.q('[role=dialog]')))`);
   await until(() => evalIn(c, `!__live.q('[role=dialog]')`), 5_000, "sheet closed light");
   await step(c, 1);
-  await until(() => evalIn(c, `/^Posted at /.test(__live.text('.rv-decide-note') ?? '')`), 8_000, "posted light");
+  await until(() => evalIn(c, `/^Posted at /.test(__live.text('.rv-dock-note') ?? '')`), 8_000, "posted light");
   await shot(c, "05-posted-proof-light");
   await evalIn(c, `__live.click(__live.button('Hold posting'))`);
   await until(() => evalIn(c, `!!__live.q('.rv-held')`), 8_000, "held light");
