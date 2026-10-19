@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
-import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_KEYBINDINGS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack, type UnlockPolicy, unlockPolicyRank } from "@realm/contracts";
-import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpSignInOptions, McpTool, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, KeybindingsFile, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
+import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack, type UnlockPolicy, unlockPolicyRank } from "@realm/contracts";
+import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpSignInOptions, McpTool, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, BranchList, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
 import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, Schedule, SearchResults, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
@@ -246,9 +246,6 @@ export type FakeData = {
   commandsRoot?: string;
   /** A space's project scripts, by space id. Absent → none. */
   scripts?: Record<string, Script[]>;
-  /** What `keybindings.get` answers with. Defaults to the shipped rules with no error — the state a
-   *  fresh install is in. */
-  keybindings?: KeybindingsFile;
   /** What `sandbox.get` answers with. Defaults to the shipped posture (`off`) inherited from the
    *  default, on a Mac where Seatbelt works — the state a fresh install is in. */
   sandbox?: SandboxState;
@@ -526,7 +523,6 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     commands: overrides.commands ?? {},
     commandsRoot: overrides.commandsRoot ?? "/realm-home/commands",
     scripts: overrides.scripts ?? {},
-    keybindings: overrides.keybindings ?? { path: "/realm-home/keybindings.json", rules: [...DEFAULT_KEYBINDINGS], error: null },
     sandbox: overrides.sandbox ?? {
       prefs: { posture: "off", network: true }, inherited: true, defaults: { posture: "off", network: true },
       policy: { posture: "off", network: true, writableRoots: [], readableRoots: [], readOnlyPaths: [], protectedRoots: [] },
@@ -1218,9 +1214,6 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       data.sandbox = { ...data.sandbox, prefs: prefs ?? data.sandbox.defaults, inherited: prefs === null };
       return { ...data.sandbox };
     },
-    getKeybindings: async () => { calls.push("getKeybindings"); return { ...data.keybindings }; },
-    writeKeybindings: async (rules) => { calls.push("writeKeybindings"); data.keybindings = { ...data.keybindings, rules: [...rules], error: null }; return { ...data.keybindings }; },
-    resetKeybindings: async () => { calls.push("resetKeybindings"); data.keybindings = { path: data.keybindings.path, rules: [...DEFAULT_KEYBINDINGS], error: null }; return { ...data.keybindings }; },
     listCommands: async (spaceId) => { calls.push(`listCommands:${spaceId}`); return { root: data.commandsRoot, commands: [...(data.commands[spaceId ?? ""] ?? [])] }; },
     expandCommand: async (spaceId, name, args) => {
       calls.push(`expandCommand:${spaceId}:${name}`);
@@ -1535,7 +1528,6 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       if (i >= 0) data.sessions[i] = { ...data.sessions[i]!, terminalItemId: made.itemId };
       return made;
     },
-    writeTerminal: async (terminalId, data) => { calls.push(`writeTerminal:${terminalId}=${data}`); },
     prefillTerminal: async (terminalId, command) => { calls.push(`prefillTerminal:${terminalId}=${command}`); },
     tccProbe: async () => { calls.push("tccProbe"); return [...data.tccRows]; },
     // The fake store mirrors main's asymmetry exactly: `credentials` holds no value field, and

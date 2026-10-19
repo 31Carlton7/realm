@@ -62,12 +62,4 @@ describe("liveApi wire params", () => {
       { method: "sessions.send", params: { id: "se1", text: "plain", attachments: [], mentions: [] } },
     ]);
   });
-
-  it("passes terminal writes through byte for byte — no newline is added on the way out", async () => {
-    calls.length = 0;
-    await liveApi().writeTerminal("t1", "npm install -g @anthropic-ai/claude-code");
-    expect(calls).toEqual([
-      { method: "terminals.write", params: { terminalId: "t1", data: "npm install -g @anthropic-ai/claude-code" } },
-    ]);
-  });
 });
