@@ -8,15 +8,17 @@ export default page({
   body: [
     h2("Your session's changes"),
     p(
-      "**Show changes** (**View ▸ Show Changes**, `/diff`, or a click on the strip above the prompter that names the branch and how many files changed) opens the diff of the session's checkout. Every line is marked with a sign as well as a colour.",
+      "**Show changes** (**View ▸ Show Changes**, `/diff`, or a click on the pill over the prompter that says what changed, such as **Changed 3 files**) opens **Changes** in the side panel: what changed in the session's checkout, in the same words, and under them the branch, any conflicts to resolve, the commits to push or pull, and the line counts.",
     ),
     ul(
-      "**Stage** and **Unstage** each file, or **Stage all**.",
+      "When more than one kind of file changed, they're grouped as **Documents**, **Images**, **Media**, **Data**, **Code** and **Other files**. Each file says what happened to it, such as **New**, **Edited**, **Deleted** or **Renamed from …**.",
+      "A picture shows before and after. A document, picture or media file opens rendered in Documents, and its chevron shows the lines that changed. A code file opens to its diff, where every line is marked with a sign as well as a colour.",
+      "**Stage** and **Unstage** each file, or **Stage all** and **Unstage all**.",
       "Write a message and choose **Commit only**, or **Commit, push & PR** [[⌘↩]] to push the branch and open a pull request.",
-      "**Request review** starts a read-only reviewer session over the checkout. Its verdict lands back in the diff.",
+      "**Request review** starts a read-only reviewer session over the checkout. Its verdict lands back in Changes.",
       "**History** lists the checkpoints taken in this checkout, to restore any of them (see [Sessions](/docs/sessions#undo-what-a-turn-changed)).",
     ),
-    p("The card at the end of a turn that edited files has **Review**, which opens the diff of that turn alone."),
+    p("The card at the end of a turn that changed files has **Review**, which opens the changes of that turn alone. **Show all changes** goes back to the whole checkout."),
 
     h2("Pull requests"),
     figure(

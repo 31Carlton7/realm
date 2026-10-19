@@ -13,7 +13,7 @@ export default page({
     table(
       ["In ~/Realm", "What it is"],
       ["`realm.db`", "Your profiles, spaces and sessions, every transcript, your settings and your connections, whose sign-ins are stored encrypted. Transcripts are stored compressed."],
-      ["`secrets.json`", "Saved passwords and passkeys, and the key that encrypts connections' sign-ins, all encrypted with a key macOS keeps in your login keychain. Only your account can read the file."],
+      ["`secrets.json`", "Saved passwords and passkeys, the key that encrypts connections' sign-ins, and this Mac's key for pairing an iPhone, all encrypted with a key macOS keeps in your login keychain. Only your account can read the file. Realm writes it all at once, and keeps one it can't read aside, unchanged, as `secrets.unreadable-….json`."],
       ["`library/`", "Realm's copies of the files in your Library, one folder per profile"],
       ["`worktrees/`", "The worktrees your sessions work in, one folder per space"],
       ["`skills/`, `commands/`, `memory/`", "Your skills, your own slash commands, and memory documents, including memory brought in from other agents"],
@@ -39,6 +39,7 @@ export default page({
       ["A Linux VM you start", "Its image, from Debian, Ubuntu or Alpine"],
       ["A font you add", "Google Fonts"],
       ["A text or Slack post when an agent needs you", "Messages on your Mac, or the Slack webhook you set, when you turn them on"],
+      ["A paired iPhone's sessions and notifications", "Realm's relay, and Apple's push service for notifications. Both are encrypted on this Mac for the phone, so the relay and Apple carry nothing they can read. With no iPhone paired and none being paired, the Mac doesn't connect to the relay at all."],
     ),
     p(
       "Realm has no analytics or telemetry of its own. Its agent server listens only on your Mac's loopback address, and asks every caller for a token.",

@@ -35,6 +35,20 @@ export default page({
       "When the prompter shows a suggestion in grey with a **Tab** key beside it, [[Tab]] fills it in.",
       "[[⌘⇧8]] starts a bulleted list and [[⌘⇧7]] a numbered one. [[Tab]] and [[⇧ Tab]] indent inside a list.",
       "Select text in the transcript and press **Quote** to put it in the prompter as a quote.",
+      "If a message can't be sent, it comes back to the prompter as you wrote it, unless you've started typing something new.",
+    ),
+
+    h2("Over the prompter"),
+    h3("Agents at work"),
+    p(
+      "While other agents work in the session, a row over the prompter shows each one: the sub-agents its agent started, the teammates you added, and any agent it asked a question. Each wears its own agent's mark with its state on the corner, a dot while it works and a check once it's done, beside its name. Whoever needs you comes first, and past three the last place reads **+N** and lists the rest. Finished ones stay until your next message. Point at one for its model, its state and its task.",
+    ),
+    p(
+      "Click one to open it in the side panel's **Agents** tab. Right-click it for **Open in Agents tab** and **Dismiss**, which takes it off the row and leaves it working; a sub-agent started through Realm, teammates included, also has **Message**, which names it in the prompter, and **Stop** while it works. See [Sub-agents](/docs/sub-agents).",
+    ),
+    h3("What changed"),
+    p(
+      "Once the session's checkout has changes, a pill over the prompter says what they are in plain words, such as **Changed 3 files**, **Added 2 images** or **Deleted 1 document**, with a mark for each kind of file. Click it to review them in **Changes** in the side panel: pictures before and after, documents rendered, code as diffs, with the branch and the line counts at the head. See [Code review](/docs/code-review#your-sessions-changes).",
     ),
 
     h2("Pick the model"),
@@ -87,6 +101,7 @@ export default page({
       ["**Select in Realm** [[⌘⇧C]]", "Point at any part of Realm's window, and attach a picture of it"],
       ["**Skills**", "Turn a skill on for this space, or mention it"],
       ["**Goal…**", "Keep working toward an objective across turns"],
+      ["**Add teammate…**", "Another agent, to help this one. See [Add a teammate](/docs/sessions#add-a-teammate)."],
       ["**Mode**", "Build, Plan or Ask"],
       ["**Connectors**", "Each connection enabled in this space and its state, and **Manage connections…**"],
     ),
@@ -100,16 +115,30 @@ export default page({
     ),
     h3("Mention with @"),
     p(
-      "Type `@` to name something. On its own it shows a short tour under **Team**, **Files**, **Library**, **Skills** and **Apps**; keep typing and it becomes one ranked list. [[↩]] or [[Tab]] picks.",
+      "Type `@` to name something. On its own it shows a short tour under **In this session**, **Team**, **Files**, **Library**, **Skills** and **Apps**; keep typing and it becomes one ranked list. [[↩]] or [[Tab]] picks.",
     ),
     ul(
       "A **file** in the checkout or the Library is handed over the way an attached file is.",
       "A **skill** is mentioned by name for this message.",
       "An **app** on your Mac gives this session computer use for that app alone. Its first action still asks you. See [Computer use and Laya](/docs/computer-use).",
-      "A **teammate**, in a space with a [team](/docs/teams-and-review), starts that role as a sub-agent.",
+      "An **agent** in this session, a sub-agent or a teammate you added, gets the message too, once it finishes what it's doing.",
+      "A role of the space's [team](/docs/teams-and-review), in a space with one, starts as a sub-agent of this session.",
     ),
     careful(
       "Realm never offers files that usually hold secrets in the `@` list, such as `.env`, `id_rsa`, `*.pem` or anything under `~/.ssh`, `~/.aws` or `~/.gnupg`, and holds them back if you name one anyway.",
+    ),
+
+    h2("Add a teammate"),
+    p(
+      "**Add teammate…** in the **+** menu brings another agent into the session to help its own. A small card asks for:",
+    ),
+    ul(
+      "**Runs on**: any model of any agent you have installed, in the same picker as the prompter's. It starts on this session's own.",
+      "A brief, in the **Help with…** field, which can be left empty.",
+      "**Works in**: **This folder** or **Its own worktree**, when the session's folder is a git checkout.",
+    ),
+    p(
+      "**Add teammate** starts it. The session's agent is told it joined along with your next message, and gets its report when it's done. A teammate is a [sub-agent](/docs/sub-agents) that you started instead of the session's agent, so it has a sub-agent's limits and runs in the session's permission mode. It shows on the row over the prompter, `@` sends it a message, and stopping your turn leaves it running. A sub-agent's own session doesn't offer it.",
     ),
 
     h2("Slash commands"),
@@ -121,7 +150,8 @@ export default page({
       ["`/build`, `/plan`, `/ask`", "Switch mode, where the agent offers that mode"],
       ["`/goal <objective>`", "Set a goal for the session"],
       ["`/export`", "Save this transcript as Markdown"],
-      ["`/diff`", "Open the changes in this session's checkout"],
+      ["`/share`", "Save this session as one web page. See [Share a session](/docs/sessions#share-a-session)."],
+      ["`/diff`", "Open **Changes** for this session's checkout"],
       ["`/attach`", "Attach files to this message"],
       ["`/skills`", "Open this space's skills"],
       ["`/connections`", "Open this space's connections"],
@@ -165,15 +195,15 @@ Write release notes for $1 from the merged pull requests since the previous tag.
 
     h2("Stop a turn"),
     p(
-      "While the agent works, the send button becomes **Stop**. [[Esc]] stops it too. After a stop, queued messages stay in the tray until you send them, and a goal doesn't carry on by itself.",
+      "While the agent works, the send button becomes **Stop**. [[Esc]] stops it too. After a stop, queued messages stay in the tray until you send them, and a goal doesn't carry on by itself. Sub-agents the agent started are stopped with the turn; teammates you added keep working.",
     ),
 
     h2("Undo what a turn changed"),
     p(
-      "In a git checkout, Realm takes a checkpoint before every message and keeps the newest fifty for each checkout. A turn that changed files ends with a card listing them: **Review** opens that turn's diff, and **Undo** puts the files back as they were before the turn. Undo appears only when it would take back exactly that turn and nothing after it.",
+      "In a git checkout, Realm takes a checkpoint before every message and keeps the newest fifty for each checkout. A turn that changed files ends with a card that says what changed, such as **Changed 2 code files**, and lists them: **Review** opens that turn's changes, and **Undo** puts the files back as they were before the turn. Undo appears only when it would take back exactly that turn and nothing after it.",
     ),
     steps(
-      "Right-click the session in the sidebar and choose **Checkpoints…**. (The diff pane's **History** opens the same list.)",
+      "Right-click the session in the sidebar and choose **Checkpoints…**. (**History** in Changes opens the same list.)",
       "Pick a checkpoint and press **Restore**. Realm says what it will rewrite, and saves the checkout as it is now first, as an undo point, so nothing is lost.",
       "For a Claude session the conversation rewinds with the files. Other agents keep their memory of the later turns.",
     ),
@@ -212,11 +242,23 @@ Write release notes for $1 from the merged pull requests since the previous tag.
       "An agent's question arrives as a card in the transcript that says who is asking, such as **Claude asks** or **Linear's MCP server asks**. Choose with the number keys or the arrows and [[↩]]; [[Esc]] skips. Once answered, the card stays where it was asked with your answer. Permission requests look similar and are covered in [Permissions and Full access](/docs/permissions).",
     ),
 
+    h2("Share a session"),
+    p(
+      "**⋯ ▸ Share as web page…** in the session's bar, or `/share`, saves the session as one HTML file that opens in any browser and reads well on a phone or a desktop, in light or dark. It fetches nothing, and nothing leaves your Mac until you send it.",
+    ),
+    ul(
+      "**Tool details**, **Thinking**, **Pictures** and **Sub-agents** choose what goes in, where the session has them. Thinking starts off and the others on.",
+      "**Hide file paths**, on by default, writes your home folder as `~`, so your account name stays out.",
+      "A value that looks like a key or a token always shows as `[hidden]`, whatever you choose.",
+      "Pictures go inside the file, up to 1.5 MB each and 12 MB in all. Larger ones are named instead.",
+    ),
+    p("**Save…** asks where, starting in Downloads, and names the file after the session and the day."),
+
     h2("Session details"),
     ul(
       "The status dot in the session's bar says whether it's idle, running, waiting on you, or stopped with an error.",
       "**Summary and files** in the bar opens a panel with a recap of the session, its usage and context, and every file it made or was given.",
-      "`/export` saves the whole transcript as Markdown.",
+      "`/export` saves the whole transcript as Markdown, and **Share as web page…** as a page anyone can open.",
       "A session you haven't seen since it last changed has a bold title and a blue dot in the sidebar.",
     ),
     tip(

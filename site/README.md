@@ -61,7 +61,7 @@ scrolling tab row) so the clip cannot cut them off.
 ## The docs
 
 `/docs` is how Realm works, page by page, written for the shipped app: every label is the one the app
-shows, read from its source at the release the pages name (Realm 2.3). When the app changes, the page
+shows, read from its source at the release the pages name (Realm 2.4). When the app changes, the page
 changes with it, and a feature the source does not have is not documented.
 
 Each page is a module in `content/docs/`, written with the small constructors in

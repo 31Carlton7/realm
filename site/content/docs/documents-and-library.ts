@@ -44,6 +44,9 @@ export default page({
       "Every file Realm shows outside the Documents tab (a picture in a message, an attachment, a Library tile) opens in the same viewer. Markdown is rendered and code is highlighted, PDFs open in a PDF viewer, and videos play in Realm's own player.",
     ),
     p(
+      "In a PDF, the arrows either side of the page number (**Previous page** and **Next page**) step one page at a time, on a slide deck too, and right to the last page. Type a number over the page number and press [[↩]] to go there, and **Show pages** [[⌘⌥S]] lists the pages down the side.",
+    ),
+    p(
       "Under the file is its session's prompter. A question asked there is a turn of the session the file came from, with the file attached, because that agent knows what the file is for. Marks you draw on a picture go to the agent as part of the picture.",
     ),
     table(

@@ -17,7 +17,10 @@ export default page({
       ["**Full access**", "Runs tools and edits files without asking first. The shield turns red so you can see it at a glance."],
     ),
     p(
-      "Click the chip to change it. Choosing **Full access** asks you to confirm with **Allow everything? Confirm** before it takes effect. On Claude the change applies straight away; on Codex it applies from the session's next start.",
+      "Click the chip to change it. Choosing **Full access** asks you to confirm with **Allow everything? Confirm** before it takes effect. On Codex a change applies from the session's next start.",
+    ),
+    p(
+      "On Claude the change applies straight away, and a session can move to Full access mid-session whatever mode it started in. A card already waiting stays there for you to answer. Where Claude Code only takes Full access when it starts, Realm starts it again on the same conversation before your next message. If Claude Code refuses outright, because Full access is turned off in its own settings or Realm is running as root, the session says so and keeps the mode it had.",
     ),
     p(
       "To change what new sessions start with, use **Settings ▸ General ▸ New sessions start in**. Each session's chip can still change it.",

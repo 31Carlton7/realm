@@ -65,7 +65,7 @@ export default page({
     h2("The sidebar"),
     ul(
       "**Needs you** heads the sidebar whenever something is waiting on you: sessions waiting on a permission or a question, reviews from a team, and sessions that failed, from every space and every profile. **Answer here** opens a request in place.",
-      "**Pinned** holds the sessions you've pinned.",
+      "**Pinned** holds the sessions you've pinned, from any space, each led by its space's icon in the space's colour.",
       "Each space lists its sessions with what needs you first, then what's running, then the most recent. A session you haven't seen since it changed has a bold title and a blue dot.",
       "Right-click a session for **Pin**, **Archive**, **Rename**, **Checkpoints…**, **Move to space…** and **Delete**.",
       "Spaces stay in the order you drag them into. Turn on **Settings ▸ General ▸ Sort spaces by activity** to keep the most recently active at the top instead.",

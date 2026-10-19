@@ -29,10 +29,13 @@ export default page({
     p(
       "From the session's **Agents** tab you can also ask for this without typing the request yourself. **Build with** lists models; pick one or more, describe the plan or feature, and send it to the session's agent. **Split by model** gives each model its own part to write. The request still goes to your agent, which does the splitting.",
     ),
+    p(
+      "Or start one yourself: **+ ▸ Add teammate…** in the prompter adds a sub-agent on the model you pick, with a brief, in the session's folder or a worktree of its own. Your agent is told it joined and gets its report, and stopping your turn leaves it running. See [Add a teammate](/docs/sessions#add-a-teammate).",
+    ),
 
     h2("Watching them work"),
     p(
-      "While sub-agents run, the transcript shows a line for each, such as **Sub-agent finished · Theme migration** with its model and time, and a strip at the foot of the transcript counts how many need you and how many are done. The session's **Agents** tab, in the side panel, has a card for each with:",
+      "While sub-agents run, a row over the prompter shows each one with its agent's mark, its state and its name, whoever needs you first (see [Agents at work](/docs/sessions#agents-at-work)). The transcript shows a line for each, such as **Sub-agent finished · Theme migration** with its model and time. The session's **Agents** tab, in the side panel, has a card for each with:",
     ),
     ul(
       "where it stands (**Needs you**, working, **Done**) and for how long",
@@ -42,10 +45,10 @@ export default page({
     figure(
       { detail: subAgents },
       "Two sub-agent cards: GPT-6 Luna through Codex, Needs you, building the dark-mode toggle and asking Allow Bash?; Claude Fable 5.1, Done, having written the migration with all twelve tests passing.",
-      "Two sub-agents in the transcript, one waiting on you and one finished.",
+      "Two sub-agents in the Agents tab, one waiting on you and one finished.",
     ),
     p(
-      "Click a card, or a sub-agent's line in the transcript, to open it in the side panel: its live transcript, its state, what it was asked, and what it reported once it finishes. Its requests can be answered there; **Message this sub-agent** writes to it alone, **Stop** stops it, and **Open as session** opens it with its own prompter.",
+      "Click a card, a sub-agent's mark on the row over the prompter, or its line in the transcript, to open it in the side panel: its live transcript, its state, what it was asked, and what it reported once it finishes. Its requests can be answered there; **Message this sub-agent** writes to it alone, **Stop** stops it, and **Open as session** opens it with its own prompter.",
     ),
 
     h2("Permissions"),

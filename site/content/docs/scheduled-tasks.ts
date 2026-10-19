@@ -44,7 +44,7 @@ export default page({
       "**Archive successful runs** keeps finished runs out of the sidebar. Failed and interrupted runs stay visible.",
     ),
     p(
-      "Selecting a task shows its card: when it runs, its instructions, its outputs, the next run and its model, and the space's connections it can use under **Sources**. The card's **⋯** has **Run now**, **Pause** or **Resume**, and **Delete task…**; the pencil edits it.",
+      "Selecting a task shows its card: when it runs, its instructions, its outputs, the next run and its model, and the space's connections it can use under **Sources**. The card's **⋯** has **Run now**, **Pause** or **Resume**, and **Delete task…**; the pencil edits it. A one-time task that has already run has nothing left to pause, but the pencil can still rename it or change its instructions, and a new time runs it again.",
     ),
 
     h2("When your Mac is asleep or Realm is closed"),
@@ -56,6 +56,9 @@ export default page({
       ["the Mac slept, and it wakes within 6 hours", "The run starts once, when Realm comes back"],
       ["the Mac slept for longer than that", "That run is skipped, and the task says so. A week of runs never all start at once."],
       ["it's a one-time task", "It runs as soon as it can, however late"],
+    ),
+    p(
+      "Times are your Mac's local time, through daylight saving changes too. On the day the clocks go forward, a time in the skipped hour runs at the first minute after it, so a daily task at 2:30 runs at 3:00 (an hourly task skips that hour). On the day they go back, a time in the hour that repeats runs once.",
     ),
     note(
       "Team roles use the same clock: a role's **Wakes** is a schedule like these, and a role whose week of budget is spent skips its run and records why. See [Teams and Review](/docs/teams-and-review).",

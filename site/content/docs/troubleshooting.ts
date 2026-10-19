@@ -26,11 +26,24 @@ export default page({
     ),
 
     h2("Messages at the top of the window"),
+    p(
+      "If Realm's agent server crashes, Realm starts it again and your windows reconnect to it on their own, with your drafts and panes as they were. A paired iPhone finds the Mac again too. While that happens, a banner across the top of the window says where things stand:",
+    ),
     ul(
       "**Connection lost — reconnecting…** The window lost its link to Realm's agent server for a moment. It reconnects on its own; **Retry** tries now.",
       "**The agent server stopped — restarting it…** Realm is starting its server again. Wait a moment.",
-      "**The agent server keeps failing to start** Look at the log it names, `~/Realm/logs/server.log`.",
-      "**Realm was updated, but the agent server running is the previous version.** Press **Quit & stop agents**, then open Realm again to finish the update.",
+      "**The agent server isn't answering.** The window has stopped trying on its own. Press **Restart Realm's server** to stop the old one and start it again; the window reconnects once it's up.",
+      "**The agent server keeps failing to start** It has crashed several times in a row. Press **Restart Realm's server** to try again, and if that fails too, look at the log it names, `~/Realm/logs/server.log`.",
+      "**Realm was updated, but the agent server running is the previous version.** You chose **Keep working** when Realm updated. Press **Quit & stop agents**, then open Realm again to finish the update.",
+    ),
+    p(
+      "Restarting Realm to update leaves your agents working. When the new version opens while a session or a task is working, it asks **Realm was updated. Restart the agent server?** with **Restart now** and **Keep working**.",
+    ),
+
+    h2("Saved passwords"),
+    ul(
+      "**Realm couldn't read your saved passwords, so it kept the file aside at … and started fresh. Nothing was deleted.** Realm found `secrets.json` unreadable and moved it, unchanged, to a `secrets.unreadable-….json` beside it in `~/Realm`, rather than writing over it. **Show in Finder** goes to it. The notice is in **Settings ▸ Passwords** and stays until you dismiss it.",
+      "**Realm needs Keychain access to read your saved passwords.** macOS's Keychain didn't let Realm open the key that encrypts them. Nothing is wrong with the file and nothing was moved. Press **Try again** to ask macOS once more.",
     ),
 
     h2("Computer use isn't working"),
@@ -52,7 +65,7 @@ export default page({
 
     h2("Linux and Windows"),
     p(
-      "The Linux (AppImage and .deb) and Windows builds of Realm 2.3 are previews. They are unsigned, so Windows SmartScreen warns on first run (choose **More info**, then **Run anyway**), and they don't update themselves: install a new version from the releases page. Features that exist only on a Mac, such as computer use, Laya, simulators, the Dock icon and window translucency, aren't shown there. On those systems Ctrl takes the place of [[⌘]] in every shortcut, and the Super or Windows key takes the place of [[⌃]].",
+      "The Linux (AppImage and .deb) and Windows builds of Realm 2.4 are previews. They are unsigned, so Windows SmartScreen warns on first run (choose **More info**, then **Run anyway**), and they don't update themselves: install a new version from the releases page. Features that exist only on a Mac, such as computer use, Laya, simulators, the Dock icon and window translucency, aren't shown there. On those systems Ctrl takes the place of [[⌘]] in every shortcut, and the Super or Windows key takes the place of [[⌃]].",
     ),
 
     h2("A copy you built yourself"),

@@ -264,7 +264,7 @@ export async function docsCard(slug: string): Promise<ImageResponse | null> {
 
 /** The docs home's card. */
 export function docsIndexCard() {
-  return draw({ sky: "a", meta: `${docs.length} pages · Realm 2.3`, title: "Docs", size: 120, summary: DOCS_SUMMARY })
+  return draw({ sky: "a", meta: `${docs.length} pages · Realm 2.4`, title: "Docs", size: 120, summary: DOCS_SUMMARY })
 }
 
 export const DOCS_ALT =

@@ -60,7 +60,7 @@ export default page({
       ["**Environment variables** or **Headers**", "Values the server needs, such as an API key"],
     ),
     p(
-      "Each server's row shows its state and has **Test**, **Refresh tools**, **Edit** and **Remove…**. A server whose connection keeps failing has its calls blocked until **Retry** reconnects it, and one whose sign-in expired says **Needs reauth**.",
+      "Each server's row shows its state and has **Test**, **Refresh tools**, **Edit** and **Remove…**. A server that exits, by crashing or quitting when idle, is connected again on its next call. One whose connection keeps failing has its calls blocked until **Retry** reconnects it, and one whose sign-in expired says **Needs reauth**.",
     ),
     p(
       "A server can be set up for **This space**, for every space in your profile (**From <profile>**), or **Everywhere**. **Move to profile…** and **Move to this space…** change that.",

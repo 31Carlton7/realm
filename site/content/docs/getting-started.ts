@@ -16,7 +16,7 @@ export default page({
       "For agents other than Claude, their own installer's requirements. Claude comes with Realm; Codex and most others install from npm, so they need Node.js. **Settings ▸ Engines** names each one's command.",
     ),
     note(
-      "Realm 2.3 also comes as previews for Linux (AppImage and .deb) and Windows. They are unsigned, they don't update themselves yet, and they hide the features that only exist on a Mac, such as computer use and simulators.",
+      "Realm 2.4 also comes as previews for Linux (AppImage and .deb) and Windows. They are unsigned, they don't update themselves yet, and they hide the features that only exist on a Mac, such as computer use and simulators.",
     ),
 
     h2("Install Realm"),
@@ -26,7 +26,7 @@ export default page({
       "Open Realm from Applications. Releases are signed and notarized by Apple, so it opens like any other app.",
     ),
     p(
-      "Realm checks for a new version when it opens and every few hours while it runs, and downloads it in the background. When one is ready, a button at the foot of the rail restarts Realm into it. You can check by hand in **Settings ▸ General**, under Updates, with **Check for updates**.",
+      "Realm checks for a new version when it opens and every few hours while it runs, and downloads it in the background. When one is ready, a button at the foot of the rail restarts Realm into it, and your agents keep working through the restart. You can check by hand in **Settings ▸ General**, under Updates, with **Check for updates**.",
     ),
 
     h2("Choose your agent"),

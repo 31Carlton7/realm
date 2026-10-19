@@ -40,10 +40,16 @@ export default page({
       "**More ▸ Share this site's sign-in with** copies one site's sign-in to another profile.",
       "**More ▸ Clear browsing data…** signs this profile's panes out of every site.",
     ),
+    p(
+      "A sign-in popup, such as a site's Sign in with Google, opens as a real window over Realm's, signed in to the pane's profile. When you finish, the page that opened it gets the answer and the popup closes itself; it also closes with its pane. A [[⇧]]-clicked link opens in a window like it. Your saved passwords and passkeys fill in the pane, not in a popup.",
+    ),
 
     h2("Saved passwords"),
     p(
       "**Settings ▸ Passwords** holds the profile's saved passwords and passkeys. Only that profile's agents and browser panes can use them, and the values are encrypted with a key macOS keeps in your login keychain.",
+    ),
+    p(
+      "Realm never throws saved passwords away. If it can't read the file they're kept in, it moves the file aside and says where, and if the Keychain won't open them, it leaves them alone and offers **Try again**. See [Troubleshooting](/docs/troubleshooting#saved-passwords).",
     ),
     h3("Get your passwords in"),
     ul(
