@@ -51,6 +51,13 @@ describe("summaryText", () => {
       "You asked: “Fix the library fade so cards stop bleeding through”. Over 2 turns the agent edited 2 files (styles.css, tokens.css), ran 1 command and read 1 file. It produced 2 files · 1 attached.");
   });
 
+  it("counts a search as a search, not as a file read", () => {
+    // A Read and a Grep closed on "read 2 files" under a ledger reading "1 read · 1 search".
+    const searched: Block = { kind: "tool", toolUseId: "g", name: "Grep", input: { pattern: "TODO" }, result: ok, ts: 3 };
+    expect(summaryText([asked("look around", 1), read("/r/README.md", 2), searched]))
+      .toBe("You asked: “look around”. The agent read 1 file.");
+  });
+
   it("names the first three edited files and counts the rest, by every harness's tool name", () => {
     const codex: Block = { kind: "tool", toolUseId: "c1", name: "apply_patch", input: { changes: [{ path: "/r/d.ts" }] }, result: ok, ts: 4 };
     const r = recapSession([wrote("/r/a.ts", 1), wrote("/r/b.ts", 2), wrote("/r/c.ts", 3), codex, wrote("/r/a.ts", 5)]);
