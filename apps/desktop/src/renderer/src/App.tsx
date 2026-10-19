@@ -351,14 +351,25 @@ export function ThemeBridge() {
  */
 function ConnectionBanner() {
   const connectionDown = useApp((s) => s.connectionState !== "connected");
+  const offline = useApp((s) => s.connectionState === "offline");
   const [daemon, setDaemon] = useState<DaemonUiState | null>(null);
-  useEffect(() => window.realm?.onDaemonState?.((state) => setDaemon(state as DaemonUiState)), []);
-  const copy = bannerFor({ connectionDown, daemon });
+  useEffect(() => window.realm?.onDaemonState?.((state) => {
+    setDaemon(state as DaemonUiState);
+    // Main is on the server again — very likely a new one, on a new port. Dial it now rather than at
+    // the end of whatever backoff this window is part-way through.
+    if (state.kind === "connected") rpc().retryNow();
+  }), []);
+  const restart = async () => {
+    await window.realm?.restartServer?.().catch(() => {});
+    rpc().retryNow();
+  };
+  const copy = bannerFor({ connectionDown, offline, daemon });
   if (!copy) return null;
   return (
     <div className="conn-banner" data-tone={copy.tone} role={copy.tone === "bad" ? "alert" : "status"}>
       <span>{copy.text}</span>
       {copy.action === "retry" && <button onClick={() => rpc().retryNow()}>Retry</button>}
+      {copy.action === "restart" && <button onClick={() => void restart()}>Restart Realm's server</button>}
       {copy.action === "quit-and-stop" && (
         <button onClick={() => void window.realm?.quitAndStopAgents?.()}>Quit &amp; stop agents</button>
       )}

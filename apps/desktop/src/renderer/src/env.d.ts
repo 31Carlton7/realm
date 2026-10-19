@@ -33,6 +33,13 @@ interface Window {
     quitAndStopAgents(): Promise<void>;
     /** The agent server's health, as main sees it. Replayed on every new window. */
     onDaemonState(cb: (state: { kind: string; attempt?: number; logPath?: string; why?: string }) => void): () => void;
+    /** Where the server is now. The `port` and `token` above are the ones this window was opened with;
+     *  a server started since — after a crash, or from the banner's Restart — has its own. Optional
+     *  like every late bridge: jsdom has none. */
+    serverEndpoint?(): Promise<{ port: number; token: string } | null>;
+    /** The banner's "Restart Realm's server": start it again, stopping one that is running but not
+     *  answering. Resolves once main has done what it can; the window dials again after. */
+    restartServer?(): Promise<void>;
     /** Whether the window is key (AppKit's sense: it has the keyboard), as main sees it. */
     onWindowKey(cb: (key: boolean) => void): () => void;
     isWindowKey(): Promise<boolean>;

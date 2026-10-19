@@ -287,6 +287,12 @@ contextBridge.exposeInMainWorld("realm", {
     ipcRenderer.on("daemon:state", handler);
     return () => ipcRenderer.removeListener("daemon:state", handler);
   },
+  /** Where the server is now — asked by the RPC client before every redial, because a server main
+   *  started after a crash has a new port and token, and the ones on this window's command line are
+   *  the old server's. */
+  serverEndpoint: (): Promise<{ port: number; token: string } | null> => ipcRenderer.invoke("daemon:endpoint"),
+  /** The banner's "Restart Realm's server". */
+  restartServer: (): Promise<void> => ipcRenderer.invoke("daemon:restart"),
   /** Whether the window is the key window — the one the keyboard is going to. Main reports it rather
    *  than the page because focus moving into a browser pane blurs the page while the window stays key. */
   onWindowKey: (cb: (key: boolean) => void): (() => void) => {
