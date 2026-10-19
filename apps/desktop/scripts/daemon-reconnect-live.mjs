@@ -5,7 +5,7 @@
  * the OS picks — what a packaged Realm does, and the only way a respawned server lands somewhere new.
  * Everything runs on the scripted agent; nothing is billed.
  *
- *   R1  kill -9 the daemon: the window shows the quiet reconnecting line, never an error wall;
+ *   R1  kill -9 the daemon: the window shows the quiet reconnecting line, and no error toasts;
  *   R2  the supervisor starts another on a new port with a new token, and the window reaches it by
  *       itself — no reload: the draft typed before the kill, the open session and a page marker are
  *       all still there;
@@ -211,8 +211,11 @@ async function main() {
   await evalIn(c, `(() => { document.querySelector('.composer-input').focus(); return true; })()`);
   await setInput(c, ".composer-input", DRAFT);
   // A reload would lose this; reconnecting must not.
-  await evalIn(c, `(() => { window.__beforeTheCrash = ${Date.now()}; window.__banners = []; let last = null;
-    setInterval(() => { const t = document.querySelector('.conn-banner')?.textContent ?? null; if (t !== last) { window.__banners.push({ at: Date.now(), text: t }); last = t; } }, 100);
+  await evalIn(c, `(() => { window.__beforeTheCrash = ${Date.now()}; window.__banners = []; window.__errors = new Set(); let last = null;
+    setInterval(() => {
+      const t = document.querySelector('.conn-banner')?.textContent ?? null; if (t !== last) { window.__banners.push({ at: Date.now(), text: t }); last = t; }
+      for (const e of document.querySelectorAll('.toast[data-tone="error"]')) window.__errors.add(e.textContent);
+    }, 100);
     return true; })()`);
   const lockedBefore = (await api1.call("remote.status", {})).state;
   check("before: Realm Mobile is unlocked (main handed over the key)", lockedBefore !== "locked", { state: lockedBefore });
@@ -240,11 +243,13 @@ async function main() {
     open: [...document.querySelectorAll('.panel')].some((p) => p.textContent.includes("Reconnect check")),
     endpoint: await window.realm.serverEndpoint(),
     banners: window.__banners.map((b) => ({ s: Math.round((b.at - ${killedAt}) / 100) / 10, text: b.text })),
+    errors: [...window.__errors],
   }))()`);
   check("R2 no reload: the page is the one from before the crash", page.marker !== null);
   check("R2 the draft survived", page.draft === DRAFT, { draft: page.draft });
   check("R2 the session is still open", page.open);
   check("R2 the window dials the new server", page.endpoint?.port === second.port, page.endpoint && { port: page.endpoint.port });
+  check("R1 no error toast while it was down — the banner said it", page.errors.length === 0, page.errors);
   console.log(`BANNERS ${js(page.banners)}`);
   await shot(c, "04-reconnected");
 
@@ -297,6 +302,8 @@ async function main() {
   const restarted = await until(async () => { const s = ourDaemon(); return s && !kills.includes(s.pid) && alive(s.pid) ? s : null; }, 30_000, "the restarted daemon");
   await until(async () => (await bannerText(c)) === null, 40_000, "the window back after Restart");
   check("R5 Restart brought the server and the window back", alive(restarted.pid), { pid: restarted.pid, port: restarted.port });
+  const errors = await evalIn(c, `[...window.__errors]`);
+  check("R5 and through six crashes, no error toast", errors.length === 0, errors);
   await shot(c, "08-after-restart");
 
   /* ── R6: the passwords file ──────────────────────────────────────────────────────────────── */
