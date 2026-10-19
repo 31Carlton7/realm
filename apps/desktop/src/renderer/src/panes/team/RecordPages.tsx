@@ -5,6 +5,7 @@ import {
   type ParsedRecord, type RecordHeadField, type RecordLine, type RecordPreset, type RecordSection, type RecordSectionShape, type TeamRecord,
   type TeamRecordType, type TeamSpace,
 } from "@realm/contracts";
+import { Icon3D, type Icon3DName } from "../../components/Icon3D";
 import { useApp } from "../../state/store";
 import { feedTime } from "./team-format";
 
@@ -16,6 +17,13 @@ import { feedTime } from "./team-format";
 
 /** A type's glyph, where Realm's icon set has it. */
 export const typeGlyph = (t: Pick<TeamRecordType, "glyph">): IconName => (isIconName(t.glyph) ? t.glyph : "records");
+
+/** The glyphs the record presets wear, and the 3D picture each stands for. A kind wearing any other
+ *  glyph is drawn as a kind of record. */
+const TYPE_PICTURE: Partial<Record<IconName, Icon3DName>> = {
+  records: "records", note: "note", link: "link", user: "contact", briefcase: "briefcase", flag: "flag", alert: "bug", browser: "browser",
+};
+export const typePicture = (t: Pick<TeamRecordType, "glyph">): Icon3DName => TYPE_PICTURE[typeGlyph(t)] ?? "records";
 
 /** The kind a record's path is in — v50's creators/ on a team that keeps no kinds yet. */
 export function typeOfPath(team: TeamSpace, path: string): Pick<TeamRecordType, "key" | "one" | "many" | "folder" | "titleField" | "statusField" | "statuses" | "head" | "sections"> | null {
@@ -309,7 +317,7 @@ export function NewRecordTypePage({ spaceId, team, first = false }: { spaceId: s
         <div className="tp-cards">
           {presets.map((p) => (
             <button key={p.key} type="button" className="tp-card tp-type-card" onClick={() => make({ spaceId, preset: p.key })}>
-              <span className="tp-card-head"><span className="tp-mark tp-mark-add"><Icon name={typeGlyph(p)} size={16} /></span><span className="tp-card-name">{p.many}</span></span>
+              <span className="tp-card-head"><span className="tp-mark tp-mark-add"><Icon3D name={typePicture(p)} size={32} /></span><span className="tp-card-name">{p.many}</span></span>
               <span className="tp-card-line">{[p.statusField ? `${p.statusField}: ${p.statuses.slice(0, 3).join(", ")}${p.statuses.length > 3 ? "…" : ""}` : null, p.sections.map((s) => s.heading).join(", ")].filter(Boolean).join(" · ")}</span>
               <span className="tp-card-foot"><code className="t-mono">{p.folder}/</code></span>
             </button>

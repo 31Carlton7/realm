@@ -1,6 +1,7 @@
 import { Icon, Realmite, parseRealmiteSpec, realmiteFromSeed } from "@realm/ui";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ROLE_TEMPLATES, TEAM_DEFAULTS, teamShares, type CustomRoleInput, type RoleTemplate, type TeamSpace } from "@realm/contracts";
+import { Icon3D } from "../../components/Icon3D";
 import { PageFoot } from "../../components/ScrollFades";
 import { Sheet } from "../../components/Sheet";
 import { RpcError } from "../../rpc/client";
@@ -108,7 +109,7 @@ function Gallery({ team, picked, setPicked, onWrite, creatorRecords = 0 }: {
               ))}
               <button type="button" className="tp-card tp-card-custom" onClick={() => onWrite(null)}>
                 <span className="tp-card-head">
-                  <span className="tp-mark tp-mark-add"><Icon name="add" size={16} /></span>
+                  <span className="tp-mark tp-mark-add"><Icon3D name="custom-teammate" size={32} /></span>
                   <span className="tp-card-name">Custom teammate</span>
                 </span>
                 <span className="tp-card-line">Write your own: what they do, when they wake, what they may spend, and their Realmite.</span>

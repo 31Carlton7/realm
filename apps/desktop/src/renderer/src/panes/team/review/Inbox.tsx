@@ -1,6 +1,7 @@
 import { Icon, Realmite, parseRealmiteSpec } from "@realm/ui";
 import { useRef, type KeyboardEvent } from "react";
 import type { TeamReviewSummary, TeamSpace } from "@realm/contracts";
+import { Icon3D } from "../../../components/Icon3D";
 import { useDissolve } from "../../../components/ScrollFades";
 import { realmiteState } from "../../../components/sidebar/TeamRows";
 import { useApp } from "../../../state/store";
@@ -113,11 +114,11 @@ export function Empty({ team }: { team: TeamSpace | undefined }) {
   const next = roles.filter((r) => r.cron && r.scheduleEnabled && r.nextRunAt).sort((a, b) => a.nextRunAt! - b.nextRunAt!)[0] ?? null;
   return (
     <div className="rv-empty">
-      {roles.length > 0 && (
+      {roles.length > 0 ? (
         <span className="rv-empty-team" aria-hidden="true">
           {roles.slice(0, 5).map((r) => <span key={r.id} className="rv-empty-mate"><Realmite spec={parseRealmiteSpec(r.realmite, r.id)} size={32} state={realmiteState(r)} /></span>)}
         </span>
-      )}
+      ) : <Icon3D name="review" size={64} className="rv-empty-picture" />}
       <h3 className="rv-empty-title">Nothing to review</h3>
       <p className="rv-empty-line">When {roles.length === 1 ? roles[0]!.name : "a teammate"} finishes a post, an email or a document, it waits here for your yes. Nothing goes out before you approve it.</p>
       {next && <p className="rv-empty-line rv-empty-next">{next.name}: {lowerFirst(roleStateLine(next))}.</p>}

@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { ICON3D_DENSITIES, ICON3D_GLYPH, ICON3D_SIZES } from "./components/Icon3D";
+import { ICON3D_FILES } from "./components/icon3d-files";
 
 /** The five rungs of Icon.tsx's ladder — card, tile, row, control, inline. */
 const RUNGS = new Set([20, 18, 16, 14, 12]);
@@ -49,5 +51,40 @@ describe("icon ladder", () => {
       }
     }
     expect(offenders, "off-ladder icon sizes — pick a rung, or write `off-ladder:` and the reason above the call").toEqual([]);
+  });
+});
+
+/**
+ * The 3D pictures have a ladder of their own, because a picture is not a glyph: it is shipped as files,
+ * one per rung and density, so a call site off the ladder would have no file to draw and quietly fall
+ * back to its glyph. `<Icon3D` is not matched by the scan above (`Icon3D` is one word to `\b`).
+ */
+describe("3D icon ladder", () => {
+  const files = Object.entries(SOURCES).filter(([name]) => !name.includes(".test."));
+
+  it("every call site sits on a rung the pictures are shipped at", () => {
+    const offenders: string[] = [];
+    let seen = 0;
+    for (const [name, src] of files) {
+      for (const m of src.matchAll(/<Icon3D\b[^<>]*?\bsize=\{(\d+)\}/gs)) {
+        seen++;
+        if (!(ICON3D_SIZES as readonly number[]).includes(Number(m[1]))) offenders.push(`${name.replace("./", "")}: size={${m[1]}}`);
+      }
+    }
+    expect(seen, "found no <Icon3D> — the scan would pass vacuously").toBeGreaterThan(5);
+    expect(offenders).toEqual([]);
+  });
+
+  // Mutant killed: the script shipping 2x alone — a 1x display would draw the glyph instead.
+  it("every picture that ships has each rung at each density", () => {
+    const shipped = new Set(Object.keys(ICON3D_FILES).map((f) => f.replace(/^.*\/(.+)-\d+\.webp$/, "$1")));
+    const missing: string[] = [];
+    for (const name of shipped) {
+      expect(Object.keys(ICON3D_GLYPH), `${name} is shipped but Icon3D has no such name`).toContain(name);
+      for (const size of ICON3D_SIZES) for (const d of ICON3D_DENSITIES) {
+        if (!ICON3D_FILES[`../assets/icons3d/${name}-${size * d}.webp`]) missing.push(`${name}-${size * d}.webp`);
+      }
+    }
+    expect(missing).toEqual([]);
   });
 });

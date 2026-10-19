@@ -1,6 +1,7 @@
 import { Icon, Realmite, parseRealmiteSpec } from "@realm/ui";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { TeamReviewSummary, TeamRole, TeamSpace } from "@realm/contracts";
+import { Icon3D } from "../../../components/Icon3D";
 import { Menu } from "../../../components/Menu";
 import { useDissolve } from "../../../components/ScrollFades";
 import { realmiteState } from "../../../components/sidebar/TeamRows";
@@ -235,8 +236,7 @@ export function EmptyTeam({ spaceId }: { spaceId: string }) {
     <div className="tc-chat">
       <section className="tc-main" aria-label="Chats">
         <div className="tc-empty tc-empty-team">
-          {/* off-ladder: the empty team's one picture, over the line that says who is missing — not a UI glyph. */}
-          <Icon name="team" size={24} className="tc-empty-glyph" />
+          <Icon3D name="overview" size={64} className="tc-empty-glyph" />
           <p className="tc-empty-name">No one is on this team</p>
           <p className="tc-empty-line">Add a teammate and its chat appears here. Each one works on its own clock and when you message it.</p>
           <button type="button" className="btn primary" onClick={() => openSheet({ kind: "add-teammates", spaceId })}><Icon name="add" size={16} />Add teammate</button>

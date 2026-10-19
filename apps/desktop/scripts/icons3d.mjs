@@ -96,13 +96,13 @@ async function encode(win, img, type, quality) {
 const GROUNDS = [[24, 25, 28], [120, 122, 128], [246, 246, 248]];
 
 function sheet(rows) {
-  const cell = 160, gap = 8;
-  const width = GROUNDS.length * cell, height = rows.length * (cell + gap);
+  const cell = 160, wide = 200, gap = 8;
+  const width = GROUNDS.length * wide, height = rows.length * (cell + gap);
   const data = new Uint8ClampedArray(width * height * 4);
   rows.forEach(({ large, small }, r) => {
     GROUNDS.forEach((ground, g) => {
-      const x0 = g * cell, y0 = r * (cell + gap);
-      for (let y = 0; y < cell; y++) for (let x = 0; x < cell; x++) {
+      const x0 = g * wide, y0 = r * (cell + gap);
+      for (let y = 0; y < cell; y++) for (let x = 0; x < wide; x++) {
         const i = ((y0 + y) * width + x0 + x) * 4;
         data.set(ground, i); data[i + 3] = 255;
       }

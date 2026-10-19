@@ -1,10 +1,11 @@
-import { Icon, Realmite, parseRealmiteSpec, type IconName } from "@realm/ui";
+import { Icon, Realmite, parseRealmiteSpec } from "@realm/ui";
 import { useEffect, useMemo, useState } from "react";
 import { mediaUrl, type TeamActivity, type TeamRecordType, type TeamRole, type TeamSpace } from "@realm/contracts";
 import { MakeTeam } from "./TeamPicker";
 import { PoliciesPage } from "./PoliciesPage";
 import { VaultPage } from "./VaultPage";
-import { NewRecordTypePage, RecordPage, RecordTypePage, RecordsPage, typeGlyph, typeOfPath } from "./RecordPages";
+import { NewRecordTypePage, RecordPage, RecordTypePage, RecordsPage, typeOfPath, typePicture } from "./RecordPages";
+import { Icon3D, type Icon3DName } from "../../components/Icon3D";
 import { BackoffNote, HandoffLines, TeamBudget } from "./HandoffParts";
 import { realmiteState, reviewGlyph } from "../../components/sidebar/TeamRows";
 import { useApp, type SpacePageTab } from "../../state/store";
@@ -62,12 +63,12 @@ export function TeamRailList({ spaceId, team, tab, pick }: { spaceId: string; te
   const run = useApp((s) => s.run);
   useEffect(() => { if ((tab.startsWith("record:") || tab.startsWith("records")) && !records) run(() => loadTeamRecords(spaceId)); }, [tab, records, spaceId, loadTeamRecords, run]);
   const name = `space-page-tab-${spaceId}`;
-  const row = (id: SpacePageTab, label: string, glyph: IconName | null, count?: number, sub = false, lit = tab === id) => (
+  const row = (id: SpacePageTab, label: string, picture: Icon3DName | null, count?: number, sub = false, lit = tab === id) => (
     <label key={id} className={`settings-tab page-rail-tab${sub ? " tp-sub" : ""}`} data-selected={lit || undefined}>
       {/* A kind's row is lit on its fields page too, where a click must still go to its list: a checked
           radio fires no change. */}
       <input type="radio" name={name} value={id} checked={lit} onChange={() => pick(id)} onClick={() => { if (lit && tab !== id) pick(id); }} />
-      {glyph && <Icon name={glyph} size={16} className="page-rail-glyph" />}
+      {picture && <Icon3D name={picture} size={20} selected={lit} className="page-rail-glyph" />}
       <span className="tp-rail-label">{label}</span>
       {count !== undefined && <span className="item-count tp-rail-count">{count}</span>}
     </label>
@@ -83,21 +84,21 @@ export function TeamRailList({ spaceId, team, tab, pick }: { spaceId: string; te
         {/* Review is a pane of its own, not a page of this one, so its row is a way there. */}
         <button type="button" className="settings-tab page-rail-tab" onClick={() => run(() => openTeamReview(spaceId, waiting[0]?.id ?? null))}
           aria-label={waiting.length ? `Review, ${waiting.length} waiting on you` : "Review"}>
-          <Icon name="review" size={16} className="page-rail-glyph" />
+          <Icon3D name="review" size={20} className="page-rail-glyph" />
           <span className="tp-rail-label">Review</span>
           {waiting.length > 0 && <span className="item-count tp-rail-count">{waiting.length}</span>}
         </button>
-        {row("overview", "Overview", "team")}
+        {row("overview", "Overview", "overview")}
         {team.recordTypes.length === 0 && row("records", "Records", "records", undefined, false, tab === "records" || tab === "recordtype:new")}
         {team.recordTypes.map((t) => {
           const mine = open?.id === t.id && tab !== `recordtype:${t.key}` ? records?.filter((r) => r.path.startsWith(`${t.folder}/`)) : undefined;
           return [
-            row(`records:${t.key}`, t.many, typeGlyph(t), mine?.length ? undefined : t.count, false, open?.id === t.id && (tab === "records" || !tab.startsWith("record:"))),
+            row(`records:${t.key}`, t.many, typePicture(t), mine?.length ? undefined : t.count, false, open?.id === t.id && (tab === "records" || !tab.startsWith("record:"))),
             ...(mine ?? []).map((r) => row(`record:${r.path}`, r.name, null, undefined, true)),
           ];
         })}
-        {row("policies", "Policies", "shield")}
-        {row("vault", "Vault", "padlock")}
+        {row("policies", "Policies", "policies")}
+        {row("vault", "Vault", "vault")}
         {row("activity", "Activity", "activity")}
       </fieldset>
     </>
