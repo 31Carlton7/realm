@@ -1,8 +1,8 @@
 import * as fs from "node:fs";
-import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { tempDir } from "@realm/test-utils";
 import { READ_RETRY_MS, readSecretsFile, setAsideSecretsFile, writeSecretsFile, type SecretsFs } from "./secrets-file";
 import { SecretStore } from "./secret-store";
 
@@ -13,7 +13,7 @@ import { SecretStore } from "./secret-store";
  *   - a set-aside that lands on an earlier one, or uses a name Windows refuses.
  */
 
-const home = () => mkdtempSync(join(tmpdir(), "realm-secrets-file-"));
+const home = () => tempDir("realm-secrets-file-");
 const errno = (code: string) => Object.assign(new Error(code), { code });
 
 describe("writeSecretsFile", () => {
