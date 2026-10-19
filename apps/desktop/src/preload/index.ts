@@ -103,6 +103,9 @@ contextBridge.exposeInMainWorld("realm", {
    *  or null when they cancelled. No destination crosses this bridge — only a suggested filename,
    *  which main reduces to a bare basename before it becomes a `defaultPath`. */
   saveText: (input: { name: string; text: string }): Promise<string | null> => ipcRenderer.invoke("save-text", input),
+  /** A picture for a shared page as a data: URL main re-encoded at the page's size, or null for
+   *  anything that is not a readable image. The renderer never reads the file's own bytes. */
+  shareImage: (path: string): Promise<string | null> => ipcRenderer.invoke("share:image", path),
   /** Single-image picker for the icon picker's "Uploaded" tab; null when cancelled. */
   pickIconImage: (): Promise<PickedFile | null> => ipcRenderer.invoke("pick-icon-image"),
   compressIconImage: (path: string): Promise<PickedFile | null> => ipcRenderer.invoke("compress-icon-image", path),

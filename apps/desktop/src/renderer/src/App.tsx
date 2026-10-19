@@ -11,6 +11,7 @@ import { NewProfileSheet } from "./components/profiles/NewProfileSheet";
 import { ProfileWindowBridge } from "./components/profiles/ProfileWindowBridge";
 import { NewLectureSheet, WrapUpLectureSheet } from "./components/LectureSheets";
 import { SessionPlanSheet } from "./panes/session/SessionSummary";
+import { ShareSheet } from "./panes/session/share/ShareSheet";
 import { PlynnImportSheet } from "./components/PlynnImportSheet";
 import { RemoveWorktreeSheet } from "./components/RemoveWorktreeSheet";
 import { NewWorktreeSheet } from "./components/NewWorktreeSheet";
@@ -381,6 +382,7 @@ function SheetHost() {
   if (sheet.kind === "wrap-up-lecture") return <WrapUpLectureSheet />;
   if (sheet.kind === "plynn-import") return <PlynnImportSheet />;
   if (sheet.kind === "session-plan") return <SessionPlanSheet sessionId={sheet.sessionId} planId={sheet.planId} />;
+  if (sheet.kind === "share-session") return <ShareSheet sessionId={sheet.sessionId} />;
   return null;
 }
 

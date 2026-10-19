@@ -165,14 +165,18 @@ export function SessionPanelActions({ item, keep }: { item: Item; keep: number }
  *  read as the group they came from rather than as the first of the layout rows. */
 export function useSessionMenuItems(item: Item, keep: number): MenuItem[] {
   const actions = useSessionActions(item);
+  const shareSession = useApp((s) => s.shareSession);
   return useMemo(() => {
     if (item.kind !== "session") return [];
+    /* Beside Rename: like it, an act on the session itself rather than on the pane showing it. */
+    const share: MenuItem = { label: "Share as web page…", icon: <Icon name="browser" size={14} />, onSelect: () => shareSession(item.refId) };
     const overflow = actions.slice(keep);
-    if (overflow.length === 0) return [];
+    if (overflow.length === 0) return [share];
     /* Fenced on both sides: these are the bar's cluster, continued, and without the leading rule they
        read as a continuation of Rename instead — one list of five unrelated things at the top of the
        menu. */
     return [
+      share,
       { kind: "separator" },
       ...overflow.map((a): MenuItem => ({
         label: a.label,
@@ -183,7 +187,7 @@ export function useSessionMenuItems(item: Item, keep: number): MenuItem[] {
       })),
       { kind: "separator" },
     ];
-  }, [actions, keep, item.kind]);
+  }, [actions, keep, item.kind, item.refId, shareSession]);
 }
 
 /**
@@ -418,6 +422,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const cliRow = session ? cliStatus.find((r) => r.kind === session.agentKind) : undefined;
   const openDiff = useApp((s) => s.openDiff);
   const exportSession = useApp((s) => s.exportSession);
+  const shareSession = useApp((s) => s.shareSession);
   const submitKey = useApp((s) => s.submitKey);
   const easterEggs = useApp((s) => s.easterEggs);
   // Stable across renders: InstallCard registers it as a window "focus" listener.
@@ -628,6 +633,10 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
     {
       id: "export", label: "Export session", hint: "Save this transcript as Markdown", icon: "download",
       run: () => run(() => exportSession(id)),
+    },
+    {
+      id: "share", label: "Share as web page", hint: "Save this session as one page that opens in any browser", icon: "browser",
+      run: () => shareSession(id),
     },
     // Each of the rest is gated on the thing it would act on actually existing: a command that could
     // only no-op is the dead chrome the pane bar bans, and a picker is a worse place for one than a

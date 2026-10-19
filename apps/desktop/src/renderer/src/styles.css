@@ -9414,6 +9414,14 @@ span.documents-name:hover { background: none; }
   color: var(--rl-text-faint); }
 .sheet-lede { margin: 0; font-size: 13px; color: var(--rl-text-dim); line-height: 1.5; }
 .sheet-lede code { font-size: 12px; }
+/* Share as web page (ShareSheet): the switches as one settings card under the lede, the file's size
+   at the far end of the foot from Save, read before it is pressed. */
+.share-sheet-options { margin-top: 16px; }
+.share-sheet-reading { display: flex; align-items: center; gap: 8px; margin: 16px 0 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.share-sheet-note { margin: 12px 0 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: pretty; }
+.share-sheet-note[data-tone="danger"] { color: var(--rl-danger); }
+.share-sheet-status { flex: 1; min-width: 0; align-self: center; margin: 0 8px 0 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim);
+  font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* What's new (WhatsNewSheet): the app's icon and the version over the notes, then the notes as a
    list, read at the body size in the secondary ink with each bold lead in the primary. */
 .whats-new-hero { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0 6px; text-align: center; }
