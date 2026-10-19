@@ -10,8 +10,9 @@
  *   2. Only the tab showing has its native view on screen — asked of main, over its inspector — and
  *      every tab's page is live, so an agent can drive the ones behind it.
  *   3. A click on a tab brings that browser forward.
- *   4. An `agent_start` child gets no pane; the row over the prompter names it working, and a click
- *      on its chip previews the child as a tab of the same side pane.
+ *   4. An `agent_start` child gets no pane; the row over the prompter names it — Queued until its first
+ *      turn starts, then Working — and a click on its chip opens the session's Agents tab, a tab of
+ *      the same side pane, on that agent, with the keyboard left in the lead.
  *
  * Ports: LIVE_SERVER_PORT (8821), LIVE_CDP_PORT (9261), LIVE_SITE_PORT (8822), LIVE_MAIN_INSPECT_PORT (9262). Touches only a scratch
  * dir; kills only what is listening on its own ports. Browses nothing but its own 127.0.0.1 fixture.
@@ -210,7 +211,8 @@ async function main() {
   // One pane: the session alone, so every pane after this is one an agent asked for.
   await evalIn(c, `(() => { for (const b of document.querySelectorAll('.panel-bar button[aria-label^="Close"]')) if (!b.closest('.panel').textContent.includes(${JSON.stringify(TITLE)})) b.click(); return true; })()`);
   await sleep(500);
-  const panes = () => evalIn(c, `[...document.querySelectorAll('.panehost .panel')].map((p) => ({ tabs: [...p.querySelectorAll('[role=tab]')].map((t) => ({ name: t.textContent, selected: t.getAttribute('aria-selected') === 'true' })), title: p.querySelector('.panel-title')?.textContent ?? null, focused: p.hasAttribute('data-focused'), width: Math.round(p.getBoundingClientRect().width) }))`);
+  // The pane's own tabs: an Agents tab carries a strip of its sub-agents' tabs too, which are not the pane's.
+  const panes = () => evalIn(c, `[...document.querySelectorAll('.panehost .panel')].map((p) => ({ tabs: [...p.querySelectorAll('.pane-tabs [role=tab]')].map((t) => ({ name: t.textContent, selected: t.getAttribute('aria-selected') === 'true' })), title: p.querySelector('.panel-title')?.textContent ?? null, focused: p.hasAttribute('data-focused'), width: Math.round(p.getBoundingClientRect().width) }))`);
   note("panes before", await panes());
 
   await api.call("sessions.send", { id: sessionId, text: "REVEAL", attachments: [], mentions: [] });
@@ -287,24 +289,34 @@ async function main() {
   await evalIn(c, `(() => { const p = [...document.querySelectorAll('.panehost .panel')].find((x) => x.querySelector('.panel-title')?.textContent === ${JSON.stringify(TITLE)}); p.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); return true; })()`);
   await sleep(200);
 
-  // ── 4. A sub-agent gets no pane, a chip over the prompter, and a preview tab on request ─────
+  // ── 4. A sub-agent gets no pane, a chip over the prompter, and the Agents tab on a click ──────
+  // `HANG` is the stub agent's script word for a turn that never ends: a child that stays working.
   const started = await call("realm-agent__agent_start", { goal: "HANG", constraints: { agentKind: "acp:gemini" } });
   note("agent_start", text(started).slice(0, 200));
-  const chip = await until(() => evalIn(c, `(() => { const b = document.querySelector('.composer-overstrip .active-agent'); return b ? b.dataset.state : null; })()`), 20_000, "the agent on the row");
-  check("the row over the prompter says one agent is working", chip === "working" && await evalIn(c, `document.querySelectorAll('.composer-overstrip .active-agent').length === 1`), chip);
+  // The chip arrives with the run, before the child's first turn has begun, so it is Queued first.
+  const seen = [];
+  const chipState = () => evalIn(c, `(() => { const b = document.querySelectorAll('.composer-overstrip .active-agent'); return b.length === 1 ? b[0].dataset.state : b.length > 1 ? 'more than one' : null; })()`);
+  const chip = await until(async () => { const s = await chipState(); if (s && seen.at(-1) !== s) seen.push(s); return s === "working" ? s : null; }, 20_000, "the agent working on the row").catch(() => seen.at(-1) ?? null);
+  note("the chip's states, in order", seen);
+  check("the row over the prompter names the one agent, working once its first turn starts", chip === "working" && !seen.includes("more than one"), seen);
   await sleep(800);
   const withKid = await panes();
   check("the child opened no pane of its own", withKid.length === 2, withKid.map((p) => p.title ?? p.tabs.map((t) => t.name)));
   await shot(c, "agents-row");
   await evalIn(c, `(() => { document.querySelector('.composer-overstrip .active-agent').click(); return true; })()`);
-  const preview = await until(async () => { const ps = await panes(); const s = ps.find((p) => p.tabs.length === 4); return s ? ps : null; }, 10_000, "preview tab").catch(() => panes());
-  const s4 = preview.find((p) => p.tabs.length === 4);
-  check("a click on its chip previews the child as a fourth tab, on screen", !!s4 && s4.tabs.find((t) => t.name.startsWith("Agent"))?.selected && preview.length === 2, preview);
-  check("…with the keyboard still in the lead", preview.find((p) => p.title === TITLE)?.focused === true);
+  const shownAgent = () => evalIn(c, `(() => ({ title: document.querySelector('.subagent-view-title')?.textContent ?? null,
+    tab: document.querySelector('.subagent-switch-tab[aria-selected="true"]')?.textContent ?? null }))()`);
+  const opened = await until(async () => { const ps = await panes(); const side = ps.find((p) => p.title === null); return side?.tabs.find((t) => t.name === "Agents")?.selected ? ps : null; }, 10_000, "the Agents tab").catch(() => panes());
+  const side = opened.find((p) => p.title === null);
+  check("a click on its chip opens the side pane's Agents tab, as a fourth tab, on screen", opened.length === 2 && side?.tabs.length === 4
+    && side.tabs.find((t) => t.name === "Agents")?.selected, opened);
+  const shown = await until(async () => { const a = await shownAgent(); return a.title === "HANG" ? a : null; }, 10_000, "its viewer").catch(() => shownAgent());
+  check("…on that agent's own viewer", shown.title === "HANG" && shown.tab === "HANG", shown);
+  check("…with the keyboard still in the lead", opened.find((p) => p.title === TITLE)?.focused === true);
   await sleep(500);
   const vKid = await views();
-  check("no browser view paints over the preview", onScreen(vKid).length === 0, vKid);
-  await shot(c, "child-preview");
+  check("no browser view paints over the Agents tab", onScreen(vKid).length === 0, vKid);
+  await shot(c, "child-agents-tab");
 }
 
 /** The whole window as the renderer draws it. Native browser views are not in a DOM capture, so a
