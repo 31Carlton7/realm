@@ -23,6 +23,7 @@ import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
 import { readTextFile } from "./read-text";
 import { compressIconIfNeeded, describeFiles, existingPath, fileThumbnail, openablePath, saveTempAttachment, statFile, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
+import { shareImage } from "./share-images";
 import { clearBrowserPartition, createBrowserPane, governBrowserDownloads, shareSiteCookies, type BrowserPane, type DownloadPolicy } from "./browser-pane";
 import { refuseCapture } from "./capture-guard";
 import { viewNavigationAllowed } from "./app-views";
@@ -1807,6 +1808,8 @@ const PREVIEW_PX = 512;
 const PAGE_PX = 1600;
 ipcMain.handle("files:preview", (_e, path: unknown, size?: unknown): Promise<string | null> =>
   fileThumbnail(realmHome, path, size === "page" ? PAGE_PX : PREVIEW_PX));
+/** A picture for a shared page, re-encoded here at the page's size (share-images.ts). */
+ipcMain.handle("share:image", (_e, path: unknown): Promise<string | null> => shareImage(path));
 /** Looser than the other three on purpose: a DIRECTORY is a real thing to reveal, and the transcript's
  *  path menu offers this for one — as does `~/…`, and a path relative to `base`. See `existingPath`.
  *  Answers whether there was anything to reveal, so a menu that asked can say when there was not. */

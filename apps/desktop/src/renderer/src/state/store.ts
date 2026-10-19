@@ -43,6 +43,7 @@ import { emptyTranscript, lastUserMessage, prependTranscript, reduceTranscript, 
 import { CARRIED_LIMIT, CARRIED_TYPES, EARLIER_EVENTS, TAIL_EVENTS, readBack } from "./transcript-paging";
 import { activityOf, type SessionActivity } from "./session-activity";
 import { exportFileName, exportSessionMarkdown } from "../panes/session/export-session";
+import type { SharedSession } from "../panes/session/share/page";
 import { draftRun, withOptions } from "../panes/session/draft-run";
 import { usableModel } from "../panes/session/model-catalog";
 import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browser/browser-client";
@@ -947,7 +948,9 @@ export type Sheet =
   /** One plan out of a session's summary, named by the session that proposed it and the plan's own
    *  id. Read live for the same reason: a plan the agent revises while the sheet is open should show
    *  the revision, not the snapshot that was taken when the row was clicked. */
-  | { kind: "session-plan"; sessionId: string; planId: string };
+  | { kind: "session-plan"; sessionId: string; planId: string }
+  /** A session as a web page: what the page includes, its size, and Save (share/ShareSheet.tsx). */
+  | { kind: "share-session"; sessionId: string };
 
 export type AppState = TeamSlice & LabSlice & {
   /** False until `boot()` has finished once. First-run onboarding keys off "no spaces" — which is also
@@ -2138,6 +2141,11 @@ export type AppState = TeamSlice & LabSlice & {
    *  Resolves the saved path, or null when they cancelled — and null too where there is no bridge to
    *  ask with (jsdom, and a renderer that loaded before the preload). */
   exportSession(id: string): Promise<string | null>;
+  /** The Share sheet for a session — `/share`, and the session's ⋯ menu. */
+  shareSession(id: string): void;
+  /** What a shared page of the session is built from, read whole from the server and the disk
+   *  (share/gather.ts). Null for a session this window does not know. */
+  gatherShare(id: string): Promise<SharedSession | null>;
   /** Rate one assistant message, or with null take an earlier rating back. Optimistic: the verdict
    *  is on screen before the round trip, because a thumb that waits on the disk reads as a dead
    *  button. The broadcast that follows lands on the same reducer and settles to the same state. */
@@ -6263,6 +6271,39 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           model: session.model, cwd: session.cwd, now,
         });
         return (await window.realm?.saveText?.({ name: exportFileName(title, now), text })) ?? null;
+      },
+      shareSession(id) { get().openSheet({ kind: "share-session", sessionId: id }); },
+      /**
+       * Everything the shared page is built from, read FRESH rather than off the pane's transcript —
+       * unlike the Markdown export above. The page carries what the pane cannot: each answered
+       * permission prompt (the transcript keeps only the open ones), every sub-agent's own log and the
+       * pictures, so it reads the log itself. Loaded on demand, with the page builder: neither is
+       * needed until someone shares.
+       */
+      async gatherShare(id) {
+        const session = get().sessions[id] ?? get().allSessions[id];
+        if (!session) return null;
+        const { gatherShare } = await import("../panes/session/share/gather");
+        const readLog = async (sessionId: string) => {
+          const events: StoredSessionEvent["event"][] = [];
+          for (let after = 0; ;) {
+            const page = await api.sessionEvents(sessionId, after, EVENTS_PAGE);
+            events.push(...page.map((e) => e.event));
+            if (page.length < EVENTS_PAGE) return events;
+            after = page.at(-1)!.seq;
+          }
+        };
+        return gatherShare({
+          session,
+          title: get().items.find((i) => i.kind === "session" && i.refId === id)?.title ?? session.title,
+          space: get().spaces.find((sp) => sp.id === session.spaceId)?.name ?? null,
+          probe: get().agentProbe,
+          now: Date.now(),
+          readLog,
+          children: () => api.listDelegatedChildren(id),
+          resolve: async (path, base) => (await window.realm?.files?.resolve?.(path, base ?? undefined)) ?? null,
+          image: async (path) => (await window.realm?.shareImage?.(path)) ?? null,
+        });
       },
       async rateMessage(sessionId, messageId, rating) {
         const entry = get().transcripts[sessionId];

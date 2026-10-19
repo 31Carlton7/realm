@@ -145,10 +145,11 @@ function inlineCode(s: string): string {
 }
 
 /** A filename for the export: the session's title, reduced to something every filesystem accepts.
- *  Never empty — an untitled session still gets a name rather than a bare extension. */
-export function exportFileName(title: string, now: number): string {
+ *  Never empty — an untitled session still gets a name rather than a bare extension. The Markdown
+ *  export and the shared page differ only in `extension`. */
+export function exportFileName(title: string, now: number, extension = "md"): string {
   const stem = title.trim().replace(/[/\\:*?"<>|]+/g, "-").replace(/\s+/g, " ").slice(0, 60).trim() || "Session";
   const d = new Date(now);
   const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  return `${stem} ${stamp}.md`;
+  return `${stem} ${stamp}.${extension}`;
 }
