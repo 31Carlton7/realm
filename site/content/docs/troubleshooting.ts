@@ -42,7 +42,7 @@ export default page({
     ul(
       "Each attachment can be up to 20 MB. A larger one is refused with its size.",
       "A file an agent wrote outside the space, such as in `/tmp`, opens read-only.",
-      "A browser download that isn't part of an action you allowed is stopped, and the pane offers you a button to save it.",
+      "A browser download that isn't part of an action you allowed is stopped. **More ▸ Downloads** in that pane lists it, with **Save**.",
     ),
 
     h2("Closing and quitting"),

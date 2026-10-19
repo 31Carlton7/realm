@@ -93,7 +93,7 @@ export default page({
       "With Realm's browser tools, an agent can open and navigate pages, read them (the page's structure and text, its console and network log), click, type, scroll and press keys, upload a file, download one, and take screenshots. While one is driving, the pane says **Agent is driving**. Reading a page never asks; acting on one follows the session's [permission mode](/docs/permissions).",
     ),
     p(
-      "A download only goes through as part of an action you've allowed; anything else a page tries to download is stopped, and the pane offers you a button to save it. An agent's downloads land in `downloads/` in the space's folder.",
+      "A download only goes through as part of an action you've allowed. Anything else a page tries to download is stopped and kept under **More ▸ Downloads**, where **Save** takes it. An agent's downloads land in `downloads/` in the space's folder.",
     ),
     tip(
       "To hand a whole errand on the web to an agent, ask your session to use a browser agent: a sub-agent that only browses. See [Sub-agents](/docs/sub-agents#the-browser-agent).",
