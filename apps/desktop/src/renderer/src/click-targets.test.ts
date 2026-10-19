@@ -55,6 +55,7 @@ const NOT_A_CONTROL: Record<string, string> = {
   "media-el": "a video's picture, which its play control sits over",
   "media-viewer-stage": "the viewer's ground round a file: a press there puts the viewer away, as a scrim's does",
   "media-viewer-canvas": "a zoomed picture's canvas, which takes the grab cursor of its own while it pans",
+  "pdf-view": "a PDF's scroller, where a press on its own scroll bar only ends an arrow's page jump; its pages are content and its arrows point",
   "panes/session/Markdown.tsx:div": "a message's prose, which takes its links' clicks for them; each link wears its own role",
 };
 
