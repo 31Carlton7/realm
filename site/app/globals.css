@@ -193,6 +193,14 @@ p {
   opacity: 1;
 }
 
+/* A download is written once per build and shown for the system `data-os` names (app/layout.tsx);
+   unnamed, the Mac's. */
+:root:not([data-os="windows"]) [data-platform="windows"],
+:root:not([data-os="linux"]) [data-platform="linux"],
+:root:is([data-os="windows"], [data-os="linux"]) [data-platform="mac"] {
+  display: none;
+}
+
 /* The quiet button: a raised step of the surface, the pointer's light white and faint. */
 .btn-quiet {
   --wash: oklch(1 0 0 / 0.07);

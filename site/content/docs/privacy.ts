@@ -4,7 +4,7 @@ export default page({
   slug: "privacy",
   title: "Privacy and your data",
   summary:
-    "Realm runs on your Mac and keeps its data in one folder there. This is what it stores, where, what leaves your Mac and why, and how your credentials are kept from your agents.",
+    "Realm runs on your computer and keeps its data in one folder there. This is what it stores, where, what leaves your computer and why, and how your credentials are kept from your agents.",
   body: [
     h2("Where Realm keeps things"),
     p(
@@ -26,7 +26,7 @@ export default page({
     p("A space with its own folder works in that folder, wherever it is. Realm adds nothing to your repository; its worktrees live under `~/Realm`, out of your `git status`."),
 
     h2("What leaves your Mac"),
-    p("Realm is local-first: the app, its server and your data are on your Mac. These are the things that go elsewhere, and only when they're used:"),
+    p("Realm is local-first: the app, its server and your data are on your computer. These are the things that go elsewhere, and only when they're used:"),
     table(
       ["What", "Where it goes"],
       ["What you send an agent", "That agent's own service (Anthropic for Claude, OpenAI for Codex, and so on), under your account, as if you used the agent yourself"],
@@ -42,10 +42,10 @@ export default page({
       ["A paired iPhone's sessions and notifications", "Realm's relay, and Apple's push service for notifications. Both are encrypted on this Mac for the phone, so the relay and Apple carry nothing they can read. With no iPhone paired and none being paired, the Mac doesn't connect to the relay at all."],
     ),
     p(
-      "Realm has no analytics or telemetry of its own. Its agent server listens only on your Mac's loopback address, and asks every caller for a token.",
+      "Realm has no analytics or telemetry of its own. Its agent server listens only on your computer's loopback address, and asks every caller for a token.",
     ),
     note(
-      "Signing in to Slack goes through a page on realm.computer, because Slack refuses a sign-in that returns straight to your Mac. The page only redirects the sign-in back to Realm at your Mac's loopback address, and stores nothing.",
+      "Signing in to Slack goes through a page on realm.computer, because Slack refuses a sign-in that returns straight to your computer. The page only redirects the sign-in back to Realm at your computer's loopback address, and stores nothing.",
     ),
 
     h2("Your credentials and your agents"),

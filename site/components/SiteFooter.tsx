@@ -1,10 +1,11 @@
 import Link from "next/link"
 import type { ReactNode } from "react"
 
+import { PLATFORMS } from "@/components/Buttons"
 import { GitHubIcon, GlobeIcon, LinkedInIcon, XIcon } from "@/components/icons"
 import { ChangelogLink, HomeLink } from "@/components/passage/ChangelogLink"
 import { Wordmark } from "@/components/Wordmark"
-import { macDownload } from "@/lib/release"
+import { downloads } from "@/lib/release"
 import { site } from "@/lib/site"
 
 /**
@@ -20,7 +21,7 @@ const linkClass =
   "inline-flex min-h-8 items-center gap-2.5 text-ink-2 transition-colors duration-150 ease-out hover:text-ink hover:duration-220 hover:ease-spring focus-visible:text-ink"
 
 export async function SiteFooter({ world }: { world?: ReactNode }) {
-  const { href } = await macDownload()
+  const builds = await downloads()
   const { author } = site
   const socials = [
     { label: "X", ...author.x, Icon: XIcon },
@@ -45,11 +46,14 @@ export async function SiteFooter({ world }: { world?: ReactNode }) {
             <div>
               <h2 className="text-[13px] font-[520] text-ink">Realm</h2>
               <ul className="mt-3 space-y-1 text-[14px]">
-                <li>
-                  <a href={href} className={linkClass}>
-                    <span className="link-line">Download for Mac</span>
-                  </a>
-                </li>
+                {/* One per build, shown for the reader's system as the download button is. */}
+                {PLATFORMS.map(({ id, name }) => (
+                  <li key={id} data-platform={id}>
+                    <a href={builds[id]} className={linkClass}>
+                      <span className="link-line">Download for {name}</span>
+                    </a>
+                  </li>
+                ))}
                 <li>
                   <Link href="/docs" className={linkClass}>
                     <span className="link-line">Docs</span>

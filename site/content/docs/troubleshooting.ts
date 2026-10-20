@@ -85,10 +85,10 @@ export default page({
     ),
     h3("Does Realm see my code?"),
     p(
-      "Realm runs on your Mac and keeps its data there. Your code goes where your agent sends it, which is its own provider, as it would without Realm. See [Privacy and your data](/docs/privacy).",
+      "Realm runs on your computer and keeps its data there. Your code goes where your agent sends it, which is its own provider, as it would without Realm. See [Privacy and your data](/docs/privacy).",
     ),
     h3("Where are my settings and history?"),
-    p("In `~/Realm` on your Mac. [Privacy and your data](/docs/privacy#where-realm-keeps-things) lists what each file and folder holds."),
+    p("In `~/Realm` on your computer. [Privacy and your data](/docs/privacy#where-realm-keeps-things) lists what each file and folder holds."),
     h3("How do I see what changed in an update?"),
     p(
       "The first window after an update shows that version's notes. The gift button on the rail, and **Help ▸ What's New**, show them again, and the [changelog](/changelog) has every release.",

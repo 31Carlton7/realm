@@ -37,7 +37,7 @@ const fromSite = createRequire(path.join(siteRoot, "package.json"))
 const sharp = createRequire(fs.realpathSync(fromSite.resolve("next/package.json")))("sharp")
 
 const ALT =
-  "Realm. Give your agents a world to work in. One workspace for every coding agent, on your Mac. Beside the words, one of Realm's realms, a cube lying on its side with its doorway lit, hangs in a blue nebula, with more realms going away behind it."
+  "Realm. Give your agents a world to work in. One workspace for every coding agent, on your computer. Beside the words, one of Realm's realms, a cube lying on its side with its doorway lit, hangs in a blue nebula, with more realms going away behind it."
 
 if (await fetch(`http://127.0.0.1:${port}/json/version`).then(() => true, () => false)) {
   throw new Error(`Something already answers on port ${port}; set REALM_CHROME_PORT to a free one`)

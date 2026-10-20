@@ -1,6 +1,6 @@
 import { AgentMark, type AgentId } from "@/components/AgentMark"
 import { DownloadButton, QuietButton } from "@/components/Buttons"
-import { Actions, Announcement, Lede, ProductWindow } from "@/components/realms/HeroParts"
+import { Actions, Announcement, Lede, ProductWindow, Qualifiers } from "@/components/realms/HeroParts"
 import { GitHubIcon } from "@/components/icons"
 import { Chapter, type ChapterPicture } from "@/components/realms/Chapter"
 import { FieldPanel } from "@/components/realms/FieldPanel"
@@ -11,12 +11,12 @@ import { SiteFooter } from "@/components/SiteFooter"
 import { SiteHeader } from "@/components/SiteHeader"
 import { delegation, facets, facetsCoda, faq, type Claim } from "@/content/home"
 import { partImage, sceneImage } from "@/lib/pictures"
-import type { MacDownload } from "@/lib/release"
+import type { Downloads } from "@/lib/release"
 import { site } from "@/lib/site"
 
 /** What the landing page hands the home: the current download, and the claims intersected with the
  *  capture manifest. */
-export type HomeProps = { download: MacDownload; claims: Claim[] }
+export type HomeProps = { download: Downloads; claims: Claim[] }
 
 const AGENTS: { id: AgentId; name: string }[] = [
   { id: "claude", name: "Claude Code" },
@@ -31,10 +31,10 @@ const AGENTS: { id: AgentId; name: string }[] = [
 ]
 
 const FACTS: { title: string; body: string }[] = [
-  { title: "On your Mac", body: "Transcripts, documents and checkpoints live under ~/Realm." },
+  { title: "On your computer", body: "Transcripts, documents and checkpoints live under ~/Realm." },
   { title: "No account", body: "Nothing to sign up for, and nothing you make is uploaded." },
   { title: "No API key", body: "Realm drives the agent CLIs you have, on your own plan." },
-  { title: "Signed and notarized", body: "Built for Apple silicon. The source is on GitHub." },
+  { title: "Mac, Windows and Linux", body: "Signed and notarized on the Mac. The source is on GitHub." },
 ]
 
 /**
@@ -240,15 +240,13 @@ export async function RealmsHome({ download, claims }: HomeProps) {
                 Point it at a checkout, start a session with an agent you already have, and leave the window open all day.
               </p>
               <div className="mt-8 flex flex-wrap items-center justify-center gap-2.5">
-                <DownloadButton href={download.href} size="lg" />
+                <DownloadButton downloads={download} size="lg" />
                 <QuietButton href={site.repo} external>
                   <GitHubIcon className="h-4 w-4" />
                   Read the source
                 </QuietButton>
               </div>
-              <p className="mt-4 font-mono text-[12px] text-ink-2">
-                {download.version ? `${download.version} · ` : ""}macOS on Apple silicon · in active development
-              </p>
+              <Qualifiers download={download} className="mt-4" />
             </FieldPanel>
           </div>
         </section>

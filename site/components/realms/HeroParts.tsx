@@ -4,7 +4,7 @@ import { DownloadButton, QuietButton } from "@/components/Buttons"
 import { MiniRealm } from "@/components/home/mini/MiniRealm"
 import { ArrowIcon, GitHubIcon } from "@/components/icons"
 import { PassageLink } from "@/components/passage/PassageLink"
-import type { MacDownload } from "@/lib/release"
+import type { Downloads } from "@/lib/release"
 import { site } from "@/lib/site"
 
 /**
@@ -12,7 +12,7 @@ import { site } from "@/lib/site"
  * needs. The words are the landing page's own; a concept changes where they sit, never what they say.
  */
 
-export type ConceptProps = { download: MacDownload }
+export type ConceptProps = { download: Downloads }
 
 export function Announcement({ className = "" }: { className?: string }) {
   return (
@@ -41,7 +41,7 @@ export function Lede({ className = "" }: { className?: string }) {
   return (
     <p className={`text-[17px] leading-[1.55] text-ink-2 ${className}`}>
       Bring the coding agent you already use. Each space holds a checkout, the agents working on it, and the
-      terminals, browsers and documents they open. Every space sits in one sidebar on your Mac, and it&rsquo;s all
+      terminals, browsers and documents they open. Every space sits in one sidebar on your computer, and it&rsquo;s all
       still there tomorrow.
     </p>
   )
@@ -51,15 +51,44 @@ export function Actions({ download, className = "", center = false }: ConceptPro
   return (
     <div className={className}>
       <div className={`flex flex-wrap items-center gap-2.5 ${center ? "justify-center" : ""}`}>
-        <DownloadButton href={download.href} />
+        <DownloadButton downloads={download} />
         <QuietButton href={site.repo} external>
           <GitHubIcon className="h-4 w-4" />
           Source
         </QuietButton>
       </div>
-      {/* The qualifiers stay on the page rather than in the small print of a store listing. */}
-      <p className={`mt-3.5 font-mono text-[12px] text-ink-2 ${center ? "text-center" : ""}`}>
-        {download.version ? `${download.version} · ` : ""}macOS on Apple silicon · in active development
+      <Qualifiers download={download} className={`mt-3.5 ${center ? "text-center" : ""}`} />
+    </div>
+  )
+}
+
+const buildLink = "text-ink-2 transition-colors duration-150 ease-out hover:text-ink hover:duration-220 hover:ease-spring focus-visible:text-ink"
+
+/**
+ * What the download is, under every download button: the version, that it is unfinished, and every
+ * build by name — the button offers the reader's own system, and this line is how they reach the
+ * others. The qualifiers stay on the page rather than in the small print of a store listing.
+ */
+export function Qualifiers({ download, className = "" }: ConceptProps & { className?: string }) {
+  return (
+    <div className={`font-mono text-[12px] leading-[1.7] text-ink-2 ${className}`}>
+      <p>{download.version ? `${download.version} · ` : ""}in active development</p>
+      <p>
+        <a href={download.mac} className={buildLink}>
+          <span className="link-line">Mac (Apple silicon)</span>
+        </a>
+        {" · "}
+        <a href={download.windows} className={buildLink}>
+          <span className="link-line">Windows</span>
+        </a>
+        {" · Linux x64: "}
+        <a href={download.linux} className={buildLink}>
+          <span className="link-line">AppImage</span>
+        </a>
+        {", "}
+        <a href={download.deb} className={buildLink}>
+          <span className="link-line">deb</span>
+        </a>
       </p>
     </div>
   )

@@ -41,9 +41,21 @@ export const viewport: Viewport = {
   colorScheme: "dark",
 }
 
+/**
+ * Names the reader's system on the root before the first paint, so every download on the page is the
+ * build for it from the first frame (components/Buttons.tsx, globals.css). Android's and ChromeOS's
+ * agents say Linux too, and an iPhone's say Mac; none of them gets a Linux build, so they are left
+ * unnamed and see the Mac's.
+ */
+const NAME_OS = `try{var n=navigator,p=((n.userAgentData&&n.userAgentData.platform)||n.platform||"")+" "+n.userAgent,os=/Android|CrOS|iPhone|iPad/.test(p)?"":/Win/.test(p)?"windows":/Linux|X11/.test(p)?"linux":"";if(os)document.documentElement.dataset.os=os}catch(e){}`
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${inter.variable} ${jetbrains.variable}`}>
+    // The script above sets an attribute React did not render; that difference is the point.
+    <html lang="en" className={`${inter.variable} ${jetbrains.variable}`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: NAME_OS }} />
+      </head>
       <body className="font-sans antialiased">
         {children}
         <Passage />
