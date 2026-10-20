@@ -6,9 +6,9 @@
 export const site = {
   name: "Realm",
   domain: "realm.computer",
-  tagline: "One workspace for every coding agent, on your Mac.",
+  tagline: "One workspace for every coding agent, on your computer.",
   description:
-    "Realm gives your coding agents a place to work on your Mac. Every space is in one sidebar, sessions sit side by side with what their agents open, and one MCP gateway keeps your credentials away from the agent.",
+    "Realm gives your coding agents a place to work on your computer, on Mac, Windows or Linux. Every space is in one sidebar, sessions sit side by side with what their agents open, and one MCP gateway keeps your credentials away from the agent.",
   repo: process.env.NEXT_PUBLIC_REPO_URL ?? "https://github.com/31Carlton7/realm",
   x: "https://x.com/31Carlton7",
   /** Carlton's own accounts, as his GitHub profile lists them — the footer's "made by" column. */

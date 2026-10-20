@@ -99,7 +99,7 @@ export const claims: Claim[] = [
     id: "sandbox",
     title: "Confine what an agent can touch.",
     body:
-      "A space can run its agents and terminals in a macOS sandbox that keeps the checkout writable and credential folders unreadable. It's off by default, and the network stays open.",
+      "On a Mac, a space can run its agents and terminals in a macOS sandbox that keeps the checkout writable and credential folders unreadable. It's off by default, and the network stays open.",
     capture: "sandbox",
     part: "sandbox",
     phone: { part: "sandbox-phone" },
@@ -145,7 +145,7 @@ export const facets: Facet[] = [
   },
   {
     title: "The boundary",
-    body: "A macOS sandbox that keeps credential folders unreadable. It's off by default.",
+    body: "On a Mac, a sandbox that keeps credential folders unreadable. It's off by default.",
   },
   {
     title: "The agent",
@@ -192,7 +192,7 @@ export type Question = { q: string; a: string }
 export const faq: Question[] = [
   {
     q: "Which agents can I run?",
-    a: "Claude Code and Codex have their own adapters. Cursor, Gemini, OpenCode, GitHub Copilot, goose, Qwen Code, Grok and others speak the Agent Client Protocol and share one. Claude needs no install, because Realm ships with Claude Code, and Codex installs and signs in during first run. You install the rest yourself, and Realm checks what's on your Mac and gives you the exact install or login command for anything that's missing.",
+    a: "Claude Code and Codex have their own adapters. Cursor, Gemini, OpenCode, GitHub Copilot, goose, Qwen Code, Grok and others speak the Agent Client Protocol and share one. Claude needs no install, because Realm ships with Claude Code, and Codex installs and signs in during first run. You install the rest yourself, and Realm checks what's on your computer and gives you the exact install or login command for anything that's missing.",
   },
   {
     q: "Do I need an API key?",
@@ -200,15 +200,15 @@ export const faq: Question[] = [
   },
   {
     q: "Where does my work live?",
-    a: "On your Mac, under ~/Realm. Transcripts, documents, skills and checkpoints are files and a SQLite database on disk. Nothing is uploaded, and there's no account to make.",
+    a: "On your computer, under ~/Realm. Transcripts, documents, skills and checkpoints are files and a SQLite database on disk. Nothing is uploaded, and there's no account to make.",
   },
   {
     q: "Can an agent read my tokens?",
-    a: "Not through the gateway. Connections are proxied per space: the agent calls Realm, Realm calls the server, and the credential stays on Realm's side. At rest, it depends on the kind. An app you connect in a click stores an OAuth token encrypted with a macOS Keychain key. A key or header you paste into a custom MCP server is stored in Realm's database in plain text, and the app says so next to the field. Saved website sign-ins are the strictest: encrypted, never handed to an agent, and every fill needs Touch ID.",
+    a: "Not through the gateway. Connections are proxied per space: the agent calls Realm, Realm calls the server, and the credential stays on Realm's side. At rest, it depends on the kind. On a Mac, an app you connect in a click stores an OAuth token encrypted with a Keychain key. A key or header you paste into a custom MCP server is stored in Realm's database in plain text, and the app says so next to the field. Saved website sign-ins are the strictest: encrypted, never handed to an agent, and on a Mac every fill needs Touch ID.",
   },
   {
-    q: "Which Macs does it run on?",
-    a: "macOS on Apple silicon. Builds are signed and notarized, and the app updates itself from its public release feed.",
+    q: "What does it run on?",
+    a: "macOS on Apple silicon, Windows, and Linux on x64 as an AppImage or a deb. The Mac build is signed and notarized and updates itself. The Windows and Linux builds aren't signed yet, so Windows warns you before the installer runs, and you install new versions from the releases page. Computer use, device simulators, the sandbox, Laya, and Touch ID and Keychain sign-ins are Mac only.",
   },
   {
     q: "Is it finished?",

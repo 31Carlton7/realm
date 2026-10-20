@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 
-import { AppleIcon } from "@/components/icons"
+import { AppleIcon, LinuxIcon, WindowsIcon } from "@/components/icons"
+import type { Downloads, Platform } from "@/lib/release"
 
 /**
  * The site's two button weights. The primary is the download and nothing else, so a page never has
@@ -16,16 +17,30 @@ import { AppleIcon } from "@/components/icons"
  */
 const base = "btn app-corner inline-flex min-h-11 items-center gap-2 rounded-[14px] px-4.5 py-2.5 text-[14px]"
 
-export function DownloadButton({ href, label = "Download for Mac", size = "md" }: { href: string; label?: string; size?: "md" | "lg" }) {
-  return (
+export const PLATFORMS: { id: Platform; name: string; Icon: typeof AppleIcon; icon: string }[] = [
+  { id: "mac", name: "Mac", Icon: AppleIcon, icon: "h-4 w-4 -translate-y-px" },
+  { id: "windows", name: "Windows", Icon: WindowsIcon, icon: "h-3.5 w-3.5" },
+  { id: "linux", name: "Linux", Icon: LinuxIcon, icon: "h-4 w-4" },
+]
+
+/**
+ * The download, for the reader's own system. All three builds are in the markup and globals.css shows
+ * the one `data-os` names — set before the first paint by app/layout.tsx — so the button is right in
+ * its first frame, with no swap once the page wakes. Without the script, or on a system Realm has no
+ * build for, it is the Mac's.
+ */
+export function DownloadButton({ downloads, compact = false, size = "md" }: { downloads: Downloads; compact?: boolean; size?: "md" | "lg" }) {
+  return PLATFORMS.map(({ id, name, Icon, icon }) => (
     <a
-      href={href}
+      key={id}
+      href={downloads[id]}
+      data-platform={id}
       className={`${base} btn-primary ${size === "lg" ? "min-h-12 px-5.5 text-[15px]" : ""} bg-[linear-gradient(to_bottom,oklch(0.56_0.175_254),oklch(0.5_0.175_254))] [--shade:linear-gradient(to_bottom,oklch(0.5_0.175_254),oklch(0.44_0.175_254))] [--shade-press:linear-gradient(to_bottom,oklch(0.45_0.175_254),oklch(0.4_0.175_254))] font-[520]`}
     >
-      <AppleIcon className="h-4 w-4 -translate-y-px" />
-      {label}
+      <Icon className={icon} />
+      {compact ? "Download" : `Download for ${name}`}
     </a>
-  )
+  ))
 }
 
 export function QuietButton({ href, children, external = false }: { href: string; children: ReactNode; external?: boolean }) {

@@ -8,6 +8,7 @@ import { DownloadButton } from "@/components/Buttons"
 import { GitHubIcon } from "@/components/icons"
 import { ChangelogLink, HomeLink } from "@/components/passage/ChangelogLink"
 import { Wordmark } from "@/components/Wordmark"
+import type { Downloads } from "@/lib/release"
 import { site } from "@/lib/site"
 
 /** How far the page scrolls while the bar draws in, in CSS px. */
@@ -29,7 +30,7 @@ const CONDENSE = 140
  * The bar's links share one highlight (globals.css, `.nav-pill`) that glides to the link under the
  * pointer, or the one the keyboard is on; where it was hidden, it lands under that link and fades in.
  */
-export function FloatingHeader({ width, flight, download }: { width: string; flight: boolean; download: string }) {
+export function FloatingHeader({ width, flight, downloads }: { width: string; flight: boolean; downloads: Downloads }) {
   const rootRef = useRef<HTMLElement>(null)
   const frameRef = useRef<HTMLDivElement>(null)
   const barRef = useRef<HTMLDivElement>(null)
@@ -179,10 +180,10 @@ export function FloatingHeader({ width, flight, download }: { width: string; fli
               </a>
             </nav>
             <span className="ml-1 sm:hidden">
-              <DownloadButton href={download} label="Download" />
+              <DownloadButton downloads={downloads} compact />
             </span>
             <span className="ml-1 hidden sm:block">
-              <DownloadButton href={download} />
+              <DownloadButton downloads={downloads} />
             </span>
           </div>
         </div>
