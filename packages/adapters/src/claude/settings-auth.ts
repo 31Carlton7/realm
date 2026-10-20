@@ -6,13 +6,13 @@ import { join } from "node:path";
 
 const run = promisify(execFile);
 
-/** The CLI gives an apiKeyHelper no deadline; a session start cannot wait forever on one. A helper
- *  that mints a token over the network (the case this exists for) answers in seconds. */
+/** A session start cannot wait forever on a helper. One that mints a token over the network (the
+ *  case this exists for) answers in seconds; the CLI's own deadline is far looser than this. */
 const API_KEY_HELPER_TIMEOUT_MS = 15_000;
 
-/** The two credentials whose presence means no key needs minting — the same pair the CLI checks
- *  before it runs the helper itself. */
-const CREDENTIAL_KEYS = ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"] as const;
+/** Credentials whose presence means no key needs minting: a key, a bearer token, or an OAuth login
+ *  each already authenticates the CLI on its own. */
+const CREDENTIAL_KEYS = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"] as const;
 
 /** The slice of `~/.claude/settings.json` this module acts on. The file holds much more — permissions,
  *  hooks, model — all of which `settingSources: []` is MEANT to drop; only auth is carried. */
@@ -30,9 +30,10 @@ type SettingsAuth = { env?: unknown; apiKeyHelper?: unknown };
  * have read are re-applied here through the child environment, which `settingSources` does not gate.
  *
  * Returns the entries to lay between `process.env` and `opts.env`: the settings file's string-valued
- * `env` block, plus — when nothing in base, block or overrides already carries a credential — an
- * `ANTHROPIC_API_KEY` minted by running `apiKeyHelper`. Realm's own `opts.env` goes on top of the
- * result, so nothing carried can override what the server set deliberately.
+ * `env` block, plus — when nothing in base, block or overrides already carries a credential — a key
+ * minted by running `apiKeyHelper`, carried as both `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN`
+ * so either header shape a gateway authenticates on keeps working. Realm's own `opts.env` goes on
+ * top of the result, so nothing carried can override what the server set deliberately.
  *
  * Never throws. A missing or unparsable settings file carries nothing — that machine authenticates
  * some other way, and the session is exactly what it was before this existed. A helper that fails,
@@ -60,10 +61,11 @@ export async function carrySettingsAuth(o: {
 }): Promise<Record<string, string>> {
   // The same resolution as the CLI's own config lookup (and `claudeUserDir` on the server side):
   // CLAUDE_CONFIG_DIR when set, else ~/.claude.
-  const configDir = o.env.CLAUDE_CONFIG_DIR?.trim() ? o.env.CLAUDE_CONFIG_DIR : join(o.env.HOME ?? homedir(), ".claude");
+  const configDir = o.env.CLAUDE_CONFIG_DIR?.trim() || join(o.env.HOME ?? homedir(), ".claude");
+  const settingsPath = join(configDir, "settings.json");
   let settings: SettingsAuth;
   try {
-    const parsed: unknown = JSON.parse(await readFile(join(configDir, "settings.json"), "utf8"));
+    const parsed: unknown = JSON.parse(await readFile(settingsPath, "utf8"));
     // Valid JSON that is not an object (`null`, a bare string) is as empty as no file at all.
     if (!parsed || typeof parsed !== "object") return {};
     settings = parsed as SettingsAuth;
@@ -92,14 +94,20 @@ export async function carrySettingsAuth(o: {
     const key = stdout.trim();
     // One printable line or nothing: a control character here is a helper misfiring (a banner, a
     // NUL), and an env value that embeds one comes back out of spawn failures with the key inside.
-    if (key && key.length <= 16_384 && !/[^\x20-\x7e]/.test(key)) carried.ANTHROPIC_API_KEY = key;
-    else o.onLog?.(`apiKeyHelper from ~/.claude/settings.json printed ${key ? "something other than one printable line" : "nothing"}; the session starts without a key`);
+    // The value rides under both names because a helper login authenticates on either header shape:
+    // a gateway that wants `Authorization: Bearer` reads ANTHROPIC_AUTH_TOKEN, one that wants
+    // `x-api-key` reads ANTHROPIC_API_KEY — carrying only the key would leave the first kind
+    // accepting every ordinary session and refusing every skills session.
+    if (key && key.length <= 16_384 && !/[^\x20-\x7e]/.test(key)) {
+      carried.ANTHROPIC_API_KEY = key;
+      carried.ANTHROPIC_AUTH_TOKEN = key;
+    } else o.onLog?.(`apiKeyHelper from ${settingsPath} printed ${key ? "something other than one printable line" : "nothing"}; the session starts without a key`);
   } catch (e) {
     // Exit status only, never the error's message: execFile's message carries the command line and
     // the helper's stderr, and stderr is exactly where a credential could land on its way to a log.
     const err = e as { killed?: boolean; signal?: NodeJS.Signals | null; code?: number | string | null };
     const why = err.killed || err.signal ? `timed out after ${timeoutMs}ms` : `failed (exit ${err.code ?? "unknown"})`;
-    o.onLog?.(`apiKeyHelper from ~/.claude/settings.json ${why}; the session starts without a key`);
+    o.onLog?.(`apiKeyHelper from ${settingsPath} ${why}; the session starts without a key`);
   }
   return carried;
 }

@@ -33,9 +33,11 @@ describe("carrySettingsAuth", () => {
     expect(await carrySettingsAuth({ env })).toEqual({ ANTHROPIC_BASE_URL: "https://gw.example" });
   });
 
-  it("mints ANTHROPIC_API_KEY from the helper's trimmed stdout when no credential exists anywhere", async () => {
+  it("mints the helper's trimmed stdout under both credential names when none exists anywhere", async () => {
+    // Both names on purpose: a gateway may authenticate on `x-api-key` (ANTHROPIC_API_KEY) or on
+    // `Authorization: Bearer` (ANTHROPIC_AUTH_TOKEN); a helper login must satisfy either kind.
     const env = homeWith({ env: { ANTHROPIC_BASE_URL: "https://gw.example" }, apiKeyHelper: "printf '  sk-minted-1\\n'" });
-    expect(await carrySettingsAuth({ env })).toEqual({ ANTHROPIC_BASE_URL: "https://gw.example", ANTHROPIC_API_KEY: "sk-minted-1" });
+    expect(await carrySettingsAuth({ env })).toEqual({ ANTHROPIC_BASE_URL: "https://gw.example", ANTHROPIC_API_KEY: "sk-minted-1", ANTHROPIC_AUTH_TOKEN: "sk-minted-1" });
   });
 
   it("runs the helper under the carried env block and Realm's overrides, which may hold what it reads", async () => {
@@ -71,6 +73,7 @@ describe("carrySettingsAuth", () => {
     // The marker file is the assertion: a helper that ran wrote it, whatever else it returned.
     const cases: Array<{ env?: Record<string, string>; blockKey?: string; overrides?: Record<string, string> }> = [
       { env: { ANTHROPIC_API_KEY: "sk-process" } },
+      { env: { ANTHROPIC_AUTH_TOKEN: "tok-bearer" } },
       { env: { CLAUDE_CODE_OAUTH_TOKEN: "tok-process" } },
       { blockKey: "ANTHROPIC_API_KEY" },
       { overrides: { ANTHROPIC_API_KEY: "sk-realm" } },

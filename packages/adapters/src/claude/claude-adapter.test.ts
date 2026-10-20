@@ -1031,6 +1031,19 @@ describe("ClaudeAdapter skills", () => {
     await handle.dispose();
   });
 
+  it("never spawns for a session disposed mid-carry", async () => {
+    // dispose() stops waiting after its own timeout, but the carry can outlive it: without the
+    // disposed check after the await, a session already reported "ended" still spawned a real CLI.
+    settingsFile({ apiKeyHelper: "sleep 0.3; printf sk-late" });
+    let seen = false;
+    const adapter = new ClaudeAdapter({ query: (() => { seen = true; return (async function* () {})(); }) as never });
+    const handle = adapter.start({ cwd: "/tmp", mcpServers: [], skills: { pluginPath: "/tmp/realm-plugin", root: "/tmp/realm-plugin/skills" } });
+    await handle.send({ text: "hi", attachments: [] });
+    await handle.dispose(); // returns once pump exits at the disposed check, well inside its own net
+    await new Promise((r) => setTimeout(r, 400)); // past the helper's finish, where the spawn would happen
+    expect(seen).toBe(false);
+  });
+
   it("holds a mid-carry setOptions until the spawn it talks to exists", async () => {
     // The carry is the first await in `pump`, so for its duration there is no `q`: before the qUp
     // gate, this setModel landed on `q?.` as a no-op and the change silently vanished. The slow

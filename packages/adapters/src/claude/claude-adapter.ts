@@ -585,6 +585,7 @@ export class ClaudeAdapter implements AgentAdapter {
         // child process; the first prompt waits on the input queue either way. ONLY the skills case:
         // everyone else's CLI reads the file itself, and their env must stay byte-for-byte what it was.
         if (opts.skills) options.env = { ...process.env, ...(await carrySettingsAuth({ env: process.env, overrides: opts.env, cwd: opts.cwd, onLog: onStderr })), ...opts.env };
+        if (disposed) return; // dispose stopped waiting mid-carry; a dead session must not spawn a CLI
         q = this.queryFn({ prompt: input, options });
         qSpawned();
         for await (const msg of q) {
