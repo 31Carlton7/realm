@@ -42,7 +42,7 @@ export default page({
       "Realm opens on one page, **Welcome to Realm**. Its first step, **Choose your agent**, has a card for Claude and one for Codex, and each card does whatever its state needs, in place:",
     ),
     ul(
-      "**Install Codex** when Codex isn't on your Mac yet. Claude needs no install: Realm carries the copy its sessions run.",
+      "**Install Codex** when Codex isn't installed yet. Claude needs no install: Realm carries the copy its sessions run.",
       "**Sign in with Claude** or **Sign in with ChatGPT** when it's installed but signed out. Your browser opens the provider's sign-in page. If that page shows you a code, paste it into the field on the card and press **Continue**.",
       "**Signed in** or **Ready** once it can run. Pick the card you want your first session to use.",
     ),

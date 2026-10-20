@@ -43,7 +43,7 @@ export default page({
       "Install the app to the workspace, or have an admin approve it.",
     ),
     note(
-      "That redirect is a page on this site that only bounces the sign-in back to Realm on your own Mac. It never leaves your Mac's loopback address.",
+      "That redirect is a page on this site that only bounces the sign-in back to Realm on your own computer. It never leaves your computer's loopback address.",
     ),
     h3("GitHub"),
     p("GitHub's card connects with your GitHub CLI's sign-in if you have one, otherwise with a code you enter on GitHub, or a token you paste."),
@@ -66,7 +66,7 @@ export default page({
       "A server can be set up for **This space**, for every space in your profile (**From <profile>**), or **Everywhere**. **Move to profile…** and **Move to this space…** change that.",
     ),
     note(
-      "OAuth sign-ins are kept encrypted, with the key in your keychain. The environment variables and headers you type into a server's form are stored in Realm's database on your Mac, not encrypted, so prefer OAuth where a server offers it.",
+      "OAuth sign-ins are kept encrypted, with the key in your keychain. The environment variables and headers you type into a server's form are stored in Realm's database on your computer, not encrypted, so prefer OAuth where a server offers it.",
     ),
 
     h2("Realm's own tools"),

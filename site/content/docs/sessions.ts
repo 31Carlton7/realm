@@ -244,7 +244,7 @@ Write release notes for $1 from the merged pull requests since the previous tag.
 
     h2("Share a session"),
     p(
-      "**⋯ ▸ Share as web page…** in the session's bar, or `/share`, saves the session as one HTML file that opens in any browser and reads well on a phone or a desktop, in light or dark. It fetches nothing, and nothing leaves your Mac until you send it.",
+      "**⋯ ▸ Share as web page…** in the session's bar, or `/share`, saves the session as one HTML file that opens in any browser and reads well on a phone or a desktop, in light or dark. It fetches nothing, and nothing leaves your computer until you send it.",
     ),
     ul(
       "**Tool details**, **Thinking**, **Pictures** and **Sub-agents** choose what goes in, where the session has them. Thinking starts off and the others on.",
