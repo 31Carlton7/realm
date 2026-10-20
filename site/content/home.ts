@@ -208,7 +208,7 @@ export const faq: Question[] = [
   },
   {
     q: "What does it run on?",
-    a: "macOS on Apple silicon, Windows, and Linux on x64 as an AppImage or a deb. The Mac build is signed and notarized and updates itself. The Windows and Linux builds aren't signed yet, so Windows warns you before the installer runs, and you install new versions from the releases page. Computer use, device simulators, the sandbox, Laya, and Touch ID and Keychain sign-ins are Mac only.",
+    a: "macOS on Apple silicon, Windows, and Linux on x64 as an AppImage or a deb. The Mac build is signed and notarized and updates itself. The Windows and Linux builds are previews. They aren't signed yet, so Windows warns you before the installer runs, and you install new versions from the releases page. Computer use, device simulators, the sandbox, Laya, and Touch ID and Keychain sign-ins are Mac only.",
   },
   {
     q: "Is it finished?",

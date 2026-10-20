@@ -6,12 +6,12 @@ export default page({
   summary: "Install Realm, sign in to the agent you already use, and open your first space.",
   body: [
     p(
-      "Realm is a Mac app that gives coding agents a place to work. You bring the agent, Claude Code, Codex, Cursor or one of the others, signed in with your own account. Realm gives it a session to talk in, the folder it works in, and the browser, terminals and documents around it.",
+      "Realm is a desktop app that gives coding agents a place to work, on a Mac, with previews for Windows and Linux. You bring the agent, Claude Code, Codex, Cursor or one of the others, signed in with your own account. Realm gives it a session to talk in, the folder it works in, and the browser, terminals and documents around it.",
     ),
 
     h2("What you need"),
     ul(
-      "A Mac with Apple silicon. The Mac build is made for Apple silicon only.",
+      "A Mac with Apple silicon, or a Windows or Linux PC on x64 for the previews. The Mac build is made for Apple silicon only.",
       "An account with the agent you want to use, such as a Claude or ChatGPT plan.",
       "For agents other than Claude, their own installer's requirements. Claude comes with Realm; Codex and most others install from npm, so they need Node.js. **Settings ▸ Engines** names each one's command.",
     ),
@@ -21,12 +21,15 @@ export default page({
 
     h2("Install Realm"),
     steps(
-      "Download the disk image from the [latest release](https://github.com/31Carlton7/realm/releases/latest), or with **Download for Mac** at the top of this site.",
+      "Download the disk image from the [latest release](https://github.com/31Carlton7/realm/releases/latest), or with the download button at the top of this site, which offers the build for the system you're on.",
       "Open the `.dmg` and drag Realm into Applications.",
       "Open Realm from Applications. Releases are signed and notarized by Apple, so it opens like any other app.",
     ),
     p(
-      "Realm checks for a new version when it opens and every few hours while it runs, and downloads it in the background. When one is ready, a button at the foot of the rail restarts Realm into it, and your agents keep working through the restart. You can check by hand in **Settings ▸ General**, under Updates, with **Check for updates**.",
+      "On Windows, run `Realm-Setup-<version>.exe` from the same release. The installer isn't signed yet, so SmartScreen may stop it; choose **More info**, then **Run anyway**. On Linux, make the `.AppImage` executable (`chmod +x`) and run it, or install the `.deb` with `sudo apt install ./realm_<version>_amd64.deb`.",
+    ),
+    p(
+      "On a Mac, Realm checks for a new version when it opens and every few hours while it runs, and downloads it in the background. When one is ready, a button at the foot of the rail restarts Realm into it, and your agents keep working through the restart. You can check by hand in **Settings ▸ General**, under Updates, with **Check for updates**. On Windows and Linux, install a new version from the releases page.",
     ),
 
     h2("Choose your agent"),
