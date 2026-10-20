@@ -5,6 +5,7 @@ import { ASK_PERMISSION_MODE, REALM_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, askCa
 import { AsyncQueue } from "../event-queue";
 import { createSdkMapper, type ChainCursor } from "./map-sdk-message";
 import { probeClaude } from "./probe";
+import { carrySettingsAuth } from "./settings-auth";
 import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
 import { GATEWAY_TOOL_TIMEOUT_MS, RestartRequiredError } from "../types";
 
@@ -251,6 +252,12 @@ export class ClaudeAdapter implements AgentAdapter {
     const mapper = createSdkMapper({ resumed: Boolean(opts.resume) });
     const stderrTail: string[] = [];
     let q: Query | null = null;
+    /** Resolved the moment `pump` has its query — or has given up getting one. `interrupt` and
+     *  `setOptions` talk to `q`, and during the settings-auth carry there is no `q` to talk to:
+     *  without this gate, a model, effort or mode change in that first second would land on
+     *  `q?.` as a silent no-op and simply vanish. */
+    let qSpawned!: () => void;
+    const qUp = new Promise<void>((resolve) => { qSpawned = resolve; });
     // Tracked rather than read off `options`, because Ask has to hold on a LIVE session: the mode can
     // change mid-turn and `Options` is only ever read at start.
     let permissionMode = opts.permissionMode ?? "default";
@@ -378,7 +385,10 @@ export class ClaudeAdapter implements AgentAdapter {
       //
       // The cost is real and deliberate: `settingSources: []` also drops the user's `~/.claude/CLAUDE.md`
       // and the repo's `.claude/` settings. That is why the option is only present when the space
-      // actually has enabled skills — a space that manages none is left exactly as it was.
+      // actually has enabled skills — a space that manages none is left exactly as it was. What the
+      // session must NOT lose rides back in by other channels: memory through `systemContext`
+      // (memory/service.ts) and the settings file's auth through the child env (see the carry in
+      // `pump` and settings-auth.ts).
       ...(opts.skills ? { settingSources: [], plugins: [{ type: "local" as const, path: opts.skills.pluginPath, skipMcpDiscovery: true }] } : {}),
       env,
       stderr: onStderr,
@@ -567,7 +577,16 @@ export class ClaudeAdapter implements AgentAdapter {
     const pump = async () => {
       let failure: string | null = null;
       try {
+        // The auth half of the W1 carry-forward (settings-auth.ts says why): a skills session runs
+        // with `settingSources: []`, so the login that lives in `~/.claude/settings.json` — its `env`
+        // block and an `apiKeyHelper`-minted key — has to reach the CLI through the child env
+        // instead. Carried between `process.env` and `opts.env`, so Realm's own values still win.
+        // Here rather than beside the `env` above because `start` is synchronous and the helper is a
+        // child process; the first prompt waits on the input queue either way. ONLY the skills case:
+        // everyone else's CLI reads the file itself, and their env must stay byte-for-byte what it was.
+        if (opts.skills) options.env = { ...process.env, ...(await carrySettingsAuth({ env: process.env, overrides: opts.env, cwd: opts.cwd, onLog: onStderr })), ...opts.env };
         q = this.queryFn({ prompt: input, options });
+        qSpawned();
         for await (const msg of q) {
           if (msg.type === "system" && (msg as { subtype?: string }).subtype === "init") {
             for (const e of mapper.map(msg)) events.push(e);
@@ -643,6 +662,7 @@ export class ClaudeAdapter implements AgentAdapter {
         // The SDK rejects iteration with "Claude Code process aborted by user" when our abortController fires in dispose(); not an error.
         if (!disposed && !abort.signal.aborted) failure = (e as Error).message ?? String(e);
       } finally {
+        qSpawned(); // a pump that never got a query must still release anyone waiting on qUp
         denyAllPending();
         if (failure !== null) {
           events.push(sessionEvent("error", { message: withStderr(failure) }));
@@ -730,9 +750,11 @@ export class ClaudeAdapter implements AgentAdapter {
         // produces no result to clear it, and the next turn would settle as stopped.
         if (running) interrupted = true;
         denyAllPending();
+        await qUp; // mid-carry there is no q yet; the stop must land on the turn, not on nothing
         try { await q?.interrupt(); } catch { /* process may already be gone; result/ended will report */ }
       },
       setOptions: async (o) => {
+        await qUp; // mid-carry there is no q yet; without the wait every change below would no-op
         if (o.model) await q?.setModel(o.model);
         // `fastMode` is a settings key, so the flag layer is how it moves mid-session — the same
         // layer `query()`'s inline `settings` writes, above user and project settings and below
