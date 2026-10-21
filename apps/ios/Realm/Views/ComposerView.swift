@@ -9,7 +9,7 @@ import UIKit
 /// something is typed or attached; then it sends as the Mac takes a message mid-turn — queued for the
 /// turn's end, or steered into it — and a long press offers the other way, and Stop.
 struct ComposerAction: Equatable {
-    enum Kind: Hashable, CaseIterable {
+    enum Kind: Hashable {
         case send, stop, queue, steer
     }
 

@@ -707,7 +707,7 @@ struct ComposerActionTests {
         #expect(ComposerAction.Kind.queue.explanation(steerNote: note) == "Sends when this turn ends.")
         #expect(ComposerAction.Kind.steer.explanation(steerNote: note) == note)
         #expect(ComposerAction.Kind.stop.explanation(steerNote: note) == "Stops the agent's turn.")
-        #expect(ComposerAction.Kind.allCases.map(\.symbol) == ["arrow.up", "stop.fill", "list.number", "arrow.turn.left.up"])
+        #expect([ComposerAction.Kind.send, .stop, .queue, .steer].map(\.symbol) == ["arrow.up", "stop.fill", "list.number", "arrow.turn.left.up"])
     }
 }
 
