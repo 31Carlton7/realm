@@ -13,7 +13,7 @@ import {
 import { FALLBACK_AGENT, LAST_AGENT_SETTING, modelLabel, needsYou, QUICK_CHAT_SETTING, quickChatIdOf, type NeedsYouState } from "@realm/view";
 import { resolveDefaultPermissionMode } from "../sessions/service";
 import { diffPage } from "./changes";
-import { agentOptions, changesFor, ChoiceRefused, type InitFacts, type OptionsInput, type ProbeRow } from "./options";
+import { agentOptions, changesFor, ChoiceRefused, probeList, type InitFacts, type OptionsInput, type ProbeRow } from "./options";
 import { filePreview, PreviewRefused, type Downscale } from "./preview";
 import { SessionProjector } from "./rows";
 import { RpcCallError, type RpcPort } from "./rpc-port";
@@ -125,12 +125,13 @@ function pictureOf(asset: IconAsset): { mime: string; data: Buffer } | null {
 /** The settings every agent's options read. */
 type Shared = { remembered: Record<string, string[]>; catalog: Map<string, ModelInfo>; midTurn: SessionOptions["midTurn"]; defaultPermission: unknown };
 
+/** What `agentOptions` reads for one agent: its probe, a session's handshake where there is one, and the
+ *  shared settings. */
+const optionsInput = (probe: ProbeRow | null, init: InitFacts | null, shared: Shared): OptionsInput =>
+  ({ probe, init, remembered: shared.remembered, catalog: shared.catalog });
+
 export class MobileApi {
-  constructor(private readonly o: {
-    macName: () => string; reportsDir: string; dev: boolean; downscale?: Downscale;
-    /** The Realm home whose `tmp/attachments` takes the files a phone sends, as a desktop paste's does. */
-    realmHome: string;
-  }) {}
+  constructor(private readonly o: { macName: () => string; reportsDir: string; dev: boolean; downscale?: Downscale; realmHome: string }) {}
 
   async handle(ctx: ChannelContext, method: string, params: unknown): Promise<unknown> {
     if (!Object.hasOwn(MobileCalls, method)) throw new MobileError("METHOD_NOT_FOUND", `no mobile.v1 call ${method}`);
@@ -300,13 +301,13 @@ export class MobileApi {
   private async optionsContext(rpc: RpcPort, id: string): Promise<{ session: Session; input: OptionsInput; shared: Shared }> {
     const session = await rpc.call("sessions.get", { id });
     const [probe, init, shared] = await Promise.all([this.probeOf(rpc, session.agentKind), this.initOf(rpc, id), this.shared(rpc)]);
-    return { session, input: { probe, init, remembered: shared.remembered, catalog: shared.catalog }, shared };
+    return { session, input: optionsInput(probe, init, shared), shared };
   }
 
   private sessionOptions(session: Session, input: OptionsInput, shared: Shared): SessionOptions {
     return {
       agent: agentOptions(session.agentKind, input, session.model),
-      model: session.model, modelLabel: modelLabel(session.agentKind, session.model, input.probe ? [input.probe] : []),
+      model: session.model, modelLabel: modelLabel(session.agentKind, session.model, probeList(input)),
       effort: session.effort, permissionMode: session.permissionMode, midTurn: shared.midTurn, attachments: { ...SEND_LIMITS },
     };
   }
@@ -325,7 +326,7 @@ export class MobileApi {
   private async agents(rpc: RpcPort): Promise<MobileResult<"agents.list">> {
     const [probe, shared, last] = await Promise.all([this.probes(rpc), this.shared(rpc), rpc.call("settings.get", { key: LAST_AGENT_SETTING })]);
     const kinds: readonly AgentKind[] = SELECTABLE_AGENT_KINDS;
-    const agents = kinds.map((kind) => agentOptions(kind, { probe: probe.find((r) => r.kind === kind) ?? null, init: null, remembered: shared.remembered, catalog: shared.catalog }));
+    const agents = kinds.map((kind) => agentOptions(kind, optionsInput(probe.find((r) => r.kind === kind) ?? null, null, shared)));
     const defaultAgent = kinds.find((k) => k === last.value) ?? FALLBACK_AGENT;
     return { agents, defaultAgent, midTurn: shared.midTurn, attachments: { ...SEND_LIMITS } };
   }
@@ -337,7 +338,7 @@ export class MobileApi {
     if (!agent.success) throw new MobileError("INVALID_PARAMS", `unknown agent ${String(p.agent)}`);
     const kind = agent.data;
     const [probe, shared] = await Promise.all([this.probeOf(rpc, kind), this.shared(rpc)]);
-    const input: OptionsInput = { probe, init: null, remembered: shared.remembered, catalog: shared.catalog };
+    const input = optionsInput(probe, null, shared);
     const resting = resolveDefaultPermissionMode(kind, shared.defaultPermission);
     const chosen = changesFor(kind, { model: null, effort: null, permissionMode: resting }, p, input, resting);
     const checked = this.checked(p.text, p.attachments);

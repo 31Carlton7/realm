@@ -5,6 +5,7 @@ import { tempDir } from "@realm/test-utils";
 import {
   normalizeAnswers, sessionEvent, type AskCard, type FileDiff, type Item, type Session, type SessionEvent, type Space, type StoredSessionEvent,
 } from "@realm/contracts";
+import { tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
 import { MobileCalls, MobileEvents, RowSchema } from "@realm/remote";
 import { MobileApi } from "./api";
 import { channel, fakeRpc, profile } from "./api.test-fakes";
@@ -30,7 +31,7 @@ const HOME = "/Users/me/Realm";
 const S = "01JSESSION00000000000000000";
 const CODEX = "01JCODEX000000000000000000";
 const QUIET = "01JQUIET000000000000000000";
-/** The Realm space's older sessions, more than Home lists, an hour apart. */
+/** The Realm space's older sessions, more than Home lists, five hours apart. */
 const OLDER = Array.from({ length: 6 }, (_, i) => `01JREALM00000000000000000${i + 1}`);
 const HOUR = 3_600_000;
 const space = (id: string, name: string, icon: string, profileId = "p1"): Space =>
@@ -60,9 +61,10 @@ async function generate(): Promise<Record<string, unknown>> {
   const made = ["slide.png", "notes.md", "walkthrough.mp4"].map((name) => ({ path: join(dir, name), size: 1024 }));
   // What a phone sent with the first message, where the Mac wrote it.
   const home = tempDir("realm-api-fixture-home-");
-  mkdirSync(join(home, "tmp", "attachments"), { recursive: true });
+  const attachments = tempAttachmentDir(home);
+  mkdirSync(attachments, { recursive: true });
   const sent = [{ name: "3f9a1c2b4d5e-IMG_0042.jpg", mime: "image/jpeg" }, { name: "8c1d2e3f4a5b-brief.pdf", mime: "application/pdf" }]
-    .map(({ name, mime }) => ({ path: join(home, "tmp", "attachments", name), mime }));
+    .map(({ name, mime }) => ({ path: join(attachments, name), mime }));
   writeFileSync(sent[0]!.path, "jpeg");
   writeFileSync(sent[1]!.path, "%PDF-1.7");
 

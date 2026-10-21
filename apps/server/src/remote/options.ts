@@ -1,8 +1,8 @@
 import {
   AGENT_META, AGENT_MODELS, AGENT_SUPPORTS_PERMISSION_MODES, PERMISSION_MODES, SESSION_MODES, canonicalModelKey, modeWireValue, offeredModes,
-  sessionModeOf, steerNote, type AcpSessionMode, type AgentKind, type MethodResult, type ModelInfo, type SessionMode,
+  sessionModeOf, steerNote, type AcpSessionMode, type AgentKind, type MethodResult, type ModelInfo,
 } from "@realm/contracts";
-import type { AgentOptions } from "@realm/remote";
+import type { AgentOptions, MobileParams } from "@realm/remote";
 import { effortOptions, modelLabel, type EffortChoice, type EffortOptions } from "@realm/view";
 
 /**
@@ -29,8 +29,11 @@ export type OptionsInput = {
   init: InitFacts | null;
 };
 
+/** The probe as `modelLabel` and `effortOptions` take every agent's: a list, empty when none answered. */
+export const probeList = (input: OptionsInput): ProbeRow[] => (input.probe ? [input.probe] : []);
+
 /** What `session.configure` and `session.create` ask for, as the phone names it. */
-export type Choices = { model?: string | null; effort?: string | null; mode?: SessionMode; permission?: string };
+type Choices = Omit<MobileParams<"session.configure">, "id">;
 
 /** A choice the agent does not offer, in words a person can act on. */
 export class ChoiceRefused extends Error {}
@@ -55,7 +58,7 @@ function modelList(kind: AgentKind, probe: ProbeRow | null): { id: string | null
 function levels(kind: AgentKind, model: string | null, input: OptionsInput): EffortOptions {
   const infoKey = modelList(kind, input.probe).find((m) => m.id === model)?.infoKey ?? null;
   return effortOptions({
-    kind, model, agentProbe: input.probe ? [input.probe] : [], info: infoKey ? input.catalog.get(infoKey) ?? null : null,
+    kind, model, agentProbe: probeList(input), info: infoKey ? input.catalog.get(infoKey) ?? null : null,
     remembered: input.remembered, init: input.init,
   });
 }
@@ -75,7 +78,7 @@ function availability(probe: ProbeRow | null): { available: boolean; note: strin
  */
 export function agentOptions(kind: AgentKind, input: OptionsInput, pinned: string | null = null): AgentOptions {
   const perModel = levelsPerModel(kind);
-  const probe = input.probe ? [input.probe] : [];
+  const probe = probeList(input);
   const models = modelList(kind, input.probe).filter((m) => m.id !== null || pinned === null).map(({ id }) => {
     const e = perModel ? levels(kind, id, input) : null;
     return { id, label: modelLabel(kind, id, probe), ...(e && e.levels.length > 0 ? { efforts: e.levels, defaultEffort: e.defaultId } : {}) };
@@ -112,7 +115,7 @@ export function changesFor(
   if (c.effort !== undefined && c.effort !== current.effort) {
     const taken = levelsPerModel(kind) ? levels(kind, model, input).levels : offered.efforts;
     if (c.effort !== null && !taken.some((l) => l.id === c.effort)) {
-      throw new ChoiceRefused(taken.length === 0 ? `${modelLabel(kind, model, input.probe ? [input.probe] : [])} takes no reasoning level.` : `${c.effort} isn't a reasoning level this model takes.`);
+      throw new ChoiceRefused(taken.length === 0 ? `${modelLabel(kind, model, probeList(input))} takes no reasoning level.` : `${c.effort} isn't a reasoning level this model takes.`);
     }
     out.effort = c.effort;
   }

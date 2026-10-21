@@ -424,7 +424,7 @@ describe("space.sessions", () => {
     expect(pages.map((p) => [p.sessions.map((r) => r.id), p.more])).toEqual([
       [["s1-6", "s1-5", "s1-4"], true], [["s1-3", "s1-2", "s1-1"], true], [["s1-0"], false],
     ]);
-    expect((await page(7, 3))).toEqual({ sessions: [], more: false });
+    expect(await page(7, 3)).toEqual({ sessions: [], more: false });
   });
 
   it("refuses a space it does not have, and a page larger than a hundred", async () => {
@@ -436,9 +436,8 @@ describe("space.sessions", () => {
 const probeRow = (kind: string, extra: Record<string, unknown> = {}) => ({ kind, available: true, version: "1", loggedIn: true, reason: null, models: null, ...extra });
 
 describe("session.options", () => {
-  const options = async (s: Session, more: Partial<Record<MethodName, (p: never) => unknown>> = {}, settings: Record<string, unknown> = {}, log: StoredSessionEvent[] = []) => {
-    const events = (p: { id: string; types?: string[] }) => log.filter((e) => e.sessionId === p.id && (!p.types || p.types.includes(e.event.type)));
-    const got = await attempt(api(), fakeRpc({ sessions: [s], items: [], settings }, { "sessions.events": events as never, ...more }), "session.options", { id: s.id });
+  const options = async (s: Session, more: Partial<Record<MethodName, (p: never) => unknown>> = {}, settings: Record<string, unknown> = {}) => {
+    const got = await attempt(api(), fakeRpc({ sessions: [s], items: [], settings }, more), "session.options", { id: s.id });
     if (!got.ok) throw new Error(got.message);
     return MobileCalls["session.options"].result.parse(got.result);
   };
@@ -484,7 +483,7 @@ describe("session.options", () => {
       providerSessionId: "c1", model: "composer-2", tools: [], cwd: "/tmp",
       availableModes: [{ id: "agent", name: "Agent" }, { id: "plan", name: "Plan" }], efforts: [{ id: "fast", label: "Fast" }, { id: "deep", label: "deep" }], defaultEffort: "fast",
     });
-    const o = await options(session("cur", "s1", { agentKind: "acp:cursor", model: null }), {}, {}, [{ seq: 1, sessionId: "cur", event: init }]);
+    const o = await options(session("cur", "s1", { agentKind: "acp:cursor", model: null }), { "sessions.events": eventsOf([stored("cur", init)]) as never });
     expect(o.agent.modes.map((m) => m.id)).toEqual(["build", "plan"]);
     expect(o.agent.permissions).toEqual([]);
     expect(o.agent.efforts).toEqual([{ id: "fast", label: "Fast" }, { id: "deep", label: "Deep" }]);
