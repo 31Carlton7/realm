@@ -11,7 +11,7 @@ enum SessionSetting: Equatable {
         case .model: "The model"
         case .effort: "The reasoning"
         case .mode: "The mode"
-        case .permission: "The permission"
+        case .permission: "The permissions"
         }
     }
 }

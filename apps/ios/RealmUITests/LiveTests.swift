@@ -510,10 +510,10 @@ final class LiveTests: XCTestCase {
         XCTAssert(app.buttons["Photo.jpg"].waitForExistence(timeout: 15), "the photo is not in the composer")
         shot("composer-photo")
         app.buttons["Add photos or files"].tap()
-        XCTAssert(app.buttons["Photo Library"].waitForExistence(timeout: 5), "+ offers no photos")
-        XCTAssert(app.buttons["Choose Files"].exists, "+ offers no files")
+        XCTAssert(app.buttons["Photo library"].waitForExistence(timeout: 5), "+ offers no photos")
+        XCTAssert(app.buttons["Choose files"].exists, "+ offers no files")
         shot("add-menu")
-        app.buttons["Photo Library"].tap()
+        app.buttons["Photo library"].tap()
         // The picker draws outside the app; the photo the script added is the one taken today. The
         // Simulator's library can hold others that only its iCloud has, which cannot be loaded here.
         let today = Date().formatted(.dateTime.month(.wide).day())

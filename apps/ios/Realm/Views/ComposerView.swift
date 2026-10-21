@@ -321,11 +321,11 @@ private struct AddMenu: View {
     var body: some View {
         let full = count >= limits.maxCount
         Menu {
-            item("Photo Library", "photo.on.rectangle", .photos, full: full)
+            item("Photo library", "photo.on.rectangle", .photos, full: full)
             if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                item("Take Photo", "camera", .camera, full: full)
+                item("Take photo", "camera", .camera, full: full)
             }
-            item("Choose Files", "folder", .files, full: full)
+            item("Choose files", "folder", .files, full: full)
         } label: {
             // A bar's button keeps its size at every text size, as the system's do; a long press shows it large.
             Image(systemName: "plus")
