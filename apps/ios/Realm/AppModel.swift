@@ -67,7 +67,7 @@ final class AppModel {
     /// Each session's settings and what they could be, as its Mac last said: what the composer's chips
     /// show. Asked when the session opens, and again when its settings sheet does.
     private(set) var sessionOptions: [String: SessionOptions] = [:]
-    /// Sessions whose Mac has no `session.options`: an older one, which would drop a message's files.
+    /// Sessions whose Mac has no `session.options`, being older: their settings sheet says to update it.
     private(set) var optionsUnanswered: Set<String> = []
     /// The setting a change is on its way to the Mac for, by session.
     private(set) var configuring: [String: SessionSetting] = [:]

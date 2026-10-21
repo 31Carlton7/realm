@@ -46,8 +46,7 @@ enum DeviceInfo {
 /// the results to the Mac; `-diagnosticsSession <id>` and `-diagnosticsEchoes <n>` steer that run;
 /// `-openSession <id>` opens a session once connected; `-unattended 1` asks for no permission, so no
 /// alert is left over the screen. In a debug build, `-stagePhoto <path>` puts that picture in the
-/// composer of the first session opened, as the camera would: the live run's way past the photo
-/// picker, which draws outside the app where a UI test cannot press it.
+/// composer of the first session opened, as the camera would hand it over.
 enum LaunchOptions {
     static var pairLink: String? { UserDefaults.standard.string(forKey: "pairLink") }
     static var openSession: String? { UserDefaults.standard.string(forKey: "openSession") }

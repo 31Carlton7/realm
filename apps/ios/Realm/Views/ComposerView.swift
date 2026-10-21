@@ -249,7 +249,7 @@ enum ComposerPart: LayoutValueKey {
 struct ComposerLayout: Layout {
     var card: Bool
 
-    /// A button's side, which is also the toolbar's height.
+    /// A button's side, and the toolbar's height until its chips' words need more.
     static let button: CGFloat = 44
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
