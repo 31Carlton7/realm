@@ -30,6 +30,9 @@ struct ComposerAndHomeModelTests {
         // Its age is its conversation's, not the later write's.
         #expect(row.activityAt == 1_789_900_000_000)
         #expect(row.lastActivity == 1_789_900_000_000)
+        #expect(row == SessionRow(id: "s1", title: "Fix the flaky test", spaceId: "sp1", spaceName: "Realm", agent: "claude", model: nil,
+                                  status: .idle, needsYou: false, unread: false, updatedAt: 1_790_000_000_000,
+                                  createdAt: 1_789_000_000_000, effort: "high", permissionMode: "plan", activityAt: 1_789_900_000_000))
         // And back again, as the cache writes it.
         let again = try JSONDecoder().decode(SessionRow.self, from: JSONEncoder().encode(row))
         #expect(again == row)
@@ -126,6 +129,9 @@ struct ComposerAndHomeModelTests {
         """#)
         #expect(agent.efforts.map(\.label) == ["Low", "Think hard"])
         #expect(agent.defaultEffort == "low")
+        #expect(agent == AgentOptions(kind: "acp:opencode", name: "OpenCode", mark: "opencode", models: [ModelChoice(id: nil, label: "Default")],
+                                      efforts: [Choice(id: "low", label: "Low"), Choice(id: "high", label: "Think hard")], defaultEffort: "low",
+                                      modes: [Choice(id: "build", label: "Build")], steerNote: "Sends now."))
         #expect(try JSONDecoder().decode(AgentOptions.self, from: JSONEncoder().encode(agent)) == agent)
         // An agent that names no default, and one from an older Mac, say none.
         let unnamed = try Self.decode(AgentOptions.self, #"{"kind":"acp:goose","name":"goose","mark":"goose","available":true,"note":null,"models":[],"efforts":[{"id":"auto","label":"Auto"}],"defaultEffort":null,"modes":[],"permissions":[],"steerNote":""}"#)
