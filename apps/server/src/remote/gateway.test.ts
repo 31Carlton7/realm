@@ -478,9 +478,12 @@ describe("Plan 28: a paired phone, in process", () => {
 
   it("keeps Home in the order its conversations moved: a session set up again since stays where it was", async () => {
     const r = await boot();
+    // A few milliseconds apart, so neither the two sessions nor the two writes share a clock tick.
+    const tick = () => new Promise((res) => setTimeout(res, 20));
     const older = await newSession(r);
-    await new Promise((res) => setTimeout(res, 20));
+    await tick();
     const newer = await newSession(r);
+    await tick();
     // A change of settings writes the older row, which moves its `updatedAt` past the newer's, and
     // reading it moves its read mark; neither is the conversation moving.
     await r.mac.call("sessions.setOptions", { id: older, permissionMode: "acceptEdits" });
