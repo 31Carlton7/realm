@@ -14,9 +14,11 @@ struct ComposerAndHomeModelTests {
         try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(value)) as? [String: Any])
     }
 
+    /// Set up again since its conversation last moved: its row was written after its last activity.
     static let row = #"""
     {"id":"s1","title":"Fix the flaky test","spaceId":"sp1","spaceName":"Realm","agent":"claude","model":null,"status":"idle",
-     "needsYou":false,"unread":false,"updatedAt":1790000000000,"createdAt":1789000000000,"effort":"high","permissionMode":"plan"}
+     "needsYou":false,"unread":false,"updatedAt":1790000000000,"createdAt":1789000000000,"effort":"high","permissionMode":"plan",
+     "activityAt":1789900000000}
     """#
 
     @Test func aRowCarriesWhenItWasMadeAndItsSettings() throws {
@@ -25,6 +27,9 @@ struct ComposerAndHomeModelTests {
         #expect(row.effort == "high")
         #expect(row.permissionMode == "plan")
         #expect(row.mode == .plan)
+        // Its age is its conversation's, not the later write's.
+        #expect(row.activityAt == 1_789_900_000_000)
+        #expect(row.lastActivity == 1_789_900_000_000)
         // And back again, as the cache writes it.
         let again = try JSONDecoder().decode(SessionRow.self, from: JSONEncoder().encode(row))
         #expect(again == row)
@@ -35,6 +40,10 @@ struct ComposerAndHomeModelTests {
         #expect(row.createdAt == nil)
         #expect(row.effort == nil)
         #expect(row.mode == nil)
+        // An older Mac's row is as old as its last write, and the cache writes back no time it never sent.
+        #expect(row.activityAt == nil)
+        #expect(row.lastActivity == 1)
+        #expect(try Self.object(row)["activityAt"] == nil)
     }
 
     @Test func aStoredPermissionModeReadsAsItsMode() {
@@ -107,6 +116,21 @@ struct ComposerAndHomeModelTests {
         #expect(list.agents.map(\.kind) == ["claude"])
         #expect(list.defaultAgent == "claude")
         #expect(list.midTurn == .steer)
+    }
+
+    @Test func anAgentsOwnLevelsSayWhichItStartsOn() throws {
+        let agent = try Self.decode(AgentOptions.self, #"""
+        {"kind":"acp:opencode","name":"OpenCode","mark":"opencode","available":true,"note":null,"models":[{"id":null,"label":"Default"}],
+         "efforts":[{"id":"low","label":"Low"},{"id":"high","label":"Think hard"}],"defaultEffort":"low","modes":[{"id":"build","label":"Build"}],
+         "permissions":[],"steerNote":"Sends now."}
+        """#)
+        #expect(agent.efforts.map(\.label) == ["Low", "Think hard"])
+        #expect(agent.defaultEffort == "low")
+        #expect(try JSONDecoder().decode(AgentOptions.self, from: JSONEncoder().encode(agent)) == agent)
+        // An agent that names no default, and one from an older Mac, say none.
+        let unnamed = try Self.decode(AgentOptions.self, #"{"kind":"acp:goose","name":"goose","mark":"goose","available":true,"note":null,"models":[],"efforts":[{"id":"auto","label":"Auto"}],"defaultEffort":null,"modes":[],"permissions":[],"steerNote":""}"#)
+        #expect(unnamed.defaultEffort == nil)
+        #expect(try Self.decode(SessionOptions.self, Self.options).agent.defaultEffort == nil)
     }
 
     @Test func changesSayOnlyWhatChanges() throws {
