@@ -265,7 +265,7 @@ struct AttachmentStrip: View {
     private func tile(_ attachment: OutgoingAttachment) -> some View {
         if attachment.isImage {
             LocalThumbnail(url: files.url(of: attachment), side: Self.side)
-                .clipShape(RoundedRectangle(cornerRadius: Radius.thumbnail, style: .continuous))
+                .pictureTile()
         } else {
             AttachmentChip(name: attachment.name, size: attachment.size)
                 .frame(height: Self.side)
@@ -330,7 +330,7 @@ struct OutgoingFiles: View {
                 HStack(spacing: 6) {
                     ForEach(pictures) { attachment in
                         LocalThumbnail(url: files.url(of: attachment), side: side)
-                            .clipShape(RoundedRectangle(cornerRadius: Radius.thumbnail, style: .continuous))
+                            .pictureTile()
                             .accessibilityLabel(attachment.name)
                     }
                 }
@@ -370,8 +370,29 @@ struct SentPicture: View {
             }
         }
         .frame(width: side, height: side)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.thumbnail, style: .continuous))
+        .pictureTile()
         .animation(.easeOut(duration: 0.2), value: thumbnail != nil)
         .task(id: file.path) { await model.loadThumbnail(file.path, in: sessionId, side: side * displayScale) }
+    }
+}
+
+extension View {
+    /// A picture as a tile: its corner, and an edge one pixel wide so a dark one does not bleed into the
+    /// ground, as a made file's tile has.
+    func pictureTile() -> some View {
+        modifier(PictureTile())
+    }
+}
+
+private struct PictureTile: ViewModifier {
+    @Environment(\.displayScale) private var displayScale
+
+    func body(content: Content) -> some View {
+        content
+            .clipShape(RoundedRectangle(cornerRadius: Radius.thumbnail, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: Radius.thumbnail, style: .continuous)
+                    .strokeBorder(Palette.line, lineWidth: 1 / displayScale)
+            }
     }
 }

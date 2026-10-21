@@ -341,6 +341,7 @@ struct SessionSettingsSheet: View {
                         .font(.body.weight(.semibold))
                         .foregroundStyle(Palette.accent)
                         .opacity(chosen ? 1 : 0)
+                        .accessibilityHidden(true)
                 }
             }
             .contentShape(Rectangle())

@@ -93,6 +93,7 @@ struct ComposerView: View {
     var focused: FocusState<Bool>.Binding
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var settingsShown = false
     @State private var photosShown = false
     @State private var cameraShown = false
@@ -125,7 +126,8 @@ struct ComposerView: View {
             TextField(placeholder(session), text: draft, axis: .vertical)
                 .font(.body)
                 .foregroundStyle(Palette.ink)
-                .lineLimit(1...8)
+                // Then it scrolls; at the accessibility sizes sooner, so the newest row stays in view.
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 1...4 : 1...8)
                 .focused(focused)
                 .padding(.vertical, 11)
                 .accessibilityLabel("Message")
@@ -189,6 +191,9 @@ struct ComposerView: View {
             SessionSettingsSheet(sessionId: sessionId)
         }
         .quickLookPreview($previewing)
+        .onChange(of: previewing) { _, now in
+            if now == nil { try? FileManager.default.removeItem(at: Self.previews) }
+        }
         .onChange(of: presenting) { _, now in
             guard !now, refocus else { return }
             refocus = false
@@ -214,10 +219,13 @@ struct ComposerView: View {
         Binding(get: { model.composerDrafts[sessionId] ?? "" }, set: { model.composerDrafts[sessionId] = $0 })
     }
 
+    /// Where a file is linked under its own name while Quick Look shows it.
+    private static let previews = URL.temporaryDirectory.appending(path: "Preview", directoryHint: .isDirectory)
+
     /// Quick Look titles a preview with its file's name, so it is shown a link to the bytes under the
-    /// attachment's own.
+    /// attachment's own, which goes when the preview does.
     private func preview(_ attachment: OutgoingAttachment) {
-        let folder = URL.temporaryDirectory.appending(path: "Preview/\(attachment.id.uuidString)", directoryHint: .isDirectory)
+        let folder = Self.previews.appending(path: attachment.id.uuidString, directoryHint: .isDirectory)
         let link = folder.appending(path: attachment.name.replacingOccurrences(of: "/", with: "-"))
         if !FileManager.default.fileExists(atPath: link.path) {
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -268,22 +276,21 @@ struct ComposerLayout: Layout {
         let add = index(.add), chips = index(.chips), primary = index(.primary)
         let field = index(.field)
         if card {
-            // The field across the card, the toolbar under it.
+            // The field across the card, the toolbar under it: as tall as its chips' words, which grow
+            // with the text size while the buttons keep theirs, centred beside them.
             let fieldWidth = width - 32
             let fieldHeight = field.map { subviews[$0].sizeThatFits(ProposedViewSize(width: fieldWidth, height: nil)).height } ?? button
             if let field { frames[field] = CGRect(x: 16, y: top, width: fieldWidth, height: fieldHeight) }
             let bar = top + fieldHeight - 4
-            var leading: CGFloat = 4
-            if let add {
-                frames[add] = CGRect(x: leading, y: bar, width: button, height: button)
-                leading += button
-            } else {
-                leading = 10
-            }
+            let leading: CGFloat = add == nil ? 10 : 4 + button
             let trailing = width - 4 - button
-            if let primary { frames[primary] = CGRect(x: trailing, y: bar, width: button, height: button) }
-            if let chips { frames[chips] = CGRect(x: leading, y: bar, width: max(0, trailing - 4 - leading), height: button) }
-            return (frames, bar + button + 4)
+            let chipsWidth = max(0, trailing - 4 - leading)
+            let barHeight = max(button, chips.map { subviews[$0].sizeThatFits(ProposedViewSize(width: chipsWidth, height: nil)).height } ?? 0)
+            let middle = bar + (barHeight - button) / 2
+            if let add { frames[add] = CGRect(x: 4, y: middle, width: button, height: button) }
+            if let primary { frames[primary] = CGRect(x: trailing, y: middle, width: button, height: button) }
+            if let chips { frames[chips] = CGRect(x: leading, y: bar, width: chipsWidth, height: barHeight) }
+            return (frames, bar + barHeight + 4)
         }
         // One row, the buttons at its foot as the field grows.
         let fieldX: CGFloat = add == nil ? 16 : 4 + button
