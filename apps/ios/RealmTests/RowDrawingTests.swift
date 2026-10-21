@@ -50,11 +50,12 @@ enum Drawing {
 
 /// A model with one open session, as the Mac would have sent it.
 @MainActor
-func modelWithSession(agent: String = "claude", status: SessionStatus = .waiting, rows: [TranscriptRow] = []) -> AppModel {
+func modelWithSession(agent: String = "claude", status: SessionStatus = .waiting, modelLabel: String? = nil,
+                      rows: [TranscriptRow] = []) -> AppModel {
     let model = AppModel()
     model.store.finishOpening(OpenedSession(
         session: SessionRow(id: "s1", title: "T", spaceId: "sp", spaceName: "Realm", agent: agent, model: nil, status: status,
-                            needsYou: status == .waiting, unread: false, updatedAt: 0),
+                            needsYou: status == .waiting, unread: false, updatedAt: 0, modelLabel: modelLabel),
         rows: rows, hasMore: false))
     return model
 }
@@ -634,16 +635,10 @@ struct ComposerDrawingTests {
     }
 
     static func model() -> AppModel {
-        let model = AppModel()
-        model.store.finishOpening(OpenedSession(
-            session: SessionRow(id: "s1", title: "T", spaceId: "sp", spaceName: "Realm", agent: "claude", model: "claude-opus-5-5",
-                                status: .idle, needsYou: false, unread: false, updatedAt: 0, agentName: "Claude", agentMark: "claude",
-                                modelLabel: "Opus 5.5"),
-            rows: [], hasMore: false))
-        return model
+        modelWithSession(status: .idle, modelLabel: "Opus 5.5")
     }
 
-    /// At rest it is one capsule, the field and its button: no line over it names the model.
+    /// At rest it is one capsule, the field and its button, with no chip naming the model.
     @Test func atRestItIsTheFieldAndItsButton() throws {
         let words = try Drawing.words(Host().environment(Self.model()))
         #expect(!words.contains("Opus"), "\(words)")

@@ -163,7 +163,7 @@ struct SettingWordsTests {
         #expect(SettingWords.chip(Self.options(nil)) == ("Build", "hammer"))
     }
 
-    @Test func eachSayInOneLineWhatItLetsTheAgentDo() {
+    @Test func eachSaysInOneLineWhatItLetsTheAgentDo() {
         #expect(SettingWords.line(.plan) == "Plans first, and changes nothing until you approve the plan.")
         #expect(SettingWords.line(permission: "acceptEdits") == "Edits files without asking, and asks before commands.")
         #expect(SettingWords.line(permission: "someOtherRung") == nil)
