@@ -511,7 +511,12 @@ final class AppModel {
             store.restoreTranscript(sessionId, from: cached)
         }
         guard let api, isConnected else { return }
-        Task { await loadOptions(sessionId) }
+        Task {
+            await loadOptions(sessionId)
+            #if DEBUG
+            await stageLaunchPhoto(in: sessionId)
+            #endif
+        }
         store.beginOpening(sessionId)
         do {
             store.finishOpening(try await api.openSession(id: sessionId))
@@ -655,6 +660,17 @@ final class AppModel {
             }
         }
     }
+
+    #if DEBUG
+    @ObservationIgnored private var photoStaged = false
+
+    /// `-stagePhoto <path>`: the picture, in the first session's composer that opens.
+    private func stageLaunchPhoto(in sessionId: String) async {
+        guard !photoStaged, let path = LaunchOptions.stagedPhoto, let image = UIImage(contentsOfFile: path) else { return }
+        photoStaged = true
+        await attach([.camera(image)], to: sessionId)
+    }
+    #endif
 
     /// Takes a file out of a session's composer, and off this phone.
     func removeAttachment(_ attachment: OutgoingAttachment, from sessionId: String) {

@@ -464,6 +464,189 @@ final class LiveTests: XCTestCase {
         back()
     }
 
+    // MARK: - The composer (Plan 29 §1)
+
+    /// The composer at rest, then composing — the model and mode chips under the words — and the model
+    /// chip's sheet with another model picked, the chip saying it; then Plan, from the mode chip's menu.
+    /// The script checks after that the Mac has both.
+    @MainActor
+    func testC1_composer() throws {
+        try openComposer()
+        shot("composer-rest")
+        composerField.tap()
+        XCTAssert(modelChip.waitForExistence(timeout: 5), "composing, the composer has no model chip")
+        shot("composer-focused")
+        composerField.typeText("Read the composer's code first")
+        shot("composer-typing")
+        modelChip.tap()
+        let opus = app.buttons["Opus 5.5"]
+        XCTAssert(opus.waitForExistence(timeout: 10), "the sheet does not list the agent's models")
+        shot("settings-sheet")
+        opus.tap()
+        XCTAssert(selected(opus), "the check did not move to the model picked")
+        shot("settings-model-picked")
+        app.swipeUp(velocity: .slow)
+        shot("settings-sheet-permissions")
+        app.navigationBars.buttons["Done"].firstMatch.tap()
+        XCTAssert(app.buttons["Model, Opus 5.5"].waitForExistence(timeout: 10), "the chip does not say the model picked")
+        shot("composer-chip-updated")
+        modeChip.tap()
+        let plan = app.buttons["Plan"]
+        XCTAssert(plan.waitForExistence(timeout: 5), "the mode chip has no menu of modes")
+        shot("mode-menu")
+        plan.tap()
+        XCTAssert(app.buttons["Mode, Plan"].waitForExistence(timeout: 10), "the chip does not say Plan")
+        shot("composer-plan")
+    }
+
+    /// `+` and what it offers, the photo picker; then a photo in the composer — staged as the camera
+    /// would hand it over, since the picker draws outside the app — sent with words, and shown under the
+    /// message once the Mac has it, opening the Mac's copy.
+    @MainActor
+    func testC2_photo() throws {
+        let photo = try XCTUnwrap(environment["STAGED_PHOTO"], "the script stages a photo")
+        try openComposer(["-stagePhoto", photo])
+        let tile = app.buttons["Photo.jpg"]
+        XCTAssert(tile.waitForExistence(timeout: 15), "the photo is not in the composer")
+        shot("composer-photo")
+        app.buttons["Add photos or files"].tap()
+        XCTAssert(app.buttons["Photo Library"].waitForExistence(timeout: 5), "+ offers no photos")
+        XCTAssert(app.buttons["Choose Files"].exists, "+ offers no files")
+        shot("add-menu")
+        app.buttons["Photo Library"].tap()
+        sleep(4)
+        shot("photo-picker")
+        if let folder = environment["SHOTS"] {
+            try? app.debugDescription.write(to: URL(fileURLWithPath: folder).appending(path: "photo-picker-tree.txt"), atomically: true, encoding: .utf8)
+        }
+        app.swipeDown(velocity: .fast)
+        sleep(2)
+        composerField.tap()
+        composerField.typeText("What is wrong with this page?")
+        shot("composer-photo-typed")
+        app.buttons["Send"].tap()
+        XCTAssert(element(containing: "echo: What is wrong with this page?").waitForExistence(timeout: 20), "the Mac never answered the photo")
+        let sent = app.buttons["Photo.jpg"]
+        XCTAssert(sent.waitForExistence(timeout: 10), "the photo is not shown under the message")
+        sleep(2)
+        shot("message-photo-sent")
+        sent.tap()
+        XCTAssert(app.images["Photo.jpg"].waitForExistence(timeout: 15), "the Mac's copy of the photo did not arrive")
+        shot("sent-photo-preview")
+        app.navigationBars.buttons["Done"].firstMatch.tap()
+    }
+
+    /// A turn under way: Stop in the button's place; words typed make it Queue, the Mac's choice for a
+    /// message mid-turn, with Steer and Stop a long press away; queued, the message waits for the turn,
+    /// and Stop ends it, after which the message goes.
+    @MainActor
+    func testC3_runningTurn() throws {
+        let session = try XCTUnwrap(environment["RUNNING_SESSION"], "the script names the session it keeps working")
+        launch(["-openSession", session])
+        XCTAssert(element(containing: "Working").waitForExistence(timeout: 30), "the turn is not under way")
+        let stop = app.buttons["Stop"]
+        XCTAssert(stop.waitForExistence(timeout: 10), "a turn under way has no Stop")
+        sleep(2)
+        shot("composer-stop")
+        composerField.tap()
+        composerField.typeText("Then check the toolbar")
+        let queue = app.buttons["Queue"]
+        XCTAssert(queue.waitForExistence(timeout: 5), "with words typed mid-turn the button does not queue")
+        XCTAssertFalse(stop.exists, "Stop is still beside the button")
+        shot("composer-queue")
+        queue.press(forDuration: 1.2)
+        XCTAssert(app.buttons["Steer"].waitForExistence(timeout: 5), "a long press does not offer Steer")
+        XCTAssert(element(containing: "Sends when this turn ends").exists || element(containing: "Stops the agent").exists,
+                  "the choices do not say what they do")
+        shot("composer-queue-menu")
+        dismissMenu()
+        queue.tap()
+        XCTAssert(element(containing: "Then check the toolbar").waitForExistence(timeout: 10))
+        XCTAssert(element(containing: "Sent").waitForExistence(timeout: 15), "the Mac did not take the queued message")
+        shot("message-queued")
+        XCTAssert(stop.waitForExistence(timeout: 5), "with nothing typed the button is not Stop again")
+        stop.tap()
+        XCTAssert(element(containing: "echo: Then check the toolbar").waitForExistence(timeout: 30), "the queued message never went")
+        sleep(2)
+        shot("after-stop")
+    }
+
+    /// The dark face, set on the Simulator by the script: the composer at rest, composing, its sheet and
+    /// its mode menu.
+    @MainActor
+    func testC4_dark() throws {
+        try composerTour(prefix: "dark")
+    }
+
+    /// The largest accessibility text size: the field grows, the chips scroll sideways, and the button
+    /// keeps its place.
+    @MainActor
+    func testC5_largestText() throws {
+        try composerTour(prefix: "ax", ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+    }
+
+    /// Reduce Transparency, set on the Simulator by the script: the composer's glass goes solid.
+    @MainActor
+    func testC6_reduceTransparency() throws {
+        try composerTour(prefix: "rt")
+    }
+
+    @MainActor
+    private func composerTour(prefix: String, _ arguments: [String] = []) throws {
+        try openComposer(arguments)
+        shot("\(prefix)-composer-rest")
+        composerField.tap()
+        composerField.typeText("Read the composer's code first, then check the toolbar at every size")
+        XCTAssert(modelChip.waitForExistence(timeout: 5))
+        shot("\(prefix)-composer-typing")
+        modelChip.tap()
+        XCTAssert(app.navigationBars.buttons["Done"].waitForExistence(timeout: 10))
+        sleep(1)
+        shot("\(prefix)-settings-sheet")
+        app.navigationBars.buttons["Done"].firstMatch.tap()
+        XCTAssert(modeChip.waitForExistence(timeout: 10))
+        modeChip.tap()
+        sleep(1)
+        shot("\(prefix)-mode-menu")
+        dismissMenu()
+    }
+
+    /// Opens the session the script names for the composer, once its Mac has said what its composer
+    /// offers.
+    @MainActor
+    private func openComposer(_ arguments: [String] = []) throws {
+        let session = try XCTUnwrap(environment["COMPOSER_SESSION"], "the script names the session to compose in")
+        launch(["-openSession", session] + arguments)
+        XCTAssert(app.buttons["Add photos or files"].waitForExistence(timeout: 30), "the composer offers no + (no session.options)")
+        sleep(1)
+    }
+
+    @MainActor
+    private var composerField: XCUIElement {
+        app.textViews["Message"].exists ? app.textViews["Message"] : app.textFields["Message"]
+    }
+
+    @MainActor
+    private var modelChip: XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Model, ")).firstMatch
+    }
+
+    @MainActor
+    private var modeChip: XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Mode, ")).firstMatch
+    }
+
+    /// Whether a choice is the one checked, once the Mac has answered.
+    @MainActor
+    private func selected(_ element: XCUIElement) -> Bool {
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline {
+            if element.isSelected { return true }
+            usleep(200_000)
+        }
+        return false
+    }
+
     // MARK: - Helpers
 
     /// Home's title, which opens the menu of profiles.
