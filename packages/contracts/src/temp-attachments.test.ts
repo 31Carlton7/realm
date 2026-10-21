@@ -5,7 +5,7 @@ import { givenAttachmentName, prefixedAttachmentName, tempAttachmentDir } from "
 describe("a file's name in the attachments folder", () => {
   const dir = tempAttachmentDir("/Users/me/Realm");
 
-  it("reads back as the name it was written under, prefix and all left off", () => {
+  it("reads back as the name it was given, without the prefix it was written under", () => {
     const written = prefixedAttachmentName("IMG_0042.jpg");
     // THE MUTANT: a writer whose prefix the reader does not know, and every file keeps it on the phone.
     expect(written).toMatch(/^[0-9a-f]{12}-IMG_0042\.jpg$/);

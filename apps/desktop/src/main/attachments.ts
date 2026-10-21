@@ -11,12 +11,11 @@ import { prefixedAttachmentName, safeAttachmentName, sweepTempAttachments, TEMP_
  *  file over MAX_ATTACHMENT_BYTES before it is ever attached; only `path` and `mime` go on the wire. */
 export type PickedFile = { path: string; mime: string; name: string; size: number };
 
-/* Where a pasted file goes, its name and its sweep are shared with realm-server, which writes a file
-   sent from Realm Mobile the same way (`@realm/contracts/src/temp-attachments`). */
+// Where a pasted file goes, its name and its sweep are shared with realm-server, which writes a file
+// sent from Realm Mobile the same way.
 export { safeAttachmentName, sweepTempAttachments, TEMP_ATTACHMENT_TTL_MS, tempAttachmentDir };
 
-/** Write a pasted file into the temp directory and describe it the way the picker does. The random
- *  prefix is what keeps two pastes of "image.png" from overwriting each other. */
+/** Write a pasted file into the temp directory and describe it the way the picker does. */
 export async function saveTempAttachment(home: string, name: string, mime: string, bytes: Uint8Array): Promise<PickedFile> {
   const dir = tempAttachmentDir(home);
   await mkdir(dir, { recursive: true });

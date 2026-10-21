@@ -30,10 +30,10 @@ export const TEMP_ATTACHMENT_TTL_MS = 24 * 60 * 60 * 1000;
 /**
  * A filesystem-safe name for a pasted file.
  *
- * The name arrives from the renderer (`File.name` on a clipboard item), so it is untrusted: strip it to
- * a basename, then to a conservative character set, so nothing can escape the directory or collide with
- * a name the sweep is meant to recognise. The extension is preserved when there is one — it is what
- * `mimeForPath` reads, and what makes the file openable.
+ * The name arrives from the renderer (`File.name` on a clipboard item) or from a phone, so it is
+ * untrusted: strip it to a basename, then to a conservative character set, so nothing can escape the
+ * directory or collide with a name the sweep is meant to recognise. The extension is preserved when
+ * there is one — it is what `mimeForPath` reads, and what makes the file openable.
  *
  * `fallback` is for the name that sanitizes away to nothing (`...`, `///`, an empty string). Pastes
  * want "pasted"; a download wants "download", and since downloads stopped requiring an extension

@@ -1,5 +1,5 @@
 import { AGENT_FAST_MODE, AGENT_META, AGENT_MODELS, AGENT_NOTES, DEFAULT_MODEL_LABEL, MODEL_NOTES, SELECTABLE_AGENT_KINDS, canonicalModelKey, fastSupportKey, formatContext, formatPrice, type AgentKind, type ModelInfo } from "@realm/contracts";
-import { effortOptions, formatEffort, type EffortChoice, type EffortOptions } from "@realm/view";
+import type { EffortChoice, EffortOptions } from "@realm/view";
 import { agentAvailability, availabilityNote } from "../../state/agent-availability";
 import type { AgentProbe } from "../../state/store";
 
@@ -387,9 +387,8 @@ export function chipLabel(kind: AgentKind, model: string | null, rows: ModelRow[
 export const chipTitle = (fullName: string, kind: AgentKind, level: string | null, fast: boolean): string =>
   `${fullName} through ${AGENT_META[kind].label}${level ? ` · ${level} effort` : ""}${fast ? " · fast mode" : ""}`;
 
-/* The levels a model takes and their names live in `@realm/view`, so Realm Mobile offers the same
-   ones; the picker's readers keep importing them from here. */
-export { effortOptions, formatEffort, type EffortChoice, type EffortOptions };
+// The levels a model takes, and their names, are `@realm/view`'s, so Realm Mobile offers the same ones.
+export { effortOptions, formatEffort, type EffortOptions } from "@realm/view";
 
 /** The effort control as the picker draws it: the levels, what the session asked for (null for the
  *  model's own default), and the default by name where it is known. */

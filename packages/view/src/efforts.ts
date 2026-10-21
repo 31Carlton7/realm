@@ -44,7 +44,7 @@ export function effortOptions({ kind, model, agentProbe, info, remembered, init 
   agentProbe: readonly AgentProbeRow[];
   /** The public catalog's entry for the model, where it has one. */
   info?: ModelInfo | null;
-  /** `MODEL_EFFORTS_KEY`, as the store mirrors it. */
+  /** `MODEL_EFFORTS_KEY`, as `readEffortSupport` reads it. */
   remembered: Record<string, string[]>;
   /** This session's own handshake, where it has one. */
   init?: { model?: string; efforts?: EffortChoice[]; defaultEffort?: string } | null;
