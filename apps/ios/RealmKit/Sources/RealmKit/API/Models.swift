@@ -873,6 +873,36 @@ public struct SessionOptions: Codable, Sendable, Hashable {
 
     /// The mode the session is in.
     public var mode: SessionMode { permissionMode.map(SessionMode.of) ?? .build }
+
+    /// The model it runs on now, among the agent's: the default's row while none is pinned.
+    public var currentModel: ModelChoice? { agent.models.first { $0.id == model } }
+
+    /// The reasoning levels the current model takes, else the agent's own; empty where there are none.
+    public var efforts: [Choice] {
+        if let efforts = currentModel?.efforts, !efforts.isEmpty { return efforts }
+        return agent.efforts
+    }
+
+    /// The options as they will be once the Mac takes `changes`, by its rules (PROTOCOL.md §8): Plan and
+    /// Ask travel as the permission mode, a rung without a mode is Build on that rung, and Build without
+    /// one is the Mac's to choose, so it is left unknown until it answers.
+    public func applying(_ changes: SessionChanges) -> SessionOptions {
+        var model = model, modelLabel = modelLabel, effort = effort, permissionMode = permissionMode
+        if let chosen = changes.model {
+            model = chosen
+            modelLabel = agent.models.first { $0.id == chosen }?.label ?? chosen ?? modelLabel
+        }
+        if let chosen = changes.effort { effort = chosen }
+        switch (changes.mode, changes.permission) {
+        case (.plan?, _): permissionMode = "plan"
+        case (.ask?, _): permissionMode = "ask"
+        case (_, let rung?): permissionMode = rung
+        case (.build?, nil): if mode != .build { permissionMode = nil }
+        case (nil, nil): break
+        }
+        return SessionOptions(agent: agent, model: model, modelLabel: modelLabel, effort: effort, permissionMode: permissionMode,
+                              midTurn: midTurn, attachments: attachments)
+    }
 }
 
 /// `agents.list`: the agents a new session could be given, the one the Mac starts with, and what one

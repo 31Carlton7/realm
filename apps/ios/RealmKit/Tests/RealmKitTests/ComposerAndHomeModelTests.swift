@@ -100,6 +100,33 @@ struct ComposerAndHomeModelTests {
         #expect(options.attachments.maxCount == 6)
     }
 
+    /// The chips change the moment a setting is picked, as the Mac will have it: the model by its row's
+    /// name, Plan and Ask as the permission mode, a rung on its own as Build on that rung.
+    @Test func aChangeShowsAsTheMacWillHaveIt() throws {
+        let options = try Self.decode(SessionOptions.self, Self.options)
+        #expect(options.currentModel?.label == "Opus 5.5")
+        #expect(options.efforts.isEmpty, "Opus 5.5 takes no levels here, and the agent has none of its own")
+
+        let toDefault = options.applying(SessionChanges(model: .some(nil)))
+        #expect(toDefault.model == nil)
+        #expect(toDefault.modelLabel == "Default")
+        #expect(toDefault.efforts.map(\.id) == ["low", "high"])
+        #expect(options.applying(SessionChanges(effort: .some("high"))).effort == "high")
+        #expect(options.applying(SessionChanges(effort: .some(nil))).effort == nil)
+
+        let plan = options.applying(SessionChanges(mode: .plan))
+        #expect(plan.permissionMode == "plan" && plan.mode == .plan)
+        #expect(options.applying(SessionChanges(mode: .ask)).mode == .ask)
+        #expect(options.applying(SessionChanges(permission: "default")).permissionMode == "default")
+        #expect(plan.applying(SessionChanges(mode: .build, permission: "acceptEdits")).permissionMode == "acceptEdits")
+        // Back to Build with no rung named: the Mac puts the session's own back, which only it knows.
+        let build = plan.applying(SessionChanges(mode: .build))
+        #expect(build.mode == .build && build.permissionMode == nil)
+        // Already in Build, nothing changes.
+        #expect(options.applying(SessionChanges(mode: .build)).permissionMode == "acceptEdits")
+        #expect(options.applying(SessionChanges()) == options)
+    }
+
     @Test func theAgentsListDecodes() throws {
         let agent = try JSONSerialization.jsonObject(with: Data(Self.options.utf8)) as? [String: Any]
         let agentJSON = String(decoding: try JSONSerialization.data(withJSONObject: try #require(agent?["agent"])), as: UTF8.self)
