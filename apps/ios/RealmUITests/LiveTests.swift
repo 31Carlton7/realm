@@ -27,8 +27,10 @@ final class LiveTests: XCTestCase {
     @MainActor
     func test0_forgetThenPair() throws {
         launch()
-        if element(containing: "Sessions").waitForExistence(timeout: 8) {
-            app.navigationBars.buttons["Settings"].tap()
+        // Home is titled with its profile, so it is known by its Settings button.
+        let settings = app.navigationBars.buttons["settings"]
+        if settings.waitForExistence(timeout: 8) {
+            settings.tap()
             let forget = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Forget ")).firstMatch
             XCTAssert(forget.waitForExistence(timeout: 5))
             shot("settings")
@@ -255,7 +257,281 @@ final class LiveTests: XCTestCase {
         shot("rt-session")
     }
 
+    // MARK: - Home, one profile at a time (Plan 29)
+
+    /// Work by space, with a line for what needs you in School; the title's menu; School, and back to
+    /// Work from its line; then every profile at once.
+    @MainActor
+    func testH1_profiles() throws {
+        launch()
+        XCTAssert(element(containing: "· Connected").waitForExistence(timeout: 30))
+        resetHome()
+        XCTAssert(elsewhere("School").waitForExistence(timeout: 10), "nothing says what needs you in School")
+        XCTAssertFalse(element(containing: "Check the proof for question 2").exists, "School's session is listed in Work")
+        shot("home-work")
+        let showAll = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Show all")).firstMatch
+        for _ in 0..<4 where !showAll.exists { app.swipeUp(velocity: .slow) }
+        XCTAssert(showAll.exists, "Realm holds more than Home lists, and nothing says so")
+        shot("home-work-show-all")
+        // Switched from part way down, the other profile's list opens at its top.
+        titleButton.tap()
+        XCTAssert(menuItem("School").waitForExistence(timeout: 5), "the title has no menu of profiles")
+        shot("profile-menu")
+        menuItem("School").tap()
+        XCTAssert(waitForTitle("School"))
+        XCTAssert(elsewhere("Work").waitForExistence(timeout: 5) && elsewhere("Work").isHittable, "School's list did not open at its top")
+        XCTAssert(element(containing: "Check the proof for question 2").waitForExistence(timeout: 10))
+        XCTAssertFalse(element(containing: "Add the dark-mode toggle").exists, "Work's session is listed in School")
+        shot("home-school")
+        // The choice is kept on the phone.
+        app.terminate()
+        launch()
+        XCTAssert(waitForTitle("School"), "the profile chosen was not kept")
+        elsewhere("Work").tap()
+        XCTAssert(waitForTitle("Work"), "the line did not show Work")
+        showProfile("All profiles")
+        XCTAssert(element(containing: "Check the proof for question 2").waitForExistence(timeout: 10))
+        XCTAssert(element(containing: "Add the dark-mode toggle").exists)
+        XCTAssertFalse(elsewhere("School").exists, "every profile is shown, and a line still points at one")
+        shot("home-all")
+        showProfile("Work")
+    }
+
+    /// The View options menu, and each way of listing: Most recent, By day, Needs you in place, the
+    /// spaces by their activity.
+    @MainActor
+    func testH2_listStyles() throws {
+        launch()
+        XCTAssert(element(containing: "· Connected").waitForExistence(timeout: 30))
+        resetHome()
+        app.buttons["view-options"].tap()
+        XCTAssert(app.buttons["Most recent"].waitForExistence(timeout: 5), "no View options menu")
+        shot("view-options")
+        app.buttons["Most recent"].tap()
+        XCTAssert(app.staticTexts["Recent"].waitForExistence(timeout: 5), "Most recent is not one list")
+        XCTAssert(app.staticTexts["Needs you"].exists)
+        shot("home-most-recent")
+        viewOption("By day")
+        XCTAssert(app.staticTexts["Today"].waitForExistence(timeout: 5))
+        shot("home-by-day")
+        // A list draws only the rows near the screen: each day's head is looked for on the way down.
+        var heads: Set<String> = []
+        for _ in 0..<10 where !app.staticTexts["Earlier"].exists {
+            for day in ["Yesterday", "Previous 7 days"] where app.staticTexts[day].exists { heads.insert(day) }
+            app.swipeUp(velocity: .slow)
+        }
+        for day in ["Yesterday", "Previous 7 days"] where app.staticTexts[day].exists { heads.insert(day) }
+        XCTAssertEqual(heads, ["Yesterday", "Previous 7 days"], "a day has no sessions under it")
+        XCTAssert(app.staticTexts["Earlier"].exists, "nothing is listed under Earlier")
+        shot("home-by-day-earlier")
+        viewOption("Needs you first", selected: false)
+        XCTAssert(app.staticTexts["Needs you"].waitForNonExistence(timeout: 5), "Needs you still heads the list")
+        app.swipeDown()
+        shot("home-needs-you-in-place")
+        viewOption("Needs you first")
+        viewOption("By space")
+        viewOption("Recently active first")
+        XCTAssert(app.buttons["view-options"].waitForExistence(timeout: 5))
+        shot("home-recently-active")
+        viewOption("As on your Mac")
+    }
+
+    /// Settings ▸ Session list changes what Home's menu changes.
+    @MainActor
+    func testH3_sessionListSettings() throws {
+        launch()
+        XCTAssert(element(containing: "· Connected").waitForExistence(timeout: 30))
+        resetHome()
+        app.navigationBars.buttons["settings"].tap()
+        let list = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "List")).firstMatch
+        for _ in 0..<4 where !list.isHittable { app.swipeUp(velocity: .slow) }
+        XCTAssert(list.exists, "Settings has no Session list")
+        shot("settings-session-list")
+        list.tap()
+        XCTAssert(app.buttons["By day"].waitForExistence(timeout: 5))
+        app.buttons["By day"].tap()
+        XCTAssertFalse(element(containing: "Order spaces").waitForExistence(timeout: 2), "Order spaces is offered for a list by day")
+        shot("settings-session-list-by-day")
+        app.navigationBars.buttons["Done"].firstMatch.tap()
+        XCTAssert(app.staticTexts["Today"].waitForExistence(timeout: 5), "Home did not follow Settings")
+        viewOption("By space")
+    }
+
+    /// A space's page, from its "Show all" row: its glyph and name for a title, its newest first, the
+    /// second page as the end of the first comes into view, and a search of what has come.
+    @MainActor
+    func testH4_spacePage() throws {
+        launch()
+        XCTAssert(element(containing: "· Connected").waitForExistence(timeout: 30))
+        resetHome()
+        showProfile("Personal")
+        // Most recent is the Mac's own list for Personal, which reaches far past Journal's newest few.
+        viewOption("Most recent")
+        let older = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Journal entry 40,")).firstMatch
+        for _ in 0..<12 where !older.exists { app.swipeUp() }
+        XCTAssert(older.exists, "Personal's recent sessions are not the Mac's list for Personal")
+        shot("home-personal-most-recent")
+        viewOption("By space")
+        let showAll = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Show all 55")).firstMatch
+        for _ in 0..<8 where !showAll.isHittable { app.swipeUp(velocity: .slow) }
+        XCTAssert(showAll.exists, "Journal's 55 sessions have no Show all")
+        showAll.tap()
+        XCTAssert(app.navigationBars["Journal"].waitForExistence(timeout: 10), "the page is not titled with the space")
+        XCTAssert(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Journal entry 55,")).firstMatch.waitForExistence(timeout: 10))
+        shot("space-page")
+        let first = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Journal entry 1,")).firstMatch
+        for _ in 0..<30 where !first.exists { app.swipeUp() }
+        XCTAssert(first.exists, "the second page never came")
+        shot("space-page-second")
+        app.searchFields.firstMatch.tap()
+        app.searchFields.firstMatch.typeText("entry 7")
+        XCTAssert(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Journal entry 7,")).firstMatch.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Journal entry 8,")).firstMatch.exists)
+        shot("space-page-search")
+        // While it searches, the page gives its bar to the field; the button beside the field ends the
+        // search and gives the bar back.
+        let field = app.searchFields.firstMatch.frame
+        let close = app.buttons.allElementsBoundByIndex.first { $0.frame.minX >= field.maxX && abs($0.frame.midY - field.midY) < 20 }
+        try XCTUnwrap(close, "nothing beside the search field ends it").tap()
+        back()
+        showProfile("Work")
+    }
+
+    /// The dark face, set on the Simulator by the script: Home, its menus, By day and a space's page,
+    /// opened from its head.
+    @MainActor
+    func testH5_dark() throws {
+        try appearanceTour(prefix: "dark")
+    }
+
+    /// The largest accessibility text size: the title's menu, the line for another profile, the menus,
+    /// By day, a space's page and Settings ▸ Session list still read whole.
+    @MainActor
+    func testH6_largestText() throws {
+        launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        XCTAssert(app.navigationBars.buttons["settings"].waitForExistence(timeout: 30))
+        sleep(3)
+        try appearanceTour(prefix: "ax", launched: true)
+        // Settings ▸ Session list sets its choices out as rows here, each whole.
+        app.navigationBars.buttons["settings"].tap()
+        let bySpace = element(containing: "By space")
+        for _ in 0..<12 where !(bySpace.exists && bySpace.isHittable) { app.swipeUp(velocity: .slow) }
+        XCTAssert(bySpace.exists, "Settings has no Session list")
+        shot("ax-settings-session-list")
+        let recently = element(containing: "Recently active first")
+        for _ in 0..<6 where !(recently.exists && recently.isHittable) { app.swipeUp(velocity: .slow) }
+        XCTAssert(recently.exists)
+        shot("ax-settings-session-list-order")
+        app.navigationBars.buttons["Done"].firstMatch.tap()
+    }
+
+    /// Reduce Transparency, set on the Simulator by the script: the bars and menus over Home.
+    @MainActor
+    func testH7_reduceTransparency() throws {
+        try appearanceTour(prefix: "rt")
+    }
+
+    /// Home by space, the title's menu, View options, By day and a space's page from its head, each
+    /// pictured under `prefix`, and Home left as it was found.
+    @MainActor
+    private func appearanceTour(prefix: String, launched: Bool = false) throws {
+        if !launched {
+            launch()
+            XCTAssert(element(containing: "· Connected").waitForExistence(timeout: 30))
+        }
+        resetHome()
+        shot("\(prefix)-home-work")
+        titleButton.tap()
+        XCTAssert(menuItem("School").waitForExistence(timeout: 5))
+        shot("\(prefix)-profile-menu")
+        dismissMenu()
+        app.buttons["view-options"].tap()
+        XCTAssert(app.buttons["By day"].waitForExistence(timeout: 5))
+        shot("\(prefix)-view-options")
+        app.buttons["By day"].tap()
+        // Needs you can fill the screen at the largest sizes: the first day's head is further down.
+        let today = app.staticTexts["Today"]
+        for _ in 0..<6 where !today.waitForExistence(timeout: 2) { app.swipeUp(velocity: .slow) }
+        XCTAssert(today.exists, "By day has no Today")
+        shot("\(prefix)-by-day")
+        viewOption("By space")
+        let realm = app.buttons["Realm"]
+        for _ in 0..<6 where !realm.exists { app.swipeUp(velocity: .slow) }
+        pressClearOfTheBars(realm)
+        XCTAssert(app.navigationBars["Realm"].waitForExistence(timeout: 10), "the space's head did not open its page")
+        sleep(2)
+        shot("\(prefix)-space-page")
+        back()
+    }
+
     // MARK: - Helpers
+
+    /// Home's title, which opens the menu of profiles.
+    @MainActor
+    private var titleButton: XCUIElement {
+        app.navigationBars.firstMatch.buttons.matching(NSPredicate(format: "identifier != 'settings' AND label != 'Reconnect'")).firstMatch
+    }
+
+    @MainActor
+    private func waitForTitle(_ title: String) -> Bool {
+        app.navigationBars.firstMatch.buttons[title].waitForExistence(timeout: 10)
+    }
+
+    /// An item of the profiles' menu, which says what needs you after the name: not the title, which
+    /// can say the same name.
+    @MainActor
+    private func menuItem(_ name: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", name, "\(name), ")).element(boundBy: titleButton.label == name ? 1 : 0)
+    }
+
+    /// The line at the head of Home saying what needs you in another profile.
+    @MainActor
+    private func elsewhere(_ profile: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'elsewhere-' AND label ENDSWITH %@", " in \(profile)")).firstMatch
+    }
+
+    @MainActor
+    private func showProfile(_ name: String) {
+        guard titleButton.label != name else { return }
+        titleButton.tap()
+        let item = menuItem(name)
+        XCTAssert(item.waitForExistence(timeout: 5), "no \(name) in the title's menu")
+        item.tap()
+        XCTAssert(waitForTitle(name), "Home did not show \(name)")
+    }
+
+    /// Presses one of View options, unless it is already as asked.
+    @MainActor
+    private func viewOption(_ name: String, selected: Bool = true) {
+        app.buttons["view-options"].tap()
+        let item = app.buttons[name]
+        // At the largest sizes the menu scrolls, and holds only the items in view; the first group is
+        // nearest the button, the rest above it.
+        let menu = app.collectionViews.containing(NSPredicate(format: "label == %@", "By space")).firstMatch
+        for _ in 0..<3 where !item.waitForExistence(timeout: 2) { menu.swipeDown() }
+        XCTAssert(item.exists, "no \(name) in View options")
+        if item.isSelected == selected { dismissMenu() } else { item.tap() }
+        sleep(1)
+    }
+
+    /// A press beside an open menu, which closes it: on the bar left of the title, where Home has
+    /// nothing to press. The status bar is the system's, and an open menu never hears it.
+    @MainActor
+    private func dismissMenu() {
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.1)).tap()
+        sleep(1)
+    }
+
+    /// Home as a phase expects to find it, whatever one before left: Work, by space, Needs you first,
+    /// the spaces as on the Mac.
+    @MainActor
+    private func resetHome() {
+        XCTAssert(titleButton.waitForExistence(timeout: 10))
+        showProfile("Work")
+        viewOption("By space")
+        viewOption("Needs you first")
+        viewOption("As on your Mac")
+    }
 
     /// Words on screen, the first where a card and the dock both say them.
     @MainActor
@@ -279,14 +555,20 @@ final class LiveTests: XCTestCase {
             for _ in 0..<12 where !row.exists { app.swipeUp(velocity: .slow) }
         }
         XCTAssert(row.exists, "no row for \(title)")
+        pressClearOfTheBars(row)
+    }
+
+    /// Scrolls until an element's head is clear of the bars, and presses it there.
+    @MainActor
+    private func pressClearOfTheBars(_ element: XCUIElement) {
         let screen = app.windows.firstMatch.frame
         let clear = (screen.minY + 180)...(screen.maxY - 220)
         for _ in 0..<12 {
-            let head = row.frame.minY + 24
+            let head = element.frame.minY + 24
             if clear.contains(head) { break }
             if head > clear.upperBound { app.swipeUp(velocity: .slow) } else { app.swipeDown(velocity: .slow) }
         }
-        row.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: row.frame.width / 2, dy: 24)).tap()
+        element.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: element.frame.width / 2, dy: 24)).tap()
     }
 
     @MainActor

@@ -164,6 +164,39 @@ describe("the phone's rows", () => {
     for (const r of p.all()) expect(RowSchema.safeParse(r).success).toBe(true);
   });
 
+  it("names the files sent with a message by their paths on the Mac, and a message with none carries no list", () => {
+    const p = new SessionProjector();
+    const sent = [{ path: "/Users/me/Realm/tmp/attachments/3f9a1c2b4d5e-IMG_0042.jpg", mime: "image/jpeg" }, { path: "/Users/me/notes.md", mime: "text/markdown" }];
+    p.apply(persisted(sessionEvent("user_message", { text: "", attachments: sent })));
+    p.apply(persisted(sessionEvent("user_message", { text: "and this", attachments: [] })));
+    const [withFiles, without] = p.all();
+    // THE MUTANT: the row keeps only its text, and the phone shows a message sent with a photo as an
+    // empty bubble.
+    expect(withFiles).toMatchObject({ kind: "user", text: "", attachments: [
+      { path: sent[0]!.path, name: "3f9a1c2b4d5e-IMG_0042.jpg", mime: "image/jpeg" }, { path: "/Users/me/notes.md", name: "notes.md", mime: "text/markdown" },
+    ] });
+    expect(without).not.toHaveProperty("attachments");
+    for (const r of p.all()) expect(RowSchema.safeParse(r).success).toBe(true);
+  });
+
+  it("names a file sent from the attachments folder as it was given, and any other file by its own name", () => {
+    const dir = "/Users/me/Realm/tmp/attachments";
+    const p = new SessionProjector({ attachmentsDir: dir });
+    const sent = [
+      `${dir}/3f9a1c2b4d5e-IMG_0042.jpg`, "/Users/me/report-v2.pdf", "/Users/me/Downloads/0123456789ab-notes.md",
+      `${dir}/report-v2.pdf`, `${dir}/older/0123456789ab-chart.png`, `${dir}/3f9a1c2b4d5-short.png`,
+    ];
+    p.apply(persisted(sessionEvent("user_message", { text: "", attachments: sent.map((path) => ({ path, mime: "application/octet-stream" })) })));
+    const [row] = p.all();
+    // THE MUTANTS: strip nothing, and a photo reads "3f9a1c2b4d5e-IMG_0042.jpg"; or strip wherever the
+    // name looks prefixed, and a file the person named so loses part of its name.
+    expect(row?.kind === "user" && row.attachments?.map((a) => a.name)).toEqual([
+      "IMG_0042.jpg", "report-v2.pdf", "0123456789ab-notes.md", "report-v2.pdf", "0123456789ab-chart.png", "3f9a1c2b4d5-short.png",
+    ]);
+    // The path is the file's own, whatever it is called.
+    expect(row?.kind === "user" && row.attachments?.map((a) => a.path)).toEqual(sent);
+  });
+
   it("names a tool call by what it touches", () => {
     expect(summarize("Read", { file_path: "/a/b.ts" })).toBe("/a/b.ts");
     expect(summarize("WebSearch", { query: "noise protocol" })).toBe("noise protocol");

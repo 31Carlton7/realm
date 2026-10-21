@@ -1,4 +1,5 @@
 import type { AskCard, AskQuestion, SessionEvent, SessionEventType, StoredSessionEvent } from "@realm/contracts";
+import { givenAttachmentName } from "@realm/contracts/src/temp-attachments";
 import type { Row } from "@realm/remote";
 import { questionOf } from "@realm/view";
 
@@ -69,6 +70,10 @@ export class SessionProjector {
   /** The suggested next message, the desktop's way: the newest `prompt_hint`, until a message is sent. */
   private hinted: { text: string; throughSeq: number } | null = null;
 
+  /** `attachmentsDir` is the Realm home's `tmp/attachments`: a file there was written under a random
+   *  prefix, which a row leaves out of its name. */
+  constructor(private readonly o: { attachmentsDir: string | null } = { attachmentsDir: null }) {}
+
   /** The latest persisted seq seen — what a live event must be newer than to count. */
   get seq(): number { return this.lastSeq; }
 
@@ -89,8 +94,14 @@ export class SessionProjector {
     const ev = stored.event as SessionEvent;
     const type: SessionEventType = ev.type;
     switch (ev.type) {
-      // Anything sent makes the suggestion about a turn that is no longer the last one.
-      case "user_message": this.hinted = null; return put({ key: `u:${seq}`, seq, kind: "user", text: ev.payload.text });
+      // Anything sent makes the suggestion about a turn that is no longer the last one. What was sent
+      // with it stays on the Mac: the row names each file as the person named it, and `session.file`
+      // previews one.
+      case "user_message": {
+        this.hinted = null;
+        const files = ev.payload.attachments.map((a) => ({ path: a.path, name: givenAttachmentName(a.path, this.o.attachmentsDir), mime: a.mime }));
+        return put({ key: `u:${seq}`, seq, kind: "user", text: ev.payload.text, ...(files.length ? { attachments: files } : {}) });
+      }
       case "assistant_delta": {
         const key = `m:${ev.payload.messageId}`;
         const prev = this.rows.get(key);

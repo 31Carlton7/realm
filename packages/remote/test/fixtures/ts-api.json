@@ -19,7 +19,11 @@
           "updatedAt": 1790000000000,
           "agentName": "Claude",
           "agentMark": "claude",
-          "modelLabel": "Opus 5.5"
+          "modelLabel": "Opus 5.5",
+          "createdAt": 1789990000000,
+          "effort": "high",
+          "permissionMode": "acceptEdits",
+          "activityAt": 1790000000000
         },
         {
           "id": "01JCODEX000000000000000000",
@@ -34,7 +38,11 @@
           "updatedAt": 1790000100000,
           "agentName": "Codex",
           "agentMark": "openai",
-          "modelLabel": "GPT-5.6"
+          "modelLabel": "GPT-5.6",
+          "createdAt": 1789900000000,
+          "effort": null,
+          "permissionMode": "default",
+          "activityAt": 1790000100000
         }
       ],
       "spaces": [
@@ -45,6 +53,7 @@
           "color": "#7c6cff",
           "iconKind": "glyph",
           "glyph": "code",
+          "profileId": "p1",
           "sessions": [
             {
               "id": "01JSESSION00000000000000000",
@@ -59,10 +68,90 @@
               "updatedAt": 1790000000000,
               "agentName": "Claude",
               "agentMark": "claude",
-              "modelLabel": "Opus 5.5"
+              "modelLabel": "Opus 5.5",
+              "createdAt": 1789990000000,
+              "effort": "high",
+              "permissionMode": "acceptEdits",
+              "activityAt": 1790000000000
+            },
+            {
+              "id": "01JREALM000000000000000001",
+              "title": "Tidy the settings page",
+              "spaceId": "sp1",
+              "spaceName": "Realm",
+              "agent": "claude",
+              "model": "claude-opus-5-5",
+              "status": "idle",
+              "needsYou": false,
+              "unread": false,
+              "updatedAt": 1789982000000,
+              "agentName": "Claude",
+              "agentMark": "claude",
+              "modelLabel": "Opus 5.5",
+              "createdAt": 1789000000000,
+              "effort": null,
+              "permissionMode": "default",
+              "activityAt": 1789982000000
+            },
+            {
+              "id": "01JREALM000000000000000002",
+              "title": "Plan the release",
+              "spaceId": "sp1",
+              "spaceName": "Realm",
+              "agent": "claude",
+              "model": "claude-sonnet-5",
+              "status": "idle",
+              "needsYou": false,
+              "unread": false,
+              "updatedAt": 1790000300000,
+              "agentName": "Claude",
+              "agentMark": "claude",
+              "modelLabel": "Sonnet 5",
+              "createdAt": 1789000000001,
+              "effort": "max",
+              "permissionMode": "plan",
+              "activityAt": 1789964000000
+            },
+            {
+              "id": "01JREALM000000000000000003",
+              "title": "Fix the flaky upload test",
+              "spaceId": "sp1",
+              "spaceName": "Realm",
+              "agent": "claude",
+              "model": "claude-opus-5-5",
+              "status": "idle",
+              "needsYou": false,
+              "unread": false,
+              "updatedAt": 1789946000000,
+              "agentName": "Claude",
+              "agentMark": "claude",
+              "modelLabel": "Opus 5.5",
+              "createdAt": 1789000000002,
+              "effort": null,
+              "permissionMode": "default",
+              "activityAt": 1789946000000
+            },
+            {
+              "id": "01JREALM000000000000000004",
+              "title": "Audit the sign-in sheet",
+              "spaceId": "sp1",
+              "spaceName": "Realm",
+              "agent": "claude",
+              "model": "claude-opus-5-5",
+              "status": "idle",
+              "needsYou": false,
+              "unread": false,
+              "updatedAt": 1789928000000,
+              "agentName": "Claude",
+              "agentMark": "claude",
+              "modelLabel": "Opus 5.5",
+              "createdAt": 1789000000003,
+              "effort": null,
+              "permissionMode": "default",
+              "activityAt": 1789928000000
             }
           ],
-          "more": 0
+          "more": 2
         },
         {
           "id": "sp2",
@@ -71,6 +160,7 @@
           "color": "#7c6cff",
           "iconKind": "emoji",
           "emoji": "🌊",
+          "profileId": "p1",
           "sessions": [
             {
               "id": "01JCODEX000000000000000000",
@@ -85,7 +175,11 @@
               "updatedAt": 1790000100000,
               "agentName": "Codex",
               "agentMark": "openai",
-              "modelLabel": "GPT-5.6"
+              "modelLabel": "GPT-5.6",
+              "createdAt": 1789900000000,
+              "effort": null,
+              "permissionMode": "default",
+              "activityAt": 1790000100000
             }
           ],
           "more": 0
@@ -96,6 +190,7 @@
           "icon": "asset:01JASSET",
           "color": "#7c6cff",
           "iconKind": "picture",
+          "profileId": "p2",
           "sessions": [
             {
               "id": "01JQUIET000000000000000000",
@@ -110,12 +205,743 @@
               "updatedAt": 1790000200000,
               "agentName": "Cursor",
               "agentMark": "cursor",
-              "modelLabel": "composer-2"
+              "modelLabel": "Composer 2",
+              "createdAt": 1789800000000,
+              "effort": null,
+              "permissionMode": "default",
+              "activityAt": 1790000200000
             }
           ],
           "more": 0
         }
+      ],
+      "profiles": [
+        {
+          "id": "p1",
+          "name": "Work",
+          "icon": "briefcase-01",
+          "color": "#6b7280",
+          "iconKind": "glyph",
+          "glyph": "briefcase-01",
+          "needsYou": 2
+        },
+        {
+          "id": "p2",
+          "name": "School",
+          "icon": "emoji:🎓",
+          "color": "#6b7280",
+          "iconKind": "emoji",
+          "emoji": "🎓",
+          "needsYou": 0
+        }
+      ],
+      "profileId": null,
+      "recent": [
+        {
+          "id": "01JQUIET000000000000000000",
+          "title": "Lecture notes",
+          "spaceId": "sp3",
+          "spaceName": "School",
+          "agent": "acp:cursor",
+          "model": "composer-2",
+          "status": "idle",
+          "needsYou": false,
+          "unread": false,
+          "updatedAt": 1790000200000,
+          "agentName": "Cursor",
+          "agentMark": "cursor",
+          "modelLabel": "Composer 2",
+          "createdAt": 1789800000000,
+          "effort": null,
+          "permissionMode": "default",
+          "activityAt": 1790000200000
+        },
+        {
+          "id": "01JCODEX000000000000000000",
+          "title": "The deck",
+          "spaceId": "sp2",
+          "spaceName": "Deck",
+          "agent": "codex",
+          "model": null,
+          "status": "error",
+          "needsYou": true,
+          "unread": true,
+          "updatedAt": 1790000100000,
+          "agentName": "Codex",
+          "agentMark": "openai",
+          "modelLabel": "GPT-5.6",
+          "createdAt": 1789900000000,
+          "effort": null,
+          "permissionMode": "default",
+          "activityAt": 1790000100000
+        },
+        {
+          "id": "01JSESSION00000000000000000",
+          "title": "Theme column",
+          "spaceId": "sp1",
+          "spaceName": "Realm",
+          "agent": "claude",
+          "model": "claude-opus-5-5",
+          "status": "waiting",
+          "needsYou": true,
+          "unread": false,
+          "updatedAt": 1790000000000,
+          "agentName": "Claude",
+          "agentMark": "claude",
+          "modelLabel": "Opus 5.5",
+          "createdAt": 1789990000000,
+          "effort": "high",
+          "permissionMode": "acceptEdits",
+          "activityAt": 1790000000000
+        },
+        {
+          "id": "01JREALM000000000000000001",
+          "title": "Tidy the settings page",
+          "spaceId": "sp1",
+          "spaceName": "Realm",
+          "agent": "claude",
+          "model": "claude-opus-5-5",
+          "status": "idle",
+          "needsYou": false,
+          "unread": false,
+          "updatedAt": 1789982000000,
+          "agentName": "Claude",
+          "agentMark": "claude",
+          "modelLabel": "Opus 5.5",
+          "createdAt": 1789000000000,
+          "effort": null,
+          "permissionMode": "default",
+          "activityAt": 1789982000000
+        },
+        {
+          "id": "01JREALM000000000000000002",
+          "title": "Plan the release",
+          "spaceId": "sp1",
+          "spaceName": "Realm",
+          "agent": "claude",
+          "model": "claude-sonnet-5",
+          "status": "idle",
+          "needsYou": false,
+          "unread": false,
+          "updatedAt": 1790000300000,
+          "agentName": "Claude",
+          "agentMark": "claude",
+          "modelLabel": "Sonnet 5",
+          "createdAt": 1789000000001,
+          "effort": "max",
+          "permissionMode": "plan",
+          "activityAt": 1789964000000
+        },
+        {
+          "id": "01JREALM000000000000000003",
+          "title": "Fix the flaky upload test",
+          "spaceId": "sp1",
+          "spaceName": "Realm",
+          "agent": "claude",
+          "model": "claude-opus-5-5",
+          "status": "idle",
+          "needsYou": false,
+          "unread": false,
+          "updatedAt": 1789946000000,
+          "agentName": "Claude",
+          "agentMark": "claude",
+          "modelLabel": "Opus 5.5",
+          "createdAt": 1789000000002,
+          "effort": null,
+          "permissionMode": "default",
+          "activityAt": 1789946000000
+        },
+        {
+          "id": "01JREALM000000000000000004",
+          "title": "Audit the sign-in sheet",
+          "spaceId": "sp1",
+          "spaceName": "Realm",
+          "agent": "claude",
+          "model": "claude-opus-5-5",
+          "status": "idle",
+          "needsYou": false,
+          "unread": false,
+          "updatedAt": 1789928000000,
+          "agentName": "Claude",
+          "agentMark": "claude",
+          "modelLabel": "Opus 5.5",
+          "createdAt": 1789000000003,
+          "effort": null,
+          "permissionMode": "default",
+          "activityAt": 1789928000000
+        },
+        {
+          "id": "01JREALM000000000000000005",
+          "title": "Ship 2.0.3",
+          "spaceId": "sp1",
+          "spaceName": "Realm",
+          "agent": "claude",
+          "model": "claude-opus-5-5",
+          "status": "idle",
+          "needsYou": false,
+          "unread": false,
+          "updatedAt": 1789910000000,
+          "agentName": "Claude",
+          "agentMark": "claude",
+          "modelLabel": "Opus 5.5",
+          "createdAt": 1789000000004,
+          "effort": null,
+          "permissionMode": "default",
+          "activityAt": 1789910000000
+        },
+        {
+          "id": "01JREALM000000000000000006",
+          "title": "Write the changelog",
+          "spaceId": "sp1",
+          "spaceName": "Realm",
+          "agent": "claude",
+          "model": "claude-opus-5-5",
+          "status": "idle",
+          "needsYou": false,
+          "unread": false,
+          "updatedAt": 1789892000000,
+          "agentName": "Claude",
+          "agentMark": "claude",
+          "modelLabel": "Opus 5.5",
+          "createdAt": 1789000000005,
+          "effort": null,
+          "permissionMode": "default",
+          "activityAt": 1789892000000
+        }
       ]
+    },
+    "home.get:profile": {
+      "mac": {
+        "name": "MacBook Pro"
+      },
+      "needsYou": [
+        {
+          "id": "01JSESSION00000000000000000",
+          "title": "Theme column",
+          "spaceId": "sp1",
+          "spaceName": "Realm",
+          "agent": "claude",
+          "model": "claude-opus-5-5",
+          "status": "waiting",
+          "needsYou": true,
+          "unread": false,
+          "updatedAt": 1790000000000,
+          "agentName": "Claude",
+          "agentMark": "claude",
+          "modelLabel": "Opus 5.5",
+          "createdAt": 1789990000000,
+          "effort": "high",
+          "permissionMode": "acceptEdits",
+          "activityAt": 1790000000000
+        },
+        {
+          "id": "01JCODEX000000000000000000",
+          "title": "The deck",
+          "spaceId": "sp2",
+          "spaceName": "Deck",
+          "agent": "codex",
+          "model": null,
+          "status": "error",
+          "needsYou": true,
+          "unread": true,
+          "updatedAt": 1790000100000,
+          "agentName": "Codex",
+          "agentMark": "openai",
+          "modelLabel": "GPT-5.6",
+          "createdAt": 1789900000000,
+          "effort": null,
+          "permissionMode": "default",
+          "activityAt": 1790000100000
+        }
+      ],
+      "spaces": [
+        {
+          "id": "sp1",
+          "name": "Realm",
+          "icon": "code",
+          "color": "#7c6cff",
+          "iconKind": "glyph",
+          "glyph": "code",
+          "profileId": "p1",
+          "sessions": [
+            {
+              "id": "01JSESSION00000000000000000",
+              "title": "Theme column",
+              "spaceId": "sp1",
+              "spaceName": "Realm",
+              "agent": "claude",
+              "model": "claude-opus-5-5",
+              "status": "waiting",
+              "needsYou": true,
+              "unread": false,
+              "updatedAt": 1790000000000,
+              "agentName": "Claude",
+              "agentMark": "claude",
+              "modelLabel": "Opus 5.5",
+              "createdAt": 1789990000000,
+              "effort": "high",
+              "permissionMode": "acceptEdits",
+              "activityAt": 1790000000000
+            },
+            {
+              "id": "01JREALM000000000000000001",
+              "title": "Tidy the settings page",
+              "spaceId": "sp1",
+              "spaceName": "Realm",
+              "agent": "claude",
+              "model": "claude-opus-5-5",
+              "status": "idle",
+              "needsYou": false,
+              "unread": false,
+              "updatedAt": 1789982000000,
+              "agentName": "Claude",
+              "agentMark": "claude",
+              "modelLabel": "Opus 5.5",
+              "createdAt": 1789000000000,
+              "effort": null,
+              "permissionMode": "default",
+              "activityAt": 1789982000000
+            },
+            {
+              "id": "01JREALM000000000000000002",
+              "title": "Plan the release",
+              "spaceId": "sp1",
+              "spaceName": "Realm",
+              "agent": "claude",
+              "model": "claude-sonnet-5",
+              "status": "idle",
+              "needsYou": false,
+              "unread": false,
+              "updatedAt": 1790000300000,
+              "agentName": "Claude",
+              "agentMark": "claude",
+              "modelLabel": "Sonnet 5",
+              "createdAt": 1789000000001,
+              "effort": "max",
+              "permissionMode": "plan",
+              "activityAt": 1789964000000
+            },
+            {
+              "id": "01JREALM000000000000000003",
+              "title": "Fix the flaky upload test",
+              "spaceId": "sp1",
+              "spaceName": "Realm",
+              "agent": "claude",
+              "model": "claude-opus-5-5",
+              "status": "idle",
+              "needsYou": false,
+              "unread": false,
+              "updatedAt": 1789946000000,
+              "agentName": "Claude",
+              "agentMark": "claude",
+              "modelLabel": "Opus 5.5",
+              "createdAt": 1789000000002,
+              "effort": null,
+              "permissionMode": "default",
+              "activityAt": 1789946000000
+            },
+            {
+              "id": "01JREALM000000000000000004",
+              "title": "Audit the sign-in sheet",
+              "spaceId": "sp1",
+              "spaceName": "Realm",
+              "agent": "claude",
+              "model": "claude-opus-5-5",
+              "status": "idle",
+              "needsYou": false,
+              "unread": false,
+              "updatedAt": 1789928000000,
+              "agentName": "Claude",
+              "agentMark": "claude",
+              "modelLabel": "Opus 5.5",
+              "createdAt": 1789000000003,
+              "effort": null,
+              "permissionMode": "default",
+              "activityAt": 1789928000000
+            }
+          ],
+          "more": 2
+        },
+        {
+          "id": "sp2",
+          "name": "Deck",
+          "icon": "emoji:🌊",
+          "color": "#7c6cff",
+          "iconKind": "emoji",
+          "emoji": "🌊",
+          "profileId": "p1",
+          "sessions": [
+            {
+              "id": "01JCODEX000000000000000000",
+              "title": "The deck",
+              "spaceId": "sp2",
+              "spaceName": "Deck",
+              "agent": "codex",
+              "model": null,
+              "status": "error",
+              "needsYou": true,
+              "unread": true,
+              "updatedAt": 1790000100000,
+              "agentName": "Codex",
+              "agentMark": "openai",
+              "modelLabel": "GPT-5.6",
+              "createdAt": 1789900000000,
+              "effort": null,
+              "permissionMode": "default",
+              "activityAt": 1790000100000
+            }
+          ],
+          "more": 0
+        },
+        {
+          "id": "sp3",
+          "name": "School",
+          "icon": "asset:01JASSET",
+          "color": "#7c6cff",
+          "iconKind": "picture",
+          "profileId": "p2",
+          "sessions": [
+            {
+              "id": "01JQUIET000000000000000000",
+              "title": "Lecture notes",
+              "spaceId": "sp3",
+              "spaceName": "School",
+              "agent": "acp:cursor",
+              "model": "composer-2",
+              "status": "idle",
+              "needsYou": false,
+              "unread": false,
+              "updatedAt": 1790000200000,
+              "agentName": "Cursor",
+              "agentMark": "cursor",
+              "modelLabel": "Composer 2",
+              "createdAt": 1789800000000,
+              "effort": null,
+              "permissionMode": "default",
+              "activityAt": 1790000200000
+            }
+          ],
+          "more": 0
+        }
+      ],
+      "profiles": [
+        {
+          "id": "p1",
+          "name": "Work",
+          "icon": "briefcase-01",
+          "color": "#6b7280",
+          "iconKind": "glyph",
+          "glyph": "briefcase-01",
+          "needsYou": 2
+        },
+        {
+          "id": "p2",
+          "name": "School",
+          "icon": "emoji:🎓",
+          "color": "#6b7280",
+          "iconKind": "emoji",
+          "emoji": "🎓",
+          "needsYou": 0
+        }
+      ],
+      "profileId": "p1",
+      "recent": [
+        {
+          "id": "01JCODEX000000000000000000",
+          "title": "The deck",
+          "spaceId": "sp2",
+          "spaceName": "Deck",
+          "agent": "codex",
+          "model": null,
+          "status": "error",
+          "needsYou": true,
+          "unread": true,
+          "updatedAt": 1790000100000,
+          "agentName": "Codex",
+          "agentMark": "openai",
+          "modelLabel": "GPT-5.6",
+          "createdAt": 1789900000000,
+          "effort": null,
+          "permissionMode": "default",
+          "activityAt": 1790000100000
+        },
+        {
+          "id": "01JSESSION00000000000000000",
+          "title": "Theme column",
+          "spaceId": "sp1",
+          "spaceName": "Realm",
+          "agent": "claude",
+          "model": "claude-opus-5-5",
+          "status": "waiting",
+          "needsYou": true,
+          "unread": false,
+          "updatedAt": 1790000000000,
+          "agentName": "Claude",
+          "agentMark": "claude",
+          "modelLabel": "Opus 5.5",
+          "createdAt": 1789990000000,
+          "effort": "high",
+          "permissionMode": "acceptEdits",
+          "activityAt": 1790000000000
+        },
+        {
+          "id": "01JREALM000000000000000001",
+          "title": "Tidy the settings page",
+          "spaceId": "sp1",
+          "spaceName": "Realm",
+          "agent": "claude",
+          "model": "claude-opus-5-5",
+          "status": "idle",
+          "needsYou": false,
+          "unread": false,
+          "updatedAt": 1789982000000,
+          "agentName": "Claude",
+          "agentMark": "claude",
+          "modelLabel": "Opus 5.5",
+          "createdAt": 1789000000000,
+          "effort": null,
+          "permissionMode": "default",
+          "activityAt": 1789982000000
+        },
+        {
+          "id": "01JREALM000000000000000002",
+          "title": "Plan the release",
+          "spaceId": "sp1",
+          "spaceName": "Realm",
+          "agent": "claude",
+          "model": "claude-sonnet-5",
+          "status": "idle",
+          "needsYou": false,
+          "unread": false,
+          "updatedAt": 1790000300000,
+          "agentName": "Claude",
+          "agentMark": "claude",
+          "modelLabel": "Sonnet 5",
+          "createdAt": 1789000000001,
+          "effort": "max",
+          "permissionMode": "plan",
+          "activityAt": 1789964000000
+        },
+        {
+          "id": "01JREALM000000000000000003",
+          "title": "Fix the flaky upload test",
+          "spaceId": "sp1",
+          "spaceName": "Realm",
+          "agent": "claude",
+          "model": "claude-opus-5-5",
+          "status": "idle",
+          "needsYou": false,
+          "unread": false,
+          "updatedAt": 1789946000000,
+          "agentName": "Claude",
+          "agentMark": "claude",
+          "modelLabel": "Opus 5.5",
+          "createdAt": 1789000000002,
+          "effort": null,
+          "permissionMode": "default",
+          "activityAt": 1789946000000
+        },
+        {
+          "id": "01JREALM000000000000000004",
+          "title": "Audit the sign-in sheet",
+          "spaceId": "sp1",
+          "spaceName": "Realm",
+          "agent": "claude",
+          "model": "claude-opus-5-5",
+          "status": "idle",
+          "needsYou": false,
+          "unread": false,
+          "updatedAt": 1789928000000,
+          "agentName": "Claude",
+          "agentMark": "claude",
+          "modelLabel": "Opus 5.5",
+          "createdAt": 1789000000003,
+          "effort": null,
+          "permissionMode": "default",
+          "activityAt": 1789928000000
+        },
+        {
+          "id": "01JREALM000000000000000005",
+          "title": "Ship 2.0.3",
+          "spaceId": "sp1",
+          "spaceName": "Realm",
+          "agent": "claude",
+          "model": "claude-opus-5-5",
+          "status": "idle",
+          "needsYou": false,
+          "unread": false,
+          "updatedAt": 1789910000000,
+          "agentName": "Claude",
+          "agentMark": "claude",
+          "modelLabel": "Opus 5.5",
+          "createdAt": 1789000000004,
+          "effort": null,
+          "permissionMode": "default",
+          "activityAt": 1789910000000
+        },
+        {
+          "id": "01JREALM000000000000000006",
+          "title": "Write the changelog",
+          "spaceId": "sp1",
+          "spaceName": "Realm",
+          "agent": "claude",
+          "model": "claude-opus-5-5",
+          "status": "idle",
+          "needsYou": false,
+          "unread": false,
+          "updatedAt": 1789892000000,
+          "agentName": "Claude",
+          "agentMark": "claude",
+          "modelLabel": "Opus 5.5",
+          "createdAt": 1789000000005,
+          "effort": null,
+          "permissionMode": "default",
+          "activityAt": 1789892000000
+        }
+      ]
+    },
+    "space.sessions": {
+      "sessions": [
+        {
+          "id": "01JSESSION00000000000000000",
+          "title": "Theme column",
+          "spaceId": "sp1",
+          "spaceName": "Realm",
+          "agent": "claude",
+          "model": "claude-opus-5-5",
+          "status": "waiting",
+          "needsYou": true,
+          "unread": false,
+          "updatedAt": 1790000000000,
+          "agentName": "Claude",
+          "agentMark": "claude",
+          "modelLabel": "Opus 5.5",
+          "createdAt": 1789990000000,
+          "effort": "high",
+          "permissionMode": "acceptEdits",
+          "activityAt": 1790000000000
+        },
+        {
+          "id": "01JREALM000000000000000001",
+          "title": "Tidy the settings page",
+          "spaceId": "sp1",
+          "spaceName": "Realm",
+          "agent": "claude",
+          "model": "claude-opus-5-5",
+          "status": "idle",
+          "needsYou": false,
+          "unread": false,
+          "updatedAt": 1789982000000,
+          "agentName": "Claude",
+          "agentMark": "claude",
+          "modelLabel": "Opus 5.5",
+          "createdAt": 1789000000000,
+          "effort": null,
+          "permissionMode": "default",
+          "activityAt": 1789982000000
+        },
+        {
+          "id": "01JREALM000000000000000002",
+          "title": "Plan the release",
+          "spaceId": "sp1",
+          "spaceName": "Realm",
+          "agent": "claude",
+          "model": "claude-sonnet-5",
+          "status": "idle",
+          "needsYou": false,
+          "unread": false,
+          "updatedAt": 1790000300000,
+          "agentName": "Claude",
+          "agentMark": "claude",
+          "modelLabel": "Sonnet 5",
+          "createdAt": 1789000000001,
+          "effort": "max",
+          "permissionMode": "plan",
+          "activityAt": 1789964000000
+        },
+        {
+          "id": "01JREALM000000000000000003",
+          "title": "Fix the flaky upload test",
+          "spaceId": "sp1",
+          "spaceName": "Realm",
+          "agent": "claude",
+          "model": "claude-opus-5-5",
+          "status": "idle",
+          "needsYou": false,
+          "unread": false,
+          "updatedAt": 1789946000000,
+          "agentName": "Claude",
+          "agentMark": "claude",
+          "modelLabel": "Opus 5.5",
+          "createdAt": 1789000000002,
+          "effort": null,
+          "permissionMode": "default",
+          "activityAt": 1789946000000
+        }
+      ],
+      "more": true
+    },
+    "space.sessions:last": {
+      "sessions": [
+        {
+          "id": "01JREALM000000000000000004",
+          "title": "Audit the sign-in sheet",
+          "spaceId": "sp1",
+          "spaceName": "Realm",
+          "agent": "claude",
+          "model": "claude-opus-5-5",
+          "status": "idle",
+          "needsYou": false,
+          "unread": false,
+          "updatedAt": 1789928000000,
+          "agentName": "Claude",
+          "agentMark": "claude",
+          "modelLabel": "Opus 5.5",
+          "createdAt": 1789000000003,
+          "effort": null,
+          "permissionMode": "default",
+          "activityAt": 1789928000000
+        },
+        {
+          "id": "01JREALM000000000000000005",
+          "title": "Ship 2.0.3",
+          "spaceId": "sp1",
+          "spaceName": "Realm",
+          "agent": "claude",
+          "model": "claude-opus-5-5",
+          "status": "idle",
+          "needsYou": false,
+          "unread": false,
+          "updatedAt": 1789910000000,
+          "agentName": "Claude",
+          "agentMark": "claude",
+          "modelLabel": "Opus 5.5",
+          "createdAt": 1789000000004,
+          "effort": null,
+          "permissionMode": "default",
+          "activityAt": 1789910000000
+        },
+        {
+          "id": "01JREALM000000000000000006",
+          "title": "Write the changelog",
+          "spaceId": "sp1",
+          "spaceName": "Realm",
+          "agent": "claude",
+          "model": "claude-opus-5-5",
+          "status": "idle",
+          "needsYou": false,
+          "unread": false,
+          "updatedAt": 1789892000000,
+          "agentName": "Claude",
+          "agentMark": "claude",
+          "modelLabel": "Opus 5.5",
+          "createdAt": 1789000000005,
+          "effort": null,
+          "permissionMode": "default",
+          "activityAt": 1789892000000
+        }
+      ],
+      "more": false
     },
     "session.open": {
       "session": {
@@ -131,14 +957,30 @@
         "updatedAt": 1790000000000,
         "agentName": "Claude",
         "agentMark": "claude",
-        "modelLabel": "Opus 5.5"
+        "modelLabel": "Opus 5.5",
+        "createdAt": 1789990000000,
+        "effort": "high",
+        "permissionMode": "acceptEdits",
+        "activityAt": 1790000000000
       },
       "rows": [
         {
           "key": "u:1",
           "seq": 1,
           "kind": "user",
-          "text": "File the issue, then plan the column"
+          "text": "File the issue, then plan the column",
+          "attachments": [
+            {
+              "path": "/Users/me/Realm/tmp/attachments/3f9a1c2b4d5e-IMG_0042.jpg",
+              "name": "IMG_0042.jpg",
+              "mime": "image/jpeg"
+            },
+            {
+              "path": "/Users/me/Realm/tmp/attachments/8c1d2e3f4a5b-brief.pdf",
+              "name": "brief.pdf",
+              "mime": "application/pdf"
+            }
+          ]
         },
         {
           "key": "k:k1",
@@ -496,9 +1338,1254 @@
         "reason": "Open this on your Mac to play it."
       }
     },
+    "session.file:attachment": {
+      "path": "/Users/me/Realm/tmp/attachments/3f9a1c2b4d5e-IMG_0042.jpg",
+      "name": "IMG_0042.jpg",
+      "size": 4,
+      "mime": "image/jpeg",
+      "preview": {
+        "kind": "image",
+        "mime": "image/jpeg",
+        "data": "anBlZw=="
+      }
+    },
     "space.icon": {
       "mime": "image/png",
       "data": "YSBwaWN0dXJl"
+    },
+    "session.options": {
+      "agent": {
+        "kind": "claude",
+        "name": "Claude",
+        "mark": "claude",
+        "available": true,
+        "note": null,
+        "models": [
+          {
+            "id": "claude-fable-5-1",
+            "label": "Fable 5.1",
+            "efforts": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "XHigh"
+              },
+              {
+                "id": "max",
+                "label": "Max"
+              }
+            ],
+            "defaultEffort": "high"
+          },
+          {
+            "id": "claude-fable-5",
+            "label": "Fable 5",
+            "efforts": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "XHigh"
+              },
+              {
+                "id": "max",
+                "label": "Max"
+              }
+            ],
+            "defaultEffort": "high"
+          },
+          {
+            "id": "claude-opus-5-5",
+            "label": "Opus 5.5",
+            "efforts": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "XHigh"
+              },
+              {
+                "id": "max",
+                "label": "Max"
+              }
+            ],
+            "defaultEffort": "high"
+          },
+          {
+            "id": "claude-opus-5",
+            "label": "Opus 5",
+            "efforts": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "XHigh"
+              },
+              {
+                "id": "max",
+                "label": "Max"
+              }
+            ],
+            "defaultEffort": "high"
+          },
+          {
+            "id": "claude-sonnet-5",
+            "label": "Sonnet 5",
+            "efforts": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "XHigh"
+              },
+              {
+                "id": "max",
+                "label": "Max"
+              }
+            ],
+            "defaultEffort": "high"
+          },
+          {
+            "id": "claude-haiku-4-5",
+            "label": "Haiku 4.5"
+          }
+        ],
+        "efforts": [],
+        "modes": [
+          {
+            "id": "build",
+            "label": "Build"
+          },
+          {
+            "id": "plan",
+            "label": "Plan"
+          },
+          {
+            "id": "ask",
+            "label": "Ask"
+          }
+        ],
+        "permissions": [
+          {
+            "id": "default",
+            "label": "Ask each time"
+          },
+          {
+            "id": "acceptEdits",
+            "label": "Accept edits"
+          },
+          {
+            "id": "bypassPermissions",
+            "label": "Full access"
+          }
+        ],
+        "steerNote": "Sends now. Claude stops the running turn to take it, which aborts the tool call in flight and denies any permission prompt waiting."
+      },
+      "model": "claude-opus-5-5",
+      "modelLabel": "Opus 5.5",
+      "effort": "high",
+      "permissionMode": "acceptEdits",
+      "midTurn": "steer",
+      "attachments": {
+        "maxCount": 6,
+        "maxBytes": 8388608,
+        "maxTotalBytes": 10485760
+      }
+    },
+    "session.options:codex": {
+      "agent": {
+        "kind": "codex",
+        "name": "Codex",
+        "mark": "openai",
+        "available": true,
+        "note": null,
+        "models": [
+          {
+            "id": null,
+            "label": "GPT-5.6",
+            "efforts": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "XHigh"
+              }
+            ],
+            "defaultEffort": "medium"
+          },
+          {
+            "id": "gpt-6-astra",
+            "label": "GPT-6 Astra",
+            "efforts": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "XHigh"
+              }
+            ],
+            "defaultEffort": "medium"
+          },
+          {
+            "id": "gpt-6-luna",
+            "label": "GPT-6 Luna",
+            "efforts": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              }
+            ],
+            "defaultEffort": "low"
+          }
+        ],
+        "efforts": [],
+        "modes": [
+          {
+            "id": "build",
+            "label": "Build"
+          },
+          {
+            "id": "plan",
+            "label": "Plan"
+          },
+          {
+            "id": "ask",
+            "label": "Ask"
+          }
+        ],
+        "permissions": [
+          {
+            "id": "default",
+            "label": "Ask each time"
+          },
+          {
+            "id": "acceptEdits",
+            "label": "Accept edits"
+          },
+          {
+            "id": "bypassPermissions",
+            "label": "Full access"
+          }
+        ],
+        "steerNote": "Sends now, into the turn Codex is already running. Nothing is interrupted."
+      },
+      "model": null,
+      "modelLabel": "GPT-5.6",
+      "effort": null,
+      "permissionMode": "default",
+      "midTurn": "steer",
+      "attachments": {
+        "maxCount": 6,
+        "maxBytes": 8388608,
+        "maxTotalBytes": 10485760
+      }
+    },
+    "session.options:cursor": {
+      "agent": {
+        "kind": "acp:cursor",
+        "name": "Cursor",
+        "mark": "cursor",
+        "available": true,
+        "note": null,
+        "models": [
+          {
+            "id": "composer-2",
+            "label": "Composer 2"
+          },
+          {
+            "id": "gpt-6-astra",
+            "label": "GPT-6 Astra"
+          }
+        ],
+        "efforts": [],
+        "modes": [
+          {
+            "id": "build",
+            "label": "Build"
+          },
+          {
+            "id": "plan",
+            "label": "Plan"
+          },
+          {
+            "id": "ask",
+            "label": "Ask"
+          }
+        ],
+        "permissions": [],
+        "steerNote": "Sends now. Cursor stops the running turn to take it, which aborts the tool call in flight and denies any permission prompt waiting."
+      },
+      "model": "composer-2",
+      "modelLabel": "Composer 2",
+      "effort": null,
+      "permissionMode": "default",
+      "midTurn": "steer",
+      "attachments": {
+        "maxCount": 6,
+        "maxBytes": 8388608,
+        "maxTotalBytes": 10485760
+      }
+    },
+    "session.configure": {
+      "agent": {
+        "kind": "claude",
+        "name": "Claude",
+        "mark": "claude",
+        "available": true,
+        "note": null,
+        "models": [
+          {
+            "id": "claude-fable-5-1",
+            "label": "Fable 5.1",
+            "efforts": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "XHigh"
+              },
+              {
+                "id": "max",
+                "label": "Max"
+              }
+            ],
+            "defaultEffort": "high"
+          },
+          {
+            "id": "claude-fable-5",
+            "label": "Fable 5",
+            "efforts": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "XHigh"
+              },
+              {
+                "id": "max",
+                "label": "Max"
+              }
+            ],
+            "defaultEffort": "high"
+          },
+          {
+            "id": "claude-opus-5-5",
+            "label": "Opus 5.5",
+            "efforts": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "XHigh"
+              },
+              {
+                "id": "max",
+                "label": "Max"
+              }
+            ],
+            "defaultEffort": "high"
+          },
+          {
+            "id": "claude-opus-5",
+            "label": "Opus 5",
+            "efforts": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "XHigh"
+              },
+              {
+                "id": "max",
+                "label": "Max"
+              }
+            ],
+            "defaultEffort": "high"
+          },
+          {
+            "id": "claude-sonnet-5",
+            "label": "Sonnet 5",
+            "efforts": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "XHigh"
+              },
+              {
+                "id": "max",
+                "label": "Max"
+              }
+            ],
+            "defaultEffort": "high"
+          },
+          {
+            "id": "claude-haiku-4-5",
+            "label": "Haiku 4.5"
+          }
+        ],
+        "efforts": [],
+        "modes": [
+          {
+            "id": "build",
+            "label": "Build"
+          },
+          {
+            "id": "plan",
+            "label": "Plan"
+          },
+          {
+            "id": "ask",
+            "label": "Ask"
+          }
+        ],
+        "permissions": [
+          {
+            "id": "default",
+            "label": "Ask each time"
+          },
+          {
+            "id": "acceptEdits",
+            "label": "Accept edits"
+          },
+          {
+            "id": "bypassPermissions",
+            "label": "Full access"
+          }
+        ],
+        "steerNote": "Sends now. Claude stops the running turn to take it, which aborts the tool call in flight and denies any permission prompt waiting."
+      },
+      "model": "claude-sonnet-5",
+      "modelLabel": "Sonnet 5",
+      "effort": "medium",
+      "permissionMode": "bypassPermissions",
+      "midTurn": "steer",
+      "attachments": {
+        "maxCount": 6,
+        "maxBytes": 8388608,
+        "maxTotalBytes": 10485760
+      }
+    },
+    "session.configure:plan": {
+      "agent": {
+        "kind": "codex",
+        "name": "Codex",
+        "mark": "openai",
+        "available": true,
+        "note": null,
+        "models": [
+          {
+            "id": null,
+            "label": "GPT-5.6",
+            "efforts": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "XHigh"
+              }
+            ],
+            "defaultEffort": "medium"
+          },
+          {
+            "id": "gpt-6-astra",
+            "label": "GPT-6 Astra",
+            "efforts": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "XHigh"
+              }
+            ],
+            "defaultEffort": "medium"
+          },
+          {
+            "id": "gpt-6-luna",
+            "label": "GPT-6 Luna",
+            "efforts": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              }
+            ],
+            "defaultEffort": "low"
+          }
+        ],
+        "efforts": [],
+        "modes": [
+          {
+            "id": "build",
+            "label": "Build"
+          },
+          {
+            "id": "plan",
+            "label": "Plan"
+          },
+          {
+            "id": "ask",
+            "label": "Ask"
+          }
+        ],
+        "permissions": [
+          {
+            "id": "default",
+            "label": "Ask each time"
+          },
+          {
+            "id": "acceptEdits",
+            "label": "Accept edits"
+          },
+          {
+            "id": "bypassPermissions",
+            "label": "Full access"
+          }
+        ],
+        "steerNote": "Sends now, into the turn Codex is already running. Nothing is interrupted."
+      },
+      "model": null,
+      "modelLabel": "GPT-5.6",
+      "effort": null,
+      "permissionMode": "plan",
+      "midTurn": "steer",
+      "attachments": {
+        "maxCount": 6,
+        "maxBytes": 8388608,
+        "maxTotalBytes": 10485760
+      }
+    },
+    "agents.list": {
+      "agents": [
+        {
+          "kind": "claude",
+          "name": "Claude",
+          "mark": "claude",
+          "available": true,
+          "note": null,
+          "models": [
+            {
+              "id": null,
+              "label": "Fable 5.1",
+              "efforts": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "XHigh"
+                },
+                {
+                  "id": "max",
+                  "label": "Max"
+                }
+              ],
+              "defaultEffort": "high"
+            },
+            {
+              "id": "claude-fable-5-1",
+              "label": "Fable 5.1",
+              "efforts": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "XHigh"
+                },
+                {
+                  "id": "max",
+                  "label": "Max"
+                }
+              ],
+              "defaultEffort": "high"
+            },
+            {
+              "id": "claude-fable-5",
+              "label": "Fable 5",
+              "efforts": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "XHigh"
+                },
+                {
+                  "id": "max",
+                  "label": "Max"
+                }
+              ],
+              "defaultEffort": "high"
+            },
+            {
+              "id": "claude-opus-5-5",
+              "label": "Opus 5.5",
+              "efforts": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "XHigh"
+                },
+                {
+                  "id": "max",
+                  "label": "Max"
+                }
+              ],
+              "defaultEffort": "high"
+            },
+            {
+              "id": "claude-opus-5",
+              "label": "Opus 5",
+              "efforts": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "XHigh"
+                },
+                {
+                  "id": "max",
+                  "label": "Max"
+                }
+              ],
+              "defaultEffort": "high"
+            },
+            {
+              "id": "claude-sonnet-5",
+              "label": "Sonnet 5",
+              "efforts": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "XHigh"
+                },
+                {
+                  "id": "max",
+                  "label": "Max"
+                }
+              ],
+              "defaultEffort": "high"
+            },
+            {
+              "id": "claude-haiku-4-5",
+              "label": "Haiku 4.5"
+            }
+          ],
+          "efforts": [],
+          "modes": [
+            {
+              "id": "build",
+              "label": "Build"
+            },
+            {
+              "id": "plan",
+              "label": "Plan"
+            },
+            {
+              "id": "ask",
+              "label": "Ask"
+            }
+          ],
+          "permissions": [
+            {
+              "id": "default",
+              "label": "Ask each time"
+            },
+            {
+              "id": "acceptEdits",
+              "label": "Accept edits"
+            },
+            {
+              "id": "bypassPermissions",
+              "label": "Full access"
+            }
+          ],
+          "steerNote": "Sends now. Claude stops the running turn to take it, which aborts the tool call in flight and denies any permission prompt waiting."
+        },
+        {
+          "kind": "codex",
+          "name": "Codex",
+          "mark": "openai",
+          "available": true,
+          "note": null,
+          "models": [
+            {
+              "id": null,
+              "label": "GPT-5.6",
+              "efforts": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "XHigh"
+                }
+              ],
+              "defaultEffort": "medium"
+            },
+            {
+              "id": "gpt-6-astra",
+              "label": "GPT-6 Astra",
+              "efforts": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "XHigh"
+                }
+              ],
+              "defaultEffort": "medium"
+            },
+            {
+              "id": "gpt-6-luna",
+              "label": "GPT-6 Luna",
+              "efforts": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                }
+              ],
+              "defaultEffort": "low"
+            }
+          ],
+          "efforts": [],
+          "modes": [
+            {
+              "id": "build",
+              "label": "Build"
+            },
+            {
+              "id": "plan",
+              "label": "Plan"
+            },
+            {
+              "id": "ask",
+              "label": "Ask"
+            }
+          ],
+          "permissions": [
+            {
+              "id": "default",
+              "label": "Ask each time"
+            },
+            {
+              "id": "acceptEdits",
+              "label": "Accept edits"
+            },
+            {
+              "id": "bypassPermissions",
+              "label": "Full access"
+            }
+          ],
+          "steerNote": "Sends now, into the turn Codex is already running. Nothing is interrupted."
+        },
+        {
+          "kind": "acp:cursor",
+          "name": "Cursor",
+          "mark": "cursor",
+          "available": true,
+          "note": null,
+          "models": [
+            {
+              "id": null,
+              "label": "Composer"
+            },
+            {
+              "id": "composer-2",
+              "label": "Composer 2"
+            },
+            {
+              "id": "gpt-6-astra",
+              "label": "GPT-6 Astra"
+            }
+          ],
+          "efforts": [],
+          "modes": [
+            {
+              "id": "build",
+              "label": "Build"
+            }
+          ],
+          "permissions": [],
+          "steerNote": "Sends now. Cursor stops the running turn to take it, which aborts the tool call in flight and denies any permission prompt waiting."
+        },
+        {
+          "kind": "acp:gemini",
+          "name": "Gemini",
+          "mark": "gemini",
+          "available": false,
+          "note": "not installed",
+          "models": [
+            {
+              "id": null,
+              "label": "Gemini"
+            }
+          ],
+          "efforts": [],
+          "modes": [
+            {
+              "id": "build",
+              "label": "Build"
+            }
+          ],
+          "permissions": [],
+          "steerNote": "Sends now. Gemini stops the running turn to take it, which aborts the tool call in flight and denies any permission prompt waiting."
+        },
+        {
+          "kind": "acp:opencode",
+          "name": "OpenCode",
+          "mark": "opencode",
+          "available": true,
+          "note": null,
+          "models": [
+            {
+              "id": null,
+              "label": "Default"
+            }
+          ],
+          "efforts": [
+            {
+              "id": "low",
+              "label": "Low"
+            },
+            {
+              "id": "high",
+              "label": "Think hard"
+            }
+          ],
+          "defaultEffort": "low",
+          "modes": [
+            {
+              "id": "build",
+              "label": "Build"
+            }
+          ],
+          "permissions": [],
+          "steerNote": "Sends now. OpenCode stops the running turn to take it, which aborts the tool call in flight and denies any permission prompt waiting."
+        },
+        {
+          "kind": "acp:copilot",
+          "name": "GitHub Copilot",
+          "mark": "githubCopilot",
+          "available": false,
+          "note": "signed out",
+          "models": [
+            {
+              "id": null,
+              "label": "Default"
+            }
+          ],
+          "efforts": [],
+          "modes": [
+            {
+              "id": "build",
+              "label": "Build"
+            }
+          ],
+          "permissions": [],
+          "steerNote": "Sends now. GitHub Copilot stops the running turn to take it, which aborts the tool call in flight and denies any permission prompt waiting."
+        },
+        {
+          "kind": "acp:goose",
+          "name": "goose",
+          "mark": "goose",
+          "available": true,
+          "note": null,
+          "models": [
+            {
+              "id": null,
+              "label": "Default"
+            }
+          ],
+          "efforts": [],
+          "modes": [
+            {
+              "id": "build",
+              "label": "Build"
+            }
+          ],
+          "permissions": [],
+          "steerNote": "Sends now. goose stops the running turn to take it, which aborts the tool call in flight and denies any permission prompt waiting."
+        },
+        {
+          "kind": "acp:qwen",
+          "name": "Qwen Code",
+          "mark": "qwen",
+          "available": true,
+          "note": null,
+          "models": [
+            {
+              "id": null,
+              "label": "Default"
+            }
+          ],
+          "efforts": [],
+          "modes": [
+            {
+              "id": "build",
+              "label": "Build"
+            }
+          ],
+          "permissions": [],
+          "steerNote": "Sends now. Qwen Code stops the running turn to take it, which aborts the tool call in flight and denies any permission prompt waiting."
+        },
+        {
+          "kind": "acp:grok",
+          "name": "Grok",
+          "mark": "grok",
+          "available": true,
+          "note": null,
+          "models": [
+            {
+              "id": null,
+              "label": "Default"
+            }
+          ],
+          "efforts": [],
+          "modes": [
+            {
+              "id": "build",
+              "label": "Build"
+            }
+          ],
+          "permissions": [],
+          "steerNote": "Sends now. Grok stops the running turn to take it, which aborts the tool call in flight and denies any permission prompt waiting."
+        },
+        {
+          "kind": "acp:fx",
+          "name": "fx",
+          "mark": "fx",
+          "available": true,
+          "note": null,
+          "models": [
+            {
+              "id": null,
+              "label": "Default"
+            }
+          ],
+          "efforts": [],
+          "modes": [
+            {
+              "id": "build",
+              "label": "Build"
+            }
+          ],
+          "permissions": [],
+          "steerNote": "Sends now. fx stops the running turn to take it, which aborts the tool call in flight and denies any permission prompt waiting."
+        },
+        {
+          "kind": "acp:deepseek",
+          "name": "DeepSeek",
+          "mark": "deepseek",
+          "available": true,
+          "note": null,
+          "models": [
+            {
+              "id": null,
+              "label": "DeepSeek V4 Pro"
+            },
+            {
+              "id": "deepseek-v4-pro",
+              "label": "DeepSeek V4 Pro"
+            },
+            {
+              "id": "deepseek-v4-flash",
+              "label": "DeepSeek V4 Flash"
+            }
+          ],
+          "efforts": [],
+          "modes": [
+            {
+              "id": "build",
+              "label": "Build"
+            }
+          ],
+          "permissions": [],
+          "steerNote": "Sends now. DeepSeek stops the running turn to take it, which aborts the tool call in flight and denies any permission prompt waiting."
+        },
+        {
+          "kind": "acp:openhands",
+          "name": "OpenHands",
+          "mark": "openhands",
+          "available": true,
+          "note": null,
+          "models": [
+            {
+              "id": null,
+              "label": "Default"
+            }
+          ],
+          "efforts": [],
+          "modes": [
+            {
+              "id": "build",
+              "label": "Build"
+            }
+          ],
+          "permissions": [],
+          "steerNote": "Sends now. OpenHands stops the running turn to take it, which aborts the tool call in flight and denies any permission prompt waiting."
+        },
+        {
+          "kind": "acp:hermes",
+          "name": "Hermes",
+          "mark": "caduceus",
+          "available": true,
+          "note": null,
+          "models": [
+            {
+              "id": null,
+              "label": "Default"
+            }
+          ],
+          "efforts": [],
+          "modes": [
+            {
+              "id": "build",
+              "label": "Build"
+            }
+          ],
+          "permissions": [],
+          "steerNote": "Sends now. Hermes stops the running turn to take it, which aborts the tool call in flight and denies any permission prompt waiting."
+        }
+      ],
+      "defaultAgent": "codex",
+      "midTurn": "steer",
+      "attachments": {
+        "maxCount": 6,
+        "maxBytes": 8388608,
+        "maxTotalBytes": 10485760
+      }
     }
   },
   "events": {

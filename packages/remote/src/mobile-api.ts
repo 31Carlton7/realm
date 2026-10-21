@@ -32,8 +32,95 @@ export const SessionRowSchema = z.object({
   agentMark: z.string().optional(),
   /** The model as the desktop's chip names it ("Opus 5.5"), or its default's name while none is pinned. */
   modelLabel: z.string().optional(),
+  /** When the session was made. */
+  createdAt: z.number().optional(),
+  /** The reasoning level pinned on the session, or null for the model's own. */
+  effort: z.string().nullable().optional(),
+  /** As the desktop stores it: how freely the agent acts ("default", "acceptEdits", "bypassPermissions"),
+   *  or the mode it is in instead ("plan", "ask"). */
+  permissionMode: z.string().nullable().optional(),
+  /** When the conversation last moved: a prompt went out, or the agent answered or finished a turn. What
+   *  every list of sessions is ordered by — not `updatedAt`, which a change of settings or a rename moves too. */
+  activityAt: z.number().optional(),
 });
 export type SessionRow = z.infer<typeof SessionRowSchema>;
+
+/** A space's or a profile's icon, read: a glyph by its name, an emoji, or a picture of the person's own. */
+const IconKindSchema = z.enum(["glyph", "emoji", "picture"]);
+
+/** A profile, as the desktop's sidebar switches between them: a set of spaces. */
+export const ProfileSchema = z.object({
+  id: Id, name: z.string(), icon: z.string(), color: z.string(),
+  iconKind: IconKindSchema.optional(),
+  glyph: z.string().optional(),
+  emoji: z.string().optional(),
+  /** How many sessions in its spaces Needs you lists. */
+  needsYou: z.number().int(),
+});
+export type Profile = z.infer<typeof ProfileSchema>;
+
+/** One choice a picker offers: what is sent, and what is shown. */
+const ChoiceSchema = z.object({ id: z.string(), label: z.string() });
+
+/** A model an agent offers, as the desktop's picker names it. `id: null` is the agent's own default. */
+const ModelChoiceSchema = z.object({
+  id: z.string().nullable(),
+  label: z.string(),
+  /** The reasoning levels this model takes, where it takes any. */
+  efforts: z.array(ChoiceSchema).optional(),
+  defaultEffort: z.string().nullable().optional(),
+});
+
+/** What can be chosen for one agent: its models, reasoning levels, modes and permission rungs. */
+export const AgentOptionsSchema = z.object({
+  kind: z.string(),
+  name: z.string(),
+  /** Which mark the desktop draws for it, as `SessionRow.agentMark`. */
+  mark: z.string(),
+  /** Installed and signed in, as far as the Mac's last look found; `note` says why not. */
+  available: z.boolean(),
+  note: z.string().nullable(),
+  models: z.array(ModelChoiceSchema),
+  /** Reasoning levels that are the agent's own setting rather than a model's. */
+  efforts: z.array(ChoiceSchema),
+  /** Which of those it runs when none is chosen, where it names one. */
+  defaultEffort: z.string().nullable().optional(),
+  /** Build, then Plan and Ask where the agent has them. */
+  modes: z.array(ChoiceSchema),
+  /** How freely the agent may act, least to most; empty where Realm cannot set it for this agent. */
+  permissions: z.array(ChoiceSchema),
+  /** What Steer does to this agent's running turn, in words. */
+  steerNote: z.string(),
+});
+export type AgentOptions = z.infer<typeof AgentOptionsSchema>;
+
+/** What the Mac takes with one message (`session.send`, `session.create`). */
+export const SendLimitsSchema = z.object({ maxCount: z.number().int(), maxBytes: z.number().int(), maxTotalBytes: z.number().int() });
+export const SEND_LIMITS = { maxCount: 6, maxBytes: 8 * 1024 * 1024, maxTotalBytes: 10 * 1024 * 1024 } as const;
+
+/** A file sent with a message: a photo taken or picked on the phone, or a file from its Files. */
+const AttachmentUploadSchema = z.object({
+  name: z.string().min(1).max(200),
+  mime: z.string().min(1).max(100),
+  /** The file's bytes, base64. */
+  data: z.string().min(1),
+});
+
+const MidTurnSchema = z.enum(["queue", "steer"]);
+
+/** A session's settings as the composer shows them, and what each could be changed to. */
+export const SessionOptionsSchema = z.object({
+  agent: AgentOptionsSchema,
+  model: z.string().nullable(),
+  /** The model it runs on now as the chip names it: its default's name while none is pinned. */
+  modelLabel: z.string(),
+  effort: z.string().nullable(),
+  permissionMode: z.string().nullable(),
+  /** What a message typed while a turn runs does on this Mac, unless the phone says otherwise. */
+  midTurn: MidTurnSchema,
+  attachments: SendLimitsSchema,
+});
+export type SessionOptions = z.infer<typeof SessionOptionsSchema>;
 
 /** An answer to one question: an option's value or words of the person's own, several as a list. */
 const AnswerValue = z.union([z.string().max(20_000), z.array(z.string().max(20_000)).max(100)]);
@@ -65,7 +152,11 @@ const PlanStepSchema = z.object({ text: z.string(), status: z.string() });
 const rowBase = { key: z.string(), seq: z.number().int() };
 
 export const RowSchema = z.discriminatedUnion("kind", [
-  z.object({ ...rowBase, kind: z.literal("user"), text: z.string() }),
+  z.object({
+    ...rowBase, kind: z.literal("user"), text: z.string(),
+    /** What was sent with it, each file by its path on the Mac, which `session.file` previews. */
+    attachments: z.array(z.object({ path: z.string(), name: z.string(), mime: z.string() })).optional(),
+  }),
   z.object({ ...rowBase, kind: z.literal("assistant"), text: z.string(), streaming: z.boolean() }),
   z.object({ ...rowBase, kind: z.literal("thinking"), text: z.string() }),
   z.object({ ...rowBase, kind: z.literal("tool"), name: z.string(), summary: z.string(), state: z.enum(["running", "done", "error"]), detail: z.string().nullable() }),
@@ -97,16 +188,27 @@ export type RowKind = Row["kind"];
 
 const Ok = z.object({ ok: z.literal(true) });
 
+/** The most sessions `home.get`'s `recent` holds. */
+export const RECENT_LIMIT = 40;
+
 export const HomeSchema = z.object({
   mac: z.object({ name: z.string() }),
   needsYou: z.array(SessionRowSchema),
   spaces: z.array(z.object({
     id: Id, name: z.string(), icon: z.string(), color: z.string(), sessions: z.array(SessionRowSchema), more: z.number().int(),
     /** `icon` read: a glyph by its name, an emoji, or a picture of the person's own (`space.icon`). */
-    iconKind: z.enum(["glyph", "emoji", "picture"]).optional(),
+    iconKind: IconKindSchema.optional(),
     glyph: z.string().optional(),
     emoji: z.string().optional(),
+    /** The profile the space belongs to. */
+    profileId: Id.optional(),
   })),
+  /** Every profile, in the desktop's order. Spaces are listed under them. */
+  profiles: z.array(ProfileSchema).optional(),
+  /** The profile `recent` was gathered for, or null for every profile. */
+  profileId: Id.nullable().optional(),
+  /** The listed sessions active most recently in that profile, newest first, at most `RECENT_LIMIT`. */
+  recent: z.array(SessionRowSchema).optional(),
 });
 export type Home = z.infer<typeof HomeSchema>;
 
@@ -138,9 +240,25 @@ export const FilePreviewSchema = z.object({
   ]),
 });
 
+/** What a session runs on, as `session.configure` changes it and `session.create` starts it. */
+const sessionChoices = {
+  /** A model by its id, or null for the agent's own default. */
+  model: z.string().max(200).nullable().optional(),
+  effort: z.string().max(40).nullable().optional(),
+  mode: z.enum(["build", "plan", "ask"]).optional(),
+  /** A permission rung by its id (`AgentOptions.permissions`). */
+  permission: z.string().max(40).optional(),
+};
+
 export const MobileCalls = {
   ping: { params: z.object({}), result: z.object({ at: z.number() }) },
-  "home.get": { params: z.object({}), result: HomeSchema },
+  /** `profileId` scopes `recent` to one profile; everything else is every profile's. */
+  "home.get": { params: z.object({ profileId: Id.optional() }), result: HomeSchema },
+  /** One page of a space's listed sessions, most recently active first: what Home's few leave out. */
+  "space.sessions": {
+    params: z.object({ id: Id, offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(100).default(50) }),
+    result: z.object({ sessions: z.array(SessionRowSchema), more: z.boolean() }),
+  },
   "session.open": {
     params: z.object({ id: Id, limit: z.number().int().min(1).max(1000).default(200) }),
     result: z.object({
@@ -150,10 +268,20 @@ export const MobileCalls = {
     }),
   },
   "session.close": { params: z.object({ id: Id }), result: Ok },
+  /** `text` may be empty when files go with it; a message must carry one or the other. A phone offers
+   *  files only to a Mac that answers `session.options`, since an older one would drop them. */
   "session.send": {
-    params: z.object({ id: Id, text: z.string().min(1).max(100_000), delivery: z.enum(["auto", "queue", "steer"]).default("auto") }),
+    params: z.object({
+      id: Id, text: z.string().max(100_000), delivery: z.enum(["auto", "queue", "steer"]).default("auto"),
+      attachments: z.array(AttachmentUploadSchema).max(SEND_LIMITS.maxCount).default([]),
+    }),
     result: Ok,
   },
+  /** The session's model, reasoning, mode and permissions, and what each could be changed to. */
+  "session.options": { params: z.object({ id: Id }), result: SessionOptionsSchema },
+  /** Changes what the composer's chips show; a field left out stays as it is. Leaving Plan or Ask for
+   *  Build puts `permission` back, or the Mac's default for new sessions when none is given. */
+  "session.configure": { params: z.object({ id: Id, ...sessionChoices }), result: SessionOptionsSchema },
   "session.answer": {
     params: z.object({ id: Id, requestId: z.string().min(1), decision: z.enum(["allow", "allow_always", "deny"]), answers: AnswersSchema.optional() }),
     result: Ok,
@@ -161,7 +289,19 @@ export const MobileCalls = {
   "session.stop": { params: z.object({ id: Id }), result: Ok },
   /** Marks the session read up to a row's seq, as opening it on the Mac does; never moves backwards. */
   "session.seen": { params: z.object({ id: Id, seq: z.number().int().min(0) }), result: Ok },
-  "session.create": { params: z.object({ spaceId: Id, agent: z.string().min(1), text: z.string().min(1).max(100_000) }), result: z.object({ id: Id }) },
+  /** A new session in a space, sent its first message. What is left out is the Mac's default. */
+  "session.create": {
+    params: z.object({
+      spaceId: Id, agent: z.string().min(1), text: z.string().max(100_000), ...sessionChoices,
+      attachments: z.array(AttachmentUploadSchema).max(SEND_LIMITS.maxCount).default([]),
+    }),
+    result: z.object({ id: Id }),
+  },
+  /** The agents a new session could be given, the one the Mac starts with, and what one message takes. */
+  "agents.list": {
+    params: z.object({}),
+    result: z.object({ agents: z.array(AgentOptionsSchema), defaultAgent: z.string().nullable(), midTurn: MidTurnSchema, attachments: SendLimitsSchema }),
+  },
   /** The files one of the session's turns changed, by the checkpoint in front of it. */
   "session.changes": { params: z.object({ id: Id, checkpointId: Id }), result: TurnChangesSchema },
   /** One page of a file's diff across that turn: only a file the turn's changes list. */
@@ -169,7 +309,8 @@ export const MobileCalls = {
     params: z.object({ id: Id, checkpointId: Id, path: z.string().min(1).max(4096), from: z.number().int().min(0).default(0) }),
     result: DiffPageSchema,
   },
-  /** A bounded preview of a file the session's turns made: only a file their `files_made` listed. */
+  /** A bounded preview of a file the session's turns made, or of one sent with a message: only a file a
+   *  `files_made` or a `user_message` of this session listed. */
   "session.file": { params: z.object({ id: Id, path: z.string().min(1).max(4096) }), result: FilePreviewSchema },
   /** A space's own picture, for an icon `home.get` calls a picture. */
   "space.icon": {

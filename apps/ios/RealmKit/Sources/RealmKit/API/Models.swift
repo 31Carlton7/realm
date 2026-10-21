@@ -76,10 +76,21 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
     public let agentMark: String?
     /// The model as the desktop's chip names it ("Opus 5.5"), or its default's name while none is pinned.
     public let modelLabel: String?
+    /// When the session was made; nil from a Mac before Plan 29.
+    public let createdAt: Millis?
+    /// The reasoning level pinned on the session, or nil for the model's own.
+    public let effort: String?
+    /// As the desktop stores it: a permission rung ("default", "acceptEdits", "bypassPermissions"), or
+    /// the mode the session is in instead ("plan", "ask"). Nil from a Mac before Plan 29.
+    public let permissionMode: String?
+    /// When the conversation last moved: a message went out, or the agent answered or finished a turn.
+    /// Unlike `updatedAt`, a change of settings or a rename does not move it. Nil from a Mac before Plan 29.
+    public let activityAt: Millis?
 
     public init(id: String, title: String, spaceId: String, spaceName: String, agent: String, model: String?,
                 status: SessionStatus, needsYou: Bool, unread: Bool, updatedAt: Millis,
-                agentName: String? = nil, agentMark: String? = nil, modelLabel: String? = nil) {
+                agentName: String? = nil, agentMark: String? = nil, modelLabel: String? = nil,
+                createdAt: Millis? = nil, effort: String? = nil, permissionMode: String? = nil, activityAt: Millis? = nil) {
         self.id = id
         self.title = title
         self.spaceId = spaceId
@@ -93,7 +104,15 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
         self.agentName = agentName
         self.agentMark = agentMark
         self.modelLabel = modelLabel
+        self.createdAt = createdAt
+        self.effort = effort
+        self.permissionMode = permissionMode
+        self.activityAt = activityAt
     }
+
+    /// When the session last moved, as the Mac orders its lists: what a list of sessions is ordered by,
+    /// and what a row's age says. An older Mac sends no `activityAt`, and its `updatedAt` stands in.
+    public var lastActivity: Millis { activityAt ?? updatedAt }
 
     /// The agent's name: the Mac's, or this phone's own table where a Phase 1 Mac sent none.
     public var agentDisplayName: String { agentName ?? AgentNames.label(agent) }
@@ -103,6 +122,7 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case id, title, spaceId, spaceName, agent, model, status, needsYou, unread, updatedAt, agentName, agentMark, modelLabel
+        case createdAt, effort, permissionMode, activityAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -120,6 +140,10 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
         agentName = try? c.decodeIfPresent(String.self, forKey: .agentName)
         agentMark = try? c.decodeIfPresent(String.self, forKey: .agentMark)
         modelLabel = try? c.decodeIfPresent(String.self, forKey: .modelLabel)
+        createdAt = try? c.decodeIfPresent(Millis.self, forKey: .createdAt)
+        effort = try? c.decodeIfPresent(String.self, forKey: .effort)
+        permissionMode = try? c.decodeIfPresent(String.self, forKey: .permissionMode)
+        activityAt = try? c.decodeIfPresent(Millis.self, forKey: .activityAt)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -137,6 +161,30 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
         try c.encodeIfPresent(agentName, forKey: .agentName)
         try c.encodeIfPresent(agentMark, forKey: .agentMark)
         try c.encodeIfPresent(modelLabel, forKey: .modelLabel)
+        try c.encodeIfPresent(createdAt, forKey: .createdAt)
+        try c.encodeIfPresent(effort, forKey: .effort)
+        try c.encodeIfPresent(permissionMode, forKey: .permissionMode)
+        try c.encodeIfPresent(activityAt, forKey: .activityAt)
+    }
+
+    /// The mode the session is in, read from its stored permission mode. Nil where the Mac did not say.
+    public var mode: SessionMode? {
+        permissionMode.map(SessionMode.of)
+    }
+}
+
+/// Build, Plan or Ask: whether the agent changes things, plans first, or only answers. Plan and Ask
+/// travel in the session's permission mode, so a session in either is not storing its permission rung.
+public enum SessionMode: String, Codable, Sendable, Hashable, CaseIterable {
+    case build, plan, ask
+
+    /// The mode a stored permission mode puts a session in: anything but Plan or Ask is a rung, so Build.
+    public static func of(_ permissionMode: String) -> SessionMode {
+        switch permissionMode {
+        case "plan": .plan
+        case "ask": .ask
+        default: .build
+        }
     }
 }
 
@@ -364,15 +412,20 @@ public struct TranscriptRow: Codable, Sendable, Hashable, Identifiable {
     public let checkpointId: String?
     /// A notice of the files a turn made: each by its path on the Mac, which `session.file` previews.
     public let madeFiles: [MadeFile]?
+    /// What the person sent with a message, each file by its path on the Mac, which `session.file`
+    /// previews. Nil from a Mac before Plan 29, and on every other kind of row.
+    public let sentFiles: [SentFile]?
 
     public var id: String { key }
 
-    public init(key: String, seq: Int, content: Content, checkpointId: String? = nil, madeFiles: [MadeFile]? = nil) {
+    public init(key: String, seq: Int, content: Content, checkpointId: String? = nil, madeFiles: [MadeFile]? = nil,
+                sentFiles: [SentFile]? = nil) {
         self.key = key
         self.seq = seq
         self.content = content
         self.checkpointId = checkpointId
         self.madeFiles = madeFiles
+        self.sentFiles = sentFiles
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -380,6 +433,7 @@ public struct TranscriptRow: Codable, Sendable, Hashable, Identifiable {
         case text, streaming, name, summary, state, detail
         case requestId, tool, title, questions, steps, hint
         case asker, message, answers, plan, checkpointId, files
+        case sentFiles = "attachments"
     }
 
     public init(from decoder: Decoder) throws {
@@ -396,6 +450,7 @@ public struct TranscriptRow: Codable, Sendable, Hashable, Identifiable {
         content = (try? Self.decodeContent(kind: kind, c)) ?? .unknown(kind: kind, type: type)
         checkpointId = try? c.decodeIfPresent(String.self, forKey: .checkpointId)
         madeFiles = try? c.decodeIfPresent([MadeFile].self, forKey: .files)
+        sentFiles = try? c.decodeIfPresent([SentFile].self, forKey: .sentFiles)
     }
 
     private static func decodeContent(kind: String, _ c: KeyedDecodingContainer<CodingKeys>) throws -> Content {
@@ -488,7 +543,23 @@ public struct TranscriptRow: Codable, Sendable, Hashable, Identifiable {
         }
         try c.encodeIfPresent(checkpointId, forKey: .checkpointId)
         try c.encodeIfPresent(madeFiles, forKey: .files)
+        try c.encodeIfPresent(sentFiles, forKey: .sentFiles)
     }
+}
+
+/// A file sent with a message, by its path on the Mac.
+public struct SentFile: Codable, Sendable, Hashable {
+    public let path: String
+    public let name: String
+    public let mime: String
+
+    public init(path: String, name: String, mime: String) {
+        self.path = path
+        self.name = name
+        self.mime = mime
+    }
+
+    public var isImage: Bool { mime.hasPrefix("image/") }
 }
 
 /// The plan a request asks to have approved.
@@ -574,14 +645,16 @@ public struct Space: Codable, Sendable, Hashable, Identifiable {
     public let glyph: String?
     /// The emoji as the Mac sent it.
     private let sentEmoji: String?
+    /// The profile the space belongs to; nil from a Mac before Plan 29.
+    public let profileId: String?
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, icon, color, sessions, more, iconKind, glyph
+        case id, name, icon, color, sessions, more, iconKind, glyph, profileId
         case sentEmoji = "emoji"
     }
 
     public init(id: String, name: String, icon: JSONValue?, color: JSONValue?, sessions: [SessionRow], more: Int,
-                iconKind: SpaceIconKind? = nil, glyph: String? = nil, emoji: String? = nil) {
+                iconKind: SpaceIconKind? = nil, glyph: String? = nil, emoji: String? = nil, profileId: String? = nil) {
         self.id = id
         self.name = name
         self.icon = icon
@@ -591,6 +664,7 @@ public struct Space: Codable, Sendable, Hashable, Identifiable {
         self.iconKind = iconKind
         self.glyph = glyph
         self.sentEmoji = emoji
+        self.profileId = profileId
     }
 
     public init(from decoder: Decoder) throws {
@@ -604,6 +678,7 @@ public struct Space: Codable, Sendable, Hashable, Identifiable {
         iconKind = try? c.decodeIfPresent(SpaceIconKind.self, forKey: .iconKind)
         glyph = try? c.decodeIfPresent(String.self, forKey: .glyph)
         sentEmoji = try? c.decodeIfPresent(String.self, forKey: .sentEmoji)
+        profileId = try? c.decodeIfPresent(String.self, forKey: .profileId)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -617,6 +692,7 @@ public struct Space: Codable, Sendable, Hashable, Identifiable {
         try c.encodeIfPresent(iconKind, forKey: .iconKind)
         try c.encodeIfPresent(glyph, forKey: .glyph)
         try c.encodeIfPresent(sentEmoji, forKey: .sentEmoji)
+        try c.encodeIfPresent(profileId, forKey: .profileId)
     }
 
     /// The space's emoji, when its icon is one: as the Mac read it, or from `emoji:<char>` where a
@@ -632,16 +708,243 @@ public struct Space: Codable, Sendable, Hashable, Identifiable {
     public var hasPicture: Bool { iconKind == .picture }
 }
 
+/// A profile, as the desktop's sidebar switches between them: a set of spaces.
+public struct Profile: Codable, Sendable, Hashable, Identifiable {
+    public let id: String
+    public let name: String
+    public let icon: String
+    public let color: String
+    /// What `icon` is: a glyph, an emoji or a picture.
+    public let iconKind: SpaceIconKind?
+    public let glyph: String?
+    public let emoji: String?
+    /// How many sessions in its spaces Needs you lists.
+    public let needsYou: Int
+
+    public init(id: String, name: String, icon: String = "", color: String = "", iconKind: SpaceIconKind? = nil,
+                glyph: String? = nil, emoji: String? = nil, needsYou: Int = 0) {
+        self.id = id
+        self.name = name
+        self.icon = icon
+        self.color = color
+        self.iconKind = iconKind
+        self.glyph = glyph
+        self.emoji = emoji
+        self.needsYou = needsYou
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, name, icon, color, iconKind, glyph, emoji, needsYou }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
+        icon = (try? c.decodeIfPresent(String.self, forKey: .icon)) ?? ""
+        color = (try? c.decodeIfPresent(String.self, forKey: .color)) ?? ""
+        iconKind = try? c.decodeIfPresent(SpaceIconKind.self, forKey: .iconKind)
+        glyph = try? c.decodeIfPresent(String.self, forKey: .glyph)
+        emoji = try? c.decodeIfPresent(String.self, forKey: .emoji)
+        needsYou = (try? c.decodeIfPresent(Int.self, forKey: .needsYou)) ?? 0
+    }
+}
+
 /// `home.get`
 public struct Home: Codable, Sendable, Hashable {
     public let mac: MacInfo
     public let needsYou: [SessionRow]
     public let spaces: [Space]
+    /// Every profile, in the desktop's order; nil from a Mac before Plan 29.
+    public let profiles: [Profile]?
+    /// The profile `recent` was gathered for, or nil for every profile.
+    public let profileId: String?
+    /// The listed sessions active most recently in that profile, newest first; nil from an older Mac.
+    public let recent: [SessionRow]?
 
-    public init(mac: MacInfo, needsYou: [SessionRow], spaces: [Space]) {
+    public init(mac: MacInfo, needsYou: [SessionRow], spaces: [Space], profiles: [Profile]? = nil, profileId: String? = nil,
+                recent: [SessionRow]? = nil) {
         self.mac = mac
         self.needsYou = needsYou
         self.spaces = spaces
+        self.profiles = profiles
+        self.profileId = profileId
+        self.recent = recent
+    }
+}
+
+/// `space.sessions`: one page of a space's listed sessions, most recently active first.
+public struct SpaceSessions: Codable, Sendable, Hashable {
+    public let sessions: [SessionRow]
+    /// More come after this page.
+    public let more: Bool
+
+    public init(sessions: [SessionRow], more: Bool) {
+        self.sessions = sessions
+        self.more = more
+    }
+}
+
+/// One choice a picker offers: what is sent, and what is shown.
+public struct Choice: Codable, Sendable, Hashable, Identifiable {
+    public let id: String
+    public let label: String
+
+    public init(id: String, label: String) {
+        self.id = id
+        self.label = label
+    }
+}
+
+/// A model an agent offers, as the desktop's picker names it. A nil `id` is the agent's own default.
+public struct ModelChoice: Codable, Sendable, Hashable {
+    public let id: String?
+    public let label: String
+    /// The reasoning levels this model takes, where it takes any.
+    public let efforts: [Choice]?
+    public let defaultEffort: String?
+
+    public init(id: String?, label: String, efforts: [Choice]? = nil, defaultEffort: String? = nil) {
+        self.id = id
+        self.label = label
+        self.efforts = efforts
+        self.defaultEffort = defaultEffort
+    }
+}
+
+/// What can be chosen for one agent: its models, reasoning levels, modes and permission rungs.
+public struct AgentOptions: Codable, Sendable, Hashable {
+    public let kind: String
+    public let name: String
+    /// Which mark the desktop draws for it, as `SessionRow.agentMark`.
+    public let mark: String
+    /// Installed and signed in, as far as the Mac's last look found; `note` says why not.
+    public let available: Bool
+    public let note: String?
+    public let models: [ModelChoice]
+    /// Reasoning levels that are the agent's own setting rather than a model's.
+    public let efforts: [Choice]
+    /// Which of those the agent runs while none is chosen, where it names one.
+    public let defaultEffort: String?
+    /// Build, then Plan and Ask where the agent has them.
+    public let modes: [Choice]
+    /// How freely the agent may act, least to most; empty where Realm cannot set it for this agent.
+    public let permissions: [Choice]
+    /// What Steer does to this agent's running turn, in words.
+    public let steerNote: String
+
+    public init(kind: String, name: String, mark: String, available: Bool = true, note: String? = nil, models: [ModelChoice],
+                efforts: [Choice] = [], defaultEffort: String? = nil, modes: [Choice] = [], permissions: [Choice] = [], steerNote: String = "") {
+        self.kind = kind
+        self.name = name
+        self.mark = mark
+        self.available = available
+        self.note = note
+        self.models = models
+        self.efforts = efforts
+        self.defaultEffort = defaultEffort
+        self.modes = modes
+        self.permissions = permissions
+        self.steerNote = steerNote
+    }
+}
+
+/// What the Mac takes with one message.
+public struct SendLimits: Codable, Sendable, Hashable {
+    public let maxCount: Int
+    public let maxBytes: Int
+    public let maxTotalBytes: Int
+
+    public init(maxCount: Int, maxBytes: Int, maxTotalBytes: Int) {
+        self.maxCount = maxCount
+        self.maxBytes = maxBytes
+        self.maxTotalBytes = maxTotalBytes
+    }
+}
+
+/// `session.options` and `session.configure`: a session's settings as the composer shows them, and what
+/// each could be changed to.
+public struct SessionOptions: Codable, Sendable, Hashable {
+    public let agent: AgentOptions
+    public let model: String?
+    /// The model it runs on now as the chip names it: its default's name while none is pinned.
+    public let modelLabel: String
+    public let effort: String?
+    public let permissionMode: String?
+    /// What a message typed while a turn runs does on this Mac, unless the phone says otherwise.
+    public let midTurn: Delivery
+    public let attachments: SendLimits
+
+    public init(agent: AgentOptions, model: String?, modelLabel: String, effort: String?, permissionMode: String?,
+                midTurn: Delivery, attachments: SendLimits) {
+        self.agent = agent
+        self.model = model
+        self.modelLabel = modelLabel
+        self.effort = effort
+        self.permissionMode = permissionMode
+        self.midTurn = midTurn
+        self.attachments = attachments
+    }
+
+    /// The mode the session is in.
+    public var mode: SessionMode { permissionMode.map(SessionMode.of) ?? .build }
+}
+
+/// `agents.list`: the agents a new session could be given, the one the Mac starts with, and what one
+/// message takes.
+public struct AgentList: Codable, Sendable, Hashable {
+    public let agents: [AgentOptions]
+    public let defaultAgent: String?
+    public let midTurn: Delivery
+    public let attachments: SendLimits
+
+    public init(agents: [AgentOptions], defaultAgent: String?, midTurn: Delivery, attachments: SendLimits) {
+        self.agents = agents
+        self.defaultAgent = defaultAgent
+        self.midTurn = midTurn
+        self.attachments = attachments
+    }
+}
+
+/// A file going to the Mac with a message, as `session.send` and `session.create` carry it.
+public struct AttachmentUpload: Encodable, Sendable, Hashable {
+    public let name: String
+    public let mime: String
+    /// The bytes, base64.
+    public let data: String
+
+    public init(name: String, mime: String, bytes: Data) {
+        self.name = name
+        self.mime = mime
+        self.data = bytes.base64EncodedString()
+    }
+}
+
+/// What `session.configure` changes. A field left nil stays as it is; `model: .some(nil)` puts the
+/// agent's own default back.
+public struct SessionChanges: Encodable, Sendable, Hashable {
+    public var model: String??
+    public var effort: String??
+    public var mode: SessionMode?
+    public var permission: String?
+
+    public init(model: String?? = nil, effort: String?? = nil, mode: SessionMode? = nil, permission: String? = nil) {
+        self.model = model
+        self.effort = effort
+        self.mode = mode
+        self.permission = permission
+    }
+
+    private enum CodingKeys: String, CodingKey { case model, effort, mode, permission }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        if let model {
+            if let model { try c.encode(model, forKey: .model) } else { try c.encodeNil(forKey: .model) }
+        }
+        if let effort {
+            if let effort { try c.encode(effort, forKey: .effort) } else { try c.encodeNil(forKey: .effort) }
+        }
+        try c.encodeIfPresent(mode, forKey: .mode)
+        try c.encodeIfPresent(permission, forKey: .permission)
     }
 }
 

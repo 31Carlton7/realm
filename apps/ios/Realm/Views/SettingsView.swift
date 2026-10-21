@@ -34,6 +34,9 @@ struct SettingsSheet: View {
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var confirmingForget = false
+    @AppStorage(ListOptions.Key.style) private var style = ListOptions().style
+    @AppStorage(ListOptions.Key.spaceOrder) private var spaceOrder = ListOptions().spaceOrder
+    @AppStorage(ListOptions.Key.needsYouFirst) private var needsYouFirst = ListOptions().needsYouFirst
 
     var body: some View {
         Form {
@@ -61,6 +64,31 @@ struct SettingsView: View {
                 } footer: {
                     Text("Forgets it on this iPhone only. Your Mac lists this iPhone until you remove it in Settings ▸ Devices there.")
                 }
+            }
+
+            Section {
+                Picker("List", selection: $style) {
+                    ForEach(ListStyle.allCases) { style in
+                        Text(style.title).tag(style)
+                    }
+                }
+                .modifier(ChoiceStyle())
+                .listRowBackground(Fill.card)
+                if style == .bySpace {
+                    Picker("Order spaces", selection: $spaceOrder) {
+                        ForEach(SpaceOrder.allCases) { order in
+                            Text(order.title).tag(order)
+                        }
+                    }
+                    .modifier(ChoiceStyle())
+                    .listRowBackground(Fill.card)
+                }
+                Toggle("Needs you first", isOn: $needsYouFirst)
+                    .listRowBackground(Fill.card)
+            } header: {
+                Text("Session list")
+            } footer: {
+                Text(style.explanation)
             }
 
             Section {
@@ -123,6 +151,20 @@ struct SettingsView: View {
         case .denied: "Off"
         case .notDetermined: "Not asked yet"
         @unknown default: "Unknown"
+        }
+    }
+}
+
+/// A choice on a row of its own, its value in a menu; at the accessibility sizes, where that value
+/// is cut short on one line, its options are rows of their own.
+private struct ChoiceStyle: ViewModifier {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    func body(content: Content) -> some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            content.pickerStyle(.inline)
+        } else {
+            content.pickerStyle(.menu)
         }
     }
 }
