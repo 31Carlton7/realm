@@ -83,11 +83,14 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
     /// As the desktop stores it: a permission rung ("default", "acceptEdits", "bypassPermissions"), or
     /// the mode the session is in instead ("plan", "ask"). Nil from a Mac before Plan 29.
     public let permissionMode: String?
+    /// When the conversation last moved: a message went out, or the agent answered or finished a turn.
+    /// Unlike `updatedAt`, a change of settings or a rename does not move it. Nil from a Mac before Plan 29.
+    public let activityAt: Millis?
 
     public init(id: String, title: String, spaceId: String, spaceName: String, agent: String, model: String?,
                 status: SessionStatus, needsYou: Bool, unread: Bool, updatedAt: Millis,
                 agentName: String? = nil, agentMark: String? = nil, modelLabel: String? = nil,
-                createdAt: Millis? = nil, effort: String? = nil, permissionMode: String? = nil) {
+                createdAt: Millis? = nil, effort: String? = nil, permissionMode: String? = nil, activityAt: Millis? = nil) {
         self.id = id
         self.title = title
         self.spaceId = spaceId
@@ -104,7 +107,12 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
         self.createdAt = createdAt
         self.effort = effort
         self.permissionMode = permissionMode
+        self.activityAt = activityAt
     }
+
+    /// When the session last moved, as the Mac orders its lists: what a list of sessions is ordered by,
+    /// and what a row's age says. An older Mac sends no `activityAt`, and its `updatedAt` stands in.
+    public var lastActivity: Millis { activityAt ?? updatedAt }
 
     /// The agent's name: the Mac's, or this phone's own table where a Phase 1 Mac sent none.
     public var agentDisplayName: String { agentName ?? AgentNames.label(agent) }
@@ -114,7 +122,7 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case id, title, spaceId, spaceName, agent, model, status, needsYou, unread, updatedAt, agentName, agentMark, modelLabel
-        case createdAt, effort, permissionMode
+        case createdAt, effort, permissionMode, activityAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -135,6 +143,7 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
         createdAt = try? c.decodeIfPresent(Millis.self, forKey: .createdAt)
         effort = try? c.decodeIfPresent(String.self, forKey: .effort)
         permissionMode = try? c.decodeIfPresent(String.self, forKey: .permissionMode)
+        activityAt = try? c.decodeIfPresent(Millis.self, forKey: .activityAt)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -155,6 +164,7 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
         try c.encodeIfPresent(createdAt, forKey: .createdAt)
         try c.encodeIfPresent(effort, forKey: .effort)
         try c.encodeIfPresent(permissionMode, forKey: .permissionMode)
+        try c.encodeIfPresent(activityAt, forKey: .activityAt)
     }
 
     /// The mode the session is in, read from its stored permission mode. Nil where the Mac did not say.
@@ -812,6 +822,8 @@ public struct AgentOptions: Codable, Sendable, Hashable {
     public let models: [ModelChoice]
     /// Reasoning levels that are the agent's own setting rather than a model's.
     public let efforts: [Choice]
+    /// Which of those the agent runs while none is chosen, where it names one.
+    public let defaultEffort: String?
     /// Build, then Plan and Ask where the agent has them.
     public let modes: [Choice]
     /// How freely the agent may act, least to most; empty where Realm cannot set it for this agent.
@@ -820,7 +832,7 @@ public struct AgentOptions: Codable, Sendable, Hashable {
     public let steerNote: String
 
     public init(kind: String, name: String, mark: String, available: Bool = true, note: String? = nil, models: [ModelChoice],
-                efforts: [Choice] = [], modes: [Choice] = [], permissions: [Choice] = [], steerNote: String = "") {
+                efforts: [Choice] = [], defaultEffort: String? = nil, modes: [Choice] = [], permissions: [Choice] = [], steerNote: String = "") {
         self.kind = kind
         self.name = name
         self.mark = mark
@@ -828,6 +840,7 @@ public struct AgentOptions: Codable, Sendable, Hashable {
         self.note = note
         self.models = models
         self.efforts = efforts
+        self.defaultEffort = defaultEffort
         self.modes = modes
         self.permissions = permissions
         self.steerNote = steerNote

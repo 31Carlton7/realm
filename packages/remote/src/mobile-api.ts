@@ -39,6 +39,9 @@ export const SessionRowSchema = z.object({
   /** As the desktop stores it: how freely the agent acts ("default", "acceptEdits", "bypassPermissions"),
    *  or the mode it is in instead ("plan", "ask"). */
   permissionMode: z.string().nullable().optional(),
+  /** When the conversation last moved: a prompt went out, or the agent answered or finished a turn. What
+   *  every list of sessions is ordered by — not `updatedAt`, which a change of settings or a rename moves too. */
+  activityAt: z.number().optional(),
 });
 export type SessionRow = z.infer<typeof SessionRowSchema>;
 
@@ -80,6 +83,8 @@ export const AgentOptionsSchema = z.object({
   models: z.array(ModelChoiceSchema),
   /** Reasoning levels that are the agent's own setting rather than a model's. */
   efforts: z.array(ChoiceSchema),
+  /** Which of those it runs when none is chosen, where it names one. */
+  defaultEffort: z.string().nullable().optional(),
   /** Build, then Plan and Ask where the agent has them. */
   modes: z.array(ChoiceSchema),
   /** How freely the agent may act, least to most; empty where Realm cannot set it for this agent. */
@@ -101,6 +106,8 @@ const AttachmentUploadSchema = z.object({
   data: z.string().min(1),
 });
 
+const MidTurnSchema = z.enum(["queue", "steer"]);
+
 /** A session's settings as the composer shows them, and what each could be changed to. */
 export const SessionOptionsSchema = z.object({
   agent: AgentOptionsSchema,
@@ -110,7 +117,7 @@ export const SessionOptionsSchema = z.object({
   effort: z.string().nullable(),
   permissionMode: z.string().nullable(),
   /** What a message typed while a turn runs does on this Mac, unless the phone says otherwise. */
-  midTurn: z.enum(["queue", "steer"]),
+  midTurn: MidTurnSchema,
   attachments: SendLimitsSchema,
 });
 export type SessionOptions = z.infer<typeof SessionOptionsSchema>;
@@ -233,6 +240,16 @@ export const FilePreviewSchema = z.object({
   ]),
 });
 
+/** What a session runs on, as `session.configure` changes it and `session.create` starts it. */
+const sessionChoices = {
+  /** A model by its id, or null for the agent's own default. */
+  model: z.string().max(200).nullable().optional(),
+  effort: z.string().max(40).nullable().optional(),
+  mode: z.enum(["build", "plan", "ask"]).optional(),
+  /** A permission rung by its id (`AgentOptions.permissions`). */
+  permission: z.string().max(40).optional(),
+};
+
 export const MobileCalls = {
   ping: { params: z.object({}), result: z.object({ at: z.number() }) },
   /** `profileId` scopes `recent` to one profile; everything else is every profile's. */
@@ -264,18 +281,7 @@ export const MobileCalls = {
   "session.options": { params: z.object({ id: Id }), result: SessionOptionsSchema },
   /** Changes what the composer's chips show; a field left out stays as it is. Leaving Plan or Ask for
    *  Build puts `permission` back, or the Mac's default for new sessions when none is given. */
-  "session.configure": {
-    params: z.object({
-      id: Id,
-      /** A model by its id, or null for the agent's own default. */
-      model: z.string().max(200).nullable().optional(),
-      effort: z.string().max(40).nullable().optional(),
-      mode: z.enum(["build", "plan", "ask"]).optional(),
-      /** A permission rung by its id (`AgentOptions.permissions`). */
-      permission: z.string().max(40).optional(),
-    }),
-    result: SessionOptionsSchema,
-  },
+  "session.configure": { params: z.object({ id: Id, ...sessionChoices }), result: SessionOptionsSchema },
   "session.answer": {
     params: z.object({ id: Id, requestId: z.string().min(1), decision: z.enum(["allow", "allow_always", "deny"]), answers: AnswersSchema.optional() }),
     result: Ok,
@@ -286,11 +292,7 @@ export const MobileCalls = {
   /** A new session in a space, sent its first message. What is left out is the Mac's default. */
   "session.create": {
     params: z.object({
-      spaceId: Id, agent: z.string().min(1), text: z.string().max(100_000),
-      model: z.string().max(200).nullable().optional(),
-      effort: z.string().max(40).nullable().optional(),
-      mode: z.enum(["build", "plan", "ask"]).optional(),
-      permission: z.string().max(40).optional(),
+      spaceId: Id, agent: z.string().min(1), text: z.string().max(100_000), ...sessionChoices,
       attachments: z.array(AttachmentUploadSchema).max(SEND_LIMITS.maxCount).default([]),
     }),
     result: z.object({ id: Id }),
@@ -298,7 +300,7 @@ export const MobileCalls = {
   /** The agents a new session could be given, the one the Mac starts with, and what one message takes. */
   "agents.list": {
     params: z.object({}),
-    result: z.object({ agents: z.array(AgentOptionsSchema), defaultAgent: z.string().nullable(), midTurn: z.enum(["queue", "steer"]), attachments: SendLimitsSchema }),
+    result: z.object({ agents: z.array(AgentOptionsSchema), defaultAgent: z.string().nullable(), midTurn: MidTurnSchema, attachments: SendLimitsSchema }),
   },
   /** The files one of the session's turns changed, by the checkpoint in front of it. */
   "session.changes": { params: z.object({ id: Id, checkpointId: Id }), result: TurnChangesSchema },

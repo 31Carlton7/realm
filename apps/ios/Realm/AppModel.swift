@@ -8,6 +8,8 @@ import os
 
 enum Route: Hashable {
     case session(String)
+    /// A space's own page: all of its sessions, a page at a time.
+    case space(String)
 }
 
 enum PairingStatus: Equatable {
@@ -71,6 +73,8 @@ final class AppModel {
     private(set) var configuring: [String: SessionSetting] = [:]
     /// The person asked to pair again over the Mac this phone shows (after the Mac removed it).
     var pairingRequested = false
+    /// The profile Home shows, as the person last chose it for this Mac; nil until they choose.
+    private(set) var keptProfile: ProfileChoice?
     private(set) var notificationStatus: UNAuthorizationStatus = .notDetermined
     /// Goes up with every new channel. Open sessions open again, since a subscription does not
     /// outlive the channel it was made on.
@@ -101,6 +105,10 @@ final class AppModel {
     @ObservationIgnored private var previews: [String: FilePreview] = [:]
     @ObservationIgnored private var previewOrder: [String] = []
     @ObservationIgnored private var askedThumbnails: Set<String> = []
+    /// Home is asked for again on every change the Mac reports and every switch of profile: these
+    /// count the asks, and the last answered, so an answer overtaken by a later one is not shown.
+    @ObservationIgnored private var homeAsks = 0
+    @ObservationIgnored private var homeShown = 0
 
     init() {
         let store = RealmStore()
@@ -189,6 +197,15 @@ final class AppModel {
         self.cache = cache
         if let home = cache.loadHome() { store.restoreHome(home) }
         store.restoreOutbox(cache.loadOutbox())
+        keptProfile = UserDefaults.standard.string(forKey: Self.profileKey(mac.macId)).flatMap(ProfileChoice.init(stored:))
+    }
+
+    /// Where the profile chosen for a Mac is kept: on the phone, one key per Mac.
+    private static func profileKey(_ macId: String) -> String { "home.profile.\(macId)" }
+
+    private func forgetProfile(of macId: String) {
+        UserDefaults.standard.removeObject(forKey: Self.profileKey(macId))
+        keptProfile = nil
     }
 
     /// A link the system handed the app: the scheme, a Universal Link, or a code the scanner read.
@@ -237,6 +254,7 @@ final class AppModel {
                 // One Mac at a time: the one this replaces is forgotten here, as Forget would.
                 try? vault.removeMac(id: previous.macId)
                 if let cache { disk.async { try? cache.removeAll() } }
+                forgetProfile(of: previous.macId)
             }
             store.forgetEverything()
             forgetFetched()
@@ -269,6 +287,7 @@ final class AppModel {
         try? vault.removeMac(id: mac.macId)
         if let cache { disk.async { try? cache.removeAll() } }
         cache = nil
+        forgetProfile(of: mac.macId)
         store.forgetEverything()
         forgetFetched()
         store.pairedMac = nil
@@ -433,17 +452,48 @@ final class AppModel {
 
     // MARK: - Home
 
+    /// The profile Home shows: the one kept for this Mac while it still has it, else its first. Until
+    /// the Mac has said which profiles it has, the one kept, or all of them.
+    var profileChoice: ProfileChoice {
+        guard let home = store.home else { return keptProfile ?? .all }
+        return ProfileChoice.resolve(keptProfile, in: home)
+    }
+
+    /// Shows another profile, from the title's menu or a line saying what needs the person there. What
+    /// Home holds lists it at once; its recent sessions are asked of the Mac.
+    func choose(_ choice: ProfileChoice) {
+        guard let mac = store.pairedMac else { return }
+        let before = profileChoice
+        keptProfile = choice
+        UserDefaults.standard.set(choice.stored, forKey: Self.profileKey(mac.macId))
+        if profileChoice != before { Task { await refreshHome() } }
+    }
+
     func refreshHome() async {
         guard let api, isConnected else { return }
+        homeAsks += 1
+        let ask = homeAsks
+        let profileId = profileChoice.profileId
         do {
-            let home = try await api.home()
+            let home = try await api.home(profileId: profileId)
+            guard ask > homeShown else { return }
+            homeShown = ask
             store.showHome(home)
             if let cache { disk.async { try? cache.saveHome(home) } }
             // The badge says what Needs you says: the same moments the Mac's pushes are for.
             try? await UNUserNotificationCenter.current().setBadgeCount(home.needsYou.count)
+            // A Mac's first answer names its profiles, and with them the one shown by default: its own
+            // recent sessions are asked for, unless a later ask is already on its way.
+            if profileChoice.profileId != profileId, ask == homeAsks { await refreshHome() }
         } catch {
             report(error)
         }
+    }
+
+    /// One page of a space's sessions, the newest activity first.
+    func spaceSessions(_ spaceId: String, from offset: Int) async throws -> SpaceSessions {
+        guard let api, isConnected else { throw ChannelError.notConnected }
+        return try await api.spaceSessions(id: spaceId, offset: offset, limit: SpacePages.size)
     }
 
     /// What Diagnostics opens when it is not told which: an idle session, since a message sent to one

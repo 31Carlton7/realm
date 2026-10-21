@@ -17,6 +17,7 @@ struct RootView: View {
                         .navigationDestination(for: Route.self) { route in
                             switch route {
                             case .session(let id): SessionView(sessionId: id)
+                            case .space(let id): SpaceView(spaceId: id)
                             }
                         }
                 }

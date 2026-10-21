@@ -258,8 +258,8 @@ struct SessionRowTests {
 }
 
 @MainActor
-@Suite("What Home lists")
-struct HomeSectionsTests {
+@Suite("What has not gone to the Mac")
+struct UnsentTests {
     static func row(_ id: String, _ title: String, space: String, spaceName: String, agent: String = "claude",
                     status: SessionStatus = .idle) -> SessionRow {
         SessionRow(id: id, title: title, spaceId: space, spaceName: spaceName, agent: agent, model: nil, status: status,
@@ -275,44 +275,6 @@ struct HomeSectionsTests {
             Space(id: "site", name: "Site", icon: "rocket", color: "#10b981", sessions: [database], more: 0),
         ])
     }()
-
-    @Test func withNoSearchEverythingIsListed() {
-        let sections = HomeSections(home: Self.home, query: "  ")
-        #expect(!sections.isFiltered)
-        #expect(sections.needsYou.map(\.id) == ["c", "a"])
-        #expect(sections.spaces.map(\.id) == ["realm", "site"])
-        #expect(sections.spaces.first?.more == 2)
-    }
-
-    @Test func aSearchMatchesTheTitleTheSpaceAndTheAgent() {
-        #expect(HomeSections(home: Self.home, query: "relay").spaces.flatMap(\.sessions).map(\.id) == ["b"])
-        #expect(HomeSections(home: Self.home, query: "site").spaces.flatMap(\.sessions).map(\.id) == ["c"])
-        #expect(HomeSections(home: Self.home, query: "Codex").needsYou.map(\.id) == ["c"])
-        #expect(HomeSections(home: Self.home, query: "DARK").needsYou.map(\.id) == ["a"])
-    }
-
-    @Test func aSpaceWithNothingMatchingIsLeftOut() {
-        let sections = HomeSections(home: Self.home, query: "relay")
-        #expect(sections.spaces.map(\.id) == ["realm"])
-        #expect(sections.needsYou.isEmpty)
-        #expect(HomeSections(home: Self.home, query: "nothing like this").isEmpty)
-    }
-
-    @Test func underASpaceIsWhatTheMacHoldsBeyondIt() {
-        let realm = Self.home.spaces[0], site = Self.home.spaces[1]
-        #expect(SpaceFooter.words(realm, searching: false) == "2 more on your Mac")
-        // A search lists what matched, not what the Mac holds besides.
-        #expect(SpaceFooter.words(realm, searching: true) == nil)
-        #expect(SpaceFooter.words(site, searching: false) == nil)
-        let empty = Space(id: "e", name: "Empty", icon: "", color: "", sessions: [], more: 0)
-        #expect(SpaceFooter.words(empty, searching: false) == "No sessions yet")
-    }
-
-    @Test func aNeedsYouRowFindsItsSpace() {
-        let sections = HomeSections(home: Self.home, query: "")
-        #expect(sections.space(of: Self.home.needsYou[0])?.name == "Site")
-        #expect(sections.space(of: Self.row("x", "T", space: "gone", spaceName: "Gone")) == nil)
-    }
 
     /// What has not gone to the Mac is gathered by session: a refusal always, held work while away.
     @Test func whatHasNotGoneIsGatheredBySession() {
