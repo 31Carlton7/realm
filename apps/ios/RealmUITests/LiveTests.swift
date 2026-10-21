@@ -542,8 +542,8 @@ final class LiveTests: XCTestCase {
     }
 
     /// A turn under way: Stop in the button's place; words typed make it Queue, the Mac's choice for a
-    /// message mid-turn, with Steer and Stop a long press away; queued, the message waits for the turn,
-    /// and Stop ends it, after which the message goes.
+    /// message mid-turn, with Steer and Stop a long press away, each saying what it does. Queued, the
+    /// message waits on the Mac; Stop ends the turn and leaves it waiting, and it goes after the next.
     @MainActor
     func testC3_runningTurn() throws {
         let session = try XCTUnwrap(environment["RUNNING_SESSION"], "the script names the session it keeps working")
@@ -561,22 +561,28 @@ final class LiveTests: XCTestCase {
         XCTAssertFalse(stop.exists, "Stop is still beside the button")
         shot("composer-queue")
         queue.press(forDuration: 1.2)
-        XCTAssert(app.buttons["Steer"].waitForExistence(timeout: 5), "a long press does not offer Steer")
+        // Each choice reads with the line under it that says what it does.
+        let steer = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Steer")).firstMatch
+        XCTAssert(steer.waitForExistence(timeout: 5), "a long press does not offer Steer")
         shot("composer-queue-menu")
-        if let folder = environment["SHOTS"] {
-            try? app.debugDescription.write(to: URL(fileURLWithPath: folder).appending(path: "queue-menu-tree.txt"), atomically: true, encoding: .utf8)
-        }
         XCTAssert(element(containing: "Stops the agent").exists, "the choices do not say what they do")
         closeMenu()
         queue.tap()
         XCTAssert(element(containing: "Then check the toolbar").waitForExistence(timeout: 10))
-        XCTAssert(element(containing: "Sent").waitForExistence(timeout: 15), "the Mac did not take the queued message")
+        XCTAssert(element(containing: "Queued on your Mac").waitForExistence(timeout: 15), "the Mac did not take the queued message")
         shot("message-queued")
         XCTAssert(stop.waitForExistence(timeout: 5), "with nothing typed the button is not Stop again")
         stop.tap()
-        XCTAssert(element(containing: "echo: Then check the toolbar").waitForExistence(timeout: 30), "the queued message never went")
-        sleep(2)
+        XCTAssert(element(containing: "Working").waitForNonExistence(timeout: 20), "Stop did not end the turn")
+        XCTAssert(app.buttons["Send"].waitForExistence(timeout: 5), "with the turn over the button is not Send again")
+        XCTAssert(element(containing: "Queued on your Mac").exists, "the queued message did not stay queued")
         shot("after-stop")
+        composerField.typeText("Go on")
+        app.buttons["Send"].tap()
+        XCTAssert(element(containing: "echo: Then check the toolbar").waitForExistence(timeout: 30), "the queued message never went")
+        XCTAssertFalse(element(containing: "Queued on your Mac").exists, "the queued message never settled")
+        sleep(2)
+        shot("queued-message-went")
     }
 
     /// The dark face, set on the Simulator by the script: the composer at rest, composing, its sheet and

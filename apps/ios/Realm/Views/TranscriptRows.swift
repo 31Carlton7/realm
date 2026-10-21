@@ -117,6 +117,9 @@ struct OutgoingStatusView: View {
             let status = model.linkStatus
             label(status.kind == .connected ? "Sending…" : status.waitingNote,
                   symbol: status.kind == .connected ? nil : status.symbol, tone: .quiet)
+        case .delivered where item.delivery == .queue:
+            // The Mac holds it for the turn's end; a turn that is stopped leaves it there, for the next.
+            label("Queued on your Mac", symbol: "list.number", tone: .quiet)
         case .delivered:
             label(item.isMessage ? "Sent" : "Sent to your Mac", symbol: "checkmark", tone: .quiet)
         case .failed(let reason):
