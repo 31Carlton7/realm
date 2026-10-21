@@ -26,11 +26,11 @@
  * With --ui it drives the app itself instead: it builds the RealmLive scheme's UI tests once, then
  * runs one test per phase on the iPhone 17 Simulator — pair (the Mac holds its answer a few seconds),
  * awake, asleep, awake again, the relay down, then the largest text size and Reduce Transparency with
- * everything back up, then Home's profiles, list styles and a space's page, in light, dark, at the
- * largest text size and with Reduce Transparency — moving the Mac between them, and leaves each test's
- * screenshots in apps/ios/.build/screenshots (--shots <dir> to change it). It exits non-zero if any
- * phase fails. --phases test0_forgetThenPair,test1_awake runs only those; --udid <id> picks the
- * Simulator, --derived-data <dir> where xcodebuild builds (apps/ios/.build/DerivedData), and
+ * everything back up, then Home's profiles, list styles and a space's page, then the composer, each in
+ * light, dark, at the largest text size and with Reduce Transparency — moving the Mac between them, and
+ * leaves each test's screenshots in apps/ios/.build/screenshots (--shots <dir> to change it). It exits
+ * non-zero if any phase fails. --phases test0_forgetThenPair,test1_awake runs only those; --udid <id>
+ * picks the Simulator, --derived-data <dir> where xcodebuild builds (apps/ios/.build/DerivedData), and
  * --no-build runs what was built there last.
  *
  * Never the owner's ~/Realm: the scratch home is made fresh and removed on quit.
@@ -312,8 +312,9 @@ async function runUiTests(): Promise<boolean> {
   if (!process.argv.includes("--no-build") && await xcodebuild(["build-for-testing", ...common]) !== 0) { say("the UI tests did not build"); return false; }
   const results: [string, boolean][] = [];
   const only = arg("phases")?.split(",");
+  const runs = (test: string) => !only || only.includes(test);
   const phase = async (test: string, env: Record<string, string> = {}) => {
-    if (only && !only.includes(test)) return;
+    if (!runs(test)) return;
     say(`— ${test}`);
     const code = await xcodebuild(["test-without-building", ...common, `-only-testing:RealmUITests/LiveTests/${test}`],
       { TEST_RUNNER_SHOTS: shots, ...env });
@@ -350,6 +351,37 @@ async function runUiTests(): Promise<boolean> {
   await phase("testH6_largestText");
   await reduceTransparency(true);
   await phase("testH7_reduceTransparency");
+  await reduceTransparency(false);
+  // The composer (Plan 29 §1): at rest and composing, its settings changed on the Mac, photos sent —
+  // one as the camera hands it over, one picked from the library — Stop and Queue on a turn under way;
+  // then dark, the largest text size and Reduce Transparency.
+  const photo = join(server.home, "staged-photo.jpg");
+  execFileSync("sips", ["-s", "format", "jpeg", join(repoRoot, "site/public/product/connections-1440.webp"), "--out", photo], { stdio: "pipe" });
+  const composer = { TEST_RUNNER_COMPOSER_SESSION: sessions.markdown!, TEST_RUNNER_RUNNING_SESSION: sessions.running!, TEST_RUNNER_STAGED_PHOTO: photo };
+  await simctl(["ui", udid, "appearance", "light"]);
+  await phase("testC1_composer", composer);
+  if (runs("testC1_composer")) {
+    const configured = await rpc.call("sessions.get", { id: sessions.markdown! });
+    results.push(["testC1_composer: the Mac has Opus 5.5 in Plan", configured.model === "claude-opus-5-5" && configured.permissionMode === "plan"]);
+  }
+  // A photo in the library for the picker, taken today.
+  if (runs("testC2_photo")) {
+    const library = join(server.home, "library-photo.jpg");
+    execFileSync("sips", ["-s", "format", "jpeg", join(repoRoot, "site/public/product/appearance-1440.webp"), "--out", library], { stdio: "pipe" });
+    if (await simctl(["addmedia", udid, library]) !== 0) say("warning: the photo was not added to the Simulator's library");
+  }
+  await phase("testC2_photo", composer);
+  if (runs("testC3_runningTurn")) {
+    await rpc.call("settings.set", { key: "sessions.midTurnMode", value: "queue" });
+    await rpc.call("sessions.send", { id: sessions.running!, text: "keep working on the composer review" });
+  }
+  await phase("testC3_runningTurn", composer);
+  await simctl(["ui", udid, "appearance", "dark"]);
+  await phase("testC4_dark", composer);
+  await simctl(["ui", udid, "appearance", "light"]);
+  await phase("testC5_largestText", composer);
+  await reduceTransparency(true);
+  await phase("testC6_reduceTransparency", composer);
   await reduceTransparency(false);
   for (const [test, passed] of results) say(`${passed ? "passed" : "FAILED"}  ${test}`);
   say(`screenshots in ${shots}`);

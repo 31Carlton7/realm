@@ -49,14 +49,29 @@ struct Phase2ChannelTests {
         let api = MobileAPI(connection: connection)
         let item = OutgoingItem(sessionId: "s1", payload: .answer(requestId: "r1", decision: .allow, answers: ["Which?": "SQLite"]),
                                 afterSeq: 0)
-        try await api.deliver(item)
+        try await api.deliver(item, files: [])
         #expect(relay.methods.last == "session.answer")
         #expect(relay.params.last == ["id": "s1", "requestId": "r1", "decision": "allow", "answers": ["Which?": "SQLite"]])
         // An answer with the Mac's keys goes by them: the options' values, a multi-select's as a list.
         let keyed = OutgoingItem(sessionId: "s1", payload: .answer(requestId: "r2", decision: .allow, answers: ["Which labels?": "Bug, Urgent"]),
                                  afterSeq: 0, answerValues: ["labels": .several(["bug", "p1"]), "team": .one("eng")])
-        try await api.deliver(keyed)
+        try await api.deliver(keyed, files: [])
         #expect(relay.params.last == ["id": "s1", "requestId": "r2", "decision": "allow", "answers": ["labels": ["bug", "p1"], "team": "eng"]])
+        await connection.stop()
+    }
+
+    /// A message goes with its files and the delivery the person chose; one of words alone carries no
+    /// files at all, so an older Mac reads it as it always did.
+    @Test func aMessageCarriesItsFilesAndItsDelivery() async throws {
+        let connection = try await connected()
+        let api = MobileAPI(connection: connection)
+        let photo = AttachmentUpload(name: "Photo.jpg", mime: "image/jpeg", bytes: Data([0xFF, 0xD8, 0xFF]))
+        try await api.deliver(OutgoingItem(sessionId: "s1", payload: .message(text: ""), afterSeq: 0, delivery: .queue), files: [photo])
+        #expect(relay.methods.last == "session.send")
+        #expect(relay.params.last == ["id": "s1", "text": "", "delivery": "queue",
+                                      "attachments": [["name": "Photo.jpg", "mime": "image/jpeg", "data": "/9j/"]]])
+        try await api.deliver(OutgoingItem(sessionId: "s1", payload: .message(text: "Ship it"), afterSeq: 0), files: [])
+        #expect(relay.params.last == ["id": "s1", "text": "Ship it", "delivery": "auto"])
         await connection.stop()
     }
 

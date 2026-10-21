@@ -414,11 +414,14 @@ struct InlineDiff: View {
     }
 }
 
-/// A file a turn made, as the Mac lets the phone see it: a picture, the head of a text, or what it is
-/// and why it cannot be shown here.
+/// A file a turn made or a message took, as the Mac lets the phone see it: a picture, the head of a
+/// text, or what it is and why it cannot be shown here.
 struct FilePreviewSheet: View {
-    let file: MadeFile
+    let path: String
+    let name: String
     let sessionId: String
+    /// What its row said of its size, until the preview says.
+    var size: Double?
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @Environment(\.displayScale) private var displayScale
@@ -445,7 +448,7 @@ struct FilePreviewSheet: View {
                                                           lineWidth: 1 / displayScale)
                                     }
                                     .padding(16)
-                                    .accessibilityLabel(file.name)
+                                    .accessibilityLabel(name)
                             }
                             .defaultScrollAnchor(.center, for: .alignment)
                         } else {
@@ -480,8 +483,8 @@ struct FilePreviewSheet: View {
                 }
             }
             .background(Ground.transcript)
-            .navigationTitle(file.name)
-            .navigationSubtitle(ByteCountFormatter.string(fromByteCount: Int64(file.size), countStyle: .file))
+            .navigationTitle(name)
+            .navigationSubtitle((preview?.size ?? size).map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) } ?? "")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -490,7 +493,7 @@ struct FilePreviewSheet: View {
             }
             .task {
                 do {
-                    preview = try await model.preview(file.path, in: sessionId)
+                    preview = try await model.preview(path, in: sessionId)
                 } catch {
                     problem = AppModel.describe(error)
                 }
@@ -499,6 +502,6 @@ struct FilePreviewSheet: View {
     }
 
     private func unavailable(_ reason: String) -> some View {
-        ContentUnavailableView(file.name, systemImage: FileKind.symbol(file.path), description: Text(reason))
+        ContentUnavailableView(name, systemImage: FileKind.symbol(path), description: Text(reason))
     }
 }

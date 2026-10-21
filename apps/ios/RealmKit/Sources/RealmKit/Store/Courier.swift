@@ -2,17 +2,26 @@ import Foundation
 
 /// Whatever carries an outgoing item to the Mac: `MobileAPI` in the app, a script in tests.
 public protocol OutboxTransport: Sendable {
-    func deliver(_ item: OutgoingItem) async throws
+    /// `files`: a message's attachments, read from where they waited.
+    func deliver(_ item: OutgoingItem, files: [AttachmentUpload]) async throws
 }
 
 extension MobileAPI: OutboxTransport {
     /// Long enough for a cold cellular radio. A later answer leaves the item unconfirmed, not failed.
     public static let deliveryTimeout: Duration = .seconds(30)
 
-    public func deliver(_ item: OutgoingItem) async throws {
+    /// A message's files go up at the pace of a slow uplink, 128 KB a second, on top of the radio's
+    /// wait: ten megabytes of photos get a little over two minutes.
+    public static func deliveryTimeout(for files: [AttachmentUpload]) -> Duration {
+        let bytes = files.reduce(0) { $0 + $1.data.utf8.count }
+        return deliveryTimeout + .milliseconds(bytes / 128)
+    }
+
+    public func deliver(_ item: OutgoingItem, files: [AttachmentUpload]) async throws {
         switch item.payload {
         case .message(let text):
-            try await send(id: item.sessionId, text: text, timeout: Self.deliveryTimeout)
+            try await send(id: item.sessionId, text: text, delivery: item.delivery, attachments: files,
+                           timeout: Self.deliveryTimeout(for: files))
         case .answer(let requestId, let decision, let answers):
             try await answer(id: item.sessionId, requestId: requestId, decision: decision,
                              values: item.answerValues ?? answers?.mapValues(AnswerValue.one), timeout: Self.deliveryTimeout)
@@ -60,9 +69,19 @@ public final class Courier {
             // It may already be on the Mac. Whatever arrived was settled against the transcript above and
             // as its rows came in; only a transcript fresh from this connection can say it never did.
             if item.state == .unconfirmed, store.transcripts[sessionId]?.isLive != true { return .unconfirmed }
+            let files: [AttachmentUpload]
+            do {
+                files = try store.files.uploads(for: item)
+            } catch OutboxFiles.Problem.missing(let name) {
+                store.setOutgoing(item.id, .failed("\(name) is no longer on this iPhone."))
+                continue
+            } catch {
+                // Locked away while the phone is: it goes on the next try once it is unlocked.
+                return .waitingForMac
+            }
             store.setOutgoing(item.id, .sending)
             do {
-                try await transport.deliver(item)
+                try await transport.deliver(item, files: files)
                 // Its row may have come first and settled it already.
                 if store.outbox.item(item.id) != nil { store.setOutgoing(item.id, .delivered) }
                 store.settleOutbox(in: sessionId)
