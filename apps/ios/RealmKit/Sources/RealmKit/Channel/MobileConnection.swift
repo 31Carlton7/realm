@@ -413,6 +413,44 @@ public struct MobileAPI: Sendable {
         try await connection.call("home.get", as: Home.self)
     }
 
+    /// Home, with `recent` gathered for one profile; nil gathers it for every profile.
+    public func home(profileId: String?) async throws -> Home {
+        struct Params: Encodable, Sendable { let profileId: String? }
+        return try await connection.call("home.get", params: Params(profileId: profileId), as: Home.self)
+    }
+
+    /// One page of a space's listed sessions, most recently active first.
+    public func spaceSessions(id: String, offset: Int = 0, limit: Int = 50) async throws -> SpaceSessions {
+        struct Params: Encodable, Sendable { let id: String; let offset: Int; let limit: Int }
+        return try await connection.call("space.sessions", params: Params(id: id, offset: offset, limit: limit), as: SpaceSessions.self)
+    }
+
+    /// The session's model, reasoning, mode and permissions, and what each could be changed to. A Mac
+    /// before Plan 29 answers `METHOD_NOT_FOUND`, and takes no files with a message either.
+    public func options(id: String) async throws -> SessionOptions {
+        try await connection.call("session.options", params: SessionID(id: id), as: SessionOptions.self)
+    }
+
+    /// Changes what the composer's chips show, and answers with the options as they are now.
+    public func configure(id: String, _ changes: SessionChanges) async throws -> SessionOptions {
+        struct Params: Encodable, Sendable {
+            let id: String
+            let changes: SessionChanges
+            func encode(to encoder: Encoder) throws {
+                try changes.encode(to: encoder)
+                var c = encoder.container(keyedBy: Key.self)
+                try c.encode(id, forKey: .id)
+            }
+            enum Key: String, CodingKey { case id }
+        }
+        return try await connection.call("session.configure", params: Params(id: id, changes: changes), as: SessionOptions.self)
+    }
+
+    /// The agents a new session could be given, and the one the Mac starts with.
+    public func agents() async throws -> AgentList {
+        try await connection.call("agents.list", as: AgentList.self)
+    }
+
     public func openSession(id: String, limit: Int? = nil) async throws -> OpenedSession {
         struct Params: Encodable, Sendable { let id: String; let limit: Int? }
         return try await connection.call("session.open", params: Params(id: id, limit: limit), as: OpenedSession.self)
@@ -422,10 +460,26 @@ public struct MobileAPI: Sendable {
         _ = try await connection.call("session.close", params: SessionID(id: id), as: Acknowledged.self)
     }
 
-    public func send(id: String, text: String, delivery: Delivery? = nil, timeout: Duration? = nil) async throws {
-        struct Params: Encodable, Sendable { let id: String; let text: String; let delivery: Delivery? }
-        _ = try await connection.call("session.send", params: Params(id: id, text: text, delivery: delivery), as: Acknowledged.self,
-                                      timeout: timeout)
+    /// `attachments` go only to a Mac that answers `session.options`: an older one would drop them.
+    public func send(id: String, text: String, delivery: Delivery? = nil, attachments: [AttachmentUpload] = [],
+                     timeout: Duration? = nil) async throws {
+        struct Params: Encodable, Sendable {
+            let id: String
+            let text: String
+            let delivery: Delivery?
+            let attachments: [AttachmentUpload]
+            func encode(to encoder: Encoder) throws {
+                var c = encoder.container(keyedBy: Key.self)
+                try c.encode(id, forKey: .id)
+                try c.encode(text, forKey: .text)
+                try c.encodeIfPresent(delivery, forKey: .delivery)
+                // Left out when empty, so a message without files reads to an older Mac as it always did.
+                if !attachments.isEmpty { try c.encode(attachments, forKey: .attachments) }
+            }
+            enum Key: String, CodingKey { case id, text, delivery, attachments }
+        }
+        _ = try await connection.call("session.send", params: Params(id: id, text: text, delivery: delivery, attachments: attachments),
+                                      as: Acknowledged.self, timeout: timeout)
     }
 
     /// `answers` maps a question's text to the chosen label; several labels for a multi-select
@@ -482,6 +536,30 @@ public struct MobileAPI: Sendable {
         struct Params: Encodable, Sendable { let spaceId: String; let agent: String; let text: String }
         return try await connection.call("session.create", params: Params(spaceId: spaceId, agent: agent, text: text),
                                          as: CreatedSession.self)
+    }
+
+    /// A new session with its first message; what `settings` leaves nil is the Mac's default.
+    public func createSession(spaceId: String, agent: String, text: String, settings: SessionChanges,
+                              attachments: [AttachmentUpload] = [], timeout: Duration? = nil) async throws -> CreatedSession {
+        struct Params: Encodable, Sendable {
+            let spaceId: String
+            let agent: String
+            let text: String
+            let settings: SessionChanges
+            let attachments: [AttachmentUpload]
+            func encode(to encoder: Encoder) throws {
+                try settings.encode(to: encoder)
+                var c = encoder.container(keyedBy: Key.self)
+                try c.encode(spaceId, forKey: .spaceId)
+                try c.encode(agent, forKey: .agent)
+                try c.encode(text, forKey: .text)
+                if !attachments.isEmpty { try c.encode(attachments, forKey: .attachments) }
+            }
+            enum Key: String, CodingKey { case spaceId, agent, text, attachments }
+        }
+        return try await connection.call("session.create",
+                                         params: Params(spaceId: spaceId, agent: agent, text: text, settings: settings, attachments: attachments),
+                                         as: CreatedSession.self, timeout: timeout)
     }
 
     public func debugReport(name: String, data: JSONValue) async throws {
