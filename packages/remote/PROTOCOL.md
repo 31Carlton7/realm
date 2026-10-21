@@ -340,7 +340,11 @@ SessionRow {
   updatedAt: ms,
   agentName?: string,     the agent as the desktop names it ("Claude", "GitHub Copilot")
   agentMark?: string,     the mark the desktop draws for it: a vendor's ("claude", "openai") or a glyph ("bot")
-  modelLabel?: string     the model as the desktop's chip names it ("Opus 5.5"), or its default's name
+  modelLabel?: string,    the model as the desktop's chip names it ("Opus 5.5"), or its default's name
+  createdAt?: ms,         when the session was made
+  effort?: string|null,   the reasoning level it was given, or null for the model's own
+  permissionMode?: string how freely the agent acts ("default", "acceptEdits", "bypassPermissions"),
+                          or the mode it is in instead ("plan", "ask"), as the desktop stores it
 }
 ```
 
@@ -352,7 +356,7 @@ then the fields its kind adds:
 
 | `kind` | Fields |
 |---|---|
-| `user` | `text` |
+| `user` | `text`, `attachments?: [{path, name, mime}]` |
 | `assistant` | `text`, `streaming: bool` |
 | `thinking` | `text` |
 | `tool` | `name`, `summary`, `state: "running"\|"done"\|"error"`, `detail: string\|null` |
@@ -398,28 +402,134 @@ Question {
 A **notice** may lead somewhere. A turn's changes carry `checkpointId`, which `session.changes`
 opens. A turn's files made carry `files`, each of which `session.file` previews.
 
+A **user row** carries `attachments` when files were sent with the message: each by its path on the
+Mac, its file name and its type, as the message's `user_message` recorded them. `session.file`
+previews each. A file sent from a phone is named `<random>-<name>` on the Mac, and `name` says so.
+
 ### Calls
 
 | Method | Params | Result |
 |---|---|---|
 | `ping` | `{}` | `{at: ms}`, the Mac's clock |
-| `home.get` | `{}` | `{mac: {name}, needsYou: [SessionRow], spaces: [Space]}` |
+| `home.get` | `{profileId?}` | `{mac: {name}, needsYou: [SessionRow], spaces: [Space], profiles?: [Profile], profileId?: string\|null, recent?: [SessionRow]}` |
+| `space.sessions` | `{id, offset?: int = 0, limit?: int = 50}` | `{sessions: [SessionRow], more: bool}`. `limit` is at most 100. |
 | `session.open` | `{id, limit?: int = 200}` | `{session: SessionRow, rows: [Row], hasMore: bool, hint?: string\|null}` |
 | `session.close` | `{id}` | `{ok: true}` |
-| `session.send` | `{id, text, delivery?: "auto"\|"queue"\|"steer"}` | `{ok: true}` |
+| `session.send` | `{id, text, delivery?: "auto"\|"queue"\|"steer", attachments?: [Upload]}` | `{ok: true}` |
+| `session.options` | `{id}` | `SessionOptions` |
+| `session.configure` | `{id, model?: string\|null, effort?: string\|null, mode?: "build"\|"plan"\|"ask", permission?}` | `SessionOptions`, as they are now |
 | `session.answer` | `{id, requestId, decision: "allow"\|"allow_always"\|"deny", answers?: {<question id>: <value> \| [<value>]}}` | `{ok: true}` |
 | `session.stop` | `{id}` | `{ok: true}` |
 | `session.seen` | `{id, seq}` | `{ok: true}`. It marks the session read up to `seq`, and never moves backwards. |
-| `session.create` | `{spaceId, agent, text}` | `{id}` |
+| `session.create` | `{spaceId, agent, text, model?, effort?, mode?, permission?, attachments?: [Upload]}` | `{id}` |
+| `agents.list` | `{}` | `{agents: [AgentOptions], defaultAgent: string\|null, midTurn: "queue"\|"steer", attachments: Limits}` |
 | `session.changes` | `{id, checkpointId}` | `{checkpointId, files: [{path, oldPath, status, additions, deletions}], totalFiles}` |
 | `session.diff` | `{id, checkpointId, path, from?: int = 0}` | `{path, oldPath, status, binary, additions, deletions, lines: [string], from, next: int\|null, total, truncated, truncatedReason}` |
 | `session.file` | `{id, path}` | `{path, name, size, mime, preview: {kind: "image", mime, data} \| {kind: "text", text, truncated} \| {kind: "none", reason}}` |
 | `space.icon` | `{id}` | `{mime, data}`: base64 |
 | `debug.report` | `{name, data}` | `{ok: true}` |
 
-`Space` is `{id, name, icon, color, sessions: [SessionRow], more: int, iconKind?, glyph?, emoji?}`.
+`Space` is `{id, name, icon, color, sessions: [SessionRow], more: int, iconKind?, glyph?, emoji?, profileId?}`.
 `iconKind` reads `icon` as the desktop does: `glyph` (a Hugeicons glyph, by `glyph`), `emoji` (`emoji`),
 or `picture` (the person's own picture, which `space.icon` sends).
+
+`Profile` is `{id, name, icon, color, iconKind?, glyph?, emoji?, needsYou: int}`: a set of spaces, as the
+desktop's sidebar switches between them. Its icon is read as a space's is; a profile's own picture is
+not sent. `needsYou` is how many of `home.get`'s `needsYou` are in its spaces.
+
+**Home is one profile's, and every profile's.** `profiles` lists every profile in the desktop's order.
+Each space names its `profileId`, and keeps its newest five rows and how many more it has, whichever
+profile is asked for. `needsYou` stays every profile's, so nothing that waits is hidden. `recent` is
+the scope that changes: at most 40 (`RECENT_LIMIT`) listed sessions of the profile `profileId` names,
+newest `updatedAt` first, and every profile's when none is named. `profileId` in the answer is the
+scope `recent` was gathered for: null for every profile, which is also the answer to a profile the Mac
+no longer has.
+
+A **listed** session is a session item that is not archived, the rule Home has always used: the quick
+chat and an archived session are no rows. `space.sessions` pages one space's listed sessions in Home's
+order, so its first page is the space's five on Home, and `more` says whether a page follows.
+
+**A session's settings are the desktop's chips.** `session.options` answers with the session's agent,
+as `AgentOptions`, and what it is on now:
+
+```
+SessionOptions {
+  agent: AgentOptions,
+  model: string|null,          the model it was given, or null for its agent's default
+  modelLabel: string,          the model as the chip names it, its default's name while none is given
+  effort: string|null,
+  permissionMode: string|null, as SessionRow's
+  midTurn: "queue"|"steer",    what a message typed while a turn runs does on this Mac (`sessions.midTurnMode`)
+  attachments: Limits
+}
+
+AgentOptions {
+  kind, name, mark,            the agent, as SessionRow's agent, agentName and agentMark
+  available: bool,             installed and signed in, as far as the Mac's last look found
+  note: string|null,           why not: "not installed" or "signed out", as the desktop's agent chip says
+  models: [{id: string|null, label, efforts?: [Choice], defaultEffort?: string|null}],
+  efforts: [Choice],           reasoning levels that are the agent's own setting rather than a model's
+  modes: [Choice],             Build, then Plan and Ask where the agent has them
+  permissions: [Choice],       least to most free; empty where Realm cannot set them for this agent
+  steerNote: string            what Steer does to this agent's running turn, in words
+}
+
+Choice { id, label }
+Limits { maxCount: int, maxBytes: int, maxTotalBytes: int }   6 files, 8 MB each, 10 MB in all, in bytes
+```
+
+- **Models** are the ones the desktop's picker lists for that agent: the Mac's probe of it, else
+  Realm's curated list, named as the picker names them under the agent's mark ("Opus 5.5"). `id: null`
+  is the agent's own default, named by its default's name, and comes first. A session that was given a
+  model cannot be put back on its default, so its list leaves `null` out.
+- **Levels** are the ones the picker offers: on a Claude or Codex model, the levels that model takes
+  (`efforts`, and `defaultEffort` where the harness names one); on any other agent, the agent's own
+  (`AgentOptions.efforts`). An agent that takes none has none. They are named as the desktop names them:
+  Low, Medium, High, XHigh, Max.
+- **Modes** are the ones the agent offers: Plan and Ask on Claude and Codex, and on an ACP agent the
+  ones it named for that session.
+- **Permissions** are Ask each time (`default`), Accept edits (`acceptEdits`) and Full access
+  (`bypassPermissions`), where Realm can set them.
+- The Mac does not wait on a slow agent to answer: with no probe of that agent made yet, it asks that
+  agent alone for a moment, then answers from the curated list.
+
+`session.configure` checks each value it is given against the session's options, and sets only what
+changes, as the desktop's chips do (`sessions.setOptions`). A field left out stays as it is. A value
+the agent does not offer is `INVALID_PARAMS`, and nothing changes.
+
+- **Plan and Ask** travel as the permission mode: `"plan"` and `"ask"`.
+- **Build** sets the `permission` given with it; else the session's own rung, when it is in Build
+  already; else the Mac's default for new sessions (`sessions.defaultPermissionMode`); else
+  `"default"`. A `permission` without a `mode` is Build on that rung, and one with Plan or Ask is refused.
+- **A level** must be one the model takes, the model given with it where one is.
+- **`model: null`**, the agent's default, is refused for a session that was given a model: the Mac
+  cannot put a session back on its default.
+
+**Files go with a message.** `session.send` and `session.create` take `attachments`, each an `Upload`:
+
+```
+Upload { name: string, mime: string, data: string }   data: the file's bytes, base64
+```
+
+- **The message**: `text` may be empty when files go with it. A message with neither is
+  `INVALID_PARAMS`.
+- **The checks**, before anything is written: at most `maxCount` files, each at most `maxBytes` and
+  all at most `maxTotalBytes`; `data` must be base64 exactly as it encodes; `mime` must be a media type.
+  A picture must be a JPEG, PNG, GIF or WebP, the kinds every agent takes inline, and its bytes must be
+  that kind. Any refusal is `INVALID_PARAMS`, with words a person can act on, and nothing is written.
+- **Where each goes**: where a desktop paste goes, `<home>/tmp/attachments/<random>-<name>`, under the
+  name the desktop's own sanitiser makes of `name` (a picture gains its type's extension where its name
+  has none). The folder is swept of files older than a day, as the desktop sweeps it.
+- **Then** the session is sent their paths and types, as the desktop's prompter sends a pasted file, and
+  its `user_message` keeps them: the user row's `attachments`.
+
+`session.create` checks the model, level, mode and permission it is given as `session.configure` does,
+against a new session of that agent, and checks its files, before it makes the session: a refusal
+leaves nothing behind. What it is not given is the Mac's own default. `agents.list` answers with
+`AgentOptions` for every agent the desktop's new session offers, in its order; `defaultAgent` is the one
+the desktop's "+" would reach for (the agent last chosen, else Claude).
+
+A phone offers files only to a Mac that answers `session.options`: an older Mac would drop them.
 
 **Needs you is the desktop's.** `home.get`'s `needsYou` is the sidebar's own rule, `needsYou` in
 `@realm/view`, run on the lists the sidebar is seeded from: `sessions.listAll`, `items.listAll`,
@@ -450,15 +560,22 @@ phone read, and what bounds it:
   path must be one the turn's changes list, or the call is refused (`FORBIDDEN`) without git being
   asked; the phone names no tree. The Mac caps a patch at 512 KB and 4,000 lines, and a page at
   2,000 lines and 256 KB of JSON; a line longer than 4,000 characters is cut, and says so.
-- **`session.file`**: a preview of one file that session's `files_made` listed, by the exact path
-  listed, or a refusal (`FORBIDDEN`). A path that is now a link, or not a file, is refused. A picture
-  is sent as a JPEG at most 1024 px on its longer side and 512 KB; a text as at most its first 16 KB;
-  anything else as nothing but its name, size and type.
+- **`session.file`**: a preview of one file that session's `files_made` listed, or that one of its
+  `user_message`s was sent with, by the exact path listed, or a refusal (`FORBIDDEN`). A path that is
+  now a link, or not a file, is refused. A picture is sent as a JPEG at most 1024 px on its longer side
+  and 512 KB; a text as at most its first 16 KB; anything else as nothing but its name, size and type.
+- **`session.send`** and **`session.create`**: they write a phone's files, and only into the Realm
+  home's `tmp/attachments`, under names the Mac makes. A folder there that is a link elsewhere is not
+  written through. The phone names no path.
+- **`session.options`**, **`session.configure`** and **`agents.list`**: the agents, models, levels,
+  modes and rungs the desktop's pickers offer, and what three settings decide for a phone: what a
+  message typed mid-turn does (`sessions.midTurnMode`), the rung Build goes back to
+  (`sessions.defaultPermissionMode`) and the agent a new session starts on (`ui.lastAgentKind`).
 - **`space.icon`**: the picture a person uploaded or had made for a space, at most 256 KB.
 - **`session.hint`** and `hint`: the suggested next message the desktop's prompter shows.
 
 No call or event carries a terminal's output, a file outside those rules, another session's stream,
-a setting or a key.
+any other setting, or a key.
 
 ### Events
 
@@ -489,7 +606,8 @@ a setting or a key.
   message is over 150 KB, to cover fragmentation.
 - **Links.** `ts-links.json` is `[{url, fields}]`, including an expired link and an unknown version.
 - **The API.** `ts-api.json` holds `mobile.v1`'s answers as the Mac's own projector and `MobileApi`
-  make them, every row kind included, with the answer the phone's card must send for one question.
-  The server's suite fails when the committed file is not what the code produces, or when a row kind
-  has no example in it; RealmKit decodes every answer in it.
+  make them, every row kind included and a user row with files, with the answer the phone's card must
+  send for one question. The server's suite fails when the committed file is not what the code
+  produces, when a row kind has no example in it, or when a call that answers more than `{ok: true}`
+  has none; RealmKit decodes every answer in it.
 - **The relay.** Its own tests drive §3 against the Worker in workerd.
