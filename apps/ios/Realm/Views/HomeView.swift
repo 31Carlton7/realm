@@ -61,8 +61,8 @@ struct HomeView: View {
                         ForEach(section.rows) { row in
                             SessionLink(row: row, space: section.namesSpace ? nil : listing.space(of: row))
                         }
-                        if let footer = SpaceFooter(section, pages: pages) {
-                            SpaceFooterRow(footer: footer)
+                        if case .space(let space) = section.head, let footer = SpaceFooter(section, pages: pages) {
+                            SpaceFooterRow(footer: footer, spaceName: space.name)
                         }
                     } header: {
                         ListSectionHead(section: section, opensSpace: pages)
@@ -92,11 +92,7 @@ struct HomeView: View {
         .navigationTitle(choice.title(in: home))
         .navigationBarTitleDisplayMode(.inline)
         .navigationSubtitle(MacLine.text(model: model, compact: dynamicTypeSize.isAccessibilitySize))
-        .toolbarTitleMenu {
-            if let home, let profiles = home.profiles, profiles.count > 1 {
-                ProfileMenu(home: home, profiles: profiles, choice: choice)
-            }
-        }
+        .modifier(ProfileSwitcher(home: home, choice: choice))
         .sensoryFeedback(.selection, trigger: model.keptProfile)
         .sensoryFeedback(.selection, trigger: style)
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in now = Date() }
@@ -266,6 +262,7 @@ private struct ListSectionHead: View {
                     SectionHead(title: space.name, opens: true) { SpaceGlyph(space: space) }
                 }
                 .buttonStyle(.plain)
+                .accessibilityAddTraits(.isHeader)
                 .accessibilityHint("Shows all of its sessions")
             } else {
                 SectionHead(title: space.name) { SpaceGlyph(space: space) }
@@ -311,16 +308,18 @@ enum SpaceFooter: Equatable {
 /// instead of Realm's.
 private struct SpaceFooterRow: View {
     let footer: SpaceFooter
+    let spaceName: String
 
     var body: some View {
         Group {
             switch footer {
-            case .showAll(let spaceId, _):
+            case .showAll(let spaceId, let count):
                 NavigationLink(value: Route.space(spaceId)) {
                     Text(footer.words)
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(Palette.accentInk)
                 }
+                .accessibilityLabel("Show all \(count) sessions in \(spaceName)")
             case .more:
                 Text(footer.words)
                     .font(.footnote)
@@ -362,6 +361,21 @@ private struct ElsewhereRow: View {
         .listRowSeparator(.hidden)
         .accessibilityHint("Shows \(waiting.profile.name)")
         .accessibilityIdentifier("elsewhere-\(waiting.profile.id)")
+    }
+}
+
+/// The title opens the menu of profiles while the Mac has more than one; with one, or none it says,
+/// there is nothing to switch, and no chevron says otherwise.
+private struct ProfileSwitcher: ViewModifier {
+    let home: Home?
+    let choice: ProfileChoice
+
+    func body(content: Content) -> some View {
+        if let home, let profiles = home.profiles, profiles.count > 1 {
+            content.toolbarTitleMenu { ProfileMenu(home: home, profiles: profiles, choice: choice) }
+        } else {
+            content
+        }
     }
 }
 

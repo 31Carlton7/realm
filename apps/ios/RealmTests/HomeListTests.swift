@@ -200,6 +200,15 @@ struct ProfileScopeTests {
         #expect(Staged.listing(quiet).elsewhere.isEmpty)
     }
 
+    /// Under each profile in the title's menu: what needs you there, or why it cannot be chosen.
+    @Test func theMenuSaysWhatNeedsYouInEachProfile() {
+        #expect(ProfileWaiting.note(for: Staged.profiles[0], in: Staged.home) == "2 need you")
+        #expect(ProfileWaiting.note(for: Staged.profiles[2], in: Staged.home) == "No spaces")
+        let quiet = Staged.with(needsYou: [Staged.toggle])
+        #expect(ProfileWaiting.note(for: Staged.profiles[0], in: quiet) == "1 needs you")
+        #expect(ProfileWaiting.note(for: Staged.profiles[1], in: quiet) == nil)
+    }
+
     @Test func eachProfileCountsWhatNeedsYouInIt() {
         #expect(HomeListing.needing(Staged.home) == ["work": 2, "school": 2])
         #expect(HomeListing.needing(Staged.olderHome).isEmpty)
