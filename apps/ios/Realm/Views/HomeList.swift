@@ -194,6 +194,14 @@ struct ProfileWaiting: Identifiable, Equatable {
     static func count(_ count: Int) -> String {
         count == 1 ? "1 needs you" : "\(count) need you"
     }
+
+    /// The line under a profile in the title's menu: what needs the person in it, or that it has no
+    /// spaces, which is why it cannot be chosen.
+    static func note(for profile: Profile, in home: Home) -> String? {
+        guard home.spaces.contains(where: { $0.profileId == profile.id }) else { return "No spaces" }
+        let count = HomeListing.needing(home)[profile.id] ?? 0
+        return count > 0 ? Self.count(count) : nil
+    }
 }
 
 /// What Home lists, from what the Mac sent and how the person asked for it: what needs them in the

@@ -90,6 +90,7 @@ struct HomeView: View {
             }
         }
         .navigationTitle(choice.title(in: home))
+        .navigationBarTitleDisplayMode(.inline)
         .navigationSubtitle(MacLine.text(model: model, compact: dynamicTypeSize.isAccessibilitySize))
         .toolbarTitleMenu {
             if let home, let profiles = home.profiles, profiles.count > 1 {
@@ -373,32 +374,33 @@ private struct ProfileMenu: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let needing = HomeListing.needing(home)
         let withSpaces = Set(home.spaces.compactMap(\.profileId))
-        Picker("Profile", selection: Binding(get: { choice }, set: { model.choose($0) })) {
+        let selection = Binding(get: { choice }, set: { model.choose($0) })
+        Section {
             ForEach(profiles) { profile in
-                let count = needing[profile.id] ?? 0
-                Label {
-                    Text(profile.name)
-                    if !withSpaces.contains(profile.id) {
-                        Text("No spaces")
-                    } else if count > 0 {
-                        Text(ProfileWaiting.count(count))
-                    }
-                } icon: {
-                    ProfileMark.image(profile)
+                Toggle(isOn: chosen(.profile(profile.id), of: selection)) {
+                    Self.item(profile.name, note: ProfileWaiting.note(for: profile, in: home), mark: ProfileMark.image(profile))
                 }
-                .tag(ProfileChoice.profile(profile.id))
                 .disabled(!withSpaces.contains(profile.id))
             }
-            Label {
-                Text("All profiles")
-                let count = home.needsYou.count
-                if count > 0 { Text(ProfileWaiting.count(count)) }
-            } icon: {
-                Image(systemName: "square.stack")
+            Toggle(isOn: chosen(.all, of: selection)) {
+                Self.item("All profiles", note: home.needsYou.isEmpty ? nil : ProfileWaiting.count(home.needsYou.count),
+                          mark: Image(systemName: "square.stack"))
             }
-            .tag(ProfileChoice.all)
+        }
+    }
+
+    /// A menu draws an item's second text as the line under its name, and its image as its mark — but
+    /// not from inside a label, so neither is wrapped in one.
+    @ViewBuilder
+    private static func item(_ name: String, note: String?, mark: Image) -> some View {
+        if let note {
+            Text(name)
+            Text(note)
+            mark
+        } else {
+            Text(name)
+            mark
         }
     }
 }
@@ -427,13 +429,21 @@ enum ProfileMark: Equatable {
         }
     }
 
-    /// The mark as an image, which is all a menu draws: an emoji is drawn into one.
+    /// The mark as an image, which is all a menu draws: a glyph in the profile's colour, as the Mac's
+    /// switcher draws it, and an emoji drawn into one.
     static func image(_ profile: Profile) -> Image {
+        let color = SpaceTint.color(profile.color).map(UIColor.init)
         switch ProfileMark(profile) {
-        case .glyph(let name): Image("Spaces/\(name)")
-        case .symbol(let name): Image(systemName: name)
-        case .emoji(let emoji): Image(uiImage: drawn(emoji)).renderingMode(.original)
+        case .glyph(let name): return tinted(UIImage(named: "Spaces/\(name)"), color)
+        case .symbol(let name): return tinted(UIImage(systemName: name), color)
+        case .emoji(let emoji): return Image(uiImage: drawn(emoji)).renderingMode(.original)
         }
+    }
+
+    private static func tinted(_ image: UIImage?, _ color: UIColor?) -> Image {
+        guard let image else { return Image(systemName: "person.crop.circle") }
+        guard let color else { return Image(uiImage: image) }
+        return Image(uiImage: image.withTintColor(color, renderingMode: .alwaysOriginal))
     }
 
     /// An emoji at a menu's glyph size.
@@ -454,21 +464,17 @@ private struct ViewOptionsMenu: View {
     var body: some View {
         Menu {
             Section("List") {
-                Picker("List", selection: $style) {
-                    ForEach(ListStyle.allCases) { style in
-                        Label(style.title, systemImage: style.symbol).tag(style)
+                ForEach(ListStyle.allCases) { option in
+                    Toggle(isOn: chosen(option, of: $style)) {
+                        Label(option.title, systemImage: option.symbol)
                     }
                 }
-                .pickerStyle(.inline)
             }
             if style == .bySpace {
                 Section("Order spaces") {
-                    Picker("Order spaces", selection: $spaceOrder) {
-                        ForEach(SpaceOrder.allCases) { order in
-                            Text(order.title).tag(order)
-                        }
+                    ForEach(SpaceOrder.allCases) { order in
+                        Toggle(order.title, isOn: chosen(order, of: $spaceOrder))
                     }
-                    .pickerStyle(.inline)
                 }
             }
             Section {
@@ -479,6 +485,12 @@ private struct ViewOptionsMenu: View {
         }
         .accessibilityIdentifier("view-options")
     }
+}
+
+/// One of a choice's options, as a menu checks it: on while it is the one chosen, and choosing it when
+/// pressed. A picker would say the same, and a menu draws its options with no title over them.
+func chosen<Value: Equatable>(_ option: Value, of choice: Binding<Value>) -> Binding<Bool> {
+    Binding(get: { choice.wrappedValue == option }, set: { if $0 { choice.wrappedValue = option } })
 }
 
 /// A session on Home: opens it, and stops its turn from a swipe or a press-and-hold.
