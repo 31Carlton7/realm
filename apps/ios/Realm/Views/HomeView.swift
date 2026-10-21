@@ -504,7 +504,7 @@ private struct ViewOptionsMenu: View {
     }
 }
 
-extension Binding where Value: Equatable {
+extension Binding where Value: Equatable & Sendable {
     /// One of this choice's options, as a menu checks it: on while it is the one chosen, and choosing
     /// it when pressed. A picker says the same, but a menu draws a picker's options with no title over
     /// them and no second line under each.
