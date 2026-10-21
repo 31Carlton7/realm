@@ -44,12 +44,9 @@ struct SpaceView: View {
         .background(Ground.transcript)
         .overlay {
             if !words.isEmpty, shown.isEmpty {
-                ContentUnavailableView {
-                    Label("No results for “\(words)”", systemImage: "magnifyingglass")
-                } description: {
-                    Text(pages.more ? "This searches the sessions shown so far. Clear the search and scroll down for older ones."
-                                    : "This searches the sessions shown here.")
-                }
+                NoResults(query: words, why: pages.more
+                          ? "This searches the sessions shown so far. Clear the search and scroll down for older ones."
+                          : "This searches the sessions shown here.")
             } else if pages.loaded, rows.isEmpty {
                 ContentUnavailableView("No sessions here", systemImage: "text.bubble",
                                        description: Text("Start one in this space in Realm on your Mac, and it shows here."))

@@ -81,7 +81,7 @@ struct HomeView: View {
                 FirstLoad()
             } else if let listing, listing.isEmpty, unsent.isEmpty {
                 if listing.isFiltered {
-                    NoResults(query: query, style: style, pages: pages)
+                    NoResults(query: query, why: NoResults.words(style: style, pages: pages))
                 } else {
                     ContentUnavailableView(choice.emptyWords(in: home), systemImage: "text.bubble",
                                            description: Text("Start one in Realm on your Mac, and it shows here."))
@@ -516,7 +516,7 @@ extension Binding where Value: Equatable & Sendable {
 /// A session on Home: opens it, and stops its turn from a swipe or a press-and-hold.
 struct SessionLink: View {
     let row: SessionRow
-    /// The row's space, where no section names it (Needs you).
+    /// The row's space, where no section names it.
     let space: Space?
     @Environment(AppModel.self) private var model
 
@@ -837,18 +837,17 @@ private struct RetryButton: View {
 /// A search that found nothing, and why the list it searched may be shorter than the Mac's.
 struct NoResults: View {
     let query: String
-    let style: ListStyle
-    /// A space's page lists the rest of its sessions.
-    let pages: Bool
+    let why: String
 
     var body: some View {
         ContentUnavailableView {
             Label("No results for “\(query)”", systemImage: "magnifyingglass")
         } description: {
-            Text(Self.words(style: style, pages: pages))
+            Text(why)
         }
     }
 
+    /// Home's reason, for the style it lists in; `pages` where a space's page lists the rest of its sessions.
     static func words(style: ListStyle, pages: Bool) -> String {
         let listed = style == .bySpace ? "each space's latest" : "the most recent"
         let rest = pages ? "Each space's page lists all of its sessions." : "The rest are on your Mac."
