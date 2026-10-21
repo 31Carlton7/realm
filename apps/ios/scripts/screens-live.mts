@@ -351,17 +351,24 @@ async function runUiTests(): Promise<boolean> {
   await reduceTransparency(true);
   await phase("testH7_reduceTransparency");
   await reduceTransparency(false);
-  // The composer (Plan 29 §1): at rest and composing, its settings changed on the Mac, a photo sent,
-  // Stop and Queue on a turn under way; then dark, the largest text size and Reduce Transparency. The
-  // photo goes in as the camera would hand it over: the picker draws outside the app.
+  // The composer (Plan 29 §1): at rest and composing, its settings changed on the Mac, photos sent —
+  // one as the camera hands it over, one picked from the library — Stop and Queue on a turn under way;
+  // then dark, the largest text size and Reduce Transparency.
   const runs = (test: string) => !only || only.includes(test);
   const photo = join(server.home, "staged-photo.jpg");
   execFileSync("sips", ["-s", "format", "jpeg", join(repoRoot, "site/public/product/connections-1440.webp"), "--out", photo], { stdio: "pipe" });
   const composer = { TEST_RUNNER_COMPOSER_SESSION: sessions.markdown!, TEST_RUNNER_RUNNING_SESSION: sessions.running!, TEST_RUNNER_STAGED_PHOTO: photo };
+  await simctl(["ui", udid, "appearance", "light"]);
   await phase("testC1_composer", composer);
   if (runs("testC1_composer")) {
     const configured = await rpc.call("sessions.get", { id: sessions.markdown! });
     results.push(["testC1_composer: the Mac has Opus 5.5 in Plan", configured.model === "claude-opus-5-5" && configured.permissionMode === "plan"]);
+  }
+  // A photo in the library for the picker, taken today.
+  if (runs("testC2_photo")) {
+    const library = join(server.home, "library-photo.jpg");
+    execFileSync("sips", ["-s", "format", "jpeg", join(repoRoot, "site/public/product/appearance-1440.webp"), "--out", library], { stdio: "pipe" });
+    if (await simctl(["addmedia", udid, library]) !== 0) say("warning: the photo was not added to the Simulator's library");
   }
   await phase("testC2_photo", composer);
   if (runs("testC3_runningTurn")) {

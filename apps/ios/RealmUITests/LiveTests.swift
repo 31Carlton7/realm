@@ -499,37 +499,42 @@ final class LiveTests: XCTestCase {
         shot("composer-plan")
     }
 
-    /// `+` and what it offers, the photo picker; then a photo in the composer — staged as the camera
-    /// would hand it over, since the picker draws outside the app — sent with words, and shown under the
-    /// message once the Mac has it, opening the Mac's copy.
+    /// A photo in the composer, as the camera hands one over; then `+` and what it offers, and a second
+    /// photo picked from the library, which the script put there; both sent with words and shown under
+    /// the message once the Mac has them, a tile opening the Mac's copy.
     @MainActor
     func testC2_photo() throws {
         let photo = try XCTUnwrap(environment["STAGED_PHOTO"], "the script stages a photo")
         try openComposer(["-stagePhoto", photo])
-        let tile = app.buttons["Photo.jpg"]
-        XCTAssert(tile.waitForExistence(timeout: 15), "the photo is not in the composer")
+        XCTAssert(app.buttons["Photo.jpg"].waitForExistence(timeout: 15), "the photo is not in the composer")
         shot("composer-photo")
         app.buttons["Add photos or files"].tap()
         XCTAssert(app.buttons["Photo Library"].waitForExistence(timeout: 5), "+ offers no photos")
         XCTAssert(app.buttons["Choose Files"].exists, "+ offers no files")
         shot("add-menu")
         app.buttons["Photo Library"].tap()
-        sleep(4)
+        // The picker draws outside the app; the photo the script added is the one taken today. The
+        // Simulator's library can hold others that only its iCloud has, which cannot be loaded here.
+        let today = Date().formatted(.dateTime.month(.wide).day())
+        let added = app.images.matching(NSPredicate(format: "identifier == 'PXGGridLayout-Info' AND label CONTAINS %@", today)).firstMatch
+        XCTAssert(added.waitForExistence(timeout: 15), "the photo picker does not show the photo added today")
+        sleep(1)
         shot("photo-picker")
-        if let folder = environment["SHOTS"] {
-            try? app.debugDescription.write(to: URL(fileURLWithPath: folder).appending(path: "photo-picker-tree.txt"), atomically: true, encoding: .utf8)
-        }
-        app.swipeDown(velocity: .fast)
-        sleep(2)
+        added.tap()
+        let done = app.buttons["Done"]
+        XCTAssert(done.waitForExistence(timeout: 5) && done.isEnabled, "picking a photo did not let the picker finish")
+        done.tap()
+        XCTAssert(app.buttons["Photo 2.jpg"].waitForExistence(timeout: 20), "the photo picked is not in the composer")
         composerField.tap()
         composerField.typeText("What is wrong with this page?")
-        shot("composer-photo-typed")
+        shot("composer-photos-typed")
         app.buttons["Send"].tap()
-        XCTAssert(element(containing: "echo: What is wrong with this page?").waitForExistence(timeout: 20), "the Mac never answered the photo")
+        XCTAssert(element(containing: "echo: What is wrong with this page?").waitForExistence(timeout: 30), "the Mac never answered the photos")
         let sent = app.buttons["Photo.jpg"]
         XCTAssert(sent.waitForExistence(timeout: 10), "the photo is not shown under the message")
+        XCTAssertFalse(element(containing: "Sending").exists, "the message never settled")
         sleep(2)
-        shot("message-photo-sent")
+        shot("message-photos-sent")
         sent.tap()
         XCTAssert(app.images["Photo.jpg"].waitForExistence(timeout: 15), "the Mac's copy of the photo did not arrive")
         shot("sent-photo-preview")
@@ -544,6 +549,7 @@ final class LiveTests: XCTestCase {
         let session = try XCTUnwrap(environment["RUNNING_SESSION"], "the script names the session it keeps working")
         launch(["-openSession", session])
         XCTAssert(element(containing: "Working").waitForExistence(timeout: 30), "the turn is not under way")
+        dismissAccountPrompt()
         let stop = app.buttons["Stop"]
         XCTAssert(stop.waitForExistence(timeout: 10), "a turn under way has no Stop")
         sleep(2)
@@ -556,10 +562,12 @@ final class LiveTests: XCTestCase {
         shot("composer-queue")
         queue.press(forDuration: 1.2)
         XCTAssert(app.buttons["Steer"].waitForExistence(timeout: 5), "a long press does not offer Steer")
-        XCTAssert(element(containing: "Sends when this turn ends").exists || element(containing: "Stops the agent").exists,
-                  "the choices do not say what they do")
         shot("composer-queue-menu")
-        dismissMenu()
+        if let folder = environment["SHOTS"] {
+            try? app.debugDescription.write(to: URL(fileURLWithPath: folder).appending(path: "queue-menu-tree.txt"), atomically: true, encoding: .utf8)
+        }
+        XCTAssert(element(containing: "Stops the agent").exists, "the choices do not say what they do")
+        closeMenu()
         queue.tap()
         XCTAssert(element(containing: "Then check the toolbar").waitForExistence(timeout: 10))
         XCTAssert(element(containing: "Sent").waitForExistence(timeout: 15), "the Mac did not take the queued message")
@@ -608,7 +616,7 @@ final class LiveTests: XCTestCase {
         modeChip.tap()
         sleep(1)
         shot("\(prefix)-mode-menu")
-        dismissMenu()
+        closeMenu()
     }
 
     /// Opens the session the script names for the composer, once its Mac has said what its composer
@@ -618,6 +626,23 @@ final class LiveTests: XCTestCase {
         let session = try XCTUnwrap(environment["COMPOSER_SESSION"], "the script names the session to compose in")
         launch(["-openSession", session] + arguments)
         XCTAssert(app.buttons["Add photos or files"].waitForExistence(timeout: 30), "the composer offers no + (no session.options)")
+        dismissAccountPrompt()
+    }
+
+    /// A press on the transcript beside an open menu, which closes it: the bar's corner, where Home's
+    /// menus close, is a session's way back.
+    @MainActor
+    private func closeMenu() {
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+        sleep(1)
+    }
+
+    /// The Simulator's own prompt for its Apple Account's password, which lands over whatever is on
+    /// screen soon after a launch: put away, as a person would.
+    @MainActor
+    private func dismissAccountPrompt() {
+        let notNow = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Not Now"]
+        if notNow.waitForExistence(timeout: 3) { notNow.tap() }
         sleep(1)
     }
 
