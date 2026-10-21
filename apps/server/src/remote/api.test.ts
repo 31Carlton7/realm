@@ -722,4 +722,15 @@ describe("session.file, for a file sent with a message", () => {
     expect(await attempt(api(), rpc, "session.file", { id: "s1", path: join(dir, "brief.md") })).toMatchObject({ ok: true, result: { name: "brief.md", preview: { kind: "text", text: "# Brief\n" } } });
     expect(await attempt(api(), rpc, "session.file", { id: "s1", path: join(dir, "beside.md") })).toMatchObject({ ok: false, code: "FORBIDDEN" });
   });
+
+  it("sends no file that holds a secret, though a message on the Mac carried it", async () => {
+    const dir = tempDir("realm-sent-");
+    mkdirSync(join(dir, ".ssh"));
+    writeFileSync(join(dir, ".ssh", "id_ed25519"), "-----BEGIN OPENSSH PRIVATE KEY-----\n");
+    writeFileSync(join(dir, ".env"), "API_KEY=1\n");
+    const keys = [join(dir, ".ssh", "id_ed25519"), join(dir, ".env")];
+    const log = [stored("s1", sessionEvent("user_message", { text: "why does this fail?", attachments: keys.map((path) => ({ path, mime: "text/plain" })) }))];
+    const rpc = fakeRpc({ sessions: [], items: [] }, { "sessions.events": eventsOf(log) as never });
+    for (const path of keys) expect(await attempt(api(), rpc, "session.file", { id: "s1", path }), path).toMatchObject({ ok: false, code: "FORBIDDEN" });
+  });
 });

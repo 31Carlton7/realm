@@ -562,8 +562,9 @@ phone read, and what bounds it:
   2,000 lines and 256 KB of JSON; a line longer than 4,000 characters is cut, and says so.
 - **`session.file`**: a preview of one file that session's `files_made` listed, or that one of its
   `user_message`s was sent with, by the exact path listed, or a refusal (`FORBIDDEN`). A path that is
-  now a link, or not a file, is refused. A picture is sent as a JPEG at most 1024 px on its longer side
-  and 512 KB; a text as at most its first 16 KB; anything else as nothing but its name, size and type.
+  now a link, or not a file, is refused, and so is a file that exists to hold a secret (a key, an
+  `.env`), whatever sent it. A picture is sent as a JPEG at most 1024 px on its longer side and
+  512 KB; a text as at most its first 16 KB; anything else as nothing but its name, size and type.
 - **`session.send`** and **`session.create`**: they write a phone's files, and only into the Realm
   home's `tmp/attachments`, under names the Mac makes. A folder there that is a link elsewhere is not
   written through. The phone names no path.

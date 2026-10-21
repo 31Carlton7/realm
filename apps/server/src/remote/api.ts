@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  AGENT_META, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, readEffortSupport,
+  AGENT_META, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, isSecretPath, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, readEffortSupport,
   resolveMidTurnMode, SELECTABLE_AGENT_KINDS, type AgentKind, type IconAsset, type Item, type MethodResult, type ModelInfo, type Session,
   type Space, type StoredSessionEvent, type TurnChanges,
 } from "@realm/contracts";
@@ -429,6 +429,8 @@ export class MobileApi {
     for (const ev of made) if (ev.event.type === "files_made") for (const f of ev.event.payload.files) listed.add(f.path);
     for (const ev of sent) if (ev.event.type === "user_message") for (const a of ev.event.payload.attachments) listed.add(a.path);
     if (!listed.has(path)) throw new MobileError("FORBIDDEN", "That file is not one this session made or was sent.");
+    // A message on the Mac can carry any file someone picked, a key among them; a phone is never sent one.
+    if (isSecretPath(path)) throw new MobileError("FORBIDDEN", "That file holds a secret, so Realm does not send it to a phone.");
     try {
       return await filePreview(path, { downscale: this.o.downscale });
     } catch (e) {
