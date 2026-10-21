@@ -131,12 +131,21 @@ struct ProfileChoiceTests {
     }
 
     @Test func aProfilesMarkIsItsGlyphItsEmojiOrAPerson() {
+        let person = ProfileMark.symbol("person.crop.circle")
         #expect(ProfileMark(Staged.profiles[0]) == .emoji("🛠️"))
         #expect(ProfileMark(Staged.profiles[1]) == .glyph("book"))
-        #expect(ProfileMark(Staged.profiles[2]) == .person)
-        #expect(ProfileMark(Profile(id: "p", name: "P", iconKind: .glyph, glyph: "user")) == .person)
-        #expect(ProfileMark(Profile(id: "p", name: "P", iconKind: .picture)) == .person)
-        #expect(ProfileMark(Profile(id: "p", name: "P", iconKind: .emoji)) == .person)
+        #expect(ProfileMark(Staged.profiles[2]) == person)
+        // The profile picker's own glyphs that no space has: a new profile's person, and code.
+        #expect(ProfileMark(Profile(id: "p", name: "P", iconKind: .glyph, glyph: "user")) == person)
+        #expect(ProfileMark(Profile(id: "p", name: "P", iconKind: .glyph, glyph: "code")) == .symbol("chevron.left.forwardslash.chevron.right"))
+        #expect(ProfileMark(Profile(id: "p", name: "P", iconKind: .glyph, glyph: "briefcase-01")) == person)
+        #expect(ProfileMark(Profile(id: "p", name: "P", iconKind: .picture)) == person)
+        #expect(ProfileMark(Profile(id: "p", name: "P", iconKind: .emoji)) == person)
+        // Every glyph the Mac's profile picker offers is drawn as itself or as the system's nearest.
+        for glyph in ["user", "briefcase", "cap", "home", "code", "heart", "star", "book"] {
+            let mark = ProfileMark(Profile(id: "p", name: "P", iconKind: .glyph, glyph: glyph))
+            #expect(mark == .glyph(glyph) || mark == ProfileMark.symbols[glyph].map(ProfileMark.symbol), "\(glyph)")
+        }
     }
 }
 

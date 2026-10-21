@@ -400,21 +400,27 @@ private struct ProfileMenu: View {
     }
 }
 
-/// A profile's mark, as the Mac reads it: one of the picker's glyphs, an emoji, or else a person's
-/// outline — for a picture of the person's own, which the phone is not sent, and for a glyph this
-/// phone does not have.
+/// A profile's mark, as the Mac reads it: one of the glyphs, or an emoji. Two of the profile picker's
+/// glyphs are no space's, so the phone has no drawing of them and takes the system's nearest; a
+/// picture of the person's own, which the phone is not sent, or a glyph it does not know, is a
+/// person's outline, as a new profile's is.
 enum ProfileMark: Equatable {
     case glyph(String)
+    case symbol(String)
     case emoji(String)
-    case person
+
+    /// The profile picker's glyphs (`PROFILE_ICONS` on the Mac) that no space has.
+    static let symbols = ["user": "person.crop.circle", "code": "chevron.left.forwardslash.chevron.right"]
 
     init(_ profile: Profile) {
         if profile.iconKind == .emoji, let emoji = profile.emoji, !emoji.isEmpty {
             self = .emoji(emoji)
         } else if profile.iconKind == .glyph, let glyph = profile.glyph, Marks.spaces.contains(glyph) {
             self = .glyph(glyph)
+        } else if profile.iconKind == .glyph, let glyph = profile.glyph, let symbol = Self.symbols[glyph] {
+            self = .symbol(symbol)
         } else {
-            self = .person
+            self = .symbol("person.crop.circle")
         }
     }
 
@@ -422,8 +428,8 @@ enum ProfileMark: Equatable {
     static func image(_ profile: Profile) -> Image {
         switch ProfileMark(profile) {
         case .glyph(let name): Image("Spaces/\(name)")
+        case .symbol(let name): Image(systemName: name)
         case .emoji(let emoji): Image(uiImage: drawn(emoji)).renderingMode(.original)
-        case .person: Image(systemName: "person.crop.circle")
         }
     }
 
