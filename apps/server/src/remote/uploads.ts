@@ -1,8 +1,7 @@
-import { randomBytes } from "node:crypto";
 import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { mimeForPath } from "@realm/contracts";
-import { safeAttachmentName, sweepTempAttachments, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
+import { prefixedAttachmentName, safeAttachmentName, sweepTempAttachments, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
 import { SEND_LIMITS, type MobileParams } from "@realm/remote";
 
 /**
@@ -85,7 +84,7 @@ export async function saveUploads(home: string, checked: readonly Checked[]): Pr
   void sweepTempAttachments(dir).catch(() => {});
   const out: { path: string; mime: string }[] = [];
   for (const c of checked) {
-    const path = join(dir, `${randomBytes(6).toString("hex")}-${c.name}`);
+    const path = join(dir, prefixedAttachmentName(c.name));
     await writeFile(path, c.bytes, { flag: "wx" });
     out.push({ path, mime: c.mime });
   }

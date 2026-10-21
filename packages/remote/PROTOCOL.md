@@ -343,13 +343,20 @@ SessionRow {
   modelLabel?: string,    the model as the desktop's chip names it ("Opus 5.5"), or its default's name
   createdAt?: ms,         when the session was made
   effort?: string|null,   the reasoning level it was given, or null for the model's own
-  permissionMode?: string how freely the agent acts ("default", "acceptEdits", "bypassPermissions"),
+  permissionMode?: string,
+                          how freely the agent acts ("default", "acceptEdits", "bypassPermissions"),
                           or the mode it is in instead ("plan", "ask"), as the desktop stores it
+  activityAt?: ms         when the conversation last moved: a message went out, or the agent answered
+                          or finished a turn
 }
 ```
 
 - `waiting` is the desktop's `waiting_permission`.
 - `needsYou` is true exactly when the row is in `home.get`'s `needsYou`.
+- **Lists are ordered by `activityAt`**, as the desktop's are, and a row's age is read from it.
+  `updatedAt` moves whenever the Mac writes the row, for a change of settings or a rename as much as
+  for a message, so a session set up again is not one that moved. A Mac before Plan 29 sends no
+  `activityAt`; there `updatedAt` stands in.
 
 A **transcript row** is one thing in a session's transcript. Every row has `key`, `seq` and `kind`,
 then the fields its kind adds:
@@ -403,8 +410,10 @@ A **notice** may lead somewhere. A turn's changes carry `checkpointId`, which `s
 opens. A turn's files made carry `files`, each of which `session.file` previews.
 
 A **user row** carries `attachments` when files were sent with the message: each by its path on the
-Mac, its file name and its type, as the message's `user_message` recorded them. `session.file`
-previews each. A file sent from a phone is named `<random>-<name>` on the Mac, and `name` says so.
+Mac, its name and its type, as the message's `user_message` recorded them. `session.file` previews
+each. `name` is the name the person gave the file: one a phone sent, or a paste, is written into the
+Realm home's `tmp/attachments` as `<random>-<name>`, and `name` leaves the prefix off. A file anywhere
+else keeps its own name, whatever it looks like.
 
 ### Calls
 
@@ -438,16 +447,20 @@ desktop's sidebar switches between them. Its icon is read as a space's is; a pro
 not sent. `needsYou` is how many of `home.get`'s `needsYou` are in its spaces.
 
 **Home is one profile's, and every profile's.** `profiles` lists every profile in the desktop's order.
-Each space names its `profileId`, and keeps its newest five rows and how many more it has, whichever
-profile is asked for. `needsYou` stays every profile's, so nothing that waits is hidden. `recent` is
-the scope that changes: at most 40 (`RECENT_LIMIT`) listed sessions of the profile `profileId` names,
-newest `updatedAt` first, and every profile's when none is named. `profileId` in the answer is the
-scope `recent` was gathered for: null for every profile, which is also the answer to a profile the Mac
-no longer has.
+Each space names its `profileId`, and keeps its five most recently active rows and how many more it
+has, whichever profile is asked for. `needsYou` stays every profile's, so nothing that waits is hidden,
+and keeps the sidebar's order. `recent` is the scope that changes: at most 40 (`RECENT_LIMIT`) listed
+sessions of the profile `profileId` names, most recently active first, and every profile's when none
+is named. `profileId` in the answer is the scope `recent` was gathered for: null for every profile,
+which is also the answer to a profile the Mac no longer has.
 
 A **listed** session is a session item that is not archived, the rule Home has always used: the quick
 chat and an archived session are no rows. `space.sessions` pages one space's listed sessions in Home's
 order, so its first page is the space's five on Home, and `more` says whether a page follows.
+
+**Home's order** is `activityAt`, newest first; a tie goes to the session made later, then to the
+larger id. Every read of the same lists orders them the same way, so pages neither repeat nor skip a
+session.
 
 **A session's settings are the desktop's chips.** `session.options` answers with the session's agent,
 as `AgentOptions`, and what it is on now:
@@ -469,6 +482,7 @@ AgentOptions {
   note: string|null,           why not: "not installed" or "signed out", as the desktop's agent chip says
   models: [{id: string|null, label, efforts?: [Choice], defaultEffort?: string|null}],
   efforts: [Choice],           reasoning levels that are the agent's own setting rather than a model's
+  defaultEffort?: string|null, which of those it runs while none is chosen, where it names one
   modes: [Choice],             Build, then Plan and Ask where the agent has them
   permissions: [Choice],       least to most free; empty where Realm cannot set them for this agent
   steerNote: string            what Steer does to this agent's running turn, in words
@@ -484,8 +498,9 @@ Limits { maxCount: int, maxBytes: int, maxTotalBytes: int }   6 files, 8 MB each
   model cannot be put back on its default, so its list leaves `null` out.
 - **Levels** are the ones the picker offers: on a Claude or Codex model, the levels that model takes
   (`efforts`, and `defaultEffort` where the harness names one); on any other agent, the agent's own
-  (`AgentOptions.efforts`). An agent that takes none has none. They are named as the desktop names them:
-  Low, Medium, High, XHigh, Max.
+  (`AgentOptions.efforts`, and `AgentOptions.defaultEffort` beside them: null where the agent does not
+  say). An agent that takes none has none. They are named as the desktop names them: Low, Medium,
+  High, XHigh, Max.
 - **Modes** are the ones the agent offers: Plan and Ask on Claude and Codex, and on an ACP agent the
   ones it named for that session.
 - **Permissions** are Ask each time (`default`), Accept edits (`acceptEdits`) and Full access
@@ -563,8 +578,9 @@ phone read, and what bounds it:
 - **`session.file`**: a preview of one file that session's `files_made` listed, or that one of its
   `user_message`s was sent with, by the exact path listed, or a refusal (`FORBIDDEN`). A path that is
   now a link, or not a file, is refused, and so is a file that exists to hold a secret (a key, an
-  `.env`), whatever sent it. A picture is sent as a JPEG at most 1024 px on its longer side and
-  512 KB; a text as at most its first 16 KB; anything else as nothing but its name, size and type.
+  `.env`), whatever sent it. Its `name` is its user row's: the name the person gave it. A picture is
+  sent as a JPEG at most 1024 px on its longer side and 512 KB; a text as at most its first 16 KB;
+  anything else as nothing but its name, size and type.
 - **`session.send`** and **`session.create`**: they write a phone's files, and only into the Realm
   home's `tmp/attachments`, under names the Mac makes. A folder there that is a link elsewhere is not
   written through. The phone names no path.

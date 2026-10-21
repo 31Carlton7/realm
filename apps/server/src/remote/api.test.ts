@@ -121,9 +121,9 @@ describe("a session row's agent, model and space, as the desktop names them", ()
     const h = HomeSchema.parse(await api().handle(channel(fakeRpc({
       spaces: [{ ...space("s1"), icon: "emoji:🌊" }, { ...space("s2"), icon: "code" }, { ...space("s3"), icon: "asset:01JASSET" }],
       sessions: [
-        session("opus", "s1", { agentKind: "claude", model: "claude-opus-5-5", updatedAt: 3 }),
-        session("default", "s1", { agentKind: "claude", model: null, updatedAt: 2 }),
-        session("luna", "s2", { agentKind: "codex", model: "gpt-6-luna", updatedAt: 1 }),
+        session("opus", "s1", { agentKind: "claude", model: "claude-opus-5-5", activityAt: 3 }),
+        session("default", "s1", { agentKind: "claude", model: null, activityAt: 2 }),
+        session("luna", "s2", { agentKind: "codex", model: "gpt-6-luna", activityAt: 1 }),
       ],
       items: [item("opus", "s1", "Opus"), item("default", "s1", "Default"), item("luna", "s2", "Luna")],
     }, { "agents.probe": () => [{ kind: "codex", available: true, version: "1", loggedIn: true, reason: null, models: [{ id: "gpt-6-luna", label: "GPT-6 Luna" }] }] })), "home.get", {}));
@@ -138,7 +138,7 @@ describe("a session row's agent, model and space, as the desktop names them", ()
     const never = new Promise<never>(() => {});
     const started = Date.now();
     const h = HomeSchema.parse(await api().handle(channel(fakeRpc({
-      sessions: [session("luna", "s1", { agentKind: "codex", model: "gpt-6-luna" }), session("opus", "s1", { agentKind: "claude", model: "claude-opus-5-5" })],
+      sessions: [session("luna", "s1", { agentKind: "codex", model: "gpt-6-luna", activityAt: 2 }), session("opus", "s1", { agentKind: "claude", model: "claude-opus-5-5", activityAt: 1 })],
       items: [item("luna", "s1", "Luna"), item("opus", "s1", "Opus")],
     }, { "agents.probe": () => never })), "home.get", {}));
     expect(Date.now() - started).toBeLessThan(1_000);
@@ -302,9 +302,9 @@ describe("session.file", () => {
 });
 
 describe("home.get, one profile at a time", () => {
-  /** `n` listed sessions in a space, each an hour newer than the last from `from`. */
+  /** `n` listed sessions in a space, each active an hour after the last from `from`. */
   const many = (n: number, spaceId: string, prefix: string, from: number): { sessions: Session[]; items: Item[] } => {
-    const sessions = Array.from({ length: n }, (_, i) => session(`${prefix}${i}`, spaceId, { updatedAt: from + i * 3_600_000 }));
+    const sessions = Array.from({ length: n }, (_, i) => session(`${prefix}${i}`, spaceId, { activityAt: from + i * 3_600_000 }));
     return { sessions, items: sessions.map((s) => item(s.id, spaceId, s.id)) };
   };
   const work = many(45, "s1", "work-", 1_000_000);
@@ -316,7 +316,7 @@ describe("home.get, one profile at a time", () => {
       ...work.sessions, ...school.sessions,
       session("asks", "s1", { status: "waiting_permission", updatedAt: 10 }), session("permits", "s1", { status: "waiting_permission", updatedAt: 20 }),
       session("failed", "s2", { status: "error", lastEventSeq: 9, updatedAt: 30 }),
-      session("put-away", "s1", { updatedAt: 999_999_999_999 }), session("quick", "s1", { updatedAt: 999_999_999_998 }),
+      session("put-away", "s1", { activityAt: 999_999_999_999 }), session("quick", "s1", { activityAt: 999_999_999_998 }),
     ],
     items: [...work.items, ...school.items, item("asks", "s1", "Asks"), item("permits", "s1", "Permits"), item("failed", "s2", "Failed"),
       item("put-away", "s1", "Put away", { archived: true })],
@@ -366,10 +366,50 @@ describe("home.get, one profile at a time", () => {
   });
 });
 
+describe("Home's order is the conversation's", () => {
+  // `talked` moved last; `tweaked` was given another model since, and `seen` was read since: both rows
+  // were written later than `talked`'s, and neither conversation moved.
+  const lists: Lists = {
+    sessions: [
+      session("seen", "s1", { activityAt: 50, updatedAt: 950, lastEventSeq: 4, seenSeq: 4 }),
+      session("tweaked", "s1", { activityAt: 100, updatedAt: 900, model: "fake" }),
+      session("talked", "s1", { activityAt: 200, updatedAt: 100 }),
+    ],
+    items: [item("seen", "s1", "Seen"), item("tweaked", "s1", "Tweaked"), item("talked", "s1", "Talked")],
+  };
+
+  it("lists a space's few, recent and a space's pages by when each conversation last moved, and says when", async () => {
+    const rpc = fakeRpc(lists);
+    const h = HomeSchema.parse(await api().handle(channel(rpc), "home.get", {}));
+    const page = MobileCalls["space.sessions"].result.parse(await api().handle(channel(rpc), "space.sessions", { id: "s1" }));
+    // THE MUTANT: order by `updatedAt`, and a row moves up for having been read or set up again.
+    for (const rows of [h.spaces[0]!.sessions, h.recent!, page.sessions]) expect(rows.map((r) => r.id)).toEqual(["talked", "tweaked", "seen"]);
+    expect(h.recent!.map((r) => [r.activityAt, r.updatedAt])).toEqual([[200, 100], [100, 900], [50, 950]]);
+  });
+
+  it("breaks a tie by the newer session, then by id, whatever order the Mac's lists come in", async () => {
+    const tied = (order: string[]) => fakeRpc({
+      sessions: order.map((id) => session(id, "s1", { activityAt: 10, createdAt: id === "a" ? 2 : 1 })),
+      items: order.map((id) => item(id, "s1", id)),
+    });
+    for (const order of [["b", "c", "a"], ["a", "c", "b"], ["c", "b", "a"]]) {
+      const rpc = tied(order);
+      const h = HomeSchema.parse(await api().handle(channel(rpc), "home.get", {}));
+      // THE MUTANTS: no tie-break past `activityAt` (the lists' own order), or none past `createdAt`.
+      expect(h.recent!.map((r) => r.id), order.join("")).toEqual(["a", "c", "b"]);
+      const pages = [];
+      for (let offset = 0; offset < 3; offset++) {
+        pages.push(...MobileCalls["space.sessions"].result.parse(await api().handle(channel(rpc), "space.sessions", { id: "s1", offset, limit: 1 })).sessions.map((r) => r.id));
+      }
+      expect(pages).toEqual(["a", "c", "b"]);
+    }
+  });
+});
+
 describe("space.sessions", () => {
-  const sessions = Array.from({ length: 7 }, (_, i) => session(`s1-${i}`, "s1", { updatedAt: 100 + i }));
+  const sessions = Array.from({ length: 7 }, (_, i) => session(`s1-${i}`, "s1", { activityAt: 100 + i }));
   const rpc = fakeRpc({
-    sessions: [...sessions, session("archived", "s1", { updatedAt: 1_000 }), session("quick", "s1", { updatedAt: 999 }), session("elsewhere", "s2", { updatedAt: 998 })],
+    sessions: [...sessions, session("archived", "s1", { activityAt: 1_000 }), session("quick", "s1", { activityAt: 999 }), session("elsewhere", "s2", { activityAt: 998 })],
     items: [...sessions.map((s) => item(s.id, "s1", s.id)), item("archived", "s1", "Archived", { archived: true }), item("elsewhere", "s2", "Elsewhere")],
   });
   const page = async (offset: number, limit: number) => {
@@ -414,6 +454,7 @@ describe("session.options", () => {
     expect(opus.defaultEffort).toBe("high");
     expect(o.agent.models.find((m) => m.id === "claude-haiku-4-5")).not.toHaveProperty("efforts");
     expect(o.agent).toMatchObject({ kind: "claude", name: "Claude", mark: "claude", available: true, note: null, efforts: [], steerNote: steerNote("claude") });
+    expect(o.agent.defaultEffort).toBeUndefined();
     expect(o.agent.modes.map((m) => m.label)).toEqual(["Build", "Plan", "Ask"]);
     expect(o.agent.permissions).toEqual(PERMISSION_MODES.map(({ id, label }) => ({ id, label })));
   });
@@ -447,6 +488,8 @@ describe("session.options", () => {
     expect(o.agent.modes.map((m) => m.id)).toEqual(["build", "plan"]);
     expect(o.agent.permissions).toEqual([]);
     expect(o.agent.efforts).toEqual([{ id: "fast", label: "Fast" }, { id: "deep", label: "Deep" }]);
+    // THE MUTANT: no default, and the phone cannot say which level runs while none is chosen.
+    expect(o.agent.defaultEffort).toBe("fast");
     expect(o.agent.models).toEqual([{ id: null, label: "Composer" }]);
   });
 
@@ -535,6 +578,8 @@ describe("agents.list", () => {
   const list = async (settings: Record<string, unknown>) => {
     const rpc = fakeRpc({ sessions: [], items: [], settings }, { "agents.probe": () => [
       probeRow("claude", { loggedIn: null }), probeRow("codex", { available: false, reason: "not on PATH" }), probeRow("acp:copilot", { loggedIn: false }),
+      probeRow("acp:opencode", { efforts: [{ id: "low", label: "low" }, { id: "high", label: "Think hard" }], defaultEffort: "low" }),
+      probeRow("acp:goose", { efforts: [{ id: "auto", label: "Auto" }] }),
     ] });
     const got = await attempt(api(), rpc, "agents.list", {});
     if (!got.ok) throw new Error(got.message);
@@ -547,6 +592,11 @@ describe("agents.list", () => {
     expect(l.agents.filter((a) => !a.available).map((a) => [a.kind, a.note])).toEqual([["codex", "not installed"], ["acp:copilot", "signed out"]]);
     // A new session may start on an agent's own default.
     for (const a of l.agents) expect(a.models[0]?.id, a.kind).toBeNull();
+    // An agent's own levels come with the one it starts on, where its probe named one.
+    const own = (kind: string) => l.agents.find((a) => a.kind === kind)!;
+    expect([own("acp:opencode").efforts.map((e) => e.label), own("acp:opencode").defaultEffort]).toEqual([["Low", "Think hard"], "low"]);
+    expect([own("acp:goose").efforts.map((e) => e.id), own("acp:goose").defaultEffort]).toEqual([["auto"], null]);
+    expect(own("acp:grok")).not.toHaveProperty("defaultEffort");
     expect(l).toMatchObject({ midTurn: "queue", attachments: SEND_LIMITS });
   });
 
@@ -712,6 +762,21 @@ describe("session.create, on what the phone chose", () => {
 });
 
 describe("session.file, for a file sent with a message", () => {
+  it("names a file sent from a phone or pasted as it was given, without the prefix it was written under", async () => {
+    const home = tempDir("realm-sent-home-");
+    const dir = join(home, "tmp", "attachments");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "3f9a1c2b4d5e-brief.md"), "# Brief\n");
+    const elsewhere = tempDir("realm-sent-");
+    writeFileSync(join(elsewhere, "0123456789ab-notes.md"), "# Notes\n");
+    const sent = [join(dir, "3f9a1c2b4d5e-brief.md"), join(elsewhere, "0123456789ab-notes.md")];
+    const log = [stored("s1", sessionEvent("user_message", { text: "read these", attachments: sent.map((path) => ({ path, mime: "text/markdown" })) }))];
+    const rpc = fakeRpc({ sessions: [], items: [] }, { "sessions.events": eventsOf(log) as never });
+    expect(await attempt(api(undefined, home), rpc, "session.file", { id: "s1", path: sent[0]! })).toMatchObject({ ok: true, result: { path: sent[0], name: "brief.md" } });
+    // A file the person picked keeps its own name, whatever it looks like.
+    expect(await attempt(api(undefined, home), rpc, "session.file", { id: "s1", path: sent[1]! })).toMatchObject({ ok: true, result: { name: "0123456789ab-notes.md" } });
+  });
+
   it("previews a file a message to this session carried, and still nothing beside it", async () => {
     const dir = tempDir("realm-sent-");
     writeFileSync(join(dir, "brief.md"), "# Brief\n");

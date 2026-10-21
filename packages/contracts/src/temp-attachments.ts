@@ -1,5 +1,6 @@
+import { randomBytes } from "node:crypto";
 import { readdir, rm, stat } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 /**
  * Where a file that arrived as bytes rather than as a path is written, so that an agent can be handed
@@ -42,6 +43,24 @@ export const TEMP_ATTACHMENT_TTL_MS = 24 * 60 * 60 * 1000;
 export function safeAttachmentName(name: string, fallback = "pasted"): string {
   const base = basename(name.replace(/\\/g, "/")).replace(/[^\w.\- ]+/g, "_").replace(/^\.+/, "").trim();
   return base.length === 0 ? fallback : base.slice(0, 120);
+}
+
+/** The name a file is written under in the attachments folder: a random prefix, which keeps two pastes
+ *  of "image.png" from overwriting each other, then the file's own (`safeAttachmentName`) name. */
+export const prefixedAttachmentName = (name: string): string => `${randomBytes(6).toString("hex")}-${name}`;
+
+/** What `prefixedAttachmentName` puts in front of a name. */
+const PREFIX = /^[0-9a-f]{12}-(.+)$/;
+
+/**
+ * A file's name as the person gave it. A file written into the attachments folder `dir` carries the
+ * prefix it was written under, which is no part of its name; a file anywhere else, or anywhere when
+ * there is no folder to look in, is named by its path alone, whatever its name looks like.
+ */
+export function givenAttachmentName(path: string, dir: string | null): string {
+  const name = basename(path);
+  if (dir === null || dirname(path) !== dir) return name;
+  return PREFIX.exec(name)?.[1] ?? name;
 }
 
 /**
