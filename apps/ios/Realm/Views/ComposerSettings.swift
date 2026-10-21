@@ -128,7 +128,7 @@ private struct ChipLabel<Icon: View>: View {
 }
 
 /// The mode chip: a menu of the modes the agent offers, then, in Build, its permission rungs. Two taps
-/// change either.
+/// change either. It is off while a change is on its way to the Mac.
 private struct ModeMenu: View {
     let options: SessionOptions
     let sessionId: String
@@ -162,6 +162,7 @@ private struct ModeMenu: View {
                     .foregroundStyle(Palette.ink2)
             }
         }
+        .disabled(model.configuring[sessionId] != nil)
         .accessibilityLabel("Mode, \(chip.label)")
         .accessibilityHint("Changes what the agent may do")
     }
@@ -182,8 +183,8 @@ private struct ModeMenu: View {
 
 /// A session's settings, from the composer's model chip: the model, its reasoning, the mode, and in
 /// Build how freely the agent may act. Each change goes to the Mac at once and shows as made while it
-/// travels, with a spinner beside it; a refusal puts it back. While the Mac is away it shows what was
-/// last known, and changes nothing.
+/// travels, with a spinner beside it and the other settings off until the Mac answers; a refusal puts
+/// it back. While the Mac is away it shows what was last known, and changes nothing.
 struct SessionSettingsSheet: View {
     let sessionId: String
     @Environment(AppModel.self) private var model
@@ -205,7 +206,7 @@ struct SessionSettingsSheet: View {
                 }
                 if let options {
                     settings(options)
-                        .disabled(away)
+                        .disabled(away || model.configuring[sessionId] != nil)
                 } else {
                     Section {
                         if let label = session?.modelDisplayName {

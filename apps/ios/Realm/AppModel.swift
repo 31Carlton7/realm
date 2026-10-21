@@ -612,7 +612,8 @@ final class AppModel {
     }
 
     /// One change to a session's settings: shown at once, then as the Mac has it, or put back with a
-    /// toast where it refuses. One at a time, so putting one back never undoes a later one.
+    /// toast where it refuses. One at a time, so putting one back never undoes a later one: the
+    /// settings sheet and the mode chip are off while one travels.
     func configure(_ changes: SessionChanges, _ setting: SessionSetting, in sessionId: String) async {
         guard configuring[sessionId] == nil, let before = sessionOptions[sessionId] else { return }
         guard let api, isConnected else {
