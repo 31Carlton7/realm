@@ -6,8 +6,10 @@
  * (no billed turn), the relay's real Worker under `wrangler dev` on a fixed port, and the gateway.
  * Stages spaces and sessions in the states the app draws — a permission waiting, questions, a plan,
  * Markdown prose, an error with its fix, a turn that changed files under git and made a picture, more
- * sessions than Home lists — then prints one JSON line,
- * `{"pairLink", "sessions": {...}}`, and takes commands on stdin:
+ * sessions than Home lists — across three profiles (Work, School and Personal; School has a session
+ * waiting), with sessions last active today, yesterday, earlier this week and weeks ago, so every way
+ * Home lists them has rows. Then it prints one JSON line,
+ * `{"pairLink", "sessions": {...}, "profiles": {...}, "spaces": {...}}`, and takes commands on stdin:
  *
  *   sleep        the Mac goes quiet: the gateway stops, and the relay tells the phone it is offline
  *   wake         it comes back
@@ -15,6 +17,10 @@
  *   relay-up     the relay comes back on the same port
  *   pair         a new pairing link
  *   send <key> <text>   a message to a staged session, from the Mac
+ *   work <key>   a turn on a staged session that keeps going for about two minutes, a word every two
+ *                seconds, so Stop, and Queue or Steer, stay on screen (`running` is staged for it; the
+ *                phone starts one too by sending anything with "keep working" in it)
+ *   midturn queue|steer   what a message typed during a turn does on this Mac
  *   quit
  *
  * With --ui it drives the app itself instead: it builds the RealmLive scheme's UI tests once, then
@@ -29,7 +35,8 @@
  * Never the owner's ~/Realm: the scratch home is made fresh and removed on quit.
  */
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 import { bootServer, freePort, removeHome, repoRoot, scratchGateway } from "../../server/scripts/lib/mobile-rig";
@@ -64,8 +71,27 @@ function relayOn(port: number): { url: string; stop(): Promise<void>; ready: Pro
   };
 }
 
+/** What the sessions in the profiles beyond Work are asked, and what the scripted agent says back: put
+ *  ahead of its own script (`REALM_FAKE_SCRIPT`), so these replies are the same on every run. */
+const SCRIPT = [
+  { on: "Summarise the compilers lecture", emit: [{ kind: "text", text: "Today was **register allocation** by graph colouring:\n\n"
+    + "1. Build the interference graph from the live ranges.\n2. Simplify: set aside each node with fewer than *k* neighbours.\n"
+    + "3. When none is left, spill one, then colour the rest on the way back.\n\nThe midterm asks for one graph coloured by hand." }] },
+  { on: "Make flashcards for the midterm", emit: [{ kind: "text", text: "Made 24 flashcards from weeks 1 to 6: lexing, parsing, type checking and register allocation." }] },
+  { on: "Check my proof for question 2", emit: [{ kind: "tool", name: "Bash", needsPermission: true, input: { command: "python3 check_proof.py q2.tex" }, result: "All 7 steps check." }] },
+  { on: "Go through the feedback on problem set 3", emit: [{ kind: "text", text: "Two marks were lost on 3(b): the induction never states its base case." }] },
+  { on: "Outline the course", emit: [{ kind: "text", text: "Twelve weeks: front end, middle end, back end, then a project." }] },
+  { on: "Find a hotel near Alfama", emit: [{ kind: "text", text: "Three hotels within ten minutes' walk of Alfama have rooms for the 14th; the quietest is on Rua de São Miguel." }] },
+  { on: "Plan this week's dinners", emit: [{ kind: "text", text: "Five dinners, one shop: a tray bake, dal, a stir fry, soup, and pizza on Friday." }] },
+  { on: "Think of gift ideas", emit: [{ kind: "text", text: "A pottery class, the new edition of her favourite cookbook, or a framed print of the harbour." }] },
+];
+
 process.env.REALM_FAKE_STANDS_IN = "claude,codex";
-const server = await bootServer();
+// The home is made here rather than by `bootServer`, so the script is in it before the server reads it.
+const scratch = mkdtempSync(join(tmpdir(), "realm-mobile-home-"));
+writeFileSync(join(scratch, "staging-script.json"), JSON.stringify(SCRIPT));
+process.env.REALM_FAKE_SCRIPT = join(scratch, "staging-script.json");
+const server = await bootServer({ home: scratch });
 const port = Number(arg("relay-port") ?? (await freePort()));
 let relay = relayOn(port);
 await relay.ready;
@@ -87,12 +113,20 @@ const waitFor = async (what: string, ok: () => Promise<boolean>, ms = 20_000) =>
 const status = async (id: string) => (await rpc.call("sessions.get", { id })).status;
 const settled = (id: string) => waitFor(`${id} to settle`, async () => ["idle", "waiting_permission", "error"].includes(await status(id)));
 
-const [profile] = await rpc.call("profiles.list", {});
-const space = (name: string, icon: string, color: string) => rpc.call("spaces.create", { profileId: profile!.id, name, icon, color });
+// Three profiles, the first the one a home starts with. Each wears a glyph or an emoji, as a space does.
+const [first] = await rpc.call("profiles.list", {});
+const work = await rpc.call("profiles.update", { id: first!.id, name: "Work", icon: "briefcase", color: "#3b82f6" });
+const school = await rpc.call("profiles.create", { name: "School", icon: "emoji:🎓", color: "#f59e0b" });
+const personal = await rpc.call("profiles.create", { name: "Personal", icon: "home", color: "#10b981" });
+const space = (name: string, icon: string, color: string, profileId = work.id) => rpc.call("spaces.create", { profileId, name, icon, color });
 const realm = await space("Realm", "emoji:🌊", "#3b82f6");
 // Site wears one of the picker's glyphs rather than an emoji, so the glyph is drawn in its colour.
 const site = await space("Site", "browser", "#10b981");
 const laya = await space("Laya", "emoji:🦜", "#f59e0b");
+const lectures = await space("Compilers", "book", "#8b5cf6", school.id);
+const problems = await space("Problem sets", "emoji:✏️", "#f43f5e", school.id);
+const trip = await space("Lisbon trip", "plane", "#0ea5e9", personal.id);
+const kitchen = await space("Kitchen", "emoji:🍳", "#f97316", personal.id);
 
 const session = async (spaceId: string, agentKind: "claude" | "codex", model: string, title: string) =>
   (await rpc.call("sessions.create", { spaceId, agentKind, model, title })).session.id;
@@ -183,11 +217,53 @@ await send(sessions.permission, "Build the dark-mode toggle");
 const plan = await rpc.call("sessions.events", { id: sessions.plan, afterSeq: 0, limit: 1 });
 if (plan[0]) await rpc.call("sessions.markSeen", { id: sessions.plan, seq: plan[0].seq });
 await send(sessions.plan, "Carry on");
+// The session a phone makes work for minutes (`work running`, or a message with "keep working" in it),
+// so a turn under way holds still long enough to be looked at.
+sessions.running = await session(site.id, "claude", "claude-opus-5-5", "Review the composer redesign");
+await send(sessions.running, "Read the composer redesign");
+// The other profiles: School's lectures and problem sets, with a proof waiting on a permission, and
+// Personal's trip and kitchen.
+for (const [key, spaceId, agent, model, title, text] of [
+  ["lecture", lectures.id, "claude", "claude-sonnet-5", "Notes from the compilers lecture", "Summarise the compilers lecture"],
+  ["flashcards", lectures.id, "codex", "gpt-6-luna", "Flashcards for the midterm", "Make flashcards for the midterm"],
+  ["outline", lectures.id, "claude", "claude-opus-5-5", "The course outline", "Outline the course"],
+  ["feedback", problems.id, "claude", "claude-opus-5-5", "Problem set 3 feedback", "Go through the feedback on problem set 3"],
+  ["proof", problems.id, "claude", "claude-opus-5-5", "Check the proof for question 2", "Check my proof for question 2"],
+  ["hotel", trip.id, "codex", "gpt-6-astra", "Book a hotel near Alfama", "Find a hotel near Alfama"],
+  ["dinners", kitchen.id, "claude", "claude-haiku-4-5", "This week's dinners", "Plan this week's dinners"],
+  ["gifts", kitchen.id, "claude", "claude-sonnet-5", "Gift ideas for Mum", "Think of gift ideas"],
+] as const) {
+  sessions[key] = await session(spaceId, agent, model, title);
+  await send(sessions[key]!, text);
+}
+// When each was last active, so Home's "Most recent" and "By day" (Today, Yesterday, Previous 7 days,
+// Earlier) all have rows: set on this scratch home's own database, at a fixed hour of a day counted
+// back from today. The rest stay today's.
+const dayAt = (daysAgo: number, hour: number): number => {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - daysAgo);
+  d.setHours(hour);
+  return d.getTime();
+};
+const aged: [string, number][] = [
+  [sessions["Tidy the settings page"]!, dayAt(1, 16)], [sessions.flashcards!, dayAt(1, 11)], [sessions.gifts!, dayAt(1, 20)],
+  [sessions["Ship 2.0.3"]!, dayAt(3, 10)], [sessions.feedback!, dayAt(4, 14)], [sessions.hotel!, dayAt(5, 9)],
+  [sessions["Audit the sign-in sheet"]!, dayAt(12, 15)], [sessions.outline!, dayAt(18, 10)], [sessions.dinners!, dayAt(20, 18)],
+  [sessions["Fix the flaky upload test"]!, dayAt(30, 13)],
+];
+execFileSync("sqlite3", ["-cmd", ".timeout 5000", join(server.home, "realm.db"), aged.map(([id, at]) => {
+  if (!/^[0-9A-Z]{26}$/.test(id)) throw new Error(`not a session id: ${id}`);
+  return `UPDATE sessions SET updated_at = ${at}, activity_at = ${at}, created_at = ${at - 2 * 3_600_000} WHERE id = '${id}';`;
+}).join("\n")], { stdio: "pipe" });
 
 await waitFor("the relay link", async () => gw.state === "connected");
 let pairing = gw.openPairing();
-console.log(JSON.stringify({ pairLink: pairing.url, relay: relay.url, home: server.home, sessions }));
-say(`staged on ${server.home}; relay ${relay.url}. Commands: sleep · wake · relay-down · relay-up · pair · send <key> <text> · quit`);
+const profiles = { Work: work.id, School: school.id, Personal: personal.id };
+const spaces = Object.fromEntries([realm, site, laya, lectures, problems, trip, kitchen].map((sp) => [sp.name, sp.id]));
+console.log(JSON.stringify({ pairLink: pairing.url, relay: relay.url, home: server.home, sessions, profiles, spaces }));
+const COMMANDS = "sleep · wake · relay-down · relay-up · pair · send <key> <text> · work <key> · midturn queue|steer · quit";
+say(`staged on ${server.home}; relay ${relay.url}. Commands: ${COMMANDS}`);
 
 /** One `xcrun simctl` call; resolves to its exit code. */
 const simctl = (args: string[]): Promise<number> => new Promise((done) => {
@@ -280,8 +356,10 @@ function interactive(): void {
       else if (cmd === "relay-up") { relay = relayOn(port); await relay.ready; say("relay up"); }
       else if (cmd === "pair") { pairing = gw.openPairing(); console.log(JSON.stringify({ pairLink: pairing.url })); }
       else if (cmd === "send") { await rpc.call("sessions.send", { id: sessions[key ?? ""] ?? key ?? "", text: rest.join(" ") }); say("sent"); }
+      else if (cmd === "work") { await rpc.call("sessions.send", { id: sessions[key ?? ""] ?? key ?? "", text: "keep working on the composer review" }); say("working"); }
+      else if (cmd === "midturn" && (key === "queue" || key === "steer")) { await rpc.call("settings.set", { key: "sessions.midTurnMode", value: key }); say(`mid-turn: ${key}`); }
       else if (cmd === "quit") { await shutdown(); }
-      else if (cmd) say("commands: sleep · wake · relay-down · relay-up · pair · send <key> <text> · quit");
+      else if (cmd) say(`commands: ${COMMANDS}`);
     } catch (e) {
       say(`error: ${(e as Error).message}`);
     }
