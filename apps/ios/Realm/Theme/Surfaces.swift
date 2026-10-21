@@ -16,6 +16,8 @@ enum Radius {
     static let bubble: CGFloat = 20
     /// The composer: a capsule while it holds one line, and the same curve as it grows.
     static let composer: CGFloat = 24
+    /// A photo or a file going with a message, in the composer's strip and under the message sent.
+    static let thumbnail: CGFloat = 12
 }
 
 /// The grounds things stand on. Both faces keep one depth order — the ground, then a card a step

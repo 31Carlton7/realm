@@ -14,7 +14,11 @@ struct TranscriptRowView: View {
     var body: some View {
         switch row.content {
         case .user(let text):
-            UserBubble(text: text)
+            VStack(alignment: .trailing, spacing: 6) {
+                if !text.isEmpty { UserBubble(text: text) }
+                if let files = row.sentFiles, !files.isEmpty { SentFiles(files: files, sessionId: sessionId) }
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
         case .assistant(let text, let streaming):
             VStack(alignment: .leading, spacing: 8) {
                 MarkdownView(text)
@@ -70,9 +74,11 @@ struct UserBubble: View {
     }
 }
 
-/// A message on its way: Sending… until the Mac has it, and what is in the way when it cannot go.
+/// A message on its way: Sending… until the Mac has it, and what is in the way when it cannot go. The
+/// files it takes show under it from this phone's own copies.
 struct OutgoingMessageView: View {
     let item: OutgoingItem
+    @Environment(AppModel.self) private var model
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
@@ -84,8 +90,11 @@ struct OutgoingMessageView: View {
                             .foregroundStyle(Palette.red)
                             .accessibilityHidden(true)
                     }
-                    UserBubble(text: text)
+                    if !text.isEmpty { UserBubble(text: text) }
                 }
+            }
+            if !item.attachments.isEmpty {
+                OutgoingFiles(attachments: item.attachments, files: model.store.files)
             }
             OutgoingStatusView(item: item)
         }
@@ -771,7 +780,7 @@ struct MadeFilesRow: View {
             .scrollIndicators(.hidden)
         }
         .sheet(item: $previewing) { file in
-            FilePreviewSheet(file: file, sessionId: sessionId)
+            FilePreviewSheet(path: file.path, name: file.name, sessionId: sessionId, size: file.size)
         }
     }
 }
