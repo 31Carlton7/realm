@@ -1,5 +1,6 @@
 import ImageIO
 import RealmKit
+import SwiftUI
 import Testing
 import UIKit
 import UniformTypeIdentifiers
@@ -166,5 +167,23 @@ struct SettingWordsTests {
         #expect(SettingWords.line(.plan) == "Plans first, and changes nothing until you approve the plan.")
         #expect(SettingWords.line(permission: "acceptEdits") == "Edits files without asking, and asks before commands.")
         #expect(SettingWords.line(permission: "someOtherRung") == nil)
+    }
+}
+
+@MainActor
+@Suite("A sent message's pictures")
+struct TrailingFlowTests {
+    /// Six photos as big as they grow wrap into rows that fit the column, rather than run off it and
+    /// push the whole transcript wider than the screen.
+    @Test func picturesWrapIntoRowsThatFitTheColumn() {
+        let side = SentPicture.largest
+        let tiles = TrailingFlow(spacing: 6) {
+            ForEach(0..<6, id: \.self) { _ in Color.gray.frame(width: side, height: side) }
+        }
+        let size = UIHostingController(rootView: tiles).sizeThatFits(in: CGSize(width: 370, height: 2_000))
+        #expect(size.width == side * 2 + 6)
+        #expect(size.height == side * 3 + 6 * 2)
+        let roomy = UIHostingController(rootView: tiles).sizeThatFits(in: CGSize(width: 1_000, height: 2_000))
+        #expect(roomy.height == side, "with room for all six, they are one row")
     }
 }

@@ -342,12 +342,8 @@ private struct AddMenu: View {
 
     private func item(_ title: String, _ symbol: String, _ kind: AttachmentPick, full: Bool) -> some View {
         Button { pick(kind) } label: {
-            Label {
-                Text(title)
-                if full { Text(AttachmentLimits.full(limits)) }
-            } icon: {
-                Image(systemName: symbol)
-            }
+            Label(title, systemImage: symbol)
+            if full { Text(AttachmentLimits.full(limits)) }
         }
         .disabled(full)
     }
@@ -372,13 +368,10 @@ private struct PrimaryButton: View {
             } else {
                 Menu {
                     ForEach(action.alternatives, id: \.self) { other in
+                        // A second line of words in an item's label is what a menu draws under its title.
                         Button(role: other == .stop ? .destructive : nil) { perform(other) } label: {
-                            Label {
-                                Text(other.title)
-                                if let line = other.explanation(steerNote: steerNote) { Text(line) }
-                            } icon: {
-                                Image(systemName: other.symbol)
-                            }
+                            Label(other.title, systemImage: other.symbol)
+                            if let line = other.explanation(steerNote: steerNote) { Text(line) }
                         }
                         .disabled(other == .stop && !connected)
                     }

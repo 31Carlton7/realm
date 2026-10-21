@@ -286,7 +286,7 @@ struct SentFiles: View {
         let others = files.filter { !$0.isImage }
         VStack(alignment: .trailing, spacing: 6) {
             if !pictures.isEmpty {
-                HStack(spacing: 6) {
+                TrailingFlow(spacing: 6) {
                     ForEach(pictures, id: \.path) { file in
                         Button { previewing = file } label: {
                             SentPicture(file: file, sessionId: sessionId)
@@ -327,9 +327,9 @@ struct OutgoingFiles: View {
         let pictures = attachments.filter(\.isImage)
         VStack(alignment: .trailing, spacing: 6) {
             if !pictures.isEmpty {
-                HStack(spacing: 6) {
+                TrailingFlow(spacing: 6) {
                     ForEach(pictures) { attachment in
-                        LocalThumbnail(url: files.url(of: attachment), side: side)
+                        LocalThumbnail(url: files.url(of: attachment), side: min(side, SentPicture.largest))
                             .pictureTile()
                             .accessibilityLabel(attachment.name)
                     }
@@ -351,11 +351,14 @@ struct SentPicture: View {
     @Environment(\.displayScale) private var displayScale
     @ScaledMetric(relativeTo: .body) private var side: CGFloat = SentPicture.side
 
-    /// A sent picture's side at the default text size.
+    /// A sent picture's side at the default text size, and the most it grows to with the text: it is a
+    /// picture, and a row of them has to fit the column.
     static let side: CGFloat = 88
+    static let largest: CGFloat = 120
 
     var body: some View {
         let thumbnail = model.thumbnail(file.path, in: sessionId)
+        let side = min(self.side, Self.largest)
         ZStack {
             Rectangle().fill(Fill.bubble)
             if let thumbnail {
@@ -372,7 +375,56 @@ struct SentPicture: View {
         .frame(width: side, height: side)
         .pictureTile()
         .animation(.easeOut(duration: 0.2), value: thumbnail != nil)
-        .task(id: file.path) { await model.loadThumbnail(file.path, in: sessionId, side: side * displayScale) }
+        // Asked again once the Mac is there: a transcript kept from before draws before it connects.
+        .task(id: model.isConnected) { await model.loadThumbnail(file.path, in: sessionId, side: side * displayScale) }
+    }
+}
+
+/// Tiles in rows from the right, as a sent message's pictures sit under it: as many to a row as fit,
+/// the rest on the rows under, so six photos never run off the column at any text size.
+struct TrailingFlow: Layout {
+    var spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = rows(width: proposal.width ?? .infinity, subviews: subviews)
+        let height = rows.map(\.height).reduce(0, +) + spacing * CGFloat(max(0, rows.count - 1))
+        return CGSize(width: rows.map(\.width).max() ?? 0, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in rows(width: bounds.width, subviews: subviews) {
+            var x = bounds.maxX - row.width
+            for index in row.indices {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += row.height + spacing
+        }
+    }
+
+    private struct Row {
+        var indices: [Int] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    private func rows(width: CGFloat, subviews: Subviews) -> [Row] {
+        var rows: [Row] = []
+        var row = Row()
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            if !row.indices.isEmpty, row.width + spacing + size.width > width {
+                rows.append(row)
+                row = Row()
+            }
+            row.width += (row.indices.isEmpty ? 0 : spacing) + size.width
+            row.height = max(row.height, size.height)
+            row.indices.append(index)
+        }
+        if !row.indices.isEmpty { rows.append(row) }
+        return rows
     }
 }
 
