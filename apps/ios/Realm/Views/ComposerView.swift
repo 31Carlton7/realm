@@ -117,7 +117,7 @@ struct ComposerView: View {
                                     hasContent: ComposerAction.hasContent(text: text, attachments: attachments),
                                     midTurn: options?.midTurn, canSteer: options != nil)
         ComposerLayout(card: composing) {
-            if composing, !attachments.isEmpty || preparing > 0 {
+            if !attachments.isEmpty || preparing > 0 {
                 AttachmentStrip(attachments: attachments, preparing: preparing, files: model.store.files,
                                 open: preview, remove: { model.removeAttachment($0, from: sessionId) })
                     .layoutValue(key: ComposerPart.self, value: .strip)
@@ -359,8 +359,7 @@ private struct PrimaryButton: View {
 
     var body: some View {
         let kind = action.kind
-        // Stop has to reach the Mac: while it is away, Stop keeps its place, greyed. A message waits.
-        let away = kind == .stop && !connected
+        let away = unreachable(kind)
         Group {
             if action.alternatives.isEmpty {
                 Button { perform(kind) } label: { glyph }
@@ -373,7 +372,7 @@ private struct PrimaryButton: View {
                             Label(other.title, systemImage: other.symbol)
                             if let line = other.explanation(steerNote: steerNote) { Text(line) }
                         }
-                        .disabled(other == .stop && !connected)
+                        .disabled(unreachable(other))
                     }
                 } label: {
                     glyph
@@ -394,6 +393,11 @@ private struct PrimaryButton: View {
         .accessibilityShowsLargeContentViewer {
             Label(kind.title, systemImage: kind.symbol)
         }
+    }
+
+    /// Stop has to reach the Mac: while it is away, Stop keeps its place, greyed. A message waits.
+    private func unreachable(_ kind: ComposerAction.Kind) -> Bool {
+        kind == .stop && !connected
     }
 
     private var glyph: some View {

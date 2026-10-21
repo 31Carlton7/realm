@@ -195,6 +195,7 @@ struct SessionSettingsSheet: View {
         let options = model.sessionOptions[sessionId]
         let session = model.store.transcript(sessionId).session
         let away = !model.isConnected
+        let title = options?.agent.name ?? session?.agentDisplayName ?? "Session"
         NavigationStack {
             Form {
                 if away {
@@ -227,14 +228,14 @@ struct SessionSettingsSheet: View {
             }
             .scrollContentBackground(.hidden)
             .background(Ground.grouped)
-            .navigationTitle(options?.agent.name ?? session?.agentDisplayName ?? "Session")
+            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     HStack(spacing: 6) {
                         AgentMark(kind: options?.agent.kind ?? session?.agent ?? "", mark: options?.agent.mark ?? session?.agentMark,
                                   colored: true, size: 17, relativeTo: .headline)
-                        Text(options?.agent.name ?? session?.agentDisplayName ?? "Session")
+                        Text(title)
                             .font(.headline)
                             .foregroundStyle(Palette.ink)
                     }
