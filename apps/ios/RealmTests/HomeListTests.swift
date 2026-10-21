@@ -212,8 +212,8 @@ struct ProfileScopeTests {
     @Test func eachProfileCountsWhatNeedsYouInIt() {
         #expect(HomeListing.needing(Staged.home) == ["work": 2, "school": 2])
         #expect(HomeListing.needing(Staged.olderHome).isEmpty)
-        #expect(ProfileWaiting.count(1) == "1 needs you")
-        #expect(ProfileWaiting.count(2) == "2 need you")
+        #expect(ProfileWaiting.needYou(1) == "1 needs you")
+        #expect(ProfileWaiting.needYou(2) == "2 need you")
         #expect(ProfileWaiting(profile: Staged.profiles[1], count: 1).words == "1 needs you in School")
     }
 

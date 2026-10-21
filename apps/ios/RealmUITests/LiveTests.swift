@@ -448,8 +448,8 @@ final class LiveTests: XCTestCase {
         shot("\(prefix)-by-day")
         viewOption("By space")
         let realm = app.buttons["Realm"]
-        for _ in 0..<6 where !realm.isHittable { app.swipeUp(velocity: .slow) }
-        realm.tap()
+        for _ in 0..<6 where !realm.exists { app.swipeUp(velocity: .slow) }
+        pressClearOfTheBars(realm)
         XCTAssert(app.navigationBars["Realm"].waitForExistence(timeout: 10), "the space's head did not open its page")
         sleep(2)
         shot("\(prefix)-space-page")
@@ -547,14 +547,20 @@ final class LiveTests: XCTestCase {
             for _ in 0..<12 where !row.exists { app.swipeUp(velocity: .slow) }
         }
         XCTAssert(row.exists, "no row for \(title)")
+        pressClearOfTheBars(row)
+    }
+
+    /// Scrolls until an element's head is clear of the bars, and presses it there.
+    @MainActor
+    private func pressClearOfTheBars(_ element: XCUIElement) {
         let screen = app.windows.firstMatch.frame
         let clear = (screen.minY + 180)...(screen.maxY - 220)
         for _ in 0..<12 {
-            let head = row.frame.minY + 24
+            let head = element.frame.minY + 24
             if clear.contains(head) { break }
             if head > clear.upperBound { app.swipeUp(velocity: .slow) } else { app.swipeDown(velocity: .slow) }
         }
-        row.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: row.frame.width / 2, dy: 24)).tap()
+        element.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: element.frame.width / 2, dy: 24)).tap()
     }
 
     @MainActor

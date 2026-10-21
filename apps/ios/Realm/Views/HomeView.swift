@@ -390,17 +390,15 @@ private struct ProfileMenu: View {
     var body: some View {
         let withSpaces = Set(home.spaces.compactMap(\.profileId))
         let selection = Binding(get: { choice }, set: { model.choose($0) })
-        Section {
-            ForEach(profiles) { profile in
-                Toggle(isOn: chosen(.profile(profile.id), of: selection)) {
-                    Self.item(profile.name, note: ProfileWaiting.note(for: profile, in: home), mark: ProfileMark.image(profile))
-                }
-                .disabled(!withSpaces.contains(profile.id))
+        ForEach(profiles) { profile in
+            Toggle(isOn: chosen(.profile(profile.id), of: selection)) {
+                Self.item(profile.name, note: ProfileWaiting.note(for: profile, in: home), mark: ProfileMark.image(profile))
             }
-            Toggle(isOn: chosen(.all, of: selection)) {
-                Self.item("All profiles", note: home.needsYou.isEmpty ? nil : ProfileWaiting.count(home.needsYou.count),
-                          mark: Image(systemName: "square.stack"))
-            }
+            .disabled(!withSpaces.contains(profile.id))
+        }
+        Toggle(isOn: chosen(.all, of: selection)) {
+            Self.item("All profiles", note: home.needsYou.isEmpty ? nil : ProfileWaiting.needYou(home.needsYou.count),
+                      mark: Image(systemName: "square.stack"))
         }
     }
 
@@ -502,7 +500,8 @@ private struct ViewOptionsMenu: View {
 }
 
 /// One of a choice's options, as a menu checks it: on while it is the one chosen, and choosing it when
-/// pressed. A picker would say the same, and a menu draws its options with no title over them.
+/// pressed. A picker says the same, but a menu draws a picker's options with no title over them and no
+/// second line under each.
 func chosen<Value: Equatable>(_ option: Value, of choice: Binding<Value>) -> Binding<Bool> {
     Binding(get: { choice.wrappedValue == option }, set: { if $0 { choice.wrappedValue = option } })
 }

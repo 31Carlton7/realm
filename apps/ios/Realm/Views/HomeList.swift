@@ -112,6 +112,11 @@ enum ProfileChoice: Hashable {
         return .profile((profiles.first { withSpaces.contains($0.id) } ?? profiles[0]).id)
     }
 
+    /// A space this choice shows: any, for all profiles; else one of the profile's own.
+    func includes(_ space: Space) -> Bool {
+        self == .all || space.profileId == profileId
+    }
+
     /// Home's title: the profile's name, "All profiles", or "Sessions" where there is nothing to switch.
     func title(in home: Home?) -> String {
         guard let profiles = home?.profiles, profiles.count > 1 else { return "Sessions" }
@@ -188,10 +193,10 @@ struct ProfileWaiting: Identifiable, Equatable {
     var id: String { profile.id }
 
     /// "2 need you in School"
-    var words: String { "\(Self.count(count)) in \(profile.name)" }
+    var words: String { "\(Self.needYou(count)) in \(profile.name)" }
 
     /// "1 needs you", "2 need you": Needs you lists failures beside requests, so not "waiting".
-    static func count(_ count: Int) -> String {
+    static func needYou(_ count: Int) -> String {
         count == 1 ? "1 needs you" : "\(count) need you"
     }
 
@@ -200,7 +205,7 @@ struct ProfileWaiting: Identifiable, Equatable {
     static func note(for profile: Profile, in home: Home) -> String? {
         guard home.spaces.contains(where: { $0.profileId == profile.id }) else { return "No spaces" }
         let count = HomeListing.needing(home)[profile.id] ?? 0
-        return count > 0 ? Self.count(count) : nil
+        return count > 0 ? Self.needYou(count) : nil
     }
 }
 
@@ -222,7 +227,7 @@ struct HomeListing {
         let spacesById = Dictionary(home.spaces.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         self.spacesById = spacesById
         let inScope = { (row: SessionRow) in
-            choice == .all || spacesById[row.spaceId]?.profileId == choice.profileId
+            spacesById[row.spaceId].map(choice.includes) ?? (choice == .all)
         }
         let matches = { (row: SessionRow) in row.matches(words) }
         let waiting = home.needsYou.filter(inScope)
@@ -232,7 +237,7 @@ struct HomeListing {
         switch options.style {
         case .bySpace:
             let bySpace = Dictionary(grouping: waiting, by: \.spaceId)
-            var spaces = home.spaces.filter { choice == .all || $0.profileId == choice.profileId }.map { space in
+            var spaces = home.spaces.filter(choice.includes).map { space in
                 // Off, Needs you is no section of its own: a space holds what waits in it, even a
                 // session older than the newest few it lists.
                 (space, options.needsYouFirst ? space.sessions : space.sessions.merging(bySpace[space.id] ?? []))
@@ -265,7 +270,7 @@ struct HomeListing {
     /// space's newest and Needs you — so a switch lists something at once, until the Mac answers.
     static func recent(_ home: Home, choice: ProfileChoice) -> [SessionRow] {
         if let recent = home.recent, home.profileId == choice.profileId { return recent }
-        let spaces = home.spaces.filter { choice == .all || $0.profileId == choice.profileId }
+        let spaces = home.spaces.filter(choice.includes)
         let ids = Set(spaces.map(\.id))
         let waiting = home.needsYou.filter { choice == .all || ids.contains($0.spaceId) }
         return spaces.flatMap(\.sessions).merging(waiting)
