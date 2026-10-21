@@ -34,6 +34,9 @@ struct SettingsSheet: View {
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var confirmingForget = false
+    @AppStorage(ListOptions.Key.style) private var style = ListStyle.bySpace
+    @AppStorage(ListOptions.Key.spaceOrder) private var spaceOrder = SpaceOrder.asOnMac
+    @AppStorage(ListOptions.Key.needsYouFirst) private var needsYouFirst = true
 
     var body: some View {
         Form {
@@ -61,6 +64,30 @@ struct SettingsView: View {
                 } footer: {
                     Text("Forgets it on this iPhone only. Your Mac lists this iPhone until you remove it in Settings ▸ Devices there.")
                 }
+            }
+
+            // Home's View options menu says the same, on the same keys.
+            Section {
+                Picker("List", selection: $style) {
+                    ForEach(ListStyle.allCases) { style in
+                        Text(style.title).tag(style)
+                    }
+                }
+                .listRowBackground(Fill.card)
+                if style == .bySpace {
+                    Picker("Order spaces", selection: $spaceOrder) {
+                        ForEach(SpaceOrder.allCases) { order in
+                            Text(order.title).tag(order)
+                        }
+                    }
+                    .listRowBackground(Fill.card)
+                }
+                Toggle("Needs you first", isOn: $needsYouFirst)
+                    .listRowBackground(Fill.card)
+            } header: {
+                Text("Session list")
+            } footer: {
+                Text(style.explanation)
             }
 
             Section {
