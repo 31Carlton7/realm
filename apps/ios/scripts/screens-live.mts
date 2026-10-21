@@ -312,8 +312,9 @@ async function runUiTests(): Promise<boolean> {
   if (!process.argv.includes("--no-build") && await xcodebuild(["build-for-testing", ...common]) !== 0) { say("the UI tests did not build"); return false; }
   const results: [string, boolean][] = [];
   const only = arg("phases")?.split(",");
+  const runs = (test: string) => !only || only.includes(test);
   const phase = async (test: string, env: Record<string, string> = {}) => {
-    if (only && !only.includes(test)) return;
+    if (!runs(test)) return;
     say(`— ${test}`);
     const code = await xcodebuild(["test-without-building", ...common, `-only-testing:RealmUITests/LiveTests/${test}`],
       { TEST_RUNNER_SHOTS: shots, ...env });
@@ -354,7 +355,6 @@ async function runUiTests(): Promise<boolean> {
   // The composer (Plan 29 §1): at rest and composing, its settings changed on the Mac, photos sent —
   // one as the camera hands it over, one picked from the library — Stop and Queue on a turn under way;
   // then dark, the largest text size and Reduce Transparency.
-  const runs = (test: string) => !only || only.includes(test);
   const photo = join(server.home, "staged-photo.jpg");
   execFileSync("sips", ["-s", "format", "jpeg", join(repoRoot, "site/public/product/connections-1440.webp"), "--out", photo], { stdio: "pipe" });
   const composer = { TEST_RUNNER_COMPOSER_SESSION: sessions.markdown!, TEST_RUNNER_RUNNING_SESSION: sessions.running!, TEST_RUNNER_STAGED_PHOTO: photo };
