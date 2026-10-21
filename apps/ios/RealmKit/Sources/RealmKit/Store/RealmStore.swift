@@ -16,7 +16,12 @@ public final class RealmStore {
     /// When Home was last fresh from the Mac; nil while it is live on this connection.
     public private(set) var homeSavedAt: Date?
     public private(set) var transcripts: [String: Transcript] = [:]
-    public private(set) var outbox = Outbox()
+    public private(set) var outbox = Outbox() {
+        // A message's files go with it: once it settles, or is taken back.
+        didSet { files.remove(oldValue.attachments.subtracting(outbox.attachments)) }
+    }
+    /// Where the files of messages being written and waiting to go are kept.
+    public let files: OutboxFiles
     /// Question cards answered part way, by request id: put away, not sent.
     public private(set) var drafts: [String: AnswerDraft] = [:]
     public var latency = LatencySamples()
@@ -29,8 +34,9 @@ public final class RealmStore {
     /// The seq each session was last marked read up to, by this phone.
     @ObservationIgnored private var seenUpTo: [String: Int] = [:]
 
-    public init(pairedMac: PairedMac? = nil) {
+    public init(pairedMac: PairedMac? = nil, files: OutboxFiles = OutboxFiles()) {
         self.pairedMac = pairedMac
+        self.files = files
     }
 
     public func linkStatus(now: Date = Date()) -> LinkStatus {
@@ -161,11 +167,13 @@ public final class RealmStore {
 
     // MARK: - What waits to be sent
 
-    /// A message, in line behind anything the session already has waiting.
+    /// A message, in line behind anything the session already has waiting, with the files it takes
+    /// (kept in `files` already) and what it does if a turn is under way when it arrives.
     @discardableResult
-    public func enqueueMessage(_ text: String, in sessionId: String, at date: Date = Date()) -> OutgoingItem {
+    public func enqueueMessage(_ text: String, attachments: [OutgoingAttachment] = [], delivery: Delivery = .auto,
+                               in sessionId: String, at date: Date = Date()) -> OutgoingItem {
         let item = OutgoingItem(sessionId: sessionId, payload: .message(text: text), createdAt: date,
-                                afterSeq: transcript(sessionId).lastSeq)
+                                afterSeq: transcript(sessionId).lastSeq, attachments: attachments, delivery: delivery)
         outbox.add(item)
         return item
     }
@@ -200,6 +208,8 @@ public final class RealmStore {
 
     public func restoreOutbox(_ saved: [OutgoingItem]) {
         outbox = Outbox.restored(saved)
+        // Any other file was a draft's when the app last went, or a message's the Mac already had.
+        files.removeAll(except: Set(outbox.attachments.map(\.file)))
     }
 
     public func settleOutbox(in sessionId: String) {

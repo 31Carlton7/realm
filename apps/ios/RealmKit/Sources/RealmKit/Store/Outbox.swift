@@ -34,9 +34,16 @@ public struct OutgoingItem: Codable, Sendable, Identifiable, Equatable {
     /// `answers` are the same answers as words, by question, for the card to show while it travels.
     /// Nil on an item saved before answers had keys: its words are sent as they are.
     public let answerValues: [String: AnswerValue]?
+    /// The files a message takes, each waiting in `OutboxFiles` until the Mac has it. None on an answer,
+    /// or on an item saved before messages took files.
+    public let attachments: [OutgoingAttachment]
+    /// What a message does if it reaches a turn under way: whatever the Mac is set to (`auto`), or what
+    /// the person chose. `auto` on an item saved before there was a choice.
+    public let delivery: Delivery
 
     public init(id: UUID = UUID(), sessionId: String, payload: Payload, createdAt: Date = Date(), state: State = .waiting,
-                afterSeq: Int, answerValues: [String: AnswerValue]? = nil) {
+                afterSeq: Int, answerValues: [String: AnswerValue]? = nil, attachments: [OutgoingAttachment] = [],
+                delivery: Delivery = .auto) {
         self.id = id
         self.sessionId = sessionId
         self.payload = payload
@@ -44,6 +51,26 @@ public struct OutgoingItem: Codable, Sendable, Identifiable, Equatable {
         self.state = state
         self.afterSeq = afterSeq
         self.answerValues = answerValues
+        self.attachments = attachments
+        self.delivery = delivery
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, sessionId, payload, createdAt, state, afterSeq, answerValues, attachments, delivery
+    }
+
+    /// An outbox saved by an earlier build still reads: what it did not know about is absent.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        sessionId = try c.decode(String.self, forKey: .sessionId)
+        payload = try c.decode(Payload.self, forKey: .payload)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        state = try c.decode(State.self, forKey: .state)
+        afterSeq = try c.decode(Int.self, forKey: .afterSeq)
+        answerValues = try c.decodeIfPresent([String: AnswerValue].self, forKey: .answerValues)
+        attachments = try c.decodeIfPresent([OutgoingAttachment].self, forKey: .attachments) ?? []
+        delivery = try c.decodeIfPresent(Delivery.self, forKey: .delivery) ?? .auto
     }
 
     public var isMessage: Bool {
@@ -71,6 +98,28 @@ public struct OutgoingItem: Codable, Sendable, Identifiable, Equatable {
 
     /// After this long nothing is sent on its own; the person decides.
     public static let maxAge: TimeInterval = 24 * 60 * 60
+}
+
+/// A file going with a message: what the Mac is told it is, and the file on this phone that holds it.
+public struct OutgoingAttachment: Codable, Sendable, Hashable, Identifiable {
+    public let id: UUID
+    /// What the Mac names it by: the file's own name, or "Photo.jpg" for a photo.
+    public let name: String
+    public let mime: String
+    /// Its size in bytes, which the Mac's limits are counted in.
+    public let size: Int
+    /// The file holding its bytes, in `OutboxFiles`' folder.
+    public let file: String
+
+    public init(id: UUID, name: String, mime: String, size: Int, file: String) {
+        self.id = id
+        self.name = name
+        self.mime = mime
+        self.size = size
+        self.file = file
+    }
+
+    public var isImage: Bool { mime.hasPrefix("image/") }
 }
 
 /// The queue of what the person gave, in the order they gave it. It decides nothing about the
@@ -109,6 +158,11 @@ public struct Outbox: Sendable, Equatable {
     /// The answer on its way for a request, if one is.
     public func answer(for requestId: String) -> OutgoingItem? {
         items.first { $0.requestId == requestId }
+    }
+
+    /// Every file a message still waiting here takes.
+    public var attachments: Set<OutgoingAttachment> {
+        Set(items.flatMap(\.attachments))
     }
 
     public mutating func add(_ item: OutgoingItem) {
@@ -153,7 +207,8 @@ public struct Outbox: Sendable, Equatable {
     }
 
     /// Pairs a session's items with the transcript, oldest first: each message with the first row
-    /// after it that holds its words and no earlier item has taken, each answer with its request.
+    /// after it that holds its words and as many files, and no earlier item has taken; each answer
+    /// with its request.
     public func arrivals(in transcript: Transcript, for sessionId: String) -> [UUID: Arrival] {
         var found: [UUID: Arrival] = [:]
         var taken = settledBy
@@ -164,7 +219,8 @@ public struct Outbox: Sendable, Equatable {
                 let wanted = Self.normalized(text)
                 let row = transcript.rows.first { row in
                     guard row.seq > item.afterSeq, !taken.contains(row.key), case .user(let sent) = row.content else { return false }
-                    return Self.normalized(sent) == wanted
+                    // Photos sent alone have no words: their count tells them from another message.
+                    return Self.normalized(sent) == wanted && (row.sentFiles?.count ?? 0) == item.attachments.count
                 }
                 if let row {
                     taken.insert(row.key)
