@@ -395,12 +395,12 @@ private struct ProfileMenu: View {
         let withSpaces = Set(home.spaces.compactMap(\.profileId))
         let selection = Binding(get: { choice }, set: { model.choose($0) })
         ForEach(profiles) { profile in
-            Toggle(isOn: chosen(.profile(profile.id), of: selection)) {
+            Toggle(isOn: selection.isChosen(.profile(profile.id))) {
                 Self.item(profile.name, note: ProfileWaiting.note(for: profile, in: home), mark: ProfileMark.image(profile))
             }
             .disabled(!withSpaces.contains(profile.id))
         }
-        Toggle(isOn: chosen(.all, of: selection)) {
+        Toggle(isOn: selection.isChosen(.all)) {
             Self.item("All profiles", note: home.needsYou.isEmpty ? nil : ProfileWaiting.needYou(home.needsYou.count),
                       mark: Image(systemName: "square.stack"))
         }
@@ -481,7 +481,7 @@ private struct ViewOptionsMenu: View {
         Menu {
             Section("List") {
                 ForEach(ListStyle.allCases) { option in
-                    Toggle(isOn: chosen(option, of: $style)) {
+                    Toggle(isOn: $style.isChosen(option)) {
                         Label(option.title, systemImage: option.symbol)
                     }
                 }
@@ -489,7 +489,7 @@ private struct ViewOptionsMenu: View {
             if style == .bySpace {
                 Section("Order spaces") {
                     ForEach(SpaceOrder.allCases) { order in
-                        Toggle(order.title, isOn: chosen(order, of: $spaceOrder))
+                        Toggle(order.title, isOn: $spaceOrder.isChosen(order))
                     }
                 }
             }
@@ -503,11 +503,13 @@ private struct ViewOptionsMenu: View {
     }
 }
 
-/// One of a choice's options, as a menu checks it: on while it is the one chosen, and choosing it when
-/// pressed. A picker says the same, but a menu draws a picker's options with no title over them and no
-/// second line under each.
-func chosen<Value: Equatable>(_ option: Value, of choice: Binding<Value>) -> Binding<Bool> {
-    Binding(get: { choice.wrappedValue == option }, set: { if $0 { choice.wrappedValue = option } })
+extension Binding where Value: Equatable {
+    /// One of this choice's options, as a menu checks it: on while it is the one chosen, and choosing
+    /// it when pressed. A picker says the same, but a menu draws a picker's options with no title over
+    /// them and no second line under each.
+    func isChosen(_ option: Value) -> Binding<Bool> {
+        Binding<Bool>(get: { wrappedValue == option }, set: { if $0 { wrappedValue = option } })
+    }
 }
 
 /// A session on Home: opens it, and stops its turn from a swipe or a press-and-hold.
