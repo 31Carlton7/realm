@@ -38,7 +38,7 @@ public struct OutboxFiles: Sendable {
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
         try folder.setResourceValues(values)
-        try bytes.write(to: directory.appending(path: file), options: [.atomic, .completeFileProtection])
+        try bytes.write(to: directory.appending(path: file), options: RealmCache.writingOptions)
         return OutgoingAttachment(id: id, name: name, mime: mime, size: bytes.count, file: file)
     }
 
@@ -62,8 +62,7 @@ public struct OutboxFiles: Sendable {
         for attachment in attachments { try? FileManager.default.removeItem(at: url(of: attachment)) }
     }
 
-    /// Deletes every file but those named: what a draft held when the app last went, and what a
-    /// message the Mac already had left behind.
+    /// Deletes every file but those named.
     public func removeAll(except kept: Set<String>) {
         guard let files = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { return }
         for file in files where !kept.contains(file) {
