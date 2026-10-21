@@ -27,13 +27,14 @@ export function refuseRealHome(home: string): void {
 }
 
 /** A gateway beside a built server, as Phase 1 ran it: its identity and phones in 0600 files under the
- *  scratch home's `remote/`, its calls dialled over loopback. The server's own Realm Mobile stays off
- *  beside it — it has no phones of its own, and no Electron to hand it a key. */
-export function scratchGateway(o: Omit<GatewayOptions, "identity" | "phones" | "reportsDir"> & { home: string }): RemoteGateway {
+ *  scratch home's `remote/`, its calls dialled over loopback, and the files a phone sends written into
+ *  that home, where the server's sessions read them. The server's own Realm Mobile stays off beside
+ *  it — it has no phones of its own, and no Electron to hand it a key. */
+export function scratchGateway(o: Omit<GatewayOptions, "identity" | "phones" | "reportsDir" | "realmHome"> & { home: string }): RemoteGateway {
   const { home, ...rest } = o;
   refuseRealHome(home);
   const store = new FileRemoteStore(home);
-  return new RemoteGateway({ ...rest, identity: store.identity(), phones: store, reportsDir: join(store.dir, "reports") });
+  return new RemoteGateway({ ...rest, identity: store.identity(), phones: store, reportsDir: join(store.dir, "reports"), realmHome: home });
 }
 
 /** `stop` resolves once the server has exited, so its scratch home can go after it. */

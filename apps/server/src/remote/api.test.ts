@@ -16,7 +16,7 @@ import type { RpcPort } from "./rpc-port";
  * is the server's own, and so what these hold, is the input it builds for that rule from its lists.
  */
 
-const api = (downscale?: Downscale) => new MobileApi({ macName: () => "Test Mac", reportsDir: "/nonexistent", dev: false, downscale });
+const api = (downscale?: Downscale, realmHome = "/nonexistent") => new MobileApi({ macName: () => "Test Mac", reportsDir: "/nonexistent", realmHome, dev: false, downscale });
 const home = async (h: Lists) => HomeSchema.parse(await api().handle(channel(fakeRpc(h)), "home.get", {}));
 
 describe("home.get's Needs you is the sidebar's", () => {
