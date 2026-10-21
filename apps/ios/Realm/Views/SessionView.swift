@@ -340,8 +340,8 @@ private struct SessionFoot: View {
         let transcript = model.store.transcript(sessionId)
         let pending = PendingRequest.first(in: transcript, outbox: model.store.outbox)
         let reviewable = TranscriptLayout.reviewable(transcript.rows)
-        let draft = model.composerDrafts[sessionId] ?? ""
-        let hint = draft.isEmpty ? transcript.hint.flatMap { $0.isEmpty ? nil : $0 } : nil
+        let empty = (model.composerDrafts[sessionId] ?? "").isEmpty && (model.draftAttachments[sessionId] ?? []).isEmpty
+        let hint = empty ? transcript.hint.flatMap { $0.isEmpty ? nil : $0 } : nil
         let docked = pending.map { folded != $0.request.requestId } ?? false
         // The pill rides in the bar rather than over the transcript, so the newest row is never under it.
         let pill = showsLatest || !model.shownLinkStatus.isConnected || (transcript.isLive && transcript.status == .running)

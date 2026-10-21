@@ -1,4 +1,5 @@
 import Observation
+import PhotosUI
 import RealmKit
 import SwiftUI
 import UIKit
@@ -56,6 +57,18 @@ final class AppModel {
     var replacingPairLink: String?
     /// What is typed in each session's composer and not sent yet: leaving a session keeps it.
     var composerDrafts: [String: String] = [:]
+    /// The files in each session's composer, not sent yet: leaving a session keeps them, as it keeps
+    /// the words.
+    private(set) var draftAttachments: [String: [OutgoingAttachment]] = [:]
+    /// Picked for a session's composer, and still being read or made smaller.
+    private(set) var preparingAttachments: [String: Int] = [:]
+    /// Each session's settings and what they could be, as its Mac last said: what the composer's chips
+    /// show. Asked when the session opens, and again when its settings sheet does.
+    private(set) var sessionOptions: [String: SessionOptions] = [:]
+    /// Sessions whose Mac has no `session.options`: an older one, which would drop a message's files.
+    private(set) var optionsUnanswered: Set<String> = []
+    /// The setting a change is on its way to the Mac for, by session.
+    private(set) var configuring: [String: SessionSetting] = [:]
     /// The person asked to pair again over the Mac this phone shows (after the Mac removed it).
     var pairingRequested = false
     private(set) var notificationStatus: UNAuthorizationStatus = .notDetermined
@@ -448,6 +461,7 @@ final class AppModel {
             store.restoreTranscript(sessionId, from: cached)
         }
         guard let api, isConnected else { return }
+        Task { await loadOptions(sessionId) }
         store.beginOpening(sessionId)
         do {
             store.finishOpening(try await api.openSession(id: sessionId))
@@ -468,13 +482,23 @@ final class AppModel {
         try? await api.closeSession(id: sessionId)
     }
 
-    /// A message, in line behind anything already waiting. It shows as Sending… until the Mac has it.
-    func send(_ text: String, to sessionId: String) {
+    /// A message, in line behind anything already waiting, with the files it takes and what it does if
+    /// a turn is under way when it arrives. It shows as Sending… until the Mac has it.
+    func send(_ text: String, attachments: [OutgoingAttachment] = [], delivery: Delivery = .auto, to sessionId: String) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        store.enqueueMessage(text, in: sessionId)
+        guard !text.isEmpty || !attachments.isEmpty else { return }
+        store.enqueueMessage(text, attachments: attachments, delivery: delivery, in: sessionId)
         saveOutbox()
         Task { await deliver(sessionId) }
+    }
+
+    /// Sends what is in a session's composer, words and files, and empties it.
+    func sendDraft(_ sessionId: String, delivery: Delivery) {
+        let text = composerDrafts[sessionId] ?? "", attachments = draftAttachments[sessionId] ?? []
+        guard ComposerAction.hasContent(text: text, attachments: attachments) else { return }
+        send(text, attachments: attachments, delivery: delivery, to: sessionId)
+        composerDrafts[sessionId] = nil
+        draftAttachments[sessionId] = nil
     }
 
     func answer(_ decision: Decision, to request: TranscriptRow.Request, in sessionId: String) {
@@ -514,6 +538,114 @@ final class AppModel {
         } catch {
             report(error)
         }
+    }
+
+    // MARK: - The composer
+
+    /// A session's settings and what they could be. A Mac before Plan 29 has no such call; its
+    /// sessions are noted, and their composer takes no files.
+    func loadOptions(_ sessionId: String) async {
+        guard let api, isConnected else { return }
+        do {
+            sessionOptions[sessionId] = try await api.options(id: sessionId)
+            optionsUnanswered.remove(sessionId)
+        } catch ChannelError.rpc(let error) where error.code == "METHOD_NOT_FOUND" {
+            optionsUnanswered.insert(sessionId)
+        } catch {
+            // The chips keep what they last knew, and the sheet asks again when it opens.
+        }
+    }
+
+    /// One change to a session's settings: shown at once, then as the Mac has it, or put back with a
+    /// toast where it refuses. One at a time, so putting one back never undoes a later one.
+    func configure(_ changes: SessionChanges, _ setting: SessionSetting, in sessionId: String) async {
+        guard configuring[sessionId] == nil, let before = sessionOptions[sessionId] else { return }
+        guard let api, isConnected else {
+            show(toast: "Connect to your Mac to change these.")
+            return
+        }
+        configuring[sessionId] = setting
+        sessionOptions[sessionId] = before.applying(changes)
+        do {
+            sessionOptions[sessionId] = try await api.configure(id: sessionId, changes)
+        } catch {
+            sessionOptions[sessionId] = before
+            show(toast: "\(setting.word) did not change. \(Self.describe(error))")
+        }
+        configuring[sessionId] = nil
+    }
+
+    /// Adds what was picked to a session's composer, each made ready and kept on this phone until it
+    /// is sent or taken out: a photo made a JPEG, a file read whole. What the Mac would refuse is left
+    /// out, and a toast says why.
+    func attach(_ sources: [AttachmentSource], to sessionId: String) async {
+        guard let limits = sessionOptions[sessionId]?.attachments, !sources.isEmpty else { return }
+        preparingAttachments[sessionId, default: 0] += sources.count
+        for source in sources {
+            let name = AttachmentNames.photo(besides: draftAttachments[sessionId] ?? [])
+            let outcome = await Task.detached(priority: .userInitiated) { await Self.prepare(source, photoName: name, limits: limits) }.value
+            let left = (preparingAttachments[sessionId] ?? 1) - 1
+            preparingAttachments[sessionId] = left > 0 ? left : nil
+            let prepared: PreparedFile
+            switch outcome {
+            case .success(let file): prepared = file
+            case .failure(let refusal):
+                show(toast: refusal.words)
+                continue
+            }
+            let taken = draftAttachments[sessionId] ?? []
+            if let refusal = AttachmentLimits.refusal(prepared.name, size: prepared.data.count, joining: taken, limits: limits) {
+                show(toast: refusal)
+                continue
+            }
+            do {
+                draftAttachments[sessionId, default: []].append(try store.files.keep(prepared.data, name: prepared.name, mime: prepared.mime))
+            } catch {
+                show(toast: "\(prepared.name) could not be kept on this iPhone. \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Takes a file out of a session's composer, and off this phone.
+    func removeAttachment(_ attachment: OutgoingAttachment, from sessionId: String) {
+        draftAttachments[sessionId]?.removeAll { $0.id == attachment.id }
+        store.files.remove([attachment])
+    }
+
+    /// A picked photo or file, ready to keep; or why it cannot go, in words. Off the main thread: a
+    /// photo takes a moment to make smaller, and a file to read.
+    private nonisolated static func prepare(_ source: AttachmentSource, photoName: String, limits: SendLimits) async -> Result<PreparedFile, Refusal> {
+        switch source {
+        case .library(let item):
+            guard let data = try? await item.loadTransferable(type: Data.self), let jpeg = PhotoPrep.jpeg(data) else {
+                return .failure(Refusal(words: "That photo could not be read."))
+            }
+            return .success(PreparedFile(data: jpeg, name: photoName, mime: "image/jpeg"))
+        case .camera(let image):
+            guard let jpeg = PhotoPrep.jpeg(image) else { return .failure(Refusal(words: "That photo could not be read.")) }
+            return .success(PreparedFile(data: jpeg, name: photoName, mime: "image/jpeg"))
+        case .file(let url):
+            let name = url.lastPathComponent
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            // Refused before it is read: a film from Files can be far larger than the phone should hold at once.
+            if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > limits.maxBytes {
+                return .failure(Refusal(words: AttachmentLimits.refusal(name, size: size, joining: [], limits: limits) ?? ""))
+            }
+            guard let data = try? Data(contentsOf: url) else { return .failure(Refusal(words: "\(name) could not be read.")) }
+            let file = FilePrep.prepared(data, name: name)
+            return .success(PreparedFile(data: file.data, name: file.name, mime: file.mime))
+        }
+    }
+
+    private struct PreparedFile: Sendable {
+        let data: Data
+        let name: String
+        let mime: String
+    }
+
+    private struct Refusal: Error {
+        let words: String
     }
 
     /// Marks the session read up to its last row, once that row has been on screen.
@@ -641,6 +773,12 @@ final class AppModel {
 
     private func forgetFetched() {
         everConnected = false
+        // A draft's files were for that Mac's sessions.
+        store.files.remove(draftAttachments.values.joined())
+        draftAttachments = [:]
+        sessionOptions = [:]
+        optionsUnanswered = []
+        configuring = [:]
         spacePictures = [:]
         thumbnails = [:]
         previews = [:]

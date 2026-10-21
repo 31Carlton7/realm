@@ -184,6 +184,14 @@ struct RowDrawingTests {
         #expect(words.contains("Don't send") || words.contains("Don’t send"))
     }
 
+    /// A message shows what went with it under its words: a file as a chip by its name.
+    @Test func aMessageShowsTheFilesThatWentWithIt() throws {
+        let notes = SentFile(path: "/Users/me/Realm/tmp/attachments/x1-notes.pdf", name: "notes.pdf", mime: "application/pdf")
+        let row = TranscriptRow(key: "u:3", seq: 3, content: .user(text: "Read this"), sentFiles: [notes])
+        let words = try Drawing.words(TranscriptRowView(row: row, sessionId: "s1").environment(AppModel()))
+        #expect(words.contains("Read this") && words.contains("notes.pdf"), "\(words)")
+    }
+
     /// The work is quiet lines that say what they did, in the tense of their state.
     @Test func workSaysWhatItDid() throws {
         let rows = [Self.row(.tool(name: "Read", summary: "AppSettings.tsx", state: .done, detail: nil), key: "t1"),
@@ -653,21 +661,91 @@ struct RequestTests {
 }
 
 @MainActor
-@Suite("The composer's buttons")
-struct ComposerButtonsTests {
-    @Test func sendIsUpOnlyWithSomethingToSend() {
-        #expect(!ComposerButtons(working: false, draft: "").send)
-        #expect(!ComposerButtons(working: false, draft: "  \n ").send)
-        #expect(ComposerButtons(working: false, draft: "Ship it").send)
+@Suite("The composer, at rest and composing", .serialized)
+struct ComposerDrawingTests {
+    struct Host: View {
+        @FocusState private var focused: Bool
+
+        var body: some View {
+            ComposerView(sessionId: "s1", focused: $focused)
+        }
     }
 
-    /// Stop stays while a turn runs, whatever is typed: a draft never hides it.
-    @Test func stopStaysUpWhileATurnRunsWhateverIsTyped() {
-        #expect(ComposerButtons(working: true, draft: "").stop)
-        #expect(ComposerButtons(working: true, draft: "Ship it").stop)
-        #expect(ComposerButtons(working: true, draft: "Ship it") == ComposerButtons(working: true, draft: "Also this"))
-        #expect(ComposerButtons(working: true, draft: "Ship it").send)
-        #expect(!ComposerButtons(working: false, draft: "Ship it").stop)
+    static func model() -> AppModel {
+        let model = AppModel()
+        model.store.finishOpening(OpenedSession(
+            session: SessionRow(id: "s1", title: "T", spaceId: "sp", spaceName: "Realm", agent: "claude", model: "claude-opus-5-5",
+                                status: .idle, needsYou: false, unread: false, updatedAt: 0, agentName: "Claude", agentMark: "claude",
+                                modelLabel: "Opus 5.5"),
+            rows: [], hasMore: false))
+        return model
+    }
+
+    /// At rest it is one capsule, the field and its button: no line over it names the model.
+    @Test func atRestItIsTheFieldAndItsButton() throws {
+        let words = try Drawing.words(Host().environment(Self.model()))
+        #expect(!words.contains("Opus"), "\(words)")
+    }
+
+    /// With words in it, it is a card, and the model the message goes to is a chip under them.
+    @Test func composingTheModelIsAChipUnderTheWords() throws {
+        let model = Self.model()
+        model.composerDrafts["s1"] = "Ship it on Friday"
+        let words = try Drawing.words(Host().environment(model))
+        #expect(words.contains("Ship it on Friday") && words.contains("Opus 5.5"), "\(words)")
+    }
+}
+
+@MainActor
+@Suite("The composer's one button")
+struct ComposerActionTests {
+    static let photo = OutgoingAttachment(id: UUID(), name: "Photo.jpg", mime: "image/jpeg", size: 1_000, file: "x.jpg")
+
+    /// Idle, it sends; with nothing to send it is there, and off.
+    @Test func idleItSendsAndIsOffWithNothingToSend() {
+        let off = ComposerAction(working: false, hasContent: false, midTurn: .queue, canSteer: true)
+        #expect(off.kind == .send && !off.enabled && off.alternatives.isEmpty)
+        let on = ComposerAction(working: false, hasContent: true, midTurn: .steer, canSteer: true)
+        #expect(on.kind == .send && on.enabled && on.alternatives.isEmpty)
+    }
+
+    /// While a turn runs, or waits on the person, and nothing is typed, it stops the turn.
+    @Test func midTurnWithNothingToSendItStops() {
+        let stop = ComposerAction(working: true, hasContent: false, midTurn: .steer, canSteer: true)
+        #expect(stop.kind == .stop && stop.enabled && stop.alternatives.isEmpty)
+    }
+
+    /// With something to send mid-turn it goes as the Mac takes a message then, and a long press offers
+    /// the other way and Stop.
+    @Test func midTurnItSendsAsTheMacTakesItWithTheOtherWayAndStopBeside() {
+        let queue = ComposerAction(working: true, hasContent: true, midTurn: .queue, canSteer: true)
+        #expect(queue.kind == .queue && queue.enabled && queue.alternatives == [.steer, .stop])
+        let steer = ComposerAction(working: true, hasContent: true, midTurn: .steer, canSteer: true)
+        #expect(steer.kind == .steer && steer.alternatives == [.queue, .stop])
+        // A Mac that does not answer `session.options` never says what steering does: it is not offered.
+        let older = ComposerAction(working: true, hasContent: true, midTurn: nil, canSteer: false)
+        #expect(older.kind == .queue && older.alternatives == [.stop])
+    }
+
+    /// Words, or a file with none: something to send.
+    @Test func wordsOrAFileAreSomethingToSend() {
+        #expect(!ComposerAction.hasContent(text: "", attachments: []))
+        #expect(!ComposerAction.hasContent(text: "  \n ", attachments: []))
+        #expect(ComposerAction.hasContent(text: "Ship it", attachments: []))
+        #expect(ComposerAction.hasContent(text: "", attachments: [Self.photo]))
+    }
+
+    /// Each sends as it says, and says what it does; Steer in the Mac's words for its agent.
+    @Test func eachGoesAsItSays() {
+        #expect(ComposerAction.delivery(.send) == .auto)
+        #expect(ComposerAction.delivery(.queue) == .queue)
+        #expect(ComposerAction.delivery(.steer) == .steer)
+        #expect(ComposerAction.delivery(.stop) == nil)
+        let note = "Sends now, into the turn Codex is already running. Nothing is interrupted."
+        #expect(ComposerAction.Kind.queue.explanation(steerNote: note) == "Sends when this turn ends.")
+        #expect(ComposerAction.Kind.steer.explanation(steerNote: note) == note)
+        #expect(ComposerAction.Kind.stop.explanation(steerNote: note) == "Stops the agent's turn.")
+        #expect(ComposerAction.Kind.allCases.map(\.symbol) == ["arrow.up", "stop.fill", "list.number", "arrow.turn.left.up"])
     }
 }
 
