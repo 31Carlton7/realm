@@ -23,7 +23,7 @@ enum ListStyle: String, CaseIterable, Identifiable {
 
     var symbol: String {
         switch self {
-        case .bySpace: "square.stack"
+        case .bySpace: "folder"
         case .mostRecent: "clock"
         case .byDay: "calendar"
         }

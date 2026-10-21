@@ -122,9 +122,6 @@ struct HomeView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                ViewOptionsMenu()
-            }
-            ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     model.settingsShown = true
                 } label: {
@@ -133,6 +130,12 @@ struct HomeView: View {
                 .accessibilityIdentifier("settings")
             }
             .matchedTransitionSource(id: "settings", in: settingsZoom)
+            // At the foot, as Mail has it: how the list is shown, beside the search of it.
+            ToolbarItem(placement: .bottomBar) {
+                ViewOptionsMenu()
+            }
+            ToolbarSpacer(.fixed, placement: .bottomBar)
+            DefaultToolbarItem(kind: .search, placement: .bottomBar)
         }
         .searchable(text: $query, prompt: "Search sessions")
         .refreshable { await model.refresh() }
@@ -450,19 +453,23 @@ private struct ViewOptionsMenu: View {
 
     var body: some View {
         Menu {
-            Picker("List", selection: $style) {
-                ForEach(ListStyle.allCases) { style in
-                    Label(style.title, systemImage: style.symbol).tag(style)
-                }
-            }
-            .pickerStyle(.inline)
-            if style == .bySpace {
-                Picker("Order spaces", selection: $spaceOrder) {
-                    ForEach(SpaceOrder.allCases) { order in
-                        Text(order.title).tag(order)
+            Section("List") {
+                Picker("List", selection: $style) {
+                    ForEach(ListStyle.allCases) { style in
+                        Label(style.title, systemImage: style.symbol).tag(style)
                     }
                 }
                 .pickerStyle(.inline)
+            }
+            if style == .bySpace {
+                Section("Order spaces") {
+                    Picker("Order spaces", selection: $spaceOrder) {
+                        ForEach(SpaceOrder.allCases) { order in
+                            Text(order.title).tag(order)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                }
             }
             Section {
                 Toggle("Needs you first", isOn: $needsYouFirst)
