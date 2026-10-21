@@ -472,6 +472,7 @@ final class LiveTests: XCTestCase {
     @MainActor
     func testC1_composer() throws {
         try openComposer()
+        XCTAssertFalse(modelChip.exists, "at rest the composer is one capsule, with no chips")
         shot("composer-rest")
         composerField.tap()
         XCTAssert(modelChip.waitForExistence(timeout: 5), "composing, the composer has no model chip")
