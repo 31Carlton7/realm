@@ -8,9 +8,9 @@ struct HomeView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.scenePhase) private var scenePhase
-    @AppStorage(ListOptions.Key.style) private var style = ListStyle.bySpace
-    @AppStorage(ListOptions.Key.spaceOrder) private var spaceOrder = SpaceOrder.asOnMac
-    @AppStorage(ListOptions.Key.needsYouFirst) private var needsYouFirst = true
+    @AppStorage(ListOptions.Key.style) private var style = ListOptions().style
+    @AppStorage(ListOptions.Key.spaceOrder) private var spaceOrder = ListOptions().spaceOrder
+    @AppStorage(ListOptions.Key.needsYouFirst) private var needsYouFirst = ListOptions().needsYouFirst
     @State private var query = ""
     @State private var reconnecting = false
     /// The moment By day reckons its days from, moved on at midnight and on coming back to the app.
@@ -75,7 +75,6 @@ struct HomeView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(Ground.transcript)
-        // Another profile or another style is another list, read from its top.
         .id(ListIdentity(choice: choice, style: style))
         .overlay {
             if home == nil, shown.kind != .connecting, shown.kind != .connected {
@@ -127,7 +126,8 @@ struct HomeView: View {
                 .accessibilityIdentifier("settings")
             }
             .matchedTransitionSource(id: "settings", in: settingsZoom)
-            // At the foot, as Mail has it: how the list is shown, beside the search of it.
+            // At the foot beside the search, as Mail has it: a third button in the top bar, beside
+            // Settings and Reconnect while the Mac is away, folds them all into a More menu.
             ToolbarItem(placement: .bottomBar) {
                 ViewOptionsMenu()
             }
@@ -375,7 +375,7 @@ private struct ProfileSwitcher: ViewModifier {
     let choice: ProfileChoice
 
     func body(content: Content) -> some View {
-        if let home, let profiles = home.profiles, profiles.count > 1 {
+        if let home, let profiles = home.profilesToSwitch {
             content.toolbarTitleMenu { ProfileMenu(home: home, profiles: profiles, choice: choice) }
         } else {
             content
@@ -392,7 +392,7 @@ private struct ProfileMenu: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        let withSpaces = Set(home.spaces.compactMap(\.profileId))
+        let withSpaces = home.profilesWithSpaces
         let selection = Binding(get: { choice }, set: { model.choose($0) })
         ForEach(profiles) { profile in
             Toggle(isOn: selection.isChosen(.profile(profile.id))) {
@@ -430,8 +430,9 @@ enum ProfileMark: Equatable {
     case symbol(String)
     case emoji(String)
 
+    static let person = "person.crop.circle"
     /// The profile picker's glyphs (`PROFILE_ICONS` on the Mac) that no space has.
-    static let symbols = ["user": "person.crop.circle", "code": "chevron.left.forwardslash.chevron.right"]
+    static let symbols = ["user": person, "code": "chevron.left.forwardslash.chevron.right"]
 
     init(_ profile: Profile) {
         if profile.iconKind == .emoji, let emoji = profile.emoji, !emoji.isEmpty {
@@ -441,7 +442,7 @@ enum ProfileMark: Equatable {
         } else if profile.iconKind == .glyph, let glyph = profile.glyph, let symbol = Self.symbols[glyph] {
             self = .symbol(symbol)
         } else {
-            self = .symbol("person.crop.circle")
+            self = .symbol(Self.person)
         }
     }
 
@@ -457,7 +458,7 @@ enum ProfileMark: Equatable {
     }
 
     private static func tinted(_ image: UIImage?, _ color: UIColor?) -> Image {
-        guard let image else { return Image(systemName: "person.crop.circle") }
+        guard let image else { return Image(systemName: person) }
         guard let color else { return Image(uiImage: image) }
         return Image(uiImage: image.withTintColor(color, renderingMode: .alwaysOriginal))
     }
@@ -471,11 +472,11 @@ enum ProfileMark: Equatable {
 }
 
 /// How Home lists its sessions, from the bar: the list style, the order of the spaces where it lists
-/// by space, and whether Needs you heads it. The same keys as Settings ▸ Session list.
+/// by space, and whether Needs you heads it.
 private struct ViewOptionsMenu: View {
-    @AppStorage(ListOptions.Key.style) private var style = ListStyle.bySpace
-    @AppStorage(ListOptions.Key.spaceOrder) private var spaceOrder = SpaceOrder.asOnMac
-    @AppStorage(ListOptions.Key.needsYouFirst) private var needsYouFirst = true
+    @AppStorage(ListOptions.Key.style) private var style = ListOptions().style
+    @AppStorage(ListOptions.Key.spaceOrder) private var spaceOrder = ListOptions().spaceOrder
+    @AppStorage(ListOptions.Key.needsYouFirst) private var needsYouFirst = ListOptions().needsYouFirst
 
     var body: some View {
         Menu {
@@ -850,7 +851,7 @@ struct NoResults: View {
 
     static func words(style: ListStyle, pages: Bool) -> String {
         let listed = style == .bySpace ? "each space's latest" : "the most recent"
-        let rest = pages ? "Each space's page lists all of its own." : "The rest are on your Mac."
+        let rest = pages ? "Each space's page lists all of its sessions." : "The rest are on your Mac."
         return "This searches the sessions listed here: \(listed). \(rest)"
     }
 }

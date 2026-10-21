@@ -2,7 +2,7 @@ import Foundation
 import RealmKit
 
 /// How Home lists sessions. It is the person's to choose, in Home's View options menu and in Settings ▸
-/// Session list, both kept under the same keys.
+/// Session list.
 enum ListStyle: String, CaseIterable, Identifiable {
     /// Each space's newest sessions under its name, as the Mac's sidebar has them.
     case bySpace
@@ -32,9 +32,9 @@ enum ListStyle: String, CaseIterable, Identifiable {
     /// What the style lists, for the foot of Settings ▸ Session list.
     var explanation: String {
         switch self {
-        case .bySpace: "Each space's newest sessions, under its name. A space's name opens all of its sessions."
-        case .mostRecent: "One list, the newest activity first, each session with its space."
-        case .byDay: "One list under Today, Yesterday, Previous 7 days and Earlier, each session with its space."
+        case .bySpace: "Shows each space's newest sessions under its name. A space's name opens all of its sessions."
+        case .mostRecent: "Shows the sessions in one list, the newest activity first, each with its space."
+        case .byDay: "Shows the sessions under Today, Yesterday, Previous 7 days and Earlier, each with its space."
         }
     }
 }
@@ -81,10 +81,13 @@ enum ProfileChoice: Hashable {
         return nil
     }
 
-    /// As it is kept on the phone, one key per Mac.
+    /// What a kept profile's id is written after.
+    private static let prefix = "profile:"
+
+    /// As it is kept on the phone.
     var stored: String {
         switch self {
-        case .profile(let id): "profile:\(id)"
+        case .profile(let id): Self.prefix + id
         case .all: "all"
         }
     }
@@ -92,8 +95,8 @@ enum ProfileChoice: Hashable {
     init?(stored: String) {
         if stored == "all" {
             self = .all
-        } else if stored.hasPrefix("profile:"), stored.count > "profile:".count {
-            self = .profile(String(stored.dropFirst("profile:".count)))
+        } else if stored.hasPrefix(Self.prefix), stored.count > Self.prefix.count {
+            self = .profile(String(stored.dropFirst(Self.prefix.count)))
         } else {
             return nil
         }
@@ -103,9 +106,9 @@ enum ProfileChoice: Hashable {
     /// else the first profile with a space, as the Mac's sidebar offers only those. A Mac with one
     /// profile, or too old to say, shows everything, as Home did before profiles.
     static func resolve(_ kept: ProfileChoice?, in home: Home) -> ProfileChoice {
-        guard let profiles = home.profiles, profiles.count > 1 else { return .all }
+        guard let profiles = home.profilesToSwitch else { return .all }
         if kept == .all { return .all }
-        let withSpaces = Set(home.spaces.compactMap(\.profileId))
+        let withSpaces = home.profilesWithSpaces
         if case .profile(let id)? = kept, withSpaces.contains(id), profiles.contains(where: { $0.id == id }) {
             return .profile(id)
         }
@@ -119,7 +122,7 @@ enum ProfileChoice: Hashable {
 
     /// Home's title: the profile's name, "All profiles", or "Sessions" where there is nothing to switch.
     func title(in home: Home?) -> String {
-        guard let profiles = home?.profiles, profiles.count > 1 else { return "Sessions" }
+        guard let profiles = home?.profilesToSwitch else { return "Sessions" }
         switch self {
         case .all: return "All profiles"
         case .profile(let id): return profiles.first { $0.id == id }?.name ?? "Sessions"
@@ -128,8 +131,9 @@ enum ProfileChoice: Hashable {
 
     /// What Home says when it lists nothing, naming the profile it looked in.
     func emptyWords(in home: Home?) -> String {
-        guard case .profile(let id) = self, let profiles = home?.profiles, profiles.count > 1,
-              let profile = profiles.first(where: { $0.id == id }) else { return "No sessions yet" }
+        guard case .profile(let id) = self, let profile = home?.profilesToSwitch?.first(where: { $0.id == id }) else {
+            return "No sessions yet"
+        }
         return "No sessions in \(profile.name) yet"
     }
 }
@@ -203,7 +207,7 @@ struct ProfileWaiting: Identifiable, Equatable {
     /// The line under a profile in the title's menu: what needs the person in it, or that it has no
     /// spaces, which is why it cannot be chosen.
     static func note(for profile: Profile, in home: Home) -> String? {
-        guard home.spaces.contains(where: { $0.profileId == profile.id }) else { return "No spaces" }
+        guard home.profilesWithSpaces.contains(profile.id) else { return "No spaces" }
         let count = HomeListing.needing(home)[profile.id] ?? 0
         return count > 0 ? Self.needYou(count) : nil
     }
@@ -305,6 +309,17 @@ struct HomeListing {
     var isEmpty: Bool {
         needsYou.isEmpty && sections.isEmpty
     }
+}
+
+extension Home {
+    /// The Mac's profiles while it has more than one to switch between; nil for one, or for a Mac too
+    /// old to say.
+    var profilesToSwitch: [Profile]? {
+        guard let profiles, profiles.count > 1 else { return nil }
+        return profiles
+    }
+
+    var profilesWithSpaces: Set<String> { Set(spaces.compactMap(\.profileId)) }
 }
 
 extension SessionRow {

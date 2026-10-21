@@ -569,7 +569,7 @@ struct SpacePagesTests {
 struct SessionListWordsTests {
     @Test func aSearchThatFoundNothingSaysWhatItSearched() {
         #expect(NoResults.words(style: .bySpace, pages: true)
-                == "This searches the sessions listed here: each space's latest. Each space's page lists all of its own.")
+                == "This searches the sessions listed here: each space's latest. Each space's page lists all of its sessions.")
         #expect(NoResults.words(style: .byDay, pages: false)
                 == "This searches the sessions listed here: the most recent. The rest are on your Mac.")
     }

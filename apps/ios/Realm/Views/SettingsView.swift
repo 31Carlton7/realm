@@ -34,9 +34,9 @@ struct SettingsSheet: View {
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var confirmingForget = false
-    @AppStorage(ListOptions.Key.style) private var style = ListStyle.bySpace
-    @AppStorage(ListOptions.Key.spaceOrder) private var spaceOrder = SpaceOrder.asOnMac
-    @AppStorage(ListOptions.Key.needsYouFirst) private var needsYouFirst = true
+    @AppStorage(ListOptions.Key.style) private var style = ListOptions().style
+    @AppStorage(ListOptions.Key.spaceOrder) private var spaceOrder = ListOptions().spaceOrder
+    @AppStorage(ListOptions.Key.needsYouFirst) private var needsYouFirst = ListOptions().needsYouFirst
 
     var body: some View {
         Form {
@@ -66,7 +66,6 @@ struct SettingsView: View {
                 }
             }
 
-            // Home's View options menu says the same, on the same keys.
             Section {
                 Picker("List", selection: $style) {
                     ForEach(ListStyle.allCases) { style in
