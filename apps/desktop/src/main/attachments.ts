@@ -5,66 +5,15 @@ import { mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs
 import { randomBytes } from "node:crypto";
 import { nativeImage } from "electron";
 import { DIRECTORY_MIME, expandHome, isImageMime, isOpenablePath, mimeForPath, resolveFileTarget } from "@realm/contracts";
+import { safeAttachmentName, sweepTempAttachments, TEMP_ATTACHMENT_TTL_MS, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
 
 /** What the picker and the paste path hand the renderer. `size` is here so the prompter can refuse a
  *  file over MAX_ATTACHMENT_BYTES before it is ever attached; only `path` and `mime` go on the wire. */
 export type PickedFile = { path: string; mime: string; name: string; size: number };
 
-/**
- * Where a pasted image is written.
- *
- * A pasted image has no file on disk, and every adapter's contract is a PATH — so one has to be made.
- * It goes under Realm's own home rather than the OS temp dir for two reasons: macOS purges
- * `/var/folders` on its own schedule, which would break the path recorded in the session's
- * `user_message` event while the session is still open; and a file the user can go and look at is
- * better than one they cannot.
- */
-export const tempAttachmentDir = (home: string): string => join(home, "tmp", "attachments");
-
-/** How long a pasted file survives. Longer than any single turn (the adapter reads it asynchronously,
- *  after `sessions.send` has already resolved), short enough that the directory cannot creep. */
-export const TEMP_ATTACHMENT_TTL_MS = 24 * 60 * 60 * 1000;
-
-/**
- * A filesystem-safe name for a pasted file.
- *
- * The name arrives from the renderer (`File.name` on a clipboard item), so it is untrusted: strip it to
- * a basename, then to a conservative character set, so nothing can escape the directory or collide with
- * a name the sweep is meant to recognise. The extension is preserved when there is one — it is what
- * `mimeForPath` reads, and what makes the file openable.
- *
- * `fallback` is for the name that sanitizes away to nothing (`...`, `///`, an empty string). Pastes
- * want "pasted"; a download wants "download", and since downloads stopped requiring an extension
- * that case reaches disk where it never used to. One sanitizer with a caller-chosen word beats a
- * second sanitizer that drifts from this one.
- */
-export function safeAttachmentName(name: string, fallback = "pasted"): string {
-  const base = basename(name.replace(/\\/g, "/")).replace(/[^\w.\- ]+/g, "_").replace(/^\.+/, "").trim();
-  return base.length === 0 ? fallback : base.slice(0, 120);
-}
-
-/**
- * Delete pasted files older than `ttlMs`.
- *
- * Called at launch AND on every save: a launch-only sweep leaks for as long as the app stays up, which
- * for a workstation app is the normal case. Each sweep is one directory read over a handful of entries.
- * Errors are swallowed per entry — a file another window is mid-read is not worth failing a paste over.
- */
-export async function sweepTempAttachments(dir: string, ttlMs = TEMP_ATTACHMENT_TTL_MS, now = Date.now()): Promise<string[]> {
-  let names: string[];
-  try { names = await readdir(dir); } catch { return []; } // never created = nothing to sweep
-  const removed: string[] = [];
-  for (const name of names) {
-    const p = join(dir, name);
-    try {
-      const s = await stat(p);
-      if (now - s.mtimeMs < ttlMs) continue;
-      await rm(p, { recursive: true, force: true });
-      removed.push(name);
-    } catch { /* vanished, or not ours to remove */ }
-  }
-  return removed;
-}
+/* Where a pasted file goes, its name and its sweep are shared with realm-server, which writes a file
+   sent from Realm Mobile the same way (`@realm/contracts/src/temp-attachments`). */
+export { safeAttachmentName, sweepTempAttachments, TEMP_ATTACHMENT_TTL_MS, tempAttachmentDir };
 
 /** Write a pasted file into the temp directory and describe it the way the picker does. The random
  *  prefix is what keeps two pastes of "image.png" from overwriting each other. */

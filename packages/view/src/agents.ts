@@ -17,3 +17,10 @@ export function modelLabel(kind: AgentKind, id: string | null, probe: readonly {
   const rest = label.startsWith(harness) ? label.slice(harness.length) : null;
   return rest !== null && /^[A-Za-z]+(\s|$)/.test(rest) ? rest : label;
 }
+
+/** The setting the desktop keeps the agent of the session last made or switched to under: what its
+ *  "+" and ⌘N reach for next, and what a new session started from Realm Mobile is offered first. */
+export const LAST_AGENT_SETTING = "ui.lastAgentKind";
+
+/** Agent a session is created with when the user never said (first run, or a wiped setting). */
+export const FALLBACK_AGENT: AgentKind = "claude";
