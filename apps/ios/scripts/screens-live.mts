@@ -237,9 +237,11 @@ for (const [key, spaceId, agent, model, title, text] of [
   sessions[key] = await session(spaceId, agent, model, title);
   await send(sessions[key]!, text);
 }
+/** Statements run on this scratch home's own database, for what no call sets: when a session last moved. */
+const sql = (statements: string[]) =>
+  execFileSync("sqlite3", ["-cmd", ".timeout 5000", join(server.home, "realm.db"), statements.join("\n")], { stdio: "pipe" });
 // When each was last active, so Home's "Most recent" and "By day" (Today, Yesterday, Previous 7 days,
-// Earlier) all have rows: set on this scratch home's own database, at a fixed hour of a day counted
-// back from today. The rest stay today's.
+// Earlier) all have rows: a fixed hour of a day counted back from today. The rest stay today's.
 const dayAt = (daysAgo: number, hour: number): number => {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
@@ -253,17 +255,19 @@ const aged: [string, number][] = [
   [sessions["Audit the sign-in sheet"]!, dayAt(12, 15)], [sessions.outline!, dayAt(18, 10)], [sessions.dinners!, dayAt(20, 18)],
   [sessions["Fix the flaky upload test"]!, dayAt(30, 13)],
 ];
-execFileSync("sqlite3", ["-cmd", ".timeout 5000", join(server.home, "realm.db"), aged.map(([id, at]) => {
+sql(aged.map(([id, at]) => {
   if (!/^[0-9A-Z]{26}$/.test(id)) throw new Error(`not a session id: ${id}`);
   return `UPDATE sessions SET updated_at = ${at}, activity_at = ${at}, created_at = ${at - 2 * 3_600_000} WHERE id = '${id}';`;
-}).join("\n")], { stdio: "pipe" });
+}));
 // A space with more sessions than one page of its own on the phone (50), a day apart and all older
 // than Personal's others, so its page has a second page to scroll to and Work's lists stay as they are.
 const journal = await space("Journal", "emoji:📓", "#6366f1", personal.id);
 const entries: string[] = [];
 for (let n = 1; n <= 55; n++) entries.push(await session(journal.id, "claude", "claude-haiku-4-5", `Journal entry ${n}`));
-execFileSync("sqlite3", ["-cmd", ".timeout 5000", join(server.home, "realm.db"), entries.map((id, i) =>
-  `UPDATE sessions SET updated_at = ${dayAt(61 - i, 21)}, activity_at = ${dayAt(61 - i, 21)} WHERE id = '${id}';`).join("\n")], { stdio: "pipe" });
+sql(entries.map((id, i) => {
+  const at = dayAt(61 - i, 21);
+  return `UPDATE sessions SET updated_at = ${at}, activity_at = ${at} WHERE id = '${id}';`;
+}));
 
 await waitFor("the relay link", async () => gw.state === "connected");
 let pairing = gw.openPairing();
