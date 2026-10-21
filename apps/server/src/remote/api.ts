@@ -1,10 +1,11 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  AGENT_META, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, readEffortSupport,
+  AGENT_META, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, isSecretPath, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, readEffortSupport,
   resolveMidTurnMode, SELECTABLE_AGENT_KINDS, type AgentKind, type IconAsset, type Item, type MethodResult, type ModelInfo, type Session,
   type Space, type StoredSessionEvent, type TurnChanges,
 } from "@realm/contracts";
+import { givenAttachmentName, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
 import {
   MobileCalls, RECENT_LIMIT, SEND_LIMITS, type Home, type MobileErrorCode, type MobileMethod, type MobileParams, type MobileResult, type Row,
   type SessionOptions, type SessionRow,
@@ -54,9 +55,11 @@ const mobileStatus = (s: Session["status"]): SessionRow["status"] => (s === "wai
 
 const isUnread = (s: Session): boolean => s.seenSeq > 0 && s.lastEventSeq > s.seenSeq;
 
-/** Home's order, and a space's page's: the most recently active first. The sort is stable over
- *  `sessions.listAll`'s order, so pages read at different times agree about a tie. */
-const newestFirst = (a: Session, b: Session): number => b.updatedAt - a.updatedAt;
+/** Home's order, and a space's page's: the conversation that moved last first (`activityAt` — never
+ *  `updatedAt`, which a change of settings or a rename moves too), then the newer session, then by id,
+ *  so two reads of the same lists agree and a page never repeats or skips a row. */
+const newestFirst = (a: Session, b: Session): number =>
+  b.activityAt - a.activityAt || b.createdAt - a.createdAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
 
 /** `p`'s answer if it comes within `ms`, else null — and null for a failure too. */
 async function within<T>(p: Promise<T>, ms: number): Promise<T | null> {
@@ -240,7 +243,7 @@ export class MobileApi {
       status: mobileStatus(s.status), needsYou: need.has(s.id), unread: isUnread(s), updatedAt: s.updatedAt,
       agentName: meta?.label ?? s.agentKind, agentMark: meta?.icon ?? "bot",
       modelLabel: meta ? modelLabel(s.agentKind, s.model, probe) : s.model ?? "",
-      createdAt: s.createdAt, effort: s.effort, permissionMode: s.permissionMode,
+      createdAt: s.createdAt, effort: s.effort, permissionMode: s.permissionMode, activityAt: s.activityAt,
     };
   }
 
@@ -360,7 +363,7 @@ export class MobileApi {
   /** Subscribes first and buffers, then reads history, then replays what arrived meanwhile — so no event
    *  can fall between the history read and the live stream. */
   private async open(ctx: ChannelContext, id: string, limit: number): Promise<{ session: SessionRow; rows: Row[]; hasMore: boolean; hint: string | null }> {
-    const entry = { projector: new SessionProjector(), buffer: [] as StoredSessionEvent[] | null };
+    const entry = { projector: new SessionProjector({ attachmentsDir: tempAttachmentDir(this.o.realmHome) }), buffer: [] as StoredSessionEvent[] | null };
     ctx.sessions.set(id, entry);
     const rpc = ctx.rpc;
     try {
@@ -429,8 +432,11 @@ export class MobileApi {
     for (const ev of made) if (ev.event.type === "files_made") for (const f of ev.event.payload.files) listed.add(f.path);
     for (const ev of sent) if (ev.event.type === "user_message") for (const a of ev.event.payload.attachments) listed.add(a.path);
     if (!listed.has(path)) throw new MobileError("FORBIDDEN", "That file is not one this session made or was sent.");
+    // A message on the Mac can carry any file someone picked, a key among them; a phone is never sent one.
+    if (isSecretPath(path)) throw new MobileError("FORBIDDEN", "That file holds a secret, so Realm does not send it to a phone.");
     try {
-      return await filePreview(path, { downscale: this.o.downscale });
+      // Named as its user row names it: a file a phone or a paste sent, without the prefix it was written under.
+      return { ...await filePreview(path, { downscale: this.o.downscale }), name: givenAttachmentName(path, tempAttachmentDir(this.o.realmHome)) };
     } catch (e) {
       if (e instanceof PreviewRefused) throw new MobileError("FORBIDDEN", e.message);
       if ((e as NodeJS.ErrnoException).code === "ENOENT") throw new MobileError("NOT_FOUND", "That file is no longer on this Mac.");

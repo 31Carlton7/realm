@@ -80,9 +80,10 @@ export function agentOptions(kind: AgentKind, input: OptionsInput, pinned: strin
     const e = perModel ? levels(kind, id, input) : null;
     return { id, label: modelLabel(kind, id, probe), ...(e && e.levels.length > 0 ? { efforts: e.levels, defaultEffort: e.defaultId } : {}) };
   });
+  const own = perModel ? null : levels(kind, null, input);
   return {
     kind, name: AGENT_META[kind].label, mark: AGENT_META[kind].icon, ...availability(input.probe), models,
-    efforts: perModel ? [] : levels(kind, null, input).levels,
+    efforts: own?.levels ?? [], ...(own && own.levels.length > 0 ? { defaultEffort: own.defaultId } : {}),
     modes: offeredModes(kind, input.init?.availableModes).map((id) => ({ id, label: SESSION_MODES.find((m) => m.id === id)!.label })),
     permissions: AGENT_SUPPORTS_PERMISSION_MODES[kind] ? PERMISSION_MODES.map(({ id, label }) => ({ id, label })) : [],
     steerNote: steerNote(kind),

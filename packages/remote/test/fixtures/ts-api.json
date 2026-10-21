@@ -22,7 +22,8 @@
           "modelLabel": "Opus 5.5",
           "createdAt": 1789990000000,
           "effort": "high",
-          "permissionMode": "acceptEdits"
+          "permissionMode": "acceptEdits",
+          "activityAt": 1790000000000
         },
         {
           "id": "01JCODEX000000000000000000",
@@ -40,7 +41,8 @@
           "modelLabel": "GPT-5.6",
           "createdAt": 1789900000000,
           "effort": null,
-          "permissionMode": "default"
+          "permissionMode": "default",
+          "activityAt": 1790000100000
         }
       ],
       "spaces": [
@@ -69,7 +71,8 @@
               "modelLabel": "Opus 5.5",
               "createdAt": 1789990000000,
               "effort": "high",
-              "permissionMode": "acceptEdits"
+              "permissionMode": "acceptEdits",
+              "activityAt": 1790000000000
             },
             {
               "id": "01JREALM000000000000000001",
@@ -87,7 +90,8 @@
               "modelLabel": "Opus 5.5",
               "createdAt": 1789000000000,
               "effort": null,
-              "permissionMode": "default"
+              "permissionMode": "default",
+              "activityAt": 1789982000000
             },
             {
               "id": "01JREALM000000000000000002",
@@ -99,13 +103,14 @@
               "status": "idle",
               "needsYou": false,
               "unread": false,
-              "updatedAt": 1789964000000,
+              "updatedAt": 1790000300000,
               "agentName": "Claude",
               "agentMark": "claude",
               "modelLabel": "Sonnet 5",
               "createdAt": 1789000000001,
               "effort": "max",
-              "permissionMode": "plan"
+              "permissionMode": "plan",
+              "activityAt": 1789964000000
             },
             {
               "id": "01JREALM000000000000000003",
@@ -123,7 +128,8 @@
               "modelLabel": "Opus 5.5",
               "createdAt": 1789000000002,
               "effort": null,
-              "permissionMode": "default"
+              "permissionMode": "default",
+              "activityAt": 1789946000000
             },
             {
               "id": "01JREALM000000000000000004",
@@ -141,7 +147,8 @@
               "modelLabel": "Opus 5.5",
               "createdAt": 1789000000003,
               "effort": null,
-              "permissionMode": "default"
+              "permissionMode": "default",
+              "activityAt": 1789928000000
             }
           ],
           "more": 2
@@ -171,7 +178,8 @@
               "modelLabel": "GPT-5.6",
               "createdAt": 1789900000000,
               "effort": null,
-              "permissionMode": "default"
+              "permissionMode": "default",
+              "activityAt": 1790000100000
             }
           ],
           "more": 0
@@ -200,7 +208,8 @@
               "modelLabel": "Composer 2",
               "createdAt": 1789800000000,
               "effort": null,
-              "permissionMode": "default"
+              "permissionMode": "default",
+              "activityAt": 1790000200000
             }
           ],
           "more": 0
@@ -244,7 +253,8 @@
           "modelLabel": "Composer 2",
           "createdAt": 1789800000000,
           "effort": null,
-          "permissionMode": "default"
+          "permissionMode": "default",
+          "activityAt": 1790000200000
         },
         {
           "id": "01JCODEX000000000000000000",
@@ -262,7 +272,8 @@
           "modelLabel": "GPT-5.6",
           "createdAt": 1789900000000,
           "effort": null,
-          "permissionMode": "default"
+          "permissionMode": "default",
+          "activityAt": 1790000100000
         },
         {
           "id": "01JSESSION00000000000000000",
@@ -280,7 +291,8 @@
           "modelLabel": "Opus 5.5",
           "createdAt": 1789990000000,
           "effort": "high",
-          "permissionMode": "acceptEdits"
+          "permissionMode": "acceptEdits",
+          "activityAt": 1790000000000
         },
         {
           "id": "01JREALM000000000000000001",
@@ -298,7 +310,8 @@
           "modelLabel": "Opus 5.5",
           "createdAt": 1789000000000,
           "effort": null,
-          "permissionMode": "default"
+          "permissionMode": "default",
+          "activityAt": 1789982000000
         },
         {
           "id": "01JREALM000000000000000002",
@@ -310,13 +323,14 @@
           "status": "idle",
           "needsYou": false,
           "unread": false,
-          "updatedAt": 1789964000000,
+          "updatedAt": 1790000300000,
           "agentName": "Claude",
           "agentMark": "claude",
           "modelLabel": "Sonnet 5",
           "createdAt": 1789000000001,
           "effort": "max",
-          "permissionMode": "plan"
+          "permissionMode": "plan",
+          "activityAt": 1789964000000
         },
         {
           "id": "01JREALM000000000000000003",
@@ -334,7 +348,8 @@
           "modelLabel": "Opus 5.5",
           "createdAt": 1789000000002,
           "effort": null,
-          "permissionMode": "default"
+          "permissionMode": "default",
+          "activityAt": 1789946000000
         },
         {
           "id": "01JREALM000000000000000004",
@@ -352,7 +367,8 @@
           "modelLabel": "Opus 5.5",
           "createdAt": 1789000000003,
           "effort": null,
-          "permissionMode": "default"
+          "permissionMode": "default",
+          "activityAt": 1789928000000
         },
         {
           "id": "01JREALM000000000000000005",
@@ -370,7 +386,8 @@
           "modelLabel": "Opus 5.5",
           "createdAt": 1789000000004,
           "effort": null,
-          "permissionMode": "default"
+          "permissionMode": "default",
+          "activityAt": 1789910000000
         },
         {
           "id": "01JREALM000000000000000006",
@@ -388,7 +405,8 @@
           "modelLabel": "Opus 5.5",
           "createdAt": 1789000000005,
           "effort": null,
-          "permissionMode": "default"
+          "permissionMode": "default",
+          "activityAt": 1789892000000
         }
       ]
     },
@@ -413,7 +431,8 @@
           "modelLabel": "Opus 5.5",
           "createdAt": 1789990000000,
           "effort": "high",
-          "permissionMode": "acceptEdits"
+          "permissionMode": "acceptEdits",
+          "activityAt": 1790000000000
         },
         {
           "id": "01JCODEX000000000000000000",
@@ -431,7 +450,8 @@
           "modelLabel": "GPT-5.6",
           "createdAt": 1789900000000,
           "effort": null,
-          "permissionMode": "default"
+          "permissionMode": "default",
+          "activityAt": 1790000100000
         }
       ],
       "spaces": [
@@ -460,7 +480,8 @@
               "modelLabel": "Opus 5.5",
               "createdAt": 1789990000000,
               "effort": "high",
-              "permissionMode": "acceptEdits"
+              "permissionMode": "acceptEdits",
+              "activityAt": 1790000000000
             },
             {
               "id": "01JREALM000000000000000001",
@@ -478,7 +499,8 @@
               "modelLabel": "Opus 5.5",
               "createdAt": 1789000000000,
               "effort": null,
-              "permissionMode": "default"
+              "permissionMode": "default",
+              "activityAt": 1789982000000
             },
             {
               "id": "01JREALM000000000000000002",
@@ -490,13 +512,14 @@
               "status": "idle",
               "needsYou": false,
               "unread": false,
-              "updatedAt": 1789964000000,
+              "updatedAt": 1790000300000,
               "agentName": "Claude",
               "agentMark": "claude",
               "modelLabel": "Sonnet 5",
               "createdAt": 1789000000001,
               "effort": "max",
-              "permissionMode": "plan"
+              "permissionMode": "plan",
+              "activityAt": 1789964000000
             },
             {
               "id": "01JREALM000000000000000003",
@@ -514,7 +537,8 @@
               "modelLabel": "Opus 5.5",
               "createdAt": 1789000000002,
               "effort": null,
-              "permissionMode": "default"
+              "permissionMode": "default",
+              "activityAt": 1789946000000
             },
             {
               "id": "01JREALM000000000000000004",
@@ -532,7 +556,8 @@
               "modelLabel": "Opus 5.5",
               "createdAt": 1789000000003,
               "effort": null,
-              "permissionMode": "default"
+              "permissionMode": "default",
+              "activityAt": 1789928000000
             }
           ],
           "more": 2
@@ -562,7 +587,8 @@
               "modelLabel": "GPT-5.6",
               "createdAt": 1789900000000,
               "effort": null,
-              "permissionMode": "default"
+              "permissionMode": "default",
+              "activityAt": 1790000100000
             }
           ],
           "more": 0
@@ -591,7 +617,8 @@
               "modelLabel": "Composer 2",
               "createdAt": 1789800000000,
               "effort": null,
-              "permissionMode": "default"
+              "permissionMode": "default",
+              "activityAt": 1790000200000
             }
           ],
           "more": 0
@@ -635,7 +662,8 @@
           "modelLabel": "GPT-5.6",
           "createdAt": 1789900000000,
           "effort": null,
-          "permissionMode": "default"
+          "permissionMode": "default",
+          "activityAt": 1790000100000
         },
         {
           "id": "01JSESSION00000000000000000",
@@ -653,7 +681,8 @@
           "modelLabel": "Opus 5.5",
           "createdAt": 1789990000000,
           "effort": "high",
-          "permissionMode": "acceptEdits"
+          "permissionMode": "acceptEdits",
+          "activityAt": 1790000000000
         },
         {
           "id": "01JREALM000000000000000001",
@@ -671,7 +700,8 @@
           "modelLabel": "Opus 5.5",
           "createdAt": 1789000000000,
           "effort": null,
-          "permissionMode": "default"
+          "permissionMode": "default",
+          "activityAt": 1789982000000
         },
         {
           "id": "01JREALM000000000000000002",
@@ -683,13 +713,14 @@
           "status": "idle",
           "needsYou": false,
           "unread": false,
-          "updatedAt": 1789964000000,
+          "updatedAt": 1790000300000,
           "agentName": "Claude",
           "agentMark": "claude",
           "modelLabel": "Sonnet 5",
           "createdAt": 1789000000001,
           "effort": "max",
-          "permissionMode": "plan"
+          "permissionMode": "plan",
+          "activityAt": 1789964000000
         },
         {
           "id": "01JREALM000000000000000003",
@@ -707,7 +738,8 @@
           "modelLabel": "Opus 5.5",
           "createdAt": 1789000000002,
           "effort": null,
-          "permissionMode": "default"
+          "permissionMode": "default",
+          "activityAt": 1789946000000
         },
         {
           "id": "01JREALM000000000000000004",
@@ -725,7 +757,8 @@
           "modelLabel": "Opus 5.5",
           "createdAt": 1789000000003,
           "effort": null,
-          "permissionMode": "default"
+          "permissionMode": "default",
+          "activityAt": 1789928000000
         },
         {
           "id": "01JREALM000000000000000005",
@@ -743,7 +776,8 @@
           "modelLabel": "Opus 5.5",
           "createdAt": 1789000000004,
           "effort": null,
-          "permissionMode": "default"
+          "permissionMode": "default",
+          "activityAt": 1789910000000
         },
         {
           "id": "01JREALM000000000000000006",
@@ -761,7 +795,8 @@
           "modelLabel": "Opus 5.5",
           "createdAt": 1789000000005,
           "effort": null,
-          "permissionMode": "default"
+          "permissionMode": "default",
+          "activityAt": 1789892000000
         }
       ]
     },
@@ -783,7 +818,8 @@
           "modelLabel": "Opus 5.5",
           "createdAt": 1789990000000,
           "effort": "high",
-          "permissionMode": "acceptEdits"
+          "permissionMode": "acceptEdits",
+          "activityAt": 1790000000000
         },
         {
           "id": "01JREALM000000000000000001",
@@ -801,7 +837,8 @@
           "modelLabel": "Opus 5.5",
           "createdAt": 1789000000000,
           "effort": null,
-          "permissionMode": "default"
+          "permissionMode": "default",
+          "activityAt": 1789982000000
         },
         {
           "id": "01JREALM000000000000000002",
@@ -813,13 +850,14 @@
           "status": "idle",
           "needsYou": false,
           "unread": false,
-          "updatedAt": 1789964000000,
+          "updatedAt": 1790000300000,
           "agentName": "Claude",
           "agentMark": "claude",
           "modelLabel": "Sonnet 5",
           "createdAt": 1789000000001,
           "effort": "max",
-          "permissionMode": "plan"
+          "permissionMode": "plan",
+          "activityAt": 1789964000000
         },
         {
           "id": "01JREALM000000000000000003",
@@ -837,7 +875,8 @@
           "modelLabel": "Opus 5.5",
           "createdAt": 1789000000002,
           "effort": null,
-          "permissionMode": "default"
+          "permissionMode": "default",
+          "activityAt": 1789946000000
         }
       ],
       "more": true
@@ -860,7 +899,8 @@
           "modelLabel": "Opus 5.5",
           "createdAt": 1789000000003,
           "effort": null,
-          "permissionMode": "default"
+          "permissionMode": "default",
+          "activityAt": 1789928000000
         },
         {
           "id": "01JREALM000000000000000005",
@@ -878,7 +918,8 @@
           "modelLabel": "Opus 5.5",
           "createdAt": 1789000000004,
           "effort": null,
-          "permissionMode": "default"
+          "permissionMode": "default",
+          "activityAt": 1789910000000
         },
         {
           "id": "01JREALM000000000000000006",
@@ -896,7 +937,8 @@
           "modelLabel": "Opus 5.5",
           "createdAt": 1789000000005,
           "effort": null,
-          "permissionMode": "default"
+          "permissionMode": "default",
+          "activityAt": 1789892000000
         }
       ],
       "more": false
@@ -918,7 +960,8 @@
         "modelLabel": "Opus 5.5",
         "createdAt": 1789990000000,
         "effort": "high",
-        "permissionMode": "acceptEdits"
+        "permissionMode": "acceptEdits",
+        "activityAt": 1790000000000
       },
       "rows": [
         {
@@ -929,12 +972,12 @@
           "attachments": [
             {
               "path": "/Users/me/Realm/tmp/attachments/3f9a1c2b4d5e-IMG_0042.jpg",
-              "name": "3f9a1c2b4d5e-IMG_0042.jpg",
+              "name": "IMG_0042.jpg",
               "mime": "image/jpeg"
             },
             {
               "path": "/Users/me/Realm/tmp/attachments/8c1d2e3f4a5b-brief.pdf",
-              "name": "8c1d2e3f4a5b-brief.pdf",
+              "name": "brief.pdf",
               "mime": "application/pdf"
             }
           ]
@@ -1297,7 +1340,7 @@
     },
     "session.file:attachment": {
       "path": "/Users/me/Realm/tmp/attachments/3f9a1c2b4d5e-IMG_0042.jpg",
-      "name": "3f9a1c2b4d5e-IMG_0042.jpg",
+      "name": "IMG_0042.jpg",
       "size": 4,
       "mime": "image/jpeg",
       "preview": {
@@ -2341,6 +2384,7 @@
               "label": "Think hard"
             }
           ],
+          "defaultEffort": "low",
           "modes": [
             {
               "id": "build",

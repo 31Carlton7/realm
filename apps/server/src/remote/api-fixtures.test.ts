@@ -106,13 +106,17 @@ async function generate(): Promise<Record<string, unknown>> {
   };
 
   const sessions: Session[] = [
-    session(S, "sp1", { status: "waiting_permission", title: "Theme column", effort: "high", permissionMode: "acceptEdits", createdAt: 1_789_990_000_000 }),
-    session(CODEX, "sp2", { agentKind: "codex", model: null, status: "error", lastEventSeq: 9, seenSeq: 4, createdAt: 1_789_900_000_000, updatedAt: 1_790_000_100_000 }),
-    session(QUIET, "sp3", { agentKind: "acp:cursor", model: "composer-2", createdAt: 1_789_800_000_000, updatedAt: 1_790_000_200_000 }),
-    ...OLDER.map((id, i) => session(id, "sp1", {
-      lastEventSeq: 3, seenSeq: 3, createdAt: 1_789_000_000_000 + i, updatedAt: 1_790_000_000_000 - (i + 1) * 5 * HOUR,
-      ...(i === 1 ? { model: "claude-sonnet-5", effort: "max", permissionMode: "plan" } : {}),
-    })),
+    session(S, "sp1", { status: "waiting_permission", title: "Theme column", effort: "high", permissionMode: "acceptEdits", createdAt: 1_789_990_000_000, activityAt: 1_790_000_000_000 }),
+    session(CODEX, "sp2", { agentKind: "codex", model: null, status: "error", lastEventSeq: 9, seenSeq: 4, createdAt: 1_789_900_000_000, updatedAt: 1_790_000_100_000, activityAt: 1_790_000_100_000 }),
+    session(QUIET, "sp3", { agentKind: "acp:cursor", model: "composer-2", createdAt: 1_789_800_000_000, updatedAt: 1_790_000_200_000, activityAt: 1_790_000_200_000 }),
+    ...OLDER.map((id, i) => {
+      const at = 1_790_000_000_000 - (i + 1) * 5 * HOUR;
+      return session(id, "sp1", {
+        lastEventSeq: 3, seenSeq: 3, createdAt: 1_789_000_000_000 + i, updatedAt: at, activityAt: at,
+        // Set up again since its conversation last moved: its row was written last of all, and it keeps its place.
+        ...(i === 1 ? { model: "claude-sonnet-5", effort: "max", permissionMode: "plan", updatedAt: 1_790_000_300_000 } : {}),
+      });
+    }),
   ];
   const rpc = fakeRpc({
     profiles: [profile("p1", "Work", "briefcase-01"), profile("p2", "School", "emoji:🎓")],
@@ -149,7 +153,7 @@ async function generate(): Promise<Record<string, unknown>> {
       return { ...sessions.find((x) => x.id === id)!, ...changes };
     }) as never,
   });
-  const api = new MobileApi({ macName: () => "MacBook Pro", reportsDir: "/nonexistent", realmHome: "/nonexistent", dev: false, downscale: async () => Buffer.from("jpeg") });
+  const api = new MobileApi({ macName: () => "MacBook Pro", reportsDir: "/nonexistent", realmHome: home, dev: false, downscale: async () => Buffer.from("jpeg") });
   const call = (method: string, params: unknown) => api.handle(channel(rpc), method, params);
 
   // What a phone answering the open question sends, as the Mac's own card keeps it.

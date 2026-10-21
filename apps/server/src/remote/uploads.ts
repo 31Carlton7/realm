@@ -1,8 +1,7 @@
-import { randomBytes } from "node:crypto";
 import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { mimeForPath } from "@realm/contracts";
-import { safeAttachmentName, sweepTempAttachments, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
+import { prefixedAttachmentName, safeAttachmentName, sweepTempAttachments, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
 import { SEND_LIMITS, type MobileParams } from "@realm/remote";
 
 /**
@@ -21,12 +20,12 @@ export type Upload = MobileParams<"session.send">["attachments"][number];
 
 export class UploadRefused extends Error {}
 
-const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 /** The pictures every agent takes inline: what each is called, its extension, and how its first bytes read. */
 const PICTURES: Record<string, { name: string; ext: string; is: (b: Buffer) => boolean }> = {
   "image/jpeg": { name: "JPEG", ext: "jpg", is: (b) => b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
-  "image/png": { name: "PNG", ext: "png", is: (b) => b.subarray(0, 8).equals(PNG) },
+  "image/png": { name: "PNG", ext: "png", is: (b) => b.subarray(0, 8).equals(PNG_SIGNATURE) },
   "image/gif": { name: "GIF", ext: "gif", is: (b) => /^GIF8[79]a$/.test(b.subarray(0, 6).toString("latin1")) },
   "image/webp": { name: "WebP", ext: "webp", is: (b) => b.subarray(0, 4).toString("latin1") === "RIFF" && b.subarray(8, 12).toString("latin1") === "WEBP" },
 };
@@ -36,21 +35,23 @@ const MEDIA_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/;
 
 const MB = 1024 * 1024;
 
-/** The most and the fewest bytes a base64 string of this length can decode to. */
-const decodedAtMost = (base64: string): number => Math.ceil(base64.length / 4) * 3;
+/** The fewest bytes a base64 string of this length decodes to: what a size is checked by before the
+ *  string is decoded at all. */
 const decodedAtLeast = (base64: string): number => Math.max(0, Math.floor(base64.length / 4) * 3 - 2);
 
 type Checked = { name: string; mime: string; bytes: Buffer };
+
+const tooBig = (name: string) => new UploadRefused(`${name} is over ${SEND_LIMITS.maxBytes / MB} MB, the most this Mac takes in one file.`);
 
 function check(u: Upload): Checked {
   const name = safeAttachmentName(u.name);
   const mime = u.mime.split(";")[0]!.trim().toLowerCase();
   if (!MEDIA_TYPE.test(mime)) throw new UploadRefused(`${name} has no type this Mac can read.`);
-  if (decodedAtMost(u.data) > SEND_LIMITS.maxBytes + 2) throw new UploadRefused(`${name} is over ${SEND_LIMITS.maxBytes / MB} MB, the most this Mac takes in one file.`);
+  if (decodedAtLeast(u.data) > SEND_LIMITS.maxBytes) throw tooBig(name);
   const bytes = Buffer.from(u.data, "base64");
   // Node's decoder skips what is not base64 rather than refusing it; encoding again is what tells.
   if (bytes.toString("base64") !== u.data) throw new UploadRefused(`${name} did not arrive as base64.`);
-  if (bytes.length > SEND_LIMITS.maxBytes) throw new UploadRefused(`${name} is over ${SEND_LIMITS.maxBytes / MB} MB, the most this Mac takes in one file.`);
+  if (bytes.length > SEND_LIMITS.maxBytes) throw tooBig(name);
   if (!mime.startsWith("image/")) return { name, mime, bytes };
   const picture = PICTURES[mime];
   if (!picture) throw new UploadRefused(`${name} is a picture this Mac can't hand every agent. Send it as a JPEG, PNG, GIF or WebP.`);
@@ -83,7 +84,7 @@ export async function saveUploads(home: string, checked: readonly Checked[]): Pr
   void sweepTempAttachments(dir).catch(() => {});
   const out: { path: string; mime: string }[] = [];
   for (const c of checked) {
-    const path = join(dir, `${randomBytes(6).toString("hex")}-${c.name}`);
+    const path = join(dir, prefixedAttachmentName(c.name));
     await writeFile(path, c.bytes, { flag: "wx" });
     out.push({ path, mime: c.mime });
   }

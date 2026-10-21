@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter } from "@realm/adapters";
@@ -443,13 +443,15 @@ describe("Plan 28: a paired phone, in process", () => {
     const row = await shown;
     if (row.kind !== "user" || !row.attachments) throw new Error("no files on the row");
     const dir = join(r.home, "tmp", "attachments");
-    expect(row.attachments.map((a) => [dirname(a.path), a.name.replace(/^[0-9a-f]{12}-/, ""), a.mime])).toEqual([[dir, "IMG_0042.png", "image/png"], [dir, "notes.md", "text/markdown"]]);
+    // Written under a name of the Mac's own, and named on the row as the phone named it.
+    expect(row.attachments.map((a) => [dirname(a.path), a.name, a.mime])).toEqual([[dir, "IMG_0042.png", "image/png"], [dir, "notes.md", "text/markdown"]]);
+    expect(row.attachments.map((a) => basename(a.path))).toEqual([expect.stringMatching(/^[0-9a-f]{12}-IMG_0042\.png$/), expect.stringMatching(/^[0-9a-f]{12}-notes\.md$/)]);
     expect(readFileSync(row.attachments[0]!.path)).toEqual(png);
     // The session's own record of the message holds those paths, as a desktop paste's does.
     const [sent] = await r.mac.call("sessions.events", { id, afterSeq: 0, limit: 10, types: ["user_message"] });
     expect(sent?.event.payload).toMatchObject({ text: "What is in these?", attachments: row.attachments.map(({ path, mime }) => ({ path, mime })) });
     // And the phone may preview them, as it previews what a turn made.
-    expect(await phone.call("session.file", { id, path: row.attachments[1]!.path })).toMatchObject({ preview: { kind: "text", text: "# Notes\n" } });
+    expect(await phone.call("session.file", { id, path: row.attachments[1]!.path })).toMatchObject({ name: "notes.md", preview: { kind: "text", text: "# Notes\n" } });
     // A file the Mac cannot take is refused before anything is written or sent.
     const before = readdirSync(dir).length;
     await expect(phone.call("session.send", { id, text: "", attachments: [{ name: "IMG.heic", mime: "image/heic", data: "aGVpYw==" }] })).rejects.toMatchObject({ code: "INVALID_PARAMS" });
@@ -471,6 +473,33 @@ describe("Plan 28: a paired phone, in process", () => {
     expect(await r.mac.call("sessions.get", { id })).toMatchObject({ permissionMode: "acceptEdits", model: "fake" });
     await expect(phone.call("session.configure", { id, permission: "sudo" })).rejects.toMatchObject({ code: "INVALID_PARAMS" });
     expect(MobileCalls["agents.list"].result.parse(await phone.call("agents.list")).agents.map((a) => a.kind)).toContain("claude");
+    phone.close();
+  });
+
+  it("keeps Home in the order its conversations moved: a session set up again since stays where it was", async () => {
+    const r = await boot();
+    // A few milliseconds apart, so neither the two sessions nor the two writes share a clock tick.
+    const tick = () => new Promise((res) => setTimeout(res, 20));
+    const older = await newSession(r);
+    await tick();
+    const newer = await newSession(r);
+    await tick();
+    // A change of settings writes the older row, which moves its `updatedAt` past the newer's, and
+    // reading it moves its read mark; neither is the conversation moving.
+    await r.mac.call("sessions.setOptions", { id: older, permissionMode: "acceptEdits" });
+    await r.mac.call("sessions.markSeen", { id: older, seq: 0 });
+    const [o, n] = [await r.mac.call("sessions.get", { id: older }), await r.mac.call("sessions.get", { id: newer })];
+    expect(o.updatedAt).toBeGreaterThan(n.updatedAt);
+    const phone = await pairPhone(r);
+    const home = HomeSchema.parse(await phone.call("home.get"));
+    const page = MobileCalls["space.sessions"].result.parse(await phone.call("space.sessions", { id: r.spaceId }));
+    for (const rows of [home.spaces.find((sp) => sp.id === r.spaceId)!.sessions, home.recent!, page.sessions]) {
+      expect(rows.map((s) => s.id)).toEqual([newer, older]);
+    }
+    expect(home.recent!.map((s) => s.activityAt)).toEqual([n.activityAt, o.activityAt]);
+    // A message is the conversation moving, and puts the older first.
+    await r.mac.call("sessions.send", { id: older, text: "hello again" });
+    await waitFor(async () => HomeSchema.parse(await phone.call("home.get")).recent![0]!.id === older);
     phone.close();
   });
 

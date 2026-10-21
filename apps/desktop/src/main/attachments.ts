@@ -5,7 +5,7 @@ import { mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs
 import { randomBytes } from "node:crypto";
 import { nativeImage } from "electron";
 import { DIRECTORY_MIME, expandHome, isImageMime, isOpenablePath, mimeForPath, resolveFileTarget } from "@realm/contracts";
-import { safeAttachmentName, sweepTempAttachments, TEMP_ATTACHMENT_TTL_MS, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
+import { prefixedAttachmentName, safeAttachmentName, sweepTempAttachments, TEMP_ATTACHMENT_TTL_MS, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
 
 /** What the picker and the paste path hand the renderer. `size` is here so the prompter can refuse a
  *  file over MAX_ATTACHMENT_BYTES before it is ever attached; only `path` and `mime` go on the wire. */
@@ -22,7 +22,7 @@ export async function saveTempAttachment(home: string, name: string, mime: strin
   await mkdir(dir, { recursive: true });
   void sweepTempAttachments(dir).catch(() => {});
   const safe = safeAttachmentName(name);
-  const path = join(dir, `${randomBytes(6).toString("hex")}-${safe}`);
+  const path = join(dir, prefixedAttachmentName(safe));
   await writeFile(path, bytes);
   // The browser already knows a clipboard item's type; fall back to the extension only when it does not.
   return { path, mime: mime || mimeForPath(safe), name: safe, size: bytes.byteLength };
@@ -53,7 +53,7 @@ export async function compressIconIfNeeded(home: string, file: PickedFile): Prom
   await mkdir(dir, { recursive: true });
   void sweepTempAttachments(dir).catch(() => {});
   const mime = jpeg ? "image/jpeg" : "image/png";
-  const path = join(dir, `${randomBytes(6).toString("hex")}-icon.${jpeg ? "jpg" : "png"}`);
+  const path = join(dir, prefixedAttachmentName(`icon.${jpeg ? "jpg" : "png"}`));
   await writeFile(path, buf);
   return { path, mime, name: file.name, size: buf.byteLength };
 }

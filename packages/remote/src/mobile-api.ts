@@ -39,6 +39,9 @@ export const SessionRowSchema = z.object({
   /** As the desktop stores it: how freely the agent acts ("default", "acceptEdits", "bypassPermissions"),
    *  or the mode it is in instead ("plan", "ask"). */
   permissionMode: z.string().nullable().optional(),
+  /** When the conversation last moved: a prompt went out, or the agent answered or finished a turn. What
+   *  every list of sessions is ordered by — not `updatedAt`, which a change of settings or a rename moves too. */
+  activityAt: z.number().optional(),
 });
 export type SessionRow = z.infer<typeof SessionRowSchema>;
 
@@ -80,6 +83,8 @@ export const AgentOptionsSchema = z.object({
   models: z.array(ModelChoiceSchema),
   /** Reasoning levels that are the agent's own setting rather than a model's. */
   efforts: z.array(ChoiceSchema),
+  /** Which of those it runs when none is chosen, where it names one. */
+  defaultEffort: z.string().nullable().optional(),
   /** Build, then Plan and Ask where the agent has them. */
   modes: z.array(ChoiceSchema),
   /** How freely the agent may act, least to most; empty where Realm cannot set it for this agent. */
