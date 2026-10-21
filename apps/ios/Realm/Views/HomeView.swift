@@ -250,7 +250,7 @@ struct SectionHead<Glyph: View>: View {
 
 /// The head of a section after Needs you. A space's opens its page where the Mac pages a space's
 /// sessions, with the chevron that says so; a day's and Most recent's only name what is under them.
-private struct ListSectionHead: View {
+struct ListSectionHead: View {
     let section: ListSection
     let opensSpace: Bool
 
@@ -333,7 +333,7 @@ private struct SpaceFooterRow: View {
 
 /// At the head of the list, what needs the person in a profile Home is not showing, a press from
 /// being shown: one line for each such profile.
-private struct ElsewhereRow: View {
+struct ElsewhereRow: View {
     let waiting: ProfileWaiting
     @Environment(AppModel.self) private var model
 

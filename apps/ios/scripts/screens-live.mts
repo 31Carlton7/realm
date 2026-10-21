@@ -26,7 +26,8 @@
  * With --ui it drives the app itself instead: it builds the RealmLive scheme's UI tests once, then
  * runs one test per phase on the iPhone 17 Simulator — pair (the Mac holds its answer a few seconds),
  * awake, asleep, awake again, the relay down, then the largest text size and Reduce Transparency with
- * everything back up — moving the Mac between them, and leaves each test's
+ * everything back up, then Home's profiles, list styles and a space's page, in light, dark, at the
+ * largest text size and with Reduce Transparency — moving the Mac between them, and leaves each test's
  * screenshots in apps/ios/.build/screenshots (--shots <dir> to change it). It exits non-zero if any
  * phase fails. --phases test0_forgetThenPair,test1_awake runs only those; --udid <id> picks the
  * Simulator, --derived-data <dir> where xcodebuild builds (apps/ios/.build/DerivedData), and
@@ -256,6 +257,13 @@ execFileSync("sqlite3", ["-cmd", ".timeout 5000", join(server.home, "realm.db"),
   if (!/^[0-9A-Z]{26}$/.test(id)) throw new Error(`not a session id: ${id}`);
   return `UPDATE sessions SET updated_at = ${at}, activity_at = ${at}, created_at = ${at - 2 * 3_600_000} WHERE id = '${id}';`;
 }).join("\n")], { stdio: "pipe" });
+// A space with more sessions than one page of its own on the phone (50), a day apart and all older
+// than Personal's others, so its page has a second page to scroll to and Work's lists stay as they are.
+const journal = await space("Journal", "emoji:📓", "#6366f1", personal.id);
+const entries: string[] = [];
+for (let n = 1; n <= 55; n++) entries.push(await session(journal.id, "claude", "claude-haiku-4-5", `Journal entry ${n}`));
+execFileSync("sqlite3", ["-cmd", ".timeout 5000", join(server.home, "realm.db"), entries.map((id, i) =>
+  `UPDATE sessions SET updated_at = ${dayAt(61 - i, 21)}, activity_at = ${dayAt(61 - i, 21)} WHERE id = '${id}';`).join("\n")], { stdio: "pipe" });
 
 await waitFor("the relay link", async () => gw.state === "connected");
 let pairing = gw.openPairing();
@@ -325,6 +333,19 @@ async function runUiTests(): Promise<boolean> {
     simctl(["spawn", udid, "defaults", "write", "com.apple.Accessibility", "EnhancedBackgroundContrastEnabled", "-bool", String(on)]);
   await reduceTransparency(true);
   await phase("test6_reduceTransparency");
+  await reduceTransparency(false);
+  // Home (Plan 29 §2): one profile at a time, the list styles, Settings ▸ Session list and a space's
+  // page; then the same in dark, at the largest text size and with Reduce Transparency.
+  await phase("testH1_profiles");
+  await phase("testH2_listStyles");
+  await phase("testH3_sessionListSettings");
+  await phase("testH4_spacePage");
+  await simctl(["ui", udid, "appearance", "dark"]);
+  await phase("testH5_dark");
+  await simctl(["ui", udid, "appearance", "light"]);
+  await phase("testH6_largestText");
+  await reduceTransparency(true);
+  await phase("testH7_reduceTransparency");
   await reduceTransparency(false);
   for (const [test, passed] of results) say(`${passed ? "passed" : "FAILED"}  ${test}`);
   say(`screenshots in ${shots}`);

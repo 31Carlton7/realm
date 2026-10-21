@@ -588,3 +588,24 @@ struct SessionListWordsTests {
         #expect(UnsentSession.list(outbox: outbox, home: Staged.home, connected: false).first?.title == "Ship 2.0.3")
     }
 }
+
+@MainActor
+@Suite("Home's new lines draw whole", .serialized)
+struct HomeDrawingTests {
+    @Test func theLineForAnotherProfileReadsAtEverySize() throws {
+        let line = ElsewhereRow(waiting: ProfileWaiting(profile: Staged.profiles[1], count: 2)).environment(AppModel())
+        #expect(try Drawing.words(line).contains("2 need you in School"))
+        let largest = try Drawing.words(line, size: .accessibility5)
+        #expect(largest.contains("need you") && largest.contains("School"), "\(largest)")
+        #expect(try Drawing.words(line, dark: false).contains("2 need you in School"))
+    }
+
+    @Test func theHeadsOfDaysAndSpacesReadAtEverySize() throws {
+        let week = ListSection(head: .day(.previousWeek), rows: [], more: 0)
+        let head = try Drawing.words(ListSectionHead(section: week, opensSpace: true).environment(AppModel()), size: .accessibility5)
+        #expect(head.contains("Previous 7 days"), "\(head)")
+        let realm = ListSection(head: .space(Staged.spaces[0]), rows: [Staged.toggle], more: 4)
+        #expect(try Drawing.words(ListSectionHead(section: realm, opensSpace: true).environment(AppModel()), size: .accessibility5)
+                .contains("Realm"))
+    }
+}
