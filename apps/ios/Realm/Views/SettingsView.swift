@@ -73,6 +73,7 @@ struct SettingsView: View {
                         Text(style.title).tag(style)
                     }
                 }
+                .modifier(ChoiceStyle())
                 .listRowBackground(Fill.card)
                 if style == .bySpace {
                     Picker("Order spaces", selection: $spaceOrder) {
@@ -80,6 +81,7 @@ struct SettingsView: View {
                             Text(order.title).tag(order)
                         }
                     }
+                    .modifier(ChoiceStyle())
                     .listRowBackground(Fill.card)
                 }
                 Toggle("Needs you first", isOn: $needsYouFirst)
@@ -150,6 +152,20 @@ struct SettingsView: View {
         case .denied: "Off"
         case .notDetermined: "Not asked yet"
         @unknown default: "Unknown"
+        }
+    }
+}
+
+/// A choice on a row of its own, its value in a menu; at the accessibility sizes, where that value
+/// is cut short on one line, its options are rows of their own.
+private struct ChoiceStyle: ViewModifier {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    func body(content: Content) -> some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            content.pickerStyle(.inline)
+        } else {
+            content.pickerStyle(.menu)
         }
     }
 }

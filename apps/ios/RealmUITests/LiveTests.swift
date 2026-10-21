@@ -412,11 +412,16 @@ final class LiveTests: XCTestCase {
         XCTAssert(app.navigationBars.buttons["settings"].waitForExistence(timeout: 30))
         sleep(3)
         try appearanceTour(prefix: "ax", launched: true)
+        // Settings ▸ Session list sets its choices out as rows here, each whole.
         app.navigationBars.buttons["settings"].tap()
-        let list = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "List")).firstMatch
-        for _ in 0..<12 where !list.isHittable { app.swipeUp(velocity: .slow) }
-        XCTAssert(list.exists)
+        let bySpace = element(containing: "By space")
+        for _ in 0..<12 where !(bySpace.exists && bySpace.isHittable) { app.swipeUp(velocity: .slow) }
+        XCTAssert(bySpace.exists, "Settings has no Session list")
         shot("ax-settings-session-list")
+        let recently = element(containing: "Recently active first")
+        for _ in 0..<6 where !(recently.exists && recently.isHittable) { app.swipeUp(velocity: .slow) }
+        XCTAssert(recently.exists)
+        shot("ax-settings-session-list-order")
         app.navigationBars.buttons["Done"].firstMatch.tap()
     }
 
@@ -444,7 +449,10 @@ final class LiveTests: XCTestCase {
         XCTAssert(app.buttons["By day"].waitForExistence(timeout: 5))
         shot("\(prefix)-view-options")
         app.buttons["By day"].tap()
-        XCTAssert(app.staticTexts["Today"].waitForExistence(timeout: 5))
+        // Needs you can fill the screen at the largest sizes: the first day's head is further down.
+        let today = app.staticTexts["Today"]
+        for _ in 0..<6 where !today.waitForExistence(timeout: 2) { app.swipeUp(velocity: .slow) }
+        XCTAssert(today.exists, "By day has no Today")
         shot("\(prefix)-by-day")
         viewOption("By space")
         let realm = app.buttons["Realm"]
