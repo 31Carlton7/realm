@@ -259,7 +259,11 @@ struct ListSectionHead: View {
         case .space(let space):
             if opensSpace {
                 NavigationLink(value: Route.space(space.id)) {
+                    // The whole head is pressed, not only its words: it is a row's width to a finger,
+                    // as it is to VoiceOver.
                     SectionHead(title: space.name, opens: true) { SpaceGlyph(space: space) }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(.isHeader)
