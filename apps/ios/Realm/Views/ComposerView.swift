@@ -368,11 +368,13 @@ private struct PrimaryButton: View {
                 Menu {
                     ForEach(action.alternatives, id: \.self) { other in
                         // A second line of words in an item's label is what a menu draws under its title.
-                        Button(role: other == .stop ? .destructive : nil) { perform(other) } label: {
+                        let item = Button(role: other == .stop ? .destructive : nil) { perform(other) } label: {
                             Label(other.title, systemImage: other.symbol)
                             if let line = other.explanation(steerNote: steerNote) { Text(line) }
                         }
                         .disabled(unreachable(other))
+                        // The app's tint colours every glyph in a menu, a destructive one's too: Stop's takes its words' red.
+                        if other == .stop { item.tint(.red) } else { item }
                     }
                 } label: {
                     glyph
