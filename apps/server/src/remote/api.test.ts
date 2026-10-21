@@ -608,17 +608,22 @@ describe("session.send with files", () => {
   it("takes a file of the most the Mac takes, and refuses more — one file, or all of them together — before writing any", async () => {
     const r = rig();
     const big = (n: number) => Buffer.alloc(n, 7);
+    const rest = SEND_LIMITS.maxTotalBytes - SEND_LIMITS.maxBytes;
     expect(await r.send({ attachments: [upload("exactly.bin", "application/octet-stream", big(SEND_LIMITS.maxBytes))] })).toMatchObject({ ok: true });
+    expect(await r.send({ attachments: [upload("most.bin", "application/octet-stream", big(SEND_LIMITS.maxBytes)), upload("rest.bin", "application/octet-stream", big(rest))] }))
+      .toMatchObject({ ok: true });
     const before = r.files().length;
     for (const attachments of [
       [upload("over.bin", "application/octet-stream", big(SEND_LIMITS.maxBytes + 1))],
       [upload("half.bin", "application/octet-stream", big(6 * 1024 * 1024)), upload("other-half.bin", "application/octet-stream", big(6 * 1024 * 1024))],
+      // One byte over in all, which only the files' real sizes show: their base64 alone reads a byte or two under.
+      [upload("most.bin", "application/octet-stream", big(SEND_LIMITS.maxBytes)), upload("rest.bin", "application/octet-stream", big(rest + 1))],
       Array.from({ length: SEND_LIMITS.maxCount + 1 }, (_, i) => upload(`${i}.txt`, "text/plain", "x")),
     ]) {
       expect(await r.send({ attachments }), `${attachments.length} files`).toMatchObject({ ok: false, code: "INVALID_PARAMS" });
     }
     expect(r.files().length).toBe(before);
-    expect(r.sent).toHaveLength(1);
+    expect(r.sent).toHaveLength(2);
   });
 
   it("takes only base64 exactly as it encodes", async () => {
