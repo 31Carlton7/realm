@@ -102,12 +102,14 @@ struct ComposerChips: View {
 }
 
 /// A chip's face: quiet words with a glyph and a chevron, drawn on the composer's own glass rather than
-/// as a pill of their own. Its touch is a full 44 points tall.
+/// as a pill of their own. Its touch is a full 44 points tall. Off, it greys itself: a menu that is off
+/// leaves a label's own inks as they are.
 private struct ChipLabel<Icon: View>: View {
     let text: String
     /// The model's chip reads in ink; the rest in the quieter ink beside it.
     let emphasised: Bool
     @ViewBuilder let icon: Icon
+    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         HStack(spacing: 6) {
@@ -124,6 +126,7 @@ private struct ChipLabel<Icon: View>: View {
         .padding(.horizontal, 8)
         .frame(minHeight: ComposerLayout.button)
         .contentShape(Rectangle())
+        .opacity(isEnabled ? 1 : 0.45)
     }
 }
 
