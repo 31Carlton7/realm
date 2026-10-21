@@ -64,6 +64,8 @@ export type GatewayOptions = {
   confirm: (phone: { name: string; model: string; windowId: string }) => Promise<boolean>;
   /** Where `debug.report` writes, in development builds. */
   reportsDir: string;
+  /** The Realm home whose `tmp/attachments` takes the files a phone sends, as a desktop paste's does. */
+  realmHome: string;
   dev?: boolean;
   log?: (line: string) => void;
   /** Tests: the pairing link's scheme. */
@@ -91,7 +93,7 @@ export class RemoteGateway {
     this.store = o.phones;
     this.keys = o.identity.keys;
     this.macId = o.identity.macId;
-    this.api = new MobileApi({ macName: () => o.macName, reportsDir: o.reportsDir, dev: o.dev === true });
+    this.api = new MobileApi({ macName: () => o.macName, reportsDir: o.reportsDir, realmHome: o.realmHome, dev: o.dev === true });
     this.link = new RelayLink({
       relay: o.relay, macId: this.macId, keys: this.keys, log: this.log,
       on: {

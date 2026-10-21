@@ -27,7 +27,7 @@ function rig(over: Partial<RemoteServiceOptions> = {}) {
   const changes: RemoteStatus[] = [];
   rpc.onBroadcast((event, payload) => { if (event === "remote.changed") changes.push(payload as RemoteStatus); });
   const make = (o: Partial<RemoteServiceOptions> = {}) => {
-    const s = new RemoteService({ rpc, settings, phones, macName: "Test Mac", version: "test", reportsDir: join(tempDir("realm-reports-"), "r"), ...over, ...o });
+    const s = new RemoteService({ rpc, settings, phones, macName: "Test Mac", version: "test", reportsDir: join(tempDir("realm-reports-"), "r"), home: tempDir("realm-remote-home-"), ...over, ...o });
     services.push(s);
     return s;
   };

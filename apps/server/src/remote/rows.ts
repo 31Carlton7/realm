@@ -1,4 +1,4 @@
-import type { AskCard, AskQuestion, SessionEvent, SessionEventType, StoredSessionEvent } from "@realm/contracts";
+import { basenameOf, type AskCard, type AskQuestion, type SessionEvent, type SessionEventType, type StoredSessionEvent } from "@realm/contracts";
 import type { Row } from "@realm/remote";
 import { questionOf } from "@realm/view";
 
@@ -89,8 +89,13 @@ export class SessionProjector {
     const ev = stored.event as SessionEvent;
     const type: SessionEventType = ev.type;
     switch (ev.type) {
-      // Anything sent makes the suggestion about a turn that is no longer the last one.
-      case "user_message": this.hinted = null; return put({ key: `u:${seq}`, seq, kind: "user", text: ev.payload.text });
+      // Anything sent makes the suggestion about a turn that is no longer the last one. What was sent
+      // with it stays on the Mac: the row names each file, and `session.file` previews one.
+      case "user_message": {
+        this.hinted = null;
+        const files = ev.payload.attachments.map((a) => ({ path: a.path, name: basenameOf(a.path), mime: a.mime }));
+        return put({ key: `u:${seq}`, seq, kind: "user", text: ev.payload.text, ...(files.length ? { attachments: files } : {}) });
+      }
       case "assistant_delta": {
         const key = `m:${ev.payload.messageId}`;
         const prev = this.rows.get(key);

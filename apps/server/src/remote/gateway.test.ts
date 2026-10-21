@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter } from "@realm/adapters";
@@ -426,6 +426,66 @@ describe("Plan 28: a paired phone, in process", () => {
     for (const path of [join(dir, "private.md"), "/etc/hosts", join(r.home, "realm.db")]) {
       await expect(phone.call("session.file", { id, path }), path).rejects.toMatchObject({ code: "FORBIDDEN" });
     }
+    phone.close();
+  });
+
+  it("takes files with a message: written under the Mac's own home, and the session is sent their paths", async () => {
+    const r = await boot();
+    const id = await newSession(r);
+    const phone = await pairPhone(r);
+    await phone.call("session.open", { id });
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
+    const shown = phone.waitFor("session.rows", (p) => rowsOf(p, id)?.find((row) => row.kind === "user" && (row.attachments?.length ?? 0) > 0));
+    await phone.call("session.send", { id, text: "What is in these?", attachments: [
+      { name: "IMG_0042.png", mime: "image/png", data: png.toString("base64") },
+      { name: "../../notes.md", mime: "text/markdown", data: Buffer.from("# Notes\n").toString("base64") },
+    ] });
+    const row = await shown;
+    if (row.kind !== "user" || !row.attachments) throw new Error("no files on the row");
+    const dir = join(r.home, "tmp", "attachments");
+    expect(row.attachments.map((a) => [dirname(a.path), a.name.replace(/^[0-9a-f]{12}-/, ""), a.mime])).toEqual([[dir, "IMG_0042.png", "image/png"], [dir, "notes.md", "text/markdown"]]);
+    expect(readFileSync(row.attachments[0]!.path)).toEqual(png);
+    // The session's own record of the message holds those paths, as a desktop paste's does.
+    const [sent] = await r.mac.call("sessions.events", { id, afterSeq: 0, limit: 10, types: ["user_message"] });
+    expect(sent?.event.payload).toMatchObject({ text: "What is in these?", attachments: row.attachments.map(({ path, mime }) => ({ path, mime })) });
+    // And the phone may preview them, as it previews what a turn made.
+    expect(await phone.call("session.file", { id, path: row.attachments[1]!.path })).toMatchObject({ preview: { kind: "text", text: "# Notes\n" } });
+    // A file the Mac cannot take is refused before anything is written or sent.
+    const before = readdirSync(dir).length;
+    await expect(phone.call("session.send", { id, text: "", attachments: [{ name: "IMG.heic", mime: "image/heic", data: "aGVpYw==" }] })).rejects.toMatchObject({ code: "INVALID_PARAMS" });
+    expect(readdirSync(dir)).toHaveLength(before);
+    phone.close();
+  });
+
+  it("reads and changes a session's model, mode and permissions from the phone, as the desktop's chips do", async () => {
+    const r = await boot();
+    const id = await newSession(r);
+    const phone = await pairPhone(r);
+    const options = MobileCalls["session.options"].result.parse(await phone.call("session.options", { id }));
+    expect(options.agent).toMatchObject({ kind: "fake", modes: [{ id: "build" }, { id: "plan" }, { id: "ask" }], permissions: [{ id: "default" }, { id: "acceptEdits" }, { id: "bypassPermissions" }] });
+    expect(options).toMatchObject({ model: null, permissionMode: "default", midTurn: "queue" });
+    const planned = MobileCalls["session.configure"].result.parse(await phone.call("session.configure", { id, mode: "plan" }));
+    expect(planned.permissionMode).toBe("plan");
+    expect((await r.mac.call("sessions.get", { id })).permissionMode).toBe("plan");
+    await phone.call("session.configure", { id, permission: "acceptEdits", model: "fake" });
+    expect(await r.mac.call("sessions.get", { id })).toMatchObject({ permissionMode: "acceptEdits", model: "fake" });
+    await expect(phone.call("session.configure", { id, permission: "sudo" })).rejects.toMatchObject({ code: "INVALID_PARAMS" });
+    expect(MobileCalls["agents.list"].result.parse(await phone.call("agents.list")).agents.map((a) => a.kind)).toContain("claude");
+    phone.close();
+  });
+
+  it("lists Home for one profile, and a space's sessions a page at a time", async () => {
+    const r = await boot();
+    const [profile] = await r.mac.call("profiles.list", {});
+    const ids = [await newSession(r), await newSession(r)];
+    const phone = await pairPhone(r);
+    const home = HomeSchema.parse(await phone.call("home.get", { profileId: profile!.id }));
+    expect(home.profileId).toBe(profile!.id);
+    expect(home.profiles?.map((p) => p.id)).toEqual([profile!.id]);
+    expect(home.recent?.map((s) => s.id).sort()).toEqual([...ids].sort());
+    const page = MobileCalls["space.sessions"].result.parse(await phone.call("space.sessions", { id: r.spaceId, limit: 1 }));
+    expect(page.sessions).toHaveLength(1);
+    expect(page.more).toBe(true);
     phone.close();
   });
 

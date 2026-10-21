@@ -164,6 +164,21 @@ describe("the phone's rows", () => {
     for (const r of p.all()) expect(RowSchema.safeParse(r).success).toBe(true);
   });
 
+  it("names the files sent with a message by their paths on the Mac, and a message with none carries no list", () => {
+    const p = new SessionProjector();
+    const sent = [{ path: "/Users/me/Realm/tmp/attachments/3f9a1c2b4d5e-IMG_0042.jpg", mime: "image/jpeg" }, { path: "/Users/me/notes.md", mime: "text/markdown" }];
+    p.apply(persisted(sessionEvent("user_message", { text: "", attachments: sent })));
+    p.apply(persisted(sessionEvent("user_message", { text: "and this", attachments: [] })));
+    const [withFiles, without] = p.all();
+    // THE MUTANT: the row keeps only its text, and the phone shows a message sent with a photo as an
+    // empty bubble.
+    expect(withFiles).toMatchObject({ kind: "user", text: "", attachments: [
+      { path: sent[0]!.path, name: "3f9a1c2b4d5e-IMG_0042.jpg", mime: "image/jpeg" }, { path: "/Users/me/notes.md", name: "notes.md", mime: "text/markdown" },
+    ] });
+    expect(without).not.toHaveProperty("attachments");
+    for (const r of p.all()) expect(RowSchema.safeParse(r).success).toBe(true);
+  });
+
   it("names a tool call by what it touches", () => {
     expect(summarize("Read", { file_path: "/a/b.ts" })).toBe("/a/b.ts");
     expect(summarize("WebSearch", { query: "noise protocol" })).toBe("noise protocol");
