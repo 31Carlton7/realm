@@ -727,7 +727,7 @@ describe("session.create, on what the phone chose", () => {
       "sessions.create": ((p: { spaceId: string; agentKind: Session["agentKind"] }) => { created.push(p); return { session: session("new", p.spaceId, { agentKind: p.agentKind }), itemId: "i-new" }; }) as never,
       "sessions.send": ((p: unknown) => { sent.push(p); return { ok: true }; }) as never,
     });
-    return { created, sent, create: (params: Record<string, unknown>) => attempt(api(undefined, home), rpc, "session.create", { spaceId: "s1", ...params }) };
+    return { home, created, sent, create: (params: Record<string, unknown>) => attempt(api(undefined, home), rpc, "session.create", { spaceId: "s1", ...params }) };
   }
   const made = (o: Record<string, unknown>) => ({ spaceId: "s1", model: null, effort: null, permissionMode: null, ...o });
 
@@ -757,6 +757,15 @@ describe("session.create, on what the phone chose", () => {
     }
     expect(r.created).toEqual([]);
     expect(r.sent).toEqual([]);
+  });
+
+  it("makes nothing when its files cannot be written", async () => {
+    const r = rig();
+    mkdirSync(join(r.home, "tmp"));
+    symlinkSync(tempDir("realm-elsewhere-"), join(r.home, "tmp", "attachments"));
+    // THE MUTANT: make the session first, and a phone that tries again leaves an empty one each time.
+    expect(await r.create({ agent: "claude", text: "look", attachments: [upload("shot.png", "image/png", PICTURE.png)] })).toMatchObject({ ok: false, code: "INTERNAL" });
+    expect(r.created).toEqual([]);
   });
 });
 

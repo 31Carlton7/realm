@@ -331,8 +331,9 @@ export class MobileApi {
     return { agents, defaultAgent, midTurn: shared.midTurn, attachments: { ...SEND_LIMITS } };
   }
 
-  /** A new session in a space, on what the phone chose, sent its first message. The choices and the
-   *  files are checked before anything is made, so a refusal leaves no empty session behind. */
+  /** A new session in a space, on what the phone chose, sent its first message. The choices are
+   *  checked and the files written before the session is made, so nothing refused or unwritten leaves
+   *  an empty session behind. */
   private async create(rpc: RpcPort, p: MobileParams<"session.create">): Promise<{ id: string }> {
     const agent = AgentKindSchema.safeParse(p.agent);
     if (!agent.success) throw new MobileError("INVALID_PARAMS", `unknown agent ${String(p.agent)}`);
@@ -341,24 +342,19 @@ export class MobileApi {
     const input = optionsInput(probe, null, shared);
     const resting = resolveDefaultPermissionMode(kind, shared.defaultPermission);
     const chosen = changesFor(kind, { model: null, effort: null, permissionMode: resting }, p, input, resting);
-    const checked = this.checked(p.text, p.attachments);
+    const files = await this.uploads(p.text, p.attachments);
     const { session } = await rpc.call("sessions.create", {
       spaceId: p.spaceId, agentKind: kind, model: chosen.model ?? null, effort: chosen.effort ?? null, permissionMode: chosen.permissionMode ?? null,
     });
-    const files = await saveUploads(this.o.realmHome, checked);
     await rpc.call("sessions.send", { id: session.id, text: p.text, attachments: files });
     return { id: session.id };
   }
 
-  /** A message's files checked whole; a message must carry words or a file. */
-  private checked(text: string, uploads: readonly Upload[]) {
-    if (text.length === 0 && uploads.length === 0) throw new MobileError("INVALID_PARAMS", "A message needs words or a file.");
-    return checkUploads(uploads);
-  }
-
-  /** A message's files, checked and written where a desktop paste goes. */
+  /** A message's files, checked whole and written where a desktop paste goes; a message must carry
+   *  words or a file. */
   private async uploads(text: string, uploads: readonly Upload[]): Promise<{ path: string; mime: string }[]> {
-    return await saveUploads(this.o.realmHome, this.checked(text, uploads));
+    if (text.length === 0 && uploads.length === 0) throw new MobileError("INVALID_PARAMS", "A message needs words or a file.");
+    return await saveUploads(this.o.realmHome, checkUploads(uploads));
   }
 
   /** Subscribes first and buffers, then reads history, then replays what arrived meanwhile — so no event
