@@ -6,10 +6,11 @@ import Testing
 /// A Mac with three profiles, as Plan 29's `home.get` sends it: Work with two spaces and one with no
 /// sessions, School with one, Personal with none. Needs you is every profile's, in the Mac's order.
 enum Staged {
+    /// A session as a row: `at` is its last change, and its activity too unless `activity` says otherwise.
     static func row(_ id: String, space: String, spaceName: String, status: SessionStatus = .idle, at updatedAt: Millis,
-                    agent: String = "claude", title: String? = nil) -> SessionRow {
+                    activity: Millis? = nil, agent: String = "claude", title: String? = nil) -> SessionRow {
         SessionRow(id: id, title: title ?? id, spaceId: space, spaceName: spaceName, agent: agent, model: nil, status: status,
-                   needsYou: status == .waiting || status == .error, unread: false, updatedAt: updatedAt)
+                   needsYou: status == .waiting || status == .error, unread: false, updatedAt: updatedAt, activityAt: activity)
     }
 
     static let toggle = row("toggle", space: "realm", spaceName: "Realm", status: .waiting, at: 100, title: "Add the dark-mode toggle")
@@ -427,6 +428,64 @@ struct ByDayTests {
         #expect(Set(listed) == ["relay", "mapper", "older", "oldest"])
         let off = Staged.listing(style: .byDay, needsYouFirst: false).sections.flatMap(\.rows).map(\.id)
         #expect(off.contains("toggle") && off.contains("database"))
+    }
+}
+
+@MainActor
+@Suite("A session's place is when its conversation last moved")
+struct LastActivityTests {
+    /// Set up anew after its conversation last moved: its newest change is not its activity.
+    static let release = Staged.row("release", space: "realm", spaceName: "Realm", at: 300, activity: 85, title: "Plan the release")
+
+    static func realm(_ sessions: [SessionRow]) -> Home {
+        var spaces = Staged.spaces
+        spaces[0] = Space(id: "realm", name: "Realm", icon: "emoji:🌊", color: "", sessions: sessions, more: 0, profileId: "work")
+        return Staged.with(spaces: spaces, needsYou: [], profileId: .some("school"))
+    }
+
+    @Test func aListMadeOfHomesRowsIsInOrderOfActivity() {
+        let home = Self.realm([Staged.toggle, Staged.relay, Self.release])
+        #expect(HomeListing.recent(home, choice: .profile("work")).map(\.id) == ["toggle", "database", "relay", "release"])
+        #expect([Self.release, Staged.toggle].merging([]).map(\.id) == ["toggle", "release"])
+        #expect(Staged.listing(home, style: .mostRecent, needsYouFirst: false).ids == [["toggle", "database", "relay", "release"]])
+    }
+
+    @Test func spacesAreOrderedByTheirNewestActivity() {
+        // Site's one session was only set up anew since Realm's last moved.
+        let configured = Staged.row("configured", space: "site", spaceName: "Site", at: 500, activity: 20)
+        var spaces = Staged.spaces
+        spaces[1] = Space(id: "site", name: "Site", icon: "rocket", color: "", sessions: [configured], more: 0, profileId: "work")
+        let home = Staged.with(spaces: spaces, needsYou: [])
+        #expect(Staged.listing(home, order: .recentlyActive).heads == ["realm", "site"])
+    }
+
+    @Test func aSessionIsOnTheDayItsConversationMoved() {
+        let now = ByDayTests.at(2026, 10, 21, 15)
+        let millis = { (date: Date) in date.timeIntervalSince1970 * 1000 }
+        let row = Staged.row("release", space: "realm", spaceName: "Realm", at: millis(now), activity: millis(ByDayTests.at(2026, 10, 18, 9)))
+        let home = Staged.with(needsYou: [], recent: .some([row]))
+        let listing = HomeListing(home: home, choice: .profile("work"), options: ListOptions(style: .byDay), now: now,
+                                  calendar: ByDayTests.calendar("Europe/London"))
+        #expect(listing.heads == ["Previous 7 days"])
+    }
+
+    @Test func aRowsAgeIsItsActivitys() {
+        let now = Date(timeIntervalSince1970: 1_790_007_200)
+        let row = Staged.row("release", space: "realm", spaceName: "Realm", at: 1_790_007_100_000, activity: 1_790_000_000_000,
+                             title: "Plan the release")
+        #expect(SessionRowView.spoken(row, now: now) == "Plan the release, Realm, Claude, 2h ago")
+    }
+
+    @Test func aSpacesPageKeepsAReadSessionWhereItWas() {
+        var pages = SpacePages()
+        pages.start(SpaceSessions(sessions: [Staged.toggle, Staged.relay, Staged.mapper], more: true))
+        // Read since: a newer word of it, at the same activity.
+        let read = Staged.row("relay", space: "realm", spaceName: "Realm", at: 400, activity: 90, title: "Explain the relay")
+        // Set up anew long after it last moved, and older than everything here: its page brings it.
+        let configured = Staged.row("configured", space: "realm", spaceName: "Realm", at: 999, activity: 10)
+        pages.refresh(with: [read, configured])
+        #expect(pages.rows.map(\.id) == ["toggle", "relay", "mapper"])
+        #expect(pages.rows[1].updatedAt == 400)
     }
 }
 

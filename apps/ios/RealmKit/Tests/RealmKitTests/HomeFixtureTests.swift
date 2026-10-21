@@ -31,7 +31,12 @@ struct HomeFixtureTests {
         let home = try Self.home()
         #expect(home.profileId == nil, "asked for no profile, gathered for every one")
         let recent = try #require(home.recent)
-        #expect(recent.map(\.updatedAt) == recent.map(\.updatedAt).sorted(by: >))
+        #expect(recent.map(\.lastActivity) == recent.map(\.lastActivity).sorted(by: >))
+        // A session set up anew since its conversation last moved has the newest change, and keeps the
+        // place its conversation gives it.
+        let release = try #require(recent.first { $0.title == "Plan the release" })
+        #expect(release.updatedAt > release.lastActivity)
+        #expect(recent.first?.id != release.id)
         #expect(Set(recent.map(\.spaceId)) == Set(home.spaces.map(\.id)))
         let onHome = Set(home.spaces.flatMap(\.sessions).map(\.id))
         #expect(recent.contains { !onHome.contains($0.id) }, "a session older than its space's newest few")
@@ -59,7 +64,7 @@ struct HomeFixtureTests {
         let rows = first.sessions + last.sessions
         #expect(Set(rows.map(\.id)).count == rows.count, "no session on two pages")
         #expect(rows.allSatisfy { $0.spaceId == "sp1" })
-        #expect(rows.map(\.updatedAt) == rows.map(\.updatedAt).sorted(by: >))
+        #expect(rows.map(\.lastActivity) == rows.map(\.lastActivity).sorted(by: >))
         // Home's few are the first of them, and the rest are what it says it left out.
         let realm = try #require(try Self.home().spaces.first { $0.id == "sp1" })
         #expect(Array(rows.prefix(realm.sessions.count)).map(\.id) == realm.sessions.map(\.id))

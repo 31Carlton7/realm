@@ -143,16 +143,18 @@ struct SpacePages: Equatable {
     /// than everything here belongs to a page not fetched yet, and comes with it.
     mutating func refresh(with fresh: [SessionRow]) {
         guard loaded else { return }
-        let oldest = rows.last?.updatedAt ?? 0
+        let oldest = rows.last?.lastActivity ?? 0
         var updated = rows
         for row in fresh {
             if let index = updated.firstIndex(where: { $0.id == row.id }) {
+                // `updatedAt` moves with every change to a session, read or set up anew: it says which
+                // word is the newer, where its activity says only where it goes.
                 if row.updatedAt >= updated[index].updatedAt { updated[index] = row }
-            } else if !more || row.updatedAt >= oldest {
+            } else if !more || row.lastActivity >= oldest {
                 updated.append(row)
             }
         }
-        rows = updated.stablySorted { $0.updatedAt > $1.updatedAt }
+        rows = updated.stablySorted { $0.lastActivity > $1.lastActivity }
     }
 }
 

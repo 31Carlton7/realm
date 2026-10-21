@@ -541,7 +541,7 @@ struct SessionRowView: View {
                         StateWord(state: state)
                     } else {
                         TimelineView(.periodic(from: .now, by: 30)) { context in
-                            Text(Ago.text(row.updatedAt, now: context.date))
+                            Text(Ago.text(row.lastActivity, now: context.date))
                                 .font(.footnote)
                                 .monospacedDigit()
                                 .foregroundStyle(Palette.ink2)
@@ -570,7 +570,7 @@ struct SessionRowView: View {
         if row.unread { parts.append("Unread") }
         parts.append(contentsOf: [row.spaceName, row.agentDisplayName].filter { !$0.isEmpty })
         if let model = row.modelDisplayName, !model.isEmpty { parts.append(model) }
-        parts.append(Ago.text(row.updatedAt, now: now))
+        parts.append(Ago.text(row.lastActivity, now: now))
         return parts.joined(separator: ", ")
     }
 }

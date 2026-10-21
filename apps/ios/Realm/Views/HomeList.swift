@@ -230,7 +230,7 @@ struct HomeListing {
                 (space, options.needsYouFirst ? space.sessions : space.sessions.merging(bySpace[space.id] ?? []))
             }
             if options.spaceOrder == .recentlyActive {
-                spaces = spaces.stablySorted { ($0.1.map(\.updatedAt).max() ?? 0) > ($1.1.map(\.updatedAt).max() ?? 0) }
+                spaces = spaces.stablySorted { ($0.1.map(\.lastActivity).max() ?? 0) > ($1.1.map(\.lastActivity).max() ?? 0) }
             }
             sections = spaces.compactMap { space, rows in
                 let shown = rows.filter(matches)
@@ -244,7 +244,7 @@ struct HomeListing {
             if options.style == .mostRecent {
                 sections = rows.isEmpty ? [] : [ListSection(head: .recent, rows: rows, more: 0)]
             } else {
-                let byDay = Dictionary(grouping: rows) { Day.of($0.updatedAt, now: now, calendar: calendar) }
+                let byDay = Dictionary(grouping: rows) { Day.of($0.lastActivity, now: now, calendar: calendar) }
                 sections = Day.allCases.compactMap { day in
                     byDay[day].map { ListSection(head: .day(day), rows: $0, more: 0) }
                 }
@@ -306,7 +306,7 @@ extension Array where Element == SessionRow {
     /// These rows and those of `other` not already among them, the newest activity first.
     func merging(_ other: [SessionRow]) -> [SessionRow] {
         let ids = Set(map(\.id))
-        return (self + other.filter { !ids.contains($0.id) }).stablySorted { $0.updatedAt > $1.updatedAt }
+        return (self + other.filter { !ids.contains($0.id) }).stablySorted { $0.lastActivity > $1.lastActivity }
     }
 }
 
