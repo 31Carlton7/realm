@@ -484,12 +484,13 @@ final class LiveTests: XCTestCase {
         XCTAssert(opus.waitForExistence(timeout: 10), "the sheet does not list the agent's models")
         shot("settings-sheet")
         opus.tap()
-        XCTAssert(selected(opus), "the check did not move to the model picked")
+        XCTAssert(opus.wait(for: \.isSelected, toEqual: true, timeout: 10), "the check did not move to the model picked")
         shot("settings-model-picked")
         app.swipeUp(velocity: .slow)
         shot("settings-sheet-permissions")
         app.navigationBars.buttons["Done"].firstMatch.tap()
         XCTAssert(app.buttons["Model, Opus 5.5"].waitForExistence(timeout: 10), "the chip does not say the model picked")
+        XCTAssert(modeChip.wait(for: \.isEnabled, toEqual: true, timeout: 10), "the mode chip stayed off after the Mac answered")
         shot("composer-chip-updated")
         modeChip.tap()
         let plan = app.buttons["Plan"]
@@ -567,7 +568,7 @@ final class LiveTests: XCTestCase {
         XCTAssert(steer.waitForExistence(timeout: 5), "a long press does not offer Steer")
         shot("composer-queue-menu")
         XCTAssert(element(containing: "Stops the agent").exists, "the choices do not say what they do")
-        closeMenu()
+        dismissMenuInSession()
         queue.tap()
         XCTAssert(element(containing: "Then check the toolbar").waitForExistence(timeout: 10))
         XCTAssert(element(containing: "Queued on your Mac").waitForExistence(timeout: 15), "the Mac did not take the queued message")
@@ -606,6 +607,8 @@ final class LiveTests: XCTestCase {
         try composerTour(prefix: "rt")
     }
 
+    /// The composer at rest and composing, its settings sheet and its mode menu, each pictured under
+    /// `prefix`.
     @MainActor
     private func composerTour(prefix: String, _ arguments: [String] = []) throws {
         try openComposer(arguments)
@@ -623,60 +626,7 @@ final class LiveTests: XCTestCase {
         modeChip.tap()
         sleep(1)
         shot("\(prefix)-mode-menu")
-        closeMenu()
-    }
-
-    /// Opens the session the script names for the composer, once its Mac has said what its composer
-    /// offers.
-    @MainActor
-    private func openComposer(_ arguments: [String] = []) throws {
-        let session = try XCTUnwrap(environment["COMPOSER_SESSION"], "the script names the session to compose in")
-        launch(["-openSession", session] + arguments)
-        XCTAssert(app.buttons["Add photos or files"].waitForExistence(timeout: 30), "the composer offers no + (no session.options)")
-        dismissAccountPrompt()
-    }
-
-    /// A press on the transcript beside an open menu, which closes it: the bar's corner, where Home's
-    /// menus close, is a session's way back.
-    @MainActor
-    private func closeMenu() {
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
-        sleep(1)
-    }
-
-    /// The Simulator's own prompt for its Apple Account's password, which lands over whatever is on
-    /// screen soon after a launch: put away, as a person would.
-    @MainActor
-    private func dismissAccountPrompt() {
-        let notNow = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Not Now"]
-        if notNow.waitForExistence(timeout: 3) { notNow.tap() }
-        sleep(1)
-    }
-
-    @MainActor
-    private var composerField: XCUIElement {
-        app.textViews["Message"].exists ? app.textViews["Message"] : app.textFields["Message"]
-    }
-
-    @MainActor
-    private var modelChip: XCUIElement {
-        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Model, ")).firstMatch
-    }
-
-    @MainActor
-    private var modeChip: XCUIElement {
-        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Mode, ")).firstMatch
-    }
-
-    /// Whether a choice is the one checked, once the Mac has answered.
-    @MainActor
-    private func selected(_ element: XCUIElement) -> Bool {
-        let deadline = Date().addingTimeInterval(10)
-        while Date() < deadline {
-            if element.isSelected { return true }
-            usleep(200_000)
-        }
-        return false
+        dismissMenuInSession()
     }
 
     // MARK: - Helpers
@@ -737,6 +687,14 @@ final class LiveTests: XCTestCase {
         sleep(1)
     }
 
+    /// A press on the transcript beside an open menu, which closes it: the bar's corner, where Home's
+    /// menus close, is a session's way back.
+    @MainActor
+    private func dismissMenuInSession() {
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+        sleep(1)
+    }
+
     /// Home as a phase expects to find it, whatever one before left: Work, by space, Needs you first,
     /// the spaces as on the Mac.
     @MainActor
@@ -746,6 +704,40 @@ final class LiveTests: XCTestCase {
         viewOption("By space")
         viewOption("Needs you first")
         viewOption("As on your Mac")
+    }
+
+    /// Opens the session the script names for the composer, once its Mac has said what its composer
+    /// offers.
+    @MainActor
+    private func openComposer(_ arguments: [String] = []) throws {
+        let session = try XCTUnwrap(environment["COMPOSER_SESSION"], "the script names the session to compose in")
+        launch(["-openSession", session] + arguments)
+        XCTAssert(app.buttons["Add photos or files"].waitForExistence(timeout: 30), "the composer offers no + (no session.options)")
+        dismissAccountPrompt()
+    }
+
+    /// The Simulator's own prompt for its Apple Account's password, which lands over whatever is on
+    /// screen soon after a launch: put away, as a person would.
+    @MainActor
+    private func dismissAccountPrompt() {
+        let notNow = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Not Now"]
+        if notNow.waitForExistence(timeout: 3) { notNow.tap() }
+        sleep(1)
+    }
+
+    @MainActor
+    private var composerField: XCUIElement {
+        app.textViews["Message"].exists ? app.textViews["Message"] : app.textFields["Message"]
+    }
+
+    @MainActor
+    private var modelChip: XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Model, ")).firstMatch
+    }
+
+    @MainActor
+    private var modeChip: XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Mode, ")).firstMatch
     }
 
     /// Words on screen, the first where a card and the dock both say them.
