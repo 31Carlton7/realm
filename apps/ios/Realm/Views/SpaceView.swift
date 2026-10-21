@@ -19,6 +19,8 @@ struct SpaceView: View {
         List {
             ForEach(shown) { row in
                 SessionLink(row: row, space: nil)
+                    // No head above the first row: a line there would rule off the bar.
+                    .listRowSeparator(row.id == shown.first?.id ? .hidden : .automatic, edges: .top)
             }
             if words.isEmpty {
                 if model.isConnected, !pages.loaded || pages.more {

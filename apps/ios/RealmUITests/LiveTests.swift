@@ -273,17 +273,20 @@ final class LiveTests: XCTestCase {
         for _ in 0..<4 where !showAll.exists { app.swipeUp(velocity: .slow) }
         XCTAssert(showAll.exists, "Realm holds more than Home lists, and nothing says so")
         shot("home-work-show-all")
-        app.swipeDown()
-        app.swipeDown()
+        // Switched from part way down, the other profile's list opens at its top.
         titleButton.tap()
         XCTAssert(menuItem("School").waitForExistence(timeout: 5), "the title has no menu of profiles")
         shot("profile-menu")
         menuItem("School").tap()
         XCTAssert(waitForTitle("School"))
+        XCTAssert(elsewhere("Work").waitForExistence(timeout: 5) && elsewhere("Work").isHittable, "School's list did not open at its top")
         XCTAssert(element(containing: "Check the proof for question 2").waitForExistence(timeout: 10))
         XCTAssertFalse(element(containing: "Add the dark-mode toggle").exists, "Work's session is listed in School")
-        XCTAssert(elsewhere("Work").exists, "nothing says what needs you in Work")
         shot("home-school")
+        // The choice is kept on the phone.
+        app.terminate()
+        launch()
+        XCTAssert(waitForTitle("School"), "the profile chosen was not kept")
         elsewhere("Work").tap()
         XCTAssert(waitForTitle("Work"), "the line did not show Work")
         showProfile("All profiles")
@@ -362,6 +365,13 @@ final class LiveTests: XCTestCase {
         XCTAssert(element(containing: "· Connected").waitForExistence(timeout: 30))
         resetHome()
         showProfile("Personal")
+        // Most recent is the Mac's own list for Personal, which reaches far past Journal's newest few.
+        viewOption("Most recent")
+        let older = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Journal entry 40,")).firstMatch
+        for _ in 0..<12 where !older.exists { app.swipeUp() }
+        XCTAssert(older.exists, "Personal's recent sessions are not the Mac's list for Personal")
+        shot("home-personal-most-recent")
+        viewOption("By space")
         let showAll = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Show all 55")).firstMatch
         for _ in 0..<8 where !showAll.isHittable { app.swipeUp(velocity: .slow) }
         XCTAssert(showAll.exists, "Journal's 55 sessions have no Show all")
@@ -378,10 +388,11 @@ final class LiveTests: XCTestCase {
         XCTAssert(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Journal entry 7,")).firstMatch.waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Journal entry 8,")).firstMatch.exists)
         shot("space-page-search")
-        // While it searches, the page gives its bar to the field; the search's own close gives it back.
-        let close = app.buttons["Close"]
-        if !close.exists { print("SEARCHING\n\(app.debugDescription)") }
-        close.tap()
+        // While it searches, the page gives its bar to the field; the button beside the field ends the
+        // search and gives the bar back.
+        let field = app.searchFields.firstMatch.frame
+        let close = app.buttons.allElementsBoundByIndex.first { $0.frame.minX >= field.maxX && abs($0.frame.midY - field.midY) < 20 }
+        try XCTUnwrap(close, "nothing beside the search field ends it").tap()
         back()
         showProfile("Work")
     }
@@ -486,7 +497,11 @@ final class LiveTests: XCTestCase {
     private func viewOption(_ name: String, selected: Bool = true) {
         app.buttons["view-options"].tap()
         let item = app.buttons[name]
-        XCTAssert(item.waitForExistence(timeout: 5), "no \(name) in View options")
+        // At the largest sizes the menu scrolls, and holds only the items in view; the first group is
+        // nearest the button, the rest above it.
+        let menu = app.collectionViews.containing(NSPredicate(format: "label == %@", "By space")).firstMatch
+        for _ in 0..<3 where !item.waitForExistence(timeout: 2) { menu.swipeDown() }
+        XCTAssert(item.exists, "no \(name) in View options")
         if item.isSelected == selected { dismissMenu() } else { item.tap() }
         sleep(1)
     }
