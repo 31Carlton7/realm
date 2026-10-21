@@ -81,6 +81,7 @@ struct SpaceView: View {
             let page = try await model.spaceSessions(spaceId, from: next ? pages.offset : 0)
             if next { pages.append(page) } else { pages.start(page) }
         } catch is CancellationError {
+            // The end scrolled away before its page came, and comes back for it.
         } catch {
             model.show(toast: AppModel.describe(error))
         }
