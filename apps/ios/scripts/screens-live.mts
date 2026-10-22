@@ -36,11 +36,11 @@
  * awake, asleep, awake again, the relay down, then the largest text size and Reduce Transparency with
  * everything back up, then Home's profiles, list styles and a space's page, then a lead's sub-agents,
  * Usage, Scheduled and Review, then the composer, each in light, dark, at the largest text size and with
- * Reduce Transparency — moving the Mac between them, and
- * leaves each test's screenshots in apps/ios/.build/screenshots (--shots <dir> to change it). It exits
- * non-zero if any phase fails. --phases test0_forgetThenPair,test1_awake runs only those; --udid <id>
- * picks the Simulator, --derived-data <dir> where xcodebuild builds (apps/ios/.build/DerivedData), and
- * --no-build runs what was built there last.
+ * Reduce Transparency — moving the Mac between them, and leaves each test's screenshots in
+ * apps/ios/.build/screenshots (--shots <dir> to change it). It exits non-zero if any phase fails.
+ * --phases test0_forgetThenPair,test1_awake runs only those; --udid <id> picks the Simulator,
+ * --derived-data <dir> where xcodebuild builds (apps/ios/.build/DerivedData), and --no-build runs what
+ * was built there last.
  *
  * Never the owner's ~/Realm: the scratch home is made fresh and removed on quit.
  */
@@ -89,9 +89,9 @@ const slowly = (minutes: number) => Array.from({ length: minutes * 20 }, (_, i) 
  *  ahead of its own script (`REALM_FAKE_SCRIPT`), so these replies are the same on every run. */
 const SCRIPT = [
   // Plan 29's parity: a lead with sub-agents, its plan's limits and the month's spend, a queue held up by
-  // a long turn, a team's role sending a post to Review, and a scheduled task's run. First, and the
-  // teammates' briefs ahead of their lead's words, so a sub-agent's brief wins over anything its lead's
-  // conversation, which rides along in it, also says.
+  // a long turn, a team's role sending a post to Review, and a scheduled task's run. The sub-agents'
+  // briefs first of all: what each is handed carries its lead's conversation too, and the first entry
+  // that matches is the one that runs.
   { on: "Write the theme migration", emit: [{ kind: "usage", costUsd: 3.75 }, { kind: "text", text: "Added `migrations/0042_theme.sql` with an up and a down step. The suite passes." }] },
   { on: "Backfill the theme column", emit: [{ kind: "text", paceMs: 3_000, text: slowly(10) }] },
   { on: "Plan dark mode with two teammates", emit: [
