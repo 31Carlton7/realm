@@ -27,10 +27,9 @@ final class LiveTests: XCTestCase {
     @MainActor
     func test0_forgetThenPair() throws {
         launch()
-        // Home is titled with its profile, so it is known by its Settings button.
-        let settings = app.navigationBars.buttons["settings"]
-        if settings.waitForExistence(timeout: 8) {
-            settings.tap()
+        // Home is titled with its profile, so it is known by the menu in its bar.
+        if app.navigationBars.buttons["home-menu"].waitForExistence(timeout: 8) {
+            openSettings()
             let forget = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Forget ")).firstMatch
             XCTAssert(forget.waitForExistence(timeout: 5))
             shot("settings")
@@ -186,7 +185,7 @@ final class LiveTests: XCTestCase {
         shot("session-error")
         back()
 
-        app.navigationBars.buttons["Settings"].tap()
+        openSettings()
         XCTAssert(element(containing: "Relay").waitForExistence(timeout: 5))
         shot("settings-connected")
     }
@@ -342,7 +341,7 @@ final class LiveTests: XCTestCase {
         launch()
         XCTAssert(element(containing: "· Connected").waitForExistence(timeout: 30))
         resetHome()
-        app.navigationBars.buttons["settings"].tap()
+        openSettings()
         let list = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "List")).firstMatch
         for _ in 0..<4 where !list.isHittable { app.swipeUp(velocity: .slow) }
         XCTAssert(list.exists, "Settings has no Session list")
@@ -409,11 +408,11 @@ final class LiveTests: XCTestCase {
     @MainActor
     func testH6_largestText() throws {
         launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
-        XCTAssert(app.navigationBars.buttons["settings"].waitForExistence(timeout: 30))
+        XCTAssert(app.navigationBars.buttons["home-menu"].waitForExistence(timeout: 30))
         sleep(3)
         try appearanceTour(prefix: "ax", launched: true)
         // Settings ▸ Session list sets its choices out as rows here, each whole.
-        app.navigationBars.buttons["settings"].tap()
+        openSettings()
         let bySpace = element(containing: "By space")
         for _ in 0..<12 where !(bySpace.exists && bySpace.isHittable) { app.swipeUp(velocity: .slow) }
         XCTAssert(bySpace.exists, "Settings has no Session list")
@@ -461,6 +460,219 @@ final class LiveTests: XCTestCase {
         XCTAssert(app.navigationBars["Realm"].waitForExistence(timeout: 10), "the space's head did not open its page")
         sleep(2)
         shot("\(prefix)-space-page")
+        back()
+    }
+
+    // MARK: - Sub-agents, Usage, Review and Scheduled
+
+    /// A lead session that started sub-agents counts them in its bar, with the working mark while one
+    /// runs; its sheet lists them newest first, and the one that finished opens its own session over the
+    /// lead's, the lead a press back.
+    @MainActor
+    func testQ1_subagents() throws {
+        let lead = try XCTUnwrap(environment["LEAD_SESSION"], "the script names the lead session")
+        let finished = try XCTUnwrap(environment["SUBAGENT_DONE"], "the script names the sub-agent that finished")
+        let title = try XCTUnwrap(environment["SUBAGENT_DONE_TITLE"], "the script names its session's title")
+        launch(["-openSession", lead])
+        let control = app.buttons["subagents"]
+        XCTAssert(control.waitForExistence(timeout: 30), "the lead's bar does not count its sub-agents")
+        XCTAssert(control.label.hasSuffix(" sub-agents"), "the bar says \(control.label)")
+        dismissAccountPrompt()
+        shot("subagents-control")
+        control.tap()
+        XCTAssert(app.navigationBars["Sub-agents"].waitForExistence(timeout: 10), "the sub-agents' sheet did not open")
+        let done = app.buttons["subagent-\(finished)"]
+        XCTAssert(done.waitForExistence(timeout: 10), "the sub-agent that finished is not listed")
+        XCTAssert(done.label.contains(", Done, "), "the sub-agent that finished says \(done.label)")
+        XCTAssert(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", ", Working, ")).firstMatch.exists, "no sub-agent says it is working")
+        sleep(1)
+        shot("subagents-sheet")
+        done.tap()
+        XCTAssert(app.navigationBars[title].waitForExistence(timeout: 15), "the sub-agent's own session did not open")
+        sleep(2)
+        shot("subagent-session")
+        back()
+        XCTAssert(control.waitForExistence(timeout: 15), "back did not lead to the lead")
+    }
+
+    /// The menu in Home's bar, then Usage from it: each plan's windows as bars with what is used and
+    /// when they reset, then the month's spend against its budget and the costliest sessions, one of
+    /// which opens; pulled down, the page is read again.
+    @MainActor
+    func testQ2_menuAndUsage() throws {
+        launch()
+        XCTAssert(element(containing: "· Connected").waitForExistence(timeout: 30))
+        resetHome()
+        openMenu()
+        XCTAssert(menuPage("Review").exists && menuPage("Scheduled").exists && menuPage("Usage").exists, "the bar's menu does not offer the pages")
+        XCTAssert(menuPage("Review").label.hasSuffix(" to review"), "the menu does not say what waits in Review")
+        shot("home-menu")
+        menuPage("Usage").tap()
+        XCTAssert(app.navigationBars["Usage"].waitForExistence(timeout: 10), "Usage did not open")
+        XCTAssert(element(containing: "% used · resets in").waitForExistence(timeout: 20), "no window says what is used and when it resets")
+        shot("usage")
+        app.swipeDown(velocity: .slow)
+        XCTAssert(element(containing: "% used · resets in").waitForExistence(timeout: 20), "pulled down, the page lost its plans")
+        let budget = element(containing: "budget")
+        for _ in 0..<6 where !(budget.exists && budget.isHittable) { app.swipeUp(velocity: .slow) }
+        XCTAssert(budget.exists, "the month's spend is not set against its budget")
+        shot("usage-spend")
+        let costliest = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "$")).firstMatch
+        XCTAssert(costliest.exists, "no costliest session is listed")
+        costliest.tap()
+        XCTAssert(composerField.waitForExistence(timeout: 20), "the costliest session did not open")
+        back()
+        XCTAssert(app.navigationBars["Usage"].waitForExistence(timeout: 10))
+    }
+
+    /// Scheduled, from Home's head line for a run that finished unread: every task with its space, when
+    /// it runs and next, its last run's state and the unread mark; Run now from a swipe, which the
+    /// script checks the Mac started; and a task opening the session its last run ran in.
+    @MainActor
+    func testQ3_scheduled() throws {
+        let task = try XCTUnwrap(environment["TASK_TO_RUN"], "the script names a task to run")
+        launch()
+        XCTAssert(element(containing: "· Connected").waitForExistence(timeout: 30))
+        resetHome()
+        let line = app.buttons["head-scheduled"]
+        XCTAssert(line.waitForExistence(timeout: 15), "Home's head does not say a scheduled run finished unread")
+        shot("home-head-lines")
+        line.tap()
+        XCTAssert(app.navigationBars["Scheduled"].waitForExistence(timeout: 10), "the line did not open Scheduled")
+        let row = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "\(task),")).firstMatch
+        XCTAssert(row.waitForExistence(timeout: 10), "no row for \(task)")
+        shot("scheduled")
+        row.swipeLeft()
+        let runNow = app.buttons["Run now"]
+        XCTAssert(runNow.waitForExistence(timeout: 5), "no Run now in the row's swipe")
+        shot("scheduled-swipe")
+        runNow.tap()
+        XCTAssert(element(containing: "Started “\(task)”").waitForExistence(timeout: 15), "Run now did not start the task")
+        shot("scheduled-run-now")
+        // The run's end is the Mac's to say: the row hears of it only through work.changed.
+        let ended = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "\(task), Last run Finished")).firstMatch
+        XCTAssert(ended.waitForExistence(timeout: 90), "the run's end never reached the phone")
+        shot("scheduled-run-finished")
+        let unread = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", ", Unread, ")).firstMatch
+        XCTAssert(unread.waitForExistence(timeout: 10), "no task's last run is unread")
+        unread.tap()
+        XCTAssert(composerField.waitForExistence(timeout: 20), "the run's session did not open")
+        sleep(1)
+        shot("scheduled-run-session")
+        back()
+    }
+
+    /// The dark face, set on the Simulator by the script: the sub-agents' sheet, the menu, Usage, Review
+    /// and a review's page, and Scheduled.
+    @MainActor
+    func testQ4_dark() throws {
+        try workTour(prefix: "dark")
+    }
+
+    /// The largest accessibility text size: the same pages, still read whole.
+    @MainActor
+    func testQ5_largestText() throws {
+        try workTour(prefix: "ax", ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+    }
+
+    /// Reduce Transparency, set on the Simulator by the script: the bars, the dock and the menu go solid.
+    @MainActor
+    func testQ6_reduceTransparency() throws {
+        try workTour(prefix: "rt")
+    }
+
+    /// Review from Home's head line: the open reviews, then one's page — its drafts, where each goes,
+    /// its picture in Quick Look, and what Approve does, said before it is pressed — and Ask for changes,
+    /// which sends nothing without a note and goes with one. The script checks the Mac has the note.
+    @MainActor
+    func testQ7_review() throws {
+        let title = try XCTUnwrap(environment["REVIEW_TITLE"], "the script names the review to open")
+        let picture = try XCTUnwrap(environment["REVIEW_PICTURE"], "the script names the review's picture")
+        let note = try XCTUnwrap(environment["REVIEW_NOTE"], "the script names the note to send")
+        launch()
+        XCTAssert(element(containing: "· Connected").waitForExistence(timeout: 30))
+        resetHome()
+        let line = app.buttons["head-reviews"]
+        XCTAssert(line.waitForExistence(timeout: 15), "Home's head does not say what waits in Review")
+        XCTAssert(line.label.hasSuffix(" to review"), "the line says \(line.label)")
+        line.tap()
+        XCTAssert(app.navigationBars["Review"].waitForExistence(timeout: 10), "the line did not open Review")
+        let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "\(title),")).firstMatch
+        XCTAssert(row.waitForExistence(timeout: 10), "no row for \(title)")
+        shot("reviews")
+        row.tap()
+        XCTAssert(element(containing: "Approving").waitForExistence(timeout: 15), "the page does not say what Approve does")
+        let tile = app.buttons[picture]
+        XCTAssert(tile.waitForExistence(timeout: 15), "the review's picture is not drawn")
+        XCTAssert(tile.wait(for: \.isEnabled, toEqual: true, timeout: 20), "the review's picture never came")
+        sleep(1)
+        shot("review")
+        tile.tap()
+        let done = quickLookDone()
+        sleep(1)
+        shot("review-picture")
+        done.tap()
+        XCTAssert(done.waitForNonExistence(timeout: 10), "Quick Look did not close")
+        app.buttons["Ask for changes"].tap()
+        let sheet = app.navigationBars["Ask for changes"]
+        XCTAssert(sheet.waitForExistence(timeout: 5), "Ask for changes did not open its note")
+        XCTAssertFalse(sheet.buttons["Send"].isEnabled, "Ask for changes would go without a note")
+        let field = app.textViews.firstMatch.exists ? app.textViews.firstMatch : app.textFields.firstMatch
+        field.typeText(note)
+        XCTAssert(sheet.buttons["Send"].isEnabled, "with a note, Ask for changes still cannot go")
+        shot("review-ask-for-changes")
+        sheet.buttons["Send"].tap()
+        XCTAssert(element(containing: "for changes.").waitForExistence(timeout: 15), "nothing said the Mac took the note")
+        XCTAssert(app.navigationBars["Review"].waitForExistence(timeout: 10), "the page did not go back to the list")
+        sleep(1)
+        shot("review-asked")
+    }
+
+    /// The sub-agents' sheet, the menu, Usage, Review and a review's page, and Scheduled, each pictured
+    /// under `prefix`.
+    @MainActor
+    private func workTour(prefix: String, _ arguments: [String] = []) throws {
+        let lead = try XCTUnwrap(environment["LEAD_SESSION"], "the script names the lead session")
+        let title = try XCTUnwrap(environment["REVIEW_TITLE"], "the script names the review to open")
+        launch(["-openSession", lead] + arguments)
+        let control = app.buttons["subagents"]
+        XCTAssert(control.waitForExistence(timeout: 30), "the lead's bar does not count its sub-agents")
+        dismissAccountPrompt()
+        shot("\(prefix)-subagents-control")
+        control.tap()
+        XCTAssert(app.navigationBars["Sub-agents"].waitForExistence(timeout: 10))
+        sleep(1)
+        shot("\(prefix)-subagents-sheet")
+        app.navigationBars["Sub-agents"].buttons["Done"].tap()
+        back()
+        resetHome()
+        shot("\(prefix)-home-head")
+        openMenu()
+        shot("\(prefix)-home-menu")
+        menuPage("Usage").tap()
+        XCTAssert(element(containing: "% used").waitForExistence(timeout: 20), "Usage drew no window")
+        shot("\(prefix)-usage")
+        app.swipeUp(velocity: .slow)
+        shot("\(prefix)-usage-spend")
+        back()
+        openMenu()
+        menuPage("Review").tap()
+        let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "\(title),")).firstMatch
+        XCTAssert(row.waitForExistence(timeout: 10), "no row for \(title)")
+        shot("\(prefix)-reviews")
+        row.tap()
+        XCTAssert(element(containing: "Approving").waitForExistence(timeout: 15))
+        sleep(2)
+        shot("\(prefix)-review")
+        app.swipeUp(velocity: .slow)
+        shot("\(prefix)-review-end")
+        back()
+        back()
+        openMenu()
+        menuPage("Scheduled").tap()
+        XCTAssert(app.navigationBars["Scheduled"].waitForExistence(timeout: 10))
+        sleep(1)
+        shot("\(prefix)-scheduled")
         back()
     }
 
@@ -902,10 +1114,38 @@ final class LiveTests: XCTestCase {
 
     // MARK: - Helpers
 
+    /// The menu in Home's bar: Review, Scheduled, Usage, then Settings.
+    @MainActor
+    private func openMenu() {
+        app.navigationBars.buttons["home-menu"].tap()
+        XCTAssert(app.buttons["Settings"].waitForExistence(timeout: 5), "the bar's menu did not open")
+    }
+
+    /// One of the pages in the bar's menu, which says what waits there after its name.
+    @MainActor
+    private func menuPage(_ title: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", title, "\(title), ")).firstMatch
+    }
+
+    @MainActor
+    private func openSettings() {
+        openMenu()
+        app.buttons["Settings"].tap()
+    }
+
+    /// Quick Look's own button that puts it away, once Quick Look is up: known by its identifier, since
+    /// its label is a lower-case "close" that may change.
+    @MainActor
+    private func quickLookDone() -> XCUIElement {
+        let done = app.buttons["QLOverlayDoneButtonAccessibilityIdentifier"]
+        XCTAssert(done.waitForExistence(timeout: 20), "Quick Look did not open the picture")
+        return done
+    }
+
     /// Home's title, which opens the menu of profiles.
     @MainActor
     private var titleButton: XCUIElement {
-        app.navigationBars.firstMatch.buttons.matching(NSPredicate(format: "identifier != 'settings' AND label != 'Reconnect'")).firstMatch
+        app.navigationBars.firstMatch.buttons.matching(NSPredicate(format: "identifier != 'home-menu' AND label != 'Reconnect'")).firstMatch
     }
 
     @MainActor

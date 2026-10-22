@@ -147,6 +147,7 @@ struct SessionView: View {
         .onDisappear {
             Task { await model.close(sessionId) }
         }
+        .subagentsControl(sessionId)
     }
 
     /// The session's status and space while the Mac is there; the Mac's state when it is not, since

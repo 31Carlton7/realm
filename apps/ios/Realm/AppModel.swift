@@ -10,6 +10,11 @@ enum Route: Hashable {
     case session(String)
     /// A space's own page: all of its sessions, a page at a time.
     case space(String)
+    /// Teams' open reviews, and one review's page.
+    case reviews
+    case review(String)
+    case scheduled
+    case usage
 }
 
 enum PairingStatus: Equatable {
@@ -42,6 +47,8 @@ struct Toast: Equatable, Identifiable {
 final class AppModel {
     let store: RealmStore
     let diagnostics = Diagnostics()
+    /// Review, Scheduled and Usage, and the sub-agents of the sessions opened here.
+    let work = WorkModel()
     var path: [Route] = []
     /// Settings, in its sheet over Home.
     var settingsShown = false
@@ -134,6 +141,7 @@ final class AppModel {
             // An answer confirms when the Mac takes it, never when the button is pressed.
             if case .answer = item.payload { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
         }
+        work.api = { [weak self] in self?.isConnected == true ? self?.api : nil }
     }
 
     var api: MobileAPI? { connection.map(MobileAPI.init) }
@@ -419,6 +427,7 @@ final class AppModel {
         channelGeneration += 1
         Task {
             await refreshHome()
+            await work.refresh()
             await deliverOutsideOpenSessions()
         }
         Task { await loadAgents() }
@@ -440,6 +449,12 @@ final class AppModel {
         switch event {
         case .homeChanged:
             Task { await refreshHome() }
+            // A scheduled run's session read, here or on the Mac, is not an unread result any more.
+            Task { await work.refresh() }
+        case .workChanged:
+            Task { await work.refresh() }
+        case .sessionSubagents(let id) where visibleSessions.contains(id):
+            Task { await work.loadSubagents(id) }
         case .sessionRows(let update) where visibleSessions.contains(update.id):
             saveTranscriptSoon(update.id)
         default:
@@ -529,6 +544,7 @@ final class AppModel {
             store.restoreTranscript(sessionId, from: cached)
         }
         guard let api, isConnected else { return }
+        Task { await work.loadSubagents(sessionId) }
         Task {
             await loadOptions(sessionId)
             #if DEBUG
@@ -862,6 +878,7 @@ final class AppModel {
         // A draft's files were for that Mac's sessions.
         store.files.remove(draftAttachments.values.joined())
         draftAttachments = [:]
+        work.forget()
         sessionOptions = [:]
         optionsUnanswered = []
         configuring = [:]

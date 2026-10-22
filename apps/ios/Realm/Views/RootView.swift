@@ -18,6 +18,10 @@ struct RootView: View {
                             switch route {
                             case .session(let id): SessionView(sessionId: id)
                             case .space(let id): SpaceView(spaceId: id)
+                            case .reviews: ReviewsView()
+                            case .review(let id): ReviewView(reviewId: id)
+                            case .scheduled: ScheduledView()
+                            case .usage: UsageView()
                             }
                         }
                 }
