@@ -26,10 +26,13 @@ enum PairingStatus: Equatable {
     }
 }
 
-/// Something that happened, said once and then gone.
+/// Something that happened, said once and then gone; with `undo`, the one action that takes it back.
 struct Toast: Equatable, Identifiable {
     let id = UUID()
     let text: String
+    var undo: (@MainActor () -> Void)?
+
+    static func == (a: Toast, b: Toast) -> Bool { a.id == b.id }
 }
 
 /// Everything the screens act through: pairing, the connection to the Mac, the cache, what waits to
@@ -71,6 +74,16 @@ final class AppModel {
     private(set) var optionsUnanswered: Set<String> = []
     /// The setting a change is on its way to the Mac for, by session.
     private(set) var configuring: [String: SessionSetting] = [:]
+    /// What the person changed about sessions' rows here — a rename, a pin, an archive — shown over what
+    /// the Mac lists until it lists them so.
+    var rowEdits = RowEdits()
+    /// The Rename alert, while it is up: the session, and the title in its field.
+    var renaming: RenameDraft?
+    /// The agents a new session could be given, as the Mac last said; nil until it answers `agents.list`,
+    /// and Home's compose button with it.
+    var agentList: AgentList?
+    /// The queued messages a Send now, an edit or a removal is on its way to the Mac for, by session.
+    var queueCalls: [String: Set<String>] = [:]
     /// The person asked to pair again over the Mac this phone shows (after the Mac removed it).
     var pairingRequested = false
     /// The profile Home shows, as the person last chose it for this Mac; nil until they choose.
@@ -107,8 +120,11 @@ final class AppModel {
     @ObservationIgnored private var askedThumbnails: Set<String> = []
     /// Home is asked for again on every change the Mac reports and every switch of profile: these
     /// count the asks, and the last answered, so an answer overtaken by a later one is not shown.
-    @ObservationIgnored private var homeAsks = 0
+    @ObservationIgnored private(set) var homeAsks = 0
     @ObservationIgnored private var homeShown = 0
+    /// Each session's row changes on their way to the Mac, one after another, so an Undo never overtakes
+    /// the archive it takes back.
+    @ObservationIgnored var rowChanges: [String: Task<Void, Never>] = [:]
 
     init() {
         let store = RealmStore()
@@ -405,6 +421,7 @@ final class AppModel {
             await refreshHome()
             await deliverOutsideOpenSessions()
         }
+        Task { await loadAgents() }
         if LaunchOptions.autoDiagnostics, !autoDiagnosticsStarted {
             autoDiagnosticsStarted = true
             Task {
@@ -479,6 +496,7 @@ final class AppModel {
             guard ask > homeShown else { return }
             homeShown = ask
             store.showHome(home)
+            rowEdits.caughtUp(with: home, ask: ask)
             if let cache { disk.async { try? cache.saveHome(home) } }
             // The badge says what Needs you says: the same moments the Mac's pushes are for.
             try? await UNUserNotificationCenter.current().setBadgeCount(home.needsYou.count)
@@ -631,11 +649,12 @@ final class AppModel {
         configuring[sessionId] = nil
     }
 
-    /// Adds what was picked to a session's composer, each made ready and kept on this phone until it
-    /// is sent or taken out: a photo made a JPEG, a file read whole. What the Mac would refuse is left
-    /// out, and a toast says why.
-    func attach(_ sources: [AttachmentSource], to sessionId: String) async {
-        guard let limits = sessionOptions[sessionId]?.attachments, !sources.isEmpty else { return }
+    /// Adds what was picked to a composer's draft — a session's, or a new session's under its own key —
+    /// each made ready and kept on this phone until it is sent or taken out: a photo made a JPEG, a file
+    /// read whole. What the Mac would refuse, by `limits` or the session's own, is left out, and a toast
+    /// says why.
+    func attach(_ sources: [AttachmentSource], to sessionId: String, limits: SendLimits? = nil) async {
+        guard let limits = limits ?? sessionOptions[sessionId]?.attachments, !sources.isEmpty else { return }
         preparingAttachments[sessionId, default: 0] += sources.count
         for source in sources {
             let name = AttachmentNames.photo(besides: draftAttachments[sessionId] ?? [])
@@ -846,6 +865,12 @@ final class AppModel {
         sessionOptions = [:]
         optionsUnanswered = []
         configuring = [:]
+        for change in rowChanges.values { change.cancel() }
+        rowChanges = [:]
+        rowEdits = RowEdits()
+        renaming = nil
+        agentList = nil
+        queueCalls = [:]
         spacePictures = [:]
         thumbnails = [:]
         previews = [:]
@@ -924,8 +949,8 @@ final class AppModel {
 
     // MARK: - Words
 
-    func show(toast text: String) {
-        toast = Toast(text: text)
+    func show(toast text: String, undo: (@MainActor () -> Void)? = nil) {
+        toast = Toast(text: text, undo: undo)
     }
 
     private func report(_ error: any Error) {

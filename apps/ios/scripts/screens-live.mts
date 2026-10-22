@@ -34,8 +34,9 @@
  * With --ui it drives the app itself instead: it builds the RealmLive scheme's UI tests once, then
  * runs one test per phase on the iPhone 17 Simulator — pair (the Mac holds its answer a few seconds),
  * awake, asleep, awake again, the relay down, then the largest text size and Reduce Transparency with
- * everything back up, then Home's profiles, list styles and a space's page, then the composer, each in
- * light, dark, at the largest text size and with Reduce Transparency — moving the Mac between them, and
+ * everything back up, then Home's profiles, list styles and a space's page, then the composer, then a
+ * session started from Home, a row pinned, renamed and archived, and the Mac's queue, each in light, dark,
+ * at the largest text size and with Reduce Transparency — moving the Mac between them, and
  * leaves each test's screenshots in apps/ios/.build/screenshots (--shots <dir> to change it). It exits
  * non-zero if any phase fails. --phases test0_forgetThenPair,test1_awake runs only those; --udid <id>
  * picks the Simulator, --derived-data <dir> where xcodebuild builds (apps/ios/.build/DerivedData), and
@@ -408,7 +409,9 @@ async function runUiTests(): Promise<boolean> {
   const phase = async (test: string, env: Record<string, string> = {}) => {
     if (!runs(test)) return;
     say(`— ${test}`);
-    const code = await xcodebuild(["test-without-building", ...common, `-only-testing:RealmUITests/LiveTests/${test}`],
+    // No diagnostics after a failure: gathering them holds the next phase up for ten minutes, and the
+    // failure, its picture and its recording are in the result bundle without them.
+    const code = await xcodebuild(["test-without-building", ...common, "-collect-test-diagnostics", "never", `-only-testing:RealmUITests/LiveTests/${test}`],
       { TEST_RUNNER_SHOTS: shots, ...env });
     results.push([test, code === 0]);
   };
@@ -474,6 +477,62 @@ async function runUiTests(): Promise<boolean> {
   await phase("testC5_largestText", composer);
   await reduceTransparency(true);
   await phase("testC6_reduceTransparency", composer);
+  await reduceTransparency(false);
+  // Plan 29's parity (a): a session started from Home's sheet; a row pinned, renamed and archived, with
+  // Undo; the Mac's queue over the composer, two waiting behind a long turn, one sent now, one edited,
+  // one removed; then dark, the largest text size and Reduce Transparency, each over a queue staged anew.
+  const parity = { TEST_RUNNER_QUEUE_SESSION: sessions.queued! };
+  /** The queue's session working through a long turn, with the Mac's own messages queued behind it. */
+  const stageQueue = async (texts: string[]) => {
+    const id = sessions.queued!;
+    if (["running", "waiting_permission"].includes(await status(id))) {
+      await rpc.call("sessions.interrupt", { id });
+      await settled(id);
+    }
+    for (const q of (await rpc.call("sessions.queued", { id })).queued) await rpc.call("sessions.dequeue", { id, queuedId: q.id });
+    await rpc.call("sessions.send", { id, text: "Hold the queue while I add to it" });
+    await waitFor("the long turn", async () => (await status(id)) === "running");
+    for (const [i, text] of texts.entries()) {
+      await rpc.call("sessions.send", { id, text, delivery: "queue", ...(i === 0 ? { attachments: [{ path: sketch, mime: "image/png" }] } : {}) });
+    }
+  };
+  const startedAt = Date.now();
+  await phase("testP1_newSession", parity);
+  if (runs("testP1_newSession")) {
+    const made = (await rpc.call("sessions.listAll", { profileId: null })).filter((s) => s.spaceId === site.id && s.createdAt >= startedAt);
+    const first = made.length === 1 ? (await rpc.call("sessions.events", { id: made[0]!.id, afterSeq: 0, limit: 20 })).find((e) => e.event.type === "user_message") : undefined;
+    results.push(["testP1_newSession: the Mac made one session in Site, with its first message",
+      first?.event.type === "user_message" && first.event.payload.text === "Write the release notes for 2.4"]);
+  }
+  await phase("testP2_pinRenameArchive", parity);
+  if (runs("testP2_pinRenameArchive")) {
+    const item = (await rpc.call("items.listAll", {})).find((it) => it.kind === "session" && it.refId === sessions.plan);
+    results.push(["testP2_pinRenameArchive: the Mac has the new name, and the session neither pinned nor archived",
+      item?.title === "Rework the mapper's events" && !item.pinned && !item.archived]);
+  }
+  if (runs("testP3_queue")) {
+    await rpc.call("settings.set", { key: "sessions.midTurnMode", value: "queue" });
+    await stageQueue(["Use the sketch for the toggle's place"]);
+  }
+  await phase("testP3_queue", parity);
+  if (runs("testP3_queue")) {
+    const { queued } = await rpc.call("sessions.queued", { id: sessions.queued! });
+    const sent = (await rpc.call("sessions.events", { id: sessions.queued!, afterSeq: 0, limit: 1_000 }))
+      .flatMap((e) => (e.event.type === "user_message" ? [e.event.payload.text] : []));
+    results.push(["testP3_queue: the edited message went with its picture, and the removed one never did",
+      queued.length === 0 && sent.includes("Use the sketch for the toggle's place, at the top") && !sent.includes("Then check the toolbar at every size")]);
+  }
+  const tour = ["Use the sketch for the toggle's place", "Then check the toolbar at every size"];
+  await simctl(["ui", udid, "appearance", "dark"]);
+  // Three in dark, which the strip folds to its head, so the queue's sheet is pictured too.
+  if (runs("testP4_dark")) await stageQueue([...tour, "And open the PR once the checks pass"]);
+  await phase("testP4_dark", parity);
+  await simctl(["ui", udid, "appearance", "light"]);
+  if (runs("testP5_largestText")) await stageQueue(tour);
+  await phase("testP5_largestText", parity);
+  await reduceTransparency(true);
+  if (runs("testP6_reduceTransparency")) await stageQueue(tour);
+  await phase("testP6_reduceTransparency", parity);
   await reduceTransparency(false);
   for (const [test, passed] of results) say(`${passed ? "passed" : "FAILED"}  ${test}`);
   say(`screenshots in ${shots}`);

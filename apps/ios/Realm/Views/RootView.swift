@@ -21,6 +21,7 @@ struct RootView: View {
                             }
                         }
                 }
+                .renameAlert()
                 // A link opened while a Mac is paired pairs over the top of it.
                 .sheet(isPresented: pairingOverTheTop) {
                     NavigationStack { PairView(overTheTop: true) }
@@ -60,32 +61,45 @@ struct RootView: View {
 }
 
 /// Something that happened, at the top of the screen for a few seconds on the glass the system's own
-/// notices wear: it never covers the composer, and leaves on its own.
+/// notices wear: it never covers the composer, and leaves on its own. One that can be taken back says
+/// Undo beside its words, and stays twice as long: it is an offer still open.
 struct ToastView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         if let toast = model.toast {
-            Text(toast.text)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(Palette.ink)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 18)
-                .padding(.vertical, 12)
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous))
-                .padding(.horizontal, 24)
-                .padding(.top, 8)
-                .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
-                .accessibilityAddTraits(.isStaticText)
-                .task(id: toast.id) {
-                    UIAccessibility.post(notification: .announcement, argument: toast.text)
-                    try? await Task.sleep(for: .seconds(4))
-                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
-                        if model.toast?.id == toast.id { model.toast = nil }
+            HStack(spacing: 16) {
+                Text(toast.text)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Palette.ink)
+                    .multilineTextAlignment(toast.undo == nil ? .center : .leading)
+                    .accessibilityAddTraits(.isStaticText)
+                if let undo = toast.undo {
+                    Button("Undo") {
+                        model.toast = nil
+                        undo()
                     }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Palette.accentInk)
+                    .touchTarget()
                 }
-                .onTapGesture { model.toast = nil }
+            }
+            .padding(.horizontal, 18)
+            // Undo's own 44 points stand in for the height the words are padded to.
+            .padding(.vertical, toast.undo == nil ? 12 : 0)
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous))
+            .padding(.horizontal, 24)
+            .padding(.top, 8)
+            .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+            .task(id: toast.id) {
+                UIAccessibility.post(notification: .announcement, argument: toast.text)
+                try? await Task.sleep(for: .seconds(toast.undo == nil ? 4 : 8))
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
+                    if model.toast?.id == toast.id { model.toast = nil }
+                }
+            }
+            .onTapGesture { model.toast = nil }
         }
     }
 }

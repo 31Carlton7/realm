@@ -629,6 +629,277 @@ final class LiveTests: XCTestCase {
         dismissMenuInSession()
     }
 
+    // MARK: - New session, a row's actions and the Mac's queue (Plan 29's parity)
+
+    /// Home's compose button, and the sheet it opens: the space and agent chips' menus, the model chip's
+    /// sheet, the words, and Start, which lands in the new session with its first message answered. The
+    /// script checks the Mac made it in Site.
+    @MainActor
+    func testP1_newSession() throws {
+        launch()
+        XCTAssert(element(containing: "· Connected").waitForExistence(timeout: 30))
+        resetHome()
+        let compose = app.buttons["new-session"]
+        XCTAssert(compose.waitForExistence(timeout: 15), "Home has no compose button")
+        shot("p-home-compose")
+        compose.tap()
+        XCTAssert(app.navigationBars["New session"].waitForExistence(timeout: 10), "the compose button opened no New session sheet")
+        let space = app.buttons["new-session-space"]
+        XCTAssert(space.waitForExistence(timeout: 10), "the sheet has no space chip")
+        shot("p-new-session")
+        space.tap()
+        XCTAssert(app.buttons["Site"].waitForExistence(timeout: 5), "the space chip does not list the profile's spaces")
+        XCTAssertFalse(app.buttons["Compilers"].exists, "the space chip lists another profile's spaces")
+        shot("p-new-session-spaces")
+        app.buttons["Site"].tap()
+        XCTAssert(space.wait(for: \.label, toEqual: "Space, Site", timeout: 5), "the chip does not name the space picked")
+        app.buttons["new-session-agent"].tap()
+        let claude = app.buttons["Claude"]
+        XCTAssert(claude.waitForExistence(timeout: 5), "the agent chip does not list the Mac's agents")
+        shot("p-new-session-agents")
+        claude.tap()
+        modelChip.tap()
+        XCTAssert(app.navigationBars.buttons["Done"].waitForExistence(timeout: 10), "the model chip opened no settings")
+        shot("p-new-session-settings")
+        app.navigationBars.buttons["Done"].firstMatch.tap()
+        composerField.tap()
+        composerField.typeText("Write the release notes for 2.4")
+        shot("p-new-session-typed")
+        app.buttons["Start"].tap()
+        XCTAssert(element(containing: "echo: Write the release notes for 2.4").waitForExistence(timeout: 30),
+                  "Start did not land in the new session with its first message answered")
+        XCTAssertFalse(app.navigationBars["New session"].exists, "the sheet stayed up")
+        sleep(1)
+        shot("p-new-session-started")
+    }
+
+    /// A row pinned from its leading swipe, and Pinned at the head of Home; renamed from its
+    /// press-and-hold; archived from its trailing swipe, and put back by the toast's Undo; unpinned; and
+    /// the same three in a session's own menu. The script checks the Mac has the new name, unpinned and
+    /// not archived.
+    @MainActor
+    func testP2_pinRenameArchive() throws {
+        launch()
+        XCTAssert(element(containing: "· Connected").waitForExistence(timeout: 30))
+        resetHome()
+        XCTAssert(app.staticTexts["Pinned"].waitForExistence(timeout: 10), "the pinned session the Mac has is not in Pinned")
+        shot("p-home-pinned")
+        reveal(row("Rework the transcript mapper"), leading: true)
+        let pin = app.buttons["Pin"]
+        XCTAssert(pin.waitForExistence(timeout: 5), "the leading swipe offers no Pin")
+        shot("p-swipe-pin")
+        pin.tap()
+        XCTAssert(wait(for: rows("Rework the transcript mapper"), count: 2), "the pinned session is not in Pinned")
+        shot("p-pinned")
+        pressClearOfTheBars(row("Rework the transcript mapper"), hold: true)
+        XCTAssert(app.buttons["Rename"].waitForExistence(timeout: 5), "the press-and-hold offers no Rename")
+        XCTAssert(app.buttons["Unpin"].exists && app.buttons["Archive"].exists)
+        shot("p-row-menu")
+        app.buttons["Rename"].tap()
+        let alert = app.alerts["Rename session"]
+        XCTAssert(alert.waitForExistence(timeout: 5), "Rename opened no alert")
+        // The field has the keyboard as the alert comes, its caret after the title: a press would move it.
+        alert.textFields.firstMatch.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 40) + "Rework the mapper's events")
+        shot("p-rename-alert")
+        alert.buttons["Rename"].tap()
+        XCTAssert(row("Rework the mapper's events").waitForExistence(timeout: 10), "the row does not show its new name")
+        XCTAssertFalse(row("Rework the transcript mapper").exists)
+        shot("p-renamed")
+        reveal(row("Rework the mapper's events"), leading: false)
+        let archive = app.buttons["Archive"]
+        XCTAssert(archive.waitForExistence(timeout: 5), "the trailing swipe offers no Archive")
+        shot("p-swipe-archive")
+        archive.tap()
+        XCTAssert(element(containing: "Archived “Rework the mapper's events”").waitForExistence(timeout: 5), "no toast says it was archived")
+        XCTAssert(row("Rework the mapper's events").waitForNonExistence(timeout: 5), "the archived session is still listed")
+        shot("p-archived")
+        app.buttons["Undo"].tap()
+        XCTAssert(row("Rework the mapper's events").waitForExistence(timeout: 15), "Undo did not put the session back")
+        sleep(1)
+        shot("p-archive-undone")
+        reveal(row("Rework the mapper's events"), leading: true)
+        let unpin = app.buttons["Unpin"]
+        XCTAssert(unpin.waitForExistence(timeout: 5), "a pinned row's leading swipe offers no Unpin")
+        unpin.tap()
+        XCTAssert(wait(for: rows("Rework the mapper's events"), count: 1), "the session is still in Pinned")
+        shot("p-unpinned")
+        open("Rework the mapper's events")
+        let menu = app.buttons["session-menu"]
+        XCTAssert(menu.waitForExistence(timeout: 10), "the session has no menu")
+        menu.tap()
+        XCTAssert(app.buttons["Pin"].waitForExistence(timeout: 5) && app.buttons["Rename"].exists && app.buttons["Archive"].exists,
+                  "the session's menu does not offer Pin, Rename and Archive")
+        shot("p-session-menu")
+        // Archived from its own menu, the session leaves the screen, and Undo puts it back on Home.
+        app.buttons["Archive"].tap()
+        XCTAssert(app.staticTexts["Pinned"].waitForExistence(timeout: 10), "archived, the session stayed on screen")
+        XCTAssert(element(containing: "Archived “Rework the mapper's events”").exists)
+        app.buttons["Undo"].tap()
+        XCTAssert(row("Rework the mapper's events").waitForExistence(timeout: 15), "Undo did not put the session back")
+    }
+
+    /// The Mac's queue over the composer while a turn runs: the message the Mac queued, with its picture,
+    /// and one queued here, which shows once; the Mac's edited in its sheet, the other removed; then Stop,
+    /// after which the strip says it waits for the next turn, and Send now, which sends it. The script
+    /// checks the edited message went and the removed one never did.
+    @MainActor
+    func testP3_queue() throws {
+        let session = try XCTUnwrap(environment["QUEUE_SESSION"], "the script names the session it queues behind")
+        launch(["-openSession", session])
+        XCTAssert(element(containing: "Queued on your Mac").waitForExistence(timeout: 30), "the Mac's queue is not over the composer")
+        dismissAccountPrompt()
+        shot("p-queue-mac")
+        composerField.tap()
+        composerField.typeText("Then check the toolbar at every size")
+        let queue = app.buttons["Queue"]
+        XCTAssert(queue.waitForExistence(timeout: 5), "mid-turn the button does not queue")
+        queue.tap()
+        XCTAssert(element(containing: "2 queued on your Mac").waitForExistence(timeout: 15), "the message queued here is not in the queue")
+        sleep(2)
+        shot("p-queue-two")
+        // Once in the queue, and not in the transcript as well: neither as the words sent nor as their status.
+        let rows = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Queued message ",
+                                                                          "Then check the toolbar at every size"))
+        XCTAssertEqual(rows.count, 1, "the queue does not show the message queued here once")
+        XCTAssertFalse(element(containing: "You: Then check the toolbar at every size").exists, "the message queued here shows in the transcript too")
+        XCTAssertFalse(element(containing: "Sending").exists)
+        app.buttons.matching(identifier: "queue-edit").element(boundBy: 0).tap()
+        let sheet = app.navigationBars["Edit queued message"]
+        XCTAssert(sheet.waitForExistence(timeout: 10), "Edit opened no sheet")
+        let words = app.textViews["Queued message"].exists ? app.textViews["Queued message"] : app.textFields["Queued message"]
+        XCTAssert(words.waitForExistence(timeout: 5))
+        // The sheet gives its field the keyboard, the caret after the words; pressed, it goes where pressed.
+        if !app.keyboards.firstMatch.waitForExistence(timeout: 5) {
+            words.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.3)).tap()
+        }
+        shot("p-queue-edit")
+        words.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 60) + "Use the sketch for the toggle's place, at the top")
+        sheet.buttons["Save"].tap()
+        XCTAssert(element(containing: "Use the sketch for the toggle's place, at the top").waitForExistence(timeout: 15),
+                  "the edit did not reach the Mac's queue")
+        shot("p-queue-edited")
+        app.buttons.matching(identifier: "queue-remove").element(boundBy: 1).tap()
+        XCTAssert(element(containing: "2 queued on your Mac").waitForNonExistence(timeout: 15), "Remove left the message queued")
+        XCTAssertFalse(element(containing: "Then check the toolbar at every size").exists)
+        shot("p-queue-removed")
+        app.buttons["Stop"].tap()
+        XCTAssert(element(containing: "Waits for the next turn to end").waitForExistence(timeout: 20),
+                  "after Stop the queue does not say it waits for the next turn")
+        sleep(1)
+        shot("p-queue-after-stop")
+        app.buttons["queue-send-now"].firstMatch.tap()
+        XCTAssert(element(containing: "Queued on your Mac").waitForNonExistence(timeout: 15), "Send now left the message queued")
+        XCTAssert(element(containing: "You: Use the sketch for the toggle's place, at the top").waitForExistence(timeout: 30),
+                  "the message sent now is not in the transcript")
+        // The agent's answer is the Mac's to give; the picture is of the message as it went.
+        _ = element(containing: "echo: Use the sketch for the toggle's place, at the top").waitForExistence(timeout: 30)
+        sleep(2)
+        shot("p-queue-sent")
+    }
+
+    /// The dark face, set on the Simulator by the script.
+    @MainActor
+    func testP4_dark() throws {
+        try parityTour(prefix: "dark")
+    }
+
+    /// The largest accessibility text size: Pinned, the menus, the alert, the sheet and the queue read whole.
+    @MainActor
+    func testP5_largestText() throws {
+        try parityTour(prefix: "ax", ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+    }
+
+    /// Reduce Transparency, set on the Simulator by the script.
+    @MainActor
+    func testP6_reduceTransparency() throws {
+        try parityTour(prefix: "rt")
+    }
+
+    /// Pinned at the head of Home, a row's press-and-hold and the Rename alert, the New session sheet,
+    /// then the queue the script staged, its edit sheet and the session's menu, each pictured under
+    /// `prefix`. Nothing is changed: each is put away as it came.
+    @MainActor
+    private func parityTour(prefix: String, _ arguments: [String] = []) throws {
+        let session = try XCTUnwrap(environment["QUEUE_SESSION"], "the script names the session it queues behind")
+        launch(arguments)
+        XCTAssert(app.navigationBars.buttons["settings"].waitForExistence(timeout: 30))
+        XCTAssert(element(containing: "Connected").waitForExistence(timeout: 30))
+        resetHome()
+        let pinned = app.staticTexts["Pinned"]
+        for _ in 0..<6 where !pinned.waitForExistence(timeout: 2) { app.swipeUp(velocity: .slow) }
+        XCTAssert(pinned.exists, "no Pinned")
+        shot("\(prefix)-p-home-pinned")
+        let tidy = row("Tidy the settings page")
+        pressClearOfTheBars(tidy, hold: true)
+        XCTAssert(app.buttons["Rename"].waitForExistence(timeout: 5))
+        shot("\(prefix)-p-row-menu")
+        app.buttons["Rename"].tap()
+        XCTAssert(app.alerts["Rename session"].waitForExistence(timeout: 5))
+        shot("\(prefix)-p-rename-alert")
+        app.alerts["Rename session"].buttons["Cancel"].tap()
+        let compose = app.buttons["new-session"]
+        XCTAssert(compose.waitForExistence(timeout: 10))
+        compose.tap()
+        XCTAssert(app.navigationBars["New session"].waitForExistence(timeout: 10))
+        sleep(1)
+        shot("\(prefix)-p-new-session")
+        app.navigationBars["New session"].buttons["Cancel"].tap()
+        app.terminate()
+        launch(arguments + ["-openSession", session])
+        XCTAssert(element(containing: "queued on your Mac").waitForExistence(timeout: 30), "the queue the script staged is not there")
+        dismissAccountPrompt()
+        shot("\(prefix)-p-queue")
+        // Folded — three or more waiting, or any at the largest sizes — the queue opens in a sheet.
+        let folded = app.buttons["queue-show"].exists
+        if folded {
+            app.buttons["queue-show"].tap()
+            XCTAssert(app.navigationBars.buttons["Done"].waitForExistence(timeout: 10), "Show all opened no sheet")
+            sleep(1)
+            shot("\(prefix)-p-queue-sheet")
+        }
+        app.buttons.matching(identifier: "queue-edit").element(boundBy: 0).tap()
+        let sheet = app.navigationBars["Edit queued message"]
+        XCTAssert(sheet.waitForExistence(timeout: 10))
+        sleep(1)
+        shot("\(prefix)-p-queue-edit")
+        sheet.buttons["Cancel"].tap()
+        XCTAssert(sheet.waitForNonExistence(timeout: 5))
+        if folded { app.navigationBars.buttons["Done"].firstMatch.tap() }
+        app.buttons["session-menu"].tap()
+        XCTAssert(app.buttons["Rename"].waitForExistence(timeout: 5))
+        shot("\(prefix)-p-session-menu")
+        dismissMenuInSession()
+    }
+
+    /// A session's row on Home by its title; the first where Pinned lists it too.
+    @MainActor
+    private func row(_ title: String) -> XCUIElement {
+        rows(title).firstMatch
+    }
+
+    @MainActor
+    private func rows(_ title: String) -> XCUIElementQuery {
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "\(title),"))
+    }
+
+    /// Whether a query comes to match `count` elements within a few seconds, as a list settles after a change.
+    @MainActor
+    private func wait(for query: XCUIElementQuery, count: Int) -> Bool {
+        let deadline = Date().addingTimeInterval(10)
+        while query.count != count, Date() < deadline { usleep(250_000) }
+        return query.count == count
+    }
+
+    /// Drags a row part of the way toward an edge, which shows its swipe actions without running one;
+    /// first clear of the bars, where a drag would land on them instead.
+    @MainActor
+    private func reveal(_ row: XCUIElement, leading: Bool) {
+        scrollClearOfTheBars(row)
+        let middle = row.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        middle.press(forDuration: 0.05, thenDragTo: middle.withOffset(CGVector(dx: leading ? 120 : -170, dy: 0)))
+        sleep(1)
+    }
+
     // MARK: - Helpers
 
     /// Home's title, which opens the menu of profiles.
@@ -765,9 +1036,16 @@ final class LiveTests: XCTestCase {
         pressClearOfTheBars(row)
     }
 
-    /// Scrolls until an element's head is clear of the bars, and presses it there.
+    /// Scrolls until an element's head is clear of the bars, and presses it there; or holds it, for its menu.
     @MainActor
-    private func pressClearOfTheBars(_ element: XCUIElement) {
+    private func pressClearOfTheBars(_ element: XCUIElement, hold: Bool = false) {
+        scrollClearOfTheBars(element)
+        let head = element.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: element.frame.width / 2, dy: 24))
+        if hold { head.press(forDuration: 1.2) } else { head.tap() }
+    }
+
+    @MainActor
+    private func scrollClearOfTheBars(_ element: XCUIElement) {
         let screen = app.windows.firstMatch.frame
         let clear = (screen.minY + 180)...(screen.maxY - 220)
         for _ in 0..<12 {
@@ -775,7 +1053,6 @@ final class LiveTests: XCTestCase {
             if clear.contains(head) { break }
             if head > clear.upperBound { app.swipeUp(velocity: .slow) } else { app.swipeDown(velocity: .slow) }
         }
-        element.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: element.frame.width / 2, dy: 24)).tap()
     }
 
     @MainActor

@@ -29,7 +29,8 @@ struct SessionView: View {
 
     var body: some View {
         let transcript = model.store.transcript(sessionId)
-        let outgoing = model.store.outbox.items(for: sessionId).filter(\.isMessage)
+        let outgoing = Self.outgoing(model.store.outbox, transcript, in: sessionId)
+        let row = transcript.session.map { model.rowEdits.applied(to: $0) ?? $0 }
         let status = transcript.status ?? transcript.session?.status
         // The request the foot holds is drawn there, not twice: answered, it comes back to where it
         // was asked, as the record of it.
@@ -134,9 +135,14 @@ struct SessionView: View {
                 scrollToBottom()
             }
         }
-        .navigationTitle(transcript.session?.displayTitle ?? "Session")
+        .navigationTitle(row?.displayTitle ?? "Session")
         .navigationBarTitleDisplayMode(.inline)
         .navigationSubtitle(subtitle(transcript))
+        .toolbar {
+            if let row {
+                ToolbarItem(placement: .topBarTrailing) { SessionMenu(row: row) }
+            }
+        }
         .task(id: model.channelGeneration) { await model.open(sessionId) }
         .onDisappear {
             Task { await model.close(sessionId) }
@@ -154,6 +160,13 @@ struct SessionView: View {
     private func scrollToBottom() {
         follows = true
         withAnimation(Motion.animation(reduceMotion)) { position.scrollTo(edge: .bottom) }
+    }
+
+    /// The messages on their way that the transcript's foot shows: not one the Mac's queue holds, which
+    /// the queue over the composer shows, so a message is never drawn twice.
+    static func outgoing(_ outbox: Outbox, _ transcript: Transcript, in sessionId: String) -> [OutgoingItem] {
+        let queued = outbox.inQueue(transcript.queued ?? [], for: sessionId)
+        return outbox.items(for: sessionId).filter { $0.isMessage && queued[$0.id] == nil }
     }
 }
 
@@ -365,6 +378,8 @@ private struct SessionFoot: View {
                         composing.wrappedValue = true
                     }
                 }
+                QueueStrip(sessionId: sessionId)
+                    .padding(.horizontal, 12)
                 ComposerView(sessionId: sessionId, focused: composing)
                     .transition(.opacity)
             }
