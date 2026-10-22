@@ -448,15 +448,20 @@ async function runUiTests(): Promise<boolean> {
   // Sub-agents, Usage, Scheduled and Review (Plan 29's parity): the lead's sub-agents and one opened,
   // the bar's menu and Usage, Scheduled with Run now, the same pages dark, at the largest text size and
   // with Reduce Transparency, then Ask for changes on the launch post — last, since it takes the post
-  // out of what waits in Review. A phase that looks at a sub-agent working starts one: the staged one
-  // has finished by then.
+  // out of what waits in Review. A phase that looks at a sub-agent working starts one where none is:
+  // each works ten minutes, and a lead may have only four going.
   const work = {
     TEST_RUNNER_LEAD_SESSION: sessions.lead!, TEST_RUNNER_SUBAGENT_DONE: sessions.migration!,
     TEST_RUNNER_SUBAGENT_DONE_TITLE: (await rpc.call("sessions.get", { id: sessions.migration! })).title,
     TEST_RUNNER_TASK_TO_RUN: weeklyTask.title, TEST_RUNNER_REVIEW_TITLE: launch.title, TEST_RUNNER_REVIEW_PICTURE: "launch.png",
     TEST_RUNNER_REVIEW_NOTE: "Say it ships Friday in the caption too",
   };
-  const working = async (test: string) => { if (runs(test)) await teammate(sessions.lead!, "Backfill the theme column"); };
+  const working = async (test: string) => {
+    if (!runs(test)) return;
+    const { children } = await rpc.call("delegation.children", { sessionId: sessions.lead! });
+    const statuses = await Promise.all(children.map((c) => status(c.session.id)));
+    if (!statuses.includes("running")) await teammate(sessions.lead!, "Backfill the theme column");
+  };
   await working("testQ1_subagents");
   await phase("testQ1_subagents", work);
   await phase("testQ2_menuAndUsage", work);

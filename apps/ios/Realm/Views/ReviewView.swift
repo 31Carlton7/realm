@@ -207,6 +207,8 @@ struct ReviewsView: View {
                 }
                 .listRowBackground(Color.clear)
                 .listRowSeparatorTint(Palette.divider)
+                // No head above the first row: a line there would rule off the bar.
+                .listRowSeparator(review.id == reviews?.first?.id ? .hidden : .automatic, edges: .top)
                 .accessibilityIdentifier("review-\(review.id)")
             }
         }
@@ -273,6 +275,7 @@ struct ReviewView: View {
     let reviewId: String
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var detail: ReviewDetail?
     @State private var problem: String?
     @State private var asking: ReviewDecision?
@@ -287,11 +290,17 @@ struct ReviewView: View {
     var body: some View {
         let listed = model.work.reviews?.first { $0.id == reviewId }
         let review = detail?.review ?? listed
+        let decidable = detail.flatMap { ReviewStage($0.review.state).offersDecision ? $0.review : nil }
+        // At the accessibility sizes a docked decision would hide the drafts it is about: it follows them.
+        let docked = !dynamicTypeSize.isAccessibilitySize
         ScrollView {
             if let detail {
-                ReviewDrafts(detail: detail)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+                VStack(spacing: 20) {
+                    ReviewDrafts(detail: detail)
+                    if !docked, let decidable { dock(decidable, floating: false) }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
             }
         }
         .background(Ground.transcript)
@@ -305,15 +314,7 @@ struct ReviewView: View {
             }
         }
         .safeAreaBar(edge: .bottom) {
-            if let review = detail?.review, ReviewStage(review.state).offersDecision {
-                DecisionDock(review: review, deciding: deciding) { decision in
-                    if decision == .approve {
-                        Task { await decide(.approve, note: nil) }
-                    } else {
-                        asking = decision
-                    }
-                }
-            }
+            if docked, let decidable { dock(decidable, floating: true) }
         }
         .navigationTitle(review?.title ?? "Review")
         .navigationSubtitle(review.map(ReviewWords.about) ?? "")
@@ -324,6 +325,16 @@ struct ReviewView: View {
                 DecisionNoteSheet(note: DecisionNote(decision, for: review)) { text in
                     await decide(decision, note: text)
                 }
+            }
+        }
+    }
+
+    private func dock(_ review: ReviewSummary, floating: Bool) -> some View {
+        DecisionDock(review: review, deciding: deciding, floating: floating) { decision in
+            if decision == .approve {
+                Task { await decide(.approve, note: nil) }
+            } else {
+                asking = decision
             }
         }
     }
@@ -522,11 +533,13 @@ private struct ReviewPictures: View {
     }
 }
 
-/// The decision, docked at the foot where it stays in reach as the drafts scroll: what Approve does,
-/// said before it is pressed, then Approve, and beside each other the two that send words back.
+/// The decision: what Approve does, said before it is pressed, then Approve, and beside each other the
+/// two that send words back. Floating, it is docked at the foot where it stays in reach as the drafts
+/// scroll; otherwise it ends them.
 private struct DecisionDock: View {
     let review: ReviewSummary
     let deciding: Bool
+    let floating: Bool
     let choose: (ReviewDecision) -> Void
 
     var body: some View {
@@ -541,8 +554,8 @@ private struct DecisionDock: View {
                 HStack(spacing: 6) {
                     if deciding { ProgressView().controlSize(.small).tint(.white) }
                     Text(review.itemCount > 1 ? "Approve all \(review.itemCount)" : "Approve")
-                        .lineLimit(1)
                 }
+                .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
@@ -563,10 +576,10 @@ private struct DecisionDock: View {
         .padding(Radius.cardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Fill.card, in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous))
-        .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
-        .shadow(color: .black.opacity(0.12), radius: 18, y: 8)
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
+        .shadow(color: .black.opacity(floating ? 0.08 : 0), radius: 2, y: 1)
+        .shadow(color: .black.opacity(floating ? 0.12 : 0), radius: 18, y: 8)
+        .padding(.horizontal, floating ? 12 : 0)
+        .padding(.bottom, floating ? 8 : 0)
     }
 
     @ViewBuilder
@@ -575,7 +588,7 @@ private struct DecisionDock: View {
             choose(.changes)
         } label: {
             Text("Ask for changes")
-                .lineLimit(1)
+                .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
@@ -584,7 +597,7 @@ private struct DecisionDock: View {
             choose(.reject)
         } label: {
             Text("Reject")
-                .lineLimit(1)
+                .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)

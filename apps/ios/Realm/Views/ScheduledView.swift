@@ -151,6 +151,8 @@ struct ScheduledView: View {
         List {
             ForEach(tasks ?? []) { task in
                 TaskRow(task: task) { runNow(task) }
+                    // No head above the first row: a line there would rule off the bar.
+                    .listRowSeparator(task.id == tasks?.first?.id ? .hidden : .automatic, edges: .top)
             }
         }
         .listStyle(.plain)
@@ -235,6 +237,7 @@ private struct TaskLine: View {
                         .font(.footnote)
                         .foregroundStyle(Palette.ink2)
                         .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
+                        .fixedSize(horizontal: false, vertical: dynamicTypeSize.isAccessibilitySize)
                         .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? nil : .infinity, alignment: .leading)
                     if let run = task.lastRun {
                         let state = RunState(run.state)

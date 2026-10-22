@@ -168,6 +168,7 @@ struct SubagentWordsTests {
         """
         #expect(SubagentWords.report(Work.subagent(report: report))
                 == "What I found The composer draws three toolbars: ComposerView at the foot the settings sheet Nothing else.")
+        #expect(SubagentWords.report(Work.subagent(report: "Added `migrations/0042_theme.sql`, _carefully_.")) == "Added migrations/0042_theme.sql, carefully.")
         #expect(SubagentWords.report(Work.subagent(report: nil)) == nil)
         #expect(SubagentWords.report(Work.subagent(report: "```\ncode only\n```")) == nil)
     }

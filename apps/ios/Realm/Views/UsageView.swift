@@ -202,12 +202,11 @@ private struct PlanSection: View {
                     .listRowBackground(Fill.card)
             }
         } header: {
+            // The page's other heads' face, with the agent's mark beside its plan's name.
             HStack(spacing: 6) {
-                AgentMark(kind: plan.agent, mark: plan.agentMark, colored: true, size: 15, relativeTo: .subheadline)
+                AgentMark(kind: plan.agent, mark: plan.agentMark, colored: true, size: 17, relativeTo: .headline)
                 Text(PlanWords.title(plan))
             }
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Palette.ink)
             .textCase(nil)
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isHeader)

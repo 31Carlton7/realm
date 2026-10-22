@@ -148,14 +148,17 @@ enum SubagentWords {
     }
 
     /// Its report as a few lines of plain prose: a row is not a document, so headings, fences and
-    /// emphasis are dropped rather than drawn. The whole report is its session's, a press away.
+    /// emphasis are dropped rather than drawn — an underscore only at a word's edge, where it marks
+    /// emphasis, since inside one it is part of a name. The whole report is its session's, a press away.
     static func report(_ subagent: Subagent) -> String? {
         guard let report = subagent.report else { return nil }
         let plain = report
             .replacing(/```[\s\S]*?(```|$)/, with: " ")
             .replacing(/^\s{0,3}(#{1,6}|>|[-*+]|\d+\.)\s+/.anchorsMatchLineEndings(), with: "")
             .replacing(/\[([^\]]*)\]\([^)]*\)/) { String($0.output.1) }
-            .replacing(/[*_`~]+/, with: "")
+            .replacing(/[*`~]+/, with: "")
+            .replacing(/(^|[^\p{L}\p{N}])_+/) { String($0.output.1) }
+            .replacing(/_+([^\p{L}\p{N}]|$)/) { String($0.output.1) }
             .split(whereSeparator: \.isWhitespace).joined(separator: " ")
         return plain.isEmpty ? nil : plain
     }
@@ -324,6 +327,7 @@ private struct SubagentRow: View {
                 Text(state.word)
                     .fontWeight(.semibold)
                     .foregroundStyle(state.tone.color)
+                    .fixedSize()
                 Text("·")
                     .foregroundStyle(Palette.ink2)
                 if state.isLive {
