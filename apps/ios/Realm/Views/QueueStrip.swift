@@ -175,8 +175,10 @@ private struct QueuedRow: View {
                 } else {
                     QueueButton(title: "Edit", symbol: "pencil", action: edit)
                         .disabled(away || message.held)
+                        .accessibilityIdentifier("queue-edit")
                     QueueButton(title: "Remove", symbol: "xmark") { Task { await model.removeQueued(message, in: sessionId) } }
                         .disabled(away)
+                        .accessibilityIdentifier("queue-remove")
                     Button { Task { await model.sendQueuedNow(message, in: sessionId) } } label: {
                         Image(systemName: "arrow.up")
                             .font(.system(size: 13, weight: .bold))
@@ -192,6 +194,7 @@ private struct QueuedRow: View {
                     .accessibilityLabel("Send now")
                     .accessibilityHint(sendNowLine)
                     .accessibilityShowsLargeContentViewer { Label("Send now", systemImage: "arrow.up") }
+                    .accessibilityIdentifier("queue-send-now")
                 }
             }
         }
@@ -319,6 +322,7 @@ struct QueueEditSheet: View {
                     TextField("Message", text: $text, axis: .vertical)
                         .lineLimit(3...12)
                         .focused($focused)
+                        .accessibilityLabel("Queued message")
                         .listRowBackground(Fill.card)
                 } footer: {
                     Text(gone ? "It went while you were editing. Save puts your words in the message field."
