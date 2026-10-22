@@ -555,11 +555,16 @@ final class LiveTests: XCTestCase {
         shot("scheduled-run-finished")
         let unread = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", ", Unread, ")).firstMatch
         XCTAssert(unread.waitForExistence(timeout: 10), "no task's last run is unread")
+        let opened = String(unread.label.prefix { $0 != "," })
         unread.tap()
         XCTAssert(composerField.waitForExistence(timeout: 20), "the run's session did not open")
         sleep(1)
         shot("scheduled-run-session")
         back()
+        // Read to its end on the phone, the run is not a result left unread.
+        let stillUnread = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "\(opened),", ", Unread, ")).firstMatch
+        XCTAssert(stillUnread.waitForNonExistence(timeout: 20), "the run read on the phone still says it is unread")
+        shot("scheduled-read")
     }
 
     /// The dark face, set on the Simulator by the script: the sub-agents' sheet, the menu, Usage, Review
@@ -862,13 +867,12 @@ final class LiveTests: XCTestCase {
         app.buttons["Settings"].tap()
     }
 
-    /// Quick Look's button that puts it away, once it is up. It can open on the picture alone, its bars
-    /// hidden until the picture is pressed.
+    /// Quick Look's own button that puts it away, once Quick Look is up: known by its identifier, since
+    /// its label is a lower-case "close" that may change.
     @MainActor
     private func quickLookDone() -> XCUIElement {
-        let done = app.buttons.matching(NSPredicate(format: "label IN %@", ["Done", "Close"])).firstMatch
-        if !done.waitForExistence(timeout: 15) { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
-        XCTAssert(done.waitForExistence(timeout: 10), "Quick Look did not open the picture")
+        let done = app.buttons["QLOverlayDoneButtonAccessibilityIdentifier"]
+        XCTAssert(done.waitForExistence(timeout: 20), "Quick Look did not open the picture")
         return done
     }
 
