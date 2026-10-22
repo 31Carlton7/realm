@@ -308,8 +308,8 @@ private struct SubagentRow: View {
         .accessibilityHint("Opens its session")
     }
 
-    /// The model, the state's word in its tone, and how long it ran — on one line, or the model over
-    /// the rest at the accessibility sizes. A run still going counts up.
+    /// The model, the state's word in its tone, and how long it ran — on one line with dots between, or
+    /// each on a line of its own at the accessibility sizes. A run still going counts up.
     private func facts(_ state: SubagentState) -> some View {
         let stacked = dynamicTypeSize.isAccessibilitySize
         let line = stacked
@@ -322,29 +322,31 @@ private struct SubagentRow: View {
                     .lineLimit(1)
             }
             .foregroundStyle(Palette.ink2)
-            HStack(spacing: 6) {
-                if !stacked { Text("·").foregroundStyle(Palette.ink2) }
-                Text(state.word)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(state.tone.color)
-                    .fixedSize()
-                Text("·")
-                    .foregroundStyle(Palette.ink2)
-                if state.isLive {
-                    TimelineView(.periodic(from: .now, by: 1)) { context in
-                        ran(state, now: context.date)
-                    }
-                } else {
-                    ran(state, now: Date())
+            if !stacked { dot }
+            Text(state.word)
+                .fontWeight(.semibold)
+                .foregroundStyle(state.tone.color)
+                .fixedSize()
+            if !stacked { dot }
+            if state.isLive {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    ran(state, now: context.date)
                 }
+            } else {
+                ran(state, now: Date())
             }
         }
         .font(.footnote)
+    }
+
+    private var dot: some View {
+        Text("·").foregroundStyle(Palette.ink2)
     }
 
     private func ran(_ state: SubagentState, now: Date) -> some View {
         Text(PillWords.elapsed(SubagentWords.ran(subagent, state: state, now: now)))
             .monospacedDigit()
             .foregroundStyle(Palette.ink2)
+            .fixedSize()
     }
 }
