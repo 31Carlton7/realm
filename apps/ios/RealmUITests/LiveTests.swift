@@ -756,10 +756,13 @@ final class LiveTests: XCTestCase {
         queue.tap()
         XCTAssert(element(containing: "2 queued on your Mac").waitForExistence(timeout: 15), "the message queued here is not in the queue")
         sleep(2)
-        XCTAssertEqual(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Then check the toolbar at every size")).count,
-                       1, "the message queued here shows twice")
-        XCTAssertFalse(element(containing: "Sending").exists)
         shot("p-queue-two")
+        // Once in the queue, and not in the transcript as well: neither as the words sent nor as their status.
+        let rows = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Queued message ",
+                                                                          "Then check the toolbar at every size"))
+        XCTAssertEqual(rows.count, 1, "the queue does not show the message queued here once")
+        XCTAssertFalse(element(containing: "You: Then check the toolbar at every size").exists, "the message queued here shows in the transcript too")
+        XCTAssertFalse(element(containing: "Sending").exists)
         app.buttons.matching(identifier: "queue-edit").element(boundBy: 0).tap()
         let sheet = app.navigationBars["Edit queued message"]
         XCTAssert(sheet.waitForExistence(timeout: 10), "Edit opened no sheet")
