@@ -691,7 +691,7 @@ final class LiveTests: XCTestCase {
         pin.tap()
         XCTAssert(wait(for: rows("Rework the transcript mapper"), count: 2), "the pinned session is not in Pinned")
         shot("p-pinned")
-        row("Rework the transcript mapper").press(forDuration: 1.2)
+        pressClearOfTheBars(row("Rework the transcript mapper"), hold: true)
         XCTAssert(app.buttons["Rename"].waitForExistence(timeout: 5), "the press-and-hold offers no Rename")
         XCTAssert(app.buttons["Unpin"].exists && app.buttons["Archive"].exists)
         shot("p-row-menu")
@@ -890,9 +890,11 @@ final class LiveTests: XCTestCase {
         return query.count == count
     }
 
-    /// Drags a row part of the way toward an edge, which shows its swipe actions without running one.
+    /// Drags a row part of the way toward an edge, which shows its swipe actions without running one;
+    /// first clear of the bars, where a drag would land on them instead.
     @MainActor
     private func reveal(_ row: XCUIElement, leading: Bool) {
+        scrollClearOfTheBars(row)
         let middle = row.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         middle.press(forDuration: 0.05, thenDragTo: middle.withOffset(CGVector(dx: leading ? 120 : -170, dy: 0)))
         sleep(1)
@@ -1037,6 +1039,13 @@ final class LiveTests: XCTestCase {
     /// Scrolls until an element's head is clear of the bars, and presses it there; or holds it, for its menu.
     @MainActor
     private func pressClearOfTheBars(_ element: XCUIElement, hold: Bool = false) {
+        scrollClearOfTheBars(element)
+        let head = element.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: element.frame.width / 2, dy: 24))
+        if hold { head.press(forDuration: 1.2) } else { head.tap() }
+    }
+
+    @MainActor
+    private func scrollClearOfTheBars(_ element: XCUIElement) {
         let screen = app.windows.firstMatch.frame
         let clear = (screen.minY + 180)...(screen.maxY - 220)
         for _ in 0..<12 {
@@ -1044,8 +1053,6 @@ final class LiveTests: XCTestCase {
             if clear.contains(head) { break }
             if head > clear.upperBound { app.swipeUp(velocity: .slow) } else { app.swipeDown(velocity: .slow) }
         }
-        let head = element.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: element.frame.width / 2, dy: 24))
-        if hold { head.press(forDuration: 1.2) } else { head.tap() }
     }
 
     @MainActor

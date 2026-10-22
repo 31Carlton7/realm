@@ -82,26 +82,34 @@ struct QueueStrip: View {
     var body: some View {
         let transcript = model.store.transcript(sessionId)
         let queued = transcript.queued ?? []
-        if let next = queued.first {
-            let status = transcript.status ?? transcript.session?.status
-            // A row being edited here is never folded out from under its sheet.
-            let folded = QueueWords.folds(queued.count, accessibilitySize: dynamicTypeSize.isAccessibilitySize) && editing == nil
-            VStack(alignment: .leading, spacing: 0) {
-                QueueHead(queued: queued, working: status == .running || status == .waiting, next: folded ? next : nil) {
-                    sheetShown = true
-                }
-                if !folded {
-                    QueueRows(queued: queued, sessionId: sessionId, editing: $editing)
+        if !queued.isEmpty || editing != nil {
+            Group {
+                if let next = queued.first {
+                    let status = transcript.status ?? transcript.session?.status
+                    // A row being edited here is never folded out from under its sheet.
+                    let folded = QueueWords.folds(queued.count, accessibilitySize: dynamicTypeSize.isAccessibilitySize) && editing == nil
+                    VStack(alignment: .leading, spacing: 0) {
+                        QueueHead(queued: queued, working: status == .running || status == .waiting, next: folded ? next : nil) {
+                            sheetShown = true
+                        }
+                        if !folded {
+                            QueueRows(queued: queued, sessionId: sessionId, editing: $editing)
+                        }
+                    }
+                    .padding(.leading, 14)
+                    .padding(.trailing, 6)
+                    .padding(.vertical, 8)
+                    .background(Fill.card, in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous))
+                    .animation(Motion.animation(reduceMotion), value: queued.map(\.id))
+                    .animation(Motion.animation(reduceMotion), value: folded)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel("Queued messages")
+                } else {
+                    // The queue emptied under an edit — the message was sent or taken out on the Mac: the
+                    // edit's sheet keeps its place, and with it the words being written.
+                    Color.clear.frame(height: 0)
                 }
             }
-            .padding(.leading, 14)
-            .padding(.trailing, 6)
-            .padding(.vertical, 8)
-            .background(Fill.card, in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous))
-            .animation(Motion.animation(reduceMotion), value: queued.map(\.id))
-            .animation(Motion.animation(reduceMotion), value: folded)
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel("Queued messages")
             .sheet(item: $editing) { message in
                 QueueEditSheet(message: message, sessionId: sessionId)
             }
@@ -181,7 +189,7 @@ private struct QueueRows: View {
 }
 
 /// The whole queue where there is room for it, from the folded strip: the same rows and actions, with
-/// a sheet of their own for an edit. It closes once nothing is left in the queue.
+/// a sheet of their own for an edit. It closes once nothing is left in the queue and no edit is open.
 private struct QueueSheet: View {
     let sessionId: String
     @Environment(AppModel.self) private var model
@@ -219,8 +227,8 @@ private struct QueueSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationBackground(Ground.grouped)
-        .onChange(of: queued.isEmpty) { _, empty in
-            if empty { dismiss() }
+        .onChange(of: queued.isEmpty && editing == nil) { _, done in
+            if done { dismiss() }
         }
         .sheet(item: $editing) { message in
             QueueEditSheet(message: message, sessionId: sessionId)
