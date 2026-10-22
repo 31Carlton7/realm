@@ -731,7 +731,12 @@ final class LiveTests: XCTestCase {
         XCTAssert(app.buttons["Pin"].waitForExistence(timeout: 5) && app.buttons["Rename"].exists && app.buttons["Archive"].exists,
                   "the session's menu does not offer Pin, Rename and Archive")
         shot("p-session-menu")
-        dismissMenuInSession()
+        // Archived from its own menu, the session leaves the screen, and Undo puts it back on Home.
+        app.buttons["Archive"].tap()
+        XCTAssert(app.staticTexts["Pinned"].waitForExistence(timeout: 10), "archived, the session stayed on screen")
+        XCTAssert(element(containing: "Archived “Rework the mapper's events”").exists)
+        app.buttons["Undo"].tap()
+        XCTAssert(row("Rework the mapper's events").waitForExistence(timeout: 15), "Undo did not put the session back")
     }
 
     /// The Mac's queue over the composer while a turn runs: the message the Mac queued, with its picture,

@@ -614,6 +614,7 @@ struct SessionRowView: View {
         var parts = [row.displayTitle]
         if let state = RowState(row) { parts.append(state.word) }
         if row.unread { parts.append("Unread") }
+        if row.pinned == true { parts.append("Pinned") }
         parts.append(contentsOf: [row.spaceName, row.agentDisplayName].filter { !$0.isEmpty })
         if let model = row.modelDisplayName, !model.isEmpty { parts.append(model) }
         parts.append(Ago.text(row.lastActivity, now: now))

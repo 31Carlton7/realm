@@ -137,6 +137,13 @@ struct RowActionsTests {
         #expect(!actions.isOff(.stop))
     }
 
+    /// VoiceOver hears a pinned row say so, wherever it is listed.
+    @Test func aPinnedRowSaysSo() {
+        let now = Date(timeIntervalSince1970: 1_790_000_120)
+        #expect(SessionRowView.spoken(Staged.relay.pinnedRow, now: now).hasPrefix("Explain the relay, Pinned, Realm, Claude"))
+        #expect(!SessionRowView.spoken(Staged.relay, now: now).contains("Pinned"))
+    }
+
     @Test func eachSaysWhatItDoes() {
         let all: [RowAction] = [.pin, .unpin, .rename, .archive, .stop]
         #expect(all.map(\.title) == ["Pin", "Unpin", "Rename", "Archive", "Stop"])
