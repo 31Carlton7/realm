@@ -3,9 +3,20 @@ import SwiftUI
 
 /// What the strip over the composer says of the Mac's queue: how many wait, and when they go.
 enum QueueWords {
-    /// From this many the strip folds to its head and the next message until it is opened: three rows
-    /// over the composer push the field halfway up the screen.
+    /// From this many the strip folds to its head and the next message, and Show all opens the rest in a
+    /// sheet: three rows over the composer push the field halfway up the screen.
     static let foldAt = 3
+
+    /// Whether the strip keeps to its head. At the accessibility sizes it always does: one row there is
+    /// as tall as the transcript it would cover.
+    static func folds(_ count: Int, accessibilitySize: Bool) -> Bool {
+        accessibilitySize || count >= foldAt
+    }
+
+    /// The folded strip's button, which opens the queue in a sheet.
+    static func show(_ count: Int) -> String {
+        count == 1 ? "Show" : "Show all"
+    }
 
     /// "Queued on your Mac", "2 queued on your Mac".
     static func title(_ count: Int) -> String {
@@ -57,63 +68,30 @@ enum QueueWords {
 }
 
 /// The Mac's queue for a session, over the composer: what waits for a turn to end, oldest first, each
-/// with its words, its files and Send now, Edit and Remove. From three it folds to its head and the next
-/// one, until opened. A message this iPhone queued is shown here and nowhere else (`Outbox.inQueue`).
+/// with its words, its files and Send now, Edit and Remove. From three, and at the accessibility sizes,
+/// it folds to its head and the next one, and the rest open in a sheet. A message this iPhone queued is
+/// shown here and nowhere else (`Outbox.inQueue`).
 struct QueueStrip: View {
     let sessionId: String
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var unfolded = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var editing: QueuedMessage?
+    @State private var sheetShown = false
 
     var body: some View {
         let transcript = model.store.transcript(sessionId)
         let queued = transcript.queued ?? []
         if let next = queued.first {
             let status = transcript.status ?? transcript.session?.status
-            let folds = queued.count >= QueueWords.foldAt
-            let folded = folds && !unfolded && editing == nil
+            // A row being edited here is never folded out from under its sheet.
+            let folded = QueueWords.folds(queued.count, accessibilitySize: dynamicTypeSize.isAccessibilitySize) && editing == nil
             VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Image(systemName: "list.number")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Palette.ink2)
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(QueueWords.title(queued.count))
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Palette.ink)
-                            .accessibilityAddTraits(.isHeader)
-                        Text(QueueWords.line(count: queued.count, working: status == .running || status == .waiting,
-                                             held: queued.contains(where: \.held)))
-                            .font(.footnote)
-                            .foregroundStyle(Palette.ink2)
-                        if folded {
-                            Text("Next: \(QueueWords.text(next))")
-                                .font(.footnote)
-                                .foregroundStyle(Palette.ink2)
-                                .lineLimit(1)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    if folds {
-                        Button(folded ? "Show all" : "Show less") { unfolded = folded }
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(Palette.accentInk)
-                            .touchTarget()
-                    }
+                QueueHead(queued: queued, working: status == .running || status == .waiting, next: folded ? next : nil) {
+                    sheetShown = true
                 }
                 if !folded {
-                    ForEach(Array(queued.enumerated()), id: \.element.id) { index, message in
-                        Divider()
-                            .overlay(Palette.divider)
-                            .padding(.vertical, 2)
-                        QueuedRow(message: message, index: index, count: queued.count, sessionId: sessionId,
-                                  editingHere: editing?.id == message.id) {
-                            Task { if await model.holdQueued(message, in: sessionId) { editing = message } }
-                        }
-                        .transition(.opacity)
-                    }
+                    QueueRows(queued: queued, sessionId: sessionId, editing: $editing)
                 }
             }
             .padding(.leading, 14)
@@ -127,6 +105,125 @@ struct QueueStrip: View {
             .sheet(item: $editing) { message in
                 QueueEditSheet(message: message, sessionId: sessionId)
             }
+            .sheet(isPresented: $sheetShown) {
+                QueueSheet(sessionId: sessionId)
+            }
+        }
+    }
+}
+
+/// The strip's head: how many wait and when they go, then, folded, the next one and the way to the rest.
+private struct QueueHead: View {
+    let queued: [QueuedMessage]
+    let working: Bool
+    /// The next to go, named while the strip is folded.
+    let next: QueuedMessage?
+    let show: () -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 8))
+        layout {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "list.number")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Palette.ink2)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(QueueWords.title(queued.count))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Palette.ink)
+                        .accessibilityAddTraits(.isHeader)
+                    Text(QueueWords.line(count: queued.count, working: working, held: queued.contains(where: \.held)))
+                        .font(.footnote)
+                        .foregroundStyle(Palette.ink2)
+                    if let next {
+                        Text("Next: \(QueueWords.text(next))")
+                            .font(.footnote)
+                            .foregroundStyle(Palette.ink2)
+                            .lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if next != nil {
+                Button(QueueWords.show(queued.count), action: show)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Palette.accentInk)
+                    .touchTarget()
+                    .accessibilityIdentifier("queue-show")
+            }
+        }
+    }
+}
+
+/// The queue's messages in the Mac's order, each under a hairline. Edit holds one on the Mac, then hands
+/// it to `editing` for its sheet.
+private struct QueueRows: View {
+    let queued: [QueuedMessage]
+    let sessionId: String
+    @Binding var editing: QueuedMessage?
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        ForEach(Array(queued.enumerated()), id: \.element.id) { index, message in
+            Divider()
+                .overlay(Palette.divider)
+                .padding(.vertical, 2)
+            QueuedRow(message: message, index: index, count: queued.count, sessionId: sessionId, editingHere: editing?.id == message.id) {
+                Task { if await model.holdQueued(message, in: sessionId) { editing = message } }
+            }
+            .transition(.opacity)
+        }
+    }
+}
+
+/// The whole queue where there is room for it, from the folded strip: the same rows and actions, with
+/// a sheet of their own for an edit. It closes once nothing is left in the queue.
+private struct QueueSheet: View {
+    let sessionId: String
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    @State private var editing: QueuedMessage?
+
+    var body: some View {
+        let transcript = model.store.transcript(sessionId)
+        let queued = transcript.queued ?? []
+        let status = transcript.status ?? transcript.session?.status
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(QueueWords.line(count: queued.count, working: status == .running || status == .waiting,
+                                         held: queued.contains(where: \.held)))
+                        .font(.subheadline)
+                        .foregroundStyle(Palette.ink2)
+                        .padding(.bottom, 8)
+                    QueueRows(queued: queued, sessionId: sessionId, editing: $editing)
+                }
+                .padding(.leading, 16)
+                .padding(.trailing, 8)
+                .padding(.vertical, 12)
+                .background(Fill.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                .padding(16)
+            }
+            .background(Ground.grouped)
+            .navigationTitle(QueueWords.title(max(1, queued.count)))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationBackground(Ground.grouped)
+        .onChange(of: queued.isEmpty) { _, empty in
+            if empty { dismiss() }
+        }
+        .sheet(item: $editing) { message in
+            QueueEditSheet(message: message, sessionId: sessionId)
         }
     }
 }

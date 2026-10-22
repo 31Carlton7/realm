@@ -524,7 +524,8 @@ async function runUiTests(): Promise<boolean> {
   }
   const tour = ["Use the sketch for the toggle's place", "Then check the toolbar at every size"];
   await simctl(["ui", udid, "appearance", "dark"]);
-  if (runs("testP4_dark")) await stageQueue(tour);
+  // Three in dark, which the strip folds to its head, so the queue's sheet is pictured too.
+  if (runs("testP4_dark")) await stageQueue([...tour, "And open the PR once the checks pass"]);
   await phase("testP4_dark", parity);
   await simctl(["ui", udid, "appearance", "light"]);
   if (runs("testP5_largestText")) await stageQueue(tour);

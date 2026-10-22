@@ -22,7 +22,15 @@ struct QueueStripTests {
     @Test func theHeadSaysHowManyWaitOnTheMac() {
         #expect(QueueWords.title(1) == "Queued on your Mac")
         #expect(QueueWords.title(2) == "2 queued on your Mac")
-        #expect(QueueWords.foldAt == 3)
+    }
+
+    /// From three it keeps to its head, and at the accessibility sizes from one: there a row is as tall
+    /// as the transcript it would cover. Its button opens the queue in a sheet.
+    @Test func itFoldsFromThreeAndAtTheLargestSizesAlways() {
+        #expect(!QueueWords.folds(2, accessibilitySize: false))
+        #expect(QueueWords.folds(3, accessibilitySize: false))
+        #expect(QueueWords.folds(1, accessibilitySize: true))
+        #expect(QueueWords.show(1) == "Show" && QueueWords.show(3) == "Show all")
     }
 
     /// While a turn is under way they go as it ends; once it is stopped they wait for the next turn's end,
@@ -82,10 +90,11 @@ struct QueueStripTests {
         #expect(!words.contains("Then open the PR"), "folded, only the next one is named")
     }
 
-    @Test func theStripReadsAtTheLargestSize() throws {
+    /// At the largest size it keeps to its head, and the way to the queue.
+    @Test func atTheLargestSizeItKeepsToItsHead() throws {
         let words = try Drawing.words(QueueStrip(sessionId: "s1").environment(Self.model(.running, queued: [Self.first])),
                                       size: .accessibility5)
-        #expect(words.contains("Queued on") && words.contains("toolbar"), "\(words)")
+        #expect(words.contains("Queued on") && words.contains("Show"), "\(words)")
     }
 
     @Test func withNothingQueuedThereIsNoStrip() throws {

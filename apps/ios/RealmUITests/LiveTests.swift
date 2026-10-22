@@ -849,6 +849,14 @@ final class LiveTests: XCTestCase {
         XCTAssert(element(containing: "queued on your Mac").waitForExistence(timeout: 30), "the queue the script staged is not there")
         dismissAccountPrompt()
         shot("\(prefix)-p-queue")
+        // Folded — three or more waiting, or any at the largest sizes — the queue opens in a sheet.
+        let folded = app.buttons["queue-show"].exists
+        if folded {
+            app.buttons["queue-show"].tap()
+            XCTAssert(app.navigationBars.buttons["Done"].waitForExistence(timeout: 10), "Show all opened no sheet")
+            sleep(1)
+            shot("\(prefix)-p-queue-sheet")
+        }
         app.buttons.matching(identifier: "queue-edit").element(boundBy: 0).tap()
         let sheet = app.navigationBars["Edit queued message"]
         XCTAssert(sheet.waitForExistence(timeout: 10))
@@ -856,6 +864,7 @@ final class LiveTests: XCTestCase {
         shot("\(prefix)-p-queue-edit")
         sheet.buttons["Cancel"].tap()
         XCTAssert(sheet.waitForNonExistence(timeout: 5))
+        if folded { app.navigationBars.buttons["Done"].firstMatch.tap() }
         app.buttons["session-menu"].tap()
         XCTAssert(app.buttons["Rename"].waitForExistence(timeout: 5))
         shot("\(prefix)-p-session-menu")
