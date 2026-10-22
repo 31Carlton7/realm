@@ -5,14 +5,14 @@ import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter } from "@realm/adapters";
-import { REMOTE_RELAY_KEY, sessionEvent, type EventName, type EventPayload } from "@realm/contracts";
+import { REMOTE_RELAY_KEY, sessionEvent, type EventName, type EventPayload, type MethodName } from "@realm/contracts";
 import { isSealed } from "@realm/contracts/src/secret-box";
 import { fromB64u, generateDeviceKeys, HandshakeState, HomeSchema, MobileCalls, MobileEvents, PROLOGUE, type Row } from "@realm/remote";
 import { startLocalRelay, type ApnsPush, type LocalRelay } from "@realm/relay/src/node";
 import WebSocket, { WebSocketServer } from "ws";
 import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
-import { fakeRpc, session as fakeSession } from "./api.test-fakes";
+import { fakeRpc, session as fakeSession, type Lists } from "./api.test-fakes";
 import { RemoteGateway } from "./gateway";
 import { REMOTE_IDENTITY_KEY } from "./keys";
 import { collapseId } from "./push";
@@ -792,51 +792,105 @@ describe("Plan 29's parity: the queue, sub-agents and Review on a paired phone",
   });
 });
 
-describe("Plan 29's parity: a queue that changes while the session opens", () => {
-  it("holds the change for the open's answer, which carries it, and sends every change after", async () => {
-    const relay = await startLocalRelay({ port: 0 });
-    relays.push(relay);
-    const home = tempDir("realm-remote-gateway-");
-    const store = new FileRemoteStore(home);
-    // The Mac's RPC, faked so the open can be stopped while it reads the session's history.
+/**
+ * A gateway over a fake of the Mac's RPC, for what the real one cannot be made to do on cue: a
+ * broadcast at an exact moment of a call, or several in the same instant. A real relay, and a phone
+ * paired through it, as everywhere above.
+ */
+async function fakeMac(lists: Lists, more: Partial<Record<MethodName, (p: never) => unknown>> = {}) {
+  const relay = await startLocalRelay({ port: 0 });
+  relays.push(relay);
+  const home = tempDir("realm-remote-gateway-");
+  const store = new FileRemoteStore(home);
+  const base = fakeRpc(lists, more);
+  const listeners = new Set<(event: EventName, payload: unknown) => void>();
+  const rpc: RpcPort = { ...base, onEvent: (l) => { listeners.add(l as never); return () => { listeners.delete(l as never); }; } };
+  const gw = new RemoteGateway({
+    identity: store.identity(), phones: store, relay: relay.url, rpc, macName: "Test Mac", version: "test", confirm: async () => true,
+    reportsDir: join(home, "reports"), realmHome: home,
+  });
+  gw.start();
+  gateways.push(gw);
+  await waitFor(() => gw.state === "connected");
+  const phone = new TestPhone();
+  expect(await phone.pair(gw.openPairing().url)).toEqual({ ok: true });
+  await phone.connect();
+  const broadcast = <E extends EventName>(event: E, payload: EventPayload<E>) => { for (const l of listeners) l(event, payload); };
+  return { phone, broadcast };
+}
+
+const gateways: RemoteGateway[] = [];
+afterEach(() => { for (const gw of gateways.splice(0)) gw.stop(); });
+
+describe("Plan 29's parity: what a phone hears, at the moment it hears it", () => {
+  it("holds a change to the queue that comes while the session opens for the open's answer, and sends every change after", async () => {
+    // The open is stopped while it reads the session's history.
     let reached!: () => void;
     const atHistory = new Promise<void>((res) => { reached = res; });
     let release!: () => void;
     const gate = new Promise<void>((res) => { release = res; });
     const older = [{ id: "q1", text: "older", attachments: [], ts: 1, held: false }];
     const newer = [...older, { id: "q2", text: "newer", attachments: [], ts: 2, held: false }];
-    const base = fakeRpc({ sessions: [fakeSession("s1", "s1")], items: [], queued: { s1: older } }, {
+    const { phone, broadcast } = await fakeMac({ sessions: [fakeSession("s1", "s1")], items: [], queued: { s1: older } }, {
       "sessions.events": (async () => { reached(); await gate; return []; }) as never,
     });
-    const listeners = new Set<(event: EventName, payload: unknown) => void>();
-    const rpc: RpcPort = { ...base, onEvent: (l) => { listeners.add(l as never); return () => { listeners.delete(l as never); }; } };
-    const broadcast = (queued: typeof older) => { for (const l of listeners) l("session.queue", { sessionId: "s1", queued }); };
-    const gw = new RemoteGateway({
-      identity: store.identity(), phones: store, relay: relay.url, rpc, macName: "Test Mac", version: "test", confirm: async () => true,
-      reportsDir: join(home, "reports"), realmHome: home,
+    const heard: unknown[] = [];
+    phone.on("session.queue", (p) => { heard.push(p); });
+    const opening = phone.call("session.open", { id: "s1" });
+    await atHistory;
+    broadcast("session.queue", { sessionId: "s1", queued: newer });
+    release();
+    // THE MUTANTS: send the change at once, and it reaches the phone before the session it belongs to
+    // has opened; answer with the queue the open read, and the phone opens on one a message behind.
+    expect(MobileCalls["session.open"].result.parse(await opening).queued?.map((q) => q.text)).toEqual(["older", "newer"]);
+    expect(heard).toEqual([]);
+    const emptied = phone.waitFor("session.queue", (p) => (MobileEvents["session.queue"].parse(p).queued.length === 0 ? true : undefined));
+    broadcast("session.queue", { sessionId: "s1", queued: [] });
+    await emptied;
+    phone.close();
+  });
+
+  it("says once that a lead's sub-agents changed when a run and a sub-agent's status move together, and for a status alone", async () => {
+    const child = fakeSession("child", "s1", { status: "running", dispatchedBy: { sessionId: "lead", kind: "agent_run" } });
+    const { phone, broadcast } = await fakeMac({ sessions: [fakeSession("lead", "s1"), child], items: [] }, {
+      "delegation.children": ((p: { sessionId: string }) => ({ children: p.sessionId === "lead"
+        ? [{ session: child, goal: "Write it", startedAt: 1, settledAt: null, outcome: null, report: null, activity: null }] : [], dismissed: [] })) as never,
+      "delegation.running": (() => ({ running: [] })) as never,
     });
-    gw.start();
-    try {
-      await waitFor(() => gw.state === "connected");
-      const phone = new TestPhone();
-      expect(await phone.pair(gw.openPairing().url)).toEqual({ ok: true });
-      await phone.connect();
-      const heard: unknown[] = [];
-      phone.on("session.queue", (p) => { heard.push(p); });
-      const opening = phone.call("session.open", { id: "s1" });
-      await atHistory;
-      broadcast(newer);
-      release();
-      // THE MUTANTS: send the change at once, and it reaches the phone before the session it belongs to
-      // has opened; answer with the queue the open read, and the phone opens on one a message behind.
-      expect(MobileCalls["session.open"].result.parse(await opening).queued?.map((q) => q.text)).toEqual(["older", "newer"]);
-      expect(heard).toEqual([]);
-      const emptied = phone.waitFor("session.queue", (p) => (MobileEvents["session.queue"].parse(p).queued.length === 0 ? true : undefined));
-      broadcast([]);
-      await emptied;
-      phone.close();
-    } finally {
-      gw.stop();
-    }
+    await phone.call("session.open", { id: "lead" });
+    await phone.call("session.subagents", { id: "lead" });
+    const heard: string[] = [];
+    phone.on("session.subagents", (p) => { heard.push(MobileEvents["session.subagents"].parse(p).id); });
+    // A settle: the sub-agent goes idle and its lead's runs change in the same instant.
+    broadcast("session.status", { sessionId: "child", status: "idle" });
+    broadcast("delegation.changed", { sessionId: "lead", running: [] });
+    await waitFor(() => heard.length > 0);
+    await new Promise((res) => setTimeout(res, 500));
+    // THE MUTANT: say each change as it comes, and the phone reads the same list twice.
+    expect(heard).toEqual(["lead"]);
+    // A sub-agent stopping to ask the person is a change to its lead's list, with no run moving.
+    // THE MUTANT: hear only `delegation.changed`, and its row on the phone says it is still working.
+    broadcast("session.status", { sessionId: "child", status: "waiting_permission" });
+    await waitFor(() => heard.length === 2);
+    // Another session's status is not this lead's.
+    broadcast("session.status", { sessionId: "someone-else", status: "running" });
+    await new Promise((res) => setTimeout(res, 500));
+    expect(heard).toEqual(["lead", "lead"]);
+    phone.close();
+  });
+
+  it("says once that reviews or scheduled tasks changed, however many of their changes come together", async () => {
+    const { phone, broadcast } = await fakeMac({ sessions: [], items: [] });
+    let heard = 0;
+    phone.on("work.changed", () => { heard += 1; });
+    broadcast("team.changed", { spaceId: "s1" });
+    broadcast("schedules.changed", { spaceId: "s1" });
+    broadcast("runs.changed", { spaceId: "s1", run: null });
+    broadcast("runs.changed", { spaceId: "s2", run: null });
+    await waitFor(() => heard > 0, { timeout: 3_000 });
+    await new Promise((res) => setTimeout(res, 1_300));
+    // THE MUTANT: say it for each, and a run's every step has the phone read Review and Scheduled again.
+    expect(heard).toBe(1);
+    phone.close();
   });
 });

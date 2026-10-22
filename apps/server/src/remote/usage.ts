@@ -1,6 +1,5 @@
 import {
-  AGENT_META, SELECTABLE_AGENT_KINDS, currentAlert, planUnavailableNote, reportsPlanLimits, windowHasReset, windowsByUrgency,
-  type AgentKind, type PlanLimits, type UsageSummary,
+  AGENT_META, SELECTABLE_AGENT_KINDS, currentAlert, planUnavailableNote, windowHasReset, windowsByUrgency, type AgentKind, type PlanLimits, type UsageSummary,
 } from "@realm/contracts";
 import type { MobileResult } from "@realm/remote";
 
@@ -16,10 +15,6 @@ type Limits = Usage["limits"][number];
 
 /** How many of the month's sessions the phone is shown, heaviest first. */
 export const TOP_SESSIONS = 5;
-
-/** The agents a person can run, in the order the page lists them. `limits.get` answers for every kind
- *  there is, the scripted one the suite drives among them, which the page leaves out. */
-const RUNNABLE: readonly AgentKind[] = SELECTABLE_AGENT_KINDS;
 
 /** The first of this month on the Mac's clock: a budget is a calendar month where the Mac is. */
 export function monthStart(now: number): number {
@@ -57,12 +52,15 @@ export function planLimits(row: PlanLimits, now: number): Limits {
   };
 }
 
-/** Every runnable agent's plan, those that report first, as the page puts its cards before the one
- *  line naming the agents that cannot. */
+/**
+ * The plan of every agent a person can run, in the order the desktop offers them — which puts the two
+ * that report one first, as the page puts their cards before its line naming the agents that cannot.
+ * `limits.get` answers for every kind there is, the scripted one the suite drives among them, which
+ * the page leaves out.
+ */
 export function everyPlan(rows: readonly PlanLimits[], now: number): Limits[] {
   const by = new Map(rows.map((r) => [r.agentKind, r]));
-  const kinds = RUNNABLE.filter((k) => by.has(k));
-  return [...kinds.filter(reportsPlanLimits), ...kinds.filter((k) => !reportsPlanLimits(k))].map((k) => planLimits(by.get(k)!, now));
+  return SELECTABLE_AGENT_KINDS.flatMap((k) => { const row = by.get(k); return row ? [planLimits(row, now)] : []; });
 }
 
 /** This month's spend, its budget, and the heaviest sessions by the names their rows have. */
