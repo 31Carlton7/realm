@@ -504,10 +504,10 @@ final class LiveTests: XCTestCase {
         XCTAssert(element(containing: "· Connected").waitForExistence(timeout: 30))
         resetHome()
         openMenu()
-        XCTAssert(app.buttons["Review"].exists && app.buttons["Scheduled"].exists && app.buttons["Usage"].exists,
-                  "the bar's menu does not offer the pages")
+        XCTAssert(menuPage("Review").exists && menuPage("Scheduled").exists && menuPage("Usage").exists, "the bar's menu does not offer the pages")
+        XCTAssert(menuPage("Review").label.hasSuffix(" to review"), "the menu does not say what waits in Review")
         shot("home-menu")
-        app.buttons["Usage"].tap()
+        menuPage("Usage").tap()
         XCTAssert(app.navigationBars["Usage"].waitForExistence(timeout: 10), "Usage did not open")
         XCTAssert(element(containing: "% used · resets in").waitForExistence(timeout: 20), "no window says what is used and when it resets")
         shot("usage")
@@ -647,14 +647,14 @@ final class LiveTests: XCTestCase {
         shot("\(prefix)-home-head")
         openMenu()
         shot("\(prefix)-home-menu")
-        app.buttons["Usage"].tap()
+        menuPage("Usage").tap()
         XCTAssert(element(containing: "% used").waitForExistence(timeout: 20), "Usage drew no window")
         shot("\(prefix)-usage")
         app.swipeUp(velocity: .slow)
         shot("\(prefix)-usage-spend")
         back()
         openMenu()
-        app.buttons["Review"].tap()
+        menuPage("Review").tap()
         let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "\(title),")).firstMatch
         XCTAssert(row.waitForExistence(timeout: 10), "no row for \(title)")
         shot("\(prefix)-reviews")
@@ -667,7 +667,7 @@ final class LiveTests: XCTestCase {
         back()
         back()
         openMenu()
-        app.buttons["Scheduled"].tap()
+        menuPage("Scheduled").tap()
         XCTAssert(app.navigationBars["Scheduled"].waitForExistence(timeout: 10))
         sleep(1)
         shot("\(prefix)-scheduled")
@@ -846,6 +846,12 @@ final class LiveTests: XCTestCase {
     private func openMenu() {
         app.navigationBars.buttons["home-menu"].tap()
         XCTAssert(app.buttons["Settings"].waitForExistence(timeout: 5), "the bar's menu did not open")
+    }
+
+    /// One of the pages in the bar's menu, which says what waits there after its name.
+    @MainActor
+    private func menuPage(_ title: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", title, "\(title), ")).firstMatch
     }
 
     @MainActor
