@@ -279,12 +279,12 @@ private struct AgentChip: View {
     }
 
     /// An agent's mark as a menu draws it, which is only ever an image: in its vendor's colour where the
-    /// mark has one, as the chip draws it, else in the text's ink. Left to the menu, every mark would wear
-    /// the app's accent, as if each were the one chosen.
+    /// mark has one, as the chip draws it, else in the text's ink, and faded with its name where it cannot
+    /// run. Left to the menu, every mark would wear the app's accent, as if each were the one chosen.
     private static func mark(_ agent: AgentOptions) -> Image? {
         guard let icon = AgentMark.icon(kind: agent.kind, mark: agent.mark), let image = UIImage(named: "Agents/\(icon)") else { return nil }
         let color = Marks.agentColors[icon].flatMap { Color(hex: $0) }.map { UIColor($0) } ?? .label
-        return Image(uiImage: image.withTintColor(color, renderingMode: .alwaysOriginal))
+        return Image(uiImage: image.withTintColor(agent.available ? color : color.withAlphaComponent(0.45), renderingMode: .alwaysOriginal))
     }
 }
 
