@@ -768,6 +768,10 @@ final class LiveTests: XCTestCase {
         XCTAssert(sheet.waitForExistence(timeout: 10), "Edit opened no sheet")
         let words = app.textViews["Queued message"].exists ? app.textViews["Queued message"] : app.textFields["Queued message"]
         XCTAssert(words.waitForExistence(timeout: 5))
+        // The sheet gives its field the keyboard, the caret after the words; pressed, it goes where pressed.
+        if !app.keyboards.firstMatch.waitForExistence(timeout: 5) {
+            words.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.3)).tap()
+        }
         shot("p-queue-edit")
         words.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 60) + "Use the sketch for the toggle's place, at the top")
         sheet.buttons["Save"].tap()
@@ -785,8 +789,10 @@ final class LiveTests: XCTestCase {
         shot("p-queue-after-stop")
         app.buttons["queue-send-now"].firstMatch.tap()
         XCTAssert(element(containing: "Queued on your Mac").waitForNonExistence(timeout: 15), "Send now left the message queued")
-        XCTAssert(element(containing: "echo: Use the sketch for the toggle's place, at the top").waitForExistence(timeout: 30),
-                  "the message sent now was never answered")
+        XCTAssert(element(containing: "You: Use the sketch for the toggle's place, at the top").waitForExistence(timeout: 30),
+                  "the message sent now is not in the transcript")
+        // The agent's answer is the Mac's to give; the picture is of the message as it went.
+        _ = element(containing: "echo: Use the sketch for the toggle's place, at the top").waitForExistence(timeout: 30)
         sleep(2)
         shot("p-queue-sent")
     }

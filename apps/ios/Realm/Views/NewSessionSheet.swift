@@ -213,7 +213,8 @@ struct NewSessionSheet: View {
             }
         }
         .task { await model.loadAgents() }
-        .onAppear { focused = true }
+        // Once the sheet is up rather than as it comes: a field still on its way in cannot take the keyboard.
+        .task { focused = true }
     }
 
     private var draft: Binding<String> {

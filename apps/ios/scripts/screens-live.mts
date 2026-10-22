@@ -409,7 +409,9 @@ async function runUiTests(): Promise<boolean> {
   const phase = async (test: string, env: Record<string, string> = {}) => {
     if (!runs(test)) return;
     say(`— ${test}`);
-    const code = await xcodebuild(["test-without-building", ...common, `-only-testing:RealmUITests/LiveTests/${test}`],
+    // No diagnostics after a failure: gathering them holds the next phase up for ten minutes, and the
+    // failure, its picture and its recording are in the result bundle without them.
+    const code = await xcodebuild(["test-without-building", ...common, "-collect-test-diagnostics", "never", `-only-testing:RealmUITests/LiveTests/${test}`],
       { TEST_RUNNER_SHOTS: shots, ...env });
     results.push([test, code === 0]);
   };

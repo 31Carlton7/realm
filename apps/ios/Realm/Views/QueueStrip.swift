@@ -363,7 +363,8 @@ struct QueueEditSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationBackground(Ground.grouped)
-        .onAppear { focused = true }
+        // Once the sheet is up rather than as it comes: a field still on its way in cannot take the keyboard.
+        .task { focused = true }
         .onDisappear {
             if !saved { Task { await model.letGoQueued(message, in: sessionId) } }
         }
