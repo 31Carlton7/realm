@@ -88,8 +88,11 @@ const slowly = (minutes: number) => Array.from({ length: minutes * 20 }, (_, i) 
  *  ahead of its own script (`REALM_FAKE_SCRIPT`), so these replies are the same on every run. */
 const SCRIPT = [
   // Plan 29's parity: a lead with sub-agents, its plan's limits and the month's spend, a queue held up by
-  // a long turn, a team's role sending a post to Review, and a scheduled task's run. First, so a
-  // sub-agent's brief wins over anything its lead's conversation, which rides along, also says.
+  // a long turn, a team's role sending a post to Review, and a scheduled task's run. The sub-agents'
+  // briefs first of all: what each is handed carries its lead's conversation too, and the first entry
+  // that matches is the one that runs.
+  { on: "Write the theme migration", emit: [{ kind: "usage", costUsd: 3.75 }, { kind: "text", text: "Added `migrations/0042_theme.sql` with an up and a down step. The suite passes." }] },
+  { on: "Backfill the theme column", emit: [{ kind: "text", paceMs: 3_000, text: slowly(10) }] },
   { on: "Plan dark mode with two teammates", emit: [
     { kind: "rateLimit", payload: { subscriptionType: "max", organization: null, alert: "approaching", alertWindow: "seven_day", unavailable: null, detail: null, windows: [
       { id: "five_hour", label: "5-hour", utilization: 34, resetsAt: Date.now() + 3 * HOUR },
@@ -98,8 +101,6 @@ const SCRIPT = [
     { kind: "usage", costUsd: 12.4 },
     { kind: "text", text: "Two teammates: one writes the migration, one backfills the column. I'll fold their work in when both report." },
   ] },
-  { on: "Write the theme migration", emit: [{ kind: "usage", costUsd: 3.75 }, { kind: "text", text: "Added `migrations/0042_theme.sql` with an up and a down step. The suite passes." }] },
-  { on: "Backfill the theme column", emit: [{ kind: "text", paceMs: 3_000, text: slowly(10) }] },
   { on: "Hold the queue", emit: [{ kind: "text", paceMs: 3_000, text: slowly(30) }] },
   { on: "Send the launch post for review", emit: [
     { kind: "usage", costUsd: 0.84 },
