@@ -466,12 +466,13 @@ final class LiveTests: XCTestCase {
     // MARK: - Sub-agents, Usage, Review and Scheduled
 
     /// A lead session that started sub-agents counts them in its bar, with the working mark while one
-    /// runs; its sheet lists them newest first, and the finished one opens its own session over the
+    /// runs; its sheet lists them newest first, and the one that finished opens its own session over the
     /// lead's, the lead a press back.
     @MainActor
     func testQ1_subagents() throws {
         let lead = try XCTUnwrap(environment["LEAD_SESSION"], "the script names the lead session")
         let finished = try XCTUnwrap(environment["SUBAGENT_DONE"], "the script names the sub-agent that finished")
+        let title = try XCTUnwrap(environment["SUBAGENT_DONE_TITLE"], "the script names its session's title")
         launch(["-openSession", lead])
         let control = app.buttons["subagents"]
         XCTAssert(control.waitForExistence(timeout: 30), "the lead's bar does not count its sub-agents")
@@ -480,13 +481,14 @@ final class LiveTests: XCTestCase {
         shot("subagents-control")
         control.tap()
         XCTAssert(app.navigationBars["Sub-agents"].waitForExistence(timeout: 10), "the sub-agents' sheet did not open")
-        let done = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", ", Done, ")).firstMatch
-        XCTAssert(done.waitForExistence(timeout: 10), "no sub-agent says it is done")
+        let done = app.buttons["subagent-\(finished)"]
+        XCTAssert(done.waitForExistence(timeout: 10), "the sub-agent that finished is not listed")
+        XCTAssert(done.label.contains(", Done, "), "the sub-agent that finished says \(done.label)")
         XCTAssert(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", ", Working, ")).firstMatch.exists, "no sub-agent says it is working")
         sleep(1)
         shot("subagents-sheet")
         done.tap()
-        XCTAssert(app.navigationBars[finished].waitForExistence(timeout: 15), "the sub-agent's own session did not open")
+        XCTAssert(app.navigationBars[title].waitForExistence(timeout: 15), "the sub-agent's own session did not open")
         sleep(2)
         shot("subagent-session")
         back()
@@ -547,6 +549,10 @@ final class LiveTests: XCTestCase {
         runNow.tap()
         XCTAssert(element(containing: "Started “\(task)”").waitForExistence(timeout: 15), "Run now did not start the task")
         shot("scheduled-run-now")
+        // The run's end is the Mac's to say: the row hears of it only through work.changed.
+        let ended = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "\(task), Last run Finished")).firstMatch
+        XCTAssert(ended.waitForExistence(timeout: 90), "the run's end never reached the phone")
+        shot("scheduled-run-finished")
         let unread = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", ", Unread, ")).firstMatch
         XCTAssert(unread.waitForExistence(timeout: 10), "no task's last run is unread")
         unread.tap()

@@ -32,9 +32,7 @@ struct HomeView: View {
                 ForEach(listing.elsewhere) { waiting in
                     ElsewhereRow(waiting: waiting)
                 }
-                if !listing.isFiltered {
-                    WorkHeadLines()
-                }
+                WorkHeadLines(searching: listing.isFiltered)
                 if !listing.needsYou.isEmpty {
                     Section {
                         // A session that needs you is listed in its space too: each row has its

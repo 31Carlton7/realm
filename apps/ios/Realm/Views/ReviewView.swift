@@ -23,15 +23,21 @@ enum ReviewStage: Equatable {
         }
     }
 
-    /// What a review that does not wait for the person says of itself; nil for one that does.
-    var words: String? {
+    /// What a review that does not wait for the person says of itself, a part at a time; nothing for
+    /// one that does.
+    var parts: [String] {
         switch self {
-        case .waiting: nil
-        case .changes: "Changes asked for · waiting for a new version"
-        case .approved: "Approved · finish it on your Mac"
-        case .decided(let state): state.prefix(1).uppercased() + state.dropFirst()
+        case .waiting: []
+        case .changes: ["Changes asked for", "waiting for a new version"]
+        case .approved: ["Approved", "finish it on your Mac"]
+        case .decided(let state): [state.prefix(1).uppercased() + state.dropFirst()]
         }
     }
+
+    var words: String? { parts.isEmpty ? nil : parts.joined(separator: " · ") }
+
+    /// Approve, Ask for changes and Reject are offered only while the review waits for the person.
+    var offersDecision: Bool { self == .waiting }
 }
 
 /// The open reviews, newest first; two that moved at the same moment keep the Mac's order.
@@ -59,11 +65,19 @@ enum ReviewWords {
 
     /// "Writer · Launch": the role that handed it back, then its space.
     static func about(_ review: ReviewSummary) -> String {
-        [review.roleName, review.spaceName].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        aboutParts(review).joined(separator: " · ")
     }
 
     /// "To @reader on Instagram · 2 items": who it goes to, or where, and how many items it holds.
     static func reach(_ review: ReviewSummary) -> String {
+        reachParts(review).joined(separator: " · ")
+    }
+
+    private static func aboutParts(_ review: ReviewSummary) -> [String] {
+        [review.roleName, review.spaceName].compactMap { $0 }.filter { !$0.isEmpty }
+    }
+
+    private static func reachParts(_ review: ReviewSummary) -> [String] {
         let channels = review.channels.filter { !$0.isEmpty && !["email", "e-mail", "mail"].contains($0.lowercased()) }.map(channel)
         var parts: [String] = []
         if let to = review.to, !to.isEmpty {
@@ -71,8 +85,7 @@ enum ReviewWords {
         } else if !channels.isEmpty {
             parts.append("On " + channels.formatted(.list(type: .and)))
         }
-        parts.append(items(review.itemCount))
-        return parts.joined(separator: " · ")
+        return parts + [items(review.itemCount)]
     }
 
     /// "1 item", "3 items"
@@ -121,9 +134,19 @@ enum ReviewWords {
         }
     }
 
-    /// A row as VoiceOver reads it: the title, then everything the row shows, in words.
+    /// What a decision that did not go says before why.
+    static func refused(_ decision: ReviewDecision) -> String {
+        switch decision {
+        case .approve: "Not approved."
+        case .changes: "Not sent."
+        case .reject: "Not rejected."
+        }
+    }
+
+    /// A row as VoiceOver reads it: the title, then everything the row shows, in words, with pauses
+    /// where the row has dots.
     static func spoken(_ review: ReviewSummary, now: Date = Date()) -> String {
-        ([review.title, about(review), reach(review)] + [ReviewStage(review.state).words].compactMap { $0 }
+        ([review.title] + aboutParts(review) + reachParts(review) + ReviewStage(review.state).parts
             + [Ago.text(review.updatedAt, now: now)]).joined(separator: ", ")
     }
 }
@@ -282,7 +305,7 @@ struct ReviewView: View {
             }
         }
         .safeAreaBar(edge: .bottom) {
-            if let review = detail?.review, ReviewStage(review.state) == .waiting {
+            if let review = detail?.review, ReviewStage(review.state).offersDecision {
                 DecisionDock(review: review, deciding: deciding) { decision in
                     if decision == .approve {
                         Task { await decide(.approve, note: nil) }
@@ -330,19 +353,8 @@ struct ReviewView: View {
             dismiss()
             return true
         } catch {
-            model.show(toast: "\(DecisionWords.failed(decision)) \(AppModel.describe(error))")
+            model.show(toast: "\(ReviewWords.refused(decision)) \(AppModel.describe(error))")
             return false
-        }
-    }
-}
-
-/// What a decision that did not go says first.
-private enum DecisionWords {
-    static func failed(_ decision: ReviewDecision) -> String {
-        switch decision {
-        case .approve: "Not approved."
-        case .changes: "Changes not asked for."
-        case .reject: "Not rejected."
         }
     }
 }

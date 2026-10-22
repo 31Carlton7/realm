@@ -102,15 +102,22 @@ struct SubagentStateTests {
 @MainActor
 @Suite("What the sub-agents' control and sheet say")
 struct SubagentWordsTests {
-    @Test func theControlCountsThem() {
-        #expect(SubagentWords.count(1) == "1 sub-agent")
-        #expect(SubagentWords.count(2) == "2 sub-agents")
+    /// The bar counts them, with the working mark while one is still going; a session that started
+    /// none shows nothing there.
+    @Test func theControlCountsThemAndMarksOneWorking() {
+        #expect(SubagentsControlLabel([]) == nil)
+        let settled = SubagentsControlLabel([Work.subagent("a", outcome: "done")])
+        #expect(settled?.words == "1 sub-agent" && settled?.working == false)
+        let going = SubagentsControlLabel([Work.subagent("a", outcome: "done"), Work.subagent("b", status: .waiting)])
+        #expect(going?.words == "2 sub-agents" && going?.working == true)
+        #expect(SubagentsControlLabel([Work.subagent("a", settled: false)])?.working == true)
     }
 
     @Test func theSheetSaysWhereTheyAllStandWhatNeedsYouFirst() {
         #expect(SubagentWords.rollup([.done, .working, .waiting, .failed, .timedOut, .cancelled, .working])
                 == "1 needs you · 2 working · 1 done · 2 failed · 1 stopped")
         #expect(SubagentWords.rollup([.waiting, .waiting]) == "2 need you")
+        #expect(SubagentWords.rollup([.working, .done], separator: ", ") == "1 working, 1 done")
         #expect(SubagentWords.rollup([.other("paused")]) == "1 stopped")
         #expect(SubagentWords.rollup([]) == "")
     }
@@ -262,6 +269,8 @@ struct ReviewWordsTests {
         #expect(ReviewStage("changes").words == "Changes asked for · waiting for a new version")
         #expect(ReviewStage("approved").words == "Approved · finish it on your Mac")
         #expect(ReviewStage("rejected").words == "Rejected")
+        // Only a review waiting for the person is decided here.
+        #expect(["open", "waiting", "changes", "approved", "rejected"].map { ReviewStage($0).offersDecision } == [true, true, false, false, false])
     }
 
     @Test func newestFirstAndTiesKeepTheMacsOrder() {
@@ -305,6 +314,7 @@ struct ReviewWordsTests {
         #expect(ReviewWords.receipt(.changes, Work.review()) == "Asked Writer for changes.")
         #expect(ReviewWords.receipt(.changes, Work.review(role: nil)) == "Asked the role for changes.")
         #expect(ReviewWords.receipt(.reject, Work.review()) == "Rejected. Nothing of it goes out.")
+        #expect([ReviewDecision.approve, .changes, .reject].map(ReviewWords.refused) == ["Not approved.", "Not sent.", "Not rejected."])
     }
 
     /// Asking for changes needs a note, which goes trimmed; a rejection may go without a reason.
@@ -323,7 +333,7 @@ struct ReviewWordsTests {
 
     @Test func aRowIsSpokenWhole() {
         let spoken = ReviewWords.spoken(Work.review(state: "changes", updatedAt: Work.nowMillis - 5 * Work.minute), now: Work.now)
-        #expect(spoken == "Captions for Tuesday, Writer · Launch, On Instagram · 2 items, Changes asked for · waiting for a new version, 5m ago")
+        #expect(spoken == "Captions for Tuesday, Writer, Launch, On Instagram, 2 items, Changes asked for, waiting for a new version, 5m ago")
     }
 }
 
@@ -398,6 +408,8 @@ struct WorkHeadTests {
         #expect(WorkHead.lines(reviews: [], schedules: [Work.task("read", run: Work.run("Finished", unread: false))]).isEmpty)
         // A review sent back for changes waits on its role, not on the person.
         #expect(WorkHead.lines(reviews: [Work.review(state: "changes")], schedules: nil).isEmpty)
+        // A search lists only what matched.
+        #expect(WorkHead.lines(reviews: [Work.review()], schedules: [Work.task("t", run: Work.run("Finished"))], searching: true).isEmpty)
     }
 
     /// One quiet line for what waits in Review and one for the scheduled results not read, in that order.

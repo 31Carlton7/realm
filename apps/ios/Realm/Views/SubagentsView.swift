@@ -90,6 +90,19 @@ enum SubagentOrder {
     }
 }
 
+/// What the session bar's control says: how many sub-agents, and whether one is still going.
+struct SubagentsControlLabel: Equatable {
+    let words: String
+    let working: Bool
+
+    /// Nil for a session that has started none: its bar shows nothing for them.
+    init?(_ subagents: [Subagent]) {
+        guard !subagents.isEmpty else { return nil }
+        words = SubagentWords.count(subagents.count)
+        working = subagents.contains { SubagentState($0).isLive }
+    }
+}
+
 /// What the sub-agents' control and sheet say.
 enum SubagentWords {
     /// "1 sub-agent", "2 sub-agents"
@@ -97,12 +110,13 @@ enum SubagentWords {
         count == 1 ? "1 sub-agent" : "\(count) sub-agents"
     }
 
-    /// Where they all stand, the ones that need the person first: "1 needs you · 2 working · 1 done".
-    static func rollup(_ states: [SubagentState]) -> String {
+    /// Where they all stand, the ones that need the person first: "1 needs you · 2 working · 1 done";
+    /// spoken with pauses between, where the dots are only for the eye.
+    static func rollup(_ states: [SubagentState], separator: String = " · ") -> String {
         var counts = [0, 0, 0, 0, 0]
         for state in states { counts[group(state)] += 1 }
         let words = [counts[0] == 1 ? "needs you" : "need you", "working", "done", "failed", "stopped"]
-        return zip(counts, words).filter { $0.0 > 0 }.map { "\($0.0) \($0.1)" }.joined(separator: " · ")
+        return zip(counts, words).filter { $0.0 > 0 }.map { "\($0.0) \($0.1)" }.joined(separator: separator)
     }
 
     /// Which of the rollup's words a state counts under, in the order they are said.
@@ -166,27 +180,26 @@ private struct SubagentsControl: ViewModifier {
 
     func body(content: Content) -> some View {
         let subagents = model.work.subagents[sessionId] ?? []
-        let working = subagents.contains { SubagentState($0).isLive }
         content
             .toolbar {
-                if !subagents.isEmpty {
+                if let label = SubagentsControlLabel(subagents) {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
                             shown = true
                         } label: {
                             HStack(spacing: 6) {
-                                if working {
+                                if label.working {
                                     Image(systemName: "progress.indicator")
                                         .foregroundStyle(Palette.accentInk)
                                         .restingPulse(when: true)
                                 }
-                                Text(SubagentWords.count(subagents.count))
+                                Text(label.words)
                             }
                             .font(.subheadline.weight(.medium))
                             .padding(.horizontal, 4)
                         }
-                        .accessibilityLabel(SubagentWords.count(subagents.count))
-                        .accessibilityValue(SubagentWords.rollup(subagents.map(SubagentState.init)))
+                        .accessibilityLabel(label.words)
+                        .accessibilityValue(SubagentWords.rollup(subagents.map(SubagentState.init), separator: ", "))
                         .accessibilityHint("Lists them")
                         .accessibilityIdentifier("subagents")
                     }

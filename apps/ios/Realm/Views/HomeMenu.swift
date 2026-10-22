@@ -3,7 +3,7 @@ import SwiftUI
 
 /// What Home's head says of the Mac's other pages, each a quiet line like the one for another profile:
 /// the reviews that wait for the person, and the scheduled runs that finished and were not read.
-/// Nothing where there is nothing.
+/// Nothing where there is nothing, and nothing while a search narrows the list to what matched.
 enum WorkHead {
     struct Line: Equatable, Identifiable {
         let page: WorkPage
@@ -17,7 +17,8 @@ enum WorkHead {
         (reviews ?? []).filter { ReviewStage($0.state) == .waiting }.count
     }
 
-    static func lines(reviews: [ReviewSummary]?, schedules: [ScheduledTask]?) -> [Line] {
+    static func lines(reviews: [ReviewSummary]?, schedules: [ScheduledTask]?, searching: Bool = false) -> [Line] {
+        guard !searching else { return [] }
         let review = toReview(reviews)
         let results = ScheduleWords.unreadResults(schedules ?? [])
         return (review > 0 ? [Line(page: .reviews, words: "\(review) to review")] : [])
@@ -113,10 +114,11 @@ struct HomeMenu: View {
 
 /// Home's head lines for Review and Scheduled, under the lines for other profiles.
 struct WorkHeadLines: View {
+    let searching: Bool
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        ForEach(WorkHead.lines(reviews: model.work.reviews, schedules: model.work.schedules)) { line in
+        ForEach(WorkHead.lines(reviews: model.work.reviews, schedules: model.work.schedules, searching: searching)) { line in
             HeadLine(symbol: line.page.symbol, tone: Palette.ink2, words: line.words) {
                 model.path.append(line.page.route)
             }

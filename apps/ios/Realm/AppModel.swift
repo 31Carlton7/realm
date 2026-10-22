@@ -432,6 +432,8 @@ final class AppModel {
         switch event {
         case .homeChanged:
             Task { await refreshHome() }
+            // A scheduled run's session read, here or on the Mac, is not an unread result any more.
+            Task { await work.refresh() }
         case .workChanged:
             Task { await work.refresh() }
         case .sessionSubagents(let id) where visibleSessions.contains(id):

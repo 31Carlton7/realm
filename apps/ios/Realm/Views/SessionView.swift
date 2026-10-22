@@ -137,11 +137,11 @@ struct SessionView: View {
         .navigationTitle(transcript.session?.displayTitle ?? "Session")
         .navigationBarTitleDisplayMode(.inline)
         .navigationSubtitle(subtitle(transcript))
-        .subagentsControl(sessionId)
         .task(id: model.channelGeneration) { await model.open(sessionId) }
         .onDisappear {
             Task { await model.close(sessionId) }
         }
+        .subagentsControl(sessionId)
     }
 
     /// The session's status and space while the Mac is there; the Mac's state when it is not, since
