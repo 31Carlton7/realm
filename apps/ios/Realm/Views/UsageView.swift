@@ -109,9 +109,9 @@ struct SpendReading: Equatable {
     }
 }
 
-/// Usage, as the Mac's Usage page has it: each agent's plan with its windows as bars, the provider's
-/// warning in its words, and why a plan has nothing to show; then this month's spend against its
-/// budget, and the sessions that cost the most, each opening. Pulled down, it is read again.
+/// Usage, as the Mac's Usage page has it: each agent's plan with its windows as bars and the provider's
+/// warning in its words; then this month's spend against its budget, and the sessions that cost the
+/// most, each opening; then why the other agents have nothing to show. Pulled down, it is read again.
 struct UsageView: View {
     @Environment(AppModel.self) private var model
     @State private var problem: String?
@@ -125,17 +125,18 @@ struct UsageView: View {
                 ForEach(reporting) { plan in
                     PlanSection(plan: plan)
                 }
+                SpendSection(spend: usage.spend)
+                // Last, the agents with nothing to draw: most can never report a plan, and each says why.
                 if !silent.isEmpty {
                     Section {
                         ForEach(silent) { plan in
                             SilentPlanRow(plan: plan)
                         }
                     } header: {
-                        Text(reporting.isEmpty ? "Plans" : "Other plans")
+                        Text(reporting.isEmpty ? "Plans" : "Other agents")
                             .textCase(nil)
                     }
                 }
-                SpendSection(spend: usage.spend)
             }
         }
         .listStyle(.insetGrouped)

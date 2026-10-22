@@ -256,9 +256,11 @@ struct ReviewWordsTests {
     @Test func aReviewWaitsForTheMacOrIsSentBackOrDecided() {
         #expect(ReviewStage("open") == .waiting && ReviewStage("waiting") == .waiting)
         #expect(ReviewStage("changes") == .changes)
-        #expect(ReviewStage("approved") == .decided("approved"))
+        #expect(ReviewStage("approved") == .approved)
+        #expect(ReviewStage("rejected") == .decided("rejected"))
         #expect(ReviewStage("open").words == nil)
         #expect(ReviewStage("changes").words == "Changes asked for · waiting for a new version")
+        #expect(ReviewStage("approved").words == "Approved · finish it on your Mac")
         #expect(ReviewStage("rejected").words == "Rejected")
     }
 
@@ -331,14 +333,14 @@ struct ScheduledWordsTests {
     @Test func aRunsStateIsReadInTheMacsWordsOrItsOwn() {
         let states: [(String, RunState)] = [
             ("Starting", .starting), ("queued", .starting), ("Running", .running), ("running", .running),
-            ("Needs you", .needsYou), ("blocked", .needsYou), ("Done", .done), ("succeeded", .done),
+            ("Needs you", .needsYou), ("blocked", .needsYou), ("Finished", .finished), ("succeeded", .finished),
             ("Failed", .failed), ("Expired", .expired), ("Stopped", .stopped), ("cancelled", .stopped),
         ]
         for (word, state) in states { #expect(RunState(word) == state, "\(word)") }
         #expect(RunState("Snoozed") == .other("Snoozed"))
         #expect(RunState("snoozed").word == "Snoozed")
-        let all: [RunState] = [.starting, .running, .needsYou, .done, .failed, .expired, .stopped, .other("x")]
-        #expect(all.filter(\.isFinished) == [.done, .failed, .expired, .stopped])
+        let all: [RunState] = [.starting, .running, .needsYou, .finished, .failed, .expired, .stopped, .other("x")]
+        #expect(all.filter(\.isFinished) == [.finished, .failed, .expired, .stopped])
         #expect(Set(all.map(\.word)).count == all.count)
         #expect(RunState.running.tone == .working && RunState.needsYou.tone == .waiting && RunState.failed.tone == .failed)
     }
@@ -346,8 +348,8 @@ struct ScheduledWordsTests {
     /// Home counts the runs that finished and were not read; one still going is no result yet.
     @Test func unreadResultsAreFinishedRunsNotRead() {
         let tasks = [
-            Work.task("done", run: Work.run("Done")), Work.task("failed", run: Work.run("Failed")),
-            Work.task("read", run: Work.run("Done", unread: false)), Work.task("running", run: Work.run("Running")),
+            Work.task("done", run: Work.run("Finished")), Work.task("failed", run: Work.run("Failed")),
+            Work.task("read", run: Work.run("Finished", unread: false)), Work.task("running", run: Work.run("Running")),
             Work.task("never"),
         ]
         #expect(ScheduleWords.unreadResults(tasks) == 2)
@@ -393,7 +395,7 @@ struct ScheduledWordsTests {
 struct WorkHeadTests {
     @Test func nothingWaitingSaysNothing() {
         #expect(WorkHead.lines(reviews: nil, schedules: nil).isEmpty)
-        #expect(WorkHead.lines(reviews: [], schedules: [Work.task("read", run: Work.run("Done", unread: false))]).isEmpty)
+        #expect(WorkHead.lines(reviews: [], schedules: [Work.task("read", run: Work.run("Finished", unread: false))]).isEmpty)
         // A review sent back for changes waits on its role, not on the person.
         #expect(WorkHead.lines(reviews: [Work.review(state: "changes")], schedules: nil).isEmpty)
     }
@@ -401,7 +403,7 @@ struct WorkHeadTests {
     /// One quiet line for what waits in Review and one for the scheduled results not read, in that order.
     @Test func whatWaitsIsOneLineEach() {
         let reviews = [Work.review("a"), Work.review("b", state: "waiting"), Work.review("c", state: "changes")]
-        let tasks = [Work.task("t", run: Work.run("Done")), Work.task("u", run: Work.run("Running"))]
+        let tasks = [Work.task("t", run: Work.run("Finished")), Work.task("u", run: Work.run("Running"))]
         let lines = WorkHead.lines(reviews: reviews, schedules: tasks)
         #expect(lines.map(\.words) == ["2 to review", "1 scheduled result"])
         #expect(lines.map(\.page) == [.reviews, .scheduled])
@@ -415,7 +417,7 @@ struct WorkHeadTests {
         #expect(WorkPage.allCases.map(\.title) == ["Review", "Scheduled", "Usage"])
         #expect(WorkPage.allCases.map(\.route) == [.reviews, .scheduled, .usage])
         let reviews = [Work.review("a"), Work.review("b")]
-        let tasks = [Work.task("t", run: Work.run("Done")), Work.task("u", run: Work.run("Expired"))]
+        let tasks = [Work.task("t", run: Work.run("Finished")), Work.task("u", run: Work.run("Expired"))]
         #expect(WorkPage.reviews.note(reviews: reviews, schedules: tasks) == "2 to review")
         #expect(WorkPage.scheduled.note(reviews: reviews, schedules: tasks) == "2 unread results")
         #expect(WorkPage.scheduled.note(reviews: nil, schedules: [tasks[0]]) == "1 unread result")

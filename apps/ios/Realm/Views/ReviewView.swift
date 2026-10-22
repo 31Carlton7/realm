@@ -4,18 +4,21 @@ import SwiftUI
 import UIKit
 
 /// Where a review stands, as far as the phone acts on it: waiting for the person's decision, sent back
-/// for a new version, or decided, on the Mac or here.
+/// for a new version, approved with something still to press on the Mac, or decided and done with.
 enum ReviewStage: Equatable {
     /// Approve, Ask for changes and Reject are offered.
     case waiting
     /// The person asked for changes, and the role has not sent a new version yet.
     case changes
+    /// Approved, and not finished with: what goes out is pressed on the Mac.
+    case approved
     case decided(String)
 
     init(_ state: String) {
         switch state.lowercased() {
         case "open", "waiting": self = .waiting
         case "changes": self = .changes
+        case "approved": self = .approved
         default: self = .decided(state)
         }
     }
@@ -25,6 +28,7 @@ enum ReviewStage: Equatable {
         switch self {
         case .waiting: nil
         case .changes: "Changes asked for · waiting for a new version"
+        case .approved: "Approved · finish it on your Mac"
         case .decided(let state): state.prefix(1).uppercased() + state.dropFirst()
         }
     }

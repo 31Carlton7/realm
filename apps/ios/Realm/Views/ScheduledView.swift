@@ -1,10 +1,10 @@
 import RealmKit
 import SwiftUI
 
-/// How a scheduled task's last run went, in the words the Mac's Scheduled page wears: a glyph and a
-/// word in its tone. The Mac says it in words; the names of its runs' states are read too.
+/// How a scheduled task's last run went, in the words the Mac's Scheduled page and a space's Tasks
+/// wear: a glyph and a word in its tone. The Mac says it in words; its runs' own states are read too.
 enum RunState: Equatable {
-    case starting, running, needsYou, done, failed, expired, stopped
+    case starting, running, needsYou, finished, failed, expired, stopped
     /// A state this phone has no word of its own for, in the Mac's.
     case other(String)
 
@@ -13,7 +13,7 @@ enum RunState: Equatable {
         case "queued", "starting": self = .starting
         case "running": self = .running
         case "blocked", "needs you", "waiting": self = .needsYou
-        case "succeeded", "done", "finished": self = .done
+        case "succeeded", "finished", "done": self = .finished
         case "failed": self = .failed
         case "expired": self = .expired
         case "cancelled", "stopped": self = .stopped
@@ -26,7 +26,7 @@ enum RunState: Equatable {
         case .starting: "Starting"
         case .running: "Running"
         case .needsYou: "Needs you"
-        case .done: "Done"
+        case .finished: "Finished"
         case .failed: "Failed"
         case .expired: "Expired"
         case .stopped: "Stopped"
@@ -39,7 +39,7 @@ enum RunState: Equatable {
         case .starting: "circle.dotted"
         case .running: "progress.indicator"
         case .needsYou: "hand.raised.fill"
-        case .done: "checkmark.circle.fill"
+        case .finished: "checkmark.circle.fill"
         case .failed: "exclamationmark.circle.fill"
         case .expired: "clock.badge.exclamationmark"
         case .stopped: "stop.circle.fill"
@@ -51,7 +51,7 @@ enum RunState: Equatable {
         switch self {
         case .running: .working
         case .needsYou: .waiting
-        case .done: .done
+        case .finished: .done
         case .failed, .expired: .failed
         case .starting, .stopped, .other: .quiet
         }
@@ -60,7 +60,7 @@ enum RunState: Equatable {
     /// The run is over, and what it left can be read.
     var isFinished: Bool {
         switch self {
-        case .done, .failed, .expired, .stopped: true
+        case .finished, .failed, .expired, .stopped: true
         case .starting, .running, .needsYou, .other: false
         }
     }
