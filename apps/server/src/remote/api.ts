@@ -430,8 +430,10 @@ export class MobileApi {
    *  can fall between the history read and the live stream. The queue is read the same way: once, then
    *  replaced by any broadcast of it that came after. */
   private async open(ctx: ChannelContext, id: string, limit: number): Promise<MobileResult<"session.open">> {
+    // Opened again, it keeps the sub-agents the phone has read of it: their changes are still its list's.
     const entry: OpenSession = {
-      projector: new SessionProjector({ attachmentsDir: tempAttachmentDir(this.o.realmHome) }), buffer: [], queued: null, subagents: new Set(),
+      projector: new SessionProjector({ attachmentsDir: tempAttachmentDir(this.o.realmHome) }), buffer: [], queued: null,
+      subagents: ctx.sessions.get(id)?.subagents ?? new Set(),
     };
     ctx.sessions.set(id, entry);
     const rpc = ctx.rpc;

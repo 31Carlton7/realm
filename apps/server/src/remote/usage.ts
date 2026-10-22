@@ -14,7 +14,7 @@ type Usage = MobileResult<"usage.get">;
 type Limits = Usage["limits"][number];
 
 /** How many of the month's sessions the phone is shown, heaviest first. */
-export const TOP_SESSIONS = 5;
+const TOP_SESSIONS = 5;
 
 /** The first of this month on the Mac's clock: a budget is a calendar month where the Mac is. */
 export function monthStart(now: number): number {
@@ -39,7 +39,7 @@ function unavailableWords(row: PlanLimits, kind: AgentKind): string | null {
   return row.windows.length === 0 ? planUnavailableNote(kind, "not-yet-known") : null;
 }
 
-export function planLimits(row: PlanLimits, now: number): Limits {
+function planLimits(row: PlanLimits, now: number): Limits {
   const kind = row.agentKind as AgentKind;
   return {
     agent: kind, agentName: AGENT_META[kind].label, agentMark: AGENT_META[kind].icon, plan: row.subscriptionType,
