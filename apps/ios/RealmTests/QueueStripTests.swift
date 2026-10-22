@@ -97,6 +97,23 @@ struct QueueStripTests {
         #expect(words.contains("Queued on") && words.contains("Show"), "\(words)")
     }
 
+    /// Words written for a message that went meanwhile, or that cannot be saved, are never lost: they
+    /// join what the message field holds. Words left as they were only let the hold go.
+    @Test func wordsThatCannotBeSavedJoinTheMessageField() async {
+        let gone = Self.model(.running, queued: [Self.second])
+        gone.composerDrafts["s1"] = "Ship it"
+        await gone.editQueued(Self.first, text: "Then check the toolbar twice ", in: "s1")
+        #expect(gone.composerDrafts["s1"] == "Ship it\n\nThen check the toolbar twice")
+        #expect(gone.toast?.text == "It had already gone, so your words are in the message field.")
+        let away = Self.model(.running, queued: [Self.first])
+        await away.editQueued(Self.first, text: "Then check the toolbar twice", in: "s1")
+        #expect(away.composerDrafts["s1"] == "Then check the toolbar twice")
+        #expect(away.toast?.text == "Not saved while your Mac is away. Your words are in the message field.")
+        let unchanged = Self.model(.running, queued: [Self.first])
+        await unchanged.editQueued(Self.first, text: " Then check the toolbar ", in: "s1")
+        #expect(unchanged.composerDrafts["s1"] == nil && unchanged.toast == nil)
+    }
+
     @Test func withNothingQueuedThereIsNoStrip() throws {
         let words = try Drawing.words(QueueStrip(sessionId: "s1").environment(Self.model(.running, queued: [])))
         #expect(words.isEmpty, "\(words)")
