@@ -119,8 +119,9 @@ enum ScheduleWords {
     /// The same moment inside a sentence: only the relative words and the meridiem are lowered, since a
     /// weekday and a month are proper nouns.
     static func phrase(_ millis: Millis, now: Date, calendar: Calendar = .current, locale: Locale = .current) -> String {
+        // Simple word boundaries: Unicode's join a time to the narrow space before its meridiem.
         var words = when(millis, now: now, calendar: calendar, locale: locale)
-            .replacing(/\b(AM|PM)\b/) { $0.output.0.lowercased() }
+            .replacing(/\b(AM|PM)\b/.wordBoundaryKind(.simple)) { $0.output.0.lowercased() }
         for relative in ["Today", "Tomorrow", "Yesterday"] where words.hasPrefix(relative) {
             words = relative.lowercased() + words.dropFirst(relative.count)
         }
