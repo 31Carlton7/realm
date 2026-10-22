@@ -143,3 +143,55 @@ struct WorkFixtureTests {
         }
     }
 }
+
+/// The phone's calls for these pages as they go over the channel: each names what it is about, and a
+/// decision carries its note only where it has one, as the Mac's `review.decide` takes it.
+@Suite("Sub-agents, Usage, Review and Scheduled calls over the channel")
+struct WorkCallTests {
+    let relay = FakeRelay()
+    let phone = DeviceIdentity.generate()
+
+    func connected() async throws -> MobileConnection {
+        relay.register(phone)
+        let connection = MobileConnection(mac: relay.pairedMac(for: phone), identity: phone, client: ChannelTests.client, factory: relay,
+                                          backoff: ChannelTests.fastBackoff, handshakeTimeout: .seconds(2))
+        await connection.start()
+        _ = try await connection.connected(timeout: .seconds(5))
+        return connection
+    }
+
+    @Test func eachCallNamesWhatItIsAbout() async throws {
+        let connection = try await connected()
+        let api = MobileAPI(connection: connection)
+        _ = try? await api.subagents(id: "lead")
+        #expect(relay.methods.last == "session.subagents" && relay.params.last == ["id": "lead"])
+        _ = try? await api.usage()
+        #expect(relay.methods.last == "usage.get")
+        _ = try? await api.reviews()
+        #expect(relay.methods.last == "reviews.list")
+        _ = try? await api.review(id: "r1")
+        #expect(relay.methods.last == "review.get" && relay.params.last == ["id": "r1"])
+        _ = try? await api.reviewFile(id: "r1", path: "/Users/me/Desktop/Deck/renders/launch.png")
+        #expect(relay.methods.last == "review.file" && relay.params.last == ["id": "r1", "path": "/Users/me/Desktop/Deck/renders/launch.png"])
+        _ = try? await api.schedules()
+        #expect(relay.methods.last == "schedules.list")
+        _ = try? await api.runNow(schedule: "t1")
+        #expect(relay.methods.last == "schedules.runNow" && relay.params.last == ["id": "t1"])
+        await connection.stop()
+    }
+
+    /// Asking for changes carries the note the Mac hands the role, and a rejection its reason; approving
+    /// carries none.
+    @Test func aDecisionCarriesItsNoteOnlyWhereItHasOne() async throws {
+        let connection = try await connected()
+        let api = MobileAPI(connection: connection)
+        _ = try? await api.decide(review: "r1", .changes, note: "Say it ships Friday in the caption too")
+        #expect(relay.methods.last == "review.decide")
+        #expect(relay.params.last == ["id": "r1", "decision": "changes", "note": "Say it ships Friday in the caption too"])
+        _ = try? await api.decide(review: "r1", .reject, note: "Off brand")
+        #expect(relay.params.last == ["id": "r1", "decision": "reject", "note": "Off brand"])
+        _ = try? await api.decide(review: "r1", .approve)
+        #expect(relay.params.last == ["id": "r1", "decision": "approve"])
+        await connection.stop()
+    }
+}
