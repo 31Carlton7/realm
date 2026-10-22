@@ -61,7 +61,8 @@ public enum SessionStatus: Sendable, Hashable, Codable {
 /// One session in a list.
 public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
     public let id: String
-    public let title: String
+    /// What the person calls it; a rename on this phone shows at once, before the Mac lists it so.
+    public var title: String
     public let spaceId: String
     public let spaceName: String
     public let agent: String
@@ -87,7 +88,7 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
     /// Unlike `updatedAt`, a change of settings or a rename does not move it. Nil from a Mac before Plan 29.
     public let activityAt: Millis?
     /// Pinned in the desktop's sidebar, so Home lists it in Pinned. Nil from a Mac before it said.
-    public let pinned: Bool?
+    public var pinned: Bool?
 
     public init(id: String, title: String, spaceId: String, spaceName: String, agent: String, model: String?,
                 status: SessionStatus, needsYou: Bool, unread: Bool, updatedAt: Millis,

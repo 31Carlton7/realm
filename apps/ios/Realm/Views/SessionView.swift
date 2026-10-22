@@ -29,7 +29,10 @@ struct SessionView: View {
 
     var body: some View {
         let transcript = model.store.transcript(sessionId)
-        let outgoing = model.store.outbox.items(for: sessionId).filter(\.isMessage)
+        // A message the Mac queued shows once, in the queue over the composer, never here as well.
+        let queued = model.store.outbox.inQueue(transcript.queued ?? [], for: sessionId)
+        let outgoing = model.store.outbox.items(for: sessionId).filter { $0.isMessage && queued[$0.id] == nil }
+        let row = transcript.session.map { model.rowEdits.applied(to: $0) ?? $0 }
         let status = transcript.status ?? transcript.session?.status
         // The request the foot holds is drawn there, not twice: answered, it comes back to where it
         // was asked, as the record of it.
@@ -134,9 +137,14 @@ struct SessionView: View {
                 scrollToBottom()
             }
         }
-        .navigationTitle(transcript.session?.displayTitle ?? "Session")
+        .navigationTitle(row?.displayTitle ?? "Session")
         .navigationBarTitleDisplayMode(.inline)
         .navigationSubtitle(subtitle(transcript))
+        .toolbar {
+            if let row {
+                ToolbarItem(placement: .topBarTrailing) { SessionMenu(row: row) }
+            }
+        }
         .task(id: model.channelGeneration) { await model.open(sessionId) }
         .onDisappear {
             Task { await model.close(sessionId) }

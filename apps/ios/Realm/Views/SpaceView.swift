@@ -13,7 +13,7 @@ struct SpaceView: View {
     var body: some View {
         let home = model.store.home
         let space = home?.spaces.first { $0.id == spaceId }
-        let rows = pages.loaded ? pages.rows : (space?.sessions ?? [])
+        let rows = model.rowEdits.applied(to: pages.loaded ? pages.rows : (space?.sessions ?? []))
         let words = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let shown = rows.filter { $0.matches(words) }
         List {

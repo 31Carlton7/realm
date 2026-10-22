@@ -214,10 +214,14 @@ struct ProfileWaiting: Identifiable, Equatable {
 }
 
 /// What Home lists, from what the Mac sent and how the person asked for it: what needs them in the
-/// other profiles, Needs you, then the sessions in the chosen style. Everything is the chosen
+/// other profiles, Needs you, Pinned, then the sessions in the chosen style. Everything is the chosen
 /// profile's, and narrowed by a search over the title, the space, the agent and the model.
 struct HomeListing {
     let needsYou: [SessionRow]
+    /// The pinned sessions, in the order of their spaces on the Mac and then the newest activity first,
+    /// as the Mac's sidebar heads its list with them. Each is still listed where the style puts it, as
+    /// it is on the Mac, so pinning one never moves it out from where it was found.
+    let pinned: [SessionRow]
     let sections: [ListSection]
     /// Other profiles with something that needs the person, in the Mac's order; none in a search.
     let elsewhere: [ProfileWaiting]
@@ -237,6 +241,10 @@ struct HomeListing {
         let waiting = home.needsYou.filter(inScope)
         needsYou = options.needsYouFirst ? waiting.filter(matches) : []
         elsewhere = isFiltered ? [] : Self.elsewhere(home, choice: choice)
+        let place = Dictionary(home.spaces.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var seen = Set<String>()
+        pinned = home.listedRows.filter { $0.pinned == true && inScope($0) && matches($0) && seen.insert($0.id).inserted }
+            .stablySorted { (place[$0.spaceId] ?? .max, -$0.lastActivity) < (place[$1.spaceId] ?? .max, -$1.lastActivity) }
 
         switch options.style {
         case .bySpace:
@@ -307,7 +315,7 @@ struct HomeListing {
     }
 
     var isEmpty: Bool {
-        needsYou.isEmpty && sections.isEmpty
+        needsYou.isEmpty && pinned.isEmpty && sections.isEmpty
     }
 }
 

@@ -13,13 +13,14 @@ struct HomeView: View {
     @AppStorage(ListOptions.Key.needsYouFirst) private var needsYouFirst = ListOptions().needsYouFirst
     @State private var query = ""
     @State private var reconnecting = false
+    @State private var newSessionShown = false
     /// The moment By day reckons its days from, moved on at midnight and on coming back to the app.
     @State private var now = Date()
     @Namespace private var settingsZoom
 
     var body: some View {
         @Bindable var model = model
-        let home = model.store.home
+        let home = model.store.home.map { model.rowEdits.applied(to: $0) }
         let choice = model.profileChoice
         let options = ListOptions(style: style, spaceOrder: spaceOrder, needsYouFirst: needsYouFirst)
         let listing = home.map { HomeListing(home: $0, choice: choice, options: options, query: query, now: now) }
@@ -42,6 +43,17 @@ struct HomeView: View {
                     } header: {
                         SectionHead(title: "Needs you") {
                             Image(systemName: "hand.raised.fill").foregroundStyle(Palette.orange)
+                        }
+                    }
+                }
+                if !listing.pinned.isEmpty {
+                    Section {
+                        ForEach(listing.pinned, id: \.pinnedKey) { row in
+                            SessionLink(row: row, space: listing.space(of: row))
+                        }
+                    } header: {
+                        SectionHead(title: "Pinned") {
+                            Image(systemName: "pin.fill").foregroundStyle(Palette.ink2)
                         }
                     }
                 }
@@ -513,12 +525,12 @@ extension Binding where Value: Equatable & Sendable {
     }
 }
 
-/// A session on Home: opens it, and stops its turn from a swipe or a press-and-hold.
+/// A session on Home: opens it, and pins, renames, archives or stops it from a swipe or a
+/// press-and-hold.
 struct SessionLink: View {
     let row: SessionRow
     /// The row's space, where no section names it.
     let space: Space?
-    @Environment(AppModel.self) private var model
 
     var body: some View {
         NavigationLink(value: Route.session(row.id)) {
@@ -527,22 +539,7 @@ struct SessionLink: View {
         .listRowBackground(Color.clear)
         .listRowSeparatorTint(Palette.divider)
         .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if row.isWorking {
-                Button("Stop", systemImage: "stop.fill") { Task { await model.stop(row.id) } }
-                    .tint(Palette.ink2)
-            }
-        }
-        .contextMenu {
-            if row.isWorking {
-                Button("Stop", systemImage: "stop.fill") { Task { await model.stop(row.id) } }
-            }
-        }
-        .accessibilityActions {
-            if row.isWorking {
-                Button("Stop") { Task { await model.stop(row.id) } }
-            }
-        }
+        .sessionRowActions(row)
         .accessibilityIdentifier("session-\(row.id)")
     }
 }
