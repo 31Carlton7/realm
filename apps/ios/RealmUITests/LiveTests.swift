@@ -698,9 +698,8 @@ final class LiveTests: XCTestCase {
         app.buttons["Rename"].tap()
         let alert = app.alerts["Rename session"]
         XCTAssert(alert.waitForExistence(timeout: 5), "Rename opened no alert")
-        let title = alert.textFields.firstMatch
-        title.tap()
-        title.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 40) + "Rework the mapper's events")
+        // The field has the keyboard as the alert comes, its caret after the title: a press would move it.
+        alert.textFields.firstMatch.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 40) + "Rework the mapper's events")
         shot("p-rename-alert")
         alert.buttons["Rename"].tap()
         XCTAssert(row("Rework the mapper's events").waitForExistence(timeout: 10), "the row does not show its new name")

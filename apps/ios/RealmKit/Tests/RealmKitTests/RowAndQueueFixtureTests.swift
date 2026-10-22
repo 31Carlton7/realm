@@ -20,6 +20,7 @@ struct RowAndQueueFixtureTests {
         // Every row says whether it is pinned, so Home's Pinned is the Mac's own.
         let home = try APIFixtureTests.decode(Home.self, "calls", "home.get")
         #expect(home.spaces.flatMap(\.sessions).allSatisfy { $0.pinned != nil })
+        #expect(home.recent?.filter { $0.pinned == true }.map(\.title) == ["Ship 2.0.3"])
     }
 
     /// The queue comes with the session and from `session.queue`: each message with its files, by the
@@ -58,7 +59,7 @@ struct RowAndQueueFixtureTests {
     func aDeliveredMessageTheFixturesQueueHoldsIsTheQueues() throws {
         let opened = try APIFixtureTests.opened()
         let store = RealmStore()
-        let sketch = try store.files.keep(Data("png".utf8), name: "sketch.png", mime: "image/png")
+        let sketch = OutgoingAttachment(id: UUID(), name: "sketch.png", mime: "image/png", size: 3, file: "sketch.png")
         let item = store.enqueueMessage("Use this sketch for the toggle", attachments: [sketch], in: opened.session.id)
         store.setOutgoing(item.id, .delivered)
         store.finishOpening(opened)

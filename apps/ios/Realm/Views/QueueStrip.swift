@@ -168,6 +168,19 @@ private struct QueuedRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(QueueWords.spoken(message, at: index, of: count, editingHere: editingHere))
+            // On the words alone: held anywhere else the menu would gather the buttons into one element.
+            .contentShape(Rectangle())
+            .contextMenu {
+                Button { Task { await model.sendQueuedNow(message, in: sessionId) } } label: {
+                    Label("Send now", systemImage: "arrow.up")
+                    Text(sendNowLine)
+                }
+                .disabled(away || message.held)
+                Button("Edit", systemImage: "pencil", action: edit)
+                    .disabled(away || message.held)
+                Button("Remove", systemImage: "xmark", role: .destructive) { Task { await model.removeQueued(message, in: sessionId) } }
+                    .disabled(away)
+            }
             HStack(spacing: 0) {
                 if busy {
                     ProgressView()
@@ -199,18 +212,6 @@ private struct QueuedRow: View {
             }
         }
         .padding(.vertical, 2)
-        .contentShape(Rectangle())
-        .contextMenu {
-            Button { Task { await model.sendQueuedNow(message, in: sessionId) } } label: {
-                Label("Send now", systemImage: "arrow.up")
-                Text(sendNowLine)
-            }
-            .disabled(away || message.held)
-            Button("Edit", systemImage: "pencil", action: edit)
-                .disabled(away || message.held)
-            Button("Remove", systemImage: "xmark", role: .destructive) { Task { await model.removeQueued(message, in: sessionId) } }
-                .disabled(away)
-        }
     }
 
     /// What Send now does: the agent's own note while a turn runs, since it stops some agents' turns
