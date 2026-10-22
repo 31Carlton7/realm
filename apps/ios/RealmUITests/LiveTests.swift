@@ -689,7 +689,7 @@ final class LiveTests: XCTestCase {
         XCTAssert(pin.waitForExistence(timeout: 5), "the leading swipe offers no Pin")
         shot("p-swipe-pin")
         pin.tap()
-        XCTAssert(rows("Rework the transcript mapper").wait(for: \.count, toEqual: 2, timeout: 10), "the pinned session is not in Pinned")
+        XCTAssert(wait(for: rows("Rework the transcript mapper"), count: 2), "the pinned session is not in Pinned")
         shot("p-pinned")
         row("Rework the transcript mapper").press(forDuration: 1.2)
         XCTAssert(app.buttons["Rename"].waitForExistence(timeout: 5), "the press-and-hold offers no Rename")
@@ -722,7 +722,7 @@ final class LiveTests: XCTestCase {
         let unpin = app.buttons["Unpin"]
         XCTAssert(unpin.waitForExistence(timeout: 5), "a pinned row's leading swipe offers no Unpin")
         unpin.tap()
-        XCTAssert(rows("Rework the mapper's events").wait(for: \.count, toEqual: 1, timeout: 10), "the session is still in Pinned")
+        XCTAssert(wait(for: rows("Rework the mapper's events"), count: 1), "the session is still in Pinned")
         shot("p-unpinned")
         open("Rework the mapper's events")
         let menu = app.buttons["session-menu"]
@@ -863,6 +863,14 @@ final class LiveTests: XCTestCase {
     @MainActor
     private func rows(_ title: String) -> XCUIElementQuery {
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "\(title),"))
+    }
+
+    /// Whether a query comes to match `count` elements within a few seconds, as a list settles after a change.
+    @MainActor
+    private func wait(for query: XCUIElementQuery, count: Int) -> Bool {
+        let deadline = Date().addingTimeInterval(10)
+        while query.count != count, Date() < deadline { usleep(250_000) }
+        return query.count == count
     }
 
     /// Drags a row part of the way toward an edge, which shows its swipe actions without running one.
