@@ -152,7 +152,7 @@ enum ReviewWords {
 }
 
 /// The note a decision carries: asking for changes says what should change, and must; a rejection may
-/// say why.
+/// say why. Approving carries none.
 struct DecisionNote: Equatable {
     let decision: ReviewDecision
     let title: String
@@ -160,20 +160,22 @@ struct DecisionNote: Equatable {
     let footer: String
     let confirm: String
 
-    init(_ decision: ReviewDecision, for review: ReviewSummary) {
+    init?(_ decision: ReviewDecision, for review: ReviewSummary) {
         self.decision = decision
         let role = ReviewWords.role(review)
         switch decision {
+        case .approve:
+            return nil
+        case .changes:
+            title = "Ask for changes"
+            prompt = "What should \(role) change?"
+            footer = "Your note goes to \(role). Nothing of the draft goes out."
+            confirm = "Send"
         case .reject:
             title = "Reject"
             prompt = "Why not? (optional)"
             footer = "Nothing of it goes out, and it can't be sent again."
             confirm = "Reject"
-        case .changes, .approve:
-            title = "Ask for changes"
-            prompt = "What should \(role) change?"
-            footer = "Your note goes to \(role). Nothing of the draft goes out."
-            confirm = "Send"
         }
     }
 
@@ -270,7 +272,7 @@ private struct ReviewRow: View {
 }
 
 /// One review: each item's draft as it would go out, where it goes, and its pictures, which open in
-/// Quick Look; at the foot, the decision. Read again when the Mac says Review changed.
+/// Quick Look; then the decision, docked at the foot. Read again when the Mac says Review changed.
 struct ReviewView: View {
     let reviewId: String
     @Environment(AppModel.self) private var model
@@ -321,8 +323,8 @@ struct ReviewView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task(id: Reading(listed: listed, generation: model.channelGeneration)) { await load() }
         .sheet(item: $asking) { decision in
-            if let review {
-                DecisionNoteSheet(note: DecisionNote(decision, for: review)) { text in
+            if let review, let note = DecisionNote(decision, for: review) {
+                DecisionNoteSheet(note: note) { text in
                     await decide(decision, note: text)
                 }
             }

@@ -322,17 +322,18 @@ struct ReviewWordsTests {
     }
 
     /// Asking for changes needs a note, which goes trimmed; a rejection may go without a reason.
-    @Test func askingForChangesNeedsANoteAndRejectingDoesNot() {
-        let changes = DecisionNote(.changes, for: Work.review())
+    @Test func askingForChangesNeedsANoteAndRejectingDoesNot() throws {
+        let changes = try #require(DecisionNote(.changes, for: Work.review()))
         #expect(changes.title == "Ask for changes" && changes.prompt == "What should Writer change?" && changes.confirm == "Send")
         #expect(!changes.canSend("") && !changes.canSend("  \n"))
         #expect(changes.canSend("Shorter"))
         #expect(changes.note("  Shorter, please \n") == "Shorter, please")
-        let reject = DecisionNote(.reject, for: Work.review())
+        let reject = try #require(DecisionNote(.reject, for: Work.review()))
         #expect(reject.title == "Reject" && reject.confirm == "Reject")
         #expect(reject.canSend(""))
         #expect(reject.note(" ") == nil)
         #expect(reject.footer == "Nothing of it goes out, and it can't be sent again.")
+        #expect(DecisionNote(.approve, for: Work.review()) == nil, "approving carries no note")
     }
 
     @Test func aRowIsSpokenWhole() {
