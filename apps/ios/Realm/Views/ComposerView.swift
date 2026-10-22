@@ -95,10 +95,7 @@ struct ComposerView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var settingsShown = false
-    @State private var photosShown = false
-    @State private var cameraShown = false
-    @State private var filesShown = false
-    @State private var picked: [PhotosPickerItem] = []
+    @State private var picking: AttachmentPick?
     @State private var previewing: URL?
     /// The field had the keyboard when a sheet or a picker opened over it: it takes it back after.
     @State private var refocus = false
@@ -111,7 +108,7 @@ struct ComposerView: View {
         let attachments = model.draftAttachments[sessionId] ?? []
         let preparing = model.preparingAttachments[sessionId] ?? 0
         let options = model.sessionOptions[sessionId]
-        let presenting = settingsShown || photosShown || cameraShown || filesShown || previewing != nil
+        let presenting = settingsShown || picking != nil || previewing != nil
         let composing = focused.wrappedValue || !text.isEmpty || !attachments.isEmpty || preparing > 0 || presenting
         let action = ComposerAction(working: status == .running || status == .waiting,
                                     hasContent: ComposerAction.hasContent(text: text, attachments: attachments),
@@ -119,7 +116,11 @@ struct ComposerView: View {
         ComposerLayout(card: composing) {
             if !attachments.isEmpty || preparing > 0 {
                 AttachmentStrip(attachments: attachments, preparing: preparing, files: model.store.files,
-                                open: preview, remove: { model.removeAttachment($0, from: sessionId) })
+                                open: { attachment in
+                                    refocus = focused.wrappedValue
+                                    previewing = AttachmentStrip.previewLink(attachment, files: model.store.files)
+                                },
+                                remove: { model.removeAttachment($0, from: sessionId) })
                     .layoutValue(key: ComposerPart.self, value: .strip)
                     .transition(.opacity)
             }
@@ -136,11 +137,7 @@ struct ComposerView: View {
             if let options {
                 AddMenu(limits: options.attachments, count: attachments.count + preparing) { pick in
                     refocus = focused.wrappedValue
-                    switch pick {
-                    case .photos: photosShown = true
-                    case .camera: cameraShown = true
-                    case .files: filesShown = true
-                    }
+                    picking = pick
                 }
                 .layoutValue(key: ComposerPart.self, value: .add)
             }
@@ -167,32 +164,15 @@ struct ComposerView: View {
         .animation(reduceMotion ? nil : Motion.morph, value: attachments.count + preparing)
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
-        .photosPicker(isPresented: $photosShown, selection: $picked,
-                      maxSelectionCount: max(1, (options?.attachments.maxCount ?? 1) - attachments.count - preparing),
-                      matching: .images)
-        .onChange(of: picked) { _, items in
-            guard !items.isEmpty else { return }
-            picked = []
-            Task { await model.attach(items.map(AttachmentSource.library), to: sessionId) }
-        }
-        .fullScreenCover(isPresented: $cameraShown) {
-            CameraPicker { image in
-                cameraShown = false
-                if let image { Task { await model.attach([.camera(image)], to: sessionId) } }
-            }
-            .ignoresSafeArea()
-        }
-        .fileImporter(isPresented: $filesShown, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
-            if case .success(let urls) = result, !urls.isEmpty {
-                Task { await model.attach(urls.map(AttachmentSource.file), to: sessionId) }
-            }
+        .attachmentPickers($picking, room: (options?.attachments.maxCount ?? 1) - attachments.count - preparing) { sources in
+            Task { await model.attach(sources, to: sessionId) }
         }
         .sheet(isPresented: $settingsShown) {
             SessionSettingsSheet(sessionId: sessionId)
         }
         .quickLookPreview($previewing)
         .onChange(of: previewing) { _, now in
-            if now == nil { try? FileManager.default.removeItem(at: Self.previews) }
+            if now == nil { AttachmentStrip.forgetPreviews() }
         }
         .onChange(of: presenting) { _, now in
             guard !now, refocus else { return }
@@ -217,22 +197,6 @@ struct ComposerView: View {
 
     private var draft: Binding<String> {
         Binding(get: { model.composerDrafts[sessionId] ?? "" }, set: { model.composerDrafts[sessionId] = $0 })
-    }
-
-    /// Where a file is linked under its own name while Quick Look shows it.
-    private static let previews = URL.temporaryDirectory.appending(path: "Preview", directoryHint: .isDirectory)
-
-    /// Quick Look titles a preview with its file's name, so it is shown a link to the bytes under the
-    /// attachment's own, which goes when the preview does.
-    private func preview(_ attachment: OutgoingAttachment) {
-        let folder = Self.previews.appending(path: attachment.id.uuidString, directoryHint: .isDirectory)
-        let link = folder.appending(path: attachment.name.replacingOccurrences(of: "/", with: "-"))
-        if !FileManager.default.fileExists(atPath: link.path) {
-            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            try? FileManager.default.linkItem(at: model.store.files.url(of: attachment), to: link)
-        }
-        refocus = focused.wrappedValue
-        previewing = link
     }
 }
 
@@ -310,9 +274,48 @@ enum AttachmentPick {
     case photos, camera, files
 }
 
+extension View {
+    /// The photo library, the camera and Files, each presented while `pick` names it, with what was
+    /// picked handed to `attach`. The library offers as many photos as `room` leaves, and at least one.
+    func attachmentPickers(_ pick: Binding<AttachmentPick?>, room: Int, attach: @escaping ([AttachmentSource]) -> Void) -> some View {
+        modifier(AttachmentPickers(pick: pick, room: room, attach: attach))
+    }
+}
+
+private struct AttachmentPickers: ViewModifier {
+    @Binding var pick: AttachmentPick?
+    let room: Int
+    let attach: ([AttachmentSource]) -> Void
+    @State private var picked: [PhotosPickerItem] = []
+
+    func body(content: Content) -> some View {
+        content
+            .photosPicker(isPresented: shown(.photos), selection: $picked, maxSelectionCount: max(1, room), matching: .images)
+            .onChange(of: picked) { _, items in
+                guard !items.isEmpty else { return }
+                picked = []
+                attach(items.map(AttachmentSource.library))
+            }
+            .fullScreenCover(isPresented: shown(.camera)) {
+                CameraPicker { image in
+                    pick = nil
+                    if let image { attach([.camera(image)]) }
+                }
+                .ignoresSafeArea()
+            }
+            .fileImporter(isPresented: shown(.files), allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+                if case .success(let urls) = result, !urls.isEmpty { attach(urls.map(AttachmentSource.file)) }
+            }
+    }
+
+    private func shown(_ kind: AttachmentPick) -> Binding<Bool> {
+        Binding(get: { pick == kind }, set: { if !$0, pick == kind { pick = nil } })
+    }
+}
+
 /// `+`: photos, the camera where the phone has one, and files. At the Mac's limit its items are off,
 /// and each says why.
-private struct AddMenu: View {
+struct AddMenu: View {
     let limits: SendLimits
     /// Files already in the message, or on their way into it.
     let count: Int
@@ -403,13 +406,23 @@ private struct PrimaryButton: View {
     }
 
     private var glyph: some View {
-        let (fill, ink): (Color, Color) = switch action.kind {
+        PrimaryGlyph(kind: action.kind, enabled: action.enabled)
+    }
+}
+
+/// The primary button's face: the kind's glyph on its fill, a quiet one while there is nothing to send.
+struct PrimaryGlyph: View {
+    let kind: ComposerAction.Kind
+    let enabled: Bool
+
+    var body: some View {
+        let (fill, ink): (Color, Color) = switch kind {
         case .stop: (Palette.ink, Ground.transcript)
-        case .send where !action.enabled: (Palette.mark, Palette.ink3)
+        case .send where !enabled: (Palette.mark, Palette.ink3)
         case .send, .queue, .steer: (Palette.accentFill, .white)
         }
-        return Image(systemName: action.kind.symbol)
-            .font(.system(size: action.kind == .stop ? 12 : 15, weight: .bold))
+        Image(systemName: kind.symbol)
+            .font(.system(size: kind == .stop ? 12 : 15, weight: .bold))
             .foregroundStyle(ink)
             .contentTransition(.symbolEffect(.replace))
             .frame(width: 32, height: 32)

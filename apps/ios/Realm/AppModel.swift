@@ -631,11 +631,12 @@ final class AppModel {
         configuring[sessionId] = nil
     }
 
-    /// Adds what was picked to a session's composer, each made ready and kept on this phone until it
-    /// is sent or taken out: a photo made a JPEG, a file read whole. What the Mac would refuse is left
-    /// out, and a toast says why.
-    func attach(_ sources: [AttachmentSource], to sessionId: String) async {
-        guard let limits = sessionOptions[sessionId]?.attachments, !sources.isEmpty else { return }
+    /// Adds what was picked to a composer's draft — a session's, or a new session's under its own key —
+    /// each made ready and kept on this phone until it is sent or taken out: a photo made a JPEG, a file
+    /// read whole. What the Mac would refuse, by `limits` or the session's own, is left out, and a toast
+    /// says why.
+    func attach(_ sources: [AttachmentSource], to sessionId: String, limits: SendLimits? = nil) async {
+        guard let limits = limits ?? sessionOptions[sessionId]?.attachments, !sources.isEmpty else { return }
         preparingAttachments[sessionId, default: 0] += sources.count
         for source in sources {
             let name = AttachmentNames.photo(besides: draftAttachments[sessionId] ?? [])

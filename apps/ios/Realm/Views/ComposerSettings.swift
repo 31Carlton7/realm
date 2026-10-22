@@ -79,20 +79,41 @@ struct ComposerChips: View {
         let options = model.sessionOptions[sessionId]
         let session = model.store.transcript(sessionId).session
         // Before the Mac answers, or from one too old to, the session's own row names the model.
-        let label = options?.modelLabel ?? session?.modelDisplayName ?? session?.agentDisplayName ?? "Model"
+        SettingChips(label: options?.modelLabel ?? session?.modelDisplayName ?? session?.agentDisplayName ?? "Model",
+                     kind: options?.agent.kind ?? session?.agent ?? "", mark: options?.agent.mark ?? session?.agentMark,
+                     options: options, busy: model.configuring[sessionId] != nil, openSettings: openSettings) { changes, setting in
+            Task { await model.configure(changes, setting, in: sessionId) }
+        }
+    }
+}
+
+/// The model chip and the mode chip, from what they show and a way to change it: a session's, which
+/// the Mac changes, or a new session's, which waits on the phone until it starts.
+struct SettingChips: View {
+    let label: String
+    let kind: String
+    let mark: String?
+    /// What the mode chip offers; nil until the Mac says, and no mode chip till then.
+    let options: SessionOptions?
+    /// A change is on its way, and the mode chip is off until it lands.
+    let busy: Bool
+    let openSettings: () -> Void
+    let choose: (SessionChanges, SessionSetting) -> Void
+
+    var body: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 0) {
                 Button(action: openSettings) {
                     ChipLabel(text: label, emphasised: true) {
-                        AgentMark(kind: options?.agent.kind ?? session?.agent ?? "", mark: options?.agent.mark ?? session?.agentMark,
-                                  colored: true, size: 15, relativeTo: .subheadline)
+                        AgentMark(kind: kind, mark: mark, colored: true, size: 15, relativeTo: .subheadline)
                     }
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Model, \(label)")
                 .accessibilityHint("Opens the model, reasoning and mode")
                 if let options, options.agent.modes.count > 1 || !options.agent.permissions.isEmpty {
-                    ModeMenu(options: options, sessionId: sessionId)
+                    ModeMenu(options: options, choose: choose)
+                        .disabled(busy)
                 }
             }
         }
@@ -104,7 +125,7 @@ struct ComposerChips: View {
 /// A chip's face: quiet words with a glyph and a chevron, drawn on the composer's own glass rather than
 /// as a pill of their own. Its touch is a full 44 points tall. Off, it greys itself: a menu that is off
 /// leaves a label's own inks as they are.
-private struct ChipLabel<Icon: View>: View {
+struct ChipLabel<Icon: View>: View {
     let text: String
     /// The model's chip reads in ink; the rest in the quieter ink beside it.
     let emphasised: Bool
@@ -131,11 +152,10 @@ private struct ChipLabel<Icon: View>: View {
 }
 
 /// The mode chip: a menu of the modes the agent offers, then, in Build, its permission rungs. Two taps
-/// change either. It is off while a change is on its way to the Mac.
+/// change either.
 private struct ModeMenu: View {
     let options: SessionOptions
-    let sessionId: String
-    @Environment(AppModel.self) private var model
+    let choose: (SessionChanges, SessionSetting) -> Void
 
     var body: some View {
         let chip = SettingWords.chip(options)
@@ -165,21 +185,18 @@ private struct ModeMenu: View {
                     .foregroundStyle(Palette.ink2)
             }
         }
-        .disabled(model.configuring[sessionId] != nil)
         .accessibilityLabel("Mode, \(chip.label)")
         .accessibilityHint("Changes what the agent may do")
     }
 
     private var mode: Binding<SessionMode> {
-        Binding(get: { options.mode }, set: { chosen in
-            Task { await model.configure(SessionChanges(mode: chosen), .mode, in: sessionId) }
-        })
+        Binding(get: { options.mode }, set: { choose(SessionChanges(mode: $0), .mode) })
     }
 
     private var permission: Binding<String?> {
         Binding(get: { options.permissionMode }, set: { chosen in
             guard let chosen else { return }
-            Task { await model.configure(SessionChanges(permission: chosen), .permission, in: sessionId) }
+            choose(SessionChanges(permission: chosen), .permission)
         })
     }
 }
@@ -191,87 +208,108 @@ private struct ModeMenu: View {
 struct SessionSettingsSheet: View {
     let sessionId: String
     @Environment(AppModel.self) private var model
-    @Environment(\.dismiss) private var dismiss
-    @State private var picks = 0
 
     var body: some View {
         let options = model.sessionOptions[sessionId]
         let session = model.store.transcript(sessionId).session
         let away = !model.isConnected
-        let title = options?.agent.name ?? session?.agentDisplayName ?? "Session"
-        NavigationStack {
-            Form {
-                if away {
-                    Section {
-                        Label("Connect to your Mac to change these.", systemImage: "laptopcomputer")
+        SettingsSheetFrame(title: options?.agent.name ?? session?.agentDisplayName ?? "Session",
+                           kind: options?.agent.kind ?? session?.agent ?? "", mark: options?.agent.mark ?? session?.agentMark) {
+            if away {
+                Section {
+                    Label("Connect to your Mac to change these.", systemImage: "laptopcomputer")
+                        .foregroundStyle(Palette.ink2)
+                        .listRowBackground(Fill.card)
+                }
+            }
+            if let options {
+                SettingsForm(options: options, busy: model.configuring[sessionId], footer: "Changes apply from your next message.") { changes, setting in
+                    Task { await model.configure(changes, setting, in: sessionId) }
+                }
+                .disabled(away || model.configuring[sessionId] != nil)
+            } else {
+                Section {
+                    if let label = session?.modelDisplayName {
+                        LabeledContent("Model", value: label)
+                            .listRowBackground(Fill.card)
+                    }
+                    if !away, model.optionsUnanswered.contains(sessionId) {
+                        Text("Update Realm on your Mac to change these from iPhone.")
                             .foregroundStyle(Palette.ink2)
+                            .listRowBackground(Fill.card)
+                    } else if !away {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
                             .listRowBackground(Fill.card)
                     }
                 }
-                if let options {
-                    settings(options)
-                        .disabled(away || model.configuring[sessionId] != nil)
-                } else {
-                    Section {
-                        if let label = session?.modelDisplayName {
-                            LabeledContent("Model", value: label)
-                                .listRowBackground(Fill.card)
+            }
+        }
+        .task { await model.loadOptions(sessionId) }
+    }
+}
+
+/// The settings sheet's frame: a form on the grouped ground, titled with the agent's mark and name, put
+/// away with Done.
+struct SettingsSheetFrame<Content: View>: View {
+    let title: String
+    let kind: String
+    let mark: String?
+    @ViewBuilder let content: Content
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form { content }
+                .scrollContentBackground(.hidden)
+                .background(Ground.grouped)
+                .navigationTitle(title)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .principal) {
+                        HStack(spacing: 6) {
+                            AgentMark(kind: kind, mark: mark, colored: true, size: 17, relativeTo: .headline)
+                            Text(title)
+                                .font(.headline)
+                                .foregroundStyle(Palette.ink)
                         }
-                        if !away, model.optionsUnanswered.contains(sessionId) {
-                            Text("Update Realm on your Mac to change these from iPhone.")
-                                .foregroundStyle(Palette.ink2)
-                                .listRowBackground(Fill.card)
-                        } else if !away {
-                            ProgressView()
-                                .frame(maxWidth: .infinity)
-                                .listRowBackground(Fill.card)
-                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityAddTraits(.isHeader)
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
                     }
                 }
-            }
-            .scrollContentBackground(.hidden)
-            .background(Ground.grouped)
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    HStack(spacing: 6) {
-                        AgentMark(kind: options?.agent.kind ?? session?.agent ?? "", mark: options?.agent.mark ?? session?.agentMark,
-                                  colored: true, size: 17, relativeTo: .headline)
-                        Text(title)
-                            .font(.headline)
-                            .foregroundStyle(Palette.ink)
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityAddTraits(.isHeader)
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
         }
         .presentationDetents([.medium, .large])
         .presentationBackground(Ground.grouped)
-        .sensoryFeedback(.selection, trigger: picks)
-        .task { await model.loadOptions(sessionId) }
     }
+}
 
-    @ViewBuilder
-    private func settings(_ options: SessionOptions) -> some View {
-        let busy = model.configuring[sessionId]
+/// The model, its reasoning, the mode and the permissions, each choice a change handed to `choose`:
+/// the check moves at once, and a spinner stands in for it while `busy` says that setting travels.
+struct SettingsForm: View {
+    let options: SessionOptions
+    let busy: SessionSetting?
+    /// What the foot of the form says about when a change applies.
+    let footer: String
+    let choose: (SessionChanges, SessionSetting) -> Void
+    @State private var picks = 0
+
+    var body: some View {
         Section("Model") {
             ForEach(Array(options.agent.models.enumerated()), id: \.offset) { _, choice in
                 // The agent's own default reads as Default, with the model it is under it.
                 let title = choice.id == nil ? "Default" : choice.label
                 let line = choice.id == nil && choice.label != "Default" ? choice.label : nil
                 row(title, line: line, chosen: options.model == choice.id, busy: busy == .model) {
-                    configure(SessionChanges(model: .some(choice.id)), .model)
+                    pick(SessionChanges(model: .some(choice.id)), .model)
                 }
             }
         }
         if !options.efforts.isEmpty {
             Section {
-                Picker(selection: effort(options)) {
+                Picker(selection: effort) {
                     Text("Default").tag(String?.none)
                     ForEach(options.efforts) { choice in
                         Text(choice.label).tag(Optional(choice.id))
@@ -289,7 +327,7 @@ struct SessionSettingsSheet: View {
         }
         if options.agent.modes.count > 1 {
             Section {
-                Picker("Mode", selection: mode(options)) {
+                Picker("Mode", selection: mode) {
                     ForEach(options.agent.modes) { choice in
                         if let mode = SessionMode(rawValue: choice.id) { Text(choice.label).tag(mode) }
                     }
@@ -311,14 +349,16 @@ struct SessionSettingsSheet: View {
                 ForEach(options.agent.permissions) { choice in
                     row(choice.label, line: SettingWords.line(permission: choice.id), chosen: options.permissionMode == choice.id,
                         busy: busy == .permission) {
-                        configure(SessionChanges(permission: choice.id), .permission)
+                        pick(SessionChanges(permission: choice.id), .permission)
                     }
                 }
             }
         }
         Section {
         } footer: {
-            Text("Changes apply from your next message.")
+            // The one view the form always has, so a pick is felt once rather than once a row.
+            Text(footer)
+                .sensoryFeedback(.selection, trigger: picks)
         }
     }
 
@@ -356,16 +396,16 @@ struct SessionSettingsSheet: View {
         .accessibilityAddTraits(chosen ? .isSelected : [])
     }
 
-    private func configure(_ changes: SessionChanges, _ setting: SessionSetting) {
+    private func pick(_ changes: SessionChanges, _ setting: SessionSetting) {
         picks += 1
-        Task { await model.configure(changes, setting, in: sessionId) }
+        choose(changes, setting)
     }
 
-    private func effort(_ options: SessionOptions) -> Binding<String?> {
-        Binding(get: { options.effort }, set: { configure(SessionChanges(effort: .some($0)), .effort) })
+    private var effort: Binding<String?> {
+        Binding(get: { options.effort }, set: { pick(SessionChanges(effort: .some($0)), .effort) })
     }
 
-    private func mode(_ options: SessionOptions) -> Binding<SessionMode> {
-        Binding(get: { options.mode }, set: { configure(SessionChanges(mode: $0), .mode) })
+    private var mode: Binding<SessionMode> {
+        Binding(get: { options.mode }, set: { pick(SessionChanges(mode: $0), .mode) })
     }
 }
