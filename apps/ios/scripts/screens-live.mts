@@ -34,8 +34,9 @@
  * With --ui it drives the app itself instead: it builds the RealmLive scheme's UI tests once, then
  * runs one test per phase on the iPhone 17 Simulator — pair (the Mac holds its answer a few seconds),
  * awake, asleep, awake again, the relay down, then the largest text size and Reduce Transparency with
- * everything back up, then Home's profiles, list styles and a space's page, then the composer, each in
- * light, dark, at the largest text size and with Reduce Transparency — moving the Mac between them, and
+ * everything back up, then Home's profiles, list styles and a space's page, then a lead's sub-agents,
+ * Usage, Scheduled and Review, then the composer, each in light, dark, at the largest text size and with
+ * Reduce Transparency — moving the Mac between them, and
  * leaves each test's screenshots in apps/ios/.build/screenshots (--shots <dir> to change it). It exits
  * non-zero if any phase fails. --phases test0_forgetThenPair,test1_awake runs only those; --udid <id>
  * picks the Simulator, --derived-data <dir> where xcodebuild builds (apps/ios/.build/DerivedData), and
@@ -443,6 +444,41 @@ async function runUiTests(): Promise<boolean> {
   await reduceTransparency(true);
   await phase("testH7_reduceTransparency");
   await reduceTransparency(false);
+  // Sub-agents, Usage, Scheduled and Review (Plan 29's parity): the lead's sub-agents and one opened,
+  // the bar's menu and Usage, Scheduled with Run now, the same pages dark, at the largest text size and
+  // with Reduce Transparency, then Ask for changes on the launch post — last, since it takes the post
+  // out of what waits in Review. A phase that looks at a sub-agent working starts one: the staged one
+  // has finished by then.
+  const work = {
+    TEST_RUNNER_LEAD_SESSION: sessions.lead!, TEST_RUNNER_SUBAGENT_DONE: sessions.migration!,
+    TEST_RUNNER_SUBAGENT_DONE_TITLE: (await rpc.call("sessions.get", { id: sessions.migration! })).title,
+    TEST_RUNNER_TASK_TO_RUN: weeklyTask.title, TEST_RUNNER_REVIEW_TITLE: launch.title, TEST_RUNNER_REVIEW_PICTURE: "launch.png",
+    TEST_RUNNER_REVIEW_NOTE: "Say it ships Friday in the caption too",
+  };
+  const working = async (test: string) => { if (runs(test)) await teammate(sessions.lead!, "Backfill the theme column"); };
+  await working("testQ1_subagents");
+  await phase("testQ1_subagents", work);
+  await phase("testQ2_menuAndUsage", work);
+  await phase("testQ3_scheduled", work);
+  if (runs("testQ3_scheduled")) {
+    const weekly = (await rpc.call("schedules.list", { spaceId: appSpace.id })).find((s) => s.id === weeklyTask.id);
+    results.push(["testQ3_scheduled: the Mac ran Weekly review", weekly?.lastRunId != null]);
+  }
+  await simctl(["ui", udid, "appearance", "dark"]);
+  await working("testQ4_dark");
+  await phase("testQ4_dark", work);
+  await simctl(["ui", udid, "appearance", "light"]);
+  await working("testQ5_largestText");
+  await phase("testQ5_largestText", work);
+  await reduceTransparency(true);
+  await working("testQ6_reduceTransparency");
+  await phase("testQ6_reduceTransparency", work);
+  await reduceTransparency(false);
+  await phase("testQ7_review", work);
+  if (runs("testQ7_review")) {
+    const review = await rpc.call("team.review", { id: launch.id });
+    results.push(["testQ7_review: the Mac has the note", review.state === "changes" && review.note === work.TEST_RUNNER_REVIEW_NOTE]);
+  }
   // The composer (Plan 29 §1): at rest and composing, its settings changed on the Mac, photos sent —
   // one as the camera hands it over, one picked from the library — Stop and Queue on a turn under way;
   // then dark, the largest text size and Reduce Transparency.
