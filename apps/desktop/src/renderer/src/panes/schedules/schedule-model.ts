@@ -1,12 +1,16 @@
 import {
-  AGENT_FAST_MODE, AGENT_TAKES_EFFORT, cadenceOf, cronOf, describeSchedule, isOnce, momentInputValue, nextFireOf, onceExpr, parseMoment, parseOnce,
-  type AgentKind, type Cadence, type Repeat, type Run, type RunConstraints, type Schedule, type Session,
+  AGENT_FAST_MODE, AGENT_TAKES_EFFORT, cadenceOf, cronOf, isOnce, momentInputValue, nextFireOf, onceExpr, parseMoment, parseOnce,
+  type AgentKind, type Cadence, type Repeat, type Run, type RunConstraints, type Schedule,
 } from "@realm/contracts";
+import { cadenceSentence } from "@realm/view";
 
 /**
  * The Scheduled page's reading of schedules and their runs, as pure functions — what a row says, what
- * the modal holds, what counts as unread — so the decisions are testable without a DOM.
+ * the modal holds, what counts as unread — so the decisions are testable without a DOM. What Realm
+ * Mobile says the same way — a task's cadence, the column's order, a run's word and its unread mark —
+ * lives in `@realm/view`, and is read from here as the page always read it.
  */
+export { cadenceSentence, clockLabel, ordinal, runState, runUnread, upcomingOrder } from "@realm/view";
 
 /* ────────────────────────────── when ────────────────────────────── */
 
@@ -61,7 +65,6 @@ const dayOffset = (ts: number, now: number) => Math.round((startOfDay(new Date(t
 
 /* ────────────────────────────── cadence ────────────────────────────── */
 
-const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
 const REPEAT_LABEL: Record<Repeat, string> = { hourly: "Hourly", daily: "Daily", weekdays: "Weekdays", weekly: "Weekly", monthly: "Monthly" };
 
 /** The one-word cadence a row ends on: what the Repeat menu calls it, or Once, or Custom. */
@@ -71,56 +74,12 @@ export function cadenceLabel(expr: string): string {
   return c ? REPEAT_LABEL[c.repeat] : "Custom";
 }
 
-/** `9:00 AM` for an hour and minute, in the person's own clock. */
-export function clockLabel(hour: number, minute: number): string {
-  return clock(new Date(2026, 0, 1, hour, minute));
-}
-
-export const ordinal = (n: number): string => {
-  const rem = n % 100;
-  if (rem >= 11 && rem <= 13) return `${n}th`;
-  return `${n}${n % 10 === 1 ? "st" : n % 10 === 2 ? "nd" : n % 10 === 3 ? "rd" : "th"}`;
-};
-
-/**
- * The task card's sentence, in Codex's words: "Fridays at 4:00 PM", "Weekdays at 9:00 AM", "Every
- * hour at :15", "The 1st of every month at 9:00 AM". A one-shot keeps `describeSchedule`'s sentence,
- * which is the only place its moment survives once it has fired; an expression the modal cannot name
- * is shown as itself, never as a guess.
- */
-export function cadenceSentence(expr: string, now = Date.now()): string {
-  if (isOnce(expr)) return describeSchedule(expr, now);
-  const c = cadenceOf(expr);
-  if (!c) return expr;
-  switch (c.repeat) {
-    case "hourly": return `Every hour at :${String(c.minute).padStart(2, "0")}`;
-    case "daily": return `Every day at ${clockLabel(c.hour, c.minute)}`;
-    case "weekdays": return `Weekdays at ${clockLabel(c.hour, c.minute)}`;
-    case "weekly": return `${WEEKDAYS[c.weekday]}s at ${clockLabel(c.hour, c.minute)}`;
-    case "monthly": return `The ${ordinal(c.day)} of every month at ${clockLabel(c.hour, c.minute)}`;
-  }
-}
-
 /** The second line of a task's row: when it runs next, then how often — "Tomorrow 8:01 AM · Weekly". */
 export function taskLine(s: Schedule, now = Date.now()): string {
   const when = !s.enabled ? "Paused"
     : s.nextRunAt !== null ? shortWhen(s.nextRunAt, now)
     : s.lastRunAt !== null ? `Ran ${lowerRelative(shortWhen(s.lastRunAt, now))}` : "Finished";
   return `${when} · ${cadenceLabel(s.cron)}`;
-}
-
-/**
- * The column's order: what fires soonest first, then what is paused or finished, newest first among
- * those. "Upcoming" is a promise about the top of the list, and a task that will never fire again
- * at the top would break it.
- */
-export function upcomingOrder(schedules: readonly Schedule[]): Schedule[] {
-  const armed = (s: Schedule) => s.enabled && s.nextRunAt !== null;
-  return [...schedules].sort((a, b) => {
-    if (armed(a) !== armed(b)) return armed(a) ? -1 : 1;
-    if (armed(a)) return a.nextRunAt! - b.nextRunAt! || a.title.localeCompare(b.title);
-    return b.createdAt - a.createdAt;
-  });
 }
 
 /**
@@ -136,34 +95,8 @@ export function filterSchedules(schedules: readonly Schedule[], query: string): 
 
 /* ────────────────────────────── runs ────────────────────────────── */
 
-/**
- * A run is unread until its session has been looked at to the end.
- *
- * Deliberately NOT the sidebar's `isUnread`, which reads a never-opened session (`seenSeq` 0) as having
- * missed nothing: a session somebody started, they watched start. A scheduled run's session was
- * started by a clock while nobody was looking, so never opened is exactly what unread means here. The
- * mark itself is the same column, so reading a run from the sidebar clears its dot on this page too.
- */
-export function runUnread(session: Pick<Session, "seenSeq" | "lastEventSeq"> | undefined): boolean {
-  return session !== undefined && session.lastEventSeq > session.seenSeq;
-}
-
 /** When a run happened, for its row: when it started, or when it was queued if it never did. */
 export const runMoment = (run: Pick<Run, "startedAt" | "createdAt">): number => run.startedAt ?? run.createdAt;
-
-/** The word a run's row wears beside its time, where the time alone would not say it. Null for a
- *  finished run, which is the ordinary case and wears nothing. */
-export function runState(run: Pick<Run, "state">): { label: string; mark: "running" | "waiting_permission" | "error" | null } | null {
-  switch (run.state) {
-    case "queued": return { label: "Starting", mark: null };
-    case "running": return { label: "Running", mark: "running" };
-    case "blocked": return { label: "Needs you", mark: "waiting_permission" };
-    case "failed": return { label: "Failed", mark: "error" };
-    case "expired": return { label: "Expired", mark: "error" };
-    case "cancelled": return { label: "Stopped", mark: null };
-    case "succeeded": return null;
-  }
-}
 
 /* ────────────────────────────── the modal's draft ────────────────────────────── */
 

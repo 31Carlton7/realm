@@ -1,6 +1,6 @@
-import type { AskCard, AskQuestion, SessionEvent, SessionEventType, StoredSessionEvent } from "@realm/contracts";
+import type { AskCard, AskQuestion, QueuedPrompt, SessionEvent, SessionEventType, StoredSessionEvent } from "@realm/contracts";
 import { givenAttachmentName } from "@realm/contracts/src/temp-attachments";
-import type { Row } from "@realm/remote";
+import type { QueuedMessage, Row } from "@realm/remote";
 import { questionOf } from "@realm/view";
 
 /**
@@ -54,6 +54,15 @@ function questionRow(q: AskQuestion): Question {
     id: q.id, kind: q.kind, allowOther: q.allowOther === true, secret: q.secret === true,
     ...(q.required ? { required: true } : {}), ...(q.detail ? { detail: q.detail } : {}),
     ...(q.placeholder ? { placeholder: q.placeholder } : {}), ...(q.default !== undefined ? { default: q.default } : {}),
+  };
+}
+
+/** A message waiting in the Mac's queue, as its user row will read once it goes out: each file named as
+ *  the person named it, without the prefix a phone's or a paste's file was written under. */
+export function queuedMessage(q: QueuedPrompt, attachmentsDir: string | null): QueuedMessage {
+  return {
+    id: q.id, text: q.text, at: q.ts, held: q.held,
+    attachments: q.attachments.map((a) => ({ path: a.path, name: givenAttachmentName(a.path, attachmentsDir), mime: a.mime })),
   };
 }
 

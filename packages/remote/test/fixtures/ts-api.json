@@ -23,7 +23,8 @@
           "createdAt": 1789990000000,
           "effort": "high",
           "permissionMode": "acceptEdits",
-          "activityAt": 1790000000000
+          "activityAt": 1790000000000,
+          "pinned": false
         },
         {
           "id": "01JCODEX000000000000000000",
@@ -42,7 +43,8 @@
           "createdAt": 1789900000000,
           "effort": null,
           "permissionMode": "default",
-          "activityAt": 1790000100000
+          "activityAt": 1790000100000,
+          "pinned": false
         }
       ],
       "spaces": [
@@ -72,7 +74,8 @@
               "createdAt": 1789990000000,
               "effort": "high",
               "permissionMode": "acceptEdits",
-              "activityAt": 1790000000000
+              "activityAt": 1790000000000,
+              "pinned": false
             },
             {
               "id": "01JREALM000000000000000001",
@@ -91,7 +94,8 @@
               "createdAt": 1789000000000,
               "effort": null,
               "permissionMode": "default",
-              "activityAt": 1789982000000
+              "activityAt": 1789982000000,
+              "pinned": false
             },
             {
               "id": "01JREALM000000000000000002",
@@ -110,7 +114,8 @@
               "createdAt": 1789000000001,
               "effort": "max",
               "permissionMode": "plan",
-              "activityAt": 1789964000000
+              "activityAt": 1789964000000,
+              "pinned": false
             },
             {
               "id": "01JREALM000000000000000003",
@@ -129,7 +134,8 @@
               "createdAt": 1789000000002,
               "effort": null,
               "permissionMode": "default",
-              "activityAt": 1789946000000
+              "activityAt": 1789946000000,
+              "pinned": false
             },
             {
               "id": "01JREALM000000000000000004",
@@ -148,7 +154,8 @@
               "createdAt": 1789000000003,
               "effort": null,
               "permissionMode": "default",
-              "activityAt": 1789928000000
+              "activityAt": 1789928000000,
+              "pinned": false
             }
           ],
           "more": 2
@@ -179,7 +186,8 @@
               "createdAt": 1789900000000,
               "effort": null,
               "permissionMode": "default",
-              "activityAt": 1790000100000
+              "activityAt": 1790000100000,
+              "pinned": false
             }
           ],
           "more": 0
@@ -209,7 +217,8 @@
               "createdAt": 1789800000000,
               "effort": null,
               "permissionMode": "default",
-              "activityAt": 1790000200000
+              "activityAt": 1790000200000,
+              "pinned": false
             }
           ],
           "more": 0
@@ -254,7 +263,8 @@
           "createdAt": 1789800000000,
           "effort": null,
           "permissionMode": "default",
-          "activityAt": 1790000200000
+          "activityAt": 1790000200000,
+          "pinned": false
         },
         {
           "id": "01JCODEX000000000000000000",
@@ -273,7 +283,8 @@
           "createdAt": 1789900000000,
           "effort": null,
           "permissionMode": "default",
-          "activityAt": 1790000100000
+          "activityAt": 1790000100000,
+          "pinned": false
         },
         {
           "id": "01JSESSION00000000000000000",
@@ -292,7 +303,8 @@
           "createdAt": 1789990000000,
           "effort": "high",
           "permissionMode": "acceptEdits",
-          "activityAt": 1790000000000
+          "activityAt": 1790000000000,
+          "pinned": false
         },
         {
           "id": "01JREALM000000000000000001",
@@ -311,7 +323,8 @@
           "createdAt": 1789000000000,
           "effort": null,
           "permissionMode": "default",
-          "activityAt": 1789982000000
+          "activityAt": 1789982000000,
+          "pinned": false
         },
         {
           "id": "01JREALM000000000000000002",
@@ -330,7 +343,8 @@
           "createdAt": 1789000000001,
           "effort": "max",
           "permissionMode": "plan",
-          "activityAt": 1789964000000
+          "activityAt": 1789964000000,
+          "pinned": false
         },
         {
           "id": "01JREALM000000000000000003",
@@ -349,7 +363,8 @@
           "createdAt": 1789000000002,
           "effort": null,
           "permissionMode": "default",
-          "activityAt": 1789946000000
+          "activityAt": 1789946000000,
+          "pinned": false
         },
         {
           "id": "01JREALM000000000000000004",
@@ -368,7 +383,8 @@
           "createdAt": 1789000000003,
           "effort": null,
           "permissionMode": "default",
-          "activityAt": 1789928000000
+          "activityAt": 1789928000000,
+          "pinned": false
         },
         {
           "id": "01JREALM000000000000000005",
@@ -387,7 +403,8 @@
           "createdAt": 1789000000004,
           "effort": null,
           "permissionMode": "default",
-          "activityAt": 1789910000000
+          "activityAt": 1789910000000,
+          "pinned": true
         },
         {
           "id": "01JREALM000000000000000006",
@@ -406,7 +423,8 @@
           "createdAt": 1789000000005,
           "effort": null,
           "permissionMode": "default",
-          "activityAt": 1789892000000
+          "activityAt": 1789892000000,
+          "pinned": false
         }
       ]
     },
@@ -432,7 +450,8 @@
           "createdAt": 1789990000000,
           "effort": "high",
           "permissionMode": "acceptEdits",
-          "activityAt": 1790000000000
+          "activityAt": 1790000000000,
+          "pinned": false
         },
         {
           "id": "01JCODEX000000000000000000",
@@ -451,7 +470,8 @@
           "createdAt": 1789900000000,
           "effort": null,
           "permissionMode": "default",
-          "activityAt": 1790000100000
+          "activityAt": 1790000100000,
+          "pinned": false
         }
       ],
       "spaces": [
@@ -481,7 +501,8 @@
               "createdAt": 1789990000000,
               "effort": "high",
               "permissionMode": "acceptEdits",
-              "activityAt": 1790000000000
+              "activityAt": 1790000000000,
+              "pinned": false
             },
             {
               "id": "01JREALM000000000000000001",
@@ -500,7 +521,8 @@
               "createdAt": 1789000000000,
               "effort": null,
               "permissionMode": "default",
-              "activityAt": 1789982000000
+              "activityAt": 1789982000000,
+              "pinned": false
             },
             {
               "id": "01JREALM000000000000000002",
@@ -519,7 +541,8 @@
               "createdAt": 1789000000001,
               "effort": "max",
               "permissionMode": "plan",
-              "activityAt": 1789964000000
+              "activityAt": 1789964000000,
+              "pinned": false
             },
             {
               "id": "01JREALM000000000000000003",
@@ -538,7 +561,8 @@
               "createdAt": 1789000000002,
               "effort": null,
               "permissionMode": "default",
-              "activityAt": 1789946000000
+              "activityAt": 1789946000000,
+              "pinned": false
             },
             {
               "id": "01JREALM000000000000000004",
@@ -557,7 +581,8 @@
               "createdAt": 1789000000003,
               "effort": null,
               "permissionMode": "default",
-              "activityAt": 1789928000000
+              "activityAt": 1789928000000,
+              "pinned": false
             }
           ],
           "more": 2
@@ -588,7 +613,8 @@
               "createdAt": 1789900000000,
               "effort": null,
               "permissionMode": "default",
-              "activityAt": 1790000100000
+              "activityAt": 1790000100000,
+              "pinned": false
             }
           ],
           "more": 0
@@ -618,7 +644,8 @@
               "createdAt": 1789800000000,
               "effort": null,
               "permissionMode": "default",
-              "activityAt": 1790000200000
+              "activityAt": 1790000200000,
+              "pinned": false
             }
           ],
           "more": 0
@@ -663,7 +690,8 @@
           "createdAt": 1789900000000,
           "effort": null,
           "permissionMode": "default",
-          "activityAt": 1790000100000
+          "activityAt": 1790000100000,
+          "pinned": false
         },
         {
           "id": "01JSESSION00000000000000000",
@@ -682,7 +710,8 @@
           "createdAt": 1789990000000,
           "effort": "high",
           "permissionMode": "acceptEdits",
-          "activityAt": 1790000000000
+          "activityAt": 1790000000000,
+          "pinned": false
         },
         {
           "id": "01JREALM000000000000000001",
@@ -701,7 +730,8 @@
           "createdAt": 1789000000000,
           "effort": null,
           "permissionMode": "default",
-          "activityAt": 1789982000000
+          "activityAt": 1789982000000,
+          "pinned": false
         },
         {
           "id": "01JREALM000000000000000002",
@@ -720,7 +750,8 @@
           "createdAt": 1789000000001,
           "effort": "max",
           "permissionMode": "plan",
-          "activityAt": 1789964000000
+          "activityAt": 1789964000000,
+          "pinned": false
         },
         {
           "id": "01JREALM000000000000000003",
@@ -739,7 +770,8 @@
           "createdAt": 1789000000002,
           "effort": null,
           "permissionMode": "default",
-          "activityAt": 1789946000000
+          "activityAt": 1789946000000,
+          "pinned": false
         },
         {
           "id": "01JREALM000000000000000004",
@@ -758,7 +790,8 @@
           "createdAt": 1789000000003,
           "effort": null,
           "permissionMode": "default",
-          "activityAt": 1789928000000
+          "activityAt": 1789928000000,
+          "pinned": false
         },
         {
           "id": "01JREALM000000000000000005",
@@ -777,7 +810,8 @@
           "createdAt": 1789000000004,
           "effort": null,
           "permissionMode": "default",
-          "activityAt": 1789910000000
+          "activityAt": 1789910000000,
+          "pinned": true
         },
         {
           "id": "01JREALM000000000000000006",
@@ -796,7 +830,8 @@
           "createdAt": 1789000000005,
           "effort": null,
           "permissionMode": "default",
-          "activityAt": 1789892000000
+          "activityAt": 1789892000000,
+          "pinned": false
         }
       ]
     },
@@ -819,7 +854,8 @@
           "createdAt": 1789990000000,
           "effort": "high",
           "permissionMode": "acceptEdits",
-          "activityAt": 1790000000000
+          "activityAt": 1790000000000,
+          "pinned": false
         },
         {
           "id": "01JREALM000000000000000001",
@@ -838,7 +874,8 @@
           "createdAt": 1789000000000,
           "effort": null,
           "permissionMode": "default",
-          "activityAt": 1789982000000
+          "activityAt": 1789982000000,
+          "pinned": false
         },
         {
           "id": "01JREALM000000000000000002",
@@ -857,7 +894,8 @@
           "createdAt": 1789000000001,
           "effort": "max",
           "permissionMode": "plan",
-          "activityAt": 1789964000000
+          "activityAt": 1789964000000,
+          "pinned": false
         },
         {
           "id": "01JREALM000000000000000003",
@@ -876,7 +914,8 @@
           "createdAt": 1789000000002,
           "effort": null,
           "permissionMode": "default",
-          "activityAt": 1789946000000
+          "activityAt": 1789946000000,
+          "pinned": false
         }
       ],
       "more": true
@@ -900,7 +939,8 @@
           "createdAt": 1789000000003,
           "effort": null,
           "permissionMode": "default",
-          "activityAt": 1789928000000
+          "activityAt": 1789928000000,
+          "pinned": false
         },
         {
           "id": "01JREALM000000000000000005",
@@ -919,7 +959,8 @@
           "createdAt": 1789000000004,
           "effort": null,
           "permissionMode": "default",
-          "activityAt": 1789910000000
+          "activityAt": 1789910000000,
+          "pinned": true
         },
         {
           "id": "01JREALM000000000000000006",
@@ -938,7 +979,8 @@
           "createdAt": 1789000000005,
           "effort": null,
           "permissionMode": "default",
-          "activityAt": 1789892000000
+          "activityAt": 1789892000000,
+          "pinned": false
         }
       ],
       "more": false
@@ -961,7 +1003,8 @@
         "createdAt": 1789990000000,
         "effort": "high",
         "permissionMode": "acceptEdits",
-        "activityAt": 1790000000000
+        "activityAt": 1790000000000,
+        "pinned": false
       },
       "rows": [
         {
@@ -1261,7 +1304,29 @@
         }
       ],
       "hasMore": false,
-      "hint": "Approve the plan and run the migration"
+      "hint": "Approve the plan and run the migration",
+      "queued": [
+        {
+          "id": "01JQUEUED00000000000000001",
+          "text": "Then rename the column to theme_mode",
+          "at": 1790000060000,
+          "held": true,
+          "attachments": []
+        },
+        {
+          "id": "01JQUEUED00000000000000002",
+          "text": "Use this sketch for the toggle",
+          "at": 1790000070000,
+          "held": false,
+          "attachments": [
+            {
+              "path": "/Users/me/Realm/tmp/attachments/5e6f7a8b9c0d-sketch.png",
+              "name": "sketch.png",
+              "mime": "image/png"
+            }
+          ]
+        }
+      ]
     },
     "session.changes": {
       "checkpointId": "01JCHECKPOINT0000000000000",
@@ -2586,6 +2651,455 @@
         "maxBytes": 8388608,
         "maxTotalBytes": 10485760
       }
+    },
+    "session.queue": {
+      "queued": [
+        {
+          "id": "01JQUEUED00000000000000001",
+          "text": "Then rename the column to theme_mode",
+          "at": 1790000060000,
+          "held": true,
+          "attachments": []
+        },
+        {
+          "id": "01JQUEUED00000000000000002",
+          "text": "Use this sketch for the toggle",
+          "at": 1790000070000,
+          "held": false,
+          "attachments": [
+            {
+              "path": "/Users/me/Realm/tmp/attachments/5e6f7a8b9c0d-sketch.png",
+              "name": "sketch.png",
+              "mime": "image/png"
+            }
+          ]
+        }
+      ]
+    },
+    "session.file:queued": {
+      "path": "/Users/me/Realm/tmp/attachments/5e6f7a8b9c0d-sketch.png",
+      "name": "sketch.png",
+      "size": 3,
+      "mime": "image/png",
+      "preview": {
+        "kind": "image",
+        "mime": "image/jpeg",
+        "data": "anBlZw=="
+      }
+    },
+    "session.subagents": {
+      "subagents": [
+        {
+          "session": {
+            "id": "01JWORKER00000000000000000",
+            "title": "Backfill the theme column",
+            "spaceId": "sp1",
+            "spaceName": "Realm",
+            "agent": "codex",
+            "model": "gpt-6-luna",
+            "status": "running",
+            "needsYou": false,
+            "unread": false,
+            "updatedAt": 1789999900000,
+            "agentName": "Codex",
+            "agentMark": "openai",
+            "modelLabel": "GPT-6 Luna",
+            "createdAt": 1789999500000,
+            "effort": null,
+            "permissionMode": "default",
+            "activityAt": 1789999900000,
+            "pinned": false
+          },
+          "goal": "Backfill the theme column for every existing row, 500 at a time.",
+          "startedAt": 1789999500000,
+          "settledAt": null,
+          "outcome": null,
+          "report": null,
+          "note": null
+        },
+        {
+          "session": {
+            "id": "01JMIGRATOR000000000000000",
+            "title": "Write the migration",
+            "spaceId": "sp1",
+            "spaceName": "Realm",
+            "agent": "claude",
+            "model": "claude-sonnet-5",
+            "status": "idle",
+            "needsYou": false,
+            "unread": false,
+            "updatedAt": 1789999400000,
+            "agentName": "Claude",
+            "agentMark": "claude",
+            "modelLabel": "Sonnet 5",
+            "createdAt": 1789999000000,
+            "effort": null,
+            "permissionMode": "default",
+            "activityAt": 1789999400000,
+            "pinned": false
+          },
+          "goal": "Write the migration that adds the theme column, with a down step.",
+          "startedAt": 1789999000000,
+          "settledAt": 1789999400000,
+          "outcome": "done",
+          "report": "Added `migrations/0042_theme.sql` with an up and a down step. The suite passes.",
+          "note": null
+        },
+        {
+          "session": {
+            "id": "01JPROFILER000000000000000",
+            "title": "Profile the theme switch",
+            "spaceId": "sp1",
+            "spaceName": "Realm",
+            "agent": "claude",
+            "model": "claude-opus-5-5",
+            "status": "idle",
+            "needsYou": false,
+            "unread": false,
+            "updatedAt": 1789998300000,
+            "agentName": "Claude",
+            "agentMark": "claude",
+            "modelLabel": "Opus 5.5",
+            "createdAt": 1789998000000,
+            "effort": null,
+            "permissionMode": "default",
+            "activityAt": 1789998300000,
+            "pinned": false
+          },
+          "goal": "Profile how long the theme switch takes on a cold start.",
+          "startedAt": 1789998000000,
+          "settledAt": 1789998300000,
+          "outcome": "cancelled",
+          "report": null,
+          "note": "Stopped when the session that started it was stopped."
+        }
+      ]
+    },
+    "usage.get": {
+      "limits": [
+        {
+          "agent": "claude",
+          "agentName": "Claude",
+          "agentMark": "claude",
+          "plan": "max",
+          "windows": [
+            {
+              "id": "seven_day",
+              "label": "Weekly",
+              "resetsAt": 4102704000000,
+              "usedPercent": 91
+            },
+            {
+              "id": "seven_day_opus",
+              "label": "Opus weekly",
+              "resetsAt": 1600000000000,
+              "usedPercent": null
+            },
+            {
+              "id": "five_hour",
+              "label": "5-hour",
+              "resetsAt": 4102444800000,
+              "usedPercent": 34
+            },
+            {
+              "id": "model:Fable",
+              "label": "Fable weekly",
+              "resetsAt": null,
+              "usedPercent": null
+            }
+          ],
+          "alert": "Weekly limit nearly reached",
+          "unavailable": null,
+          "at": 1790000000000
+        },
+        {
+          "agent": "codex",
+          "agentName": "Codex",
+          "agentMark": "openai",
+          "plan": null,
+          "windows": [],
+          "alert": null,
+          "unavailable": "Run a Codex session and its plan limits will appear here.",
+          "at": 0
+        },
+        {
+          "agent": "acp:cursor",
+          "agentName": "Cursor",
+          "agentMark": "cursor",
+          "plan": null,
+          "windows": [],
+          "alert": null,
+          "unavailable": "Cursor does not report plan limits.",
+          "at": 0
+        },
+        {
+          "agent": "acp:gemini",
+          "agentName": "Gemini",
+          "agentMark": "gemini",
+          "plan": null,
+          "windows": [],
+          "alert": null,
+          "unavailable": "Gemini does not report plan limits.",
+          "at": 0
+        }
+      ],
+      "spend": {
+        "monthToDate": 61.38,
+        "budget": 150,
+        "topSessions": [
+          {
+            "id": "01JSESSION00000000000000000",
+            "title": "Theme column",
+            "spaceName": "Realm",
+            "cost": 18.42
+          },
+          {
+            "id": "01JCODEX000000000000000000",
+            "title": "The deck",
+            "spaceName": "Deck",
+            "cost": 9.1
+          },
+          {
+            "id": "01JREALM000000000000000001",
+            "title": "Tidy the settings page",
+            "spaceName": "Realm",
+            "cost": 4.25
+          },
+          {
+            "id": "01JMIGRATOR000000000000000",
+            "title": "Write the migration",
+            "spaceName": "Realm",
+            "cost": 3.75
+          },
+          {
+            "id": "01JQUIET000000000000000000",
+            "title": "Lecture notes",
+            "spaceName": "School",
+            "cost": 2.5
+          }
+        ]
+      }
+    },
+    "reviews.list": {
+      "reviews": [
+        {
+          "id": "01JREVIEW00000000000000002",
+          "spaceId": "sp2",
+          "spaceName": "Deck",
+          "roleName": "Content Producer",
+          "title": "Reply to Dana about the beta",
+          "kind": "message",
+          "state": "changes",
+          "itemCount": 1,
+          "to": "dana@acme.com",
+          "channels": [
+            "email"
+          ],
+          "note": "Shorter, and say when it ships",
+          "sessionId": "01JCODEX000000000000000000",
+          "updatedAt": 1790000200000
+        },
+        {
+          "id": "01JREVIEW00000000000000001",
+          "spaceId": "sp2",
+          "spaceName": "Deck",
+          "roleName": "Content Producer",
+          "title": "Dark mode launch: the post, and a note to Dana",
+          "kind": "launch",
+          "state": "waiting",
+          "itemCount": 2,
+          "to": null,
+          "channels": [
+            "instagram",
+            "email"
+          ],
+          "note": null,
+          "sessionId": "01JCODEX000000000000000000",
+          "updatedAt": 1790000000000
+        }
+      ]
+    },
+    "review.get": {
+      "review": {
+        "id": "01JREVIEW00000000000000001",
+        "spaceId": "sp2",
+        "spaceName": "Deck",
+        "roleName": "Content Producer",
+        "title": "Dark mode launch: the post, and a note to Dana",
+        "kind": "launch",
+        "state": "waiting",
+        "itemCount": 2,
+        "to": null,
+        "channels": [
+          "instagram",
+          "email"
+        ],
+        "note": null,
+        "sessionId": "01JCODEX000000000000000000",
+        "updatedAt": 1790000000000
+      },
+      "items": [
+        {
+          "id": "01JITEM0000000000000000001",
+          "title": null,
+          "body": "Dark mode is here: Settings ▸ App ▸ Theme.",
+          "channel": "instagram",
+          "to": null,
+          "files": [
+            {
+              "path": "/Users/me/Desktop/Deck/renders/toggle.png",
+              "name": "toggle.png",
+              "mime": "image/png"
+            }
+          ]
+        },
+        {
+          "id": "01JITEM0000000000000000002",
+          "title": "Dark mode ships Friday",
+          "body": "Hi Dana,\n\nDark mode ships on Friday. The beta has it now.\n\nCarlton",
+          "channel": null,
+          "to": "dana@acme.com",
+          "files": []
+        }
+      ]
+    },
+    "review.file": {
+      "path": "/Users/me/Desktop/Deck/renders/toggle.png",
+      "name": "toggle.png",
+      "size": 3,
+      "mime": "image/png",
+      "preview": {
+        "kind": "image",
+        "mime": "image/jpeg",
+        "data": "anBlZw=="
+      }
+    },
+    "review.decide": {
+      "review": {
+        "id": "01JREVIEW00000000000000001",
+        "spaceId": "sp2",
+        "spaceName": "Deck",
+        "roleName": "Content Producer",
+        "title": "Dark mode launch: the post, and a note to Dana",
+        "kind": "launch",
+        "state": "approved",
+        "itemCount": 2,
+        "to": null,
+        "channels": [
+          "instagram",
+          "email"
+        ],
+        "note": null,
+        "sessionId": "01JCODEX000000000000000000",
+        "updatedAt": 1790000300000
+      }
+    },
+    "review.decide:changes": {
+      "review": {
+        "id": "01JREVIEW00000000000000001",
+        "spaceId": "sp2",
+        "spaceName": "Deck",
+        "roleName": "Content Producer",
+        "title": "Dark mode launch: the post, and a note to Dana",
+        "kind": "launch",
+        "state": "changes",
+        "itemCount": 2,
+        "to": null,
+        "channels": [
+          "instagram",
+          "email"
+        ],
+        "note": "Say it ships Friday in the caption too",
+        "sessionId": "01JCODEX000000000000000000",
+        "updatedAt": 1790000300000
+      }
+    },
+    "schedules.list": {
+      "tasks": [
+        {
+          "id": "01JSCHEDULE000000000000001",
+          "spaceId": "sp1",
+          "spaceName": "Realm",
+          "title": "Morning brief",
+          "when": "Weekdays at 8:00 AM",
+          "enabled": true,
+          "nextRunAt": 1790050000000,
+          "lastRunAt": 1789990000000,
+          "lastRun": {
+            "state": "Finished",
+            "sessionId": "01JBRIEF000000000000000000",
+            "unread": true
+          }
+        },
+        {
+          "id": "01JSCHEDULE000000000000002",
+          "spaceId": "sp1",
+          "spaceName": "Realm",
+          "title": "Weekly review",
+          "when": "Fridays at 4:00 PM",
+          "enabled": true,
+          "nextRunAt": 1790100000000,
+          "lastRunAt": null,
+          "lastRun": null
+        },
+        {
+          "id": "01JSCHEDULE000000000000003",
+          "spaceId": "sp3",
+          "spaceName": "School",
+          "title": "Watch CI",
+          "when": "Every day at 9:30 AM",
+          "enabled": false,
+          "nextRunAt": null,
+          "lastRunAt": 1789800000000,
+          "lastRun": {
+            "state": "Failed",
+            "sessionId": null,
+            "unread": false
+          }
+        }
+      ]
+    },
+    "schedules.runNow": {
+      "task": {
+        "id": "01JSCHEDULE000000000000002",
+        "spaceId": "sp1",
+        "spaceName": "Realm",
+        "title": "Weekly review",
+        "when": "Fridays at 4:00 PM",
+        "enabled": true,
+        "nextRunAt": 1790100000000,
+        "lastRunAt": 1790000400000,
+        "lastRun": {
+          "state": "Starting",
+          "sessionId": null,
+          "unread": false
+        }
+      }
+    },
+    "session.update": {
+      "session": {
+        "id": "01JREALM000000000000000006",
+        "title": "Write the 2.0.3 changelog",
+        "spaceId": "sp1",
+        "spaceName": "Realm",
+        "agent": "claude",
+        "model": "claude-opus-5-5",
+        "status": "idle",
+        "needsYou": false,
+        "unread": false,
+        "updatedAt": 1789892000000,
+        "agentName": "Claude",
+        "agentMark": "claude",
+        "modelLabel": "Opus 5.5",
+        "createdAt": 1789000000005,
+        "effort": null,
+        "permissionMode": "default",
+        "activityAt": 1789892000000,
+        "pinned": true
+      }
+    },
+    "session.update:archived": {
+      "session": null
     }
   },
   "events": {
@@ -2598,6 +3112,45 @@
         "id": "01JSESSION00000000000000000",
         "text": null
       }
+    ],
+    "session.queue": [
+      {
+        "id": "01JSESSION00000000000000000",
+        "queued": [
+          {
+            "id": "01JQUEUED00000000000000001",
+            "text": "Then rename the column to theme_mode",
+            "at": 1790000060000,
+            "held": true,
+            "attachments": []
+          },
+          {
+            "id": "01JQUEUED00000000000000002",
+            "text": "Use this sketch for the toggle",
+            "at": 1790000070000,
+            "held": false,
+            "attachments": [
+              {
+                "path": "/Users/me/Realm/tmp/attachments/5e6f7a8b9c0d-sketch.png",
+                "name": "sketch.png",
+                "mime": "image/png"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "01JSESSION00000000000000000",
+        "queued": []
+      }
+    ],
+    "session.subagents": [
+      {
+        "id": "01JSESSION00000000000000000"
+      }
+    ],
+    "work.changed": [
+      {}
     ]
   },
   "answer": {

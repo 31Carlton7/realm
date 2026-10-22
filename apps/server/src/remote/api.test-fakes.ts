@@ -1,4 +1,4 @@
-import type { Item, MethodName, MethodParams, MethodResult, Profile, Session, Space } from "@realm/contracts";
+import type { Item, MethodName, MethodParams, MethodResult, Profile, QueuedPrompt, Session, Space } from "@realm/contracts";
 import type { ChannelContext } from "./api";
 import type { RpcPort } from "./rpc-port";
 
@@ -14,7 +14,7 @@ export const session = (id: string, spaceId: string, extra: Partial<Session> = {
   ({ id, spaceId, projectId: null, agentKind: "fake", model: null, effort: null, fastMode: false, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", cwd: "/tmp", status: "idle",
     providerSessionId: null, title: `${id} (session)`, lastEventSeq: 0, seenSeq: 0, terminalItemId: null, dispatchedBy: null, activityAt: 0, createdAt: 0, updatedAt: 0, ...extra });
 
-export type Lists = { profiles?: Profile[]; spaces?: Space[]; sessions: Session[]; items: Item[]; settings?: Record<string, unknown> };
+export type Lists = { profiles?: Profile[]; spaces?: Space[]; sessions: Session[]; items: Item[]; settings?: Record<string, unknown>; queued?: Record<string, QueuedPrompt[]> };
 
 /** The desktop's RPC as `home.get` reads it: `items.listAll` leaves archived rows out, as the store does. */
 export function fakeRpc(h: Lists, more: Partial<Record<MethodName, (p: never) => unknown>> = {}): RpcPort & { calls: string[] } {
@@ -34,6 +34,7 @@ export function fakeRpc(h: Lists, more: Partial<Record<MethodName, (p: never) =>
         return found;
       }
       case "sessions.events": return [];
+      case "sessions.queued": return { queued: h.queued?.[(params as { id: string }).id] ?? [] };
       default: throw new Error(`the fake has no ${method}`);
     }
   };
