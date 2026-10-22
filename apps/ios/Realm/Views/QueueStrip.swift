@@ -228,9 +228,9 @@ private struct QueueSheet: View {
     }
 }
 
-/// One queued message: its words in two lines, its files, the mark of an edit under way, and its three
-/// actions — Edit, Remove, and Send now, which the agent's own note explains. While a call for it is on
-/// its way the actions give their place to a spinner.
+/// One queued message: its words in two lines (more at the accessibility sizes), its files, the mark of
+/// an edit under way, and its three actions — Edit, Remove, and Send now, which the agent's own note
+/// explains. While a call for it is on its way the actions give their place to a spinner.
 private struct QueuedRow: View {
     let message: QueuedMessage
     let index: Int
@@ -252,7 +252,9 @@ private struct QueuedRow: View {
                 Text(QueueWords.text(message))
                     .font(.subheadline)
                     .foregroundStyle(Palette.ink)
-                    .lineLimit(2)
+                    // Two lines over the composer; at the accessibility sizes a row is only ever in the
+                    // queue's sheet, which scrolls.
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 8 : 2)
                 if !message.attachments.isEmpty {
                     QueuedFiles(files: message.attachments, sessionId: sessionId)
                 }
