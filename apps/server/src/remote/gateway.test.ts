@@ -859,6 +859,8 @@ describe("Plan 29's parity: what a phone hears, at the moment it hears it", () =
     });
     await phone.call("session.open", { id: "lead" });
     await phone.call("session.subagents", { id: "lead" });
+    // Opened again, as a phone does coming back to it, the lead still knows the sub-agents read of it.
+    await phone.call("session.open", { id: "lead" });
     const heard: string[] = [];
     phone.on("session.subagents", (p) => { heard.push(MobileEvents["session.subagents"].parse(p).id); });
     // A settle: the sub-agent goes idle and its lead's runs change in the same instant.
