@@ -129,18 +129,20 @@ struct WorkHeadLines: View {
 }
 
 /// A quiet line at the head of Home: a glyph, what it is about in words, and a chevron, a press from
-/// what it names.
+/// what it names. The glyphs keep one column, so the words of the lines under each other start together.
 struct HeadLine: View {
     let symbol: String
     let tone: Color
     let words: String
     let action: () -> Void
+    @ScaledMetric(relativeTo: .subheadline) private var glyph: CGFloat = 22
 
     var body: some View {
         Button(action: action) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Image(systemName: symbol)
                     .foregroundStyle(tone)
+                    .frame(width: glyph)
                     .accessibilityHidden(true)
                 Text(words)
                     .foregroundStyle(Palette.ink)

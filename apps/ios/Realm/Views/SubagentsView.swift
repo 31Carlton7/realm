@@ -130,11 +130,15 @@ enum SubagentWords {
         }
     }
 
-    /// What it was asked to do, as one run of words for a row that folds it: its goal, else its
-    /// session's title.
-    static func goal(_ subagent: Subagent) -> String {
-        let goal = (subagent.goal ?? "").split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        return goal.isEmpty ? subagent.session.displayTitle : goal
+    /// What it was asked to do, as its lead's Agents tab titles it: its session's name for the task,
+    /// else the first line of its goal — the rest of a goal is the brief it was handed, which its own
+    /// session shows. A name an older Mac wrote as "Agent: " and the goal's first words, cut short, is
+    /// passed over for the goal's line, which says the same whole.
+    static func title(_ subagent: Subagent) -> String {
+        let name = subagent.session.title.trimmingCharacters(in: .whitespaces)
+        if !name.isEmpty, !name.hasPrefix("Agent: "), !name.hasPrefix("Browser agent: ") { return name }
+        let line = (subagent.goal ?? "").split(separator: "\n").lazy.map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty }
+        return line ?? "Sub-agent"
     }
 
     /// How long it ran, or has run so far, in seconds.
@@ -156,12 +160,13 @@ enum SubagentWords {
         return plain.isEmpty ? nil : plain
     }
 
-    /// A row as VoiceOver reads it: the goal, where it stands and for how long, its model, its report.
+    /// A row as VoiceOver reads it: what it was asked, where it stands and for how long, its model, its
+    /// report.
     static func spoken(_ subagent: Subagent, now: Date) -> String {
         let state = SubagentState(subagent)
         let model = subagent.session.modelDisplayName ?? subagent.session.agentDisplayName
         let ran = PillWords.elapsed(Self.ran(subagent, state: state, now: now), spoken: true)
-        return [goal(subagent), state.word, ran, model, subagent.note, report(subagent)].compactMap { $0 }.joined(separator: ", ")
+        return [title(subagent), state.word, ran, model, subagent.note, report(subagent)].compactMap { $0 }.joined(separator: ", ")
     }
 }
 
@@ -217,6 +222,7 @@ private struct SubagentsSheet: View {
     let sessionId: String
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         let subagents = model.work.subagents[sessionId] ?? []
@@ -246,7 +252,8 @@ private struct SubagentsSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        // At the accessibility sizes half the screen holds less than a row.
+        .presentationDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.medium, .large])
         .presentationBackground(Ground.grouped)
         .task { await model.work.loadSubagents(sessionId) }
     }
@@ -257,6 +264,7 @@ private struct SubagentsSheet: View {
 private struct SubagentRow: View {
     let subagent: Subagent
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .body) private var glyph: CGFloat = 20
 
     var body: some View {
         let state = SubagentState(subagent)
@@ -265,9 +273,9 @@ private struct SubagentRow: View {
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(state.tone.color)
                 .restingPulse(when: state == .working)
-                .frame(width: 20)
+                .frame(width: glyph)
             VStack(alignment: .leading, spacing: 5) {
-                Text(SubagentWords.goal(subagent))
+                Text(SubagentWords.title(subagent))
                     .font(.body)
                     .foregroundStyle(Palette.ink)
                     .lineLimit(dynamicTypeSize.isAccessibilitySize ? 4 : 2)
@@ -297,10 +305,11 @@ private struct SubagentRow: View {
         .accessibilityHint("Opens its session")
     }
 
-    /// The model, the state's word in its tone, and how long it ran — on one line, or under each other
-    /// at the accessibility sizes. A run still going counts up.
+    /// The model, the state's word in its tone, and how long it ran — on one line, or the model over
+    /// the rest at the accessibility sizes. A run still going counts up.
     private func facts(_ state: SubagentState) -> some View {
-        let line = dynamicTypeSize.isAccessibilitySize
+        let stacked = dynamicTypeSize.isAccessibilitySize
+        let line = stacked
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
             : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 6))
         return line {
@@ -310,10 +319,13 @@ private struct SubagentRow: View {
                     .lineLimit(1)
             }
             .foregroundStyle(Palette.ink2)
-            HStack(spacing: 4) {
+            HStack(spacing: 6) {
+                if !stacked { Text("·").foregroundStyle(Palette.ink2) }
                 Text(state.word)
                     .fontWeight(.semibold)
                     .foregroundStyle(state.tone.color)
+                Text("·")
+                    .foregroundStyle(Palette.ink2)
                 if state.isLive {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         ran(state, now: context.date)

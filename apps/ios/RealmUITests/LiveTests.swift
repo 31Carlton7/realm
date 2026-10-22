@@ -608,9 +608,11 @@ final class LiveTests: XCTestCase {
         sleep(1)
         shot("review")
         tile.tap()
-        sleep(2)
+        let done = quickLookDone()
+        sleep(1)
         shot("review-picture")
-        closeQuickLook()
+        done.tap()
+        XCTAssert(done.waitForNonExistence(timeout: 10), "Quick Look did not close")
         app.buttons["Ask for changes"].tap()
         let sheet = app.navigationBars["Ask for changes"]
         XCTAssert(sheet.waitForExistence(timeout: 5), "Ask for changes did not open its note")
@@ -860,16 +862,14 @@ final class LiveTests: XCTestCase {
         app.buttons["Settings"].tap()
     }
 
-    /// Quick Look over the app: put away by its own button, or by a swipe down where it shows none.
+    /// Quick Look's button that puts it away, once it is up. It can open on the picture alone, its bars
+    /// hidden until the picture is pressed.
     @MainActor
-    private func closeQuickLook() {
+    private func quickLookDone() -> XCUIElement {
         let done = app.buttons.matching(NSPredicate(format: "label IN %@", ["Done", "Close"])).firstMatch
-        if done.waitForExistence(timeout: 3) {
-            done.tap()
-        } else {
-            app.swipeDown(velocity: .fast)
-        }
-        sleep(1)
+        if !done.waitForExistence(timeout: 15) { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+        XCTAssert(done.waitForExistence(timeout: 10), "Quick Look did not open the picture")
+        return done
     }
 
     /// Home's title, which opens the menu of profiles.

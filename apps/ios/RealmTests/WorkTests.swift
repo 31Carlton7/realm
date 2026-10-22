@@ -12,10 +12,10 @@ enum Work {
     static let minute: Millis = 60_000
 
     static func subagent(_ id: String = "child", status: SessionStatus = .idle, outcome: String? = nil, settled: Bool = true,
-                         goal: String? = "Read the composer's code", report: String? = nil, startedAt: Millis? = nil,
-                         note: String? = nil) -> Subagent {
+                         title: String = "Composer audit", goal: String? = "Read the composer's code", report: String? = nil,
+                         startedAt: Millis? = nil, note: String? = nil) -> Subagent {
         let started = startedAt ?? nowMillis - 10 * minute
-        return Subagent(session: SessionRow(id: id, title: "Composer audit", spaceId: "sp", spaceName: "Realm", agent: "claude",
+        return Subagent(session: SessionRow(id: id, title: title, spaceId: "sp", spaceName: "Realm", agent: "claude",
                                             model: "claude-opus-5-5", status: status, needsYou: false, unread: false,
                                             updatedAt: started + 4 * minute, modelLabel: "Opus 5.5"),
                         goal: goal, startedAt: started, settledAt: settled ? started + 3 * minute + 12_000 : nil, outcome: outcome,
@@ -128,11 +128,14 @@ struct SubagentWordsTests {
         #expect(SubagentOrder.newestFirst([older, twinA, newer, twinB]).map(\.id) == ["newer", "a", "b", "older"])
     }
 
-    /// The goal as one run of words a row folds, or the session's title where it was given none.
-    @Test func aRowLeadsWithItsGoal() {
-        #expect(SubagentWords.goal(Work.subagent(goal: "Read the composer.\n\n  Then list   its views.")) == "Read the composer. Then list its views.")
-        #expect(SubagentWords.goal(Work.subagent(goal: nil)) == "Composer audit")
-        #expect(SubagentWords.goal(Work.subagent(goal: "  \n ")) == "Composer audit")
+    /// A row leads with what it was asked, as the Agents tab titles it: its session's name for the
+    /// task, else its goal's first line; never the brief that follows.
+    @Test func aRowLeadsWithWhatItWasAsked() {
+        #expect(SubagentWords.title(Work.subagent()) == "Composer audit")
+        let brief = "Backfill the theme column\n\n# Joining as a teammate\n\nThe person running this session asked for you."
+        #expect(SubagentWords.title(Work.subagent(title: "", goal: brief)) == "Backfill the theme column")
+        #expect(SubagentWords.title(Work.subagent(title: "Agent: Backfill the theme co", goal: "  \n Backfill the theme column\nThen stop")) == "Backfill the theme column")
+        #expect(SubagentWords.title(Work.subagent(title: "", goal: nil)) == "Sub-agent")
     }
 
     /// Settled, how long its run took; still going, how long so far, counting up; never below nothing.
@@ -172,7 +175,7 @@ struct SubagentWordsTests {
     @Test func aRowIsSpokenWhole() {
         let child = Work.subagent(outcome: "done", report: "**Three** toolbars.")
         #expect(SubagentWords.spoken(child, now: Work.now)
-                == "Read the composer's code, Done, 3 minutes, 12 seconds, Opus 5.5, Three toolbars.")
+                == "Composer audit, Done, 3 minutes, 12 seconds, Opus 5.5, Three toolbars.")
     }
 }
 
