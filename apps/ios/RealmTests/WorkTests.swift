@@ -355,7 +355,8 @@ struct ScheduledWordsTests {
         #expect(RunState("snoozed").word == "Snoozed")
         let all: [RunState] = [.starting, .running, .needsYou, .finished, .failed, .expired, .stopped, .other("x")]
         #expect(all.filter(\.isFinished) == [.finished, .failed, .expired, .stopped])
-        #expect(Set(all.map(\.word)).count == all.count)
+        // The words the Mac's Scheduled page and a space's Tasks wear.
+        #expect(all.map(\.word) == ["Starting", "Running", "Needs you", "Finished", "Failed", "Expired", "Stopped", "X"])
         #expect(RunState.running.tone == .working && RunState.needsYou.tone == .waiting && RunState.failed.tone == .failed)
     }
 
