@@ -3,22 +3,26 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import {
-  normalizeAnswers, sessionEvent, type AskCard, type FileDiff, type Item, type Session, type SessionEvent, type Space, type StoredSessionEvent,
+  normalizeAnswers, sessionEvent, type AskCard, type DelegatedChild, type FileDiff, type Item, type PlanLimits, type QueuedPrompt, type Run, type Schedule,
+  type Session, type SessionEvent, type Space, type StoredSessionEvent, type TeamReviewDetail, type TeamReviewItem, type TeamReviewSummary, type UsageSessionRow,
 } from "@realm/contracts";
 import { tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
-import { MobileCalls, MobileEvents, RowSchema } from "@realm/remote";
+import { MobileCalls, MobileEvents, RowSchema, type MobileEvent } from "@realm/remote";
 import { MobileApi } from "./api";
 import { channel, fakeRpc, profile } from "./api.test-fakes";
 
 /**
  * mobile.v1's answers as the Mac writes them, for RealmKit to decode (PROTOCOL.md §9): `home.get` for
- * every profile and for one, a space's pages, `session.open` over a session that holds every row kind
- * (its first message with files sent with it), the turn's changes and a page of its diff, each preview
- * `session.file` makes, a space's picture, three agents' session options and a change to them, every
- * agent a new session can have, and the hint event — every one made by the real projector and the real
- * `MobileApi`, over a fake of the desktop's RPC. Generated, not hand-written, so this test also proves
- * the committed file is what the code produces today:
- * `REALM_WRITE_FIXTURES=1 pnpm vitest run apps/server/src/remote/api-fixtures.test.ts` rewrites it.
+ * every profile and for one, with a pinned row, a space's pages, `session.open` over a session that
+ * holds every row kind (its first message with files sent with it) and two messages waiting in its
+ * queue, the turn's changes and a page of its diff, each preview `session.file` makes, a space's
+ * picture, three agents' session options and a change to them, every agent a new session can have;
+ * the queue, the lead's sub-agents (one working, two ended), the plans and the month's spend, the
+ * reviews still open and one read, a decision and a picture of it, the scheduled tasks and one run
+ * now, a rename with a pin and an archive; and every event but `session.rows` and `session.status` —
+ * every one made by the real projector and the real `MobileApi`, over a fake of the desktop's RPC.
+ * Generated, not hand-written, so this test also proves the committed file is what the code produces
+ * today: `REALM_WRITE_FIXTURES=1 pnpm vitest run apps/server/src/remote/api-fixtures.test.ts` rewrites it.
  */
 
 const file = new URL("../../../../packages/remote/test/fixtures/ts-api.json", import.meta.url);
@@ -33,14 +37,57 @@ const CODEX = "01JCODEX000000000000000000";
 const QUIET = "01JQUIET000000000000000000";
 /** The Realm space's older sessions, more than Home lists, five hours apart. */
 const OLDER = Array.from({ length: 6 }, (_, i) => `01JREALM00000000000000000${i + 1}`);
+/** The theme column's sub-agents: one still working, one that finished, one stopped with its lead. */
+const WORKER = "01JWORKER00000000000000000";
+const MIGRATOR = "01JMIGRATOR000000000000000";
+const PROFILER = "01JPROFILER000000000000000";
+/** The Deck team's reviews: one waiting with a post and an email, one sent back, one done. */
+const REVIEW = "01JREVIEW00000000000000001";
+const SENT_BACK = "01JREVIEW00000000000000002";
+const DONE = "01JREVIEW00000000000000003";
+/** Scheduled tasks: a brief whose run finished unread, a weekly review never run, and a paused one whose run failed. */
+const BRIEF = "01JSCHEDULE000000000000001";
+const WEEKLY = "01JSCHEDULE000000000000002";
+const CI = "01JSCHEDULE000000000000003";
+const BRIEF_RUN = "01JRUN00000000000000000001";
+const CI_RUN = "01JRUN00000000000000000002";
+const NOW_RUN = "01JRUN00000000000000000003";
+const BRIEF_SESSION = "01JBRIEF000000000000000000";
 const HOUR = 3_600_000;
+const DAY = 24 * HOUR;
+/** Far enough ahead that no window has reset whenever this runs, and far enough back that one has. */
+const LATER = 4_102_444_800_000;
+const LONG_AGO = 1_600_000_000_000;
 const space = (id: string, name: string, icon: string, profileId = "p1"): Space =>
   ({ id, profileId, name, icon, color: "#7c6cff", sortOrder: 0, folderPath: "/tmp", groups: null, layout: null, activeItemId: null, createdAt: 0, updatedAt: 0 });
 const session = (id: string, spaceId: string, extra: Partial<Session> = {}): Session =>
   ({ id, spaceId, projectId: null, agentKind: "claude", model: "claude-opus-5-5", effort: null, fastMode: false, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", cwd: "/tmp", status: "idle",
     providerSessionId: null, title: "Session", lastEventSeq: 40, seenSeq: 0, terminalItemId: null, dispatchedBy: null, activityAt: 0, createdAt: 0, updatedAt: 1_790_000_000_000, ...extra });
-const item = (refId: string, spaceId: string, title: string): Item =>
-  ({ id: `i-${refId}`, spaceId, kind: "session", title, sortOrder: 0, pinned: false, archived: false, refId, createdAt: 0, updatedAt: 0 });
+const item = (refId: string, spaceId: string, title: string, extra: Partial<Item> = {}): Item =>
+  ({ id: `i-${refId}`, spaceId, kind: "session", title, sortOrder: 0, pinned: false, archived: false, refId, createdAt: 0, updatedAt: 0, ...extra });
+const usageRow = (id: string, title: string, spaceName: string, costUsd: number): UsageSessionRow => ({
+  id, title, spaceId: "sp1", spaceName, agentKind: "claude", model: "claude-opus-5-5", createdAt: 0, updatedAt: 0,
+  totals: { costUsd, reportedUsd: costUsd, estimatedUsd: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, turns: 1, sessions: 1, unmeasuredSessions: 0 },
+});
+const limits = (agentKind: string, extra: Partial<PlanLimits> = {}): PlanLimits =>
+  ({ agentKind, subscriptionType: null, organization: null, windows: [], alert: "none", alertWindow: null, unavailable: null, detail: null, ts: 0, ...extra });
+const summary = (id: string, extra: Partial<TeamReviewSummary> = {}): TeamReviewSummary => ({
+  id, spaceId: "sp2", roleId: "01JROLE0000000000000000000", roleName: "Content Producer", runId: null, sessionId: CODEX, recordPath: null,
+  kind: "launch", title: "Dark mode launch", state: "waiting", note: null, version: 1, itemCount: 2, thumb: "renders/toggle.png",
+  channels: ["instagram"], account: "@realm", to: null, format: "images", verb: "post", changedSinceApproval: false, actsTotal: 0, actsDone: 0,
+  createdAt: 1_790_000_000_000, decidedAt: null, updatedAt: 1_790_000_000_000, ...extra,
+});
+const reviewItem = (id: string, ord: number, extra: Partial<TeamReviewItem>): TeamReviewItem =>
+  ({ id, reviewId: REVIEW, version: 1, ord, files: [], body: null, target: null, contentHash: `h${ord}`, approvedHash: null, actState: "none", ...extra });
+const schedule = (id: string, spaceId: string, title: string, cron: string, extra: Partial<Schedule> = {}): Schedule => ({
+  id, spaceId, title, goal: `${title}, as the task says.`, cron, enabled: true, constraints: null, nextRunAt: null, lastRunAt: null, lastRunId: null,
+  lastSkippedAt: null, newSessionPerRun: true, archiveSucceeded: false, roleId: null, createdAt: 1_789_000_000_000, updatedAt: 1_789_000_000_000, ...extra,
+});
+const run = (id: string, scheduleId: string, state: Run["state"], sessionId: string | null): Run => ({
+  id, spaceId: "sp1", title: "Run", goal: "Run", agentKind: "claude", environmentId: null, constraints: null, dedupeKey: null, state, attempt: 1, maxAttempts: 1,
+  sessionId, scheduleId, roleId: null, wokeOn: null, costUsd: null, deadlineAt: null, result: null, error: state === "failed" ? "gh is not signed in" : null,
+  createdAt: 1_789_990_000_000, startedAt: 1_789_990_000_000, settledAt: state === "queued" ? null : 1_789_990_600_000, updatedAt: 1_789_990_600_000,
+});
 
 /** The question card the fixture's request carries: an MCP form with every field a phone answers. */
 const card: AskCard = {
@@ -67,6 +114,17 @@ async function generate(): Promise<Record<string, unknown>> {
     .map(({ name, mime }) => ({ path: join(attachments, name), mime }));
   writeFileSync(sent[0]!.path, "jpeg");
   writeFileSync(sent[1]!.path, "%PDF-1.7");
+  // What waits in the theme column's queue: a message being edited, and one a phone sent a sketch with.
+  const sketch = join(attachments, "5e6f7a8b9c0d-sketch.png");
+  writeFileSync(sketch, "png");
+  const queued: QueuedPrompt[] = [
+    { id: "01JQUEUED00000000000000001", text: "Then rename the column to theme_mode", attachments: [], ts: 1_790_000_060_000, held: true },
+    { id: "01JQUEUED00000000000000002", text: "Use this sketch for the toggle", attachments: [{ path: sketch, mime: "image/png" }], ts: 1_790_000_070_000, held: false },
+  ];
+  // The picture the Deck team's post goes out with, in the space's folder.
+  mkdirSync(join(dir, "renders"), { recursive: true });
+  const picture = join(dir, "renders/toggle.png");
+  writeFileSync(picture, "png");
 
   const evs: SessionEvent[] = [
     sessionEvent("user_message", { text: "File the issue, then plan the column", attachments: sent }),
@@ -119,13 +177,83 @@ async function generate(): Promise<Record<string, unknown>> {
         ...(i === 1 ? { model: "claude-sonnet-5", effort: "max", permissionMode: "plan", updatedAt: 1_790_000_300_000 } : {}),
       });
     }),
+    // The morning brief's last run, finished while nobody was looking: unread. A run's session is no row of Home's.
+    session(BRIEF_SESSION, "sp1", { title: "Morning brief", lastEventSeq: 12, seenSeq: 0, createdAt: 1_789_990_000_000, updatedAt: 1_789_990_600_000, activityAt: 1_789_990_600_000 }),
   ];
+  const lead = { sessionId: S, kind: "agent_run" } as const;
+  const children: DelegatedChild[] = [
+    { session: session(MIGRATOR, "sp1", { model: "claude-sonnet-5", title: "Write the migration", lastEventSeq: 12, seenSeq: 12, dispatchedBy: lead,
+        createdAt: 1_789_999_000_000, updatedAt: 1_789_999_400_000, activityAt: 1_789_999_400_000 }),
+      goal: "Write the migration that adds the theme column, with a down step.", startedAt: 1_789_999_000_000, settledAt: 1_789_999_400_000, outcome: "done",
+      report: "Added `migrations/0042_theme.sql` with an up and a down step. The suite passes.", activity: null },
+    { session: session(WORKER, "sp1", { agentKind: "codex", model: "gpt-6-luna", title: "Backfill the theme column", status: "running", lastEventSeq: 30, seenSeq: 0,
+        dispatchedBy: lead, createdAt: 1_789_999_500_000, updatedAt: 1_789_999_900_000, activityAt: 1_789_999_900_000 }),
+      goal: "Backfill the theme column for every existing row, 500 at a time.", startedAt: 1_789_999_500_000, settledAt: null, outcome: null, report: null, activity: null },
+    { session: session(PROFILER, "sp1", { title: "Profile the theme switch", lastEventSeq: 8, seenSeq: 8, dispatchedBy: lead,
+        createdAt: 1_789_998_000_000, updatedAt: 1_789_998_300_000, activityAt: 1_789_998_300_000 }),
+      goal: "Profile how long the theme switch takes on a cold start.", startedAt: 1_789_998_000_000, settledAt: 1_789_998_300_000, outcome: "interrupted",
+      report: null, activity: null, note: "Stopped when the session that started it was stopped." },
+  ];
+  const plans: PlanLimits[] = [
+    limits("claude", { subscriptionType: "max", alert: "approaching", alertWindow: "seven_day", ts: 1_790_000_000_000, windows: [
+      { id: "five_hour", label: "5-hour", utilization: 34, resetsAt: LATER },
+      { id: "seven_day", label: "Weekly", utilization: 91, resetsAt: LATER + 3 * DAY },
+      // Named by the provider, with no figure; and one whose reading is from before it reset.
+      { id: "model:Fable", label: "Fable weekly", utilization: null, resetsAt: null },
+      { id: "seven_day_opus", label: "Opus weekly", utilization: 64, resetsAt: LONG_AGO },
+    ] }),
+    limits("codex", { unavailable: "not-yet-known" }),
+    limits("acp:gemini", { unavailable: "unsupported" }),
+    limits("acp:cursor", { unavailable: "unsupported" }),
+    // The scripted agent the suite drives, which no person runs.
+    limits("fake", { unavailable: "not-yet-known" }),
+  ];
+  const month = {
+    // The session's own title where its row has another, and one with no row at all.
+    sessions: [usageRow(S, "Session", "Realm", 18.42), usageRow(CODEX, "Session", "Deck", 9.1), usageRow(OLDER[0]!, "Session", "Realm", 4.25),
+      usageRow(MIGRATOR, "Write the migration", "Realm", 3.75), usageRow(QUIET, "Session", "School", 2.5), usageRow(OLDER[1]!, "Session", "Realm", 0.8),
+      usageRow(OLDER[2]!, "Session", "Realm", 0)],
+    budget: { budget: { monthlyUsd: 150, thresholds: [0.5, 0.8, 1], includeEstimated: true }, monthSpendUsd: 61.38, monthStart: 0, projectedUsd: 95.4 },
+  };
+  const open = summary(REVIEW, { title: "Dark mode launch: the post, and a note to Dana", channels: ["instagram", "email"] });
+  const reviews = [
+    open,
+    summary(SENT_BACK, { title: "Reply to Dana about the beta", kind: "message", format: "email", verb: "email", itemCount: 1, thumb: null, channels: ["email"],
+      account: "carlton@realm.computer", to: "dana@acme.com", state: "changes", note: "Shorter, and say when it ships", decidedAt: 1_790_000_200_000, updatedAt: 1_790_000_200_000 }),
+    summary(DONE, { title: "Last week's posts", state: "done", decidedAt: 1_789_900_000_000, updatedAt: 1_789_900_000_000 }),
+  ];
+  const detail: TeamReviewDetail = {
+    ...open, previous: [], costUsd: 0.84, durationMs: 120_000, runCapUsd: 3, model: null, recordName: null, checks: [], ledger: [], root: dir, tickets: [],
+    fileTexts: {}, why: "The toggle shipped today; this says so where people will see it.",
+    items: [
+      reviewItem("01JITEM0000000000000000001", 0, { files: ["renders/toggle.png"], body: "Dark mode is here: Settings ▸ App ▸ Theme.",
+        target: { channel: "instagram", account: "@realm" }, format: "images", action: { connector: "channel:instagram", verb: "post", account: "@realm" } }),
+      reviewItem("01JITEM0000000000000000002", 1, { body: "Hi Dana,\n\nDark mode ships on Friday. The beta has it now.\n\nCarlton",
+        meta: { Subject: "Dark mode ships Friday" }, format: "email", action: { connector: "mcp:gmail", verb: "email", account: "carlton@realm.computer", to: "dana@acme.com" } }),
+    ],
+  };
+  const tasks: Record<string, Schedule[]> = {
+    sp1: [
+      schedule(WEEKLY, "sp1", "Weekly review", "0 16 * * 5", { nextRunAt: 1_790_100_000_000 }),
+      schedule(BRIEF, "sp1", "Morning brief", "0 8 * * 1-5", { nextRunAt: 1_790_050_000_000, lastRunAt: 1_789_990_000_000, lastRunId: BRIEF_RUN }),
+    ],
+    sp3: [schedule(CI, "sp3", "Watch CI", "30 9 * * *", { enabled: false, lastRunAt: 1_789_800_000_000, lastRunId: CI_RUN, createdAt: 1_789_100_000_000 })],
+  };
+  const runs: Record<string, Run> = {
+    [BRIEF_RUN]: run(BRIEF_RUN, BRIEF, "succeeded", BRIEF_SESSION),
+    [CI_RUN]: run(CI_RUN, CI, "failed", null),
+    [NOW_RUN]: run(NOW_RUN, WEEKLY, "queued", null),
+  };
+  const items = [item(S, "sp1", "Theme column"), item(CODEX, "sp2", "The deck"), item(QUIET, "sp3", "Lecture notes"),
+    // Pinned in the sidebar, so Home lists it in Pinned.
+    ...["Tidy the settings page", "Plan the release", "Fix the flaky upload test", "Audit the sign-in sheet", "Ship 2.0.3", "Write the changelog"]
+      .map((title, i) => item(OLDER[i]!, "sp1", title, { pinned: i === 4 }))];
   const rpc = fakeRpc({
     profiles: [profile("p1", "Work", "briefcase-01"), profile("p2", "School", "emoji:🎓")],
     spaces: [space("sp1", "Realm", "code"), space("sp2", "Deck", "emoji:🌊"), space("sp3", "School", "asset:01JASSET", "p2")],
     sessions,
-    items: [item(S, "sp1", "Theme column"), item(CODEX, "sp2", "The deck"), item(QUIET, "sp3", "Lecture notes"),
-      ...["Tidy the settings page", "Plan the release", "Fix the flaky upload test", "Audit the sign-in sheet", "Ship 2.0.3", "Write the changelog"].map((title, i) => item(OLDER[i]!, "sp1", title))],
+    items,
+    queued: { [S]: queued },
     settings: {
       "ui.lastAgentKind": "codex", "sessions.midTurnMode": "steer", "sessions.defaultPermissionMode": "acceptEdits",
       // What Claude Code said its models take: Haiku takes no level.
@@ -154,6 +282,25 @@ async function generate(): Promise<Record<string, unknown>> {
       const { id, ...changes } = p;
       return { ...sessions.find((x) => x.id === id)!, ...changes };
     }) as never,
+    // A space's own list, archived rows and all; and a change to one, which the lists then carry.
+    "items.list": ((p: { spaceId: string }) => items.filter((it) => it.spaceId === p.spaceId)) as never,
+    "items.update": ((p: { id: string; title?: string; pinned?: boolean; archived?: boolean }) => {
+      const at = items.findIndex((it) => it.id === p.id);
+      const { id: _id, ...changes } = p;
+      items[at] = { ...items[at]!, ...changes };
+      return items[at];
+    }) as never,
+    "delegation.children": ((p: { sessionId: string }) => ({ children: p.sessionId === S ? children : [], dismissed: [] })) as never,
+    "delegation.running": ((p: { sessionId: string }) => ({ running: p.sessionId === S ? [{ sessionId: WORKER, startedAt: 1_789_999_500_000, detached: true, owned: true }] : [] })) as never,
+    "limits.get": (() => ({ limits: plans })) as never,
+    "usage.summary": (() => month) as never,
+    "team.overview": (() => [{ spaceId: "sp2", reviews }]) as never,
+    "team.review": ((p: { id: string }) => { if (p.id !== REVIEW) throw new Error(`no review ${p.id}`); return detail; }) as never,
+    "team.reviewApprove": (() => ({ ...open, state: "approved", decidedAt: 1_790_000_300_000, updatedAt: 1_790_000_300_000 })) as never,
+    "team.reviewRequestChanges": ((p: { note: string }) => ({ ...open, state: "changes", note: p.note, decidedAt: 1_790_000_300_000, updatedAt: 1_790_000_300_000 })) as never,
+    "schedules.list": ((p: { spaceId: string }) => tasks[p.spaceId] ?? []) as never,
+    "schedules.runNow": ((p: { id: string }) => ({ ...tasks.sp1!.find((t) => t.id === p.id)!, lastRunAt: 1_790_000_400_000, lastRunId: NOW_RUN })) as never,
+    "runs.get": ((p: { id: string }) => (runs[p.id] ? { run: runs[p.id], attempts: [] } : null)) as never,
   });
   const api = new MobileApi({ macName: () => "MacBook Pro", reportsDir: "/nonexistent", realmHome: home, dev: false, downscale: async () => Buffer.from("jpeg") });
   const call = (method: string, params: unknown) => api.handle(channel(rpc), method, params);
@@ -181,9 +328,27 @@ async function generate(): Promise<Record<string, unknown>> {
       "session.configure": await call("session.configure", { id: S, model: "claude-sonnet-5", effort: "medium", permission: "bypassPermissions" }),
       "session.configure:plan": await call("session.configure", { id: CODEX, mode: "plan" }),
       "agents.list": await call("agents.list", {}),
+      "session.queue": await call("session.queue", { id: S }),
+      "session.file:queued": await call("session.file", { id: S, path: sketch }),
+      "session.subagents": await call("session.subagents", { id: S }),
+      "usage.get": await call("usage.get", {}),
+      "reviews.list": await call("reviews.list", {}),
+      "review.get": await call("review.get", { id: REVIEW }),
+      "review.file": await call("review.file", { id: REVIEW, path: picture }),
+      "review.decide": await call("review.decide", { id: REVIEW, decision: "approve" }),
+      "review.decide:changes": await call("review.decide", { id: REVIEW, decision: "changes", note: "Say it ships Friday in the caption too" }),
+      "schedules.list": await call("schedules.list", {}),
+      "schedules.runNow": await call("schedules.runNow", { id: WEEKLY }),
+      // Last, because they change the lists every call above reads.
+      "session.update": await call("session.update", { id: OLDER[5]!, title: "Write the 2.0.3 changelog", pinned: true }),
+      "session.update:archived": await call("session.update", { id: OLDER[3]!, archived: true }),
     },
     events: {
       "session.hint": [{ id: S, text: "Approve the plan and run the migration" }, { id: S, text: null }],
+      // The queue as the gateway sends it: the whole list each time, then empty once both have gone out.
+      "session.queue": [{ id: S, queued: api.queuedMessages(queued) }, { id: S, queued: [] }],
+      "session.subagents": [{ id: S }],
+      "work.changed": [{}],
     },
     answer: {
       /** The open question's picks, by label, and words of the person's own, as the phone's card holds them. */
@@ -204,7 +369,9 @@ describe("mobile.v1 fixtures for RealmKit (PROTOCOL.md §9)", () => {
       const method = name.split(":")[0] as keyof typeof MobileCalls;
       expect(MobileCalls[method].result.safeParse(result).success, name).toBe(true);
     }
-    for (const payload of (fixture.events as Record<string, unknown[]>)["session.hint"]!) expect(MobileEvents["session.hint"].safeParse(payload).success).toBe(true);
+    for (const [name, payloads] of Object.entries(fixture.events as Record<string, unknown[]>)) {
+      for (const payload of payloads) expect(MobileEvents[name as MobileEvent].safeParse(payload).success, name).toBe(true);
+    }
     // The answer a phone sends is one the Mac keeps whole.
     expect((fixture.answer as { values: unknown }).values).toEqual({ team: "ops", labels: ["bug", "Regression"], token: "tok_live_123", ship: "no" });
     if (WRITE || !existsSync(file)) writeFileSync(file, `${JSON.stringify(fixture, null, 2)}\n`);
@@ -220,10 +387,17 @@ describe("mobile.v1 fixtures for RealmKit (PROTOCOL.md §9)", () => {
     expect(opened.rows.find((r) => r.kind === "user" && r.attachments?.length)).toBeDefined();
   });
 
+  it("hold every event a phone is sent but the rows and the status, which every session's open already makes", async () => {
+    const events = new Set(Object.keys((await generate()).events as Record<string, unknown>));
+    // `pair.result` is the pairing channel's, which RealmKit's own pairing tests hold.
+    expect(Object.keys(MobileEvents).filter((e) => !["session.rows", "session.status", "home.changed", "pair.result"].includes(e) && !events.has(e))).toEqual([]);
+  });
+
   it("hold an answer of every call that answers more than ok", async () => {
     const calls = new Set(Object.keys((await generate()).calls as Record<string, unknown>).map((k) => k.split(":")[0]));
     // These answer `{ok: true}`, `{at}` or `{id}`: there is nothing in them for a phone to decode wrongly.
-    const plain = ["ping", "session.close", "session.send", "session.answer", "session.stop", "session.seen", "session.create", "debug.report"];
+    const plain = ["ping", "session.close", "session.send", "session.answer", "session.stop", "session.seen", "session.create", "debug.report",
+      "session.sendQueuedNow", "session.removeQueued", "session.holdQueued", "session.editQueued"];
     expect(Object.keys(MobileCalls).filter((m) => !plain.includes(m) && !calls.has(m))).toEqual([]);
   });
 });

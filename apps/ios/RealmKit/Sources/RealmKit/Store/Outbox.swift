@@ -16,8 +16,9 @@ public struct OutgoingItem: Codable, Sendable, Identifiable, Equatable {
         /// It may have reached the Mac: the channel dropped or the answer was late. Looked for in the
         /// transcript before it is sent again, so it never arrives twice.
         case unconfirmed
-        /// The Mac has it. A message stays until its own row arrives (a Mac that queues it shows the
-        /// row only when it goes); an answer stays until its request reads answered.
+        /// The Mac has it. A message stays until its own row arrives, or until the Mac's queue shows it
+        /// holding the message (a queued message's row comes only when it goes); an answer stays until
+        /// its request reads answered.
         case delivered
         /// The Mac refused it, in its own words. Kept, so nothing typed is lost.
         case failed(String)
@@ -94,6 +95,14 @@ public struct OutgoingItem: Codable, Sendable, Identifiable, Equatable {
     public var isFailed: Bool {
         if case .failed = state { return true }
         return false
+    }
+
+    /// It may be on the Mac: written to the channel, unconfirmed, or taken.
+    public var mayBeOnMac: Bool {
+        switch state {
+        case .sending, .unconfirmed, .delivered: true
+        case .waiting, .failed: false
+        }
     }
 
     /// After this long nothing is sent on its own; the person decides.
@@ -194,10 +203,13 @@ public struct Outbox: Sendable, Equatable {
         case row(key: String)
         /// The request it answers no longer waits, whoever answered it.
         case answered
+        /// The Mac's queue holds the message, by this id: the queue shows it from here, and its row
+        /// comes when its turn does.
+        case queued(id: String)
     }
 
-    /// Settles what the transcript shows has arrived: a message whose own row is there, an answer
-    /// whose request no longer waits. Returns the ids it settled.
+    /// Settles what the transcript shows has arrived: a message whose own row is there or that the
+    /// Mac's queue holds, an answer whose request no longer waits. Returns the ids it settled.
     @discardableResult
     public mutating func settle(with transcript: Transcript, in sessionId: String) -> [UUID] {
         let found = arrivals(in: transcript, for: sessionId)
@@ -208,7 +220,7 @@ public struct Outbox: Sendable, Equatable {
 
     /// Pairs a session's items with the transcript, oldest first: each message with the first row
     /// after it that holds its words and as many files, and no earlier item has taken; each answer
-    /// with its request.
+    /// with its request. A message the Mac has, or may have, with no row yet is paired with its queue.
     public func arrivals(in transcript: Transcript, for sessionId: String) -> [UUID: Arrival] {
         var found: [UUID: Arrival] = [:]
         var taken = settledBy
@@ -234,7 +246,34 @@ public struct Outbox: Sendable, Equatable {
                 if answered { found[item.id] = .answered }
             }
         }
+        // Only a live queue says what the Mac holds: one from before the link went may hold words sent
+        // since. A message still on its way is left to its answer, which can yet refuse it.
+        if transcript.isLive, let queued = transcript.queued {
+            let onMac = items.filter { $0.sessionId == sessionId && found[$0.id] == nil && ($0.state == .delivered || $0.state == .unconfirmed) }
+            for (id, queuedId) in Self.pairs(onMac, with: queued) { found[id] = .queued(id: queuedId) }
+        }
         return found
+    }
+
+    /// A session's messages that may be on the Mac, paired with what its queue holds, oldest first:
+    /// each with the first queued message that holds its words and as many files, and no earlier one
+    /// has taken. What waits on this phone, or was refused, pairs with nothing.
+    public func inQueue(_ queued: [QueuedMessage], for sessionId: String) -> [UUID: String] {
+        Self.pairs(items.filter { $0.sessionId == sessionId && $0.mayBeOnMac }, with: queued)
+    }
+
+    private static func pairs(_ items: [OutgoingItem], with queued: [QueuedMessage]) -> [UUID: String] {
+        var free = queued
+        var paired: [UUID: String] = [:]
+        for item in items {
+            guard case .message(let text) = item.payload else { continue }
+            let wanted = normalized(text)
+            guard let index = free.firstIndex(where: { normalized($0.text) == wanted && $0.attachments.count == item.attachments.count }) else {
+                continue
+            }
+            paired[item.id] = free.remove(at: index).id
+        }
+        return paired
     }
 
     static func normalized(_ text: String) -> String {

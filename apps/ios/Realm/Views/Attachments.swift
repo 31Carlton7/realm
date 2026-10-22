@@ -222,6 +222,25 @@ struct AttachmentStrip: View {
 
     static let side: CGFloat = 56
 
+    /// Where a file is linked under its own name while Quick Look shows it.
+    private static let previews = URL.temporaryDirectory.appending(path: "Preview", directoryHint: .isDirectory)
+
+    /// Quick Look titles a preview with its file's name, so it is shown a link to the bytes under the
+    /// attachment's own, which goes when the preview does (`forgetPreviews`).
+    static func previewLink(_ attachment: OutgoingAttachment, files: OutboxFiles) -> URL {
+        let folder = previews.appending(path: attachment.id.uuidString, directoryHint: .isDirectory)
+        let link = folder.appending(path: attachment.name.replacingOccurrences(of: "/", with: "-"))
+        if !FileManager.default.fileExists(atPath: link.path) {
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try? FileManager.default.linkItem(at: files.url(of: attachment), to: link)
+        }
+        return link
+    }
+
+    static func forgetPreviews() {
+        try? FileManager.default.removeItem(at: previews)
+    }
+
     var body: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 10) {

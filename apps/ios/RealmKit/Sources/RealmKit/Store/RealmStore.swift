@@ -30,6 +30,8 @@ public final class RealmStore {
     @ObservationIgnored private var opening: [String: [TranscriptRow]] = [:]
     /// A suggested next message that changed while its session was opening, newer than the open's.
     @ObservationIgnored private var openingHint: [String: String?] = [:]
+    /// A queue that changed while its session was opening, newer than the open's.
+    @ObservationIgnored private var openingQueue: [String: [QueuedMessage]] = [:]
     @ObservationIgnored private var watches: [RowWatch] = []
     /// The seq each session was last marked read up to, by this phone.
     @ObservationIgnored private var seenUpTo: [String: Int] = [:]
@@ -71,6 +73,7 @@ public final class RealmStore {
         homeSavedAt = nil
         transcripts = [:]
         opening = [:]
+        openingQueue = [:]
         outbox = Outbox()
         drafts = [:]
         seenUpTo = [:]
@@ -99,8 +102,10 @@ public final class RealmStore {
         transcript.status = opened.session.status
         transcript.hasMore = opened.hasMore
         transcript.hint = opened.hint
+        transcript.queued = opened.queued
         if let early = opening.removeValue(forKey: opened.session.id) { transcript.upsert(early) }
         if let hint = openingHint.removeValue(forKey: opened.session.id) { transcript.hint = hint }
+        if let queued = openingQueue.removeValue(forKey: opened.session.id) { transcript.queued = queued }
         transcripts[opened.session.id] = transcript
         settleOutbox(in: opened.session.id)
     }
@@ -108,13 +113,20 @@ public final class RealmStore {
     public func cancelOpening(_ sessionId: String) {
         opening[sessionId] = nil
         openingHint[sessionId] = nil
+        openingQueue[sessionId] = nil
     }
 
     public func closeSession(_ sessionId: String) {
         transcripts[sessionId] = nil
         opening[sessionId] = nil
         openingHint[sessionId] = nil
+        openingQueue[sessionId] = nil
         outbox.forgetDelivered(in: sessionId)
+    }
+
+    /// The Mac's row for a session the person renamed or pinned here: an open session's title follows it.
+    public func sessionChanged(_ row: SessionRow) {
+        transcripts[row.id]?.session = row
     }
 
     public func apply(_ event: MobileEvent, at arrival: ContinuousClock.Instant = .now) {
@@ -139,7 +151,14 @@ public final class RealmStore {
             } else {
                 transcripts[update.id]?.hint = update.text
             }
-        case .homeChanged, .pairResult, .unknown:
+        case .sessionQueue(let update):
+            if opening[update.id] != nil {
+                openingQueue[update.id] = update.queued
+            } else if transcripts[update.id] != nil {
+                transcripts[update.id]?.queued = update.queued
+                settleOutbox(in: update.id)
+            }
+        case .homeChanged, .workChanged, .sessionSubagents, .pairResult, .unknown:
             break
         }
     }

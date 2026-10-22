@@ -562,10 +562,95 @@ public struct MobileAPI: Sendable {
                                          as: CreatedSession.self, timeout: timeout)
     }
 
+    /// Renames, pins or archives a session's row; nil fields stay as they are. Answers with its row,
+    /// or nil once it is archived.
+    public func updateSession(id: String, title: String? = nil, pinned: Bool? = nil, archived: Bool? = nil) async throws -> SessionRow? {
+        struct Params: Encodable, Sendable { let id: String; let title: String?; let pinned: Bool?; let archived: Bool? }
+        struct Answer: Decodable, Sendable { let session: SessionRow? }
+        return try await connection.call("session.update", params: Params(id: id, title: title, pinned: pinned, archived: archived),
+                                         as: Answer.self).session
+    }
+
+    /// The messages waiting in the Mac's queue.
+    public func queue(id: String) async throws -> [QueuedMessage] {
+        struct Answer: Decodable, Sendable { let queued: [QueuedMessage] }
+        return try await connection.call("session.queue", params: SessionID(id: id), as: Answer.self).queued
+    }
+
+    /// Sends one queued message now, ahead of the turn it was waiting for.
+    public func sendQueuedNow(id: String, queuedId: String) async throws {
+        _ = try await connection.call("session.sendQueuedNow", params: QueuedID(id: id, queuedId: queuedId), as: Acknowledged.self)
+    }
+
+    /// Takes a queued message out of the queue; it is not sent.
+    public func removeQueued(id: String, queuedId: String) async throws {
+        _ = try await connection.call("session.removeQueued", params: QueuedID(id: id, queuedId: queuedId), as: Acknowledged.self)
+    }
+
+    /// Holds a queued message while it is edited here, or lets it go.
+    public func holdQueued(id: String, queuedId: String, held: Bool) async throws {
+        struct Params: Encodable, Sendable { let id: String; let queuedId: String; let held: Bool }
+        _ = try await connection.call("session.holdQueued", params: Params(id: id, queuedId: queuedId, held: held), as: Acknowledged.self)
+    }
+
+    /// Replaces a queued message's words, keeping its files, and lets it go.
+    public func editQueued(id: String, queuedId: String, text: String) async throws {
+        struct Params: Encodable, Sendable { let id: String; let queuedId: String; let text: String }
+        _ = try await connection.call("session.editQueued", params: Params(id: id, queuedId: queuedId, text: text), as: Acknowledged.self)
+    }
+
+    /// The sub-agents a session started, newest first.
+    public func subagents(id: String) async throws -> [Subagent] {
+        struct Answer: Decodable, Sendable { let subagents: [Subagent] }
+        return try await connection.call("session.subagents", params: SessionID(id: id), as: Answer.self).subagents
+    }
+
+    /// Every agent's plan limits, and this month's spend.
+    public func usage() async throws -> Usage {
+        try await connection.call("usage.get", as: Usage.self)
+    }
+
+    /// What teams have handed back for review and is still open, newest first.
+    public func reviews() async throws -> [ReviewSummary] {
+        struct Answer: Decodable, Sendable { let reviews: [ReviewSummary] }
+        return try await connection.call("reviews.list", as: Answer.self).reviews
+    }
+
+    public func review(id: String) async throws -> ReviewDetail {
+        try await connection.call("review.get", params: SessionID(id: id), as: ReviewDetail.self)
+    }
+
+    /// Approves a review, asks for changes with a note, or rejects it with a reason. Approving posts
+    /// nothing: each outward act is still pressed on the Mac.
+    public func decide(review id: String, _ decision: ReviewDecision, note: String? = nil) async throws -> ReviewSummary {
+        struct Params: Encodable, Sendable { let id: String; let decision: ReviewDecision; let note: String? }
+        struct Answer: Decodable, Sendable { let review: ReviewSummary }
+        return try await connection.call("review.decide", params: Params(id: id, decision: decision, note: note), as: Answer.self).review
+    }
+
+    /// A preview of a picture a review's item carries.
+    public func reviewFile(id: String, path: String) async throws -> FilePreview {
+        struct Params: Encodable, Sendable { let id: String; let path: String }
+        return try await connection.call("review.file", params: Params(id: id, path: path), as: FilePreview.self)
+    }
+
+    /// Every space's scheduled tasks, next to run first.
+    public func schedules() async throws -> [ScheduledTask] {
+        struct Answer: Decodable, Sendable { let tasks: [ScheduledTask] }
+        return try await connection.call("schedules.list", as: Answer.self).tasks
+    }
+
+    /// Runs a scheduled task now.
+    public func runNow(schedule id: String) async throws -> ScheduledTask {
+        struct Answer: Decodable, Sendable { let task: ScheduledTask }
+        return try await connection.call("schedules.runNow", params: SessionID(id: id), as: Answer.self).task
+    }
+
     public func debugReport(name: String, data: JSONValue) async throws {
         struct Params: Encodable, Sendable { let name: String; let data: JSONValue }
         _ = try await connection.call("debug.report", params: Params(name: name, data: data), as: Acknowledged.self)
     }
 
     private struct SessionID: Encodable, Sendable { let id: String }
+    private struct QueuedID: Encodable, Sendable { let id: String; let queuedId: String }
 }

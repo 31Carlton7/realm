@@ -10,6 +10,9 @@ public struct Transcript: Sendable, Equatable {
     public var hasMore = false
     /// The suggested next message, which sits above the field until something is sent.
     public var hint: String?
+    /// The messages waiting in the Mac's queue, as it last said; nil from a Mac that does not say. Not
+    /// kept with the rows on disk: the queue lives in the Mac's memory, and comes again with the session.
+    public var queued: [QueuedMessage]?
     /// When these rows were last fresh from the Mac; nil while they are live on this connection.
     public var savedAt: Date?
 

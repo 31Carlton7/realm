@@ -13,13 +13,14 @@ struct HomeView: View {
     @AppStorage(ListOptions.Key.needsYouFirst) private var needsYouFirst = ListOptions().needsYouFirst
     @State private var query = ""
     @State private var reconnecting = false
+    @State private var newSessionShown = false
     /// The moment By day reckons its days from, moved on at midnight and on coming back to the app.
     @State private var now = Date()
     @Namespace private var settingsZoom
 
     var body: some View {
         @Bindable var model = model
-        let home = model.store.home
+        let home = model.store.home.map { model.rowEdits.applied(to: $0) }
         let choice = model.profileChoice
         let options = ListOptions(style: style, spaceOrder: spaceOrder, needsYouFirst: needsYouFirst)
         let listing = home.map { HomeListing(home: $0, choice: choice, options: options, query: query, now: now) }
@@ -32,6 +33,7 @@ struct HomeView: View {
                 ForEach(listing.elsewhere) { waiting in
                     ElsewhereRow(waiting: waiting)
                 }
+                WorkHeadLines(searching: listing.isFiltered)
                 if !listing.needsYou.isEmpty {
                     Section {
                         // A session that needs you is listed in its space too: each row has its
@@ -42,6 +44,17 @@ struct HomeView: View {
                     } header: {
                         SectionHead(title: "Needs you") {
                             Image(systemName: "hand.raised.fill").foregroundStyle(Palette.orange)
+                        }
+                    }
+                }
+                if !listing.pinned.isEmpty {
+                    Section {
+                        ForEach(listing.pinned, id: \.pinnedKey) { row in
+                            SessionLink(row: row, space: listing.space(of: row))
+                        }
+                    } header: {
+                        SectionHead(title: "Pinned") {
+                            Image(systemName: "pin.fill").foregroundStyle(Palette.ink2)
                         }
                     }
                 }
@@ -118,12 +131,7 @@ struct HomeView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    model.settingsShown = true
-                } label: {
-                    Label("Settings", systemImage: "gearshape")
-                }
-                .accessibilityIdentifier("settings")
+                HomeMenu()
             }
             .matchedTransitionSource(id: "settings", in: settingsZoom)
             // At the foot beside the search, as Mail has it: a third button in the top bar, beside
@@ -133,12 +141,29 @@ struct HomeView: View {
             }
             ToolbarSpacer(.fixed, placement: .bottomBar)
             DefaultToolbarItem(kind: .search, placement: .bottomBar)
+            // A Mac that names the agents a session could be given can start one.
+            if model.agentList != nil {
+                ToolbarSpacer(.fixed, placement: .bottomBar)
+                ToolbarItem(placement: .bottomBar) {
+                    Button {
+                        newSessionShown = true
+                    } label: {
+                        Label("New session", systemImage: "square.and.pencil")
+                    }
+                    .accessibilityIdentifier("new-session")
+                }
+                .matchedTransitionSource(id: "new-session", in: settingsZoom)
+            }
         }
         .searchable(text: $query, prompt: "Search sessions")
         .refreshable { await model.refresh() }
         .sheet(isPresented: $model.settingsShown) {
             SettingsSheet()
                 .navigationTransition(.zoom(sourceID: "settings", in: settingsZoom))
+        }
+        .sheet(isPresented: $newSessionShown) {
+            NewSessionSheet()
+                .navigationTransition(.zoom(sourceID: "new-session", in: settingsZoom))
         }
     }
 }
@@ -342,27 +367,9 @@ struct ElsewhereRow: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        Button {
+        HeadLine(symbol: "hand.raised.fill", tone: Palette.orange, words: waiting.words) {
             model.choose(.profile(waiting.profile.id))
-        } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: "hand.raised.fill")
-                    .foregroundStyle(Palette.orange)
-                    .accessibilityHidden(true)
-                Text(waiting.words)
-                    .foregroundStyle(Palette.ink)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Palette.ink3)
-                    .accessibilityHidden(true)
-            }
-            .font(.subheadline.weight(.medium))
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .listRowBackground(Color.clear)
-        .listRowSeparator(.hidden)
         .accessibilityHint("Shows \(waiting.profile.name)")
         .accessibilityIdentifier("elsewhere-\(waiting.profile.id)")
     }
@@ -457,14 +464,14 @@ enum ProfileMark: Equatable {
         }
     }
 
-    private static func tinted(_ image: UIImage?, _ color: UIColor?) -> Image {
+    static func tinted(_ image: UIImage?, _ color: UIColor?) -> Image {
         guard let image else { return Image(systemName: person) }
         guard let color else { return Image(uiImage: image) }
         return Image(uiImage: image.withTintColor(color, renderingMode: .alwaysOriginal))
     }
 
     /// An emoji at a menu's glyph size.
-    private static func drawn(_ emoji: String) -> UIImage {
+    static func drawn(_ emoji: String) -> UIImage {
         let text = NSAttributedString(string: emoji, attributes: [.font: UIFont.systemFont(ofSize: 17)])
         let size = text.size()
         return UIGraphicsImageRenderer(size: size).image { _ in text.draw(at: .zero) }
@@ -513,12 +520,12 @@ extension Binding where Value: Equatable & Sendable {
     }
 }
 
-/// A session on Home: opens it, and stops its turn from a swipe or a press-and-hold.
+/// A session on Home: opens it, and pins, renames, archives or stops it from a swipe or a
+/// press-and-hold.
 struct SessionLink: View {
     let row: SessionRow
     /// The row's space, where no section names it.
     let space: Space?
-    @Environment(AppModel.self) private var model
 
     var body: some View {
         NavigationLink(value: Route.session(row.id)) {
@@ -527,22 +534,7 @@ struct SessionLink: View {
         .listRowBackground(Color.clear)
         .listRowSeparatorTint(Palette.divider)
         .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if row.isWorking {
-                Button("Stop", systemImage: "stop.fill") { Task { await model.stop(row.id) } }
-                    .tint(Palette.ink2)
-            }
-        }
-        .contextMenu {
-            if row.isWorking {
-                Button("Stop", systemImage: "stop.fill") { Task { await model.stop(row.id) } }
-            }
-        }
-        .accessibilityActions {
-            if row.isWorking {
-                Button("Stop") { Task { await model.stop(row.id) } }
-            }
-        }
+        .sessionRowActions(row)
         .accessibilityIdentifier("session-\(row.id)")
     }
 }
@@ -600,6 +592,7 @@ struct SessionRowView: View {
         var parts = [row.displayTitle]
         if let state = RowState(row) { parts.append(state.word) }
         if row.unread { parts.append("Unread") }
+        if row.pinned == true { parts.append("Pinned") }
         parts.append(contentsOf: [row.spaceName, row.agentDisplayName].filter { !$0.isEmpty })
         if let model = row.modelDisplayName, !model.isEmpty { parts.append(model) }
         parts.append(Ago.text(row.lastActivity, now: now))

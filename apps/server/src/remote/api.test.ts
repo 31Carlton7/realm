@@ -3,8 +3,9 @@ import { basename, dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import {
-  AGENT_MODELS, PERMISSION_MODES, SELECTABLE_AGENT_KINDS, sessionEvent, steerNote, type FileDiff, type Item, type MethodName, type Session,
-  type StoredSessionEvent, type TurnChanges,
+  AGENT_MODELS, PERMISSION_MODES, SELECTABLE_AGENT_KINDS, sessionEvent, steerNote, type DelegatedChild, type FileDiff, type Item, type MethodName, type PlanLimits,
+  type QueuedPrompt, type Run, type Schedule, type Session, type StoredSessionEvent, type TeamReviewDetail, type TeamReviewItem, type TeamReviewSummary,
+  type TurnChanges, type UsageSessionRow,
 } from "@realm/contracts";
 import { HomeSchema, MobileCalls, RECENT_LIMIT, SEND_LIMITS } from "@realm/remote";
 import { needsYou } from "@realm/view";
@@ -12,7 +13,7 @@ import { ICON_MAX_BYTES, MobileApi, MobileError, needsYouInput } from "./api";
 import { channel, fakeRpc, item, profile, session, space, type Lists } from "./api.test-fakes";
 import { DIFF_PAGE_BYTES } from "./changes";
 import { PREVIEW_MAX_BYTES, TEXT_HEAD_BYTES, type Downscale } from "./preview";
-import type { RpcPort } from "./rpc-port";
+import { RpcCallError, type RpcPort } from "./rpc-port";
 
 /**
  * mobile.v1's `home.get` against a fake of the desktop's RPC. Needs you is `@realm/view`'s rule; what
@@ -805,5 +806,433 @@ describe("session.file, for a file sent with a message", () => {
     const log = [stored("s1", sessionEvent("user_message", { text: "why does this fail?", attachments: keys.map((path) => ({ path, mime: "text/plain" })) }))];
     const rpc = fakeRpc({ sessions: [], items: [] }, { "sessions.events": eventsOf(log) as never });
     for (const path of keys) expect(await attempt(api(), rpc, "session.file", { id: "s1", path }), path).toMatchObject({ ok: false, code: "FORBIDDEN" });
+  });
+});
+
+/** Every call the fake answered, with what it was asked, for the calls a phone's action becomes. */
+function recorded(h: Lists, more: Partial<Record<MethodName, (p: never) => unknown>> = {}) {
+  const asked: [string, unknown][] = [];
+  const wrapped = Object.fromEntries(Object.entries(more).map(([m, fn]) => [m, (p: never) => { asked.push([m, p]); return fn(p); }]));
+  return { rpc: fakeRpc(h, wrapped), asked };
+}
+
+describe("session.update", () => {
+  /** A space's own list, archived rows and all, and a change to one that every list then carries. */
+  function rig(items: Item[]) {
+    return recorded({ sessions: [session("s1", "s1", { title: "Its own title" }), session("bare", "s1")], items }, {
+      "items.list": ((p: { spaceId: string }) => items.filter((it) => it.spaceId === p.spaceId)) as never,
+      "items.update": ((p: { id: string } & Partial<Item>) => {
+        const at = items.findIndex((it) => it.id === p.id);
+        items[at] = { ...items[at]!, ...p };
+        return items[at];
+      }) as never,
+    });
+  }
+
+  it("renames and pins the session's own row, as the sidebar does, and answers the row as it now is", async () => {
+    const { rpc, asked } = rig([item("s1", "s1", "Theme column")]);
+    const got = await attempt(api(), rpc, "session.update", { id: "s1", title: "  Theme column, v2 ", pinned: true });
+    expect(got).toMatchObject({ ok: true, result: { session: { id: "s1", title: "Theme column, v2", pinned: true } } });
+    // Only what was asked changes: a pin alone leaves the name, and nothing is archived.
+    expect(asked).toEqual([["items.list", { spaceId: "s1" }], ["items.update", { id: "i-s1", title: "Theme column, v2", pinned: true }]]);
+    await attempt(api(), rpc, "session.update", { id: "s1", pinned: false });
+    expect(asked.at(-1)).toEqual(["items.update", { id: "i-s1", pinned: false }]);
+  });
+
+  it("answers no row once it is archived, and finds an archived row to take it back", async () => {
+    const { rpc, asked } = rig([item("s1", "s1", "Theme column")]);
+    expect(await attempt(api(), rpc, "session.update", { id: "s1", archived: true })).toEqual({ ok: true, result: { session: null } });
+    expect(asked.at(-1)).toEqual(["items.update", { id: "i-s1", archived: true }]);
+    // THE MUTANT: look the row up in `items.listAll`, which leaves archived rows out — then a row put
+    // away from the phone can never be taken back from it.
+    expect(await attempt(api(), rpc, "session.update", { id: "s1", archived: false })).toMatchObject({ ok: true, result: { session: { id: "s1", title: "Theme column" } } });
+  });
+
+  it("refuses a session it does not have, one with no row, and a name of nothing, changing nothing", async () => {
+    const { rpc, asked } = rig([item("s1", "s1", "Theme column")]);
+    expect(await attempt(api(), rpc, "session.update", { id: "gone", pinned: true })).toMatchObject({ ok: false });
+    expect(await attempt(api(), rpc, "session.update", { id: "bare", pinned: true })).toMatchObject({ ok: false, code: "NOT_FOUND" });
+    expect(await attempt(api(), rpc, "session.update", { id: "s1", title: "   " })).toMatchObject({ ok: false, code: "INVALID_PARAMS" });
+    expect(asked.filter(([m]) => m === "items.update")).toEqual([]);
+  });
+
+  it("says on every row whether it is pinned", async () => {
+    const h = await home({
+      sessions: [session("pinned", "s1", { activityAt: 2 }), session("loose", "s1", { activityAt: 1 })],
+      items: [item("pinned", "s1", "Pinned", { pinned: true }), item("loose", "s1", "Loose")],
+    });
+    // THE MUTANT: `pinned: false` on every row, and Home's Pinned is always empty.
+    expect(h.spaces[0]!.sessions.map((r) => [r.id, r.pinned])).toEqual([["pinned", true], ["loose", false]]);
+    expect(h.recent?.map((r) => r.pinned)).toEqual([true, false]);
+  });
+});
+
+describe("the queue", () => {
+  const home = tempDir("realm-queue-home-");
+  const sent = join(home, "tmp", "attachments", "5e6f7a8b9c0d-sketch.png");
+  mkdirSync(dirname(sent), { recursive: true });
+  writeFileSync(sent, "png");
+  const waiting: QueuedPrompt[] = [
+    { id: "q1", text: "Then rename the column", attachments: [], ts: 10, held: true },
+    { id: "q2", text: "", attachments: [{ path: sent, mime: "image/png" }], ts: 20, held: false },
+  ];
+  const lists = (queued: QueuedPrompt[] = waiting): Lists => ({ sessions: [session("s1", "s1")], items: [item("s1", "s1", "Theme column")], queued: { s1: queued } });
+
+  it("is read with the session and on its own, each file named as its row will name it, as of when it was queued", async () => {
+    const rpc = fakeRpc(lists());
+    const expected = [
+      { id: "q1", text: "Then rename the column", attachments: [], at: 10, held: true },
+      { id: "q2", text: "", attachments: [{ path: sent, name: "sketch.png", mime: "image/png" }], at: 20, held: false },
+    ];
+    expect(await attempt(api(undefined, home), rpc, "session.queue", { id: "s1" })).toEqual({ ok: true, result: { queued: expected } });
+    expect(await attempt(api(undefined, home), rpc, "session.open", { id: "s1" })).toMatchObject({ ok: true, result: { queued: expected } });
+  });
+
+  it("sends now, removes, holds and edits a message by the desktop's own calls, keeping an edited message's files", async () => {
+    const { rpc, asked } = recorded(lists(), {
+      "sessions.releaseQueued": (() => ({ ok: true })) as never, "sessions.dequeue": (() => ({ ok: true })) as never,
+      "sessions.holdQueued": ((p: { held: boolean }) => ({ ok: true, held: p.held })) as never, "sessions.editQueued": (() => ({ edited: true })) as never,
+    });
+    for (const [method, params] of [
+      ["session.sendQueuedNow", { id: "s1", queuedId: "q1" }], ["session.removeQueued", { id: "s1", queuedId: "q2" }],
+      ["session.holdQueued", { id: "s1", queuedId: "q1", held: true }], ["session.editQueued", { id: "s1", queuedId: "q2", text: "Use this sketch" }],
+    ] as const) expect(await attempt(api(), rpc, method, params), method).toEqual({ ok: true, result: { ok: true } });
+    // THE MUTANT: hand the edit `attachments: []`, and a message queued with a photo loses it.
+    expect(asked).toEqual([
+      ["sessions.releaseQueued", { id: "s1", queuedId: "q1" }], ["sessions.dequeue", { id: "s1", queuedId: "q2" }],
+      ["sessions.holdQueued", { id: "s1", queuedId: "q1", held: true }], ["sessions.editQueued", { id: "s1", queuedId: "q2", text: "Use this sketch" }],
+    ]);
+  });
+
+  it("says a message is gone when a hold or an edit comes after it went out, and lets go of a hold quietly", async () => {
+    const rpc = fakeRpc(lists(), {
+      "sessions.holdQueued": (() => ({ ok: true, held: false })) as never, "sessions.editQueued": (() => ({ edited: false })) as never,
+    });
+    // THE MUTANT: answer `{ok: true}` to a hold the Mac could not take, and the phone opens an editor on
+    // a message that has already been sent.
+    expect(await attempt(api(), rpc, "session.holdQueued", { id: "s1", queuedId: "q1", held: true })).toMatchObject({ ok: false, code: "NOT_FOUND" });
+    expect(await attempt(api(), rpc, "session.holdQueued", { id: "s1", queuedId: "q1", held: false })).toEqual({ ok: true, result: { ok: true } });
+    expect(await attempt(api(), rpc, "session.editQueued", { id: "s1", queuedId: "q1", text: "too late" })).toMatchObject({ ok: false, code: "NOT_FOUND" });
+  });
+
+  it("takes an edit down to no words only for a message that still carries a file", async () => {
+    const { rpc, asked } = recorded(lists(), { "sessions.editQueued": (() => ({ edited: true })) as never });
+    expect(await attempt(api(), rpc, "session.editQueued", { id: "s1", queuedId: "q1", text: "" })).toMatchObject({ ok: false, code: "INVALID_PARAMS" });
+    expect(await attempt(api(), rpc, "session.editQueued", { id: "s1", queuedId: "q2", text: "" })).toEqual({ ok: true, result: { ok: true } });
+    expect(asked).toEqual([["sessions.editQueued", { id: "s1", queuedId: "q2", text: "" }]]);
+  });
+
+  it("lets session.file preview a file a waiting message carries, and not once it has gone", async () => {
+    // THE MUTANT: leave the queue out of what `session.file` may read, and a queued photo has no picture.
+    expect(await attempt(api(undefined, home), fakeRpc(lists()), "session.file", { id: "s1", path: sent })).toMatchObject({ ok: true, result: { name: "sketch.png" } });
+    expect(await attempt(api(undefined, home), fakeRpc(lists([])), "session.file", { id: "s1", path: sent })).toMatchObject({ ok: false, code: "FORBIDDEN" });
+  });
+});
+
+describe("session.subagents", () => {
+  const lead = { sessionId: "lead", kind: "agent_run" } as const;
+  const child = (id: string, extra: Partial<DelegatedChild>, s: Partial<Session> = {}): DelegatedChild => ({
+    session: session(id, "s1", { dispatchedBy: lead, title: `${id} (task)`, updatedAt: 900, ...s }),
+    goal: `Do ${id}`, startedAt: 100, settledAt: null, outcome: null, report: null, activity: null, ...extra,
+  });
+  const children = [
+    child("working", { startedAt: 500 }, { status: "running" }),
+    child("asking", { startedAt: 400 }, { status: "waiting_permission" }),
+    child("finished", { startedAt: 300, settledAt: 350, outcome: "done", report: "Done it." }),
+    child("cut-short", { startedAt: 200, settledAt: 250, outcome: "interrupted", note: "Stopped when the session that started it was stopped." }),
+    // A reviewer keeps no record: it finished when it last spoke, and its report says it did.
+    child("reviewer", { startedAt: 150, report: "Looks right.", activity: sessionEvent("assistant_text", { messageId: "m", text: "Looks right." }, 180) }),
+    // Started and not yet on its first turn: its run is in flight.
+    child("starting", { startedAt: 600 }),
+  ];
+  const rpc = fakeRpc({ sessions: [session("lead", "s1")], items: [item("lead", "s1", "Lead"), item("finished", "s1", "Write the migration")] }, {
+    "delegation.children": ((p: { sessionId: string }) => ({ children: p.sessionId === "lead" ? children : [], dismissed: [] })) as never,
+    "delegation.running": (() => ({ running: [{ sessionId: "starting", startedAt: 600, detached: true, owned: true }, { sessionId: "working", startedAt: 500, detached: true, owned: true }] })) as never,
+  });
+
+  it("lists a lead's sub-agents newest first, each ended one with how it ended in the Agents tab's word", async () => {
+    const got = await attempt(api(), rpc, "session.subagents", { id: "lead" });
+    if (!got.ok) throw new Error(got.message);
+    const { subagents } = MobileCalls["session.subagents"].result.parse(got.result);
+    // THE MUTANTS: the outcome as `agent_run` recorded it ("interrupted"), and the reviewer, which kept
+    // none, would have no word at all; read without the runs in flight, the one starting is "stopped".
+    expect(subagents.map((s) => [s.session.id, s.outcome, s.settledAt])).toEqual([
+      ["starting", null, null], ["working", null, null], ["asking", null, null], ["finished", "done", 350],
+      ["cut-short", "cancelled", 250], ["reviewer", "done", 180],
+    ]);
+    expect(subagents.find((s) => s.session.id === "cut-short")).toMatchObject({ note: "Stopped when the session that started it was stopped.", report: null });
+    // Each is its own session's row, by the name its sidebar row has.
+    expect(subagents.find((s) => s.session.id === "finished")).toMatchObject({ goal: "Do finished", report: "Done it.", session: { title: "Write the migration", status: "idle" } });
+    expect(subagents.find((s) => s.session.id === "asking")?.session.status).toBe("waiting");
+  });
+
+  it("refuses a session the Mac does not have", async () => {
+    expect(await attempt(api(), rpc, "session.subagents", { id: "nobody" })).toMatchObject({ ok: false });
+  });
+});
+
+describe("usage.get", () => {
+  const plan = (agentKind: string, extra: Partial<PlanLimits> = {}): PlanLimits =>
+    ({ agentKind, subscriptionType: null, organization: null, windows: [], alert: "none", alertWindow: null, unavailable: null, detail: null, ts: 0, ...extra });
+  const later = Date.now() + 86_400_000;
+  const limits = [
+    plan("acp:cursor", { unavailable: "unsupported" }),
+    plan("codex", { unavailable: "unreadable", detail: "the app-server closed" }),
+    plan("claude", { subscriptionType: "max", alert: "exceeded", alertWindow: "five_hour", ts: 123, windows: [
+      { id: "seven_day", label: "Weekly", utilization: 40, resetsAt: later },
+      { id: "five_hour", label: "5-hour", utilization: 104, resetsAt: later },
+      { id: "seven_day_opus", label: "Opus weekly", utilization: 90, resetsAt: Date.now() - 1_000 },
+      { id: "model:Fable", label: "Fable weekly", utilization: null, resetsAt: null },
+    ] }),
+    plan("acp:gemini"),
+    plan("fake", { windows: [{ id: "five_hour", label: "5-hour", utilization: 5, resetsAt: later }] }),
+  ];
+  const row = (id: string, costUsd: number, title = "Session"): UsageSessionRow => ({
+    id, title, spaceId: "s1", spaceName: "Space s1", agentKind: "claude", model: null, createdAt: 0, updatedAt: 0,
+    totals: { costUsd, reportedUsd: costUsd, estimatedUsd: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, turns: 1, sessions: 1, unmeasuredSessions: 0 },
+  });
+  const month = {
+    sessions: [row("a", 1), row("b", 7), row("c", 0), row("d", 3, "Its own title"), row("e", 5), row("f", 2), row("g", 4)],
+    budget: { budget: { monthlyUsd: 50, thresholds: [0.5, 0.8, 1], includeEstimated: true }, monthSpendUsd: 22, monthStart: 0, projectedUsd: null },
+  };
+  const rig = () => recorded({ sessions: [], items: [item("b", "s1", "The heavy one"), item("d", "s1", "Renamed")] }, {
+    "limits.get": (() => ({ limits })) as never, "usage.summary": (() => month) as never,
+  });
+
+  it("draws each agent a person can run as the Usage page does: fullest window first, no figure it cannot stand behind", async () => {
+    const got = await attempt(api(), rig().rpc, "usage.get", {});
+    if (!got.ok) throw new Error(got.message);
+    const usage = MobileCalls["usage.get"].result.parse(got.result);
+    // Those that report first, then those that cannot; the scripted agent no person runs is left out.
+    expect(usage.limits.map((l) => l.agent)).toEqual(["claude", "codex", "acp:cursor", "acp:gemini"]);
+    const claude = usage.limits[0]!;
+    expect(claude).toMatchObject({ agentName: "Claude", agentMark: "claude", plan: "max", at: 123, alert: "5-hour limit reached", unavailable: null });
+    // THE MUTANT: drop the reset check, and a window that has started again shows the 90% it no longer has.
+    expect(claude.windows.map((w) => [w.id, w.usedPercent])).toEqual([["five_hour", 100], ["seven_day_opus", null], ["seven_day", 40], ["model:Fable", null]]);
+    // An agent with nothing to draw says why, in the page's sentence — one that reports and has not
+    // been heard from yet included.
+    expect(usage.limits.slice(1).map((l) => [l.alert, l.unavailable])).toEqual([
+      [null, "Codex could not be asked for its plan limits. (the app-server closed)"],
+      [null, "Cursor does not report plan limits."],
+      [null, "Run a Gemini session and its plan limits will appear here."],
+    ]);
+  });
+
+  it("says a warning the provider gave without naming a window, and drops one whose window has reset", async () => {
+    const at = (alertWindow: string | null, resetsAt: number) => recorded({ sessions: [], items: [] }, {
+      "limits.get": (() => ({ limits: [plan("claude", { alert: "approaching", alertWindow, windows: [{ id: "seven_day", label: "Weekly", utilization: 81, resetsAt }] })] })) as never,
+      "usage.summary": (() => month) as never,
+    });
+    const alertOf = async (alertWindow: string | null, resetsAt: number) =>
+      MobileCalls["usage.get"].result.parse(((await attempt(api(), at(alertWindow, resetsAt).rpc, "usage.get", {})) as { result: unknown }).result).limits[0]!.alert;
+    expect(await alertOf(null, later)).toBe("Limit nearly reached");
+    expect(await alertOf("seven_day", later)).toBe("Weekly limit nearly reached");
+    expect(await alertOf("seven_day", Date.now() - 1_000)).toBeNull();
+  });
+
+  it("counts this calendar month on the Mac's clock, against its budget, with its five heaviest sessions by their rows' names", async () => {
+    const { rpc, asked } = rig();
+    const before = Date.now();
+    const got = await attempt(api(), rpc, "usage.get", {});
+    if (!got.ok) throw new Error(got.message);
+    const { spend } = MobileCalls["usage.get"].result.parse(got.result);
+    const first = new Date(before);
+    // THE MUTANT: the last thirty days for "this month", and the meter reads a different sum from the Mac's.
+    const [, range] = asked.find(([m]) => m === "usage.summary") as [string, { from: number; to: number }];
+    expect(range.from).toBe(new Date(first.getFullYear(), first.getMonth(), 1).getTime());
+    expect(range.to).toBeGreaterThanOrEqual(before);
+    expect(spend.monthToDate).toBe(22);
+    expect(spend.budget).toBe(50);
+    expect(spend.topSessions.map((s) => [s.id, s.title, s.cost])).toEqual([
+      ["b", "The heavy one", 7], ["e", "Session", 5], ["g", "Session", 4], ["d", "Renamed", 3], ["f", "Session", 2],
+    ]);
+  });
+
+  it("says there is no budget when the Mac has none set", async () => {
+    const rpc = fakeRpc({ sessions: [], items: [] }, {
+      "limits.get": (() => ({ limits: [] })) as never,
+      "usage.summary": (() => ({ ...month, sessions: [], budget: { ...month.budget, budget: { ...month.budget.budget, monthlyUsd: null } } })) as never,
+    });
+    expect(await attempt(api(), rpc, "usage.get", {})).toMatchObject({ ok: true, result: { limits: [], spend: { budget: null, topSessions: [] } } });
+  });
+});
+
+describe("Review", () => {
+  const review = (id: string, spaceId: string, state: TeamReviewSummary["state"], updatedAt: number, extra: Partial<TeamReviewSummary> = {}): TeamReviewSummary => ({
+    id, spaceId, roleId: "role", roleName: "Content Producer", runId: null, sessionId: "role-session", recordPath: null, kind: "slideshows", title: id,
+    state, note: null, version: 1, itemCount: 1, thumb: null, channels: [], account: null, to: null, changedSinceApproval: false, actsTotal: 0, actsDone: 0,
+    createdAt: 0, decidedAt: null, updatedAt, ...extra,
+  });
+  const teams = [
+    { spaceId: "s1", reviews: [review("waiting", "s1", "waiting", 300), review("done", "s1", "done", 900), review("approved", "s1", "approved", 100)] },
+    { spaceId: "s2", reviews: [review("sent-back", "s2", "changes", 200, { note: "Shorter" }), review("rejected", "s2", "rejected", 800),
+      review("closed", "s2", "closed", 700), review("put-away", "s2", "dismissed", 600)] },
+  ];
+
+  it("lists what every team has handed back and is still open, newest first, and nothing that has come to rest", async () => {
+    const rpc = fakeRpc({ sessions: [], items: [] }, { "team.overview": (() => teams) as never });
+    const got = await attempt(api(), rpc, "reviews.list", {});
+    if (!got.ok) throw new Error(got.message);
+    const { reviews } = MobileCalls["reviews.list"].result.parse(got.result);
+    // THE MUTANT: only what waits for a yes, and a batch sent back or approved and not yet posted
+    // vanishes from the phone while the desktop's Review still shows it.
+    expect(reviews.map((r) => [r.id, r.state, r.spaceName])).toEqual([
+      ["waiting", "waiting", "Space s1"], ["sent-back", "changes", "Space s2"], ["approved", "approved", "Space s1"],
+    ]);
+    expect(reviews[1]).toMatchObject({ note: "Shorter", roleName: "Content Producer", sessionId: "role-session" });
+  });
+
+  /** A review in a space folder with a picture, an email and a document, and the calls its decisions make. */
+  function rig() {
+    const root = tempDir("realm-review-");
+    mkdirSync(join(root, "renders"));
+    writeFileSync(join(root, "renders", "toggle.png"), "png");
+    writeFileSync(join(root, "brief.pdf"), "%PDF-1.7");
+    writeFileSync(join(root, "notes.md"), "# Notes\n");
+    const outside = tempDir("realm-review-outside-");
+    writeFileSync(join(outside, "elsewhere.png"), "png");
+    symlinkSync(outside, join(root, "linked"));
+    const items: TeamReviewItem[] = [
+      { id: "email", reviewId: "r1", version: 1, ord: 1, files: [], body: "Hi Dana,\n\nIt ships Friday.", target: null, contentHash: "h", approvedHash: null, actState: "none",
+        meta: { subject: "It ships Friday" }, action: { connector: "mcp:gmail", verb: "email", to: "dana@acme.com" } },
+      { id: "post", reviewId: "r1", version: 1, ord: 0, files: ["renders/toggle.png", "brief.pdf", "linked/elsewhere.png"], body: "Dark mode is here.",
+        target: { channel: "instagram", account: "@realm" }, contentHash: "h", approvedHash: null, actState: "none" },
+      { id: "doc", reviewId: "r1", version: 1, ord: 2, files: ["notes.md"], body: null, target: null, contentHash: "h", approvedHash: null, actState: "none" },
+    ];
+    const detail = { ...review("r1", "s1", "waiting", 300), items, previous: [], costUsd: null, durationMs: null, runCapUsd: null, model: null, recordName: null,
+      checks: [], ledger: [], root, tickets: [], fileTexts: { "notes.md": "# Notes\n" }, why: null } satisfies TeamReviewDetail;
+    const decided = (state: TeamReviewSummary["state"]) => (p: { note?: string; reason?: string }) => ({ ...review("r1", "s1", state, 400), note: p.note ?? p.reason ?? null });
+    const { rpc, asked } = recorded({ sessions: [], items: [] }, {
+      "team.review": ((p: { id: string }) => { if (p.id !== "r1") throw new RpcCallError("NOT_FOUND", `review ${p.id} not found`); return detail; }) as never,
+      "team.reviewApprove": decided("approved") as never, "team.reviewRequestChanges": decided("changes") as never, "team.reviewReject": decided("rejected") as never,
+    });
+    return { rpc, asked, root, outside };
+  }
+
+  it("reads a review's drafts in their order as text, each picture by its path in the space's folder", async () => {
+    const { rpc, root } = rig();
+    const got = await attempt(api(), rpc, "review.get", { id: "r1" });
+    if (!got.ok) throw new Error(got.message);
+    const { review: summary, items } = MobileCalls["review.get"].result.parse(got.result);
+    expect(summary).toMatchObject({ id: "r1", spaceName: "Space s1", state: "waiting" });
+    expect(items.map((i) => [i.id, i.title, i.body, i.channel, i.to])).toEqual([
+      ["post", null, "Dark mode is here.", "instagram", null],
+      // An email's subject is its title, whichever way its key is written; its recipient is its action's.
+      ["email", "It ships Friday", "Hi Dana,\n\nIt ships Friday.", null, "dana@acme.com"],
+      // A document with no words of its own is the text of its file.
+      ["doc", null, "# Notes\n", null, null],
+    ]);
+    // Pictures only: the PDF goes with the post, but a phone is shown its pictures.
+    expect(items[0]!.files).toEqual([
+      { path: join(root, "renders/toggle.png"), name: "toggle.png", mime: "image/png" },
+      { path: join(root, "linked/elsewhere.png"), name: "elsewhere.png", mime: "image/png" },
+    ]);
+  });
+
+  it("decides by the desktop's own calls, and asks for changes only with a note saying what", async () => {
+    const { rpc, asked } = rig();
+    expect(await attempt(api(), rpc, "review.decide", { id: "r1", decision: "approve", note: "ignored" })).toMatchObject({ ok: true, result: { review: { state: "approved", spaceName: "Space s1" } } });
+    // THE MUTANT: hand the desktop an empty note, which it refuses in words meant for a role ("say what should change").
+    for (const note of [undefined, "   "]) {
+      expect(await attempt(api(), rpc, "review.decide", { id: "r1", decision: "changes", ...(note === undefined ? {} : { note }) })).toMatchObject({ ok: false, code: "INVALID_PARAMS" });
+    }
+    expect(await attempt(api(), rpc, "review.decide", { id: "r1", decision: "changes", note: " Shorter, please " })).toMatchObject({ ok: true, result: { review: { state: "changes", note: "Shorter, please" } } });
+    expect(await attempt(api(), rpc, "review.decide", { id: "r1", decision: "reject", note: "Not this week" })).toMatchObject({ ok: true, result: { review: { state: "rejected", note: "Not this week" } } });
+    await attempt(api(), rpc, "review.decide", { id: "r1", decision: "reject" });
+    expect(asked.filter(([m]) => m !== "team.review")).toEqual([
+      ["team.reviewApprove", { id: "r1" }], ["team.reviewRequestChanges", { id: "r1", note: "Shorter, please" }],
+      ["team.reviewReject", { id: "r1", reason: "Not this week" }], ["team.reviewReject", { id: "r1" }],
+    ]);
+  });
+
+  it("passes on, in the Mac's words, a decision the review's state refuses", async () => {
+    const rpc = fakeRpc({ sessions: [], items: [] }, {
+      "team.reviewApprove": (() => { throw new RpcCallError("TEAM_REVIEW_STATE", "this review is approved, not waiting"); }) as never,
+    });
+    expect(await attempt(api(), rpc, "review.decide", { id: "r1", decision: "approve" })).toEqual({ ok: false, code: "FORBIDDEN", message: "this review is approved, not waiting" });
+  });
+
+  it("previews only a picture the review's items carry, and only while it is inside its space's folder", async () => {
+    const { rpc, root, outside } = rig();
+    expect(await attempt(api(async () => Buffer.from("jpeg")), rpc, "review.file", { id: "r1", path: join(root, "renders/toggle.png") }))
+      .toMatchObject({ ok: true, result: { name: "toggle.png", preview: { kind: "image", mime: "image/jpeg" } } });
+    // Not a picture, not one an item carries, nor any other review's.
+    for (const [path, id] of [[join(root, "brief.pdf"), "r1"], [join(root, "notes.md"), "r1"], [join(outside, "elsewhere.png"), "r1"], ["/etc/hosts", "r1"]] as const) {
+      expect(await attempt(api(), rpc, "review.file", { id, path }), path).toMatchObject({ ok: false, code: "FORBIDDEN" });
+    }
+    expect(await attempt(api(), rpc, "review.file", { id: "r2", path: join(root, "renders/toggle.png") })).toMatchObject({ ok: false, code: "NOT_FOUND" });
+    // THE MUTANT: trust the listed path, and a folder linked in since leads the preview out of the space.
+    expect(await attempt(api(async () => { throw new Error("must not be read"); }), rpc, "review.file", { id: "r1", path: join(root, "linked/elsewhere.png") }))
+      .toMatchObject({ ok: false, code: "FORBIDDEN" });
+  });
+});
+
+describe("Scheduled", () => {
+  const schedule = (id: string, spaceId: string, cron: string, extra: Partial<Schedule> = {}): Schedule => ({
+    id, spaceId, title: id, goal: id, cron, enabled: true, constraints: null, nextRunAt: null, lastRunAt: null, lastRunId: null, lastSkippedAt: null,
+    newSessionPerRun: true, archiveSucceeded: false, roleId: null, createdAt: 0, updatedAt: 0, ...extra,
+  });
+  const run = (id: string, state: Run["state"], sessionId: string | null): Run => ({
+    id, spaceId: "s1", title: id, goal: id, agentKind: "claude", environmentId: null, constraints: null, dedupeKey: null, state, attempt: 1, maxAttempts: 1, sessionId,
+    scheduleId: null, roleId: null, wokeOn: null, costUsd: null, deadlineAt: null, result: null, error: null, createdAt: 0, startedAt: 0, settledAt: null, updatedAt: 0,
+  });
+  const tasks: Record<string, Schedule[]> = {
+    s1: [
+      schedule("later", "s1", "0 16 * * 5", { nextRunAt: 3_000, lastRunId: "never-read", lastRunAt: 50 }),
+      schedule("paused", "s1", "0 9 * * 1-5", { enabled: false, nextRunAt: 1_000, lastRunId: "failed", lastRunAt: 40, createdAt: 5 }),
+    ],
+    s2: [
+      schedule("sooner", "s2", "15 * * * *", { nextRunAt: 2_000, lastRunId: "read", lastRunAt: 60 }),
+      schedule("deleted-run", "s2", "0 9 1 * *", { lastRunId: "gone", lastRunAt: 30, createdAt: 9 }),
+      schedule("asks", "s2", "0 8 * * *", { nextRunAt: 2_500, lastRunId: "blocked", lastRunAt: 70 }),
+    ],
+  };
+  const runs: Record<string, Run> = {
+    "never-read": run("never-read", "succeeded", "run-1"), read: run("read", "succeeded", "run-2"), failed: run("failed", "failed", null),
+    blocked: run("blocked", "blocked", "run-3"), now: run("now", "queued", null),
+  };
+  const rig = () => recorded({
+    sessions: [session("run-1", "s1", { lastEventSeq: 9, seenSeq: 0 }), session("run-2", "s2", { lastEventSeq: 9, seenSeq: 9 }), session("run-3", "s2", { lastEventSeq: 4, seenSeq: 2 })],
+    items: [],
+  }, {
+    "schedules.list": ((p: { spaceId: string }) => tasks[p.spaceId] ?? []) as never,
+    "runs.get": ((p: { id: string }) => (runs[p.id] ? { run: runs[p.id], attempts: [] } : null)) as never,
+    "schedules.runNow": ((p: { id: string }) => {
+      if (p.id === "busy") throw new RpcCallError("SCHEDULE_BUSY", "this task continues one session, and its last run is still going");
+      return { ...tasks.s1![0]!, lastRunId: "now", lastRunAt: 100 };
+    }) as never,
+  });
+
+  it("lists every space's tasks in the Scheduled page's order, in its words, with how each last run went", async () => {
+    const got = await attempt(api(), rig().rpc, "schedules.list", {});
+    if (!got.ok) throw new Error(got.message);
+    const { tasks: listed } = MobileCalls["schedules.list"].result.parse(got.result);
+    // What runs next first; then what is paused or has nothing left to run, the newest of those first.
+    expect(listed.map((t) => [t.id, t.spaceName, t.when])).toEqual([
+      ["sooner", "Space s2", "Every hour at :15"], ["asks", "Space s2", "Every day at 8:00 AM"], ["later", "Space s1", "Fridays at 4:00 PM"],
+      ["deleted-run", "Space s2", "The 1st of every month at 9:00 AM"], ["paused", "Space s1", "Weekdays at 9:00 AM"],
+    ]);
+    // THE MUTANT: the sidebar's unread rule, which reads a session nobody ever opened as read — and a
+    // run a clock started while nobody looked has no dot.
+    expect(Object.fromEntries(listed.map((t) => [t.id, t.lastRun]))).toEqual({
+      sooner: { state: "Finished", sessionId: "run-2", unread: false },
+      asks: { state: "Needs you", sessionId: "run-3", unread: true },
+      later: { state: "Finished", sessionId: "run-1", unread: true },
+      // A run deleted since is no run to say anything of.
+      "deleted-run": null,
+      paused: { state: "Failed", sessionId: null, unread: false },
+    });
+    expect(listed.find((t) => t.id === "paused")).toMatchObject({ enabled: false, nextRunAt: 1_000, lastRunAt: 40 });
+  });
+
+  it("runs a task now as the desktop's Run now does, and answers with the run it started", async () => {
+    const { rpc, asked } = rig();
+    expect(await attempt(api(), rpc, "schedules.runNow", { id: "later" })).toEqual({ ok: true, result: { task: {
+      id: "later", spaceId: "s1", spaceName: "Space s1", title: "later", when: "Fridays at 4:00 PM", enabled: true, nextRunAt: 3_000, lastRunAt: 100,
+      lastRun: { state: "Starting", sessionId: null, unread: false },
+    } } });
+    expect(asked.filter(([m]) => m === "schedules.runNow")).toEqual([["schedules.runNow", { id: "later" }]]);
+    // A task whose last run is still going says why it will not start another, in the Mac's words.
+    expect(await attempt(api(), rpc, "schedules.runNow", { id: "busy" })).toMatchObject({ ok: false, code: "FORBIDDEN", message: expect.stringContaining("still going") });
   });
 });
