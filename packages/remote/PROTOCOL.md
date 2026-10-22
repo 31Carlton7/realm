@@ -346,8 +346,9 @@ SessionRow {
   permissionMode?: string,
                           how freely the agent acts ("default", "acceptEdits", "bypassPermissions"),
                           or the mode it is in instead ("plan", "ask"), as the desktop stores it
-  activityAt?: ms         when the conversation last moved: a message went out, or the agent answered
+  activityAt?: ms,        when the conversation last moved: a message went out, or the agent answered
                           or finished a turn
+  pinned?: bool           pinned in the desktop's sidebar, so Home lists it in Pinned
 }
 ```
 
@@ -422,8 +423,22 @@ else keeps its own name, whatever it looks like.
 | `ping` | `{}` | `{at: ms}`, the Mac's clock |
 | `home.get` | `{profileId?}` | `{mac: {name}, needsYou: [SessionRow], spaces: [Space], profiles?: [Profile], profileId?: string\|null, recent?: [SessionRow]}` |
 | `space.sessions` | `{id, offset?: int = 0, limit?: int = 50}` | `{sessions: [SessionRow], more: bool}`. `limit` is at most 100. |
-| `session.open` | `{id, limit?: int = 200}` | `{session: SessionRow, rows: [Row], hasMore: bool, hint?: string\|null}` |
+| `session.open` | `{id, limit?: int = 200}` | `{session: SessionRow, rows: [Row], hasMore: bool, hint?: string\|null, queued?: [QueuedMessage]}` |
 | `session.close` | `{id}` | `{ok: true}` |
+| `session.update` | `{id, title?, pinned?: bool, archived?: bool}` | `{session: SessionRow\|null}`: null once it is archived |
+| `session.queue` | `{id}` | `{queued: [QueuedMessage]}` |
+| `session.sendQueuedNow` | `{id, queuedId}` | `{ok: true}` |
+| `session.removeQueued` | `{id, queuedId}` | `{ok: true}` |
+| `session.holdQueued` | `{id, queuedId, held: bool}` | `{ok: true}` |
+| `session.editQueued` | `{id, queuedId, text}` | `{ok: true}` |
+| `session.subagents` | `{id}` | `{subagents: [Subagent]}` |
+| `usage.get` | `{}` | `{limits: [PlanLimits], spend: Spend}` |
+| `reviews.list` | `{}` | `{reviews: [ReviewSummary]}` |
+| `review.get` | `{id}` | `{review: ReviewSummary, items: [ReviewItem]}` |
+| `review.decide` | `{id, decision: "approve"\|"changes"\|"reject", note?}` | `{review: ReviewSummary}`, as it now is |
+| `review.file` | `{id, path}` | as `session.file`'s |
+| `schedules.list` | `{}` | `{tasks: [ScheduledTask]}` |
+| `schedules.runNow` | `{id}` | `{task: ScheduledTask}`, with the run it started |
 | `session.send` | `{id, text, delivery?: "auto"\|"queue"\|"steer", attachments?: [Upload]}` | `{ok: true}` |
 | `session.options` | `{id}` | `SessionOptions` |
 | `session.configure` | `{id, model?: string\|null, effort?: string\|null, mode?: "build"\|"plan"\|"ask", permission?}` | `SessionOptions`, as they are now |
@@ -552,8 +567,156 @@ A phone offers files only to a Mac that answers `session.options`: an older Mac 
 chat, a sub-agent waiting under a lead that is a row, a failure that has been read and an archived
 one, and it orders the waiting by how long each has waited, then the failures.
 
+**A session's row is the sidebar's.** `session.update` renames, pins or archives the session's own
+item, as the desktop's sidebar does (`items.update`), and changes only what it is given. A name is
+trimmed, and none is `INVALID_PARAMS`. The answer is the row as it now is, or `session: null` once it
+is archived: an archived session leaves every list. The row is found among its space's items, archived
+ones included, so `archived: false` takes back one put away. A session with no row is `NOT_FOUND`.
+
+**The queue is the Mac's.** A message typed while a turn runs waits in the Mac's queue, and goes out
+when the turn ends, one per turn, in the order it was asked:
+
+```
+QueuedMessage {
+  id, text,
+  attachments: [{path, name, mime}],   named as its user row will name them, and previewed by `session.file`
+  at: ms,                              when it was queued
+  held: bool                           someone is editing it, on the Mac or a phone
+}
+```
+
+- **Held**, a message does not go out, and nothing behind it does, until the edit is saved or let go.
+  A hold lets go on its own after a while, so an editor closed half way cannot stop the queue.
+- **`session.sendQueuedNow`** sends it now, ahead of the turn it was waiting for, as the desktop's
+  Send now does (`sessions.releaseQueued`). **`session.removeQueued`** takes it out unsent
+  (`sessions.dequeue`). A message that has already gone out is left as it is.
+- **`session.holdQueued`** holds it while it is edited here, or lets it go. A hold on a message that
+  has already gone out is `NOT_FOUND`: there is nothing left to edit.
+- **`session.editQueued`** gives it new words, keeping its files and its place, and lets its hold go
+  (`sessions.editQueued`). It is `NOT_FOUND` once the message has gone out, so the phone can put the
+  words back in its composer; no words at all, on a message with no file, is `INVALID_PARAMS`.
+
+`session.open` answers with the queue as it was when the session opened, and `session.queue` (the
+event) carries the whole queue each time it changes after that.
+
+**A session's sub-agents are its Agents tab's.** `session.subagents` lists every session it started
+(`delegation.children`), newest first:
+
+```
+Subagent {
+  session: SessionRow,       its own session, which opens like any other
+  goal: string|null,         what it was asked to do
+  startedAt: ms,
+  settledAt: ms|null,        when it finished; null while it works
+  outcome: string|null,      how it ended, in the Agents tab's word; null while it works
+  report: string|null,       its last answer, the report its lead read: at most 2,000 characters
+  note: string|null          why Realm stopped it itself, where it did
+}
+```
+
+- **The outcome** is `done`, `failed`, `timeout`, `stopped` or `cancelled`: the state the Agents tab
+  reads off the run's record and the session (`subagentState` in `@realm/view`). A sub-agent working,
+  waiting on the person, or about to start its first turn has none, and no `settledAt`; its row's
+  `status` says which. One whose tool keeps no record (a browser agent, a reviewer) ended when it
+  last did anything, and is `done` when it said something.
+- `session.subagents` (the event) says the list changed: one started, settled, was collected, or
+  changed its status. It is sent to phones with the lead open, once for changes that come together.
+
+**Usage is Settings ▸ Usage.** `usage.get` answers with each agent's plan, as the page draws it, and
+this calendar month's spend:
+
+```
+PlanLimits {
+  agent, agentName, agentMark,     as SessionRow's agent, agentName and agentMark
+  plan: string|null,               the provider's word for the tier, as it wrote it ("max", "pro")
+  windows: [{id, label, usedPercent: number|null, resetsAt: ms|null}],
+  alert: string|null,              the provider's warning, in words ("Weekly limit nearly reached")
+  unavailable: string|null,        why there is nothing to draw, in the page's sentence
+  at: ms                           when the provider was last heard from; 0 for never
+}
+
+Spend {
+  monthToDate: number,             US dollars spent this calendar month
+  budget: number|null,             the monthly budget set on the Mac, or none
+  topSessions: [{id, title, spaceName, cost: number}]
+}
+```
+
+- **Every agent a person can run** has a row, in the order the desktop offers them, which puts the
+  two that report a plan first. An agent that cannot report one says so in `unavailable` ("Cursor does
+  not report plan limits."), and so does one that reports and has not run yet.
+- **Windows** come fullest first, as the page draws them. `usedPercent` is 0 to 100, and null where the
+  provider named a window but not how full it is, or where the window has reset since the reading:
+  that figure was about a period that is over. Neither is ever drawn as a zero.
+- **`alert`** is the provider's own verdict, never a threshold the Mac chose: `<window> limit reached`
+  or `<window> limit nearly reached`, or `Limit …` where the provider named no window. A warning about
+  a window that has since reset is over, and null.
+- **Spend** is the page's: this calendar month on the Mac's clock (`usage.summary`), reported and
+  estimated dollars together. `topSessions` are the five that cost the most this month, most first,
+  each by the name its sidebar row has.
+
+**Review is the desktop's Review.** `reviews.list` lists what every team has handed back and is still
+open, across every space, newest first by `updatedAt`:
+
+```
+ReviewSummary {
+  id, spaceId, spaceName,
+  roleName: string|null,
+  title,
+  kind,                      the role's label for it, as the desktop keeps it ("slideshows", "message", "launch")
+  state,                     "waiting" for the person, "changes" sent back, or "approved" and not yet done
+  itemCount: int,
+  to: string|null,           who its first item goes to, where it names someone
+  channels: [string],
+  note: string|null,         the person's last note: what they asked to change, or why they said no
+  sessionId: string|null,    the role's session
+  updatedAt: ms
+}
+
+ReviewItem {
+  id,
+  title: string|null,        an email's subject
+  body: string,              the draft: its own words, or the text of the document, table or diff it is
+  channel: string|null, to: string|null,
+  files: [{path, name, mime}]    its pictures, by their paths in the space's folder
+}
+```
+
+- **Open** is every state a review does not rest in: `done`, `rejected`, `closed` and `dismissed` are
+  final, and leave the list.
+- **`review.decide`** decides as the desktop's buttons do: `approve` is `team.reviewApprove`, `changes`
+  is `team.reviewRequestChanges` with the note, and `reject` is `team.reviewReject`, with the note as
+  its reason where there is one. Asking for changes without a note is `INVALID_PARAMS`. Approving posts
+  and sends nothing: each outward act is still pressed on the Mac. A decision the review's state
+  refuses (approving one already approved) is `FORBIDDEN`, in the Mac's words.
+
+**Scheduled is the desktop's Scheduled page.** `schedules.list` lists every space's scheduled tasks
+in the page's order: what runs soonest first, then those paused or with nothing left to run, the
+newest of those first.
+
+```
+ScheduledTask {
+  id, spaceId, spaceName, title,
+  when: string,              when it runs, as the page says it ("Weekdays at 9:00 AM", "Every hour at :15")
+  enabled: bool,
+  nextRunAt: ms|null, lastRunAt: ms|null,
+  lastRun: {state: string, sessionId: string|null, unread: bool} | null
+}
+```
+
+- **`when`** is the page's sentence for the task's expression, on the Mac's clock; an expression the
+  page cannot put in words is given as itself.
+- **`lastRun`** is the run the task's last firing made, or null when it has made none or that run is
+  gone. Its `state` is the page's word: `Starting`, `Running`, `Needs you`, `Failed`, `Expired` or
+  `Stopped`, and `Finished` for a run that succeeded. It is `unread` until its session has been read
+  to the end, a session nobody has opened included.
+- **`schedules.runNow`** is the page's Run now: one run, now, without moving the task's own clock. A
+  task that continues one session refuses another run while its last is still going (`FORBIDDEN`).
+
 **Opening a session subscribes the channel to it.** From then until `session.close` or the end of
-the channel, the Mac sends that session's `session.rows`, `session.status` and `session.hint` events.
+the channel, the Mac sends that session's `session.rows`, `session.status`, `session.hint`,
+`session.queue` and `session.subagents` events. A change to the queue that comes while the session is
+still opening is not sent: the open's answer carries it.
 
 **Answers are the desktop's shape.** `answers` maps a question's `id` (its `question` on a Phase 1
 Mac) to an option's `value` or words of the person's own; a multi-select question's answer is a
@@ -575,12 +738,12 @@ phone read, and what bounds it:
   path must be one the turn's changes list, or the call is refused (`FORBIDDEN`) without git being
   asked; the phone names no tree. The Mac caps a patch at 512 KB and 4,000 lines, and a page at
   2,000 lines and 256 KB of JSON; a line longer than 4,000 characters is cut, and says so.
-- **`session.file`**: a preview of one file that session's `files_made` listed, or that one of its
-  `user_message`s was sent with, by the exact path listed, or a refusal (`FORBIDDEN`). A path that is
-  now a link, or not a file, is refused, and so is a file that exists to hold a secret (a key, an
-  `.env`), whatever sent it. Its `name` is its user row's: the name the person gave it. A picture is
-  sent as a JPEG at most 1024 px on its longer side and 512 KB; a text as at most its first 16 KB;
-  anything else as nothing but its name, size and type.
+- **`session.file`**: a preview of one file that session's `files_made` listed, that one of its
+  `user_message`s was sent with, or that a message waiting in its queue carries, by the exact path
+  listed, or a refusal (`FORBIDDEN`). A path that is now a link, or not a file, is refused, and so is
+  a file that exists to hold a secret (a key, an `.env`), whatever sent it. Its `name` is its user
+  row's: the name the person gave it. A picture is sent as a JPEG at most 1024 px on its longer side
+  and 512 KB; a text as at most its first 16 KB; anything else as nothing but its name, size and type.
 - **`session.send`** and **`session.create`**: they write a phone's files, and only into the Realm
   home's `tmp/attachments`, under names the Mac makes. A folder there that is a link elsewhere is not
   written through. The phone names no path.
@@ -590,6 +753,23 @@ phone read, and what bounds it:
   (`sessions.defaultPermissionMode`) and the agent a new session starts on (`ui.lastAgentKind`).
 - **`space.icon`**: the picture a person uploaded or had made for a space, at most 256 KB.
 - **`session.hint`** and `hint`: the suggested next message the desktop's prompter shows.
+- **`session.update`**: a session's own sidebar row — its name, its pin, whether it is archived — and
+  nothing else of it.
+- **The queue's calls**: the messages waiting in that session's queue, each by the id the queue gave
+  it; a phone sends, removes, holds and edits only those, and an edit keeps the files they carry.
+- **`session.subagents`**: the sessions that session started, each as a row, with the task each was
+  handed, how it ended and its last answer.
+- **`usage.get`**: each agent's plan as its provider last reported it, and this month's spend and
+  budget (`usage.budget`), with its five heaviest sessions' names and costs.
+- **`reviews.list`**, **`review.get`** and **`review.decide`**: what the space's teams sent to Review,
+  the drafts' words and their pictures' paths, and the person's three decisions on it. A draft that is
+  a text file is the text the Mac already reads for its own window: at most 256 KB a file and 1 MB a
+  review. Approving issues each outward act's ticket; none goes out until it is pressed on the Mac.
+- **`review.file`**: a preview, as `session.file`'s, of one picture one of that review's items carries,
+  by the exact path `review.get` gave, while it is a file inside its space's folder, through any link.
+  Anything else, a file that holds a secret included, is `FORBIDDEN`.
+- **`schedules.list`** and **`schedules.runNow`**: every space's scheduled tasks, each with how its last
+  run went and that run's session, and Run now. A task's instructions are not sent.
 
 No call or event carries a terminal's output, a file outside those rules, another session's stream,
 any other setting, or a key.
@@ -602,11 +782,17 @@ any other setting, or a key.
 | `session.status` | `{id, status}` | The session's status changed. |
 | `session.hint` | `{id, text: string\|null}` | The suggested next message changed: a newer one after a turn, or none once something was sent. |
 | `home.changed` | `{}` | Call `home.get` again. Sent at most once a second. |
+| `session.queue` | `{id, queued: [QueuedMessage]}` | An open session's queue changed: the whole queue. |
+| `session.subagents` | `{id}` | An open session's sub-agents changed: call `session.subagents` again. |
+| `work.changed` | `{}` | Reviews or scheduled tasks changed somewhere: call `reviews.list` and `schedules.list` again. Sent at most once a second. |
 | `pair.result` | see §4.1 | Pairing channels only. |
 
 ### Error codes
 
 `METHOD_NOT_FOUND`, `INVALID_PARAMS`, `NOT_FOUND`, `FORBIDDEN`, `SESSION_NOT_LIVE`, `INTERNAL`.
+
+`FORBIDDEN` is also what the Mac answers when it refuses what was asked in the state a thing is in —
+a review already decided, a task whose last run is still going — with its own words for why.
 
 ## 9. What holds this in place
 
@@ -624,7 +810,8 @@ any other setting, or a key.
 - **Links.** `ts-links.json` is `[{url, fields}]`, including an expired link and an unknown version.
 - **The API.** `ts-api.json` holds `mobile.v1`'s answers as the Mac's own projector and `MobileApi`
   make them, every row kind included and a user row with files, with the answer the phone's card must
-  send for one question. The server's suite fails when the committed file is not what the code
-  produces, when a row kind has no example in it, or when a call that answers more than `{ok: true}`
-  has none; RealmKit decodes every answer in it.
+  send for one question, and a payload of each event but the rows, the status, `home.changed` and
+  `pair.result`. The server's suite fails when the committed file is not what the code produces, when
+  a row kind has no example in it, or when a call that answers more than `{ok: true}`, or one of those
+  events, has none; RealmKit decodes every answer in it.
 - **The relay.** Its own tests drive §3 against the Worker in workerd.
