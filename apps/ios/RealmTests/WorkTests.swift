@@ -425,3 +425,60 @@ struct WorkHeadTests {
         #expect(WorkPage.reviews.note(reviews: [], schedules: nil) == nil)
     }
 }
+
+/// The pages' words over the Mac's own answers (`packages/remote/test/fixtures/ts-api.json`, which the
+/// server's suite writes): every state the Mac says is one the phone has a word and a glyph for, so a
+/// word the Mac changes shows up here rather than as a blank or a guess on the phone.
+@MainActor
+@Suite("The pages read the Mac's own answers")
+struct WorkFixtureWordsTests {
+    nonisolated static let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent().appending(path: "packages/remote/test/fixtures/ts-api.json")
+    nonisolated static let available = FileManager.default.fileExists(atPath: fixture.path)
+
+    static func call<T: Decodable>(_ type: T.Type, _ key: String) throws -> T {
+        let calls = try #require((try JSONSerialization.jsonObject(with: Data(contentsOf: fixture)) as? [String: Any])?["calls"] as? [String: Any])
+        return try JSONDecoder().decode(T.self, from: JSONSerialization.data(withJSONObject: try #require(calls[key])))
+    }
+
+    @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
+    func everySubagentsStateIsOneThePhoneSays() throws {
+        struct Answer: Decodable { let subagents: [Subagent] }
+        let states = try Self.call(Answer.self, "session.subagents").subagents.map(SubagentState.init)
+        #expect(states == [.working, .done, .cancelled])
+    }
+
+    @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
+    func everyReviewsStageIsOneThePhoneActsOn() throws {
+        struct List: Decodable { let reviews: [ReviewSummary] }
+        struct Decided: Decodable { let review: ReviewSummary }
+        let reviews = try Self.call(List.self, "reviews.list").reviews
+        #expect(reviews.map { ReviewStage($0.state) } == [.changes, .waiting])
+        #expect(ReviewStage(try Self.call(Decided.self, "review.decide").review.state) == .approved)
+        #expect(ReviewStage(try Self.call(Decided.self, "review.decide:changes").review.state) == .changes)
+        // Only the one waiting for a decision is counted at Home's head.
+        #expect(WorkHead.lines(reviews: reviews, schedules: nil).map(\.words) == ["1 to review"])
+    }
+
+    @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
+    func everyRunsStateIsOneThePhoneSays() throws {
+        struct List: Decodable { let tasks: [ScheduledTask] }
+        let tasks = try Self.call(List.self, "schedules.list").tasks
+        #expect(tasks.compactMap(\.lastRun).map { RunState($0.state) } == [.finished, .failed])
+        #expect(RunState(try #require(Self.call([String: ScheduledTask].self, "schedules.runNow")["task"]?.lastRun).state) == .starting)
+        // The brief finished unread; the failed run was read.
+        #expect(WorkHead.lines(reviews: nil, schedules: tasks).map(\.words) == ["1 scheduled result"])
+    }
+
+    /// The plan's windows as the page draws them at the reading's own moment: a bar for each with a
+    /// figure, none for the one reset since and the one never measured.
+    @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
+    func aPlansWindowsAreDrawnOnlyWhereTheyHaveAFigure() throws {
+        let claude = try #require(try Self.call(Usage.self, "usage.get").limits.first)
+        let at = Date(timeIntervalSince1970: claude.at / 1000)
+        #expect(claude.windows.map { WindowReading($0, now: at).fraction } == [0.91, nil, 0.34, nil])
+        #expect(WindowReading(claude.windows[1], now: at).words == "Reset since this reading")
+        #expect(WindowReading(claude.windows[3], now: at).words == "Not reported")
+        #expect(PlanWords.title(claude) == "Claude Max")
+    }
+}
