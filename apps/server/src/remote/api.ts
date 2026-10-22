@@ -1,23 +1,28 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { realpath } from "node:fs/promises";
+import { join, sep } from "node:path";
 import {
   AGENT_META, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, isSecretPath, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, readEffortSupport,
-  resolveMidTurnMode, SELECTABLE_AGENT_KINDS, type AgentKind, type IconAsset, type Item, type MethodResult, type ModelInfo, type Session,
-  type Space, type StoredSessionEvent, type TurnChanges,
+  resolveMidTurnMode, SELECTABLE_AGENT_KINDS, type AgentKind, type DelegatedChild, type IconAsset, type Item, type MethodResult, type ModelInfo,
+  type QueuedPrompt, type Schedule, type Session, type Space, type StoredSessionEvent, type TurnChanges,
 } from "@realm/contracts";
 import { givenAttachmentName, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
 import {
-  MobileCalls, RECENT_LIMIT, SEND_LIMITS, type Home, type MobileErrorCode, type MobileMethod, type MobileParams, type MobileResult, type Row,
-  type SessionOptions, type SessionRow,
+  MobileCalls, RECENT_LIMIT, SEND_LIMITS, type Home, type MobileErrorCode, type MobileMethod, type MobileParams, type MobileResult, type QueuedMessage,
+  type ScheduledTask, type SessionOptions, type SessionRow, type Subagent,
 } from "@realm/remote";
-import { FALLBACK_AGENT, LAST_AGENT_SETTING, modelLabel, needsYou, QUICK_CHAT_SETTING, quickChatIdOf, type NeedsYouState } from "@realm/view";
+import {
+  FALLBACK_AGENT, isLive, LAST_AGENT_SETTING, modelLabel, needsYou, QUICK_CHAT_SETTING, quickChatIdOf, subagentState, upcomingOrder, type NeedsYouState,
+} from "@realm/view";
 import { resolveDefaultPermissionMode } from "../sessions/service";
 import { diffPage } from "./changes";
 import { agentOptions, changesFor, ChoiceRefused, probeList, type InitFacts, type OptionsInput, type ProbeRow } from "./options";
 import { filePreview, PreviewRefused, type Downscale } from "./preview";
-import { SessionProjector } from "./rows";
+import { queuedMessage, SessionProjector } from "./rows";
 import { RpcCallError, type RpcPort } from "./rpc-port";
 import { checkUploads, saveUploads, UploadRefused, type Upload } from "./uploads";
+import { everyPlan, monthStart, spend } from "./usage";
+import { isOpenReview, newestReviewFirst, reviewItem, reviewPictures, reviewSummary, scheduledTask } from "./work";
 
 /**
  * mobile.v1 on the Mac (PROTOCOL.md §8): each call validated against its schema, then answered by the
@@ -29,12 +34,23 @@ export class MobileError extends Error {
   constructor(readonly code: MobileErrorCode, message: string) { super(message); }
 }
 
-/** A phone's channel: the port its calls go through, as that phone, and its open sessions — each with
- *  its own projector so rows are folded once per phone. */
+/** A session a phone has open: its own projector, so rows are folded once per phone, and what arrives
+ *  for it while `session.open` reads its history. */
+export type OpenSession = {
+  projector: SessionProjector;
+  buffer: StoredSessionEvent[] | null;
+  /** The queue as the newest `session.queue` broadcast carried it while the session opened — newer than
+   *  the read `session.open` made, so the open answers with it. */
+  queued: QueuedPrompt[] | null;
+  /** Its sub-agents' sessions, as the phone last read them: a change to one is a change to this list. */
+  subagents: ReadonlySet<string>;
+};
+
+/** A phone's channel: the port its calls go through, as that phone, and its open sessions. */
 export type ChannelContext = {
   phoneId: string;
   rpc: RpcPort;
-  sessions: Map<string, { projector: SessionProjector; buffer: StoredSessionEvent[] | null }>;
+  sessions: Map<string, OpenSession>;
 };
 
 const HISTORY_PAGE = 2_000;
@@ -130,6 +146,30 @@ type Shared = { remembered: Record<string, string[]>; catalog: Map<string, Model
 const optionsInput = (probe: ProbeRow | null, init: InitFacts | null, shared: Shared): OptionsInput =>
   ({ probe, init, remembered: shared.remembered, catalog: shared.catalog });
 
+/** A sub-agent, as its lead's Agents tab says it: working (or waiting, or about to start) until the
+ *  tab's state says it has ended, and then how. */
+function subagentOf(child: DelegatedChild, session: SessionRow, inFlight: boolean): Subagent {
+  const state = subagentState(child, undefined, inFlight);
+  const ended = !isLive(state);
+  return {
+    session, goal: child.goal, startedAt: child.startedAt,
+    // When its run settled — or, for a child whose tool keeps no record, when it last did anything.
+    settledAt: ended ? child.settledAt ?? child.activity?.ts ?? child.session.updatedAt : null,
+    outcome: ended ? state : null, report: child.report, note: child.note ?? null,
+  };
+}
+
+/** A space's name by its id, "" for one the Mac no longer has. */
+const spaceNames = (spaces: readonly Space[]) => {
+  const names = new Map(spaces.map((s) => [s.id, s.name]));
+  return (id: string): string => names.get(id) ?? "";
+};
+
+/** `path` is `root` or inside it. Both are real paths: no link is left in either to lead out. */
+const inside = (path: string, root: string): boolean => path === root || path.startsWith(root.endsWith(sep) ? root : root + sep);
+
+const GONE = "That message has already gone out.";
+
 export class MobileApi {
   constructor(private readonly o: { macName: () => string; reportsDir: string; dev: boolean; downscale?: Downscale; realmHome: string }) {}
 
@@ -147,6 +187,28 @@ export class MobileApi {
         case "space.sessions": return await this.spaceSessions(rpc, p.id as string, p.offset as number, p.limit as number);
         case "session.open": return await this.open(ctx, p.id as string, p.limit as number);
         case "session.close": ctx.sessions.delete(p.id as string); return { ok: true };
+        case "session.update": return await this.update(rpc, p as MobileParams<"session.update">);
+        case "session.queue": return { queued: await this.queue(rpc, p.id as string) };
+        case "session.sendQueuedNow": await rpc.call("sessions.releaseQueued", { id: p.id as string, queuedId: p.queuedId as string }); return { ok: true };
+        case "session.removeQueued": await rpc.call("sessions.dequeue", { id: p.id as string, queuedId: p.queuedId as string }); return { ok: true };
+        case "session.holdQueued": {
+          const { held } = await rpc.call("sessions.holdQueued", { id: p.id as string, queuedId: p.queuedId as string, held: p.held as boolean });
+          // A hold the queue could not take is a message already on its way: there is nothing left to edit.
+          if (p.held === true && !held) throw new MobileError("NOT_FOUND", GONE);
+          return { ok: true };
+        }
+        case "session.editQueued": return await this.editQueued(rpc, p as MobileParams<"session.editQueued">);
+        case "session.subagents": return await this.subagents(ctx, p.id as string);
+        case "usage.get": return await this.usage(rpc);
+        case "reviews.list": return await this.reviews(rpc);
+        case "review.get": return await this.review(rpc, p.id as string);
+        case "review.decide": return await this.decide(rpc, p as MobileParams<"review.decide">);
+        case "review.file": return await this.reviewFile(rpc, p.id as string, p.path as string);
+        case "schedules.list": return await this.schedules(rpc);
+        case "schedules.runNow": {
+          const fired = await rpc.call("schedules.runNow", { id: p.id as string });
+          return { task: (await this.tasks(rpc, [fired]))[0]! };
+        }
         case "session.send": {
           const files = await this.uploads(p.text as string, p.attachments as Upload[]);
           await rpc.call("sessions.send", { id: p.id as string, text: p.text as string, attachments: files, delivery: p.delivery as "auto" | "queue" | "steer" });
@@ -190,9 +252,12 @@ export class MobileApi {
       if (e instanceof ChoiceRefused || e instanceof UploadRefused) throw new MobileError("INVALID_PARAMS", e.message);
       if (e instanceof RpcCallError) {
         // A turn's trees gone from the repository, or a checkout that is no longer one, are things that
-        // are not there any more, as far as a phone can do anything about them.
+        // are not there any more, as far as a phone can do anything about them. A review already decided,
+        // or a task whose last run is still going, refuses what was asked, and the Mac's words say why.
         const code: MobileErrorCode = e.code === "NOT_FOUND" || e.code === "SESSION_NOT_LIVE" || e.code === "INVALID_PARAMS" ? e.code
-          : e.code === "TREE_GONE" || e.code === "NOT_A_REPOSITORY" ? "NOT_FOUND" : "INTERNAL";
+          : e.code === "TREE_GONE" || e.code === "NOT_A_REPOSITORY" ? "NOT_FOUND"
+          : e.code === "TEAM_REVIEW_STATE" || e.code === "SCHEDULE_BUSY" ? "FORBIDDEN"
+          : e.code === "TEAM_REVIEW_INVALID" ? "INVALID_PARAMS" : "INTERNAL";
         throw new MobileError(code, e.message);
       }
       throw new MobileError("INTERNAL", (e as Error).message);
@@ -236,15 +301,16 @@ export class MobileApi {
     return { remembered: readEffortSupport(efforts.value), catalog: catalogOf(catalog.value), midTurn: resolveMidTurnMode(midTurn.value), defaultPermission: permission.value };
   }
 
-  /** `need` is the ids Needs you lists, so a row says it is in that list exactly when it is. */
-  private row(s: Session, title: string, space: Space | undefined, need: ReadonlySet<string>, probe: Probe): SessionRow {
+  /** `item` is the session's sidebar row, for its title and pin; `need` is the ids Needs you lists, so a
+   *  row says it is in that list exactly when it is. */
+  private row(s: Session, item: Pick<Item, "title" | "pinned"> | undefined, space: Space | undefined, need: ReadonlySet<string>, probe: Probe): SessionRow {
     const meta = AGENT_META[s.agentKind as AgentKind] as { label: string; icon: string } | undefined;
     return {
-      id: s.id, title: title || s.title, spaceId: s.spaceId, spaceName: space?.name ?? "", agent: s.agentKind, model: s.model,
+      id: s.id, title: item?.title || s.title, spaceId: s.spaceId, spaceName: space?.name ?? "", agent: s.agentKind, model: s.model,
       status: mobileStatus(s.status), needsYou: need.has(s.id), unread: isUnread(s), updatedAt: s.updatedAt,
       agentName: meta?.label ?? s.agentKind, agentMark: meta?.icon ?? "bot",
       modelLabel: meta ? modelLabel(s.agentKind, s.model, probe) : s.model ?? "",
-      createdAt: s.createdAt, effort: s.effort, permissionMode: s.permissionMode, activityAt: s.activityAt,
+      createdAt: s.createdAt, effort: s.effort, permissionMode: s.permissionMode, activityAt: s.activityAt, pinned: item?.pinned ?? false,
     };
   }
 
@@ -254,12 +320,15 @@ export class MobileApi {
   private async listing(rpc: RpcPort) {
     const [lists, probe] = await Promise.all([this.lists(rpc), this.probes(rpc)]);
     const spaceById = new Map(lists.spaces.map((s) => [s.id, s]));
-    const titles = new Map<string, string>();
-    for (const it of lists.items) if (it.kind === "session") titles.set(it.refId, it.title);
+    const rows = new Map<string, Item>();
+    for (const it of lists.items) if (it.kind === "session") rows.set(it.refId, it);
     const waiting = needsYou(needsYouInput(lists));
     const need = new Set(waiting.map((r) => r.session.id));
-    const listed = lists.sessions.filter((s) => titles.has(s.id)).sort(newestFirst);
-    const row = (s: Session, title = titles.get(s.id) ?? "", spaceId = s.spaceId) => this.row(s, title, spaceById.get(spaceId), need, probe);
+    const listed = lists.sessions.filter((s) => rows.has(s.id)).sort(newestFirst);
+    const row = (s: Session, title?: string, spaceId = s.spaceId) => {
+      const item = rows.get(s.id);
+      return this.row(s, title === undefined ? item : { title, pinned: item?.pinned ?? false }, spaceById.get(spaceId), need, probe);
+    };
     return { spaces: lists.spaces, spaceById, waiting, listed, row };
   }
 
@@ -358,13 +427,19 @@ export class MobileApi {
   }
 
   /** Subscribes first and buffers, then reads history, then replays what arrived meanwhile — so no event
-   *  can fall between the history read and the live stream. */
-  private async open(ctx: ChannelContext, id: string, limit: number): Promise<{ session: SessionRow; rows: Row[]; hasMore: boolean; hint: string | null }> {
-    const entry = { projector: new SessionProjector({ attachmentsDir: tempAttachmentDir(this.o.realmHome) }), buffer: [] as StoredSessionEvent[] | null };
+   *  can fall between the history read and the live stream. The queue is read the same way: once, then
+   *  replaced by any broadcast of it that came after. */
+  private async open(ctx: ChannelContext, id: string, limit: number): Promise<MobileResult<"session.open">> {
+    const entry: OpenSession = {
+      projector: new SessionProjector({ attachmentsDir: tempAttachmentDir(this.o.realmHome) }), buffer: [], queued: null, subagents: new Set(),
+    };
     ctx.sessions.set(id, entry);
     const rpc = ctx.rpc;
     try {
       const session = await rpc.call("sessions.get", { id });
+      const read = (await rpc.call("sessions.queued", { id })).queued;
+      // What a broadcast carried before the read is in it; one from here on is newer than it.
+      entry.queued = null;
       let after = 0;
       let total = 0;
       for (;;) {
@@ -374,20 +449,144 @@ export class MobileApi {
         if (page.length < HISTORY_PAGE || total >= HISTORY_LIMIT) break;
         after = page.at(-1)!.seq;
       }
-      for (const ev of entry.buffer ?? []) entry.projector.apply(ev);
-      entry.buffer = null;
       const [lists, probe] = await Promise.all([this.lists(rpc), this.probes(rpc)]);
-      const title = lists.items.find((it) => it.kind === "session" && it.refId === id)?.title ?? "";
+      // From here to the answer nothing is awaited, so nothing can arrive between the two.
+      for (const ev of entry.buffer ?? []) entry.projector.apply(ev);
+      const queued = entry.queued ?? read;
+      entry.buffer = null;
+      entry.queued = null;
+      const item = lists.items.find((it) => it.kind === "session" && it.refId === id);
       const need = new Set(needsYou(needsYouInput(lists)).map((r) => r.session.id));
       const all = entry.projector.all();
       return {
-        session: this.row(session, title, lists.spaces.find((s) => s.id === session.spaceId), need, probe),
-        rows: all.slice(-limit), hasMore: all.length > limit, hint: entry.projector.hint,
+        session: this.row(session, item, lists.spaces.find((s) => s.id === session.spaceId), need, probe),
+        rows: all.slice(-limit), hasMore: all.length > limit, hint: entry.projector.hint, queued: this.queuedMessages(queued),
       };
     } catch (e) {
       ctx.sessions.delete(id);
       throw e;
     }
+  }
+
+  /** The queue as a phone reads it: each file named as its user row will name it. */
+  queuedMessages(queued: readonly QueuedPrompt[]): QueuedMessage[] {
+    return queued.map((q) => queuedMessage(q, tempAttachmentDir(this.o.realmHome)));
+  }
+
+  private async queue(rpc: RpcPort, id: string): Promise<QueuedMessage[]> {
+    return this.queuedMessages((await rpc.call("sessions.queued", { id })).queued);
+  }
+
+  /** Renames, pins or archives the session's own sidebar row, as the desktop's sidebar does: the item,
+   *  found in its space's list, archived rows included — so one put away can be taken back. */
+  private async update(rpc: RpcPort, p: MobileParams<"session.update">): Promise<MobileResult<"session.update">> {
+    const session = await rpc.call("sessions.get", { id: p.id });
+    const item = (await rpc.call("items.list", { spaceId: session.spaceId })).find((it) => it.kind === "session" && it.refId === p.id);
+    if (!item) throw new MobileError("NOT_FOUND", "That session has no row to rename, pin or archive.");
+    const title = p.title?.trim();
+    if (title === "") throw new MobileError("INVALID_PARAMS", "A session needs a name.");
+    const changes = { ...(title !== undefined ? { title } : {}), ...(p.pinned !== undefined ? { pinned: p.pinned } : {}), ...(p.archived !== undefined ? { archived: p.archived } : {}) };
+    const now = Object.keys(changes).length > 0 ? await rpc.call("items.update", { id: item.id, ...changes }) : item;
+    // Archived, it leaves every list a phone draws, so there is no row to answer with.
+    if (now.archived) return { session: null };
+    const { listed, row } = await this.listing(rpc);
+    return { session: row(listed.find((s) => s.id === p.id) ?? session) };
+  }
+
+  /** New words for a queued message, which keeps its files and its place, and lets go of its hold. */
+  private async editQueued(rpc: RpcPort, p: MobileParams<"session.editQueued">): Promise<{ ok: true }> {
+    if (p.text.length === 0) {
+      const waiting = (await rpc.call("sessions.queued", { id: p.id })).queued.find((q) => q.id === p.queuedId);
+      if (waiting && waiting.attachments.length === 0) throw new MobileError("INVALID_PARAMS", "A message needs words or a file.");
+    }
+    const { edited } = await rpc.call("sessions.editQueued", { id: p.id, queuedId: p.queuedId, text: p.text });
+    // Gone already: the phone keeps the words in its draft rather than losing them.
+    if (!edited) throw new MobileError("NOT_FOUND", GONE);
+    return { ok: true };
+  }
+
+  /** The session's sub-agents, newest first, each as its Agents tab says it — and, while the phone has
+   *  the lead open, the ones whose changes are a change to this list. */
+  private async subagents(ctx: ChannelContext, id: string): Promise<MobileResult<"session.subagents">> {
+    const rpc = ctx.rpc;
+    const [, { children }, { running }, { row }] = await Promise.all([
+      rpc.call("sessions.get", { id }), rpc.call("delegation.children", { sessionId: id }), rpc.call("delegation.running", { sessionId: id }), this.listing(rpc),
+    ]);
+    const open = ctx.sessions.get(id);
+    if (open) open.subagents = new Set(children.map((c) => c.session.id));
+    const inFlight = new Set(running.map((r) => r.sessionId));
+    const subagents = children.map((c) => subagentOf(c, row(c.session), inFlight.has(c.session.id)));
+    return { subagents: subagents.sort((a, b) => b.startedAt - a.startedAt || (a.session.id < b.session.id ? 1 : a.session.id > b.session.id ? -1 : 0)) };
+  }
+
+  /** Every agent's plan as Settings ▸ Usage draws it, and this calendar month's spend on the Mac's clock,
+   *  its heaviest sessions by the names their rows have. */
+  private async usage(rpc: RpcPort): Promise<MobileResult<"usage.get">> {
+    const now = Date.now();
+    const [{ limits }, summary, items] = await Promise.all([
+      rpc.call("limits.get", {}), rpc.call("usage.summary", { from: monthStart(now), to: now }), rpc.call("items.listAll", {}),
+    ]);
+    const titles = new Map(items.filter((it) => it.kind === "session").map((it) => [it.refId, it.title]));
+    return { limits: everyPlan(limits, now), spend: spend(summary, titles) };
+  }
+
+  /** What every team has handed back and is still open, newest first: each team space's reviews, as the
+   *  desktop's Review reads them (`team.overview`). */
+  private async reviews(rpc: RpcPort): Promise<MobileResult<"reviews.list">> {
+    const [teams, spaces] = await Promise.all([rpc.call("team.overview", {}), rpc.call("spaces.list", {})]);
+    const name = spaceNames(spaces);
+    return { reviews: teams.flatMap((t) => t.reviews).filter(isOpenReview).sort(newestReviewFirst).map((r) => reviewSummary(r, name(r.spaceId))) };
+  }
+
+  private async review(rpc: RpcPort, id: string): Promise<MobileResult<"review.get">> {
+    const [detail, spaces] = await Promise.all([rpc.call("team.review", { id }), rpc.call("spaces.list", {})]);
+    return { review: reviewSummary(detail, spaceNames(spaces)(detail.spaceId)), items: [...detail.items].sort((a, b) => a.ord - b.ord).map((it) => reviewItem(it, detail)) };
+  }
+
+  /** Approve, ask for changes, or reject, by the desktop's own calls. Asking for changes says what
+   *  should change, or the role that made it has nothing to go on. */
+  private async decide(rpc: RpcPort, p: MobileParams<"review.decide">): Promise<MobileResult<"review.decide">> {
+    const note = p.note?.trim() ?? "";
+    if (p.decision === "changes" && !note) throw new MobileError("INVALID_PARAMS", "Asking for changes needs a note saying what should change.");
+    const decided = p.decision === "approve" ? await rpc.call("team.reviewApprove", { id: p.id })
+      : p.decision === "changes" ? await rpc.call("team.reviewRequestChanges", { id: p.id, note })
+      : await rpc.call("team.reviewReject", { id: p.id, ...(note ? { reason: note } : {}) });
+    return { review: reviewSummary(decided, spaceNames(await rpc.call("spaces.list", {}))(decided.spaceId)) };
+  }
+
+  /** A preview of one of a review's pictures — and of nothing else: the path must be one its items carry,
+   *  exactly as `review.get` listed it, and still inside its space's folder. */
+  private async reviewFile(rpc: RpcPort, id: string, path: string): Promise<MobileResult<"review.file">> {
+    const detail = await rpc.call("team.review", { id });
+    const listed = new Set(detail.items.flatMap((it) => reviewPictures(it, detail.root).map((f) => f.path)));
+    if (!detail.root || !listed.has(path)) throw new MobileError("FORBIDDEN", "That file is not one of this review's pictures.");
+    if (isSecretPath(path)) throw new MobileError("FORBIDDEN", "That file holds a secret, so Realm does not send it to a phone.");
+    return await this.preview(path, async () => {
+      // The role sent a file from its space's folder; a link put in its way since could lead anywhere.
+      if (!inside(await realpath(path), await realpath(detail.root!))) throw new PreviewRefused("That file is no longer in its space's folder.");
+    });
+  }
+
+  /** Every space's scheduled tasks, in the Scheduled page's order: what runs next first. */
+  private async schedules(rpc: RpcPort): Promise<MobileResult<"schedules.list">> {
+    const spaces = await rpc.call("spaces.list", {});
+    const each = await Promise.all(spaces.map((sp) => rpc.call("schedules.list", { spaceId: sp.id })));
+    return { tasks: await this.tasks(rpc, upcomingOrder(each.flat()), spaces) };
+  }
+
+  /** Each task with its last run: the run its last firing made, and whether that run's session is read. */
+  private async tasks(rpc: RpcPort, schedules: readonly Schedule[], known?: readonly Space[]): Promise<ScheduledTask[]> {
+    const [spaces, sessions, runs] = await Promise.all([
+      known ?? rpc.call("spaces.list", {}), rpc.call("sessions.listAll", { profileId: null }),
+      Promise.all(schedules.map(async (s) => (s.lastRunId ? (await rpc.call("runs.get", { id: s.lastRunId }))?.run ?? null : null))),
+    ]);
+    const name = spaceNames(spaces);
+    const byId = new Map(sessions.map((s) => [s.id, s]));
+    const now = Date.now();
+    return schedules.map((s, i) => {
+      const run = runs[i]!;
+      return scheduledTask(s, name(s.spaceId), run, run?.sessionId ? byId.get(run.sessionId) : undefined, now);
+    });
   }
 
   /** Every event of one kind the session has, oldest first. */
@@ -420,20 +619,30 @@ export class MobileApi {
     return diffPage(file, patch, from);
   }
 
-  /** A preview of a file the session's turns made or one that was sent with a message to it — and of
-   *  nothing else: the path must be one a `files_made` or a `user_message` of this session listed,
-   *  exactly as it was listed. */
+  /** A preview of a file the session's turns made, one that was sent with a message to it, or one a
+   *  message waiting in its queue carries — and of nothing else: the path must be one a `files_made` or
+   *  a `user_message` of this session listed, or the queue holds, exactly as it was listed. */
   private async file(rpc: RpcPort, id: string, path: string): Promise<MobileResult<"session.file">> {
-    const [made, sent] = await Promise.all([this.eventsOf(rpc, id, "files_made"), this.eventsOf(rpc, id, "user_message")]);
+    const [made, sent, { queued }] = await Promise.all([
+      this.eventsOf(rpc, id, "files_made"), this.eventsOf(rpc, id, "user_message"), rpc.call("sessions.queued", { id }),
+    ]);
     const listed = new Set<string>();
     for (const ev of made) if (ev.event.type === "files_made") for (const f of ev.event.payload.files) listed.add(f.path);
     for (const ev of sent) if (ev.event.type === "user_message") for (const a of ev.event.payload.attachments) listed.add(a.path);
+    for (const q of queued) for (const a of q.attachments) listed.add(a.path);
     if (!listed.has(path)) throw new MobileError("FORBIDDEN", "That file is not one this session made or was sent.");
     // A message on the Mac can carry any file someone picked, a key among them; a phone is never sent one.
     if (isSecretPath(path)) throw new MobileError("FORBIDDEN", "That file holds a secret, so Realm does not send it to a phone.");
+    // Named as its user row names it: a file a phone or a paste sent, without the prefix it was written under.
+    return { ...await this.preview(path), name: givenAttachmentName(path, tempAttachmentDir(this.o.realmHome)) };
+  }
+
+  /** `filePreview`, its refusals and a file gone since it was listed said as mobile.v1 says them;
+   *  `check` runs first, and refuses by throwing `PreviewRefused`. */
+  private async preview(path: string, check?: () => Promise<void>): Promise<MobileResult<"session.file">> {
     try {
-      // Named as its user row names it: a file a phone or a paste sent, without the prefix it was written under.
-      return { ...await filePreview(path, { downscale: this.o.downscale }), name: givenAttachmentName(path, tempAttachmentDir(this.o.realmHome)) };
+      await check?.();
+      return await filePreview(path, { downscale: this.o.downscale });
     } catch (e) {
       if (e instanceof PreviewRefused) throw new MobileError("FORBIDDEN", e.message);
       if ((e as NodeJS.ErrnoException).code === "ENOENT") throw new MobileError("NOT_FOUND", "That file is no longer on this Mac.");
