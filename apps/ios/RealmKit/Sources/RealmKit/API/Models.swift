@@ -86,11 +86,13 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
     /// When the conversation last moved: a message went out, or the agent answered or finished a turn.
     /// Unlike `updatedAt`, a change of settings or a rename does not move it. Nil from a Mac before Plan 29.
     public let activityAt: Millis?
+    /// Pinned in the desktop's sidebar, so Home lists it in Pinned. Nil from a Mac before it said.
+    public let pinned: Bool?
 
     public init(id: String, title: String, spaceId: String, spaceName: String, agent: String, model: String?,
                 status: SessionStatus, needsYou: Bool, unread: Bool, updatedAt: Millis,
                 agentName: String? = nil, agentMark: String? = nil, modelLabel: String? = nil,
-                createdAt: Millis? = nil, effort: String? = nil, permissionMode: String? = nil, activityAt: Millis? = nil) {
+                createdAt: Millis? = nil, effort: String? = nil, permissionMode: String? = nil, activityAt: Millis? = nil, pinned: Bool? = nil) {
         self.id = id
         self.title = title
         self.spaceId = spaceId
@@ -108,6 +110,7 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
         self.effort = effort
         self.permissionMode = permissionMode
         self.activityAt = activityAt
+        self.pinned = pinned
     }
 
     /// When the session last moved, as the Mac orders its lists: what a list of sessions is ordered by,
@@ -122,7 +125,7 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case id, title, spaceId, spaceName, agent, model, status, needsYou, unread, updatedAt, agentName, agentMark, modelLabel
-        case createdAt, effort, permissionMode, activityAt
+        case createdAt, effort, permissionMode, activityAt, pinned
     }
 
     public init(from decoder: Decoder) throws {
@@ -144,6 +147,7 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
         effort = try? c.decodeIfPresent(String.self, forKey: .effort)
         permissionMode = try? c.decodeIfPresent(String.self, forKey: .permissionMode)
         activityAt = try? c.decodeIfPresent(Millis.self, forKey: .activityAt)
+        pinned = try? c.decodeIfPresent(Bool.self, forKey: .pinned)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -165,6 +169,7 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
         try c.encodeIfPresent(effort, forKey: .effort)
         try c.encodeIfPresent(permissionMode, forKey: .permissionMode)
         try c.encodeIfPresent(activityAt, forKey: .activityAt)
+        try c.encodeIfPresent(pinned, forKey: .pinned)
     }
 
     /// The mode the session is in, read from its stored permission mode. Nil where the Mac did not say.
@@ -985,12 +990,266 @@ public struct OpenedSession: Codable, Sendable, Hashable {
     public let hasMore: Bool
     /// The suggested next message (`prompt_hint`); nil when there is none, or from a Phase 1 Mac.
     public let hint: String?
+    /// The messages waiting in the Mac's queue when the session opened; nil from a Mac before it said.
+    public let queued: [QueuedMessage]?
 
-    public init(session: SessionRow, rows: [TranscriptRow], hasMore: Bool, hint: String? = nil) {
+    public init(session: SessionRow, rows: [TranscriptRow], hasMore: Bool, hint: String? = nil, queued: [QueuedMessage]? = nil) {
         self.session = session
         self.rows = rows
         self.hasMore = hasMore
         self.hint = hint
+        self.queued = queued
+    }
+}
+
+/// A message waiting in the Mac's queue for the turn it came during to end.
+public struct QueuedMessage: Codable, Sendable, Hashable, Identifiable {
+    public let id: String
+    public let text: String
+    /// Its files, by their paths on the Mac, which `session.file` previews.
+    public let attachments: [SentFile]
+    /// When it was queued.
+    public let at: Millis
+    /// Someone is editing it, on the Mac or a phone: nothing in the queue goes until the edit is saved or let go.
+    public let held: Bool
+
+    public init(id: String, text: String, attachments: [SentFile] = [], at: Millis, held: Bool = false) {
+        self.id = id
+        self.text = text
+        self.attachments = attachments
+        self.at = at
+        self.held = held
+    }
+}
+
+/// A sub-agent a session started: its own session, and how its work went.
+public struct Subagent: Codable, Sendable, Hashable, Identifiable {
+    public let session: SessionRow
+    /// What it was asked to do.
+    public let goal: String?
+    public let startedAt: Millis
+    /// When it finished; nil while it works.
+    public let settledAt: Millis?
+    /// "done", "failed", "stopped" and the like, as the desktop's Agents tab says it; nil while it works.
+    public let outcome: String?
+    /// Its last answer, the report its lead read.
+    public let report: String?
+    /// Why Realm stopped it itself, where it did.
+    public let note: String?
+
+    public var id: String { session.id }
+
+    public init(session: SessionRow, goal: String?, startedAt: Millis, settledAt: Millis?, outcome: String?, report: String?, note: String?) {
+        self.session = session
+        self.goal = goal
+        self.startedAt = startedAt
+        self.settledAt = settledAt
+        self.outcome = outcome
+        self.report = report
+        self.note = note
+    }
+}
+
+/// One window of a plan's quota: how much of it is used, and when it starts again.
+public struct PlanWindow: Codable, Sendable, Hashable, Identifiable {
+    public let id: String
+    public let label: String
+    /// Percent used, 0 to 100; nil when the provider named the window but not how full it is.
+    public let usedPercent: Double?
+    public let resetsAt: Millis?
+
+    public init(id: String, label: String, usedPercent: Double?, resetsAt: Millis?) {
+        self.id = id
+        self.label = label
+        self.usedPercent = usedPercent
+        self.resetsAt = resetsAt
+    }
+}
+
+/// One agent's plan, as the desktop's Usage page shows it.
+public struct PlanLimits: Codable, Sendable, Hashable, Identifiable {
+    public let agent: String
+    public let agentName: String
+    public let agentMark: String
+    /// The provider's name for the tier ("max", "pro").
+    public let plan: String?
+    public let windows: [PlanWindow]
+    /// The provider's warning, in the desktop's words.
+    public let alert: String?
+    /// Why there are no windows to show.
+    public let unavailable: String?
+    /// When this was last heard from the provider.
+    public let at: Millis
+
+    public var id: String { agent }
+
+    public init(agent: String, agentName: String, agentMark: String, plan: String?, windows: [PlanWindow], alert: String?,
+                unavailable: String?, at: Millis) {
+        self.agent = agent
+        self.agentName = agentName
+        self.agentMark = agentMark
+        self.plan = plan
+        self.windows = windows
+        self.alert = alert
+        self.unavailable = unavailable
+        self.at = at
+    }
+}
+
+/// What is spent this calendar month, and the budget set for it on the Mac, in US dollars.
+public struct Spend: Codable, Sendable, Hashable {
+    public struct Session: Codable, Sendable, Hashable, Identifiable {
+        public let id: String
+        public let title: String
+        public let spaceName: String
+        public let cost: Double
+
+        public init(id: String, title: String, spaceName: String, cost: Double) {
+            self.id = id
+            self.title = title
+            self.spaceName = spaceName
+            self.cost = cost
+        }
+    }
+
+    public let monthToDate: Double
+    public let budget: Double?
+    /// The heaviest sessions this month, most expensive first.
+    public let topSessions: [Session]
+
+    public init(monthToDate: Double, budget: Double?, topSessions: [Session]) {
+        self.monthToDate = monthToDate
+        self.budget = budget
+        self.topSessions = topSessions
+    }
+}
+
+/// `usage.get`
+public struct Usage: Codable, Sendable, Hashable {
+    public let limits: [PlanLimits]
+    public let spend: Spend
+
+    public init(limits: [PlanLimits], spend: Spend) {
+        self.limits = limits
+        self.spend = spend
+    }
+}
+
+/// Something a team's role handed back for the person to approve (Teams ▸ Review).
+public struct ReviewSummary: Codable, Sendable, Hashable, Identifiable {
+    public let id: String
+    public let spaceId: String
+    public let spaceName: String
+    public let roleName: String?
+    public let title: String
+    /// The desktop's kind ("message", "post", "document", …) and state ("open", "approved", …).
+    public let kind: String
+    public let state: String
+    public let itemCount: Int
+    /// Who the first item goes to, where it names someone.
+    public let to: String?
+    public let channels: [String]
+    /// The person's last note, from asking for changes.
+    public let note: String?
+    /// The role's session, which opens like any other.
+    public let sessionId: String?
+    public let updatedAt: Millis
+
+    public init(id: String, spaceId: String, spaceName: String, roleName: String?, title: String, kind: String, state: String,
+                itemCount: Int, to: String?, channels: [String], note: String?, sessionId: String?, updatedAt: Millis) {
+        self.id = id
+        self.spaceId = spaceId
+        self.spaceName = spaceName
+        self.roleName = roleName
+        self.title = title
+        self.kind = kind
+        self.state = state
+        self.itemCount = itemCount
+        self.to = to
+        self.channels = channels
+        self.note = note
+        self.sessionId = sessionId
+        self.updatedAt = updatedAt
+    }
+}
+
+/// `review.get`: a review and the drafts it asks to send.
+public struct ReviewDetail: Codable, Sendable, Hashable {
+    public struct Item: Codable, Sendable, Hashable, Identifiable {
+        public let id: String
+        public let title: String?
+        /// The draft itself (Markdown where the desktop draws Markdown).
+        public let body: String
+        public let channel: String?
+        public let to: String?
+        /// Pictures that go with it, which `review.file` previews.
+        public let files: [SentFile]
+
+        public init(id: String, title: String?, body: String, channel: String?, to: String?, files: [SentFile]) {
+            self.id = id
+            self.title = title
+            self.body = body
+            self.channel = channel
+            self.to = to
+            self.files = files
+        }
+    }
+
+    public let review: ReviewSummary
+    public let items: [Item]
+
+    public init(review: ReviewSummary, items: [Item]) {
+        self.review = review
+        self.items = items
+    }
+}
+
+/// What `review.decide` does with a review.
+public enum ReviewDecision: String, Codable, Sendable {
+    case approve
+    /// Asks the role for changes, with a note.
+    case changes
+    case reject
+}
+
+/// A scheduled task (the desktop's Scheduled page), with how its last run went.
+public struct ScheduledTask: Codable, Sendable, Hashable, Identifiable {
+    public struct LastRun: Codable, Sendable, Hashable {
+        /// Its state in the desktop's words.
+        public let state: String
+        /// The session it ran in.
+        public let sessionId: String?
+        public let unread: Bool
+
+        public init(state: String, sessionId: String?, unread: Bool) {
+            self.state = state
+            self.sessionId = sessionId
+            self.unread = unread
+        }
+    }
+
+    public let id: String
+    public let spaceId: String
+    public let spaceName: String
+    public let title: String
+    /// When it runs, in words ("Every weekday at 9:00"), as the desktop says it.
+    public let when: String
+    public let enabled: Bool
+    public let nextRunAt: Millis?
+    public let lastRunAt: Millis?
+    public let lastRun: LastRun?
+
+    public init(id: String, spaceId: String, spaceName: String, title: String, when: String, enabled: Bool, nextRunAt: Millis?,
+                lastRunAt: Millis?, lastRun: LastRun?) {
+        self.id = id
+        self.spaceId = spaceId
+        self.spaceName = spaceName
+        self.title = title
+        self.when = when
+        self.enabled = enabled
+        self.nextRunAt = nextRunAt
+        self.lastRunAt = lastRunAt
+        self.lastRun = lastRun
     }
 }
 
@@ -1169,6 +1428,17 @@ public struct SessionHintEvent: Decodable, Sendable, Equatable {
     }
 }
 
+/// `session.queue`: an open session's queue, whole.
+public struct SessionQueueEvent: Decodable, Sendable, Equatable {
+    public let id: String
+    public let queued: [QueuedMessage]
+
+    public init(id: String, queued: [QueuedMessage]) {
+        self.id = id
+        self.queued = queued
+    }
+}
+
 /// `pair.result` (§4.1).
 public struct PairResult: Decodable, Sendable, Equatable {
     public let ok: Bool
@@ -1180,7 +1450,13 @@ public enum MobileEvent: Sendable {
     case sessionRows(SessionRowsEvent)
     case sessionStatus(SessionStatusEvent)
     case sessionHint(SessionHintEvent)
+    /// An open session's queue changed: the whole list.
+    case sessionQueue(SessionQueueEvent)
+    /// An open session's sub-agents changed; `session.subagents` reads them.
+    case sessionSubagents(id: String)
     case homeChanged
+    /// Reviews or scheduled tasks changed somewhere: they are read again.
+    case workChanged
     case pairResult(PairResult)
     /// An event this phone does not know, or one whose payload did not parse.
     case unknown(name: String)

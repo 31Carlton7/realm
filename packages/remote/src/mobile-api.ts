@@ -42,6 +42,8 @@ export const SessionRowSchema = z.object({
   /** When the conversation last moved: a prompt went out, or the agent answered or finished a turn. What
    *  every list of sessions is ordered by — not `updatedAt`, which a change of settings or a rename moves too. */
   activityAt: z.number().optional(),
+  /** Pinned in the desktop's sidebar, so Home lists it in Pinned. */
+  pinned: z.boolean().optional(),
 });
 export type SessionRow = z.infer<typeof SessionRowSchema>;
 
@@ -188,6 +190,121 @@ export type RowKind = Row["kind"];
 
 const Ok = z.object({ ok: z.literal(true) });
 
+/** A message waiting in the Mac's queue for the turn it came during to end (`session.queue`). */
+export const QueuedMessageSchema = z.object({
+  id: z.string().min(1),
+  text: z.string(),
+  /** Its files, by their paths on the Mac, which `session.file` previews. */
+  attachments: z.array(z.object({ path: z.string(), name: z.string(), mime: z.string() })),
+  /** When it was queued. */
+  at: z.number(),
+  /** Someone is editing it, on the Mac or a phone: nothing in the queue goes until the edit is saved or let go. */
+  held: z.boolean(),
+});
+export type QueuedMessage = z.infer<typeof QueuedMessageSchema>;
+
+/** A sub-agent a session started: its own session, and how its work went. */
+export const SubagentSchema = z.object({
+  session: SessionRowSchema,
+  /** What it was asked to do. */
+  goal: z.string().nullable(),
+  startedAt: z.number(),
+  /** When it finished; null while it works. */
+  settledAt: z.number().nullable(),
+  /** "done", "failed", "stopped" and the like, as the desktop's Agents tab says it; null while it works. */
+  outcome: z.string().nullable(),
+  /** Its last answer, the report its lead read. */
+  report: z.string().nullable(),
+  /** Why Realm stopped it itself, where it did. */
+  note: z.string().nullable(),
+});
+export type Subagent = z.infer<typeof SubagentSchema>;
+
+/** One window of a plan's quota: how much of it is used, and when it starts again. */
+const PlanWindowSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  /** Percent used, 0 to 100; null when the provider named the window but not how full it is. */
+  usedPercent: z.number().nullable(),
+  resetsAt: z.number().nullable(),
+});
+
+/** One agent's plan, as the desktop's Usage page shows it. */
+export const PlanLimitsSchema = z.object({
+  agent: z.string(),
+  agentName: z.string(),
+  agentMark: z.string(),
+  /** The provider's name for the tier ("max", "pro"), or null. */
+  plan: z.string().nullable(),
+  windows: z.array(PlanWindowSchema),
+  /** The provider's warning, in the desktop's words, or null. */
+  alert: z.string().nullable(),
+  /** Why there are no windows to show ("not signed in", "not reported by this agent"), or null. */
+  unavailable: z.string().nullable(),
+  /** When this was last heard from the provider. */
+  at: z.number(),
+});
+
+/** What is spent this calendar month, and the budget set for it on the Mac, in US dollars. */
+export const SpendSchema = z.object({
+  monthToDate: z.number(),
+  budget: z.number().nullable(),
+  /** The heaviest sessions this month, most expensive first. */
+  topSessions: z.array(z.object({ id: Id, title: z.string(), spaceName: z.string(), cost: z.number() })),
+});
+
+/** Something a team's role handed back for the person to approve (Teams ▸ Review). */
+export const ReviewSummarySchema = z.object({
+  id: Id,
+  spaceId: Id,
+  spaceName: z.string(),
+  roleName: z.string().nullable(),
+  title: z.string(),
+  /** The desktop's kind ("message", "post", "document", …) and state ("open", "approved", …). */
+  kind: z.string(),
+  state: z.string(),
+  itemCount: z.number().int(),
+  /** Who the first item goes to, where it names someone. */
+  to: z.string().nullable(),
+  channels: z.array(z.string()),
+  /** The person's last note, from asking for changes. */
+  note: z.string().nullable(),
+  /** The role's session, which opens like any other. */
+  sessionId: z.string().nullable(),
+  updatedAt: z.number(),
+});
+export type ReviewSummary = z.infer<typeof ReviewSummarySchema>;
+
+/** One thing a review asks to send or publish, as its draft reads. */
+const ReviewItemSchema = z.object({
+  id: Id,
+  title: z.string().nullable(),
+  /** The draft itself, as text (Markdown where the desktop draws Markdown). */
+  body: z.string(),
+  channel: z.string().nullable(),
+  to: z.string().nullable(),
+  /** Pictures that go with it, by their paths, which `review.file` previews. */
+  files: z.array(z.object({ path: z.string(), name: z.string(), mime: z.string() })),
+});
+
+export const ReviewDetailSchema = z.object({ review: ReviewSummarySchema, items: z.array(ReviewItemSchema) });
+
+/** A scheduled task (the desktop's Scheduled page), with how its last run went. */
+export const ScheduledTaskSchema = z.object({
+  id: Id,
+  spaceId: Id,
+  spaceName: z.string(),
+  title: z.string(),
+  /** When it runs, in words ("Every weekday at 9:00"), as the desktop says it. */
+  when: z.string(),
+  enabled: z.boolean(),
+  nextRunAt: z.number().nullable(),
+  lastRunAt: z.number().nullable(),
+  /** The last run: its state in the desktop's words, the session it ran in, and whether it is unread. */
+  lastRun: z.object({ state: z.string(), sessionId: z.string().nullable(), unread: z.boolean() }).nullable(),
+});
+export type ScheduledTask = z.infer<typeof ScheduledTaskSchema>;
+
 /** The most sessions `home.get`'s `recent` holds. */
 export const RECENT_LIMIT = 40;
 
@@ -265,9 +382,45 @@ export const MobileCalls = {
       session: SessionRowSchema, rows: z.array(RowSchema), hasMore: z.boolean(),
       /** The suggested next message (`prompt_hint`), until something is sent. */
       hint: z.string().nullable().optional(),
+      /** The messages waiting in the Mac's queue when the session opened. */
+      queued: z.array(QueuedMessageSchema).optional(),
     }),
   },
   "session.close": { params: z.object({ id: Id }), result: Ok },
+  /** Renames, pins or archives a session's row, as the desktop's sidebar does. Archived, it leaves every list. */
+  "session.update": {
+    params: z.object({ id: Id, title: z.string().min(1).max(200).optional(), pinned: z.boolean().optional(), archived: z.boolean().optional() }),
+    result: z.object({ session: SessionRowSchema.nullable() }),
+  },
+  /** The messages waiting in the Mac's queue; `session.queue` (the event) says when they change. */
+  "session.queue": { params: z.object({ id: Id }), result: z.object({ queued: z.array(QueuedMessageSchema) }) },
+  /** Sends one queued message now, ahead of the turn it was waiting for. */
+  "session.sendQueuedNow": { params: z.object({ id: Id, queuedId: z.string().min(1) }), result: Ok },
+  /** Takes a queued message out of the queue; it is not sent. */
+  "session.removeQueued": { params: z.object({ id: Id, queuedId: z.string().min(1) }), result: Ok },
+  /** Holds a queued message while it is edited here, or lets it go; nothing behind it goes meanwhile. */
+  "session.holdQueued": { params: z.object({ id: Id, queuedId: z.string().min(1), held: z.boolean() }), result: Ok },
+  /** Replaces a queued message's words, keeping its files, and lets it go. */
+  "session.editQueued": { params: z.object({ id: Id, queuedId: z.string().min(1), text: z.string().max(100_000) }), result: Ok },
+  /** The sub-agents a session started, newest first, as its Agents tab lists them. */
+  "session.subagents": { params: z.object({ id: Id }), result: z.object({ subagents: z.array(SubagentSchema) }) },
+  /** Every agent's plan limits, and this month's spend. */
+  "usage.get": { params: z.object({}), result: z.object({ limits: z.array(PlanLimitsSchema), spend: SpendSchema }) },
+  /** What teams have handed back for review and is still open, across every space, newest first. */
+  "reviews.list": { params: z.object({}), result: z.object({ reviews: z.array(ReviewSummarySchema) }) },
+  "review.get": { params: z.object({ id: Id }), result: ReviewDetailSchema },
+  /** Approve, ask for changes (with a note), or reject (with a reason). Approving posts nothing: each
+   *  outward act is still pressed on the Mac. */
+  "review.decide": {
+    params: z.object({ id: Id, decision: z.enum(["approve", "changes", "reject"]), note: z.string().max(5_000).optional() }),
+    result: z.object({ review: ReviewSummarySchema }),
+  },
+  /** A preview of a picture a review's item carries: only one its items list. */
+  "review.file": { params: z.object({ id: Id, path: z.string().min(1).max(4096) }), result: FilePreviewSchema },
+  /** Every space's scheduled tasks, next to run first. */
+  "schedules.list": { params: z.object({}), result: z.object({ tasks: z.array(ScheduledTaskSchema) }) },
+  /** Runs a scheduled task now, as the desktop's Run now does. */
+  "schedules.runNow": { params: z.object({ id: Id }), result: z.object({ task: ScheduledTaskSchema }) },
   /** `text` may be empty when files go with it; a message must carry one or the other. A phone offers
    *  files only to a Mac that answers `session.options`, since an older one would drop them. */
   "session.send": {
@@ -329,6 +482,12 @@ export const MobileEvents = {
   /** The suggested next message changed: a new one after a turn, or none once something was sent. */
   "session.hint": z.object({ id: Id, text: z.string().nullable() }),
   "home.changed": z.object({}),
+  /** An open session's queue changed: the whole list, as the desktop's own event carries it. */
+  "session.queue": z.object({ id: Id, queued: z.array(QueuedMessageSchema) }),
+  /** An open session's sub-agents changed: one started, settled or was stopped. `session.subagents` reads them. */
+  "session.subagents": z.object({ id: Id }),
+  /** Reviews or scheduled tasks changed somewhere: `reviews.list` and `schedules.list` read them again. */
+  "work.changed": z.object({}),
   "pair.result": z.union([
     z.object({ ok: z.literal(true), phoneId: z.string() }),
     z.object({ ok: z.literal(false), reason: z.enum(["declined", "expired"]) }),

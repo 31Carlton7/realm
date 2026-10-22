@@ -139,7 +139,7 @@ public final class RealmStore {
             } else {
                 transcripts[update.id]?.hint = update.text
             }
-        case .homeChanged, .pairResult, .unknown:
+        case .homeChanged, .workChanged, .sessionQueue, .sessionSubagents, .pairResult, .unknown:
             break
         }
     }
