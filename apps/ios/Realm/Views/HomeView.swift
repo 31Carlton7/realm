@@ -145,12 +145,29 @@ struct HomeView: View {
             }
             ToolbarSpacer(.fixed, placement: .bottomBar)
             DefaultToolbarItem(kind: .search, placement: .bottomBar)
+            // A Mac that names the agents a session could be given can start one.
+            if model.agentList != nil {
+                ToolbarSpacer(.fixed, placement: .bottomBar)
+                ToolbarItem(placement: .bottomBar) {
+                    Button {
+                        newSessionShown = true
+                    } label: {
+                        Label("New session", systemImage: "square.and.pencil")
+                    }
+                    .accessibilityIdentifier("new-session")
+                }
+                .matchedTransitionSource(id: "new-session", in: settingsZoom)
+            }
         }
         .searchable(text: $query, prompt: "Search sessions")
         .refreshable { await model.refresh() }
         .sheet(isPresented: $model.settingsShown) {
             SettingsSheet()
                 .navigationTransition(.zoom(sourceID: "settings", in: settingsZoom))
+        }
+        .sheet(isPresented: $newSessionShown) {
+            NewSessionSheet()
+                .navigationTransition(.zoom(sourceID: "new-session", in: settingsZoom))
         }
     }
 }
@@ -469,14 +486,14 @@ enum ProfileMark: Equatable {
         }
     }
 
-    private static func tinted(_ image: UIImage?, _ color: UIColor?) -> Image {
+    static func tinted(_ image: UIImage?, _ color: UIColor?) -> Image {
         guard let image else { return Image(systemName: person) }
         guard let color else { return Image(uiImage: image) }
         return Image(uiImage: image.withTintColor(color, renderingMode: .alwaysOriginal))
     }
 
     /// An emoji at a menu's glyph size.
-    private static func drawn(_ emoji: String) -> UIImage {
+    static func drawn(_ emoji: String) -> UIImage {
         let text = NSAttributedString(string: emoji, attributes: [.font: UIFont.systemFont(ofSize: 17)])
         let size = text.size()
         return UIGraphicsImageRenderer(size: size).image { _ in text.draw(at: .zero) }

@@ -421,6 +421,7 @@ final class AppModel {
             await refreshHome()
             await deliverOutsideOpenSessions()
         }
+        Task { await loadAgents() }
         if LaunchOptions.autoDiagnostics, !autoDiagnosticsStarted {
             autoDiagnosticsStarted = true
             Task {
