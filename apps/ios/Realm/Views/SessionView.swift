@@ -137,6 +137,7 @@ struct SessionView: View {
         .navigationTitle(transcript.session?.displayTitle ?? "Session")
         .navigationBarTitleDisplayMode(.inline)
         .navigationSubtitle(subtitle(transcript))
+        .subagentsControl(sessionId)
         .task(id: model.channelGeneration) { await model.open(sessionId) }
         .onDisappear {
             Task { await model.close(sessionId) }

@@ -32,6 +32,9 @@ struct HomeView: View {
                 ForEach(listing.elsewhere) { waiting in
                     ElsewhereRow(waiting: waiting)
                 }
+                if !listing.isFiltered {
+                    WorkHeadLines()
+                }
                 if !listing.needsYou.isEmpty {
                     Section {
                         // A session that needs you is listed in its space too: each row has its
@@ -118,12 +121,7 @@ struct HomeView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    model.settingsShown = true
-                } label: {
-                    Label("Settings", systemImage: "gearshape")
-                }
-                .accessibilityIdentifier("settings")
+                HomeMenu()
             }
             .matchedTransitionSource(id: "settings", in: settingsZoom)
             // At the foot beside the search, as Mail has it: a third button in the top bar, beside
@@ -342,27 +340,9 @@ struct ElsewhereRow: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        Button {
+        HeadLine(symbol: "hand.raised.fill", tone: Palette.orange, words: waiting.words) {
             model.choose(.profile(waiting.profile.id))
-        } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: "hand.raised.fill")
-                    .foregroundStyle(Palette.orange)
-                    .accessibilityHidden(true)
-                Text(waiting.words)
-                    .foregroundStyle(Palette.ink)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Palette.ink3)
-                    .accessibilityHidden(true)
-            }
-            .font(.subheadline.weight(.medium))
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .listRowBackground(Color.clear)
-        .listRowSeparator(.hidden)
         .accessibilityHint("Shows \(waiting.profile.name)")
         .accessibilityIdentifier("elsewhere-\(waiting.profile.id)")
     }
