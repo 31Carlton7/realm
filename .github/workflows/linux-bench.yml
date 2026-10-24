@@ -1,0 +1,266 @@
+# Measures Realm beside Orca on one GitHub-hosted x86_64 Linux runner, for the public
+# agent-orchestrator-bench (github.com/arjunkshah12345-hash/agent-orchestrator-bench). bench/ holds the
+# bench's harness and fixture as Realm's contribution to it has them. Realm's Linux AppImage is built
+# the way build-desktop.yml builds it, then both apps are measured from their release-shaped artifacts:
+#
+#   - gui_probe.py on each AppImage under Xvfb, three times each, alternating: first window, the RSS of
+#     the process tree, a screenshot. A clean HOME every time, and no AppImage left extracted.
+#   - realm_suite.py on Realm's packaged command, squashfs-root/resources/bin/realm, with no DISPLAY.
+#   - orca_suite.py on Orca's own squashfs-root/resources/bin/orca-ide, on Xvfb as the bench runs it.
+#
+# Nothing can reach a model: no agent CLI is installed on the runner (checked below), every agent is
+# the bench's stub, and Realm's lane A runs with REALM_ENABLE_FAKE_AGENT=1. The packaged-cli job runs
+# the same command from a packaged Mac app and a Windows one.
+name: Linux bench
+
+on:
+  push:
+    branches: [ci/linux-bench]
+  workflow_dispatch:
+
+concurrency:
+  group: linux-bench-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bench:
+    name: Realm and Orca on ubuntu-latest
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      ORCA_VERSION: 1.4.230
+      # What Orca's own latest-linux.yml says orca-linux.AppImage's sha512 is at that version.
+      ORCA_SHA512: rO+0nFfDnsN8xoR3jjIrMhMfiTSkon23sMPL97Oko0EJCkJAEu4ImcVt8V+qoD7YkDVvan1wEb/ABmJ2IZbC6w==
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # As build-desktop.yml: @hugeicons-pro is a paid package, the token the repo secret HUGEICONS_TOKEN.
+      - name: Hugeicons registry
+        env:
+          HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
+        run: |
+          test -n "$HUGEICONS_TOKEN" || { echo "::error::Set the HUGEICONS_TOKEN repo secret to install @hugeicons-pro"; exit 1; }
+          printf '@hugeicons-pro:registry=https://npm.hugeicons.com/\n//npm.hugeicons.com/:_authToken=%s\n' "$HUGEICONS_TOKEN" >> ~/.npmrc
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Package (AppImage, deb)
+        run: pnpm --filter @realm/desktop dist:linux
+
+      - name: Bench tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq xvfb xdotool ffmpeg tmux
+
+      - name: Set up the bench, Realm and Orca
+        run: |
+          set -euo pipefail
+          bench=$RUNNER_TEMP/bench out=$RUNNER_TEMP/out
+          cp -r bench "$bench" && mkdir -p "$out"
+          # The published fixture/repo has no .git. Give it the one "fixture base" commit realm_run.py gives its
+          # copy, so orca_run.py, which copies fixture/repo as it is, has a branch to make worktrees from.
+          (cd "$bench/fixture/repo" && git init -q -b main && git add -A &&
+            GIT_AUTHOR_DATE=2026-10-19T00:00:00Z GIT_COMMITTER_DATE=2026-10-19T00:00:00Z \
+            git -c user.name=bench -c user.email=b@b -c commit.gpgsign=false commit -qm "fixture base")
+          realm=$(ls "$GITHUB_WORKSPACE"/apps/desktop/release/*.AppImage)
+          mkdir -p "$bench/tools/realm-x" "$bench/tools/orca-x"
+          (cd "$bench/tools/realm-x" && "$realm" --appimage-extract > /dev/null)
+          cd "$bench/tools/orca-x"
+          curl -fsSL -o orca-linux.AppImage "https://github.com/stablyai/orca/releases/download/v$ORCA_VERSION/orca-linux.AppImage"
+          test "$(openssl dgst -sha512 -binary orca-linux.AppImage | base64 -w0)" = "$ORCA_SHA512"
+          chmod +x orca-linux.AppImage && ./orca-linux.AppImage --appimage-extract > /dev/null
+          ls -l "$bench/tools/realm-x/squashfs-root/resources/bin" | tee "$out/realm-resources-bin.txt"
+          dpkg-deb -c "$GITHUB_WORKSPACE"/apps/desktop/release/*.deb | grep resources/bin/ | tee "$out/deb-resources-bin.txt"
+          {
+            echo "BENCH=$bench"; echo "OUT=$out"
+            echo "REALM_APPIMAGE=$realm"; echo "ORCA_APPIMAGE=$bench/tools/orca-x/orca-linux.AppImage"
+            echo "REALM_BIN=$bench/tools/realm-x/squashfs-root/resources/bin/realm"
+          } >> "$GITHUB_ENV"
+
+      - name: Record the environment
+        run: |
+          set -euo pipefail
+          # The bench's setup has no authenticated agent CLI; this one has none at all.
+          for c in claude codex gemini cursor-agent opencode copilot goose qwen grok amp aider; do
+            if command -v "$c"; then echo "::error::$c is on PATH; the bench runs with no agent CLI installed"; exit 1; fi
+          done
+          {
+            echo "Runner:    GitHub-hosted ubuntu-latest, image $ImageOS $ImageVersion, run $GITHUB_RUN_ID attempt $GITHUB_RUN_ATTEMPT"
+            echo "Realm:     github.com/$GITHUB_REPOSITORY commit $GITHUB_SHA ($GITHUB_REF_NAME), $(basename "$REALM_APPIMAGE") $(stat -c %s "$REALM_APPIMAGE") bytes"
+            echo "Orca:      v$ORCA_VERSION orca-linux.AppImage $(stat -c %s "$ORCA_APPIMAGE") bytes, sha512 checked against its latest-linux.yml"
+            echo "OS:        $(. /etc/os-release && echo "$PRETTY_NAME"), kernel $(uname -r), $(uname -m)"
+            echo "CPU:       $(nproc) vCPU, $(lscpu | sed -n 's/^Model name: *//p')"
+            echo "Memory:    $(free -m | awk '/^Mem:/ {print $2}') MB"
+            echo "Tools:     $(python3 --version), $(git --version), tmux $(tmux -V | cut -d' ' -f2), Xvfb $(dpkg-query -W -f='${Version}' xvfb)"
+            echo "Agent CLI: none on PATH (checked: claude codex gemini cursor-agent opencode copilot goose qwen grok amp aider)"
+          } | tee "$OUT/environment.txt"
+
+      - name: Xvfb
+        run: |
+          Xvfb :90 -screen 0 1440x900x24 -nolisten tcp > "$OUT/xvfb.log" 2>&1 &
+          for _ in $(seq 50); do DISPLAY=:90 xdotool getdisplaygeometry > /dev/null 2>&1 && exit 0; sleep 0.2; done
+          echo "::error::Xvfb did not come up"; exit 1
+
+      - name: GUI launch probes (Realm, Orca, alternating, 3 each)
+        working-directory: ${{ runner.temp }}/bench
+        run: |
+          set -euo pipefail
+          for i in 1 2 3; do
+            for tool in realm orca; do
+              img=$REALM_APPIMAGE; [ "$tool" = orca ] && img=$ORCA_APPIMAGE
+              rm -rf /tmp/appimage_extracted_*
+              python3 harness/gui_probe.py "$tool" "$img"
+              mv "runs/E-gui-$tool" "runs/E-gui-$tool-run$i"
+            done
+          done
+
+      - name: Realm lane A (packaged realm, no display)
+        working-directory: ${{ runner.temp }}/bench
+        run: |
+          set -euo pipefail
+          env -u DISPLAY python3 harness/realm_suite.py
+          python3 - <<'EOF'
+          import json
+          runs = [json.load(open(f"runs/repeat/realm-run{i}.json")) for i in (1, 2, 3)]
+          json.dump({"realm_serve_ready_s": [r["realm_serve_ready_s"] for r in runs], "idle_rss_mb": [r["idle_rss_mb"] for r in runs]}, open("runs/F-realm/serve-ready.json", "w"))
+          EOF
+
+      - name: Orca lane A (orca-ide serve on Xvfb)
+        working-directory: ${{ runner.temp }}/bench
+        run: python3 harness/orca_suite.py
+
+      - name: Summary
+        if: always()
+        working-directory: ${{ runner.temp }}/bench
+        run: |
+          python3 - <<'EOF' | tee "$OUT/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          import csv, json, os
+          def load(p):
+              try: return json.load(open(p))
+              except Exception: return None
+          def span(xs):
+              xs = [x for x in xs if x is not None]
+              return "-" if not xs else f"{min(xs)}" if min(xs) == max(xs) else f"{min(xs)} to {max(xs)}"
+          print(open(f"{os.environ['OUT']}/environment.txt").read().replace("\n", "  \n"))
+          print("| | Realm | Orca |\n|---|---|---|")
+          gui = {t: [load(f"runs/E-gui-{t}-run{i}/probe.json") or {} for i in (1, 2, 3)] for t in ("realm", "orca")}
+          for label, k in (("First window (s)", "first_window_s"), ("RSS tree 12 s later (MB)", "rss_mb_tree"), ("Processes", "procs")):
+              print(f"| {label} | {span([g.get(k) for g in gui['realm']])} | {span([g.get(k) for g in gui['orca']])} |")
+          lane = {t: [load(f"runs/repeat/{t}-run{i}.json") or {} for i in (1, 2, 3)] for t in ("realm", "orca")}
+          peak = {t: [max((float(r["match_rss_mb"]) for r in csv.DictReader(open(f"runs/repeat/{t}-res{i}.csv"))), default=None) if os.path.exists(f"runs/repeat/{t}-res{i}.csv") else None for i in (1, 2, 3)] for t in lane}
+          verified = {t: sum(sum(1 for s in r.get("sessions", {}).values() if s.get("verified")) for r in lane[t]) for t in lane}
+          ready = {"realm": load("runs/F-realm/serve-ready.json") or {}, "orca": load("runs/F-orca/serve-ready.json") or {}}
+          print(f"| Server ready (s) | {span(ready['realm'].get('realm_serve_ready_s', []))} | {span(ready['orca'].get('orca_serve_ready_s', []))} |")
+          print(f"| Server idle RSS (MB) | {span(ready['realm'].get('idle_rss_mb', []))} | {span(ready['orca'].get('idle_rss_mb', []))} |")
+          print(f"| Server with no DISPLAY | lane A ran without one | {ready['orca'].get('serve_without_display')} |")
+          print(f"| Lane A verified | {verified['realm']}/18 | {verified['orca']}/18 |")
+          print(f"| All 6 launched (s) | {span([r.get('all_launched_s') for r in lane['realm']])} | {span([r.get('all_launched_s') for r in lane['orca']])} |")
+          print(f"| Wall, launch to verified (s) | {span([r.get('total_wall_s') for r in lane['realm']])} | {span([r.get('total_wall_s') for r in lane['orca']])} |")
+          print(f"| Peak RSS (MB) | {span(peak['realm'])} | {span(peak['orca'])} |")
+          for t in ("realm", "orca"):
+              c = (load(f"runs/F-{t}/result-crash.json") or {}).get("sessions", {})
+              m = load(f"runs/F-{t}/merge.json") or {}
+              print(f"\n{t}: crash t3: others verified {sum(1 for n, s in c.items() if n != 't3' and s.get('verified'))}/5, t3 partial kept {c.get('t3', {}).get('partial_file')}, t3 reported {c.get('t3', {}).get('reported')}; "
+                    f"merge: {sum(1 for x in m.get('merges', []) if x['result'] == 'clean')}/6 clean, post-merge verify {sum(m.get('post_merge_verify', {}).values())}/5")
+          EOF
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-bench-runs
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/bench/runs
+            ${{ runner.temp }}/out
+
+      # The exact build measured, for anyone who wants to rerun the bench on it before a release ships it.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: realm-linux-appimage
+          if-no-files-found: error
+          path: apps/desktop/release/*.AppImage
+
+  packaged-cli:
+    name: realm from a packaged app (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            pack: --mac --dir
+            cli: apps/desktop/release/mac-arm64/Realm.app/Contents/Resources/bin/realm
+          - os: windows-latest
+            pack: --win --dir
+            cli: apps/desktop/release/win-unpacked/resources/bin/realm.cmd
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Hugeicons registry
+        shell: bash
+        env:
+          HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
+        run: |
+          test -n "$HUGEICONS_TOKEN" || { echo "::error::Set the HUGEICONS_TOKEN repo secret to install @hugeicons-pro"; exit 1; }
+          printf '@hugeicons-pro:registry=https://npm.hugeicons.com/\n//npm.hugeicons.com/:_authToken=%s\n' "$HUGEICONS_TOKEN" >> ~/.npmrc
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Package (unpacked)
+        working-directory: apps/desktop
+        run: node scripts/stage-pack.mjs && node scripts/pack.mjs ${{ matrix.pack }} --publish never
+
+      - name: Shim tests
+        run: pnpm vitest run apps/server/src/ctl/shim.test.ts
+
+      # Serve on a scratch home with no node on the command's side, open a repo, run a command in a new
+      # worktree, wait for it: the bench's lane A, once.
+      - name: Serve, run in a worktree, wait
+        shell: bash
+        env:
+          REALM_ENABLE_FAKE_AGENT: "1"
+          REALM_PORT: "8796"
+        run: |
+          set -euo pipefail
+          cli="$GITHUB_WORKSPACE/${{ matrix.cli }}"
+          export REALM_HOME="$RUNNER_TEMP/realm-home"
+          repo="$RUNNER_TEMP/repo"
+          mkdir -p "$repo" && cd "$repo" && git init -q -b main && echo hi > a.txt && git add a.txt &&
+            git -c user.name=bench -c user.email=b@b -c commit.gpgsign=false commit -qm base && cd - > /dev/null
+          "$cli" serve > "$RUNNER_TEMP/serve.out" 2> "$RUNNER_TEMP/serve.err" &
+          for _ in $(seq 150); do grep -q '"ready"' "$RUNNER_TEMP/serve.out" && break; sleep 0.2; done
+          cat "$RUNNER_TEMP/serve.out"
+          "$cli" --json status
+          "$cli" --json repo add "$repo"
+          "$cli" --json run "$repo" --worktree w1 -- "echo packaged-cli-ok"
+          "$cli" --json wait --timeout 60
+          "$cli" ps
+          t=$("$cli" --json ps | node -e 'process.stdin.on("data", (d) => console.log(JSON.parse(d)[0].terminalId))')
+          "$cli" logs "$t" | tee "$RUNNER_TEMP/logs.txt"
+          grep -q packaged-cli-ok "$RUNNER_TEMP/logs.txt"
