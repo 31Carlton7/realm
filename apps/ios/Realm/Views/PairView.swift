@@ -295,7 +295,7 @@ private struct PasteLinkSheet: View {
                         .listRowBackground(Fill.card)
                         .accessibilityLabel("Pairing link")
                 } footer: {
-                    Text("The link your Mac shows under the code, in Settings ▸ Devices.")
+                    Text("The link your Mac shows under the code, in Settings\u{00A0}▸ Devices.")
                 }
                 Section {
                     PasteButton(payloadType: String.self) { strings in
