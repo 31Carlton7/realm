@@ -1,6 +1,7 @@
 {
   "name": "@realm/desktop",
   "version": "2.4.0",
+  "license": "MIT",
   "private": true,
   "homepage": "https://realm.computer",
   "type": "module",

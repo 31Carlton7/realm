@@ -1,5 +1,6 @@
 {
   "name": "realm",
+  "license": "MIT",
   "private": true,
   "packageManager": "pnpm@10.21.0",
   "engines": { "node": ">=22.13" },

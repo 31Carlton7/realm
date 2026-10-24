@@ -4,6 +4,7 @@
 # then electron-builder packs out/ into the asar and .pack-stage/ into Contents/Resources.
 appId: co.charmtechnologies.realm
 productName: Realm
+copyright: Copyright © 2026 Carlton Aikins
 directories:
   output: release
 files:

@@ -268,3 +268,8 @@ ln -s "$PWD/skills/mac" ~/.claude/skills/mac
   reachable. Note that a Realm launched from Finder rather than a terminal inherits launchd's
   minimal `PATH`, which has neither `mac` nor `claude`/`codex`/`node` on it; that is a packaging
   problem for all of them, not a mac-cli one.
+
+## License
+
+Realm is released under the [MIT License](LICENSE). A few bundled parts (file-type icons, the iOS device runner,
+the Inter and JetBrains Mono fonts) keep their own licenses; [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) lists them.

@@ -1,5 +1,6 @@
 {
   "name": "realm-icon-src",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "description": "Realm's mark and app icons. mark.mjs is the mark — a cube on its side with a doorway cut through it, in three flat planes or one ink — and icons.mjs the app icon and the Dock alternates Settings offers: the three-plane mark on near-black, and the shaded mark in eight colourings, on macOS's own icon body and shadow. render.mjs renders every size natively through headless Chrome and writes resources/icon.png, resources/icon.icns (iconutil), the renderer's 256 px pictures, mark.svg, mark-flat.svg, the renderer's realm-mark.svg, its inline boot mark and the menu bar's trayTemplate.png; `--sheet <file>` draws every icon at 128 and 32 px on light and dark. shape.swift measures macOS's icon shape against Apple's continuous corner. vgpu and pngjs are for render-candidates.mjs / render-dock.mjs, which draw the WGSL studies in candidates/. Not part of the pnpm workspace.",
