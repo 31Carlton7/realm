@@ -142,6 +142,11 @@
   word-break: break-word;
 }
 
+/* A word of inline code stays on one line (inline.tsx leaves a word too long for a phone free to break). */
+.word {
+  white-space: nowrap;
+}
+
 .link {
   color: var(--color-accent-ink);
   text-decoration: none;
