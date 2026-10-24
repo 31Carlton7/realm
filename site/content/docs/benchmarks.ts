@@ -1,16 +1,15 @@
 import { code, h2, h3, note, p, page, steps, table, ul } from "@/lib/docs-blocks"
 
 // Every number here was recomputed from the author's logs. The x86_64 runner's: the linux-bench-runs artifact of
-// https://github.com/31Carlton7/realm/actions/runs/40073363274 (repeat/{realm,orca}-run{1,2,3}.json and -res*.csv,
+// https://github.com/31Carlton7/realm/actions/runs/40114216116, measured from the published v2.5.0 release (repeat/{realm,orca}-run{1,2,3}.json and -res*.csv,
 // F-{realm,orca}/serve-ready.json, result-crash.json and merge.json, E-gui-*/probe.json, out/environment.txt). The
 // M4 Pro's: realm-worktrees/.verify/oct23/bench/runs (repeat/, F-realm/, F-realm-macos/).
-// TODO(owner): link the pull request that adds Realm's harness and these logs to the benchmark once it's open
-// (strip your username from the logs first).
+// Submitted to the benchmark in https://github.com/arjunkshah12345-hash/agent-orchestrator-bench/pull/1.
 export default page({
   slug: "benchmarks",
   title: "Benchmarks",
   summary:
-    "Realm's numbers on lane A of the public agent orchestrator benchmark: six tasks run at once, each in its own worktree, one crashed on purpose, then merged. Realm's author ran them, on GitHub's x86_64 Linux runner beside Orca, and on his own Mac.",
+    "Realm's numbers on lane A of the public agent orchestrator benchmark: six tasks run at once, each in its own worktree, one crashed on purpose, then merged. Realm's author ran them, on GitHub's x86_64 Linux runner beside Orca, and on the author's own Mac.",
   body: [
     note(
       "Realm's author, Carlton Aikins, ran every test on this page, and nobody else has repeated them yet. The benchmark's own machine was an x86_64 Linux box with 8 vCPUs; the closest of these is GitHub's x86_64 runner, with 4, where Orca ran beside Realm with the same harness.",
@@ -43,18 +42,18 @@ export default page({
 
     h2("On GitHub's x86_64 runner, beside Orca"),
     p(
-      "Realm and Orca 1.4.230 on one runner, from their release-shaped AppImages, three runs each. Times are seconds from the first launch, and the mean wall is the time from launch to verified. Peak memory is the most that the server, the six stubs and their shells held at once, sampled every second.",
+      "Realm, from its published v2.5.0 AppImage (checked against the release's sha256), and Orca 1.4.230, on one runner in one job, three runs each. Times are seconds from the first launch, and the mean wall is the time from launch to verified. Peak memory is the most that the server, the six stubs and their shells held at once, sampled every second.",
     ),
     table(
       ["Measured", "Realm", "Orca 1.4.230"],
       ["Verified", "18/18", "18/18"],
-      ["All six launched (s)", "0.76–0.79", "2.41–2.58"],
-      ["Mean wall (s)", "15.7", "17.4"],
-      ["Peak memory (MB)", "315–318", "1,242–1,375"],
-      ["Server ready (s)", "0.64", "3.01–3.07"],
-      ["Server at rest (MB)", "152–154", "386–410"],
-      ["First window, median of 3 (s)", "3.31", "3.83"],
-      ["The app's processes, 12 s later (MB)", "921–923", "936–938"],
+      ["All six launched (s)", "0.51–0.57", "2.58–2.67"],
+      ["Mean wall (s)", "15.5", "17.6"],
+      ["Peak memory (MB)", "342–345", "1,227–1,347"],
+      ["Server ready (s)", "0.51–0.52", "3.24–3.34"],
+      ["Server at rest (MB)", "163–165", "385–412"],
+      ["First window, median of 3 (s)", "3.32", "4.10"],
+      ["The app's processes, 12 s later (MB)", "968", "922"],
       ["Account wall", "None", "None"],
     ),
     ul(
@@ -82,11 +81,11 @@ export default page({
       ["", "GitHub's runner", "M4 Pro, Linux container", "M4 Pro, macOS"],
       ["System", "Ubuntu 24.04.5, x86_64, on GitHub's ubuntu-latest", "Debian 13 (trixie), in Docker Desktop's Linux VM: aarch64", "macOS 27.2"],
       ["Processor and memory", "4 vCPUs (AMD EPYC 7763), 16 GB", "14 CPUs and 7.65 GB given to the VM, on an Apple M4 Pro with 24 GB", "Apple M4 Pro, 14 cores, 24 GB"],
-      ["Realm", "Commit `11bd431f`, as an AppImage", "Commit `119c67a1`, from source", "Commit `119c67a1`, from source"],
+      ["Realm", "The v2.5.0 release's AppImage", "Commit `119c67a1`, from source", "Commit `119c67a1`, from source"],
       ["Load", "Under 2 as Realm's runs began", "Otherwise idle, load under 1.5", "Busy: simulators and other work, load 10 to 160"],
     ),
     p(
-      "Both commits are Realm 2.4.0 with the command line added; `11bd431f` also has the packaged command and the Linux packaging changes that come with 2.5. No agent CLI was installed on the runner, so nothing there could reach a model. Its run is public: [run 40073363274](https://github.com/31Carlton7/realm/actions/runs/40073363274), from the [Linux bench workflow](https://github.com/31Carlton7/realm/blob/ci/linux-bench/.github/workflows/linux-bench.yml), with every log as an artifact.",
+      "On the runner, Realm is the published v2.5.0 release, downloaded and checked against its sha256; on the M4 Pro, commit `119c67a1`, Realm 2.4.0 with the command line added. Realm's whole app holds about 45 MB more than Orca's 12 s after launch; everything else measured favours Realm. No agent CLI was installed on the runner, so nothing there could reach a model. Its run is public: [run 40114216116](https://github.com/31Carlton7/realm/actions/runs/40114216116), from the [Linux bench workflow](https://github.com/31Carlton7/realm/blob/ci/linux-bench/.github/workflows/linux-bench.yml).",
     ),
 
     h2("What these numbers don't tell you"),
@@ -113,7 +112,7 @@ REALM_BIN=/path/to/squashfs-root/resources/bin/realm python3 harness/realm_suite
       "`REALM_BIN` takes any `realm` command, such as the Mac app's (see [Command line](/docs/command-line#install)). A source build works too: set `REALM_JS` to its `apps/server/dist/realm.js` instead, and `REALM_NODE` to the Node it should run on.",
     ),
     note(
-      "Realm's harness and the logs behind this page aren't in the benchmark's repository yet. Until they are, the harness is in Realm's repository, in [bench/ on the ci/linux-bench branch](https://github.com/31Carlton7/realm/tree/ci/linux-bench/bench). TODO: link the pull request that adds them to the benchmark, once it's open.",
+      "Realm's harness and the logs behind this page are submitted to the benchmark in [pull request #1](https://github.com/arjunkshah12345-hash/agent-orchestrator-bench/pull/1), by Realm's author, with that conflict of interest stated. Until it's merged, the harness is also in Realm's repository, in [bench/ on the ci/linux-bench branch](https://github.com/31Carlton7/realm/tree/ci/linux-bench/bench).",
     ),
     p(
       "The suite writes where the benchmark keeps its own results: `realm-run1.json` to `realm-run3.json` in `runs/repeat/`, each with a memory sample beside it, and `runs/F-realm/` for the crash, the merge and the server's start times. `REALM_PORT` sets the server's port, 8796 unless you set it. The benchmark's [REPRODUCE.md](https://github.com/arjunkshah12345-hash/agent-orchestrator-bench/blob/main/REPRODUCE.md) covers the tools it tested itself.",
