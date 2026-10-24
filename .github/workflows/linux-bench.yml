@@ -1,7 +1,7 @@
 # Measures Realm beside Orca on one GitHub-hosted x86_64 Linux runner, for the public
 # agent-orchestrator-bench (github.com/arjunkshah12345-hash/agent-orchestrator-bench). bench/ holds the
-# bench's harness and fixture as Realm's contribution to it has them. Realm's Linux AppImage is built
-# the way build-desktop.yml builds it, then both apps are measured from their release-shaped artifacts:
+# bench's harness and fixture as Realm's contribution to it has them. Both apps are measured from their
+# published releases, each checked against the hash its release records:
 #
 #   - gui_probe.py on each AppImage under Xvfb, three times each, alternating: first window, the RSS of
 #     the process tree, a screenshot. A clean HOME every time, and no AppImage left extracted.
@@ -10,7 +10,7 @@
 #
 # Nothing can reach a model: no agent CLI is installed on the runner (checked below), every agent is
 # the bench's stub, and Realm's lane A runs with REALM_ENABLE_FAKE_AGENT=1. The packaged-cli job runs
-# the same command from a packaged Mac app and a Windows one.
+# the same command from the released Mac app and an installed Windows one.
 name: Linux bench
 
 on:
@@ -22,42 +22,24 @@ concurrency:
   group: linux-bench-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  REALM_VERSION: 2.5.0
+  REALM_RELEASE: https://github.com/31Carlton7/realm/releases/download/v2.5.0
+
 jobs:
   bench:
     name: Realm and Orca on ubuntu-latest
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 45
     env:
-      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      # The sha256 GitHub records for each v2.5.0 asset.
+      REALM_APPIMAGE_SHA256: 61ecf73c7cf37640243b7ed8f0320cebf1890b5810722277a92b416c9a4e43c0
+      REALM_DEB_SHA256: 59c5f1d7d6149e7ea84ea3d05872a89cbda95eaf458835b9c2206910cc45a8e7
       ORCA_VERSION: 1.4.230
       # What Orca's own latest-linux.yml says orca-linux.AppImage's sha512 is at that version.
       ORCA_SHA512: rO+0nFfDnsN8xoR3jjIrMhMfiTSkon23sMPL97Oko0EJCkJAEu4ImcVt8V+qoD7YkDVvan1wEb/ABmJ2IZbC6w==
     steps:
       - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      # As build-desktop.yml: @hugeicons-pro is a paid package, the token the repo secret HUGEICONS_TOKEN.
-      - name: Hugeicons registry
-        env:
-          HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
-        run: |
-          test -n "$HUGEICONS_TOKEN" || { echo "::error::Set the HUGEICONS_TOKEN repo secret to install @hugeicons-pro"; exit 1; }
-          printf '@hugeicons-pro:registry=https://npm.hugeicons.com/\n//npm.hugeicons.com/:_authToken=%s\n' "$HUGEICONS_TOKEN" >> ~/.npmrc
-
-      - name: Install
-        run: pnpm install --frozen-lockfile
-
-      - name: Build
-        run: pnpm build
-
-      - name: Package (AppImage, deb)
-        run: pnpm --filter @realm/desktop dist:linux
 
       - name: Bench tools
         run: |
@@ -74,27 +56,31 @@ jobs:
           (cd "$bench/fixture/repo" && git init -q -b main && git add -A &&
             GIT_AUTHOR_DATE=2026-10-19T00:00:00Z GIT_COMMITTER_DATE=2026-10-19T00:00:00Z \
             git -c user.name=bench -c user.email=b@b -c commit.gpgsign=false commit -qm "fixture base")
-          realm=$(ls "$GITHUB_WORKSPACE"/apps/desktop/release/*.AppImage)
           mkdir -p "$bench/tools/realm-x" "$bench/tools/orca-x"
-          (cd "$bench/tools/realm-x" && "$realm" --appimage-extract > /dev/null)
+          cd "$bench/tools/realm-x"
+          realm=$PWD/Realm-$REALM_VERSION.AppImage deb=$PWD/realm_${REALM_VERSION}_amd64.deb
+          curl -fsSL -o "$realm" "$REALM_RELEASE/Realm-$REALM_VERSION.AppImage"
+          curl -fsSL -o "$deb" "$REALM_RELEASE/realm_${REALM_VERSION}_amd64.deb"
+          printf '%s  %s\n' "$REALM_APPIMAGE_SHA256" "$realm" "$REALM_DEB_SHA256" "$deb" | sha256sum -c | tee "$out/realm-sha256.txt"
+          chmod +x "$realm" && "$realm" --appimage-extract > /dev/null
           cd "$bench/tools/orca-x"
           curl -fsSL -o orca-linux.AppImage "https://github.com/stablyai/orca/releases/download/v$ORCA_VERSION/orca-linux.AppImage"
           test "$(openssl dgst -sha512 -binary orca-linux.AppImage | base64 -w0)" = "$ORCA_SHA512"
           chmod +x orca-linux.AppImage && ./orca-linux.AppImage --appimage-extract > /dev/null
           ls -l "$bench/tools/realm-x/squashfs-root/resources/bin" | tee "$out/realm-resources-bin.txt"
-          dpkg-deb -c "$GITHUB_WORKSPACE"/apps/desktop/release/*.deb | grep resources/bin/ | tee "$out/deb-resources-bin.txt"
+          dpkg-deb -c "$deb" | grep resources/bin/ | tee "$out/deb-resources-bin.txt"
           {
             for tool in realm orca; do
               img=$realm; [ "$tool" = orca ] && img=$bench/tools/orca-x/orca-linux.AppImage
               echo "$tool: $(stat -c %s "$img") bytes, runtime: $("$img" --appimage-version 2>&1 | head -1)"
               echo "$(du -sh "$bench/tools/$tool-x/squashfs-root" | cut -f1) in $(find "$bench/tools/$tool-x/squashfs-root" -type f | wc -l) files, extracted"
             done
-            ls -l "$GITHUB_WORKSPACE"/apps/desktop/release/*.deb
+            ls -l "$deb"
             du -s "$bench"/tools/realm-x/squashfs-root/resources/server/node_modules/.pnpm/* | sort -n | tail -8
           } 2>&1 | tee "$out/footprint.txt"
           {
             echo "BENCH=$bench"; echo "OUT=$out"
-            echo "REALM_APPIMAGE=$realm"; echo "ORCA_APPIMAGE=$bench/tools/orca-x/orca-linux.AppImage"
+            echo "REALM_APPIMAGE=$realm"; echo "REALM_DEB=$deb"; echo "ORCA_APPIMAGE=$bench/tools/orca-x/orca-linux.AppImage"
             echo "REALM_BIN=$bench/tools/realm-x/squashfs-root/resources/bin/realm"
           } >> "$GITHUB_ENV"
 
@@ -107,7 +93,8 @@ jobs:
           done
           {
             echo "Runner:    GitHub-hosted ubuntu-latest, image $ImageOS $ImageVersion, run $GITHUB_RUN_ID attempt $GITHUB_RUN_ATTEMPT"
-            echo "Realm:     github.com/$GITHUB_REPOSITORY commit $GITHUB_SHA ($GITHUB_REF_NAME), $(basename "$REALM_APPIMAGE") $(stat -c %s "$REALM_APPIMAGE") bytes"
+            echo "Realm:     v$REALM_VERSION release ($REALM_RELEASE): $(basename "$REALM_APPIMAGE") $(stat -c %s "$REALM_APPIMAGE") bytes, sha256 $REALM_APPIMAGE_SHA256; $(basename "$REALM_DEB") sha256 $REALM_DEB_SHA256"
+            echo "Harness:   github.com/$GITHUB_REPOSITORY commit $GITHUB_SHA ($GITHUB_REF_NAME), bench/ and this workflow"
             echo "Orca:      v$ORCA_VERSION orca-linux.AppImage $(stat -c %s "$ORCA_APPIMAGE") bytes, sha512 checked against its latest-linux.yml"
             echo "OS:        $(. /etc/os-release && echo "$PRETTY_NAME"), kernel $(uname -r), $(uname -m)"
             echo "CPU:       $(nproc) vCPU, $(lscpu | sed -n 's/^Model name: *//p')"
@@ -186,7 +173,7 @@ jobs:
       - name: Install the deb and serve from it
         run: |
           set -euo pipefail
-          sudo apt-get install -yq "$GITHUB_WORKSPACE"/apps/desktop/release/realm_*.deb > "$OUT/deb-install.log" 2>&1
+          sudo apt-get install -yq "$REALM_DEB" > "$OUT/deb-install.log" 2>&1
           export REALM_HOME=$RUNNER_TEMP/deb-home REALM_PORT=8797 REALM_ENABLE_FAKE_AGENT=1
           env -u DISPLAY /opt/Realm/resources/bin/realm serve > "$RUNNER_TEMP/deb-serve.out" 2>&1 &
           serve=$!
@@ -194,6 +181,7 @@ jobs:
           {
             echo "installed: $(dpkg-query -W -f='${Package} ${Version} ${Installed-Size} KB' realm)"
             echo "/usr/bin/realm -> $(readlink -f /usr/bin/realm)"
+            /opt/Realm/resources/bin/realm status
             /opt/Realm/resources/bin/realm --json status
           } | tee "$OUT/deb-serve.txt"
           kill "$serve"
@@ -259,63 +247,45 @@ jobs:
             ${{ runner.temp }}/bench/runs
             ${{ runner.temp }}/out
 
-      # The exact build measured, for anyone who wants to rerun the bench on it before a release ships it.
-      - uses: actions/upload-artifact@v4
-        with:
-          name: realm-linux-appimage
-          if-no-files-found: error
-          path: apps/desktop/release/*.AppImage
-
   packaged-cli:
-    name: realm from a packaged app (${{ matrix.os }})
+    name: realm from the v2.5.0 release (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: macos-latest
-            pack: --mac --dir
-            cli: apps/desktop/release/mac-arm64/Realm.app/Contents/Resources/bin/realm
+            asset: Realm-2.5.0-arm64.dmg
+            sha256: b39367e00298b10b6f2f67a0aabaf5ffbb149806fbe9b2a255ef723598ab08a2
           - os: windows-latest
-            pack: --win --dir
-            cli: apps/desktop/release/win-unpacked/resources/bin/realm.cmd
+            asset: Realm-Setup-2.5.0.exe
+            sha256: 3b25272740d96d30f641cd00a29474ce745ca77e432f98edb32a5237a41d1705
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
-    env:
-      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Hugeicons registry
+      - name: Download
         shell: bash
-        env:
-          HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
         run: |
-          test -n "$HUGEICONS_TOKEN" || { echo "::error::Set the HUGEICONS_TOKEN repo secret to install @hugeicons-pro"; exit 1; }
-          printf '@hugeicons-pro:registry=https://npm.hugeicons.com/\n//npm.hugeicons.com/:_authToken=%s\n' "$HUGEICONS_TOKEN" >> ~/.npmrc
+          set -euo pipefail
+          curl -fsSL -o "$RUNNER_TEMP/${{ matrix.asset }}" "$REALM_RELEASE/${{ matrix.asset }}"
+          cd "$RUNNER_TEMP" && echo "${{ matrix.sha256 }}  ${{ matrix.asset }}" | shasum -a 256 -c
 
+      - name: Open the dmg
+        if: runner.os == 'macOS'
+        run: |
+          hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/realm-dmg" "$RUNNER_TEMP/${{ matrix.asset }}" > /dev/null
+          echo "CLI=$RUNNER_TEMP/realm-dmg/Realm.app/Contents/Resources/bin/realm" >> "$GITHUB_ENV"
+
+      # The installer, silently, into a folder of the job's own (NSIS: /S, then /D= last).
       - name: Install
-        run: pnpm install --frozen-lockfile
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Start-Process -FilePath "$env:RUNNER_TEMP\${{ matrix.asset }}" -ArgumentList '/S', "/D=$env:RUNNER_TEMP\RealmApp" -Wait
+          Get-ChildItem "$env:RUNNER_TEMP\RealmApp\resources\bin"
+          "CLI=$env:RUNNER_TEMP\RealmApp\resources\bin\realm.cmd" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Build
-        run: pnpm build
-
-      # pack.mjs finds electron-builder in node_modules/.bin, which pnpm puts on PATH.
-      - name: Package (unpacked)
-        working-directory: apps/desktop
-        run: node scripts/stage-pack.mjs && pnpm exec node scripts/pack.mjs ${{ matrix.pack }} --publish never
-
-      - name: Shim tests
-        run: pnpm vitest run apps/server/src/ctl/shim.test.ts
-
-      # Serve on a scratch home with no node on the command's side, open a repo, run a command in a new
-      # worktree, wait for it: the bench's lane A, once.
+      # Serve on a scratch home, open a repo, run a command in a new worktree, wait for it: the bench's
+      # lane A, once.
       - name: Serve, run in a worktree, wait
         shell: bash
         env:
@@ -323,19 +293,18 @@ jobs:
           REALM_PORT: "8796"
         run: |
           set -euo pipefail
-          cli="$GITHUB_WORKSPACE/${{ matrix.cli }}"
           export REALM_HOME="$RUNNER_TEMP/realm-home"
           repo="$RUNNER_TEMP/repo"
           mkdir -p "$repo" && cd "$repo" && git init -q -b main && echo hi > a.txt && git add a.txt &&
             git -c user.name=bench -c user.email=b@b -c commit.gpgsign=false commit -qm base && cd - > /dev/null
-          "$cli" serve > "$RUNNER_TEMP/serve.out" 2> "$RUNNER_TEMP/serve.err" &
+          "$CLI" serve > "$RUNNER_TEMP/serve.out" 2> "$RUNNER_TEMP/serve.err" &
           for _ in $(seq 150); do grep -q '"ready"' "$RUNNER_TEMP/serve.out" && break; sleep 0.2; done
           cat "$RUNNER_TEMP/serve.out"
-          "$cli" --json status
-          "$cli" --json repo add "$repo"
-          "$cli" --json run "$repo" --worktree w1 -- "echo packaged-cli-ok"
-          "$cli" --json wait --timeout 60
-          "$cli" ps
-          t=$("$cli" --json ps | node -e 'process.stdin.on("data", (d) => console.log(JSON.parse(d)[0].terminalId))')
-          "$cli" logs "$t" | tee "$RUNNER_TEMP/logs.txt"
+          "$CLI" status
+          "$CLI" --json repo add "$repo"
+          "$CLI" --json run "$repo" --worktree w1 -- "echo packaged-cli-ok"
+          "$CLI" --json wait --timeout 60
+          "$CLI" ps
+          t=$("$CLI" --json ps | node -e 'process.stdin.on("data", (d) => console.log(JSON.parse(d)[0].terminalId))')
+          "$CLI" logs "$t" | tee "$RUNNER_TEMP/logs.txt"
           grep -q packaged-cli-ok "$RUNNER_TEMP/logs.txt"
