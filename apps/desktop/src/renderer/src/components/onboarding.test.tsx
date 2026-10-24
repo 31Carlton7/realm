@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
-import { AGENT_META, SELECTABLE_AGENT_KINDS, SPACE_COLORS, allItems } from "@realm/contracts";
+import { AGENT_META, SELECTABLE_AGENT_KINDS, SPACE_COLORS, allItems, platformCapabilities } from "@realm/contracts";
 import { AppShell, Main } from "../App";
 import { Onboarding } from "./Onboarding";
 import { StoreContext, SETTING_LAST_AGENT, createAppStore } from "../state/store";
@@ -46,6 +46,16 @@ describe("first-run onboarding", () => {
     const mark = container.querySelector(".onboarding-hero img.onboarding-mark")!;
     expect(mark.getAttribute("src")).toMatch(/realm-mark\.svg$/);
     expect(mark).toHaveAttribute("alt", "");
+  });
+
+  it.each([["darwin", "Mac"], ["linux", "computer"], ["win32", "computer"]])("on %s, says it runs on your %s", async (platform, machine) => {
+    // The first screen of the Linux AppImage said "on your Mac" (an ubuntu-latest run's screenshot).
+    (window as { realm?: unknown }).realm = { platform, capabilities: platformCapabilities(platform) };
+    try {
+      await mountFresh();
+      expect(screen.getByText(`One workspace for every coding agent, on your ${machine}.`)).toBeInTheDocument();
+      expect(await within(card("Codex")).findByText(`Codex isn't on this ${machine} yet.`)).toBeInTheDocument();
+    } finally { delete (window as { realm?: unknown }).realm; }
   });
 
   it("says each card is checking until the probe lands, with the app's spinner on it", async () => {

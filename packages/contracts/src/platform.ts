@@ -41,6 +41,8 @@ export type PlatformCapabilities = {
   executionSandbox: boolean;
   /** What the OS calls the app that "Show in …" opens. */
   fileManager: string;
+  /** What copy calls the machine itself: "on your Mac", "on your computer". */
+  machine: string;
 };
 
 export function platformCapabilities(platform: string): PlatformCapabilities {
@@ -61,6 +63,7 @@ export function platformCapabilities(platform: string): PlatformCapabilities {
     shareMenu: mac,
     executionSandbox: mac,
     fileManager: mac ? "Finder" : os === "windows" ? "File Explorer" : "Files",
+    machine: mac ? "Mac" : "computer",
   };
 }
 
