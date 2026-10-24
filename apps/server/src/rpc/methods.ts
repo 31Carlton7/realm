@@ -121,6 +121,8 @@ export type Deps = {
   /** Realm Mobile (Plan 28): Settings ▸ Devices, and whether the owner is at this Mac. */
   remote: RemoteService;
   presence: Presence;
+  /** Where clients on other machines reach this server (`realm serve --listen`), once it listens. */
+  access?: () => { url: string } | null;
 };
 
 export function registerMethods(d: Deps): void {
@@ -140,7 +142,7 @@ export function registerMethods(d: Deps): void {
   const reg = <M extends MethodName>(name: M, fn: (p: Params<M>, ctx: CallContext) => Result<M>) =>
     rpc.register(name, Methods[name].params, async (p, ctx) => fn(p as Params<M>, ctx));
 
-  reg("system.info", () => ({ realmHome: d.home, version: d.version, machineName: d.machineName, userName: d.userName, bootId: BOOT_ID, protocol: DAEMON_PROTOCOL, detachedSince: d.browserBridge.detachedSince }));
+  reg("system.info", () => ({ realmHome: d.home, version: d.version, machineName: d.machineName, userName: d.userName, bootId: BOOT_ID, protocol: DAEMON_PROTOCOL, detachedSince: d.browserBridge.detachedSince, remoteUrl: d.access?.()?.url ?? null }));
 
   /* The daemon, as seen by the app attached to it. `daemon.stop` signals THIS process rather than
      reaching for a close handle, because that is the same path an external `pnpm daemon:stop`, the
@@ -1031,15 +1033,21 @@ export function registerMethods(d: Deps): void {
   /* Realm Mobile (Plan 28): Settings ▸ Devices, and Electron main's report of whether the owner is at
      this Mac. The mobile API has no path to any of these, and each refuses a phone's principal all the
      same: a phone must never open a pairing window, answer one, remove a phone, or vouch for the
-     owner being at the Mac — which would hold its own pushes back. */
+     owner being at the Mac — which would hold its own pushes back.
+     The owner on another machine (`token:<id>`, `realm --server … pair`) may pair and remove phones:
+     that is a headless server's only way to do it from elsewhere. Only this machine's own app may
+     say whether someone is sitting at it. */
+  const fromTheOwner = (ctx: CallContext): void => {
+    if (ctx.principal !== "local" && !ctx.principal.startsWith("token:")) throw new RpcError("FORBIDDEN", "only this Mac can do that");
+  };
   const fromTheMac = (ctx: CallContext): void => {
     if (ctx.principal !== "local") throw new RpcError("FORBIDDEN", "only this Mac can do that");
   };
-  reg("remote.status", (_p, ctx) => { fromTheMac(ctx); return d.remote.status(); });
-  reg("remote.pair.start", (_p, ctx) => { fromTheMac(ctx); return d.remote.pairStart(); });
-  reg("remote.pair.cancel", (_p, ctx) => { fromTheMac(ctx); d.remote.pairCancel(); return { ok: true as const }; });
-  reg("remote.pair.answer", (p, ctx) => { fromTheMac(ctx); d.remote.pairAnswer(p.requestId, p.accept); return { ok: true as const }; });
-  reg("remote.phones.remove", (p, ctx) => { fromTheMac(ctx); d.remote.removePhone(p.phoneId); return { ok: true as const }; });
+  reg("remote.status", (_p, ctx) => { fromTheOwner(ctx); return d.remote.status(); });
+  reg("remote.pair.start", (_p, ctx) => { fromTheOwner(ctx); return d.remote.pairStart(); });
+  reg("remote.pair.cancel", (_p, ctx) => { fromTheOwner(ctx); d.remote.pairCancel(); return { ok: true as const }; });
+  reg("remote.pair.answer", (p, ctx) => { fromTheOwner(ctx); d.remote.pairAnswer(p.requestId, p.accept); return { ok: true as const }; });
+  reg("remote.phones.remove", (p, ctx) => { fromTheOwner(ctx); d.remote.removePhone(p.phoneId); return { ok: true as const }; });
   reg("remote.away", (p, ctx) => { fromTheMac(ctx); d.presence.set(p.away); return { ok: true as const }; });
 
   // The reviewer recipe (Plan 13 W3). `request` returns the moment the reviewer session exists; the

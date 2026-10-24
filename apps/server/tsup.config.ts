@@ -1,7 +1,7 @@
 import { defineConfig } from "tsup";
 export default defineConfig({
   entry: ["src/main.ts", "src/realm.ts"], format: ["esm"], target: "node22", platform: "node",
-  outDir: "dist", clean: true, sourcemap: true, external: ["node-pty", "@anthropic-ai/claude-agent-sdk", "@modelcontextprotocol/sdk"], noExternal: ["@realm/contracts", "@realm/adapters", "@realm/remote", "@realm/view", "@xterm/headless"],
+  outDir: "dist", clean: true, sourcemap: true, external: ["node-pty", "@anthropic-ai/claude-agent-sdk", "@modelcontextprotocol/sdk"], noExternal: ["@realm/contracts", "@realm/adapters", "@realm/remote", "@realm/view", "@xterm/headless", "uqr"],
   // node:sqlite has no unprefixed alias; keep the node: protocol on builtin imports.
   removeNodeProtocol: false,
   // `@xterm/headless` is CJS, and tsup leaves anything in `dependencies` external by default — so it
