@@ -257,7 +257,8 @@ private struct SessionPill: View {
                                 Image(systemName: away.glyph)
                                     .foregroundStyle(away.tone.color)
                             }
-                            Text(PillWords.away(away, reconnecting: model.linkTroubled))
+                            // The dot keeps to the words before it, so a second line starts on Retry.
+                            Text(PillWords.away(away, reconnecting: model.linkTroubled).replacingOccurrences(of: " · ", with: "\u{00A0}· "))
                                 .font(.subheadline.weight(.medium))
                                 .foregroundStyle(Palette.ink)
                                 .multilineTextAlignment(.center)
