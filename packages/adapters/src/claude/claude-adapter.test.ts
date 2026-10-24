@@ -1,8 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ClaudeAdapter, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode, effortByModel, fastModeByModel, streamWindowId } from "./claude-adapter";
 import { HIDDEN_ANSWER, type SessionEvent } from "@realm/contracts";
 import { GATEWAY_TOOL_TIMEOUT_MS, RestartRequiredError, type StartOptions } from "../types";
-import { readFileSync, writeFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
 import { tempDir } from "@realm/test-utils";
 const fixture = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "fixtures", "turn.json"), "utf8")) as unknown[];
 
@@ -934,7 +934,26 @@ describe("ClaudeAdapter", () => {
  * (and their `~/.claude/CLAUDE.md`) loading alongside it. Either one alone is a different product.
  */
 describe("ClaudeAdapter skills", () => {
-  /** Captures the options object the SDK was called with, without running a turn. */
+  // A skills start reads the settings file at $HOME (the auth carry-forward, settings-auth.ts), so
+  // every test here points HOME at a scratch directory: the suite must never read the user's real
+  // settings, let alone run their apiKeyHelper. The credential vars go too, so a key the carry
+  // minted is observable on a machine that exports one of its own.
+  beforeEach(() => {
+    vi.stubEnv("HOME", tempDir("realm-claude-skills-home-"));
+    vi.stubEnv("CLAUDE_CONFIG_DIR", "");
+    vi.stubEnv("ANTHROPIC_API_KEY", undefined);
+    vi.stubEnv("CLAUDE_CODE_OAUTH_TOKEN", undefined);
+  });
+  afterEach(() => { vi.unstubAllEnvs(); });
+
+  /** What `$HOME/.claude/settings.json` holds for this test — the scratch home the stub above made. */
+  function settingsFile(settings: Record<string, unknown>) {
+    mkdirSync(join(process.env.HOME!, ".claude"), { recursive: true });
+    writeFileSync(join(process.env.HOME!, ".claude", "settings.json"), JSON.stringify(settings));
+  }
+
+  /** Captures the options object the SDK was called with, without running a turn. `options` waits:
+   *  a skills start reaches `query` only after the (async) settings-auth carry. */
   function capture(opts: Partial<StartOptions>) {
     let seen: Record<string, unknown> | null = null;
     const adapter = new ClaudeAdapter({
@@ -945,13 +964,14 @@ describe("ClaudeAdapter skills", () => {
       }) as never,
     });
     const handle = adapter.start({ cwd: "/tmp", mcpServers: [], ...opts });
-    return { handle, options: () => seen as unknown as Record<string, unknown> | null };
+    const options = async () => { while (!seen) await new Promise((r) => setTimeout(r, 1)); return seen as Record<string, unknown>; };
+    return { handle, options };
   }
 
   it("passes the staged plugin and isolates the session from the user's own settings", async () => {
     const { handle, options } = capture({ skills: { pluginPath: "/tmp/realm-plugin", root: "/tmp/realm-plugin/skills" } });
     await handle.send({ text: "hi", attachments: [] });
-    const o = options()!;
+    const o = await options();
     expect(o.plugins).toEqual([{ type: "local", path: "/tmp/realm-plugin", skipMcpDiscovery: true }]);
     // Dropping this is the silent mutation: the session still works, and quietly loads every skill the
     // user has installed on top of the library Realm's UI is listing.
@@ -966,25 +986,113 @@ describe("ClaudeAdapter skills", () => {
     });
     await handle.send({ text: "hi", attachments: [] });
     // The preset base prompt must survive: replacing it instead of appending would cost far more than memory.
-    expect(options()!.systemPrompt).toEqual({ type: "preset", preset: "claude_code", append: "REALM CONTEXT 4417" });
+    expect((await options()).systemPrompt).toEqual({ type: "preset", preset: "claude_code", append: "REALM CONTEXT 4417" });
     await handle.dispose();
   });
 
   it("leaves systemPrompt untouched when there is no context", async () => {
     const { handle, options } = capture({});
     await handle.send({ text: "hi", attachments: [] });
-    expect(options()!.systemPrompt).toBeUndefined();
+    expect((await options()).systemPrompt).toBeUndefined();
     await handle.dispose();
   });
 
   it("touches neither option when Realm is not managing this session's skills", async () => {
     const { handle, options } = capture({});
     await handle.send({ text: "hi", attachments: [] });
-    const o = options()!;
+    const o = await options();
     expect(o.plugins).toBeUndefined();
     // Undefined, NOT []: the SDK reads an omitted settingSources as "all sources, like the CLI", which is
     // what every Realm session did before skills existed and what a space with none must keep doing.
     expect("settingSources" in o).toBe(false);
+    await handle.dispose();
+  });
+
+  it("carries the settings file's auth into the child env — the login settingSources: [] would otherwise cost", async () => {
+    /* THE BUG this pins: on a machine whose entire login is ~/.claude/settings.json (an env block
+       pointing ANTHROPIC_BASE_URL at a gateway, plus an apiKeyHelper), `settingSources: []` cost the
+       session that file too — every skills session booted `apiKeySource: none` and answered "Not
+       logged in". Proven against the real SDK in scripts/live-claude-auth-check.ts; this holds the
+       merge order. */
+    settingsFile({
+      env: { ANTHROPIC_BASE_URL: "https://settings.example", REALM_PROBE_FROM_SETTINGS: "yes" },
+      apiKeyHelper: "printf sk-carried-1",
+    });
+    const { handle, options } = capture({
+      skills: { pluginPath: "/tmp/realm-plugin", root: "/tmp/realm-plugin/skills" },
+      env: { ANTHROPIC_BASE_URL: "https://realm.example" },
+    });
+    await handle.send({ text: "hi", attachments: [] });
+    const env = (await options()).env as Record<string, string>;
+    expect(env.ANTHROPIC_API_KEY).toBe("sk-carried-1");
+    expect(env.REALM_PROBE_FROM_SETTINGS).toBe("yes");
+    // Realm's own opts.env stays on top: nothing carried may override what the server set deliberately.
+    expect(env.ANTHROPIC_BASE_URL).toBe("https://realm.example");
+    await handle.dispose();
+  });
+
+  it("never spawns for a session disposed mid-carry", async () => {
+    // dispose() stops waiting after its own timeout, but the carry can outlive it: without the
+    // disposed check after the await, a session already reported "ended" still spawned a real CLI.
+    settingsFile({ apiKeyHelper: "sleep 0.3; printf sk-late" });
+    let seen = false;
+    const adapter = new ClaudeAdapter({ query: (() => { seen = true; return (async function* () {})(); }) as never });
+    const handle = adapter.start({ cwd: "/tmp", mcpServers: [], skills: { pluginPath: "/tmp/realm-plugin", root: "/tmp/realm-plugin/skills" } });
+    await handle.send({ text: "hi", attachments: [] });
+    await handle.dispose(); // returns once pump exits at the disposed check, well inside its own net
+    await new Promise((r) => setTimeout(r, 400)); // past the helper's finish, where the spawn would happen
+    expect(seen).toBe(false);
+  });
+
+  it("holds a mid-carry setOptions until the spawn it talks to exists", async () => {
+    // The carry is the first await in `pump`, so for its duration there is no `q`: before the qUp
+    // gate, this setModel landed on `q?.` as a no-op and the change silently vanished. The slow
+    // helper IS the race window.
+    settingsFile({ apiKeyHelper: "sleep 0.2; printf sk-slow" });
+    let seen: Record<string, unknown> | null = null;
+    const setModel = vi.fn();
+    const adapter = new ClaudeAdapter({
+      query: (({ options }: { options: Record<string, unknown> }) => {
+        seen = options;
+        const g = (async function* () {})() as AsyncGenerator<unknown> & { setModel: typeof setModel };
+        g.setModel = setModel;
+        return g;
+      }) as never,
+    });
+    const handle = adapter.start({ cwd: "/tmp", mcpServers: [], skills: { pluginPath: "/tmp/realm-plugin", root: "/tmp/realm-plugin/skills" } });
+    await handle.send({ text: "hi", attachments: [] });
+    await handle.setOptions({ model: "claude-opus-5-5" }); // issued while the helper is still minting
+    expect(setModel).toHaveBeenCalledWith("claude-opus-5-5");
+    expect((seen as unknown as { env: Record<string, string> }).env.ANTHROPIC_API_KEY).toBe("sk-slow");
+    await handle.dispose();
+  });
+
+  it("holds a mid-carry interrupt until the spawn it stops exists", async () => {
+    // The same window as setOptions above: a Stop pressed while the helper is still minting found no
+    // `q`, so `q?.interrupt()` did nothing and the first turn ran on as if Stop was never pressed.
+    settingsFile({ apiKeyHelper: "sleep 0.2; printf sk-slow" });
+    const interrupt = vi.fn();
+    const adapter = new ClaudeAdapter({
+      query: (() => {
+        const g = (async function* () {})() as AsyncGenerator<unknown> & { interrupt: typeof interrupt };
+        g.interrupt = interrupt;
+        return g;
+      }) as never,
+    });
+    const handle = adapter.start({ cwd: "/tmp", mcpServers: [], skills: { pluginPath: "/tmp/realm-plugin", root: "/tmp/realm-plugin/skills" } });
+    await handle.send({ text: "hi", attachments: [] });
+    await handle.interrupt(); // pressed while the helper is still minting
+    expect(interrupt).toHaveBeenCalledTimes(1);
+    await handle.dispose();
+  });
+
+  it("leaves a non-skills session's env byte-for-byte what it always was, settings file or not", async () => {
+    // The CLI reads the file itself here, so carrying it too would apply every entry twice — and run
+    // a token-minting helper on sessions that never lost their login.
+    settingsFile({ env: { REALM_PROBE_FROM_SETTINGS: "yes" }, apiKeyHelper: "printf sk-never-minted" });
+    const { handle, options } = capture({ env: { REALM_PROBE_OWN: "v" } });
+    await handle.send({ text: "hi", attachments: [] });
+    expect((await options()).env).toEqual({ ...process.env, REALM_PROBE_OWN: "v" });
     await handle.dispose();
   });
 });

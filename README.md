@@ -41,6 +41,7 @@ why that matters and how to verify the WebGPU hero shader headlessly.
 
 ## Agent sessions
 - **Claude** sessions run on `@anthropic-ai/claude-agent-sdk`, which drives the `claude` CLI: install it and log in first (`claude auth login`). An expired login shows up as an error in the transcript.
+  - A login that lives in `~/.claude/settings.json` (an `apiKeyHelper` command and/or an `env` block) survives skills-enabled sessions too: skill isolation runs with `settingSources: []`, which stops the CLI reading that file, so the adapter carries its auth through the session's environment instead (`packages/adapters/src/claude/settings-auth.ts`).
 - **ACP agents** — Cursor, Gemini, OpenCode, GitHub Copilot, goose, Qwen Code, Grok and fx all speak the
   Agent Client Protocol, so they share one generic adapter (`packages/adapters/src/acp/`) and adding another
   is an `AcpAgentSpec` entry in `apps/server/src/app.ts`. Install and sign in to each out of band; Settings →
