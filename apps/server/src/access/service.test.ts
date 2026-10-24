@@ -72,6 +72,15 @@ describe("the remote listener", () => {
     d.ws.close();
   });
 
+  it("judges one token per handshake, so a list of guesses costs one refusal each time", async () => {
+    const r = await rig();
+    const t = createToken(r.home, "laptop");
+    expect(await dial(r.url, ["realm.rlm_guess", `realm.${t.token}`])).toMatchObject({ ok: false, status: 401 });
+    const d = await dial(r.url, ["something-else", `realm.${t.token}`]);
+    expect(d.ok).toBe(true);
+    if (d.ok) d.ws.close();
+  });
+
   it("refuses a browser page even when it holds a valid token", async () => {
     const r = await rig();
     const t = createToken(r.home, "laptop");
