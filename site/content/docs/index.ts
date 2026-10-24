@@ -30,7 +30,7 @@ import troubleshooting from "./troubleshooting"
  *
  * Everything in these pages is a fact about the shipped app (Realm 2.4), read from its source: the
  * labels are the ones the app shows. When the app changes, the page changes with it. A page about
- * something that comes after 2.4, such as the command line, says so at its top.
+ * something that comes after 2.4, such as the command line in 2.5, says so at its top.
  */
 export const DOCS_SUMMARY =
   "How Realm works, from the first install to a team of agents running on a clock. Written for Realm 2.4."
@@ -39,7 +39,7 @@ export const groups: DocGroup[] = [
   { title: "Start here", pages: [gettingStarted] },
   { title: "Work with agents", pages: [spaces, sessions, permissions, subAgents, teams, scheduled] },
   { title: "Beside the session", pages: [browser, documents, terminals, codeReview, computerUse, simulators] },
-  { title: "Extend Realm", pages: [connections, mobile, commandLine] },
+  { title: "Extend Realm", pages: [connections, mobile, commandLine, runOnAServer] },
   { title: "Reference", pages: [settings, privacy, troubleshooting] },
   { title: "About Realm", pages: [howRealmIsBuilt, status, benchmarks] },
 ]
@@ -49,4 +49,4 @@ export const groups: DocGroup[] = [
  * home and prev/next leave them out, and search engines are asked not to index them. A page waits
  * here until it is ready to be read, then moves into a group above.
  */
-export const unlisted: DocPage[] = [runOnAServer]
+export const unlisted: DocPage[] = []
