@@ -2,7 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
-import { CtlError } from "../ctl/client";
+import { CtlError } from "../ctl/errors";
 
 /**
  * Access tokens: what a client on another machine offers to drive this server (`realm serve --listen`).

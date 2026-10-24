@@ -1,5 +1,5 @@
 import { readFileSync, statSync } from "node:fs";
-import { CtlError } from "../ctl/client";
+import { CtlError } from "../ctl/errors";
 import type { RpcServer } from "../rpc/server";
 import { HandshakeLimiter } from "./limiter";
 import { checkListen, listenUrl, type ListenConfig } from "./listen";

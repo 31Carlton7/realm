@@ -1,5 +1,5 @@
 import { BlockList, isIP, isIPv4 } from "node:net";
-import { CtlError } from "../ctl/client";
+import { CtlError } from "../ctl/errors";
 
 /**
  * Where `realm serve --listen` may listen, decided before anything is bound.
