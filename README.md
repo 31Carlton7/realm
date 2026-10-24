@@ -74,6 +74,77 @@ binary as Node; from a checkout it uses `node` (22.13+) on `dist/realm.js` after
 @realm/server build`. `realm run` with `--worktree` puts each command in its own worktree on
 `realm/<name>`, with that worktree's port block in its environment.
 
+### A server on another machine
+
+`realm serve` runs anywhere Node 22.13 runs, Linux included, and keeps agents working with your laptop
+closed. It listens on loopback only unless you add `--listen`. A client on another machine then needs an
+access token, made on the server:
+
+```sh
+# on the server
+realm token create laptop            # prints the token once; only its hash is kept
+realm serve --tailscale              # tailnet only: Tailscale Serve's HTTPS in front of 127.0.0.1:7420
+
+# on the laptop
+realm remote add vps wss://vps.tail1234.ts.net     # paste the token when asked
+realm --server vps run /home/me/app --worktree fix-login -- claude -p "fix the login bug"
+realm --server vps wait --timeout 600; realm --server vps logs <terminal>
+```
+
+Three ways to reach it, from the most to the least recommended:
+
+- **Tailscale Serve**: `realm serve --tailscale [--tailscale-port 443]` listens on `127.0.0.1:7420` and
+  runs `tailscale serve --bg --https=443 http://127.0.0.1:7420`, so only your tailnet can reach it,
+  over HTTPS with the node's own certificate. It is taken down again when the server stops.
+- **An SSH tunnel**: `realm serve --listen 127.0.0.1:7420` on the server, `ssh -N -L 7420:127.0.0.1:7420
+  server` on the laptop, then `realm --server ws://127.0.0.1:7420 …`.
+- **TLS on an open port**: `realm serve --listen 0.0.0.0:7420 --tls-cert cert.pem --tls-key key.pem`
+  (a renewed certificate is picked up without a restart). A client trusts a self-signed certificate
+  with `--ca cert.pem`.
+
+What it refuses:
+
+- Listening on every address (`0.0.0.0`, `::`) or a public address without TLS. No flag allows it.
+- Listening on a private address (a LAN, a tailnet IP) without TLS, unless you pass
+  `--allow-plaintext` to say the network encrypts on its own.
+- On the client, sending a token over `ws://` to anything but this machine, without `--allow-plaintext`.
+- Any handshake without a valid access token, including the server's own `daemon.json` token, and any
+  handshake from a browser page (one with an `Origin` header).
+- An address after ten refused handshakes in a minute: it is refused for a minute, valid token or not.
+
+A token is 256 random bits and is shown once. `realm token list` and `realm token revoke <id|name>`
+manage tokens on the server; a revoked token's open connections close within two seconds. Tokens can
+only be made on the server itself, by someone who can read its home, so a stolen token cannot mint a
+successor. A token holder can do anything you can do in Realm on that machine, which includes running
+commands as you: treat it like an SSH key. It cannot register as the server's own app or claim to be
+sitting at the machine. Saved remotes live in `~/.config/realm/remotes.json` (mode 0600; a file other
+users can read is refused). `--server` also takes a URL with `--token`, or `$REALM_SERVER` and
+`$REALM_TOKEN`. With `--server`, paths are the server's and must be absolute.
+
+### Pairing an iPhone with a server that has no window
+
+```sh
+realm pair                           # draws the pairing code in the terminal, then asks before pairing
+realm phones; realm phones remove <id|name>
+```
+
+`realm pair` works on the server or with `--server`. A server started by `realm serve` has no Realm app
+to unlock the Keychain, so it keeps its phone identity sealed with its own key, in `<home>/keys/remote.key`
+(0600), or in the file `$REALM_REMOTE_KEY_FILE` names, such as a systemd credential. Anyone who can
+read that home can read the key. The app opens what a headless server paired. A headless server never
+replaces an identity the app sealed with the Keychain: it says to open Realm on that Mac once.
+
+### Running it as a service
+
+```sh
+realm service install --tailscale    # or any realm serve options; status, uninstall
+```
+
+On Linux this writes `~/.config/systemd/user/realm.service` and enables it. Run `loginctl enable-linger
+$USER` to keep it running when you are logged out. On macOS it writes a launchd agent,
+`~/Library/LaunchAgents/co.charmtechnologies.realm.server.plist`, which logs to `<home>/logs/service.log`.
+The file runs the exact Node and `realm.js` you installed it from, so install again after moving either.
+
 ## Code graphs (Graphify)
 
 [Graphify](https://github.com/Graphify-Labs/graphify) extracts a queryable knowledge graph from a
