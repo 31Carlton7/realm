@@ -1,5 +1,6 @@
 import type { DocGroup, DocPage } from "@/lib/docs-blocks"
 
+import benchmarks from "./benchmarks"
 import browser from "./browser"
 import codeReview from "./code-review"
 import commandLine from "./command-line"
@@ -7,6 +8,7 @@ import computerUse from "./computer-use"
 import connections from "./connections-and-skills"
 import documents from "./documents-and-library"
 import gettingStarted from "./getting-started"
+import howRealmIsBuilt from "./how-realm-is-built"
 import mobile from "./mobile"
 import permissions from "./permissions"
 import privacy from "./privacy"
@@ -16,6 +18,7 @@ import sessions from "./sessions"
 import settings from "./settings-and-shortcuts"
 import simulators from "./simulators"
 import spaces from "./spaces-and-worktrees"
+import status from "./status"
 import subAgents from "./sub-agents"
 import teams from "./teams-and-review"
 import terminals from "./terminals"
@@ -38,6 +41,7 @@ export const groups: DocGroup[] = [
   { title: "Beside the session", pages: [browser, documents, terminals, codeReview, computerUse, simulators] },
   { title: "Extend Realm", pages: [connections, mobile, commandLine] },
   { title: "Reference", pages: [settings, privacy, troubleshooting] },
+  { title: "About Realm", pages: [howRealmIsBuilt, status, benchmarks] },
 ]
 
 /**
