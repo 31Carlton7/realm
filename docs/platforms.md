@@ -3,7 +3,8 @@
 Realm was built as a Mac app. 2.3 makes the core app ready for Linux and Windows: sessions,
 terminals, the browser pane, documents, connections and MCP, settings, the library, and schedules.
 The features that exist only because of macOS are hidden there rather than offered and refused.
-None of it has run on Linux or Windows yet; see "What is not verified" below.
+Since 2.5 the Linux AppImage and deb have been launched and driven on GitHub's x86_64 Ubuntu runners, and the packaged
+`realm` command runs on Linux, macOS and Windows runners; see "What has been run" below.
 
 This page lists every macOS assumption the 2.3 audit found, where it lives, and what was decided
 about it. File and line references are to the 2.3 tree. A line marked *(base)* is from 2.2.0 and
@@ -151,7 +152,9 @@ The adapters package builds `findExecutable`, `spawnTarget` and `killTree` from 
 ### Packaging
 
 - **`electron-builder.yml`.**
-  - Linux: `AppImage` and `deb`. Category Development, executable `realm`.
+  - Linux: `AppImage` (static runtime, zstd) and `deb`. Category Development, executable `realm`. The deb's `/usr/bin/realm`
+    opens the window; the command line is `/opt/Realm/resources/bin/realm`.
+  - Every OS: `../server/bin` is copied to `resources/bin`, so the packaged app carries the `realm` command.
   - Windows: `nsis`, assisted, per-user, with the install folder choosable.
   - Both use `build/icon.png`, the 1024px source of the `.icns`, and electron-builder makes the hicolor set and the `.ico` from it.
   - The `mac` block is unchanged. The schema was validated locally with app-builder-lib's own validator.
@@ -166,9 +169,18 @@ The adapters package builds `findExecutable`, `spawnTarget` and `killTree` from 
   - The Mac job is gated on the whole suite.
   - The Linux and Windows jobs are gated on the platform-branch tests, and run the whole suite for information only, since it was written against POSIX hosts.
 
+## What has been run
+
+- **Linux (Ubuntu 24.04, x86_64, GitHub's 4 vCPU runner), from the packaged app** (`.github/workflows/linux-bench.yml` on the
+  `ci/linux-bench` branch): the AppImage opens its first window in about 3.3 s with no account wall, on AppImage's static
+  runtime (no libfuse2 needed); the deb installs with apt; `resources/bin/realm serve` runs with no display, and the
+  agent-orchestrator-bench stub lane (six worktree tasks at once, a killed task, the merge check) passes from it.
+- **macOS and Windows runners:** the packaged `realm` command (`resources/bin/realm`, `realm.cmd` on Windows) runs a
+  command in a worktree end to end.
+
 ## What is not verified
 
-Nothing here has run on Linux or Windows. Every Windows and Linux branch is covered by unit tests with the platform injected, and was otherwise checked by reading. The first CI run is the first real test. The places most likely to need a fix on first contact:
+Beyond the runs above, the Windows and Linux branches are covered by unit tests with the platform injected, and were otherwise checked by reading. The places most likely to need a fix on first contact:
 
 - The window-controls overlay on Linux:
   - `titleBarOverlay` support differs by Electron version and window manager.

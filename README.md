@@ -86,10 +86,13 @@ realm wait --timeout 600                        # exit 0 only if every command e
 realm logs <terminal>; realm kill <terminal>
 ```
 
-`--json` makes every command print one JSON document. Inside Realm.app the shim runs on the app's own
-binary as Node; from a checkout it uses `node` (22.13+) on `dist/realm.js` after `pnpm --filter
-@realm/server build`. `realm run` with `--worktree` puts each command in its own worktree on
-`realm/<name>`, with that worktree's port block in its environment.
+`--json` makes every command print one JSON document. Every packaged app ships the command at
+`<resources>/bin/realm` and runs it on the app's own binary as Node, so it needs no Node install and
+no display: `Realm.app/Contents/Resources/bin/realm`, `squashfs-root/resources/bin/realm` in an
+AppImage extracted with `--appimage-extract`, `/opt/Realm/resources/bin/realm` from the deb, and
+`resources\bin\realm.cmd` on Windows. From a checkout it uses `node` (22.13+) on `dist/realm.js` after
+`pnpm --filter @realm/server build`. `realm run` with `--worktree` puts each command in its own
+worktree on `realm/<name>`, with that worktree's port block in its environment.
 
 ### A server on another machine
 
