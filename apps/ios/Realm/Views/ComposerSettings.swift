@@ -131,6 +131,9 @@ struct SettingChips: View {
         }
         .scrollIndicators(.hidden)
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+        // The chips stop growing a few sizes before the text does, beside buttons that keep their size
+        // at every one, so the mode chip is not scrolled off the card at the largest.
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
     }
 }
 

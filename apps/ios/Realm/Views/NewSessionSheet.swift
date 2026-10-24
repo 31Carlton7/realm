@@ -125,6 +125,9 @@ struct NewSessionSheet: View {
                     }
                     .scrollIndicators(.hidden)
                     .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+                    // Chips stop growing a few sizes before the text does, as the bar's buttons keep
+                    // theirs, so both stay on screen; a long press is not needed to read them.
+                    .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                     ComposerLayout(card: true) {
                         if !attachments.isEmpty || preparing > 0 {
                             AttachmentStrip(attachments: attachments, preparing: preparing, files: model.store.files,
