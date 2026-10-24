@@ -271,6 +271,8 @@ jobs:
         include:
           - { mode: old uninstaller as an update runs it, over: v2.5.0 }
           - { mode: old uninstaller without resources\server, over: v2.5.0 }
+          # The base commit's installer has no installer.nsh: the update as it stands today.
+          - { mode: base installed over, over: v2.5.0, installer: base }
           - { mode: fix installed over, over: v2.5.0 }
           - { mode: fix installed over, over: v2.4.0 }
           - { mode: fix installed over, over: fix }
@@ -279,7 +281,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: installer-fix
+          name: installer-${{ matrix.installer || 'fix' }}
           path: ${{ runner.temp }}/installer
 
       - name: Install ${{ matrix.over }}
