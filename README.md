@@ -28,10 +28,26 @@ system as a poster you can pan and zoom.
 
 ## Dev
 - Node ≥ 22.13, pnpm 10, macOS.
-- Hugeicons Pro token in `.npmrc` (see `.npmrc.example`).
+- Hugeicons Pro token in `.npmrc` (see `.npmrc.example`), if you have one; see below if you do not.
 - `pnpm install && pnpm dev`
 - Tests: `pnpm test`  ·  Types: `pnpm typecheck`
 - Data lives in `~/Realm/` (override with `REALM_HOME`).
+
+### Building without the Pro icons
+
+The icons come from Hugeicons Pro where there is a token for Hugeicons' registry. Without one there is
+nothing to set up: `pnpm install` skips the Pro pack, which is optional, and the app draws the free
+`@hugeicons/core-free-icons` pack (MIT) under the same names. At the pinned version those are the
+same glyphs.
+
+```sh
+git clone https://github.com/31Carlton7/realm.git && cd realm
+pnpm install --frozen-lockfile
+pnpm build
+```
+
+The build prints `[hugeicons] the Pro pack is not installed; drawing the free pack` when it is drawing
+the free pack. [docs/dev/hugeicons.md](docs/dev/hugeicons.md) has the rest.
 
 ## Website
 

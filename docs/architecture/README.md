@@ -239,7 +239,7 @@ Electron, Chromium, Node and SQLite versions were read from the Electron binary 
 | Interface | React, react-dom | 19.2.8 | the renderer |
 | | zustand | 5.0.15 | the app store (`state/store.ts`) |
 | | react-resizable-panels | 3.0.6 | splits |
-| | Hugeicons (`@hugeicons/react`, `@hugeicons-pro/core-stroke-rounded`) | 1.1.9, 1.2.1 | every icon, through `packages/ui` |
+| | Hugeicons (`@hugeicons/react`, `@hugeicons-pro/core-stroke-rounded`, or `@hugeicons/core-free-icons` without the Pro token) | 1.1.9, 1.2.1, 1.2.1 | every icon, through `packages/ui` |
 | Styling | Tailwind CSS (`@tailwindcss/vite`) | 4.3.3 | utility layer under Realm's own tokens |
 | | Realm tokens | in repo | `theme/tokens.css`, `styles.css`, `packages/ui/src/themes.ts` |
 | | shadow-plugin | 2.1.0 | layered shadow stacks |
