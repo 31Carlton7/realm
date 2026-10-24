@@ -156,6 +156,11 @@ The adapters package builds `findExecutable`, `spawnTarget` and `killTree` from 
     opens the window; the command line is `/opt/Realm/resources/bin/realm`.
   - Every OS: `../server/bin` is copied to `resources/bin`, so the packaged app carries the `realm` command.
   - Windows: `nsis`, assisted, per-user, with the install folder choosable.
+    - `nsis.include` (`resources/installer.nsh`) lets an update replace a 2.3.0 to 2.5.0 install. An update runs the old
+      install's own uninstaller with `--updated`, which first moves every file into `%TEMP%\nsXXXX.tmp\old-install`; those
+      versions' deepest server paths come to about 261 characters there, so it exits 2 and the update stopped at "Failed to
+      uninstall old application files". The installer then removes the old `resources\server` (`rd /s /q \\?\…`) and
+      runs the old uninstaller again.
   - Both use `build/icon.png`, the 1024px source of the `.icns`, and electron-builder makes the hicolor set and the `.ico` from it.
   - The `mac` block is unchanged. The schema was validated locally with app-builder-lib's own validator.
 - **`stage-pack.mjs`** stages for the OS it runs on:
@@ -186,7 +191,7 @@ The adapters package builds `findExecutable`, `spawnTarget` and `killTree` from 
   `ci/windows-installer` branch): the NSIS installer, installed silently on a runner that did not build it.
   `resources\bin\realm.cmd serve` is up in about a second, `realm status` names the release, a command runs in a
   worktree of its own in a ConPTY terminal, the Agent SDK finds its `claude.exe`, and the installed `Realm.exe` starts
-  its server.
+  its server. The same installer updates an installed 2.5.0, 2.4.0 or itself, and serves afterwards.
   - The published 2.3.0, 2.4.0 and 2.5.0 installers fail all of it: their server stops at "Cannot find package
     'pkce-challenge'", and the SDK cannot find `claude.exe`. `realm` had passed from `win-unpacked`, but only on the
     machine that built it, whose `.pack-stage` its junctions still pointed into.
