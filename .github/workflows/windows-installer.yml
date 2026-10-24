@@ -187,9 +187,26 @@ jobs:
             cat "$RUNNER_TEMP/serve.out"; grep -v ExperimentalWarning "$RUNNER_TEMP/serve.err" | grep -v trace-warnings | head -5
             if [ -f "$app/resources/bin/realm.cmd" ]; then "$CLI" status; "$CLI" --json status; fi
           } 2>&1 | tee "$RUNNER_TEMP/serve.txt"
+          # Where the server came up, the bench's lane A once: a repository, a command in a worktree of its
+          # own, in a ConPTY terminal (so node-pty loads from this tree), and its log.
+          if grep -q '"ready"' "$RUNNER_TEMP/serve.out" && [ -f "$app/resources/bin/realm.cmd" ]; then
+            repo="$RUNNER_TEMP/repo"
+            mkdir -p "$repo" && (cd "$repo" && git init -q -b main && echo hi > a.txt && git add a.txt &&
+              git -c user.name=ci -c user.email=ci@example.com -c commit.gpgsign=false commit -qm base)
+            {
+              "$CLI" --json repo add "$repo"
+              "$CLI" --json run "$repo" --worktree w1 -- "echo packaged-cli-ok"
+              "$CLI" --json wait --timeout 60
+              "$CLI" ps
+              t=$("$CLI" --json ps | sed -n 's/.*"terminalId":"\([^"]*\)".*/\1/p' | head -1)
+              "$CLI" logs "$t" | tee "$RUNNER_TEMP/logs.txt"
+            } 2>&1 | tee -a "$RUNNER_TEMP/serve.txt"
+          fi
           sed 's/^/    /' "$RUNNER_TEMP/serve.txt" >> "$GITHUB_STEP_SUMMARY"
           taskkill //F //T //IM Realm.exe > /dev/null 2>&1
-          if [ "${{ matrix.label }}" = fix ]; then grep -q "Realm 2.5.0 is running on" "$RUNNER_TEMP/serve.txt"; fi
+          if [ "${{ matrix.label }}" = fix ]; then
+            grep -q "Realm 2.5.0 is running on" "$RUNNER_TEMP/serve.txt" && grep -v "echo packaged-cli-ok" "$RUNNER_TEMP/logs.txt" | grep -q packaged-cli-ok
+          fi
 
       # What every Claude session spawns: the Agent SDK's own claude.exe, found from the SDK the way
       # sdk.mjs (and packages/adapters' probe.ts) finds it.
