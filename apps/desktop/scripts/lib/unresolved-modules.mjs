@@ -1,10 +1,10 @@
 /**
  * What a staged server could not import once it is packaged. From the server's own dependencies on,
  * every package's are looked up the way Node looks them up — from the package's real directory, in its
- * node_modules and then in each one above it — and never above the server: nothing is installed above
- * it in a packaged app, and on this machine what is would be the workspace's. An optional dependency or
- * a peer counts as missing only when it is installed somewhere in the tree; one that is not belongs to
- * another platform.
+ * node_modules and then in each one above it — and never above the server: a packaged app has nothing
+ * installed above it, and on the machine that builds it what is above it is the workspace's. An optional
+ * dependency or a peer counts as missing only when it is installed somewhere in the tree; one that is
+ * not belongs to another platform.
  *
  * With `links: false`, for Windows, a link is itself a problem (hoist-modules.mjs says why), so the tree
  * has to resolve as real directories. Elsewhere a link can stay as long as it lands inside the tree.

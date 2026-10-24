@@ -101,8 +101,9 @@ mkdirSync(join(desktop, "build"), { recursive: true });
 if (mac) cpSync(join(root, "resources", "icon.icns"), join(desktop, "build", "icon.icns"));
 else cpSync(join(root, "resources", "icon.png"), join(desktop, "build", "icon.png"));
 
-// 5. The server's imports, checked as the package will hold them: a build only ever ran its server where
-// it was built, which is how v2.5.0 shipped a Windows server that could not start.
+// 5. The server's imports, checked against the tree as it will be packaged. Running the server here proves
+// little: win-unpacked's junctions pointed back into .pack-stage, so its server started on the machine that
+// built it while no installed one from 2.3.0 to 2.5.0 could.
 const { packages, problems } = unresolvedModules(join(stage, "server"), { links: !windows });
 if (problems.length) {
   console.error(`[stage-pack] the packaged server could not import:\n  ${problems.join("\n  ")}`);

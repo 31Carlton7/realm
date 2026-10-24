@@ -6,9 +6,9 @@
  * A Windows package cannot carry links. pnpm makes them junctions, which hold absolute paths:
  * electron-builder copies them into win-unpacked still pointing at this machine's .pack-stage, and
  * NSIS's 7-Zip follows them, so the installer holds a copy of the package at every link. A copy at the
- * top of node_modules cannot see what pnpm kept beside the real one in .pnpm, and v2.5.0's installed
- * server stopped at its first import: "Cannot find package 'pkce-challenge'", from the MCP SDK. The
- * copies were also two thirds of the installer.
+ * top of node_modules cannot see what pnpm kept beside the real one in .pnpm, and every installed
+ * server from 2.3.0 to 2.5.0 stopped at its first import: "Cannot find package 'pkce-challenge'", from
+ * the MCP SDK. The copies also doubled the installer: 464 MB, against 234 MB without them.
  *
  * The packages are the ones pnpm resolved from the lockfile. `pnpm deploy --config.node-linker=hoisted`
  * makes this shape too, but resolves every version again without the lockfile.
