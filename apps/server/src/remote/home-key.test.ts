@@ -37,7 +37,7 @@ function home() {
   const boot = (o: Partial<RemoteServiceOptions> & { appKey?: string | null; create?: boolean } = {}) => {
     remoteSecretBox.setKey(o.appKey ?? null);
     remoteSecretBox.setHomeKey(null);
-    const svc = new RemoteService({ rpc, settings, phones, macName: "vps-1", version: "test", reportsDir: join(dir, "reports"),
+    const svc = new RemoteService({ rpc, settings, phones, macName: "vps-1", version: "test", reportsDir: join(dir, "reports"), home: dir,
       homeKey: { file: homeKeyFile(dir), create: o.create ?? false }, ...o });
     services.push(svc);
     svc.start();
