@@ -119,9 +119,12 @@ manage tokens on the server; a revoked token's open connections close within a f
 only be made on the server itself, by someone who can read its home, so a stolen token cannot mint a
 successor. A token holder can do anything you can do in Realm on that machine, which includes running
 commands as you: treat it like an SSH key, and after a leak, revoke it and check `realm phones` as well.
-It cannot register as the server's own app or claim to be sitting at the machine. Saved remotes live in `~/.config/realm/remotes.json` (mode 0600; a file other
-users can read is refused). `--server` also takes a URL with `--token`, or `$REALM_SERVER` and
-`$REALM_TOKEN`. With `--server`, paths are the server's and must be absolute.
+It cannot register as the server's own app or claim to be sitting at the machine.
+
+Saved remotes live in `~/.config/realm/remotes.json` (mode 0600; a file other users can read is
+refused). `--server` also takes a URL with `--token`, or `$REALM_SERVER` and `$REALM_TOKEN`. With
+`--server`, paths are the server's and must be absolute. Agent CLIs run on the server, so sign them in
+there once, over SSH.
 
 ### Pairing an iPhone with a server that has no window
 
