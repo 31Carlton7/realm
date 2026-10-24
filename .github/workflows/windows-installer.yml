@@ -122,12 +122,6 @@ jobs:
           - label: fix
             works: true
           - label: base
-          # The fix installed over 2.5.0, as anyone who has 2.5.0 will get it.
-          - label: fix over v2.5.0
-            artifact: fix
-            over: Realm-Setup-2.5.0.exe
-            over_sha256: 3b25272740d96d30f641cd00a29474ce745ca77e432f98edb32a5237a41d1705
-            works: true
           - label: v2.5.0
             asset: Realm-Setup-2.5.0.exe
             sha256: 3b25272740d96d30f641cd00a29474ce745ca77e432f98edb32a5237a41d1705
@@ -143,20 +137,8 @@ jobs:
       - uses: actions/download-artifact@v4
         if: ${{ !matrix.asset }}
         with:
-          name: installer-${{ matrix.artifact || matrix.label }}
+          name: installer-${{ matrix.label }}
           path: ${{ runner.temp }}/installer
-
-      - name: Install the release it goes over
-        if: ${{ matrix.over }}
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Continue'
-          $exe = "$env:RUNNER_TEMP\${{ matrix.over }}"
-          curl.exe -fsSL -o $exe "https://github.com/31Carlton7/realm/releases/download/v2.5.0/${{ matrix.over }}"
-          if ((Get-FileHash $exe -Algorithm SHA256).Hash -ne "${{ matrix.over_sha256 }}") { throw "sha256 mismatch" }
-          Start-Process -FilePath $exe -ArgumentList '/S', "/D=$env:RUNNER_TEMP\RealmApp" -Wait
-          "first installed: ${{ matrix.over }}; its resources\server\node_modules holds: " + ((Get-ChildItem -Force "$env:RUNNER_TEMP\RealmApp\resources\server\node_modules" | Select-Object -ExpandProperty Name) -join ' ') | Tee-Object -FilePath "$env:RUNNER_TEMP\over.txt"
-          Get-Content "$env:RUNNER_TEMP\over.txt" | ForEach-Object { "    $_" } | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
 
       - name: Download the published installer
         if: ${{ matrix.asset }}
@@ -276,3 +258,92 @@ jobs:
           Get-Content "$env:RUNNER_TEMP\app.txt" | ForEach-Object { "    $_" } | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
           Get-Process Realm -ErrorAction SilentlyContinue | Stop-Process -Force
           if ("${{ matrix.works }}" -eq "true" -and $status -notmatch "Realm 2.5.0 is running on") { throw "the installed app did not start its server" }
+
+  # 2.5.0 installed, then updated, as anyone who has it will be: the new installer runs the old install's own
+  # uninstaller with --updated, which first moves every file into %TEMP%\nsXXXX.tmp\old-install.
+  upgrade:
+    name: ${{ matrix.mode }} v2.5.0
+    needs: build
+    if: ${{ !cancelled() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [uninstall as an update does, fix installed over]
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: installer-fix
+          path: ${{ runner.temp }}/installer
+
+      - name: Install 2.5.0
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $exe = "$env:RUNNER_TEMP\Realm-Setup-2.5.0.exe"
+          curl.exe -fsSL -o $exe "https://github.com/31Carlton7/realm/releases/download/v2.5.0/Realm-Setup-2.5.0.exe"
+          if ((Get-FileHash $exe -Algorithm SHA256).Hash -ne "3b25272740d96d30f641cd00a29474ce745ca77e432f98edb32a5237a41d1705") { throw "sha256 mismatch" }
+          Start-Process -FilePath $exe -ArgumentList '/S', "/D=$env:RUNNER_TEMP\RealmApp" -Wait
+          $app = "$env:RUNNER_TEMP\RealmApp"
+          $longest = Get-ChildItem -LiteralPath $app -Recurse -Force -File | Sort-Object { $_.FullName.Length } -Descending | Select-Object -First 1
+          $rel = $longest.FullName.Length - $app.Length
+          & {
+            "2.5.0 installed in $app; its longest path is $($longest.FullName.Length) characters, $rel of them below the install folder:"
+            "  $($longest.FullName)"
+            "moved into $env:TEMP\nsXXXX.tmp\old-install by an update, that file's path would be about $($rel + "$env:TEMP\nsa0000.tmp\old-install".Length) characters (Windows' MAX_PATH is 260)"
+          } | Tee-Object -FilePath "$env:RUNNER_TEMP\installed.txt"
+          Get-Content "$env:RUNNER_TEMP\installed.txt" | ForEach-Object { "    $_" } | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+
+      - name: ${{ matrix.mode }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $app = "$env:RUNNER_TEMP\RealmApp"
+          if ("${{ matrix.mode }}" -like "uninstall*") {
+            # What the new installer's uninstallOldVersion runs (app-builder-lib templates/nsis/include/installUtil.nsh).
+            Copy-Item "$app\Uninstall Realm.exe" "$env:RUNNER_TEMP\old-uninstaller.exe"
+            $p = Start-Process -FilePath "$env:RUNNER_TEMP\old-uninstaller.exe" -ArgumentList '/S', '/KEEP_APP_DATA', '/currentuser', '--updated', "_?=$app" -PassThru
+          } else {
+            $exe = Get-ChildItem "$env:RUNNER_TEMP\installer\*.exe" | Select-Object -First 1
+            $p = Start-Process -FilePath $exe.FullName -ArgumentList '/S', "/D=$app" -PassThru
+          }
+          $done = $p.WaitForExit(240000)
+          & {
+            if ($done) { "${{ matrix.mode }}: exited with $($p.ExitCode)" } else { "${{ matrix.mode }}: still running after 240 s" }
+            Get-Process | Where-Object { $_.MainWindowTitle } | ForEach-Object { "  window: {0} ({1}): {2}" -f $_.ProcessName, $_.Id, $_.MainWindowTitle }
+            Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'uninstall|Setup|Realm|Au_' } | ForEach-Object { "  pid {0} (parent {1}): {2}" -f $_.ProcessId, $_.ParentProcessId, $_.CommandLine }
+            "files left in the install folder: " + @(Get-ChildItem -LiteralPath $app -Recurse -Force -File -ErrorAction SilentlyContinue).Count
+            "resources\server\node_modules holds: " + ((Get-ChildItem -Force "$app\resources\server\node_modules" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name) -join ' ')
+          } | Tee-Object -FilePath "$env:RUNNER_TEMP\result.txt"
+          Get-Content "$env:RUNNER_TEMP\result.txt" | ForEach-Object { "    $_" } | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          $bmp.Save("$env:RUNNER_TEMP\screen.png")
+          if (-not $done) { Stop-Process -Id $p.Id -Force; Get-Process | Where-Object { $_.ProcessName -match 'uninstall|Setup|Au_' } | Stop-Process -Force }
+          exit 0
+
+      - name: realm serve, realm status
+        if: ${{ matrix.mode == 'fix installed over' }}
+        shell: bash
+        env:
+          REALM_ENABLE_FAKE_AGENT: "1"
+          REALM_PORT: "8796"
+        run: |
+          set +e -uo pipefail
+          export REALM_HOME="$RUNNER_TEMP/serve-home"
+          cli="$RUNNER_TEMP/RealmApp/resources/bin/realm.cmd"
+          "$cli" serve > "$RUNNER_TEMP/serve.out" 2> "$RUNNER_TEMP/serve.err" & s=$!
+          for _ in $(seq 300); do grep -q '"ready"' "$RUNNER_TEMP/serve.out" && break; kill -0 $s 2> /dev/null || break; sleep 0.2; done
+          { cat "$RUNNER_TEMP/serve.out"; grep -v ExperimentalWarning "$RUNNER_TEMP/serve.err" | grep -v trace-warnings | head -5; "$cli" status; } 2>&1 | tee "$RUNNER_TEMP/serve.txt"
+          sed 's/^/    /' "$RUNNER_TEMP/serve.txt" >> "$GITHUB_STEP_SUMMARY"
+          taskkill //F //T //IM Realm.exe > /dev/null 2>&1
+          exit 0
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screen-${{ matrix.mode }}
+          path: ${{ runner.temp }}/screen.png
