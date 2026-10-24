@@ -213,10 +213,10 @@ export function toolMediaPath(name: string, input: Record<string, unknown>): str
 
 /** What a tool call is in the middle of MAKING, while it is still running.
  *
- *  This drives the one state aicss.dev's image-generation component has: a canvas of roughly the
- *  right shape, shimmering, captioned with what is being made. It is worth having because encoding
- *  a video is the rare tool call that takes minutes, and a spinner that says `Bash` for four of them
- *  tells the reader nothing about the thing they are waiting for.
+ *  This drives the generating canvas: a quiet box of roughly the right shape, wearing the kind's
+ *  glyph, captioned with what is being made. It is worth having because encoding a video is the
+ *  rare tool call that takes minutes, and a spinner that says `Bash` for four of them tells the
+ *  reader nothing about the thing they are waiting for.
  *
  *  Recognition is by the command's PRODUCER, never by guesswork about intent: `ffmpeg` writes video
  *  (an image only when explicitly asked for a single frame), the ImageMagick and macOS converters

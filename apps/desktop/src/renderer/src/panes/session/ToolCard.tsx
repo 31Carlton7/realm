@@ -236,9 +236,9 @@ const ToolCardBody = memo(function ToolCardBody({ block, sessionStatus, enter = 
   const inputView = everOpened.current && !panel ? toolInputView(block.name, block.input) : null;
   const resultView = everOpened.current && !panel && block.result ? toolResultView(block.name, block.input, block.result.content, block.result.isError) : null;
   const cwd = useContext(ToolCwd);
-  /* The one state aicss.dev's image-generation component has, on the one call it belongs to: media
-     being made, right now. Bound to `state === "running"` — the call's REAL settled state — so the
-     canvas cannot outlive the work, and a failure leaves a failed card rather than a shimmer. */
+  /* The generating canvas, on the one call it belongs to: media being made, right now. Bound to
+     `state === "running"` — the call's REAL settled state — so the canvas cannot outlive the work,
+     and a failure leaves a failed card rather than a ring still turning. */
   const work = state === "running" ? mediaWorkFor(block.name, block.input) : null;
   /* Every other call answers with an empty list on the name alone, before the result is read. */
   const children = delegatedChildIds(block);
