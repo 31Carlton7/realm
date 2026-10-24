@@ -643,7 +643,7 @@ final class LiveTests: XCTestCase {
         XCTAssert(app.navigationBars["Sub-agents"].waitForExistence(timeout: 10))
         sleep(1)
         shot("\(prefix)-subagents-sheet")
-        app.navigationBars["Sub-agents"].buttons["Done"].tap()
+        app.navigationBars["Sub-agents"].buttons["Close"].tap()
         back()
         resetHome()
         shot("\(prefix)-home-head")

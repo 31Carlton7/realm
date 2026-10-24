@@ -147,7 +147,6 @@ struct SessionView: View {
         .onDisappear {
             Task { await model.close(sessionId) }
         }
-        .subagentsControl(sessionId)
     }
 
     /// The session's status and space while the Mac is there; the Mac's state when it is not, since
@@ -357,6 +356,7 @@ private struct SessionFoot: View {
         let empty = (model.composerDrafts[sessionId] ?? "").isEmpty && (model.draftAttachments[sessionId] ?? []).isEmpty
         let hint = empty ? transcript.hint.flatMap { $0.isEmpty ? nil : $0 } : nil
         let docked = pending.map { folded != $0.request.requestId } ?? false
+        let delegated = !(model.work.subagents[sessionId] ?? []).isEmpty
         // The pill rides in the bar rather than over the transcript, so the newest row is never under it.
         let pill = showsLatest || !model.shownLinkStatus.isConnected || (transcript.isLive && transcript.status == .running)
         VStack(spacing: 10) {
@@ -373,7 +373,7 @@ private struct SessionFoot: View {
                 if let pending {
                     FoldedRequest(pending: pending, sessionId: sessionId, unfold: { folded = nil })
                         .padding(.horizontal, 12)
-                } else if reviewable != nil || hint != nil {
+                } else if reviewable != nil || hint != nil || delegated {
                     FootChips(sessionId: sessionId, checkpointId: reviewable, hint: hint) { text in
                         model.composerDrafts[sessionId] = text
                         composing.wrappedValue = true
@@ -424,8 +424,8 @@ private struct FoldedRequest: View {
     }
 }
 
-/// The chips over the composer: Review changes for what the last turn changed, and the reply the Mac
-/// suggests, which a press puts in the field to send or to change.
+/// The chips over the composer: who is working (the session's sub-agents), Review changes for what the
+/// last turn changed, and the reply the Mac suggests, which a press puts in the field to send or to change.
 private struct FootChips: View {
     let sessionId: String
     let checkpointId: String?
@@ -438,6 +438,7 @@ private struct FootChips: View {
         ScrollView(.horizontal) {
             GlassEffectContainer(spacing: 8) {
                 HStack(spacing: 8) {
+                    SubagentsChip(sessionId: sessionId)
                     if let checkpointId, model.turnChanges[checkpointId]?.totalFiles != 0 {
                         Button {
                             reviewing = true

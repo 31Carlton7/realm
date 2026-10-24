@@ -173,49 +173,42 @@ enum SubagentWords {
     }
 }
 
-extension View {
-    /// The session's sub-agents, from its bar: how many, with the working mark while one runs. It opens
-    /// their sheet; a session that has started none shows nothing there.
-    func subagentsControl(_ sessionId: String) -> some View {
-        modifier(SubagentsControl(sessionId: sessionId))
-    }
-}
-
-private struct SubagentsControl: ViewModifier {
+/// The session's sub-agents, as a chip over the composer — the one place that says who is working
+/// (design.md ▸ Agent sessions), never a count in the session's bar: how many, with the working mark
+/// while one runs. It opens their sheet; a session that has started none shows nothing for them.
+struct SubagentsChip: View {
     let sessionId: String
     @Environment(AppModel.self) private var model
     @State private var shown = false
 
-    func body(content: Content) -> some View {
+    var body: some View {
         let subagents = model.work.subagents[sessionId] ?? []
-        content
-            .toolbar {
-                if let label = SubagentsControlLabel(subagents) {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            shown = true
-                        } label: {
-                            HStack(spacing: 6) {
-                                if label.working {
-                                    Image(systemName: "progress.indicator")
-                                        .foregroundStyle(Palette.accentInk)
-                                        .restingPulse(when: true)
-                                }
-                                Text(label.words)
-                            }
-                            .font(.subheadline.weight(.medium))
-                            .padding(.horizontal, 4)
-                        }
-                        .accessibilityLabel(label.words)
-                        .accessibilityValue(SubagentWords.rollup(subagents.map(SubagentState.init), separator: ", "))
-                        .accessibilityHint("Lists them")
-                        .accessibilityIdentifier("subagents")
+        if let label = SubagentsControlLabel(subagents) {
+            Button {
+                shown = true
+            } label: {
+                HStack(spacing: 6) {
+                    if label.working {
+                        Image(systemName: "progress.indicator")
+                            .foregroundStyle(Palette.accentInk)
+                            .restingPulse(when: true)
+                    } else {
+                        Image(systemName: "person.2")
                     }
+                    Text(label.words)
                 }
+                .font(.subheadline.weight(.medium))
             }
+            .buttonStyle(.glass)
+            .buttonBorderShape(.capsule)
+            .accessibilityLabel(label.words)
+            .accessibilityValue(SubagentWords.rollup(subagents.map(SubagentState.init), separator: ", "))
+            .accessibilityHint("Lists them")
+            .accessibilityIdentifier("subagents")
             .sheet(isPresented: $shown) {
                 SubagentsSheet(sessionId: sessionId)
             }
+        }
     }
 }
 
@@ -250,8 +243,10 @@ private struct SubagentsSheet: View {
             .navigationSubtitle(SubagentWords.rollup(subagents.map(SubagentState.init)))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                // A close, not "Done": the rows under it say Done of the runs that finished.
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(role: .close) { dismiss() }
+                        .accessibilityLabel("Close")
                 }
             }
         }
