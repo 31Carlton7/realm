@@ -1,48 +1,57 @@
 import { careful, code, h2, h3, note, p, page, table, tip, ul } from "@/lib/docs-blocks"
 
 // Read from apps/server/src/ctl/ and apps/server/bin/realm on feat/orchestrator-bench (PR #219), and checked
-// against a server built from that branch: every output below is the shape the command prints.
-// TODO(owner): once the command line ships, name its release in the note at the top, and point the source
-// build at main instead of the feat/orchestrator-bench branch.
+// against a server built from that branch: every output below is the shape the command prints. The remote
+// commands are feat/remote-runtime's, and the packaged paths are #222's (feat/packaged-cli), all for Realm 2.5.
 export default page({
   slug: "command-line",
   title: "Command line",
   summary:
     "The `realm` command runs Realm's agent server without a window and drives it from a shell or a script: open a repository, give each task a worktree of its own, run a command in each, and read how every one ended.",
   body: [
-    note("The command line is new, and comes with the next release of Realm, after 2.4. Until then, build it from source, as below."),
+    note("The command line is new in Realm 2.5."),
     p(
       "`realm` talks to the same server Realm's window talks to, so a script and the window see the same spaces, worktrees and terminals. A command started with `realm run` shows in the sidebar as a terminal, and a worktree it makes is one the window can review. Every command can print one JSON document instead of text, and its exit code says how it went.",
     ),
 
     h2("Install"),
     p(
-      "On a Mac, `realm` is inside Realm.app and runs on the app's own runtime, so it needs nothing else installed. Link it into a folder on your `PATH`, such as `/usr/local/bin`:",
+      "Every packaged Realm carries `realm` and runs it on the app's own runtime, so it needs no Node.js and no display. Link it into a folder on your `PATH`, such as `/usr/local/bin` on a Mac:",
     ),
     code(
-      `ln -s /Applications/Realm.app/Contents/Resources/server/bin/realm \\
+      `ln -s /Applications/Realm.app/Contents/Resources/bin/realm \\
   /usr/local/bin/realm`,
       "Terminal",
     ),
+    table(
+      ["Installed from", "`realm` is at"],
+      ["The Mac app", "`/Applications/Realm.app/Contents/Resources/bin/realm`"],
+      ["The AppImage", "`squashfs-root/resources/bin/realm`, once `./Realm-*.AppImage --appimage-extract` has unpacked it"],
+      ["The .deb", "`/opt/Realm/resources/bin/realm`. The deb's own `/usr/bin/realm` opens the window."],
+      ["Windows", "`resources\\bin\\realm.cmd` in the folder Realm is installed in"],
+    ),
     p("To build it from source you need Node.js 22.13 or newer and pnpm 10. These commands build Realm's server alone, which needs only public npm packages:"),
     code(
-      `git clone --branch feat/orchestrator-bench https://github.com/31Carlton7/realm.git
+      `git clone https://github.com/31Carlton7/realm.git
 cd realm
 pnpm install --filter "@realm/server..."
 pnpm --filter @realm/server build
 apps/server/bin/realm help`,
       "Terminal",
     ),
-    p("Outside Realm.app, the `realm` script runs on the `node` on your `PATH`."),
+    p("Built from source, `realm` runs on the `node` on your `PATH`."),
 
     h2("Which server it talks to"),
     p(
       "Every command except `serve` talks to the server running on a Realm home: the one `--home` names, or `$REALM_HOME`, or `~/Realm`. It finds that server's port and token in the home's `daemon.json`, which only your account can read. While Realm is open, that's the app's own server, and you don't need `realm serve`.",
     ),
+    p(
+      "With `--server`, a command talks to a server on another machine instead, with an access token made there. [Run Realm on a server](/docs/run-on-a-server) covers setting one up, the ways to reach it and what they refuse.",
+    ),
     p("When no server is running on the home, a command exits with 1 and says so: `no Realm server is running on /Users/you/Realm`."),
     h3("Run the server without a window"),
     p(
-      "`realm serve` runs Realm's agent server in the foreground, with no window, until you stop it with [[⌃C]] or `SIGTERM`. Stopping it also ends any command its terminals are still running. It listens only on `127.0.0.1`, on a port the system picks unless you give `--port`, and prints one line once it's ready:",
+      "`realm serve` runs Realm's agent server in the foreground, with no window, until you stop it with [[⌃C]] or `SIGTERM`. Stopping it also ends any command its terminals are still running. It listens only on `127.0.0.1`, on a port the system picks unless you give `--port`, and prints one line once it's ready. `--listen` and `--tailscale` also take clients on other machines (see [Run Realm on a server](/docs/run-on-a-server#choose-how-to-reach-it)).",
     ),
     code(`{"type":"ready","port":53817,"home":"/Users/you/realm-tasks"}`, "Terminal"),
     p(
@@ -53,7 +62,8 @@ apps/server/bin/realm help`,
     table(
       ["Command", "What it does"],
       ["`realm serve [--port N]`", "Runs Realm's agent server here, without a window, until you stop it."],
-      ["`realm status`", "Says whether a server is running on the home, with its version."],
+      ["`realm serve --listen ADDR:PORT` or `--tailscale`", "Also takes clients on other machines, with an access token. `--tls-cert`, `--tls-key` and `--allow-plaintext` go with `--listen`, and `--tailscale-port` with `--tailscale`."],
+      ["`realm status`", "Says whether a server is running on the home, with its version, and where it takes clients on other machines."],
       ["`realm repo add <path>`", "Opens a folder as a project, in a new space named after the folder. Run it again and it answers with the same space and project."],
       ["`realm worktree create <repo> <name> [--base REF]`", "Makes a worktree of `<repo>` on a new branch, `realm/<name>`, starting from `REF` or from the commit the checkout is on."],
       ["`realm worktree list <repo>`", "Lists the worktrees in `<repo>`'s space, each with its id, branch and path."],
@@ -63,13 +73,22 @@ apps/server/bin/realm help`,
       ["`realm wait [<terminal>…] [--timeout S]`", "Waits until the terminals named, or all of them, have ended, then prints how each one ended."],
       ["`realm logs <terminal>`", "Prints what a terminal has printed so far."],
       ["`realm kill <terminal>`", "Stops a terminal's command and closes the terminal."],
+      ["`realm pair`", "Draws a code to pair an iPhone with the server, and asks before it pairs one."],
+      ["`realm phones` or `realm phones remove <id|name>`", "Lists the phones paired with the server, or takes one back."],
+      ["`realm token create <name>`, `list` or `revoke <id|name>`", "Makes, lists or revokes the access tokens clients on other machines use. Run on the server itself; a new token is shown once."],
+      ["`realm remote add <name> <url>`, `list` or `remove <name>`", "Saves a server on another machine under a name, with its token, or lists or forgets one. `add` asks for the token and connects before it saves."],
+      ["`realm service install [serve options]`, `status` or `uninstall`", "Runs `realm serve` in the background: a systemd user unit on Linux, a launchd agent on a Mac."],
       ["`realm help`", "Prints the list of commands."],
     ),
-    p("Two options work with every command:"),
+    p("These options work with every command:"),
     table(
       ["Option", "What it does"],
       ["`--home DIR`", "The Realm home to use, with its server, spaces and worktrees. Without it, `$REALM_HOME`, then `~/Realm`."],
       ["`--json`", "Prints one JSON document on stdout instead of text, errors included. It has to come before `--`: after it, it belongs to your command."],
+      ["`--server NAME` or `--server URL`", "A server on another machine: a remote saved with `realm remote add`, or a `ws://` or `wss://` URL. Also `$REALM_SERVER`. Paths are then the server's, and must be absolute."],
+      ["`--token T`", "The access token to give a server URL. Also `$REALM_TOKEN`. A saved remote carries its own."],
+      ["`--ca FILE`", "A certificate to trust, for a server with a self-signed one. Also `$REALM_CA`."],
+      ["`--allow-plaintext`", "Sends the token over `ws://` to another machine, on a network that encrypts on its own, such as a tailnet."],
     ),
 
     h2("Run a command"),
@@ -259,23 +278,28 @@ esac`,
       ["`WORKTREE_BAD_BASE`", "`--base` names no branch or commit in the repository."],
       ["`WORKTREE_UNSAFE`", "The worktree has uncommitted files or unpushed commits. `--force` removes it anyway."],
       ["`ENVIRONMENT_IN_USE`", "A session still runs in the worktree."],
+      ["`UNAUTHORIZED`", "The server on another machine refused the access token."],
+      ["`RATE_LIMITED`", "That server is refusing this address for a minute, after too many refused tokens."],
+      ["`TLS_UNTRUSTED`", "That server's certificate isn't one this machine trusts. For a self-signed one, pass it with `--ca`."],
+      ["`PLAINTEXT_REFUSED`", "The token would have crossed a network in the clear. Use `wss://` or an SSH tunnel."],
     ),
 
     h2("Exit codes"),
     table(
       ["Code", "When"],
       ["`0`", "It worked. For `wait`: every terminal it waited for exited 0, with no signal."],
-      ["`1`", "It failed, and said why: no server on the home, or the server refused. For `wait`: a terminal exited with another code, or was killed by a signal."],
+      ["`1`", "It failed, and said why: no server on the home, or the server refused. For `wait`: a terminal exited with another code, or was killed by a signal. For `service status`: the service isn't running."],
       ["`2`", "The command line was wrong: an unknown command, a missing argument, nothing after `--`, or no command at all."],
       ["`3`", "`serve` only: a server is already running on that home."],
       ["`124`", "`wait` only: the timeout passed with a terminal still running."],
+      ["`130`", "`pair` only: you stopped it with [[⌃C]], and the code no longer works."],
     ),
     p("`serve` runs until it's stopped, and then exits with 0."),
 
     h2("What it doesn't do yet"),
     ul(
       "It runs commands, not Realm sessions. An agent started with `realm run` is a program in a terminal, with no transcript, permission cards or checkpoints in Realm. Starting a session, sending it a message and answering its requests are still done in the window.",
-      "It has run on macOS and Linux, and not yet on Windows.",
+      "`realm service` knows systemd and launchd, so on Windows `realm serve` needs a supervisor of your own.",
       "How each command ended lasts only as long as the server that ran it.",
     ),
   ],
