@@ -73,10 +73,17 @@ public struct PairingLink: Sendable, Equatable {
         let e: Double
     }
 
+    /// A relay base as `r` is written: `wss://`, or `ws://` for a development relay on this network, a
+    /// host, and no trailing slash. Nil for anything else. A Mac names its relay this way when it moves
+    /// (§3.3), so the same rule holds there.
+    public static func relayBase(_ text: String) -> URL? {
+        guard let relay = URL(string: text), let scheme = relay.scheme?.lowercased(),
+              scheme == "wss" || scheme == "ws", relay.host != nil, !text.hasSuffix("/") else { return nil }
+        return relay
+    }
+
     private init(_ fields: Fields) throws(ParseError) {
-        // `ws://` is for a development relay on this network; the Mac writes `wss://` otherwise.
-        guard let relay = URL(string: fields.r), let scheme = relay.scheme?.lowercased(),
-              scheme == "wss" || scheme == "ws", relay.host != nil, !fields.r.hasSuffix("/") else {
+        guard let relay = Self.relayBase(fields.r) else {
             throw .malformed("r is not a WebSocket URL without a trailing slash")
         }
         guard !fields.n.isEmpty else { throw .malformed("n is empty") }

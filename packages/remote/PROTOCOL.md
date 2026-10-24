@@ -850,4 +850,4 @@ a review already decided, a task whose last run is still going — with its own 
   deployed one end to end.
 - **Moving relays.** The gateway's suite moves a Mac between two local relays (§3.3): a phone follows,
   one that cannot hear yet is told once the new relay answers, one from before stays put, and the old
-  relay forgets them.
+  relay forgets them. RealmKit's suite follows a `relay` in message 2, and keeps the pairing it moves.

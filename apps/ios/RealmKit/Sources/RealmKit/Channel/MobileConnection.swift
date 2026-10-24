@@ -13,20 +13,33 @@ public struct ClientInfo: Codable, Sendable, Equatable {
     }
 }
 
-/// IK message 2's payload: `{"v":1,"mac":"<Mac name>","server":"<Realm version>"}`.
+/// IK message 2's payload: `{"v":1,"mac":"<Mac name>","server":"<Realm version>","relay":"<relay base>"}`.
 struct MacHello: Decodable {
     let v: Int
     let mac: String
     let server: String?
+    /// The Mac's own relay (§3.3). A Mac before it, or one whose relay has not answered it, names none.
+    let relay: String?
 }
 
 public struct ConnectedMac: Sendable, Equatable {
     public let name: String
     public let server: String
+    /// The relay the Mac says it is on (§3.3), when it names one that is a relay base. A pairing that
+    /// dials another moves to it.
+    public let relay: URL?
     /// IK message 1 sent → message 2 read: the Noise round trip through the relay and the Mac.
     public let handshake: Duration
     /// Socket created → channel ready: what a person waits for.
     public let connect: Duration
+
+    init(name: String, server: String, relay: URL? = nil, handshake: Duration, connect: Duration) {
+        self.name = name
+        self.server = server
+        self.relay = relay
+        self.handshake = handshake
+        self.connect = connect
+    }
 }
 
 public enum ConnectionState: Sendable, Equatable {
@@ -336,7 +349,7 @@ public actor MobileConnection {
                 let hello = try JSONDecoder().decode(MacHello.self, from: payload)
                 channel = OpenChannel(send: ciphers.initiatorToResponder, receive: ciphers.responderToInitiator)
                 let now = ContinuousClock.now
-                let info = ConnectedMac(name: hello.mac, server: hello.server ?? "",
+                let info = ConnectedMac(name: hello.mac, server: hello.server ?? "", relay: hello.relay.flatMap(PairingLink.relayBase),
                                         handshake: now - inFlight.sentAt, connect: now - socketCreatedAt)
                 setState(.connected(info))
                 let current = waiters
