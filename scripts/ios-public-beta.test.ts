@@ -1,5 +1,6 @@
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tempDir } from "@realm/test-utils";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -47,7 +48,7 @@ describe("nobody's own details in the repository", () => {
   });
 
   it("reads the contact from the owner's file, and reads a missing file as none", () => {
-    const scratch = mkdtempSync(join(tmpdir(), "realm-contact-"));
+    const scratch = tempDir("realm-contact-");
     expect(readContact(join(scratch, "absent.json"))).toBeNull();
     writeFileSync(join(scratch, "contact.json"), JSON.stringify(contact));
     expect(readContact(join(scratch, "contact.json"))).toEqual(contact);
