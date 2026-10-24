@@ -117,6 +117,27 @@ describe("session.answer", () => {
   });
 });
 
+describe("home.get lists sessions as the sidebar does", () => {
+  it("lists a sub-agent under nobody but its lead, a team role's run not at all, and a child whose lead is gone as itself", async () => {
+    const lists: Lists = {
+      sessions: [
+        session("lead", "s1", { activityAt: 10 }),
+        session("teammate", "s1", { activityAt: 30, dispatchedBy: { kind: "agent_run", sessionId: "lead" } }),
+        session("orphan", "s1", { activityAt: 20, dispatchedBy: { kind: "agent_run", sessionId: "deleted" } }),
+        session("role-run", "s2", { activityAt: 40 }),
+        session("own", "s2", { activityAt: 5 }),
+      ],
+      items: ["lead", "teammate", "orphan"].map((id) => item(id, "s1", id)).concat(["role-run", "own"].map((id) => item(id, "s2", id))),
+    };
+    const rpc = fakeRpc(lists, { "team.overview": (() => [{ spaceId: "s2", runSessionIds: ["role-run"], reviews: [] }]) as never });
+    const h = HomeSchema.parse(await api().handle(channel(rpc), "home.get", {}));
+    // THE MUTANTS: list every session with an item (the teammate and the role's run come back), or drop
+    // every dispatched session (the orphan goes with nothing left to reach it by).
+    expect(h.spaces.map((sp) => sp.sessions.map((r) => r.id))).toEqual([["orphan", "lead"], ["own"]]);
+    expect(h.recent.map((r) => r.id)).toEqual(["orphan", "lead", "own"]);
+  });
+});
+
 describe("session.seen", () => {
   /** A finished turn as the Mac logs it: what was said, the answer, then events that draw no row. */
   const turn = () => [
