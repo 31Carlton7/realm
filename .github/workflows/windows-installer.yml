@@ -87,7 +87,7 @@ jobs:
           REALM_ENABLE_FAKE_AGENT: "1"
           REALM_PORT: "8795"
         run: |
-          set -uo pipefail
+          set +e -uo pipefail
           cli=apps/desktop/release/win-unpacked/resources/bin/realm.cmd
           try() {
             export REALM_HOME="$RUNNER_TEMP/unpacked-home-$1"
@@ -172,20 +172,47 @@ jobs:
           REALM_ENABLE_FAKE_AGENT: "1"
           REALM_PORT: "8796"
         run: |
-          set -uo pipefail
+          set +e -uo pipefail
           export REALM_HOME="$RUNNER_TEMP/serve-home"
-          "$CLI" serve > "$RUNNER_TEMP/serve.out" 2> "$RUNNER_TEMP/serve.err" & s=$!
+          app="$RUNNER_TEMP/RealmApp"
+          # 2.3.0 and 2.4.0 shipped no resources\bin\realm: their server starts the way the app starts it,
+          # on Realm.exe as Node.
+          if [ -f "$app/resources/bin/realm.cmd" ]; then "$CLI" serve > "$RUNNER_TEMP/serve.out" 2> "$RUNNER_TEMP/serve.err" & s=$!
+          else ELECTRON_RUN_AS_NODE=1 "$app/Realm.exe" "$app/resources/server/dist/main.js" > "$RUNNER_TEMP/serve.out" 2> "$RUNNER_TEMP/serve.err" & s=$!
+          fi
           start=$SECONDS
           for _ in $(seq 600); do grep -q '"ready"' "$RUNNER_TEMP/serve.out" && break; kill -0 $s 2> /dev/null || break; sleep 0.2; done
           {
             echo "serve: $((SECONDS - start)) s"
             cat "$RUNNER_TEMP/serve.out"; grep -v ExperimentalWarning "$RUNNER_TEMP/serve.err" | grep -v trace-warnings | head -5
-            "$CLI" status
-            "$CLI" --json status
+            if [ -f "$app/resources/bin/realm.cmd" ]; then "$CLI" status; "$CLI" --json status; fi
           } 2>&1 | tee "$RUNNER_TEMP/serve.txt"
           sed 's/^/    /' "$RUNNER_TEMP/serve.txt" >> "$GITHUB_STEP_SUMMARY"
           taskkill //F //T //IM Realm.exe > /dev/null 2>&1
           if [ "${{ matrix.label }}" = fix ]; then grep -q "Realm 2.5.0 is running on" "$RUNNER_TEMP/serve.txt"; fi
+
+      # What every Claude session spawns: the Agent SDK's own claude.exe, found from the SDK the way
+      # sdk.mjs (and packages/adapters' probe.ts) finds it.
+      - name: The Agent SDK finds its claude.exe
+        shell: bash
+        run: |
+          set +e -uo pipefail
+          app="$RUNNER_TEMP/RealmApp"
+          ELECTRON_RUN_AS_NODE=1 "$app/Realm.exe" -e '
+            const { createRequire } = require("node:module");
+            const sdk = createRequire(process.argv[1]).resolve("@anthropic-ai/claude-agent-sdk");
+            console.log(createRequire(sdk).resolve("@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe"));
+          ' "$app/resources/server/dist/main.js" > "$RUNNER_TEMP/claude-path.txt" 2> "$RUNNER_TEMP/claude-path.err"
+          {
+            if [ -s "$RUNNER_TEMP/claude-path.txt" ]; then
+              echo "claude.exe: $(cat "$RUNNER_TEMP/claude-path.txt")"
+              echo "claude.exe --version: $(timeout 60 "$(tr -d '\r' < "$RUNNER_TEMP/claude-path.txt")" --version 2>&1 | head -1)"
+            else
+              echo "claude.exe not found: $(grep -m1 -E 'Error|Cannot' "$RUNNER_TEMP/claude-path.err")"
+            fi
+          } | tee "$RUNNER_TEMP/claude.txt"
+          sed 's/^/    /' "$RUNNER_TEMP/claude.txt" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ matrix.label }}" = fix ]; then grep -q "claude.exe --version: [0-9]" "$RUNNER_TEMP/claude.txt"; fi
 
       # The app itself, as a person starts it: on Windows it runs its server as a child on a pipe.
       - name: Realm.exe starts its server
@@ -201,7 +228,7 @@ jobs:
           while (((Get-Date) - $start).TotalSeconds -lt 90 -and -not (Test-Path "$env:REALM_HOME\daemon.json") -and -not $p.HasExited) { Start-Sleep -Milliseconds 250 }
           $up = ((Get-Date) - $start).TotalSeconds
           Start-Sleep -Seconds 3
-          $status = & "$app\resources\bin\realm.cmd" status 2>&1 | Out-String
+          $status = if (Test-Path "$app\resources\bin\realm.cmd") { & "$app\resources\bin\realm.cmd" status 2>&1 | Out-String } else { "(this release has no resources\bin\realm)" }
           & {
             "daemon.json after {0:N1} s: {1}; app exited: {2}" -f $up, (Test-Path "$env:REALM_HOME\daemon.json"), $p.HasExited
             "realm status: $($status.Trim())"
