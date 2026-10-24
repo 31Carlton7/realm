@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { CARET_DEFAULT, type Item } from "@realm/contracts";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { CARET_DEFAULT, platformCapabilities, type Item } from "@realm/contracts";
 
 /** The pane subscribes to `documents.fileChanged` through the rpc singleton, which needs a real
  *  server port. Mocked here so the test can also FIRE that event — live reload and conflict handling
@@ -20,6 +20,7 @@ const fireChange = (p: { environmentId: string; path: string; hash: string | nul
 };
 
 import { DocumentsPane, unshownReason } from "./DocumentsPane";
+import { useDocumentsMenuItems } from "./shown-file";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item } from "../../state/store.test-fakes";
 import { exited } from "../../components/popover-exit.test-fakes";
@@ -378,5 +379,65 @@ describe("a video in the documents pane", () => {
     expect(video.getAttribute("src")).toBe("realm-media://f/%2Ftmp%2Frender.mp4");
     expect(api.calls.some((c) => c.startsWith("readDocument"))).toBe(false);
     vi.unstubAllGlobals();
+  });
+});
+
+describe("Show in Finder", () => {
+  const ROOT = "/Users/u/Realm/spaces/notes";
+  const withRoot = (store: ReturnType<typeof createAppStore>) => act(() => store.setState({
+    environments: { [ENV]: { id: ENV, spaceId: "s1", path: ROOT, branch: null, kind: "folder", portBlockStart: 41000, createdAt: 0, updatedAt: 0 } as never },
+  }));
+  const reveal = vi.fn(async () => true);
+  beforeEach(() => { reveal.mockClear(); vi.stubGlobal("realm", { files: { reveal } }); });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("reveals the open document by its absolute path, from the document's head", async () => {
+    // THE MUTANT: hand main the tab's path, which is relative to the space's folder. Main resolves a
+    // relative path against nothing and refuses it, so the button did nothing.
+    const { store } = renderPane({ "lectures/week 1.md": "# Week 1" }, ["lectures/week 1.md"], "lectures/week 1.md");
+    withRoot(store);
+    const button = await screen.findByRole("button", { name: "Show week 1.md in Finder" });
+    expect(button).toHaveAttribute("title", "Show in Finder");
+    fireEvent.click(button);
+    expect(reveal).toHaveBeenCalledWith(`${ROOT}/lectures/week 1.md`);
+  });
+
+  it("reveals a file from outside the space at its own path", async () => {
+    const { store } = renderPane({ "/Users/u/Desktop/brief.md": "# Brief" }, ["/Users/u/Desktop/brief.md"], "/Users/u/Desktop/brief.md");
+    withRoot(store);
+    fireEvent.click(await screen.findByRole("button", { name: "Show brief.md in Finder" }));
+    expect(reveal).toHaveBeenCalledWith("/Users/u/Desktop/brief.md");
+  });
+
+  it("reveals the space's folder when no document is open", async () => {
+    const { store } = renderPane({});
+    withRoot(store);
+    fireEvent.click(await screen.findByRole("button", { name: "Show notes in Finder" }));
+    expect(reveal).toHaveBeenCalledWith(ROOT);
+  });
+
+  it("names the platform's file manager off a Mac", async () => {
+    vi.stubGlobal("realm", { files: { reveal }, capabilities: platformCapabilities("win32") });
+    const { store } = renderPane({ "a.md": "# A" }, ["a.md"], "a.md");
+    withRoot(store);
+    expect(await screen.findByRole("button", { name: "Show a.md in File Explorer" })).toHaveAttribute("title", "Show in File Explorer");
+  });
+
+  it("is not offered without the bridge, where it could only fail", async () => {
+    vi.stubGlobal("realm", {});
+    const { store } = renderPane({ "a.md": "# A" }, ["a.md"], "a.md");
+    withRoot(store);
+    await screen.findByRole("tab", { name: /^a\b/ });
+    expect(screen.queryByRole("button", { name: /in Finder$/ })).toBeNull();
+  });
+
+  it("is a row of the pane's menu for any open file, at the same path", async () => {
+    const { store } = renderPane({ "a.md": "# A" }, ["a.md"], "a.md");
+    withRoot(store);
+    await screen.findByRole("button", { name: "Show a.md in Finder" });
+    const { result } = renderHook(() => useDocumentsMenuItems(paneItem));
+    expect(result.current.map((r) => ("label" in r ? r.label : null))).toEqual(["Reveal in Finder"]);
+    act(() => { (result.current[0] as { onSelect: () => void }).onSelect(); });
+    expect(reveal).toHaveBeenCalledWith(`${ROOT}/a.md`);
   });
 });

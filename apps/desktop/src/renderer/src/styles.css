@@ -9222,6 +9222,11 @@ button.cr-finding-where:hover { text-decoration: underline; }
 }
 .documents-modes button:hover { color: var(--rl-text-bright); }
 .documents-modes button[aria-pressed="true"] { background: var(--rl-raised); color: var(--rl-text-bright); box-shadow: var(--shadow-btn); }
+/* Show in Finder ends the head. Pushed right where no view control is there to push it; held to the
+   name's line so a code file's head does not grow by the button's height; and pulled into the padding
+   by half its box, so its glyph stands as far in from the right as the kind's glyph does from the left. */
+.documents-reveal { flex: none; margin-block: -4px; margin-right: -7px; }
+.documents-state + .documents-reveal { margin-left: auto; }
 
 .documents-bar {
   display: flex; align-items: center; gap: 8px; padding: 7px 12px; font-size: 12px;
