@@ -21,7 +21,6 @@ const PACKAGES: Record<string, Pkg> = {
   "@anthropic-ai/claude-agent-sdk-win32-x64@0.3.281": {},
 };
 const SERVER_DEPS = ["@modelcontextprotocol/sdk@1.30.0", "@anthropic-ai/claude-agent-sdk@0.3.281", "zod@3.25.76"];
-const INSTALLED = (id: string) => id in PACKAGES;
 const nameOf = (id: string) => id.slice(0, id.lastIndexOf("@"));
 const versionOf = (id: string) => id.slice(id.lastIndexOf("@") + 1);
 
@@ -30,7 +29,8 @@ const versionOf = (id: string) => id.slice(id.lastIndexOf("@") + 1);
  *  reports the version of everything it imported, so a run prints the tree Node actually resolved. */
 function pnpmLayout(): string {
   const server = join(tempDir("server-modules-"), "server");
-  const real = (id: string) => join(server, "node_modules", ".pnpm", id.replaceAll("/", "+"), "node_modules", nameOf(id));
+  const home = (id: string) => join(server, "node_modules", ".pnpm", id.replaceAll("/", "+"), "node_modules");
+  const real = (id: string) => join(home(id), nameOf(id));
   const link = (target: string, at: string) => { mkdirSync(dirname(at), { recursive: true }); symlinkSync(target, at, "junction"); };
   for (const [id, { deps = [], peers = [], optional = [] }] of Object.entries(PACKAGES)) {
     const imports = [...deps, ...peers];
@@ -43,7 +43,7 @@ function pnpmLayout(): string {
       ...optional.map((d, i) => `const o${i} = await import("${nameOf(d)}").then((m) => m.tree, () => "missing");`),
       `export const tree = { version: "${versionOf(id)}", ${[...imports.map((d, i) => `"${nameOf(d)}": d${i}.tree`), ...optional.map((d, i) => `"${nameOf(d)}": o${i}`)].join(", ")} };`,
     ].join("\n"));
-    for (const d of [...imports, ...optional].filter(INSTALLED)) link(real(d), join(server, "node_modules", ".pnpm", id.replaceAll("/", "+"), "node_modules", nameOf(d)));
+    for (const d of [...imports, ...optional].filter((d) => d in PACKAGES)) link(real(d), join(home(id), nameOf(d)));
   }
   for (const d of SERVER_DEPS) link(real(d), join(server, "node_modules", nameOf(d)));
   writeFileSync(join(server, "package.json"), JSON.stringify({ name: "@realm/server", type: "module", dependencies: Object.fromEntries(SERVER_DEPS.map((d) => [nameOf(d), `^${versionOf(d)}`])) }));
