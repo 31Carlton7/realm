@@ -12,7 +12,7 @@ import {
   type ScheduledTask, type SessionOptions, type SessionRow, type Subagent,
 } from "@realm/remote";
 import {
-  FALLBACK_AGENT, isLive, LAST_AGENT_SETTING, modelLabel, needsYou, QUICK_CHAT_SETTING, quickChatIdOf, subagentState, upcomingOrder, type NeedsYouState,
+  FALLBACK_AGENT, isLive, LAST_AGENT_SETTING, modelLabel, needsYou, nestChildren, QUICK_CHAT_SETTING, quickChatIdOf, subagentState, upcomingOrder, type NeedsYouState,
 } from "@realm/view";
 import { resolveDefaultPermissionMode } from "../sessions/service";
 import { diffPage } from "./changes";
@@ -231,7 +231,7 @@ export class MobileApi {
           return { ok: true };
         }
         case "session.stop": await rpc.call("sessions.interrupt", { id: p.id as string }); return { ok: true };
-        case "session.seen": await rpc.call("sessions.markSeen", { id: p.id as string, seq: p.seq as number }); return { ok: true };
+        case "session.seen": await rpc.call("sessions.markSeen", { id: p.id as string, seq: this.seenUpTo(ctx, p.id as string, p.seq as number) }); return { ok: true };
         case "session.create": return await this.create(rpc, p as MobileParams<"session.create">);
         case "session.changes": {
           const { checkpointId, files, totalFiles } = await this.turnChanges(rpc, p.id as string, p.checkpointId as string);
@@ -272,6 +272,12 @@ export class MobileApi {
       rpc.call("settings.get", { key: QUICK_CHAT_SETTING }),
     ]);
     return { spaces, sessions, items, quickChatId: quickChatIdOf(quickChat.value) };
+  }
+
+  /** The sessions teams' roles ran. A Mac that has no teams answers nothing for them. */
+  private async roleRuns(rpc: RpcPort): Promise<Set<string>> {
+    const teams = await rpc.call("team.overview", {}).catch(() => []);
+    return new Set(teams.flatMap((t) => t.runSessionIds));
   }
 
   /** What the agents' probes last said, for the names of their models — when it answers at once. */
@@ -318,13 +324,16 @@ export class MobileApi {
    *  run on the lists the sidebar is seeded from, and the sessions a row lists — every session item that
    *  is not archived — newest first, each made into its row. */
   private async listing(rpc: RpcPort) {
-    const [lists, probe] = await Promise.all([this.lists(rpc), this.probes(rpc)]);
+    const [lists, probe, roleRuns] = await Promise.all([this.lists(rpc), this.probes(rpc), this.roleRuns(rpc)]);
     const spaceById = new Map(lists.spaces.map((s) => [s.id, s]));
     const rows = new Map<string, Item>();
     for (const it of lists.items) if (it.kind === "session") rows.set(it.refId, it);
     const waiting = needsYou(needsYouInput(lists));
     const need = new Set(waiting.map((r) => r.session.id));
-    const listed = lists.sessions.filter((s) => rows.has(s.id)).sort(newestFirst);
+    // The sidebar's rows (`listedSessions`): a sub-agent is its lead's business, and a team role's run is
+    // its role's, so neither is a row of its own — a waiting one is still in Needs you.
+    const nested = nestChildren(lists.sessions.filter((s) => rows.has(s.id)).map((s) => ({ id: s.id, spaceId: s.spaceId, session: s, createdAt: s.createdAt })));
+    const listed = nested.map((n) => n.row.session).filter((s) => !roleRuns.has(s.id)).sort(newestFirst);
     const row = (s: Session, title?: string, spaceId = s.spaceId) => {
       const item = rows.get(s.id);
       return this.row(s, title === undefined ? item : { title, pinned: item?.pinned ?? false }, spaceById.get(spaceId), need, probe);
@@ -429,6 +438,17 @@ export class MobileApi {
   /** Subscribes first and buffers, then reads history, then replays what arrived meanwhile — so no event
    *  can fall between the history read and the live stream. The queue is read the same way: once, then
    *  replaced by any broadcast of it that came after. */
+  /** How far a `session.seen` marks the session read. The phone names the seq of the newest row it has
+   *  seen; the Mac counts unread against its last EVENT, and a turn ends on events that draw no row (its
+   *  end, its usage). So where the phone has the session open and has seen its newest row, it has read
+   *  everything this channel has applied, and the mark goes that far; else as far as the phone said. */
+  private seenUpTo(ctx: ChannelContext, id: string, seq: number): number {
+    const open = ctx.sessions.get(id);
+    if (!open || open.buffer !== null) return seq;
+    const newest = open.projector.all().reduce((max, row) => Math.max(max, row.seq), 0);
+    return newest > 0 && seq >= newest ? Math.max(seq, open.projector.seq) : seq;
+  }
+
   private async open(ctx: ChannelContext, id: string, limit: number): Promise<MobileResult<"session.open">> {
     // Opened again, it keeps the sub-agents the phone has read of it: their changes are still its list's.
     const entry: OpenSession = {

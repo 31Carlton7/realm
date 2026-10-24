@@ -1077,6 +1077,10 @@ public struct PlanLimits: Codable, Sendable, Hashable, Identifiable {
     public let windows: [PlanWindow]
     /// The provider's warning, in the desktop's words.
     public let alert: String?
+    /// How far the warning goes: "approaching" or "exceeded"; nil without one, or from an older Mac.
+    public let alertLevel: String?
+    /// The window the warning is about; nil for every window.
+    public let alertWindow: String?
     /// Why there are no windows to show.
     public let unavailable: String?
     /// When this was last heard from the provider.
@@ -1085,15 +1089,23 @@ public struct PlanLimits: Codable, Sendable, Hashable, Identifiable {
     public var id: String { agent }
 
     public init(agent: String, agentName: String, agentMark: String, plan: String?, windows: [PlanWindow], alert: String?,
-                unavailable: String?, at: Millis) {
+                alertLevel: String? = nil, alertWindow: String? = nil, unavailable: String?, at: Millis) {
         self.agent = agent
         self.agentName = agentName
         self.agentMark = agentMark
         self.plan = plan
         self.windows = windows
         self.alert = alert
+        self.alertLevel = alertLevel
+        self.alertWindow = alertWindow
         self.unavailable = unavailable
         self.at = at
+    }
+
+    /// Whether a window carries the warning, as the page draws it: the one named, or every one where
+    /// none was.
+    public func warns(_ window: PlanWindow) -> Bool {
+        alertLevel != nil && (alertWindow == nil || alertWindow == window.id)
     }
 }
 

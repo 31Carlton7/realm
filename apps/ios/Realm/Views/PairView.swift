@@ -9,6 +9,7 @@ import VisionKit
 struct PairView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var scanning = false
     @State private var pasting = false
     @State private var cameraProblem: String?
@@ -101,6 +102,10 @@ struct PairView: View {
                         }
                     }
                 }
+                if dynamicTypeSize.isAccessibilitySize {
+                    actions
+                        .padding(.horizontal, -24)
+                }
             }
             .padding(.horizontal, 24)
             .padding(.top, 32)
@@ -109,36 +114,44 @@ struct PairView: View {
             .frame(maxWidth: .infinity)
         }
         .scrollBounceBehavior(.basedOnSize)
+        // At the accessibility sizes the actions are most of a screen: pinned, they would cover the
+        // title and the steps for good, so there they scroll with the rest.
         .safeAreaBar(edge: .bottom) {
-            VStack(spacing: 12) {
-                Button {
-                    startScanning()
-                } label: {
-                    Label("Scan the code", systemImage: "qrcode.viewfinder")
-                        .font(.body.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(Palette.accentFill)
-                .accessibilityIdentifier("scan")
-                Button("Paste the link") { pasting = true }
-                    .font(.body.weight(.semibold))
-                    .buttonStyle(.borderless)
-                    .frame(minHeight: 44)
-                Text("The code is good for five minutes, and your Mac asks you to confirm before this iPhone can see anything.")
-                    .font(.footnote)
-                    .foregroundStyle(Palette.ink2)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .controlSize(.large)
-            .buttonBorderShape(.capsule)
-            .padding(.horizontal, 24)
-            .padding(.top, 12)
-            .padding(.bottom, 8)
-            .frame(maxWidth: 540)
-            .disabled(model.pairing.isBusy)
+            if !dynamicTypeSize.isAccessibilitySize { actions }
         }
+    }
+
+    /// Scan, Paste, and what pairing promises: the one action, live from the first frame.
+    private var actions: some View {
+        VStack(spacing: 12) {
+            Button {
+                startScanning()
+            } label: {
+                Label("Scan the code", systemImage: "qrcode.viewfinder")
+                    .font(.body.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Palette.accentFill)
+            .accessibilityIdentifier("scan")
+            Button("Paste the link") { pasting = true }
+                .font(.body.weight(.semibold))
+                .buttonStyle(.borderless)
+                .tint(Palette.accentInk)
+                .frame(minHeight: 44)
+            Text("The code is good for five minutes, and your Mac asks you to confirm before this iPhone can see anything.")
+                .font(.footnote)
+                .foregroundStyle(Palette.ink2)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .controlSize(.large)
+        .buttonBorderShape(.capsule)
+        .padding(.horizontal, 24)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
+        .frame(maxWidth: 540)
+        .disabled(model.pairing.isBusy)
     }
 
     private func startScanning() {
@@ -266,6 +279,7 @@ private struct PasteLinkSheet: View {
             Form {
                 Section {
                     TextField("https://realm.computer/pair#1.…", text: $link, axis: .vertical)
+                        .tint(Palette.accent)
                         .lineLimit(1...4)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()

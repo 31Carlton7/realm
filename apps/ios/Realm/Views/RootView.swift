@@ -32,7 +32,10 @@ struct RootView: View {
                 }
             }
         }
-        .tint(Palette.accent)
+        // Chrome is monochrome, as iOS draws its own bars: a bar's glyphs and a menu's icons in ink, and
+        // the accent kept for what it means — a selection, a link, a switch that is on, the one primary
+        // action, the caret — each of which asks for it where it is drawn.
+        .tint(Palette.ink)
         .overlay(alignment: .top) { ToastView() }
         .confirmationDialog(replaceTitle, isPresented: replacing, titleVisibility: .visible) {
             Button("Pair") {

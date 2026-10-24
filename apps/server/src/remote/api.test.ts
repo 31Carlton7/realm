@@ -117,6 +117,61 @@ describe("session.answer", () => {
   });
 });
 
+describe("home.get lists sessions as the sidebar does", () => {
+  it("lists a sub-agent under nobody but its lead, a team role's run not at all, and a child whose lead is gone as itself", async () => {
+    const lists: Lists = {
+      sessions: [
+        session("lead", "s1", { activityAt: 10 }),
+        session("teammate", "s1", { activityAt: 30, dispatchedBy: { kind: "agent_run", sessionId: "lead" } }),
+        session("orphan", "s1", { activityAt: 20, dispatchedBy: { kind: "agent_run", sessionId: "deleted" } }),
+        session("role-run", "s2", { activityAt: 40 }),
+        session("own", "s2", { activityAt: 5 }),
+      ],
+      items: ["lead", "teammate", "orphan"].map((id) => item(id, "s1", id)).concat(["role-run", "own"].map((id) => item(id, "s2", id))),
+    };
+    const rpc = fakeRpc(lists, { "team.overview": (() => [{ spaceId: "s2", runSessionIds: ["role-run"], reviews: [] }]) as never });
+    const h = HomeSchema.parse(await api().handle(channel(rpc), "home.get", {}));
+    // THE MUTANTS: list every session with an item (the teammate and the role's run come back), or drop
+    // every dispatched session (the orphan goes with nothing left to reach it by).
+    expect(h.spaces.map((sp) => sp.sessions.map((r) => r.id))).toEqual([["orphan", "lead"], ["own"]]);
+    expect(h.recent?.map((r) => r.id)).toEqual(["orphan", "lead", "own"]);
+  });
+});
+
+describe("session.seen", () => {
+  /** A finished turn as the Mac logs it: what was said, the answer, then events that draw no row. */
+  const turn = () => [
+    stored("read", sessionEvent("user_message", { text: "carry on", attachments: [] })),
+    stored("read", sessionEvent("assistant_text", { messageId: "m1", text: "done" })),
+    stored("read", sessionEvent("usage", { costUsd: 0.1 } as never)),
+    stored("read", sessionEvent("status", { status: "idle" })),
+  ];
+
+  const marks = async (log: StoredSessionEvent[], seen: (rows: number[]) => number, open = true) => {
+    const marked: number[] = [];
+    const rpc = fakeRpc({ sessions: [session("read", "s1", { lastEventSeq: log.at(-1)!.seq })], items: [item("read", "s1", "Read")] }, {
+      "sessions.events": eventsOf(log) as never, "sessions.markSeen": (p: never) => { marked.push((p as { seq: number }).seq); return { ok: true }; },
+    });
+    const ctx = channel(rpc);
+    const opened = open ? await api().handle(ctx, "session.open", { id: "read" }) as { rows: { seq: number }[] } : { rows: log.slice(0, 2) };
+    await api().handle(ctx, "session.seen", { id: "read", seq: seen(opened.rows.map((r) => r.seq)) });
+    return marked;
+  };
+
+  it("marks a session read through its last event once the phone has seen its newest row", async () => {
+    const log = turn();
+    // THE MUTANT: mark only as far as the phone said — the newest ROW — and the turn's usage and status
+    // stay unread, so the Mac keeps calling the session unread after it was read on the phone.
+    expect(await marks(log, (rows) => Math.max(...rows))).toEqual([log.at(-1)!.seq]);
+  });
+
+  it("marks only as far as the phone said when it has not reached the newest row, or does not have it open", async () => {
+    const log = turn();
+    expect(await marks(log, (rows) => Math.min(...rows))).toEqual([log[0]!.seq]);
+    expect(await marks(log, () => log[1]!.seq, false)).toEqual([log[1]!.seq]);
+  });
+});
+
 describe("a session row's agent, model and space, as the desktop names them", () => {
   it("names the agent and its model, and reads each space's icon", async () => {
     const h = HomeSchema.parse(await api().handle(channel(fakeRpc({
@@ -1007,6 +1062,9 @@ describe("usage.get", () => {
     expect(usage.limits.map((l) => l.agent)).toEqual(["claude", "codex", "acp:cursor", "acp:gemini"]);
     const claude = usage.limits[0]!;
     expect(claude).toMatchObject({ agentName: "Claude", agentMark: "claude", plan: "max", at: 123, alert: "5-hour limit reached", unavailable: null });
+    // The window the warning is about, for the phone to draw in its tone as the page does.
+    expect(claude).toMatchObject({ alertLevel: "exceeded", alertWindow: "five_hour" });
+    expect(usage.limits[1]).toMatchObject({ alertLevel: null, alertWindow: null });
     // THE MUTANT: drop the reset check, and a window that has started again shows the 90% it no longer has.
     expect(claude.windows.map((w) => [w.id, w.usedPercent])).toEqual([["five_hour", 100], ["seven_day_opus", null], ["seven_day", 40], ["model:Fable", null]]);
     // An agent with nothing to draw says why, in the page's sentence — one that reports and has not
@@ -1028,6 +1086,14 @@ describe("usage.get", () => {
     expect(await alertOf(null, later)).toBe("Limit nearly reached");
     expect(await alertOf("seven_day", later)).toBe("Weekly limit nearly reached");
     expect(await alertOf("seven_day", Date.now() - 1_000)).toBeNull();
+    // Named or not, the level travels with the words; a window the provider did not name is every window.
+    const toneOf = async (alertWindow: string | null, resetsAt: number) => {
+      const limits = MobileCalls["usage.get"].result.parse(((await attempt(api(), at(alertWindow, resetsAt).rpc, "usage.get", {})) as { result: unknown }).result).limits[0]!;
+      return [limits.alertLevel, limits.alertWindow];
+    };
+    expect(await toneOf(null, later)).toEqual(["approaching", null]);
+    expect(await toneOf("seven_day", later)).toEqual(["approaching", "seven_day"]);
+    expect(await toneOf("seven_day", Date.now() - 1_000)).toEqual([null, null]);
   });
 
   it("counts this calendar month on the Mac's clock, against its budget, with its five heaviest sessions by their rows' names", async () => {

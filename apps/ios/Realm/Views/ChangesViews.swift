@@ -72,8 +72,12 @@ private struct LineTotals: ViewModifier {
 /// A changed file: what happened to it as a glyph and a word, its name over its folder, its counts.
 struct ChangedFileRow: View {
     let file: ChangedFile
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
+        // At the accessibility sizes the counts go under the name, which keeps the row's width: beside
+        // it they left a name of three letters.
+        let ax = dynamicTypeSize.isAccessibilitySize
         HStack(spacing: 12) {
             Image(systemName: Self.symbol(file.status))
                 .font(.body)
@@ -85,18 +89,23 @@ struct ChangedFileRow: View {
                 Text(ChangesWords.name(file.path))
                     .mono(.subheadline, medium: true)
                     .foregroundStyle(Palette.ink)
-                    .lineLimit(1)
+                    .lineLimit(ax ? 3 : 1)
                     .truncationMode(.middle)
                 if let folder = ChangesWords.folder(file.path) {
                     Text(folder)
                         .mono(.caption)
                         .foregroundStyle(Palette.ink2)
-                        .lineLimit(1)
+                        .lineLimit(ax ? 2 : 1)
                         .truncationMode(.head)
+                }
+                if ax {
+                    LineCounts(additions: file.additions, deletions: file.deletions, binary: file.additions == nil)
                 }
             }
             Spacer(minLength: 8)
-            LineCounts(additions: file.additions, deletions: file.deletions, binary: file.additions == nil)
+            if !ax {
+                LineCounts(additions: file.additions, deletions: file.deletions, binary: file.additions == nil)
+            }
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)

@@ -125,6 +125,9 @@ struct NewSessionSheet: View {
                     }
                     .scrollIndicators(.hidden)
                     .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+                    // The chips stop growing at the last size before the accessibility ones, as the
+                    // composer's do, so the space and the agent both stay on screen.
+                    .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                     ComposerLayout(card: true) {
                         if !attachments.isEmpty || preparing > 0 {
                             AttachmentStrip(attachments: attachments, preparing: preparing, files: model.store.files,
@@ -133,6 +136,7 @@ struct NewSessionSheet: View {
                                 .layoutValue(key: ComposerPart.self, value: .strip)
                         }
                         TextField(agent.map { "Message \($0.name)" } ?? "Message", text: draft, axis: .vertical)
+                            .tint(Palette.accent)
                             .font(.body)
                             .foregroundStyle(Palette.ink)
                             .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2...6 : 4...12)

@@ -142,7 +142,9 @@ struct HeadLine: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Image(systemName: symbol)
                     .foregroundStyle(tone)
-                    .frame(width: glyph)
+                    // The glyph stops growing before the words do, so a line's words keep the width.
+                    .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+                    .frame(width: min(glyph, 40))
                     .accessibilityHidden(true)
                 Text(words)
                     .foregroundStyle(Palette.ink)

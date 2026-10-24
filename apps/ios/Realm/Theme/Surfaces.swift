@@ -117,6 +117,13 @@ extension View {
         background(fill, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
     }
 
+    /// The column a line's leading glyph stands in, so the words beside it start together. It grows
+    /// with the text size: a fixed column holds the glyph at the default size and lets it run into its
+    /// word at the accessibility sizes.
+    func glyphColumn(_ width: CGFloat, relativeTo style: Font.TextStyle = .footnote) -> some View {
+        modifier(GlyphColumn(width: width, style: style))
+    }
+
     /// At least 44 points to touch, whatever the glyph's size.
     func touchTarget() -> some View {
         frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
@@ -136,5 +143,17 @@ enum Tone {
         case .failed: Palette.red
         case .done: Palette.green
         }
+    }
+}
+
+private struct GlyphColumn: ViewModifier {
+    @ScaledMetric private var width: CGFloat
+
+    init(width: CGFloat, style: Font.TextStyle) {
+        _width = ScaledMetric(wrappedValue: width, relativeTo: style)
+    }
+
+    func body(content: Content) -> some View {
+        content.frame(width: width)
     }
 }

@@ -125,12 +125,13 @@ struct ComposerView: View {
                     .transition(.opacity)
             }
             TextField(placeholder(session), text: draft, axis: .vertical)
+                .tint(Palette.accent)
                 .font(.body)
                 .foregroundStyle(Palette.ink)
                 // Then it scrolls; at the accessibility sizes sooner, so the newest row stays in view.
                 .lineLimit(dynamicTypeSize.isAccessibilitySize ? 1...4 : 1...8)
                 .focused(focused)
-                .padding(.vertical, 11)
+                .padding(.vertical, ComposerLayout.fieldInset)
                 .accessibilityLabel("Message")
                 .layoutValue(key: ComposerPart.self, value: .field)
             // Files go only to a Mac that answers `session.options`: an older one would drop them.
@@ -215,6 +216,8 @@ struct ComposerLayout: Layout {
 
     /// A button's side, and the toolbar's height until its chips' words need more.
     static let button: CGFloat = 44
+    /// The field's own padding above and below its lines.
+    static let fieldInset: CGFloat = 11
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let width = proposal.replacingUnspecifiedDimensions().width
@@ -256,14 +259,18 @@ struct ComposerLayout: Layout {
             if let chips { frames[chips] = CGRect(x: leading, y: bar, width: chipsWidth, height: barHeight) }
             return (frames, bar + barHeight + 4)
         }
-        // One row, the buttons at its foot as the field grows.
+        // One row, the buttons beside the field's last line as it grows: centred on that line, which at
+        // the accessibility sizes is taller than a button, rather than at the field's foot below it.
         let fieldX: CGFloat = add == nil ? 16 : 4 + button
         let fieldWidth = max(0, width - fieldX - 4 - button - 2)
         let fieldHeight = field.map { subviews[$0].sizeThatFits(ProposedViewSize(width: fieldWidth, height: nil)).height } ?? button
         let row = max(button, fieldHeight)
-        if let field { frames[field] = CGRect(x: fieldX, y: top + (row - fieldHeight) / 2, width: fieldWidth, height: fieldHeight) }
-        if let add { frames[add] = CGRect(x: 4, y: top + row - button, width: button, height: button) }
-        if let primary { frames[primary] = CGRect(x: width - 4 - button, y: top + row - button, width: button, height: button) }
+        let fieldY = top + (row - fieldHeight) / 2
+        let lastLine = fieldY + fieldHeight - Self.fieldInset - UIFont.preferredFont(forTextStyle: .body).lineHeight / 2
+        let buttonY = min(top + row - button, max(top, lastLine - button / 2))
+        if let field { frames[field] = CGRect(x: fieldX, y: fieldY, width: fieldWidth, height: fieldHeight) }
+        if let add { frames[add] = CGRect(x: 4, y: buttonY, width: button, height: button) }
+        if let primary { frames[primary] = CGRect(x: width - 4 - button, y: buttonY, width: button, height: button) }
         if let chips { frames[chips] = CGRect(x: fieldX, y: top + row, width: 0, height: 0) }
         return (frames, top + row + 2)
     }

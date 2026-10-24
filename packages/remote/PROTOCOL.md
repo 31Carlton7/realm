@@ -631,6 +631,8 @@ PlanLimits {
   plan: string|null,               the provider's word for the tier, as it wrote it ("max", "pro")
   windows: [{id, label, usedPercent: number|null, resetsAt: ms|null}],
   alert: string|null,              the provider's warning, in words ("Weekly limit nearly reached")
+  alertLevel?: "approaching"|"exceeded"|null,   how far it goes
+  alertWindow?: string|null,       the window it is about; null for every window
   unavailable: string|null,        why there is nothing to draw, in the page's sentence
   at: ms                           when the provider was last heard from; 0 for never
 }
@@ -650,7 +652,9 @@ Spend {
   that figure was about a period that is over. Neither is ever drawn as a zero.
 - **`alert`** is the provider's own verdict, never a threshold the Mac chose: `<window> limit reached`
   or `<window> limit nearly reached`, or `Limit …` where the provider named no window. A warning about
-  a window that has since reset is over, and null.
+  a window that has since reset is over, and null. `alertLevel` and `alertWindow` say the same for
+  drawing: the window named, or every window where none is, takes the warning's tone, as on the page.
+  An older Mac sends neither.
 - **Spend** is the page's: this calendar month on the Mac's clock (`usage.summary`), reported and
   estimated dollars together. `topSessions` are the five that cost the most this month, most first,
   each by the name its sidebar row has.

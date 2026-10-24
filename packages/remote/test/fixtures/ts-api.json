@@ -2809,6 +2809,8 @@
             }
           ],
           "alert": "Weekly limit nearly reached",
+          "alertLevel": "approaching",
+          "alertWindow": "seven_day",
           "unavailable": null,
           "at": 1790000000000
         },
@@ -2819,6 +2821,8 @@
           "plan": null,
           "windows": [],
           "alert": null,
+          "alertLevel": null,
+          "alertWindow": null,
           "unavailable": "Run a Codex session and its plan limits will appear here.",
           "at": 0
         },
@@ -2829,6 +2833,8 @@
           "plan": null,
           "windows": [],
           "alert": null,
+          "alertLevel": null,
+          "alertWindow": null,
           "unavailable": "Cursor does not report plan limits.",
           "at": 0
         },
@@ -2839,6 +2845,8 @@
           "plan": null,
           "windows": [],
           "alert": null,
+          "alertLevel": null,
+          "alertWindow": null,
           "unavailable": "Gemini does not report plan limits.",
           "at": 0
         }

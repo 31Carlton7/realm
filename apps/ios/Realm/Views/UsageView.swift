@@ -44,6 +44,15 @@ struct WindowReading: Equatable {
     }
 }
 
+/// A window's bar in the warning's tone where the provider warned about it, as the Mac's PlanCard draws
+/// it: orange nearing the limit, red past it; the accent otherwise.
+enum WindowTone {
+    static func of(_ plan: PlanLimits, _ window: PlanWindow) -> Color {
+        guard plan.warns(window) else { return Palette.accent }
+        return plan.alertLevel == "exceeded" ? Palette.red : Palette.orange
+    }
+}
+
 /// What a plan is called and how old its reading is.
 enum PlanWords {
     /// "Claude Max": the agent leads, since several providers' plans sit on one page, and the tier is
@@ -198,7 +207,7 @@ private struct PlanSection: View {
                 .listRowBackground(Fill.card)
             }
             ForEach(plan.windows) { window in
-                WindowRow(window: window)
+                WindowRow(window: window, tone: WindowTone.of(plan, window))
                     .listRowBackground(Fill.card)
             }
         } header: {
@@ -222,6 +231,7 @@ private struct PlanSection: View {
 /// counting down while the page is open.
 private struct WindowRow: View {
     let window: PlanWindow
+    let tone: Color
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
@@ -233,7 +243,7 @@ private struct WindowRow: View {
                 if let fraction = reading.fraction {
                     Gauge(value: fraction) { EmptyView() }
                         .gaugeStyle(.linearCapacity)
-                        .tint(Palette.accent)
+                        .tint(tone)
                         .labelsHidden()
                 }
                 Text(reading.words)
