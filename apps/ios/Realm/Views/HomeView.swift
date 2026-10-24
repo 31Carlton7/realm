@@ -635,6 +635,7 @@ private struct RowAbout: View {
 /// A row's state as its glyph and its word, bold, in its tone: never colour alone.
 struct StateWord: View {
     let state: RowState
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         HStack(spacing: 4) {
@@ -645,7 +646,8 @@ struct StateWord: View {
         }
         .font(.footnote.weight(.semibold))
         .foregroundStyle(state.tone.color)
-        .fixedSize()
+        // On a line of its own at the accessibility sizes, it wraps rather than run past the row's edge.
+        .fixedSize(horizontal: !dynamicTypeSize.isAccessibilitySize, vertical: true)
         .accessibilityHidden(true)
     }
 }
