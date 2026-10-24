@@ -267,7 +267,8 @@ jobs:
         run: |
           set -euo pipefail
           curl -fsSL -o "$RUNNER_TEMP/${{ matrix.asset }}" "$REALM_RELEASE/${{ matrix.asset }}"
-          cd "$RUNNER_TEMP" && echo "${{ matrix.sha256 }}  ${{ matrix.asset }}" | shasum -a 256 -c
+          sum=sha256sum; command -v sha256sum > /dev/null || sum="shasum -a 256"
+          cd "$RUNNER_TEMP" && echo "${{ matrix.sha256 }}  ${{ matrix.asset }}" | $sum -c
 
       - name: Open the dmg
         if: runner.os == 'macOS'
