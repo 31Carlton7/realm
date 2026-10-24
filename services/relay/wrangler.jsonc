@@ -1,17 +1,31 @@
 // Plan 28's relay. One Durable Object per Mac (MacRoom, keyed by macId) joins that Mac's socket to its
 // phones' sockets; PROTOCOL.md §3 and §7 are its whole job.
 //
-// Secrets are not in this file. Set them per environment before the first push can work:
-//   wrangler secret put APNS_KEY_ID [--env staging]
-//   wrangler secret put APNS_KEY_P8 [--env staging]
-// Without them every push answers `apns-not-configured`; nothing else depends on them.
+// Three configurations, and only the two named environments are ever deployed:
+// - the top level is `wrangler dev` and the tests in workerd. Its name is no deployed Worker's and it
+//   has no workers.dev address, so a bare `wrangler deploy` cannot land on the relay phones use.
+// - `staging` is realm-relay-staging.realm-relay.workers.dev: development builds of Realm dial it.
+// - `production` is realm-relay.realm-relay.workers.dev: released builds dial it, and every public
+//   pairing names it.
+// Deploy with `pnpm deploy:staging` or `pnpm deploy:production` (scripts/deploy.ts), which test,
+// deploy and then smoke-test the deployed relay end to end (scripts/smoke.ts).
+//
+// Secrets are not in this file. Each environment needs the APNs key's id and its .p8:
+//   wrangler secret put APNS_KEY_ID --env <environment>
+//   wrangler secret put APNS_KEY_P8 --env <environment>
+// A Worker that does not exist yet cannot be given secrets that way; its first deploy takes them from
+// a file instead (`--secrets-file`). `secrets.required` makes wrangler refuse to deploy either
+// environment without them. The APNs host is not configured: each phone registers its token with the
+// environment it was signed for, so a TestFlight or App Store build is pushed through
+// api.push.apple.com and a development build through api.sandbox.push.apple.com, by either relay.
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "realm-relay",
+  "name": "realm-relay-dev",
   "main": "src/index.ts",
   // At or before 2026-08-15: the newest date the workerd inside @cloudflare/vitest-pool-workers knows,
   // so the tests run the same runtime rules as `wrangler dev` and the deployed Worker.
   "compatibility_date": "2026-08-01",
+  "workers_dev": false,
   "durable_objects": {
     "bindings": [{ "name": "MAC_ROOM", "class_name": "MacRoom" }]
   },
@@ -21,9 +35,11 @@
     "APNS_TOPIC": "co.charmtechnologies.realm.ios"
   },
   "env": {
-    // Bindings and vars are not inherited by an environment, so staging repeats them.
+    // Bindings, vars and secrets are not inherited by an environment, so each one repeats them.
     "staging": {
       "name": "realm-relay-staging",
+      "workers_dev": true,
+      "preview_urls": false,
       "durable_objects": {
         "bindings": [{ "name": "MAC_ROOM", "class_name": "MacRoom" }]
       },
@@ -31,7 +47,27 @@
       "vars": {
         "APNS_TEAM_ID": "FY9QB79VAP",
         "APNS_TOPIC": "co.charmtechnologies.realm.ios"
-      }
+      },
+      "secrets": { "required": ["APNS_KEY_ID", "APNS_KEY_P8"] }
+    },
+    "production": {
+      "name": "realm-relay",
+      // The workers.dev address, until realm.computer's DNS moves to Cloudflare: a Worker's custom
+      // domain needs its zone there, and the zone is on Vercel. Then this gains
+      //   "routes": [{ "pattern": "relay.realm.computer", "custom_domain": true }]
+      // and the address Realm dials moves with it. Paired phones follow their Mac to the new address
+      // (PROTOCOL.md §3.3), so the move pairs nobody again.
+      "workers_dev": true,
+      "preview_urls": false,
+      "durable_objects": {
+        "bindings": [{ "name": "MAC_ROOM", "class_name": "MacRoom" }]
+      },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MacRoom"] }],
+      "vars": {
+        "APNS_TEAM_ID": "FY9QB79VAP",
+        "APNS_TOPIC": "co.charmtechnologies.realm.ios"
+      },
+      "secrets": { "required": ["APNS_KEY_ID", "APNS_KEY_P8"] }
     }
   }
 }

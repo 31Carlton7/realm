@@ -419,10 +419,21 @@ final class AppModel {
         guard case .connected(let mac) = state else { return }
         store.latency.handshake = mac.handshake
         store.latency.connect = mac.connect
-        if var paired = store.pairedMac, paired.macName != mac.name {
+        if var paired = store.pairedMac {
+            let moved = paired.moved(to: mac.relay)
+            if let moved { paired = moved }
             paired.macName = mac.name
-            store.pairedMac = paired
-            try? vault.save(paired)
+            if paired != store.pairedMac {
+                store.pairedMac = paired
+                try? vault.save(paired)
+            }
+            // The Mac is on another relay now (PROTOCOL.md §3.3): kept, and dialled from here on. The
+            // reconnect is one handshake, inside the 800 ms a drop goes unsaid (`shownLinkStatus`).
+            if let moved {
+                log.info("Following \(mac.name, privacy: .public) to \(moved.relay.absoluteString, privacy: .public)")
+                connect()
+                return
+            }
         }
         channelGeneration += 1
         Task {

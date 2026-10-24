@@ -32,6 +32,8 @@ export class RelayLink {
 
   get state(): LinkState { return this.current; }
 
+  get relay(): string { return this.o.relay; }
+
   start(): void {
     this.stopped = false;
     this.connect();

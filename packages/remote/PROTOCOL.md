@@ -199,6 +199,32 @@ Control messages from a phone to the relay:
 
 `lastSeen` is the time of that last message or heartbeat.
 
+### 3.3 Moving to another relay
+
+A pairing names a relay (§2), but the Mac's relay can change: a released build dials Realm's production
+relay where a development build dials staging, and a relay can move to a new address. Phones follow
+their Mac, so a move pairs nobody again.
+
+The Mac:
+- **keeps one relay as its own.** Pairing windows open there, and its links carry the QR code's `r`.
+- **remembers where each phone is:** the relay it paired at, then the relay it was last seen on.
+- **dials every relay a phone is still on,** as well as its own, with the same `auth`. Each relay is
+  sent the whole `phones` list, so a phone that follows is let in where it arrives.
+- **names its own relay in IK message 2** (§4.2), but only while its own relay has answered its `auth`.
+  A phone is never sent to a relay that is not working.
+- **closes the channel of a phone it could not name its relay to,** once its relay answers, so the phone
+  connects again and hears it.
+- **sends a push through the relay the phone was last seen on.** That relay holds its push token.
+- **lets go of a relay no phone is on any more.** It sends that relay `{"t":"phones","list":[]}`, which
+  takes every key and push token off it, and closes its socket.
+
+A phone that hears a relay in IK message 2 other than the one it dialled:
+- keeps the new relay in its pairing;
+- connects there instead, sending its push token again on `ready`.
+
+A phone from before §3.3 ignores the field and stays on the relay it paired at. The Mac stays there for
+it until it is removed, and never closes its channel to tell it again.
+
 ## 4. Noise
 
 All three protocols are from the Noise Protocol Framework, revision 34:
@@ -247,7 +273,9 @@ The phone then connects as itself (`/v1/phone/…`) and runs IK.
 2. **The Mac checks** that the static key revealed in message 1 equals the `dh` key it recorded for
    the channel's `phoneId`. If not, it closes the channel.
 3. **Mac → phone, message 2.** The payload is
-   `{"v":1,"mac":"<Mac name>","server":"<Realm version>"}`.
+   `{"v":1,"mac":"<Mac name>","server":"<Realm version>","relay":"<relay base>"}`. `relay` is the Mac's
+   own relay (§3.3), and is left out while that relay has not answered the Mac. A Mac before §3.3
+   sends no `relay`.
 
 After message 2 both sides `Split()`:
 - the phone sends with the first cipher and receives with the second;
@@ -818,4 +846,8 @@ a review already decided, a task whose last run is still going — with its own 
   `pair.result`. The server's suite fails when the committed file is not what the code produces, when
   a row kind has no example in it, or when a call that answers more than `{ok: true}`, or one of those
   events, has none; RealmKit decodes every answer in it.
-- **The relay.** Its own tests drive §3 against the Worker in workerd.
+- **The relay.** Its own tests drive §3 against the Worker in workerd, and `scripts/smoke.ts` drives a
+  deployed one end to end.
+- **Moving relays.** The gateway's suite moves a Mac between two local relays (§3.3): a phone follows,
+  one that cannot hear yet is told once the new relay answers, one from before stays put, and the old
+  relay forgets them. RealmKit's suite follows a `relay` in message 2, and keeps the pairing it moves.

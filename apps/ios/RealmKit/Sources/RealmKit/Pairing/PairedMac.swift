@@ -4,8 +4,8 @@ import Foundation
 public struct PairedMac: Codable, Sendable, Equatable, Identifiable {
     public let macId: String
     public var macName: String
-    /// The relay's base URL from the pairing link.
-    public let relay: URL
+    /// The relay's base URL: the pairing link's, until the Mac names another (PROTOCOL.md §3.3).
+    public var relay: URL
     /// The Mac's X25519 public key, pinned at pairing.
     public let macKey: Data
     /// This phone's id at that Mac: `id(signPub)`.
@@ -15,6 +15,15 @@ public struct PairedMac: Codable, Sendable, Equatable, Identifiable {
     public let pairedAt: Date
 
     public var id: String { macId }
+
+    /// This pairing once it follows its Mac to the relay the Mac named in its handshake (§3.3); nil when
+    /// the Mac named none, or the relay this pairing already dials.
+    public func moved(to relay: URL?) -> PairedMac? {
+        guard let relay, relay != self.relay else { return nil }
+        var moved = self
+        moved.relay = relay
+        return moved
+    }
 
     public init(macId: String, macName: String, relay: URL, macKey: Data, phoneId: String, windowId: String, pairedAt: Date) {
         self.macId = macId

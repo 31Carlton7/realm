@@ -1,0 +1,5 @@
+Realm for iPhone is the companion to Realm, a free Mac app that runs your coding agents, Claude Code, Codex and others, in one workspace. Pair it with Realm on your Mac and you can see what every session is doing, answer the permissions and questions it waits on, send the next message, start a new session, look at the files a turn changed, and get a notification when an agent needs you.
+
+Your work stays on your Mac. The phone reaches it through Realm's relay, encrypted end to end between the phone and the Mac, so the relay carries nothing it can read. Notifications are encrypted on the Mac for your phone in the same way.
+
+You need Realm 2.4 or later on a Mac with Apple silicon (free at realm.computer), and iOS 26. The phone reaches the Mac only while Realm is open on it and the Mac is awake.

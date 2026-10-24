@@ -4,8 +4,9 @@ import SwiftUI
 import VisionKit
 
 /// Pairing: scan the code the Mac shows, or paste its link. The Mac asks its owner before this iPhone
-/// sees anything, and this screen says so while it waits. Plain, as a first run is: the mark, the
-/// steps, and the one action, live from the first frame below the scroller.
+/// sees anything, and this screen says so while it waits. Plain, as a first run is: the mark, what
+/// Realm is, the steps — the first of them saying where Realm for Mac comes from, for someone who has
+/// none yet — and the one action, live from the first frame below the scroller.
 struct PairView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -62,14 +63,18 @@ struct PairView: View {
                         .font(.largeTitle.bold())
                         .foregroundStyle(Palette.ink)
                         .accessibilityAddTraits(.isHeader)
-                    Text("See what your Mac's sessions are doing, answer what they wait on, and send the next message.")
+                    Text("Realm runs your coding agents on your Mac. Pair this iPhone with it to see what they're doing, answer what they wait on, and send the next message.")
                         .font(.body)
                         .foregroundStyle(Palette.ink2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 VStack(alignment: .leading, spacing: 16) {
-                    Step(number: 1, text: "On your Mac, open Realm's Settings ▸ Devices.")
-                    Step(number: 2, text: "Choose Pair an iPhone.")
+                    // Over a paired Mac, Realm is already there.
+                    Step(number: 1, text: overTheTop ? "Open Realm on your Mac."
+                                                     : "Open Realm on your Mac. New to Realm? It's free at **[realm.computer](https://realm.computer)**.")
+                    // The arrow is held to the word before it, so no line starts with it, and the button's
+                    // name is held whole.
+                    Step(number: 2, text: "In Settings\u{00A0}▸ Devices, choose Pair\u{00A0}an\u{00A0}iPhone.")
                     Step(number: 3, text: "Scan the code it shows.")
                 }
                 if case .failed(let message) = model.pairing {
@@ -191,10 +196,11 @@ struct PairView: View {
     }
 }
 
-/// A numbered step, the number in the accent as Apple's own setup screens draw it.
+/// A numbered step, the number in the accent as Apple's own setup screens draw it. Its words are
+/// Markdown, so a step can carry a link, drawn in the accent as a link is.
 private struct Step: View {
     let number: Int
-    let text: String
+    let text: LocalizedStringKey
     @ScaledMetric(relativeTo: .body) private var disc: CGFloat = 28
 
     var body: some View {
@@ -209,6 +215,7 @@ private struct Step: View {
             Text(text)
                 .font(.body)
                 .foregroundStyle(Palette.ink)
+                .tint(Palette.accentInk)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityElement(children: .combine)

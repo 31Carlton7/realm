@@ -1,7 +1,7 @@
 import { DAEMON_PROTOCOL, Methods, type MethodName, type MethodResult } from "@realm/contracts";
 import type { z } from "zod";
 import type { CallContext, RpcServer } from "./server";
-import { TERMINALS_HISTORY_KEY } from "@realm/contracts";
+import { REMOTE_RELAY_KEY, TERMINALS_HISTORY_KEY } from "@realm/contracts";
 import { BOOT_ID } from "../daemon/state";
 
 /** When this process came up, for `daemon.info`. A constant for the same reason `BOOT_ID` is one. */
@@ -296,6 +296,8 @@ export function registerMethods(d: Deps): void {
     // Turning terminal scrollback off purges what was kept. A switch that leaves yesterday's output
     // on disk is not an off switch, and the thing being kept is whatever a shell printed.
     if (p.key === TERMINALS_HISTORY_KEY && p.value !== true) d.terminals.purgeHistory();
+    // A Mac moved to another relay goes there now, and takes its phones with it.
+    if (p.key === REMOTE_RELAY_KEY) d.remote.relayChanged();
     return { ok: true as const };
   });
 

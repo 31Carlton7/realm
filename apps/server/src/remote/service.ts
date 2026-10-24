@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { REMOTE_RELAY_KEY, type PairingWindow, type RemoteState, type RemoteStatus } from "@realm/contracts";
+import { REMOTE_RELAY_KEY, STAGING_REMOTE_RELAY, type PairingWindow, type RemoteState, type RemoteStatus } from "@realm/contracts";
+import { relayBase } from "@realm/remote";
 import type { RpcServer } from "../rpc/server";
 import type { RemoteDevicesStore } from "../store/remote-devices";
 import { NotFoundError, RpcError } from "../store/rows";
@@ -43,14 +44,6 @@ export type RemoteServiceOptions = {
 /** How long `pair.start` waits for the relay to answer before saying it cannot be reached. */
 const RELAY_WAIT_MS = 10_000;
 
-/** A relay URL as PROTOCOL.md §2 allows one: `ws://` or `wss://`, a host, no trailing slash. */
-function relayUrl(v: unknown): string | null {
-  if (typeof v !== "string") return null;
-  const url = v.trim().replace(/\/+$/, "");
-  if (!/^wss?:\/\/[^/]+(\/.*)?$/.test(url)) return null;
-  try { new URL(url); return url; } catch { return null; }
-}
-
 /**
  * Realm Mobile on the Mac (Plan 28): the gateway's owner, and what Settings ▸ Devices talks to.
  *
@@ -85,6 +78,11 @@ export class RemoteService {
   /** After `rpc.listen`: opens the identity if the key is already here, and dials if a phone is paired. */
   start(): void {
     this.loadHomeKey();
+    // A phone paired before the Mac wrote down each phone's relay was paired on the one it dialled then:
+    // the relay setting, or the only relay Realm had. Written in, so the gateway can go and find it.
+    const then = relayBase(this.o.settings.get(REMOTE_RELAY_KEY)) ?? STAGING_REMOTE_RELAY;
+    const adopted = this.o.phones.adoptRelay(then);
+    if (adopted > 0) this.o.log?.(`[remote] ${adopted} phone(s) paired before relays were recorded are on ${then}`);
     this.unlock();
   }
 
@@ -102,6 +100,9 @@ export class RemoteService {
       this.o.log?.(`[remote] ${e.message}`);
     }
   }
+
+  /** The `remote.relay` setting changed: the Mac moves, and its phones follow it (PROTOCOL.md §3.3). */
+  relayChanged(): void { this.reconcile(); }
 
   /** Electron main handed the `remote` key over: the identity can open now, and the link start. */
   keyChanged(): void { this.unlock(); }
@@ -227,7 +228,7 @@ export class RemoteService {
   }
 
   private relay(): string | null {
-    return relayUrl(this.o.settings.get(REMOTE_RELAY_KEY)) ?? this.o.defaultRelay ?? null;
+    return relayBase(this.o.settings.get(REMOTE_RELAY_KEY)) ?? this.o.defaultRelay ?? null;
   }
 
   private unlock(): void {

@@ -49,7 +49,7 @@ function home() {
 const paired = (phones: RemoteDevicesStore) => phones.list().map((p) => p.name);
 const anotherPhone = (phones: RemoteDevicesStore) => {
   const k = generateDeviceKeys();
-  phones.add({ phoneId: "phoneA", name: "Old iPhone", model: "iPhone18,1", dh: k.dh.pub, sign: k.sign.pub, addedAt: 1, lastSeen: null });
+  phones.add({ phoneId: "phoneA", name: "Old iPhone", model: "iPhone18,1", dh: k.dh.pub, sign: k.sign.pub, addedAt: 1, lastSeen: null, relay: null });
 };
 
 /** Pairs a TestPhone with whatever window `svc` opens, answering yes for the owner. */
