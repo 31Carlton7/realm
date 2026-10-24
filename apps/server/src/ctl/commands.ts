@@ -549,13 +549,20 @@ async function pair(c: CtlClient, io: CtlIo, json: boolean, print: (value: unkno
       if (r.windowId !== win.windowId) continue;
       const answer = await (io.prompt?.(`\nPair "${r.name}" (${r.model || "iPhone"})? It can read every session on ${status.macName} and answer for you. [y/N] `) ?? Promise.resolve(null));
       const accept = answer !== null && /^\s*y(es)?\s*$/i.test(answer);
-      await c.call("remote.pair.answer", { requestId: r.requestId, accept });
-      if (!accept) throw new CtlError("DECLINED", `did not pair ${r.name}`);
+      // Realm's own window may have been asked too, and answered first: then this answer finds no
+      // request, and what happened is whatever the status now says.
+      let answeredHere = true;
+      try { await c.call("remote.pair.answer", { requestId: r.requestId, accept }); } catch (e) {
+        if (!(e instanceof CtlError) || e.code !== "NOT_FOUND") throw e;
+        answeredHere = false;
+      }
+      if (answeredHere && !accept) throw new CtlError("DECLINED", `did not pair ${r.name}`);
       // The phone is added once it has heard the answer; the status says so.
-      const deadline = now() + 15_000;
+      const deadline = now() + (answeredHere ? 15_000 : 3_000);
       for (;;) {
         const s = await c.call<RemoteStatus>("remote.status");
         const phone = s.phones.find((ph) => ph.name === r.name && ph.addedAt >= started);
+        if (!phone && !answeredHere && now() > deadline) throw new CtlError("DECLINED", `${r.name} was answered in Realm's window, and not paired`);
         if (phone) {
           print({ paired: true, phoneId: phone.phoneId, name: phone.name, model: phone.model, relay: s.relay },
             `Paired ${phone.name}. It reaches ${s.macName} through ${s.relay}. To take it back: realm phones remove ${phone.phoneId}`);

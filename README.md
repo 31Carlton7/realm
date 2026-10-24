@@ -77,8 +77,10 @@ binary as Node; from a checkout it uses `node` (22.13+) on `dist/realm.js` after
 ### A server on another machine
 
 `realm serve` runs anywhere Node 22.13 runs, Linux included, and keeps agents working with your laptop
-closed. It listens on loopback only unless you add `--listen`. A client on another machine then needs an
-access token, made on the server:
+closed. On a Linux machine, from a checkout: `pnpm install`, `pnpm --filter @realm/server build`, then
+link `apps/server/bin/realm` onto your PATH (on a Mac, link `Realm.app/Contents/Resources/server/bin/realm`).
+It listens on loopback only unless you add `--listen`. A client on another machine then needs an access
+token, made on the server:
 
 ```sh
 # on the server
@@ -116,8 +118,8 @@ A token is 256 random bits and is shown once. `realm token list` and `realm toke
 manage tokens on the server; a revoked token's open connections close within two seconds. Tokens can
 only be made on the server itself, by someone who can read its home, so a stolen token cannot mint a
 successor. A token holder can do anything you can do in Realm on that machine, which includes running
-commands as you: treat it like an SSH key. It cannot register as the server's own app or claim to be
-sitting at the machine. Saved remotes live in `~/.config/realm/remotes.json` (mode 0600; a file other
+commands as you: treat it like an SSH key, and after a leak, revoke it and check `realm phones` as well.
+It cannot register as the server's own app or claim to be sitting at the machine. Saved remotes live in `~/.config/realm/remotes.json` (mode 0600; a file other
 users can read is refused). `--server` also takes a URL with `--token`, or `$REALM_SERVER` and
 `$REALM_TOKEN`. With `--server`, paths are the server's and must be absolute.
 

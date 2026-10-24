@@ -36,7 +36,7 @@ async function headless(o: { listen?: boolean } = {}) {
 }
 
 /** `realm pair` running, with its output gathered and its question answered by `answer`. */
-function pairing(argv: string[], answer: (question: string) => string | null, signal?: AbortSignal) {
+function pairing(argv: string[], answer: (question: string) => string | null | Promise<string | null>, signal?: AbortSignal) {
   const out: string[] = []; const err: string[] = []; const asked: string[] = [];
   const io: CtlIo = {
     out: (s) => out.push(s), err: (s) => err.push(s), env: {}, cwd: "/", connect, serve: async () => {},
@@ -87,6 +87,24 @@ describe("realm pair", () => {
     const phones = await runCtl(["phones", "--home", h.home, "--json"], { out: (s) => run.out.push(s), err: () => {}, env: {}, cwd: "/", connect, serve: async () => {} });
     expect(phones).toBe(0);
     expect(JSON.parse(run.out.at(-1)!)).toEqual([]);
+  });
+
+  it("reports what Realm's own window answered, when it answered first", async () => {
+    for (const windowSays of [true, false]) {
+      const h = await headless();
+      // Settings ▸ Devices hears the same request, and its owner clicks before the terminal's does.
+      const off = h.app.rpc.onBroadcast((event, payload) => {
+        if (event === "remote.pairRequest") void h.app.rpc.call("remote.pair.answer", { requestId: (payload as { requestId: string }).requestId, accept: windowSays });
+      });
+      const run = pairing(["pair", "--home", h.home, "--json"], () => new Promise((r) => setTimeout(() => r("y"), 300)));
+      const result = await new TestPhone().pair(await run.link, { name: "Carlton's iPhone" });
+      off();
+      expect(result.ok).toBe(windowSays);
+      expect(await run.done).toBe(windowSays ? 0 : 1);
+      const doc = JSON.parse(run.out.at(-1)!);
+      if (windowSays) expect(doc).toMatchObject({ paired: true, name: "Carlton's iPhone" });
+      else expect(doc.error).toMatchObject({ code: "DECLINED", message: expect.stringMatching(/answered in Realm's window/) });
+    }
   });
 
   it("with nobody at the terminal to answer, pairs nothing", async () => {
