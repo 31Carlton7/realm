@@ -32,6 +32,14 @@ function alertWords(row: PlanLimits, now: number): string | null {
   return alert === "exceeded" ? `${limit} reached` : `${limit} nearly reached`;
 }
 
+/** Which window carries the warning's tone, as the page's PlanCard picks it: the one the provider named,
+ *  or every window where it named none; and how far the warning goes. Both null with no warning. */
+function alertTone(row: PlanLimits, now: number): { alertLevel: "approaching" | "exceeded" | null; alertWindow: string | null } {
+  const alert = currentAlert(row, now);
+  if (alert === "none") return { alertLevel: null, alertWindow: null };
+  return { alertLevel: alert, alertWindow: row.windows.some((w) => w.id === row.alertWindow) ? row.alertWindow : null };
+}
+
 /** Why there is nothing to draw, in the page's sentence: the provider's own reason, or a kind that
  *  reports and has not been heard from yet. Null while there are windows. */
 function unavailableWords(row: PlanLimits, kind: AgentKind): string | null {
@@ -48,7 +56,7 @@ function planLimits(row: PlanLimits, now: number): Limits {
       id: w.id, label: w.label, resetsAt: w.resetsAt,
       usedPercent: w.utilization === null || windowHasReset(w, now) ? null : Math.max(0, Math.min(100, w.utilization)),
     })),
-    alert: alertWords(row, now), unavailable: unavailableWords(row, kind), at: row.ts,
+    alert: alertWords(row, now), ...alertTone(row, now), unavailable: unavailableWords(row, kind), at: row.ts,
   };
 }
 

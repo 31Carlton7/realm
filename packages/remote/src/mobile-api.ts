@@ -239,6 +239,10 @@ export const PlanLimitsSchema = z.object({
   windows: z.array(PlanWindowSchema),
   /** The provider's warning, in the desktop's words, or null. */
   alert: z.string().nullable(),
+  /** How far the warning goes, and the window it is about where the provider named one: the window the
+   *  page draws in the warning's tone. Absent from a Mac older than them. */
+  alertLevel: z.enum(["approaching", "exceeded"]).nullable().optional(),
+  alertWindow: z.string().nullable().optional(),
   /** Why there are no windows to show ("not signed in", "not reported by this agent"), or null. */
   unavailable: z.string().nullable(),
   /** When this was last heard from the provider. */

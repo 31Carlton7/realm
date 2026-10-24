@@ -1062,6 +1062,9 @@ describe("usage.get", () => {
     expect(usage.limits.map((l) => l.agent)).toEqual(["claude", "codex", "acp:cursor", "acp:gemini"]);
     const claude = usage.limits[0]!;
     expect(claude).toMatchObject({ agentName: "Claude", agentMark: "claude", plan: "max", at: 123, alert: "5-hour limit reached", unavailable: null });
+    // The window the warning is about, for the phone to draw in its tone as the page does.
+    expect(claude).toMatchObject({ alertLevel: "exceeded", alertWindow: "five_hour" });
+    expect(usage.limits[1]).toMatchObject({ alertLevel: null, alertWindow: null });
     // THE MUTANT: drop the reset check, and a window that has started again shows the 90% it no longer has.
     expect(claude.windows.map((w) => [w.id, w.usedPercent])).toEqual([["five_hour", 100], ["seven_day_opus", null], ["seven_day", 40], ["model:Fable", null]]);
     // An agent with nothing to draw says why, in the page's sentence — one that reports and has not
@@ -1083,6 +1086,14 @@ describe("usage.get", () => {
     expect(await alertOf(null, later)).toBe("Limit nearly reached");
     expect(await alertOf("seven_day", later)).toBe("Weekly limit nearly reached");
     expect(await alertOf("seven_day", Date.now() - 1_000)).toBeNull();
+    // Named or not, the level travels with the words; a window the provider did not name is every window.
+    const toneOf = async (alertWindow: string | null, resetsAt: number) => {
+      const limits = MobileCalls["usage.get"].result.parse(((await attempt(api(), at(alertWindow, resetsAt).rpc, "usage.get", {})) as { result: unknown }).result).limits[0]!;
+      return [limits.alertLevel, limits.alertWindow];
+    };
+    expect(await toneOf(null, later)).toEqual(["approaching", null]);
+    expect(await toneOf("seven_day", later)).toEqual(["approaching", "seven_day"]);
+    expect(await toneOf("seven_day", Date.now() - 1_000)).toEqual([null, null]);
   });
 
   it("counts this calendar month on the Mac's clock, against its budget, with its five heaviest sessions by their rows' names", async () => {

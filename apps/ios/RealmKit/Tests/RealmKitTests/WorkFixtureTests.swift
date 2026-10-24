@@ -52,6 +52,9 @@ struct WorkFixtureTests {
         #expect(claude.windows.map(\.usedPercent) == [91, nil, 34, nil])
         #expect(claude.windows[1].resetsAt.map { $0 < claude.at } == true, "a window that reset since its reading has no figure")
         #expect(claude.alert == "Weekly limit nearly reached")
+        // The warned window, for the page to draw in the warning's tone, and only that one.
+        #expect(claude.alertLevel == "approaching" && claude.alertWindow == "seven_day")
+        #expect(claude.windows.map(claude.warns) == [true, false, false, false])
         #expect(claude.unavailable == nil)
         let silent = usage.limits.dropFirst()
         #expect(silent.allSatisfy { $0.windows.isEmpty && $0.unavailable != nil && $0.alert == nil })
