@@ -134,19 +134,21 @@ export function genResolution(aspect: string): string | null {
 }
 
 /**
- * The shimmering canvas an image or a video occupies while it is being made
- * (aicss.dev/components/image-generation).
+ * The canvas an image or a video occupies while it is being made.
  *
- * It is a PLACEHOLDER at the size of the thing coming, not a spinner: a spinner says "something is
- * happening", a canvas of the right shape says "your picture is being drawn, and it will land
- * here". That is the entire difference the component exists for, and it is why the aspect ratio and
- * the label are props rather than constants.
+ * It is a PLACEHOLDER at the size of the thing coming: a box of the right shape says "your picture
+ * will land here", so the transcript does not jump when it does, and that is why the aspect ratio
+ * and the label are props rather than constants. Inside it is only the kind's glyph and one slow
+ * ring turning round it — a quiet well, not a picture pretending to resolve. Under Reduce motion
+ * the ring goes and the glyph stays, because a ring frozen mid-turn reads as a hang.
  *
  * Shown by the tool call's REAL state — it is on screen exactly as long as the call has no result —
- * never by a timer. A generation that fails leaves a failed tool card, not a canvas shimmering
+ * never by a timer. A generation that fails leaves a failed tool card, not a canvas turning
  * forever.
  */
-export function GeneratingCanvas({ label, detail, aspect = "1 / 1" }: {
+export function GeneratingCanvas({ kind = "image", label, detail, aspect = "1 / 1" }: {
+  /** Which glyph the canvas wears: what is coming, drawn as the transcript draws it elsewhere. */
+  kind?: "image" | "video";
   label: string;
   /** The prompt, or the command's own description — what is being made, in the agent's words. */
   detail?: string | null;
@@ -157,16 +159,12 @@ export function GeneratingCanvas({ label, detail, aspect = "1 / 1" }: {
     <div className="gen-wrap">
       {/* `aspectRatio` stays alongside the width so that a column too narrow for it clamps the width
           and lets the HEIGHT follow, rather than squashing the shape. */}
-      <div className="gen-canvas" style={{ aspectRatio: aspect, width: genWidthPx(aspect) }} role="img" aria-label={label}>
-        {/* Both decorative: the label below is what a screen reader is given, and a shimmer read
-            aloud is noise. */}
-        <span className="gen-dots" aria-hidden="true" />
-        <span className="gen-glow" aria-hidden="true" />
-        {/* No kind glyph. It said the same thing as the label one line below it, and a mark parked
-            in the middle of the canvas is the one place the reveal cannot go — the wander is what
-            this placeholder now says, so it gets the canvas. `MediaWork.kind` is not passed in at
-            all any more: it decides the label and the fallback aspect upstream, which is where the
-            image/video distinction actually does work. */}
+      <div className="gen-canvas" data-kind={kind} style={{ aspectRatio: aspect, width: genWidthPx(aspect) }} role="img" aria-label={label}>
+        {/* Decorative: the caption below is what a screen reader is given. */}
+        <span className="gen-mark" aria-hidden="true">
+          <span className="gen-spin" />
+          <Icon name={kind} size={20} className="gen-glyph" />
+        </span>
         {resolution && <span className="gen-res">{resolution}</span>}
       </div>
       <div className="gen-meta">
