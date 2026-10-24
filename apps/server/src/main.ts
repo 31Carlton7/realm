@@ -16,6 +16,7 @@ import { realLayaRuntime } from "./laya/runtime";
 import { DAEMON_PROTOCOL, DEFAULT_REMOTE_RELAY } from "@realm/contracts";
 import { realmHome } from "./paths";
 import { BOOT_ID, acquireLock, clearState, currentBundleId, newToken, readState, releaseLock, writeState } from "./daemon/state";
+import { listenFromEnv } from "./access/listen";
 
 const envPort = Number(process.env.REALM_PORT);
 const port = Number.isFinite(envPort) && envPort >= 0 ? envPort : 0;
@@ -36,9 +37,13 @@ try {
     // adopts the daemon already running instead of showing the user an error about a lock file.
     const running = readState(home);
     process.stdout.write(JSON.stringify({ type: "error", code: "ALREADY_RUNNING", message: `realm-server is already running on this home (pid ${lock.pid})`, pid: lock.pid, port: running?.port ?? null }) + "\n");
-    process.exit(3);
+    // Under a service manager (`realm service install` sets REALM_SERVICE), a home that is already
+    // served is the job done, not a failure: launchd and systemd restart a job that exits non-zero, and
+    // would start this one again every few seconds for as long as the Realm app's own server runs.
+    process.exit(process.env.REALM_SERVICE === "1" ? 0 : 3);
   }
   lockedHome = home;
+  const remoteListen = listenFromEnv(process.env);
   // The live-video helper for a real iPhone's picture, as the app handed it over. Absent — a build
   // without swiftc, a launch that is not the app's — the picture is the runner's screenshots.
   const phoneScreen = process.env.REALM_PHONESCREEN_BIN && existsSync(process.env.REALM_PHONESCREEN_BIN) ? process.env.REALM_PHONESCREEN_BIN : null;
@@ -85,6 +90,9 @@ try {
     // not name. A development build (`pnpm dev`, whose window is the Vite server) also takes the phone's
     // `debug.report`, which is how a test build brings its own timings back; a packaged one never does.
     remote: { defaultRelay: DEFAULT_REMOTE_RELAY, dev: Boolean(process.env.ELECTRON_RENDERER_URL) },
+    // `realm serve --listen` (ctl/commands.ts) hands its listener over in the environment, as it does
+    // the home and the port. A server the app starts never has one: it listens on loopback only.
+    ...(remoteListen ? { access: { listen: remoteListen } } : {}),
   });
 
   // The state file is written only now, because `createApp` is what binds the port — a file

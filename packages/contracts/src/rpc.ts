@@ -1475,7 +1475,10 @@ export const Methods = {
     /** When the last window went away, or null while one is attached. The notifications page reads it
      *  to draw a "While you were away" line: with a daemon running headless, "what happened since I
      *  stopped looking" is a question the app can now actually answer. */
-    detachedSince: z.number().nullable() }) },
+    detachedSince: z.number().nullable(),
+    /** Where clients on other machines reach this server (`realm serve --listen`); null when it listens
+     *  on loopback only. Optional: a server from before the listener existed does not say. */
+    remoteUrl: z.string().nullable().optional() }) },
 
   /**
    * What the daemon is doing, for the app that is attached to it.

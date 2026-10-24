@@ -115,6 +115,8 @@ import { ShipsStore } from "./store/ships";
 import { NotificationsService } from "./notifications/service";
 import { NotificationRelay, realTransport } from "./notifications/relay";
 import { RemoteService } from "./remote/service";
+import { readTls, startAccess, type Access, type AccessOptions } from "./access/service";
+import { checkListen } from "./access/listen";
 import { Presence } from "./remote/presence";
 import { PhonePushes } from "./remote/push";
 import { HeadlessKeepAwake, type HoldAwake } from "./remote/keep-awake";
@@ -186,7 +188,7 @@ import { ToolClassesStore } from "./team/policies/tool-classes";
 /** `gateway` is exposed for tests and live checks that must speak MCP AS a given session (the
  *  per-session toolset shapes are wired in this file's closures — only a real list/call through the
  *  gateway proves them). Production callers use it via sessions, never directly. */
-export type App = { port: number; db: Db; rpc: RpcServer; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; teammates: Teammates; reviews: ReviewService; asks: AskService; runs: RunService; schedules: ScheduleService; team: TeamService; lab: LabService; acts: ActService; codeReview: CodeReviewService; gateway: McpGateway; close(): Promise<void> };
+export type App = { port: number; access: { port: number; url: string } | null; db: Db; rpc: RpcServer; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; teammates: Teammates; reviews: ReviewService; asks: AskService; runs: RunService; schedules: ScheduleService; team: TeamService; lab: LabService; acts: ActService; codeReview: CodeReviewService; gateway: McpGateway; close(): Promise<void> };
 export const SERVER_VERSION = "0.0.1";
 
 /** The Vite dev server's origin, when Electron told us about it by inheriting it into our env. */
@@ -786,7 +788,16 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /** Laya installs itself once there is a moment for it (`LayaService`'s auto-install). Only `main.ts`
    *  turns this on, and not in a harness: an app a test or a live check builds never downloads. */
   layaAutoInstall?: boolean;
+  /** A second listener, for clients on other machines (`realm serve --listen`). Absent, the server
+   *  listens on loopback only, as it always has. */
+  access?: AccessOptions;
 }): Promise<App> {
+  // A listener the rules refuse, or a certificate that cannot be read, stops the boot before anything
+  // is opened: there is no half-started server to tidy up, and the person reads the reason first.
+  if (opts.access) {
+    checkListen(opts.access.listen);
+    if (opts.access.listen.tls) readTls(opts.access.listen.tls);
+  }
   const db = openDatabase(dbPath(opts.home));
   const profiles = new ProfilesStore(db);
   // First boot: without a profile the New Space sheet is a dead end (spaces require one), so seed a
@@ -1714,12 +1725,15 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     log: (line) => console.error(line) });
   // One searcher for ⌘P and the `@` list's Files, so the two read a checkout the same way.
   const projectSearch = new ProjectSearchService();
+  /** The remote listener, once it is up (below, after the loopback socket). */
+  let access: Access | null = null;
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
     profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, handoffs, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns, teammates,
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, agentSignIn,
     libraryFiles, remote, presence,
+    access: () => (access ? { url: access.url } : null),
     appViews: new AppViewService({ views: appViews, hub: mcpHub, mcp, servers: mcpServersStore, sessions: sessionsStore, server: appViewServer, gateway: mcpGateway, log: (line) => console.log(line) }),
     codeReview,
     /* A drain was accepted: watch for quiescence and close once it holds. The watcher owns the clock
@@ -1861,12 +1875,23 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     for (const off of offKeepAwake) off();
     keepAwake.close();
     remote.close();
+    await access?.close();
     await rpc.close();
     db.close();
   };
 
+  if (opts.access) {
+    try {
+      access = await startAccess({ rpc, home: opts.home, log: (line) => console.error(line), ...opts.access });
+    } catch (e) {
+      // The port was taken, most likely. Nothing may be left running for a boot that failed.
+      await closeApp();
+      throw e;
+    }
+  }
+
   return {
-    port, db, rpc, terminals, sessions, browserAgents, agentRuns, teammates, reviews, asks, runs, schedules, team, lab, acts: acts!, codeReview, gateway: mcpGateway,
+    port, access: access ? { port: access.port, url: access.url } : null, db, rpc, terminals, sessions, browserAgents, agentRuns, teammates, reviews, asks, runs, schedules, team, lab, acts: acts!, codeReview, gateway: mcpGateway,
     close: closeApp,
   };
 }
