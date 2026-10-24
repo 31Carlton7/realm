@@ -1,6 +1,7 @@
-// Assembles apps/desktop/.pack-stage/ — everything electron-builder ships as extraResources — plus
-// build/icon.icns. Run by `pnpm dist` / `pnpm dist:dir` (see electron-builder.yml). Assumes the root
-// `pnpm build` already ran (server dist exists); fails loudly when it hasn't.
+// Assembles apps/desktop/.pack-stage/ — what electron-builder ships as extraResources, beside the
+// command line's bin/, which it takes from apps/server/bin itself — plus build/icon.icns. Run by
+// `pnpm dist` / `pnpm dist:dir` (see electron-builder.yml). Assumes the root `pnpm build` already ran
+// (server dist exists); fails loudly when it hasn't.
 import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";

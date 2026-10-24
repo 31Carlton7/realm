@@ -18,6 +18,11 @@ extraResources:
   # spawnable server entry): server/ (dist + prod node_modules), skills/, scrollphase (when built).
   - from: .pack-stage
     to: .
+  # `realm`, the command line (apps/server/bin): <resources>/bin/realm, and realm.cmd for Windows. It
+  # runs server/dist/realm.js on the app's own binary as Node, so an extracted AppImage serves with
+  # `squashfs-root/resources/bin/realm serve`, with no Node installed and no display.
+  - from: ../server/bin
+    to: bin
 mac:
   target:
     - dmg
