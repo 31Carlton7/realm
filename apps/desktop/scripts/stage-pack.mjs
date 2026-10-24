@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { pruneMusl } from "./lib/prune-musl.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 // The OS this package is for — electron-builder packs for the machine it runs on (CI builds each OS on
@@ -50,6 +51,8 @@ if (existsSync(pnpmDir)) {
     }
   }
 }
+// A Linux package runs only where glibc is; the musl builds pnpm installed beside it never load.
+if (process.platform === "linux" && existsSync(pnpmDir)) console.log("[stage-pack] dropped musl builds:", pruneMusl(pnpmDir).join(", ") || "none");
 
 // 2. Bundled skills — bundledSkillsDir()'s packaged branch reads <resources>/skills.
 cpSync(join(root, "skills"), join(stage, "skills"), { recursive: true });
