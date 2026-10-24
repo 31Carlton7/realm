@@ -9903,7 +9903,7 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
    stops preserving the ratio, which turned a 9:16 canvas square. The width is computed from the
    ratio in `genWidthPx`; `max-width` alone lets a narrow column shrink it with the shape intact. */
 .gen-canvas {
-  --gen-ring: 44px; --gen-ring-w: 1.5px; --gen-turn: 1.8s;
+  --gen-ring: 44px; --gen-ring-w: 1.5px; --gen-turn: 1.8s; --gen-arc: var(--ink);
   position: relative; max-width: 100%; overflow: hidden;
   display: grid; place-items: center;
   border-radius: var(--r-row); background: var(--rl-frame); box-shadow: var(--shadow-hairline);
@@ -9916,11 +9916,15 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
    because an eased turn surges once a revolution, and a surge is what reads as a busy spinner. */
 .gen-spin {
   grid-area: 1 / 1; width: 100%; height: 100%; border-radius: 50%;
-  background: conic-gradient(transparent 0deg 250deg, var(--ink-2) 360deg), var(--mark);
+  background: conic-gradient(transparent 0deg 250deg, var(--gen-arc) 360deg), var(--mark);
   mask-image: radial-gradient(farthest-side, transparent calc(100% - var(--gen-ring-w) - 0.5px), #000 calc(100% - var(--gen-ring-w)));
   animation: gen-turn var(--gen-turn) linear infinite;
 }
 @keyframes gen-turn { to { rotate: 1turn; } }
+/* The arc's head is a rung brighter on the dark face: light ink on a near-black well loses more of
+   its fading tail than dark ink on near-white, and at the light face's rung the dark ring read as
+   standing still (the coordinator, 10-23). The track stays on `--mark` in both. */
+:root[data-mode="light"] .gen-canvas { --gen-arc: var(--ink-2); }
 /* Simply drawn: a ring frozen mid-turn reads as a hang (A-L5), so it goes and the glyph stays — the
    still form that carries the same state. The global `* { animation: none }` alone would leave it. */
 @media (prefers-reduced-motion: reduce) { .gen-spin { display: none; } }

@@ -3672,6 +3672,10 @@ describe("§6 do-NOT-animate list", () => {
     expect(spin).toMatch(/animation: gen-turn var\(--gen-turn\) linear infinite/);
     expect(css).toMatch(/@keyframes gen-turn \{\s*to \{ rotate: 1turn; \}\s*\}/);
     expect(bodiesFor(".gen-canvas").join(" ")).toMatch(/--gen-turn: 1\.8s/);
+    // The arc's head is one custom property, a rung brighter on the dark face so the turn is seen.
+    expect(spin).toContain("var(--gen-arc) 360deg");
+    expect(bodiesFor(".gen-canvas").join(" ")).toContain("--gen-arc: var(--ink)");
+    expect(bodiesFor(':root[data-mode="light"] .gen-canvas').join(" ")).toContain("--gen-arc: var(--ink-2)");
     // Nothing of the lattice is left to repaint.
     expect(css).not.toMatch(/\.gen-(dots|glow)\b|gen-morph/);
     // Under Reduce motion the ring goes rather than freezing mid-turn, and the glyph stays.
