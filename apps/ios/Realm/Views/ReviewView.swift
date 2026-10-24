@@ -209,6 +209,7 @@ struct ReviewsView: View {
                 }
                 .listRowBackground(Color.clear)
                 .listRowSeparatorTint(Palette.divider)
+                .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
                 // No head above the first row: a line there would rule off the bar.
                 .listRowSeparator(review.id == reviews?.first?.id ? .hidden : .automatic, edges: .top)
                 .accessibilityIdentifier("review-\(review.id)")
@@ -236,33 +237,45 @@ struct ReviewsView: View {
 /// and where it goes.
 private struct ReviewRow: View {
     let review: ReviewSummary
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(ReviewWords.about(review))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                TimelineView(.periodic(from: .now, by: 30)) { context in
-                    Text(Ago.text(review.updatedAt, now: context.date))
-                        .monospacedDigit()
-                        .fixedSize()
+        // Home's and Scheduled's row anatomy: the dot's column, lit while the review waits on a
+        // decision, then the lines, the first of them stacked at the accessibility sizes.
+        let ax = dynamicTypeSize.isAccessibilitySize
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Circle()
+                .fill(ReviewStage(review.state) == .waiting ? Palette.accent : .clear)
+                .frame(width: 9, height: 9)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                let line = ax ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 8))
+                line {
+                    Text(ReviewWords.about(review))
+                        .lineLimit(ax ? 3 : 1)
+                        .frame(maxWidth: ax ? nil : .infinity, alignment: .leading)
+                    TimelineView(.periodic(from: .now, by: 30)) { context in
+                        Text(Ago.text(review.updatedAt, now: context.date))
+                            .monospacedDigit()
+                            .fixedSize()
+                    }
                 }
-            }
-            .font(.footnote)
-            .foregroundStyle(Palette.ink2)
-            Text(review.title)
-                .font(.body)
-                .foregroundStyle(Palette.ink)
-                .lineLimit(2)
-            Text(ReviewWords.reach(review))
                 .font(.footnote)
                 .foregroundStyle(Palette.ink2)
-            if let words = ReviewStage(review.state).words {
-                Text(words)
-                    .font(.footnote.weight(.medium))
+                Text(review.title)
+                    .font(.body)
+                    .foregroundStyle(Palette.ink)
+                    .lineLimit(ax ? 6 : 2)
+                Text(ReviewWords.reach(review))
+                    .font(.footnote)
                     .foregroundStyle(Palette.ink2)
+                if let words = ReviewStage(review.state).words {
+                    Text(words)
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(Palette.ink2)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 6)
         .accessibilityElement(children: .ignore)
@@ -419,17 +432,19 @@ private struct ReviewItemView: View {
     let reviewId: String
 
     var body: some View {
+        // Its place first, then its title where it has one: every item's head the same shape, whether or
+        // not the role gave it a subject.
         VStack(alignment: .leading, spacing: 8) {
+            if !place.isEmpty {
+                Text(place)
+                    .font(.footnote)
+                    .foregroundStyle(Palette.ink2)
+            }
             if let title = item.title, !title.isEmpty {
                 Text(title)
                     .font(.headline)
                     .foregroundStyle(Palette.ink)
                     .accessibilityAddTraits(.isHeader)
-            }
-            if !place.isEmpty {
-                Text(place)
-                    .font(.footnote)
-                    .foregroundStyle(Palette.ink2)
             }
             VStack(alignment: .leading, spacing: 14) {
                 if !item.body.isEmpty {
