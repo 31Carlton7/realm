@@ -428,6 +428,7 @@ struct QueueEditSheet: View {
             Form {
                 Section {
                     TextField("Message", text: $text, axis: .vertical)
+                        .tint(Palette.accent)
                         .lineLimit(3...12)
                         .focused($focused)
                         .accessibilityLabel("Queued message")

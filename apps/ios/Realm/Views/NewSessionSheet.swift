@@ -133,6 +133,7 @@ struct NewSessionSheet: View {
                                 .layoutValue(key: ComposerPart.self, value: .strip)
                         }
                         TextField(agent.map { "Message \($0.name)" } ?? "Message", text: draft, axis: .vertical)
+                            .tint(Palette.accent)
                             .font(.body)
                             .foregroundStyle(Palette.ink)
                             .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2...6 : 4...12)

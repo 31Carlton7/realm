@@ -606,11 +606,13 @@ private struct QuestionSection: View {
                     .foregroundStyle(Palette.ink3)
                     .accessibilityHidden(true)
                 SecureField(placeholder, text: other)
+                    .tint(Palette.accent)
                     .textContentType(.password)
                     .focused($typing)
                     .accessibilityLabel(fieldLabel)
             } else {
                 TextField(placeholder, text: other, axis: .vertical)
+                    .tint(Palette.accent)
                     .lineLimit(1...5)
                     .focused($typing)
                     .accessibilityLabel(fieldLabel)

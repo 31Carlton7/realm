@@ -40,10 +40,12 @@ struct DiagnosticsView: View {
                     Task { await diagnostics.run(using: model, sendReport: false) }
                 }
                 .disabled(diagnostics.running || !model.isConnected)
+                .tint(Palette.accentInk)
                 Button("Send to Mac") {
                     Task { await diagnostics.send(using: model) }
                 }
                 .disabled(diagnostics.report == nil || diagnostics.running)
+                .tint(Palette.accentInk)
             } footer: {
                 if let status = diagnostics.status { Text(status) }
             }

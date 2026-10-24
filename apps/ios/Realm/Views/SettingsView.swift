@@ -84,6 +84,7 @@ struct SettingsView: View {
                     .listRowBackground(Fill.card)
                 }
                 Toggle("Needs you first", isOn: $needsYouFirst)
+                    .tint(Palette.accent)
                     .listRowBackground(Fill.card)
             } header: {
                 Text("Session list")
@@ -100,11 +101,13 @@ struct SettingsView: View {
                 switch model.notificationStatus {
                 case .notDetermined:
                     Button("Allow notifications") { model.registerForPushes() }
+                        .tint(Palette.accentInk)
                         .listRowBackground(Fill.card)
                 case .denied:
                     Button("Turn them on in Settings") {
                         if let url = URL(string: UIApplication.openNotificationSettingsURLString) { UIApplication.shared.open(url) }
                     }
+                    .tint(Palette.accentInk)
                     .listRowBackground(Fill.card)
                 default:
                     EmptyView()

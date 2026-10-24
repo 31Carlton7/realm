@@ -125,6 +125,7 @@ struct ComposerView: View {
                     .transition(.opacity)
             }
             TextField(placeholder(session), text: draft, axis: .vertical)
+                .tint(Palette.accent)
                 .font(.body)
                 .foregroundStyle(Palette.ink)
                 // Then it scrolls; at the accessibility sizes sooner, so the newest row stays in view.

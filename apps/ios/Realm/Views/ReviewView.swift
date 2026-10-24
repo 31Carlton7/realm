@@ -622,6 +622,7 @@ private struct DecisionNoteSheet: View {
             Form {
                 Section {
                     TextField(note.prompt, text: $text, axis: .vertical)
+                        .tint(Palette.accent)
                         .lineLimit(3...10)
                         .focused($focused)
                         .listRowBackground(Fill.card)
