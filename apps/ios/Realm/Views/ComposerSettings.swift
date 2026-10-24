@@ -131,9 +131,9 @@ struct SettingChips: View {
         }
         .scrollIndicators(.hidden)
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-        // The chips stop growing a few sizes before the text does, beside buttons that keep their size
-        // at every one, so the mode chip is not scrolled off the card at the largest.
-        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+        // The chips stop growing at the last size before the accessibility ones, beside buttons that
+        // keep their size at every one, so the mode chip is not scrolled off the card at the largest.
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 }
 
@@ -165,6 +165,10 @@ struct ChipLabel<Icon: View>: View {
         .frame(minHeight: ComposerLayout.button)
         .contentShape(Rectangle())
         .opacity(isEnabled ? 1 : 0.45)
+        // Capped below the accessibility sizes, a chip shows its words large under a long press.
+        .accessibilityShowsLargeContentViewer {
+            Text(text)
+        }
     }
 }
 

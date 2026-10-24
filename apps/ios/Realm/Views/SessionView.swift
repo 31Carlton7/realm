@@ -483,6 +483,8 @@ private struct FootChips: View {
         }
         .scrollIndicators(.hidden)
         .scrollClipDisabled()
+        // The chips stop growing at the last size before the accessibility ones, as the composer's do.
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 }
 
