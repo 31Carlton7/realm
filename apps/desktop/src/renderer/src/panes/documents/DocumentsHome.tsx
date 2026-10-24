@@ -9,6 +9,8 @@ import { Menu } from "../../components/Menu";
 import { useDissolve } from "../../components/ScrollFades";
 import { SEARCH_DEBOUNCE_MS, relTime } from "../../components/CommandPalette";
 import { CodeFilePrompt, NEW_KINDS, NewMenu } from "./NewMenu";
+import { canReveal, revealPath, showInLabel } from "./shown-file";
+import { capabilities } from "../../platform";
 import {
   checkoutFileOf, folderName, homeFilesOf, identityOf, libraryDetail, matchRun, paneTabOf, planNewFile, sessionDetail, tildePath, withoutShown, type HomeFile,
 } from "./home-model";
@@ -219,6 +221,13 @@ export function DocumentsHome({ spaceId, root, sessionId, searchAsk, onOpen, onN
         </label>
         <NewMenu variant="home" folder={root ? folderName(root) : null}
           onNewKind={onNewKind} onNewFile={onNewFile} onOpenExisting={onBrowse} taken={taken} />
+        {/* With no file open, the thing to show is the folder the pane writes into. */}
+        {root && canReveal() && (
+          <button type="button" className="icon-btn" aria-label={`Show ${folderName(root)} in ${capabilities().fileManager}`}
+            title={showInLabel()} onClick={() => revealPath(root)}>
+            <Icon name="folder" size={14} />
+          </button>
+        )}
       </div>
 
       <div className="docs-home-scroll" ref={scroller}>
