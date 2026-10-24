@@ -1,0 +1,215 @@
+# Temporary, for fix/windows-installer-server: does an INSTALLED Windows Realm start its server?
+#
+#   build:   the NSIS installer from the fix and from the commit it sits on (37109ec0, Realm 2.5.0), with
+#            the staged server's and win-unpacked's layout (links, files, bytes), and win-unpacked's
+#            `realm serve` run twice: as built, then with .pack-stage moved out of the way.
+#   install: each of those installers, and the published 2.3.0, 2.4.0 and 2.5.0 ones, installed silently
+#            on a runner that never built anything, then `realm serve` + `realm status` from the install,
+#            and the installed Realm.exe launched on a scratch home to see whether its server comes up.
+#
+# Nothing can reach a model: no agent CLI is installed, no credential exists on the runner, and every
+# server runs with REALM_ENABLE_FAKE_AGENT=1 on a home of its own under RUNNER_TEMP.
+name: Windows installer
+
+on:
+  push:
+    branches: [ci/windows-installer]
+  workflow_dispatch:
+
+concurrency:
+  group: windows-installer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: fix
+            ref: fix/windows-installer-server
+          - label: base
+            ref: 37109ec0c3c32fc101b41730f4212e5f5aa80185
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Hugeicons registry
+        shell: bash
+        env:
+          HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
+        run: |
+          test -n "$HUGEICONS_TOKEN" || { echo "::error::HUGEICONS_TOKEN is not set"; exit 1; }
+          printf '@hugeicons-pro:registry=https://npm.hugeicons.com/\n//npm.hugeicons.com/:_authToken=%s\n' "$HUGEICONS_TOKEN" >> ~/.npmrc
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build
+
+      - name: Package
+        run: pnpm --filter @realm/desktop dist:win
+
+      - name: Layout
+        shell: pwsh
+        run: |
+          function Report($label, $dir) {
+            $all = @(Get-ChildItem -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue)
+            $links = @($all | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint })
+            $files = @($all | Where-Object { -not $_.PSIsContainer -and -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) })
+            "{0}: {1} links, {2} files, {3:N1} MB" -f $label, $links.Count, $files.Count, (($files | Measure-Object Length -Sum).Sum / 1MB)
+            $links | Select-Object -First 3 | ForEach-Object { "  {0} -> {1}" -f $_.FullName.Substring($dir.Length), $_.LinkTarget }
+          }
+          & {
+            Report "staged server (.pack-stage\server)" "$PWD\apps\desktop\.pack-stage\server"
+            Report "win-unpacked\resources\server" "$PWD\apps\desktop\release\win-unpacked\resources\server"
+            Get-ChildItem apps\desktop\release\*.exe | ForEach-Object { "installer: {0}, {1:N0} bytes" -f $_.Name, $_.Length }
+          } | Tee-Object -FilePath "$env:RUNNER_TEMP\layout.txt"
+          Get-Content "$env:RUNNER_TEMP\layout.txt" | ForEach-Object { "    $_" } | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+
+      # win-unpacked on the machine that built it, then with the build tree's .pack-stage moved away: a
+      # junction in it that points back into .pack-stage only resolves while that is there.
+      - name: win-unpacked's realm serve, with and without .pack-stage
+        shell: bash
+        env:
+          REALM_ENABLE_FAKE_AGENT: "1"
+          REALM_PORT: "8795"
+        run: |
+          set -uo pipefail
+          cli=apps/desktop/release/win-unpacked/resources/bin/realm.cmd
+          try() {
+            export REALM_HOME="$RUNNER_TEMP/unpacked-home-$1"
+            "$cli" serve > "$RUNNER_TEMP/u.out" 2> "$RUNNER_TEMP/u.err" & s=$!
+            for _ in $(seq 300); do grep -q '"ready"' "$RUNNER_TEMP/u.out" && break; kill -0 $s 2> /dev/null || break; sleep 0.2; done
+            echo "== $1"; cat "$RUNNER_TEMP/u.out"; grep -v ExperimentalWarning "$RUNNER_TEMP/u.err" | grep -v trace-warnings | head -5
+            "$cli" status
+            taskkill //F //T //IM Realm.exe > /dev/null 2>&1; sleep 1
+          }
+          { try "as built"
+            mv apps/desktop/.pack-stage apps/desktop/.pack-stage.away
+            try ".pack-stage moved away"
+            mv apps/desktop/.pack-stage.away apps/desktop/.pack-stage
+          } 2>&1 | tee "$RUNNER_TEMP/unpacked.txt"
+          sed 's/^/    /' "$RUNNER_TEMP/unpacked.txt" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.label }}
+          if-no-files-found: error
+          compression-level: 0
+          path: apps/desktop/release/*.exe
+
+  install:
+    name: installed ${{ matrix.label }}
+    needs: build
+    if: ${{ !cancelled() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: fix
+          - label: base
+          - label: v2.5.0
+            asset: Realm-Setup-2.5.0.exe
+            sha256: 3b25272740d96d30f641cd00a29474ce745ca77e432f98edb32a5237a41d1705
+          - label: v2.4.0
+            asset: Realm-Setup-2.4.0.exe
+            sha256: 424c2f2b94a1809a2c014bcf6516165152f1003f2ae732a5bdb105396f59a397
+          - label: v2.3.0
+            asset: Realm-Setup-2.3.0.exe
+            sha256: 56f23d2d3f3fcbfb6d02cd640f7a9259d589007e5eb1cd21cf603b334dbde6c8
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        if: ${{ !matrix.asset }}
+        with:
+          name: installer-${{ matrix.label }}
+          path: ${{ runner.temp }}/installer
+
+      - name: Download the published installer
+        if: ${{ matrix.asset }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/installer" && cd "$RUNNER_TEMP/installer"
+          curl -fsSL -o "${{ matrix.asset }}" "https://github.com/31Carlton7/realm/releases/download/${{ matrix.label }}/${{ matrix.asset }}"
+          echo "${{ matrix.sha256 }}  ${{ matrix.asset }}" | sha256sum -c
+
+      - name: Install
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $exe = Get-ChildItem "$env:RUNNER_TEMP\installer\*.exe" | Select-Object -First 1
+          $took = Measure-Command { Start-Process -FilePath $exe.FullName -ArgumentList '/S', "/D=$env:RUNNER_TEMP\RealmApp" -Wait }
+          $server = "$env:RUNNER_TEMP\RealmApp\resources\server"
+          $all = @(Get-ChildItem -LiteralPath $server -Recurse -Force)
+          $links = @($all | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint })
+          $files = @($all | Where-Object { -not $_.PSIsContainer })
+          & {
+            "installer: {0}, {1:N0} bytes; installed in {2:N0} s" -f $exe.Name, $exe.Length, $took.TotalSeconds
+            "installed resources\server: {0} links, {1} files, {2:N1} MB" -f $links.Count, $files.Count, (($files | Measure-Object Length -Sum).Sum / 1MB)
+            "resources\server\node_modules holds: " + ((Get-ChildItem -Force "$server\node_modules" | Select-Object -ExpandProperty Name) -join ' ')
+          } | Tee-Object -FilePath "$env:RUNNER_TEMP\installed.txt"
+          Get-Content "$env:RUNNER_TEMP\installed.txt" | ForEach-Object { "    $_" } | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          "CLI=$env:RUNNER_TEMP\RealmApp\resources\bin\realm.cmd" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: realm serve, realm status
+        shell: bash
+        env:
+          REALM_ENABLE_FAKE_AGENT: "1"
+          REALM_PORT: "8796"
+        run: |
+          set -uo pipefail
+          export REALM_HOME="$RUNNER_TEMP/serve-home"
+          "$CLI" serve > "$RUNNER_TEMP/serve.out" 2> "$RUNNER_TEMP/serve.err" & s=$!
+          start=$SECONDS
+          for _ in $(seq 600); do grep -q '"ready"' "$RUNNER_TEMP/serve.out" && break; kill -0 $s 2> /dev/null || break; sleep 0.2; done
+          {
+            echo "serve: $((SECONDS - start)) s"
+            cat "$RUNNER_TEMP/serve.out"; grep -v ExperimentalWarning "$RUNNER_TEMP/serve.err" | grep -v trace-warnings | head -5
+            "$CLI" status
+            "$CLI" --json status
+          } 2>&1 | tee "$RUNNER_TEMP/serve.txt"
+          sed 's/^/    /' "$RUNNER_TEMP/serve.txt" >> "$GITHUB_STEP_SUMMARY"
+          taskkill //F //T //IM Realm.exe > /dev/null 2>&1
+          if [ "${{ matrix.label }}" = fix ]; then grep -q "Realm 2.5.0 is running on" "$RUNNER_TEMP/serve.txt"; fi
+
+      # The app itself, as a person starts it: on Windows it runs its server as a child on a pipe.
+      - name: Realm.exe starts its server
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $app = "$env:RUNNER_TEMP\RealmApp"
+          $env:REALM_HOME = "$env:RUNNER_TEMP\app-home"
+          $env:REALM_PORT = "8797"
+          $env:REALM_ENABLE_FAKE_AGENT = "1"
+          $p = Start-Process -FilePath "$app\Realm.exe" -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\app.out" -RedirectStandardError "$env:RUNNER_TEMP\app.err"
+          $start = Get-Date
+          while (((Get-Date) - $start).TotalSeconds -lt 90 -and -not (Test-Path "$env:REALM_HOME\daemon.json") -and -not $p.HasExited) { Start-Sleep -Milliseconds 250 }
+          $up = ((Get-Date) - $start).TotalSeconds
+          Start-Sleep -Seconds 3
+          $status = & "$app\resources\bin\realm.cmd" status 2>&1 | Out-String
+          & {
+            "daemon.json after {0:N1} s: {1}; app exited: {2}" -f $up, (Test-Path "$env:REALM_HOME\daemon.json"), $p.HasExited
+            "realm status: $($status.Trim())"
+            "Realm.exe processes:"
+            Get-CimInstance Win32_Process -Filter "Name = 'Realm.exe'" | Where-Object { $_.CommandLine -notmatch '--type=' } | ForEach-Object { "  pid {0} (parent {1}): {2}" -f $_.ProcessId, $_.ParentProcessId, $_.CommandLine }
+            "app stderr, the lines that are not Chromium's:"
+            Get-Content "$env:RUNNER_TEMP\app.err" -ErrorAction SilentlyContinue | Where-Object { $_ -notmatch '^\[\d+:\d+/' -and $_ -notmatch 'ExperimentalWarning|trace-warnings' } | Select-Object -First 15 | ForEach-Object { "  $_" }
+          } | Tee-Object -FilePath "$env:RUNNER_TEMP\app.txt"
+          Get-Content "$env:RUNNER_TEMP\app.txt" | ForEach-Object { "    $_" } | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          Get-Process Realm -ErrorAction SilentlyContinue | Stop-Process -Force
+          if ("${{ matrix.label }}" -eq "fix" -and $status -notmatch "Realm 2.5.0 is running on") { throw "the installed app did not start its server" }
