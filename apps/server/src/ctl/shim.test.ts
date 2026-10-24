@@ -79,6 +79,7 @@ describe.runIf(process.platform === "win32")("bin/realm.cmd", () => {
     // node.exe under the app's name: Electron run as Node, as far as the launcher can tell.
     copyFileSync(process.execPath, join(root, "Realm.exe"));
     const cmd = join(resources, "bin", "realm.cmd");
+    mkdirSync(dirname(cmd));
     copyFileSync(join(SERVER, "bin", "realm.cmd"), cmd);
     const out = JSON.parse(execFileSync("cmd.exe", ["/d", "/c", cmd, "status"], { encoding: "utf8", env: { ...process.env, PATH: "C:\\Windows\\System32" } }));
     expect(out).toMatchObject({ args: ["status"], asNode: "1" });
