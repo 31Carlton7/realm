@@ -117,6 +117,40 @@ describe("session.answer", () => {
   });
 });
 
+describe("session.seen", () => {
+  /** A finished turn as the Mac logs it: what was said, the answer, then events that draw no row. */
+  const turn = () => [
+    stored("read", sessionEvent("user_message", { text: "carry on", attachments: [] })),
+    stored("read", sessionEvent("assistant_text", { messageId: "m1", text: "done" })),
+    stored("read", sessionEvent("usage", { costUsd: 0.1 } as never)),
+    stored("read", sessionEvent("status", { status: "idle" })),
+  ];
+
+  const marks = async (log: StoredSessionEvent[], seen: (rows: number[]) => number, open = true) => {
+    const marked: number[] = [];
+    const rpc = fakeRpc({ sessions: [session("read", "s1", { lastEventSeq: log.at(-1)!.seq })], items: [item("read", "s1", "Read")] }, {
+      "sessions.events": eventsOf(log) as never, "sessions.markSeen": (p: never) => { marked.push((p as { seq: number }).seq); return { ok: true }; },
+    });
+    const ctx = channel(rpc);
+    const opened = open ? await api().handle(ctx, "session.open", { id: "read" }) as { rows: { seq: number }[] } : { rows: log.slice(0, 2) };
+    await api().handle(ctx, "session.seen", { id: "read", seq: seen(opened.rows.map((r) => r.seq)) });
+    return marked;
+  };
+
+  it("marks a session read through its last event once the phone has seen its newest row", async () => {
+    const log = turn();
+    // THE MUTANT: mark only as far as the phone said — the newest ROW — and the turn's usage and status
+    // stay unread, so the Mac keeps calling the session unread after it was read on the phone.
+    expect(await marks(log, (rows) => Math.max(...rows))).toEqual([log.at(-1)!.seq]);
+  });
+
+  it("marks only as far as the phone said when it has not reached the newest row, or does not have it open", async () => {
+    const log = turn();
+    expect(await marks(log, (rows) => Math.min(...rows))).toEqual([log[0]!.seq]);
+    expect(await marks(log, () => log[1]!.seq, false)).toEqual([log[1]!.seq]);
+  });
+});
+
 describe("a session row's agent, model and space, as the desktop names them", () => {
   it("names the agent and its model, and reads each space's icon", async () => {
     const h = HomeSchema.parse(await api().handle(channel(fakeRpc({

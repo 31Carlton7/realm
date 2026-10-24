@@ -231,7 +231,7 @@ export class MobileApi {
           return { ok: true };
         }
         case "session.stop": await rpc.call("sessions.interrupt", { id: p.id as string }); return { ok: true };
-        case "session.seen": await rpc.call("sessions.markSeen", { id: p.id as string, seq: p.seq as number }); return { ok: true };
+        case "session.seen": await rpc.call("sessions.markSeen", { id: p.id as string, seq: this.seenUpTo(ctx, p.id as string, p.seq as number) }); return { ok: true };
         case "session.create": return await this.create(rpc, p as MobileParams<"session.create">);
         case "session.changes": {
           const { checkpointId, files, totalFiles } = await this.turnChanges(rpc, p.id as string, p.checkpointId as string);
@@ -429,6 +429,17 @@ export class MobileApi {
   /** Subscribes first and buffers, then reads history, then replays what arrived meanwhile — so no event
    *  can fall between the history read and the live stream. The queue is read the same way: once, then
    *  replaced by any broadcast of it that came after. */
+  /** How far a `session.seen` marks the session read. The phone names the seq of the newest row it has
+   *  seen; the Mac counts unread against its last EVENT, and a turn ends on events that draw no row (its
+   *  end, its usage). So where the phone has the session open and has seen its newest row, it has read
+   *  everything this channel has applied, and the mark goes that far; else as far as the phone said. */
+  private seenUpTo(ctx: ChannelContext, id: string, seq: number): number {
+    const open = ctx.sessions.get(id);
+    if (!open || open.buffer !== null) return seq;
+    const newest = open.projector.all().reduce((max, row) => Math.max(max, row.seq), 0);
+    return newest > 0 && seq >= newest ? Math.max(seq, open.projector.seq) : seq;
+  }
+
   private async open(ctx: ChannelContext, id: string, limit: number): Promise<MobileResult<"session.open">> {
     // Opened again, it keeps the sub-agents the phone has read of it: their changes are still its list's.
     const entry: OpenSession = {
