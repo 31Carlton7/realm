@@ -115,7 +115,7 @@ What it refuses:
 - An address after ten refused handshakes in a minute: it is refused for a minute, valid token or not.
 
 A token is 256 random bits and is shown once. `realm token list` and `realm token revoke <id|name>`
-manage tokens on the server; a revoked token's open connections close within two seconds. Tokens can
+manage tokens on the server; a revoked token's open connections close within a few seconds. Tokens can
 only be made on the server itself, by someone who can read its home, so a stolen token cannot mint a
 successor. A token holder can do anything you can do in Realm on that machine, which includes running
 commands as you: treat it like an SSH key, and after a leak, revoke it and check `realm phones` as well.

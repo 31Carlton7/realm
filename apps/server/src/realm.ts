@@ -8,14 +8,12 @@ import { connect } from "./ctl/client";
 import { runCtl } from "./ctl/commands";
 
 const interrupted = new AbortController();
-/** A question on stderr, so stdout stays the command's answer; the reply from stdin. */
+/** A question on stderr, so stdout stays the command's answer; the reply from stdin. A hidden one (a
+ *  token) is read with the terminal in raw mode and no output stream, so nothing typed is echoed — and
+ *  the mode is set before the question is shown, so not even a paste that beats the prompt is. */
 const ask = (question: string, hidden = false): Promise<string | null> => new Promise((resolve) => {
-  process.stderr.write(question);
   const rl = createInterface({ input: process.stdin, terminal: Boolean(process.stdin.isTTY && hidden) });
-  if (hidden && process.stdin.isTTY) {
-    // A token pasted at a prompt is not echoed: readline writes what it reads through `output`.
-    (rl as unknown as { _writeToOutput: (s: string) => void })._writeToOutput = () => {};
-  }
+  process.stderr.write(question);
   let answered = false;
   rl.once("line", (line) => { answered = true; rl.close(); if (hidden) process.stderr.write("\n"); resolve(line); });
   rl.once("close", () => { if (!answered) resolve(null); });

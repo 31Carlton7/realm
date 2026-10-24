@@ -112,6 +112,16 @@ try {
   note("\n== the client saves the server and drives it ==");
   const added = realm(clientEnv, ["remote", "add", "server", `wss://127.0.0.1:${PORTS.serverRemote}`, "--ca", cert], `${token}\n`);
   ok("realm remote add dials before it saves, and reads the token from stdin", added.code === 0 && added.out.includes(serverHome));
+  // Pasted at a real terminal, the token is not echoed back onto the screen (or its scrollback).
+  const pasted = await new Promise<{ code: number; screen: string }>((resolve) => {
+    const t = pty.spawn(process.execPath, [REALM_JS, "remote", "add", "server-again", `wss://127.0.0.1:${PORTS.serverRemote}`, "--ca", cert], {
+      cols: 120, rows: 20, cwd: scratch, env: { PATH: process.env.PATH!, HOME: process.env.HOME!, XDG_CONFIG_HOME: clientConfig, REALM_HOME: clientHome } });
+    let screen = ""; let typed = false;
+    t.onData((d) => { screen += d; if (!typed && screen.includes("Access token")) { typed = true; t.write(`${token}\r`); } });
+    t.onExit(({ exitCode }) => resolve({ code: exitCode, screen }));
+  });
+  note(`$ realm remote add server-again … (token pasted at the prompt)\n${pasted.screen.trim()}\n[exit ${pasted.code}]`);
+  ok("a token pasted at the prompt is not echoed", pasted.code === 0 && !pasted.screen.includes(token.slice(4)));
   const remotes = join(clientConfig, "realm", "remotes.json");
   ok("the saved remote is 0600 and listing it shows no token", (statSync(remotes).mode & 0o777) === 0o600 && !realm(clientEnv, ["remote", "list", "--json"]).out.includes(token));
   ok("realm status with --server is the server's home; without it, the client's own", realm(clientEnv, ["--server", "server", "status"]).out.includes(serverHome) && realm(clientEnv, ["status"]).out.includes(clientHome));
