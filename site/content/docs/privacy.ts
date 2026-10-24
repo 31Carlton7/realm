@@ -48,6 +48,24 @@ export default page({
       "Signing in to Slack goes through a page on realm.computer, because Slack refuses a sign-in that returns straight to your computer. The page only redirects the sign-in back to Realm at your computer's loopback address, and stores nothing.",
     ),
 
+    h2("Realm for iPhone"),
+    p(
+      "Realm for iPhone has no account and no analytics. It talks to your Mac, through Realm's relay, and to Apple's push service, and to nothing else.",
+    ),
+    table(
+      ["What", "Where it goes"],
+      ["Its keys, and each Mac's pairing", "The iPhone's keychain, on that phone alone: they're left out of backups and iCloud Keychain"],
+      ["Home, the sessions you've opened, and messages not yet sent", "A cache on the phone, so they show at once"],
+      ["What it sends your Mac, files included", "Encrypted end to end, through the relay, which keeps none of it"],
+      ["The phone's name and model", "Your Mac, once, when you pair"],
+      ["Its push token", "The relay, which deletes it when your Mac removes the phone"],
+    ),
+    ul(
+      "**Forget <name>…**, in the phone's Settings, deletes its keys, the pairing and the cache. It forgets the Mac on that phone only: the Mac lists the phone until you remove it in **Settings ▸ Devices** there.",
+      "The relay sees ids derived from each device's keys, when they connect, and from which IP addresses. It runs on Cloudflare.",
+      "The camera is used only to scan the pairing code, and to take photos you choose to send.",
+    ),
+
     h2("Your credentials and your agents"),
     ul(
       "**Connections.** An agent calls a connected app through Realm's gateway, and Realm adds the sign-in. The agent never receives the token. The environment variables and headers you type into an MCP server's form are kept in `realm.db` without encryption, so prefer a server's OAuth sign-in where it has one.",
