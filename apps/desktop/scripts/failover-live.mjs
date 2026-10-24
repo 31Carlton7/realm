@@ -5,7 +5,7 @@
  * jsdom has an opinion about neither — every rect there is zero and `paint(rl-squircle)` never runs:
  *
  *   1. **The fenced code block.** It now wears the composer's curve, painted by the worklet rather
- *      than declared (`corner-shape` is inert in Electron 37's Chromium). A stylesheet read cannot
+ *      than declared (`corner-shape` was inert in Electron 37's Chromium 138, when this was written). A stylesheet read cannot
  *      tell whether the paint actually happened: the proof is that the block's own corner pixel is
  *      the ground behind it and not the block's fill. That is the exact mutant — declare the curve,
  *      forget the `:root[data-squircle]` rule, and the block renders a plain round rect beside a

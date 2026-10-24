@@ -1,9 +1,10 @@
 /* Paint worklet: the continuous superellipse corner Realm's floating cards are drawn with.
  *
- * `corner-shape: squircle` is the declarative form of this and lands in Chromium 139; Electron
- * 37.10.3 ships 138, where the property is not even recognised (`CSS.supports('corner-shape',
- * 'squircle')` is false), so the stylesheet keeps that declaration as the path forward and this
- * worklet is what actually draws the shape today.
+ * `corner-shape: squircle` is the declarative form of this. It landed in Chromium 139 and draws in the
+ * 156 Electron 45 ships: with this worklet's gate off, squircle-live.mjs measures the prompter's
+ * corner filling 0.933 of its square against the worklet's 0.932. The worklet still draws the
+ * signature surfaces — it was written when Electron 37 (Chromium 138) did not recognise the property,
+ * and measures the same on 138 and 156 — so the declaration is the fallback a failed load lands on.
  *
  * It paints the FILL and the RING, because both have to trace the same curve. A `box-shadow` ring is
  * always drawn on the `border-radius` rounded rect, so leaving the edge to box-shadow puts a hairline
