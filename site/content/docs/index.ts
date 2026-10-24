@@ -1,4 +1,4 @@
-import type { DocGroup } from "@/lib/docs-blocks"
+import type { DocGroup, DocPage } from "@/lib/docs-blocks"
 
 import browser from "./browser"
 import codeReview from "./code-review"
@@ -9,6 +9,7 @@ import gettingStarted from "./getting-started"
 import mobile from "./mobile"
 import permissions from "./permissions"
 import privacy from "./privacy"
+import runOnAServer from "./run-on-a-server"
 import scheduled from "./scheduled-tasks"
 import sessions from "./sessions"
 import settings from "./settings-and-shortcuts"
@@ -36,3 +37,10 @@ export const groups: DocGroup[] = [
   { title: "Extend Realm", pages: [connections, mobile] },
   { title: "Reference", pages: [settings, privacy, troubleshooting] },
 ]
+
+/**
+ * Pages that are built and reachable at their own address but belong to no group, so the nav, the docs
+ * home and prev/next leave them out, and search engines are asked not to index them. A page waits
+ * here until it is ready to be read, then moves into a group above.
+ */
+export const unlisted: DocPage[] = [runOnAServer]

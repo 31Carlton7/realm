@@ -1,4 +1,4 @@
-import { docs } from "@/lib/docs"
+import { allDocs } from "@/lib/docs"
 import { DOCS_ALT, docsCard } from "@/lib/og/card"
 import { CARD } from "@/lib/og/layout"
 
@@ -9,7 +9,7 @@ export const size = CARD
 export const contentType = "image/png"
 
 export function generateStaticParams() {
-  return docs.map((doc) => ({ slug: doc.slug }))
+  return allDocs.map((doc) => ({ slug: doc.slug }))
 }
 
 export default async function Image({ params }: { params: Promise<{ slug: string }> }) {

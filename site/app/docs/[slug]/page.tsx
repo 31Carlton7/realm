@@ -5,12 +5,12 @@ import { Rail } from "@/components/changelog/Rail"
 import { DocsProse } from "@/components/docs/DocsProse"
 import { inline } from "@/components/docs/inline"
 import { PrevNext } from "@/components/docs/PrevNext"
-import { docBySlug, docs, groupOf, headings, neighbours } from "@/lib/docs"
+import { allDocs, docBySlug, groupOf, headings, isUnlisted, neighbours } from "@/lib/docs"
 
 type Params = { params: Promise<{ slug: string }> }
 
 export function generateStaticParams() {
-  return docs.map((doc) => ({ slug: doc.slug }))
+  return allDocs.map((doc) => ({ slug: doc.slug }))
 }
 
 export const dynamicParams = false
@@ -25,6 +25,8 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
     alternates: { canonical: `/docs/${doc.slug}` },
     openGraph: { type: "article", title: `${doc.title} · Realm docs`, description: doc.summary, url: `/docs/${doc.slug}` },
     twitter: { card: "summary_large_image", title: `${doc.title} · Realm docs`, description: doc.summary },
+    // A page not yet in the nav is not ready to be found either.
+    ...(isUnlisted(doc.slug) ? { robots: { index: false, follow: false } } : {}),
   }
 }
 

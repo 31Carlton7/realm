@@ -1,4 +1,4 @@
-import { groups } from "@/content/docs"
+import { groups, unlisted } from "@/content/docs"
 import type { Block, DocGroup, DocPage } from "@/lib/docs-blocks"
 import crops from "@/public/docs/crops.json"
 import captured from "@/public/product/manifest.json"
@@ -19,10 +19,16 @@ import parts from "@/public/product/parts.json"
 /** Every page in reading order, which is the nav's order: prev and next follow it. */
 export const docs: DocPage[] = groups.flatMap((group) => group.pages)
 
+/** Every page that is built: the listed ones, then the unlisted (content/docs/index.ts). The routes
+ *  prerender these and a slug resolves against them; the nav, the docs home and prev/next read `docs`. */
+export const allDocs: DocPage[] = [...docs, ...unlisted]
+
+export const isUnlisted = (slug: string): boolean => unlisted.some((doc) => doc.slug === slug)
+
 export { groups }
 export type { Block, DocGroup, DocPage, Shot } from "@/lib/docs-blocks"
 
-export const docBySlug = (slug: string): DocPage | undefined => docs.find((doc) => doc.slug === slug)
+export const docBySlug = (slug: string): DocPage | undefined => allDocs.find((doc) => doc.slug === slug)
 
 export const groupOf = (slug: string): DocGroup | undefined => groups.find((group) => group.pages.some((doc) => doc.slug === slug))
 
@@ -97,12 +103,12 @@ const texts = (block: Block): string[] => {
 function check() {
   const slugs = new Set<string>()
   const ids = new Map<string, Set<string>>()
-  for (const doc of docs) {
+  for (const doc of allDocs) {
     if (slugs.has(doc.slug)) throw new Error(`docs: the slug "${doc.slug}" is used twice`)
     slugs.add(doc.slug)
     ids.set(doc.slug, new Set(headings(doc.body).map((h) => h.id)))
   }
-  for (const doc of docs) {
+  for (const doc of allDocs) {
     for (const block of doc.body) {
       if (block.kind === "figure") {
         const shot = block.shot
