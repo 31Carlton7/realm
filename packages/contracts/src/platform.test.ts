@@ -9,12 +9,14 @@ describe("platformCapabilities", () => {
       expect(mac[k], k).toBe(true);
     }
     expect(mac.fileManager).toBe("Finder");
+    expect(mac.machine).toBe("Mac");
   });
 
   it.each([["win32", "windows", "File Explorer"], ["linux", "linux", "Files"], ["freebsd", "linux", "Files"]] as const)("gives %s none of them", (platform, os, fileManager) => {
     const caps = platformCapabilities(platform);
     expect(caps.os).toBe(os);
     expect(caps.fileManager).toBe(fileManager);
+    expect(caps.machine).toBe("computer");
     const flags = Object.entries(caps).filter(([, v]) => typeof v === "boolean");
     expect(flags.length).toBeGreaterThan(0);
     for (const [k, v] of flags) expect(v, k).toBe(false);
