@@ -114,6 +114,7 @@ jobs:
             echo "Memory:    $(free -m | awk '/^Mem:/ {print $2}') MB"
             echo "Tools:     $(python3 --version), $(git --version), tmux $(tmux -V | cut -d' ' -f2), Xvfb $(dpkg-query -W -f='${Version}' xvfb)"
             echo "Agent CLI: none on PATH (checked: claude codex gemini cursor-agent opencode copilot goose qwen grok amp aider)"
+            echo "FUSE:      $(dpkg-query -W -f='${Package} ${Version}; ' 'libfuse2*' fuse3 2>/dev/null)/dev/fuse $([ -e /dev/fuse ] && echo present || echo absent)"
           } | tee "$OUT/environment.txt"
 
       - name: Xvfb
@@ -123,8 +124,9 @@ jobs:
           echo "::error::Xvfb did not come up"; exit 1
 
       # One launch of each first, kept but not counted: the first GUI app on a fresh runner pays for
-      # caches that belong to neither (fontconfig, Mesa's shaders). Then three each, the order turned
-      # round every time, so neither app always goes first.
+      # caches that belong to neither (on run 40071171133 Realm's, first, took 11.0 s and every later
+      # launch 3.55). Orca's goes first here. Then three each, the order turned round every time, so
+      # neither app always goes first.
       - name: GUI launch probes (Realm, Orca, alternating, 3 each)
         working-directory: ${{ runner.temp }}/bench
         run: |
@@ -135,13 +137,14 @@ jobs:
             python3 harness/gui_probe.py "$1" "$img"
             mv "runs/E-gui-$1" "runs/E-gui-$1-$2"
           }
-          probe realm warmup; probe orca warmup
+          probe orca warmup; probe realm warmup
           probe realm run1; probe orca run1
           probe orca run2; probe realm run2
           probe realm run3; probe orca run3
 
       # Not a bench number: each app started from its already-extracted AppDir, so the launch has no
-      # unpacking in it, and what its process tree holds 12 s later, process by process.
+      # unpacking in it, and what its process tree holds 12 s later, process by process; then each
+      # AppImage run the way a double-click runs it, mounted with FUSE, where the runner has FUSE.
       - name: Launch from the extracted AppDir (diagnostic)
         working-directory: ${{ runner.temp }}/bench
         run: |
@@ -167,6 +170,30 @@ jobs:
           for tool in realm orca realm orca; do
             python3 "$RUNNER_TEMP/launch.py" "$tool" "$BENCH/tools/$tool-x/squashfs-root/AppRun"
           done 2>&1 | tee "$OUT/launch-extracted.txt"
+          if [ -e /dev/fuse ] && command -v fusermount3 > /dev/null; then
+            for tool in realm orca realm orca; do
+              img=$REALM_APPIMAGE; [ "$tool" = orca ] && img=$ORCA_APPIMAGE
+              python3 "$RUNNER_TEMP/launch.py" "$tool-mounted" "$img"
+            done 2>&1 | tee "$OUT/launch-mounted.txt"
+          else
+            echo "no FUSE on this runner" | tee "$OUT/launch-mounted.txt"
+          fi
+
+      # The deb, installed the way a person would, and the command it puts in /opt/Realm.
+      - name: Install the deb and serve from it
+        run: |
+          set -euo pipefail
+          sudo apt-get install -yq "$GITHUB_WORKSPACE"/apps/desktop/release/realm_*.deb > "$OUT/deb-install.log" 2>&1
+          export REALM_HOME=$RUNNER_TEMP/deb-home REALM_PORT=8797 REALM_ENABLE_FAKE_AGENT=1
+          env -u DISPLAY /opt/Realm/resources/bin/realm serve > "$RUNNER_TEMP/deb-serve.out" 2>&1 &
+          serve=$!
+          for _ in $(seq 100); do grep -q '"ready"' "$RUNNER_TEMP/deb-serve.out" && break; sleep 0.1; done
+          {
+            echo "installed: $(dpkg-query -W -f='${Package} ${Version} ${Installed-Size} KB' realm)"
+            echo "/usr/bin/realm -> $(readlink -f /usr/bin/realm)"
+            /opt/Realm/resources/bin/realm --json status
+          } | tee "$OUT/deb-serve.txt"
+          kill "$serve"
 
       - name: Realm lane A (packaged realm, no display)
         working-directory: ${{ runner.temp }}/bench
