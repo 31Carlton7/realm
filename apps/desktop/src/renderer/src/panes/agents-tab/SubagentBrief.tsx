@@ -3,7 +3,7 @@ import { useMemo } from "react";
 import { FileMark } from "../../components/file-icon";
 import { useResolvedFiles, type FileLinkContext } from "../session/file-links";
 import { Markdown } from "../session/Markdown";
-import { briefSections, placeOf, readList, saysMore, type BriefFileItem, type BriefKind, type BriefPlace, type BriefSection } from "./brief-sections";
+import { besidePlace, briefSections, placeOf, readList, type BriefFileItem, type BriefKind, type BriefPlace, type BriefSection } from "./brief-sections";
 
 const ICON: Record<BriefKind, IconName> = {
   where: "folder", read: "book", build: "tool", rules: "shield", check: "checkCircle", report: "report", other: "note",
@@ -47,7 +47,7 @@ function Where({ section, env, files }: { section: BriefSection; env: BriefPlace
   const named = placeOf(section.body);
   const place = named ?? env;
   const branch = place?.branch ?? (env && named && sameDir(named.path, env.path) ? env.branch : null);
-  const more = place ? saysMore(section.body, [place.path, ...(branch ? [branch] : [])]) : true;
+  const rest = place ? besidePlace(section.body, [place.path, ...(branch ? [branch] : [])]) : section.body;
   return (
     <>
       {place && (
@@ -60,7 +60,7 @@ function Where({ section, env, files }: { section: BriefSection; env: BriefPlace
           {dirOf(place.path) && <span className="subagent-brief-dir" data-selectable title={place.path}><bdi>{dirOf(place.path)}</bdi></span>}
         </div>
       )}
-      {more && section.body && <Markdown text={section.body} className="subagent-brief-prose" files={files} />}
+      {rest && <Markdown text={rest} className="subagent-brief-prose" files={files} />}
     </>
   );
 }
@@ -78,9 +78,13 @@ function FileList({ items, resolved, files }: { items: readonly BriefFileItem[];
         const inner = (
           <>
             <FileMark path={file.ref} size={14} />
-            <span className="subagent-brief-chip-name">{baseOf(file.label)}</span>
-            {dirOf(file.label) && <span className="subagent-brief-chip-dir">{dirOf(file.label)}</span>}
-            {file.line !== null && <span className="subagent-brief-chip-dir">{`:${file.line}`}</span>}
+            {/* The folder before the name, quiet, as a file reads in a tool's row — and the part of
+                the chip that gives way first. */}
+            <span className="subagent-brief-chip-path">
+              {dirOf(file.label) && <span className="subagent-brief-chip-dir">{`${dirOf(file.label)}/`}</span>}
+              <span className="subagent-brief-chip-name">{baseOf(file.label)}</span>
+              {file.line !== null && <span className="subagent-brief-chip-line">{`:${file.line}`}</span>}
+            </span>
           </>
         );
         return (

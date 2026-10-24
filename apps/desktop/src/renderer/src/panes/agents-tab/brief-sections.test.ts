@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { briefSections, kindOf, placeOf, readList, saysMore } from "./brief-sections";
+import { besidePlace, briefSections, kindOf, placeOf, readList, saysMore } from "./brief-sections";
 
 const BRIEF = [
   "You are fixing the sub-agent viewer.",
@@ -73,5 +73,15 @@ describe("what a part names", () => {
     // THE MUTANT: pull the files out of a sentence — the words around them would be lost.
     expect(readList("- `a.ts`\n- the settings page, all of it")).toBeNull();
     expect(readList("Read `design.md` completely before designing.")).toBeNull();
+  });
+});
+
+describe("the place's sentence beside its chip", () => {
+  it("keeps only the sentences that say more than the chip", () => {
+    const body = "Work ONLY in `/r/wt/viewer` (branch `fix/x`, off main). Never touch the primary checkout.";
+    expect(besidePlace(body, ["/r/wt/viewer", "fix/x"])).toBe("Never touch the primary checkout.");
+    expect(besidePlace("Work in `/r/wt/viewer`.", ["/r/wt/viewer"])).toBe("");
+    // THE MUTANT: drop every sentence naming the place — this one's warning would go with it.
+    expect(besidePlace("Work in `/r/wt/viewer`, but never push from it.", ["/r/wt/viewer"])).toBe("Work in `/r/wt/viewer`, but never push from it.");
   });
 });

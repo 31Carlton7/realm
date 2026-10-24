@@ -229,7 +229,16 @@ async function main() {
   const m = await evalIn(c, MEASURE);
   note("brief measure", m);
   check("the brief is drawn in its parts", JSON.stringify(m.heads) === JSON.stringify(["Where you work", "Read first", "What to build", "Proof required"]), m.heads);
-  check("its measure is capped below the viewer's width", m.brief < m.viewer - 40, { brief: m.brief, viewer: m.viewer });
+  // The panel is narrower than the measure at this size; a wide window is where the cap has to hold.
+  await c.send("Emulation.setDeviceMetricsOverride", { width: 2560, height: 900, deviceScaleFactor: 1, mobile: false });
+  await sleep(800);
+  const wide = await evalIn(c, MEASURE);
+  note("brief measure, wide window", wide);
+  check("in a wide panel the brief stops at its measure, not the panel's edge", wide.viewer > Number.parseFloat(wide.maxWidth) + 40 && Math.abs(wide.brief - Number.parseFloat(wide.maxWidth)) <= 1, { brief: wide.brief, max: wide.maxWidth, viewer: wide.viewer });
+  check("…and its lines still read at 60–80 characters", wide.lines.slice(0, -1).every((n) => n >= 55 && n <= 85), wide.lines);
+  await shotOf(c, ".subagent-view", "viewer-wide", "dark", { top: true });
+  await c.send("Emulation.setDeviceMetricsOverride", { ...VIEWPORT, deviceScaleFactor: 2, mobile: false });
+  await sleep(800);
   const full = m.lines.slice(0, -1);
   check("a full line of its prose is 60–80 characters", full.length > 0 && full.every((n) => n >= 55 && n <= 85), m.lines);
   check("the files that exist are chips that open; the one that does not is named only",
@@ -246,14 +255,16 @@ async function main() {
   // The body's height through the fold, sampled each frame: it moves, rather than jumping.
   const sampled = () => evalIn(c, `new Promise((done) => { const w = document.querySelector('.subagent-view-result-wrap'); const out = []; const t0 = performance.now();
     const tick = () => { out.push(Math.round(w.getBoundingClientRect().height)); if (performance.now() - t0 < 320) requestAnimationFrame(tick); else done(out); }; requestAnimationFrame(tick); })`);
-  const [, frames] = await Promise.all([press(at), sampled()]);
-  note("fold, body height by frame", frames);
-  const middle = frames.filter((h) => h > 0 && h < open.body);
-  check("closing moves the body through the heights between", middle.length >= 3, { frames });
+  await press(at);
+  const moving = await evalIn(c, `(() => { const w = document.querySelector('.subagent-view-result-wrap');
+    return w.getAnimations().map((a) => ({ property: a.transitionProperty, duration: a.effect.getTiming().duration, easing: a.effect.getTiming().easing })); })()`);
+  const frames = await sampled();
+  note("fold: transitions running on the body, then its height by frame", { moving, frames });
+  check("closing moves the body on the size rung", moving.some((a) => a.property === "grid-template-rows" && a.duration === 200), moving);
   const closed = await evalIn(c, RESULT);
   note("report closed", closed);
   check("closed, the card is its head and the body is gone from reading", closed.expanded === "false" && closed.body === 0 && closed.inert && closed.card <= 46, closed);
-  for (const face of ["dark", "light"]) { await setFace(c, face); await shotOf(c, ".subagent-view", "viewer-closed", face); }
+  for (const face of ["dark", "light"]) { await setFace(c, face); await shotOf(c, ".subagent-view", "viewer-closed", face, { top: true }); }
   await setFace(c, "dark");
   // The keyboard: Enter on the focused head opens it again, Space closes it.
   await evalIn(c, `document.querySelector('.subagent-view-result-toggle').focus(), true`);
@@ -261,21 +272,25 @@ async function main() {
   await key("Enter", "Enter", "\r");
   const byEnter = await evalIn(c, RESULT);
   check("Enter on the head opens it", byEnter.expanded === "true" && byEnter.body > 20, byEnter);
-  for (const face of ["dark", "light"]) { await setFace(c, face); await shotOf(c, ".subagent-view", "viewer-open", face); }
+  await evalIn(c, `document.activeElement.blur(), true`);
+  for (const face of ["dark", "light"]) { await setFace(c, face); await shotOf(c, ".subagent-view", "viewer-open", face, { top: true }); }
+  await evalIn(c, `document.querySelector('.subagent-view-result-toggle').focus(), true`);
   await setFace(c, "dark");
   await key(" ", "Space", " ");
   check("Space on the head closes it", (await evalIn(c, RESULT)).expanded === "false");
   // Under Reduce motion the fold lands in the frame it was asked for.
   await c.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
   await sleep(200);
-  const [, still] = await Promise.all([press(at), sampled()]);
+  await press(at);
+  const stillMoving = await evalIn(c, `document.querySelector('.subagent-view-result-wrap').getAnimations().length`);
+  const still = await sampled();
   const reduced = await evalIn(c, RESULT);
   note("reduced motion, body height by frame", still);
-  check("under Reduce motion it opens at once", reduced.transition === "0s" && still.filter((h) => h > 0 && h < reduced.body).length === 0, { transition: reduced.transition, still });
+  check("under Reduce motion it opens at once", reduced.expanded === "true" && reduced.transition === "0s" && stillMoving === 0 && still.every((h) => h === reduced.body), { transition: reduced.transition, stillMoving, still });
   await c.send("Emulation.setEmulatedMedia", { features: [] });
 
   // ── The brief alone, both faces, and a chip opening its file ─────────────────────────────────
-  for (const face of ["dark", "light"]) { await setFace(c, face); await shotOf(c, ".subagent-view .subagent-view-brief", "brief", face, { pad: 16 }); }
+  for (const face of ["dark", "light"]) { await setFace(c, face); await shotOf(c, ".subagent-view", "viewer-reduced-open", face, { top: true }); }
   await setFace(c, "dark");
   await evalIn(c, `(() => { [...document.querySelectorAll('.subagent-view button.subagent-brief-chip')].find((b) => b.textContent.includes('design.md')).click(); return true; })()`);
   const opened = await until(() => evalIn(c, `[...document.querySelectorAll('[role=tab], .panel-tab, .side-tab')].some((t) => /design\\.md|Documents/.test(t.textContent)) || null`), 10_000, "documents opened").catch(() => false);
@@ -289,7 +304,9 @@ async function setFace(c, face) {
 
 /** A capture of one element and a margin round it, over a ground standing in for the window's
  *  material (which is not in the DOM, so a capture of the translucent grounds comes out see-through). */
-async function shotOf(c, selector, what, face, { pad = 8 } = {}) {
+async function shotOf(c, selector, what, face, { pad = 8, top = false } = {}) {
+  // From the top of the log: the brief is the first thing in it, and a live log sits at its foot.
+  if (top) { await evalIn(c, `(() => { const t = document.querySelector('.subagent-view .transcript'); if (t) t.scrollTop = 0; return true; })()`); await sleep(300); }
   const box = await evalIn(c, `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; })()`);
   if (!box) { note(`nothing to capture for ${what}`, selector); return; }
   await evalIn(c, `(() => { const r = document.documentElement; const b = document.getElementById('live-scratch-banner'); if (b) b.style.display = 'none';

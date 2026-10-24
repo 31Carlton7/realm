@@ -44,7 +44,7 @@
 .terminal-dock-title,
 .sim-detail, .upl-path, .wt-branch, .laya-facts code, .whats-new-group code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code, .browser-runner-score,
 .edit-counts, .cr-tab-counts, .cr-setup-how code, .cr-branch, .cr-finding-where, .diff-split-cell, .cr-pending-where,
-.subagent-where[data-branch], .subagent-view-where[data-branch], .subagent-brief-chip-dir, .subagent-brief-branch, .subagent-brief-dir, .signin-hint code, .signin-code {
+.subagent-where[data-branch], .subagent-view-where[data-branch], .subagent-brief-branch, .subagent-brief-dir, .signin-hint code, .signin-code {
   letter-spacing: normal;
 }
 
@@ -4210,7 +4210,8 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    back; the chevron points into the body when it is open. */
 .subagent-view-result-toggle { display: flex; align-items: center; gap: 6px; width: calc(100% + 8px); min-width: 0; margin: -11px 0 -11px -8px; padding: 11px 10px 11px 8px;
   border: none; border-radius: var(--r-ctl); background: transparent; color: inherit; font: inherit; text-align: left; }
-.subagent-view-result-toggle:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--rl-accent); }
+/* Inset, so the ring stays inside the card's curve and clear of the report's first line. */
+.subagent-view-result-toggle:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--rl-accent); }
 .subagent-view-result-toggle > svg { flex: none; color: var(--ink-3); }
 .subagent-view-result[data-error] .subagent-view-result-toggle > svg:first-child { color: var(--rl-danger); }
 .subagent-view-result-name { flex: none; }
@@ -4220,14 +4221,16 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .subagent-view-result-toggle:hover > .subagent-view-result-chevron { color: var(--ink); transition: none; }
 .subagent-view-result-wrap { flex: 0 1 auto; min-height: 0; }
 .subagent-view-result-clip { display: flex; flex-direction: column; }
-.subagent-view-result-scroll { flex: 0 1 auto; min-height: 0; margin: 8px 0 2px; overflow-y: auto; overscroll-behavior: contain; padding-right: 10px; --fade-h: 20px; --fade-top-h: 16px; }
+.subagent-view-result-scroll { flex: 0 1 auto; min-height: 0; margin: 12px 0 2px; overflow-y: auto; overscroll-behavior: contain; padding-right: 10px; --fade-h: 20px; --fade-top-h: 16px; }
 .subagent-view-prose { font-size: 13px; color: var(--ink-2); }
 .subagent-view-result .subagent-view-prose { font-size: 14px; color: var(--ink); }
 /* What it was asked: the lead's brief in the parts it was written in, at a reading measure rather than
    the panel's width. Each part's head wears its mark in the hanging margin, so the words of every part
    start on one edge; the place is a chip with its branch, the files to read are chips that open them,
-   and the work is the body, in the primary ink. */
-.subagent-brief { display: flex; flex-direction: column; gap: 16px; max-width: 68ch; min-width: 0; font-size: 14px; }
+   and the work is the body, in the primary ink. The measure is in `ch`, the width of a "0", which
+   Inter's running text averages well under: 68ch measured 81–87 characters a line in the window,
+   and 58ch holds a line to about seventy. */
+.subagent-brief { display: flex; flex-direction: column; gap: 16px; max-width: 58ch; min-width: 0; font-size: 14px; }
 .subagent-brief-part { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .subagent-brief-part > :not(.subagent-brief-head) { margin-left: 20px; }
 .subagent-brief-part:not(:has(> .subagent-brief-head)) > * { margin-left: 0; }
@@ -4246,7 +4249,9 @@ button.subagent-brief-chip:hover { background-image: linear-gradient(var(--rl-ho
 button.subagent-brief-chip:focus-visible { outline: none; box-shadow: var(--rl-object-shadow), 0 0 0 2px var(--rl-accent); }
 .subagent-brief-chip > .file-mark { flex: none; }
 .subagent-brief-chip-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: var(--fw-label); }
-.subagent-brief-chip-dir { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); font-size: 12px; color: var(--ink-3); }
+.subagent-brief-chip-path { display: flex; align-items: baseline; min-width: 0; }
+.subagent-brief-chip-dir { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-3); }
+.subagent-brief-chip-line { flex: none; color: var(--ink-2); }
 .subagent-brief-branch { flex: 0 1 auto; display: inline-flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; text-overflow: ellipsis;
   font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); }
 .subagent-brief-branch > svg { flex: none; color: var(--ink-3); }

@@ -111,6 +111,15 @@ export function placeOf(body: string): BriefPlace | null {
   return { path, branch };
 }
 
+/** The section's words with the sentences the chip already says taken out: a sentence that names the
+ *  place and says nothing past it goes, every other sentence stays as the lead wrote it. Empty when
+ *  the chip says all of it. */
+export function besidePlace(body: string, drawn: readonly string[]): string {
+  return body.split("\n").map((line) => line.split(/(?<=[.!?])\s+(?=[A-Z`*_(\[])/)
+    .filter((sentence) => !drawn.some((d) => sentence.includes(d)) || saysMore(sentence, drawn)).join(" "))
+    .join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 /** Whether a section says anything beyond the things drawn for it: what is left once the named
  *  paths, the branch and the words that only introduce them are gone. Two words left over ("Work
  *  in") are the sentence the chip already is; a clause ("Never touch the real home") is not. */
@@ -118,7 +127,7 @@ export function saysMore(body: string, drawn: readonly string[]): boolean {
   let rest = body;
   for (const d of drawn) rest = rest.split(d).join(" ");
   rest = rest.replace(BRANCH, " ").replace(/`[^`]*`/g, " ").replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .replace(/\b(work|works|working|in|on|at|the|a|an|your|its|own|worktree|checkout|folder|directory|branch|and|is|of|from|read|first|these|this|files?)\b/gi, " ");
+    .replace(/\b(work|works|working|in|on|at|the|a|an|your|its|own|worktree|checkout|folder|directory|branch|and|is|of|from|read|first|these|this|files?|only|off|origin|main|master)\b/gi, " ");
   return words(rest) > 0;
 }
 
