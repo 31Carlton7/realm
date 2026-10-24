@@ -6,8 +6,13 @@
  * (no billed turn), the relay's real Worker under `wrangler dev` on a fixed port, and the gateway.
  * Stages spaces and sessions in the states the app draws — a permission waiting, questions, a plan,
  * Markdown prose, an error with its fix, a turn that changed files under git and made a picture, more
- * sessions than Home lists — then prints one JSON line,
- * `{"pairLink", "sessions": {...}}`, and takes commands on stdin:
+ * sessions than Home lists — across three profiles (Work, School and Personal; School has a session
+ * waiting), with sessions last active today, yesterday, earlier this week and weeks ago, so every way
+ * Home lists them has rows; and Plan 29's parity: a pinned session, a turn with two messages queued
+ * behind it, a lead with a finished and a working sub-agent, Claude's plan limits and a month's spend
+ * against a budget, a team's post with its picture waiting in Review, and two scheduled tasks, one run.
+ * Then it prints one JSON line, `{"pairLink", "sessions": {...}, "profiles": {...}, "spaces": {...},
+ * "roles": {...}, "reviews": {...}, "schedules": {...}}`, and takes commands on stdin:
  *
  *   sleep        the Mac goes quiet: the gateway stops, and the relay tells the phone it is offline
  *   wake         it comes back
@@ -15,21 +20,34 @@
  *   relay-up     the relay comes back on the same port
  *   pair         a new pairing link
  *   send <key> <text>   a message to a staged session, from the Mac
+ *   work <key>   a turn on a staged session that keeps going for about two minutes, a word every two
+ *                seconds, so Stop, and Queue or Steer, stay on screen (`running` is staged for it; the
+ *                phone starts one too by sending anything with "keep working" in it)
+ *   queue <key> <text>      a message to a staged session's queue, from the Mac (`queued` is staged with
+ *                a turn of half an hour and two messages behind it; "Hold the queue" starts another)
+ *   teammate <key> <brief>  a sub-agent for a staged lead (`lead`); a brief with "Backfill the theme
+ *                column" in it works for ten minutes, and prints `{"teammate": <its session>}`
+ *   review       the Studio team's role sends another post to Review
+ *   midturn queue|steer   what a message typed during a turn does on this Mac
  *   quit
  *
  * With --ui it drives the app itself instead: it builds the RealmLive scheme's UI tests once, then
  * runs one test per phase on the iPhone 17 Simulator — pair (the Mac holds its answer a few seconds),
  * awake, asleep, awake again, the relay down, then the largest text size and Reduce Transparency with
- * everything back up — moving the Mac between them, and leaves each test's
- * screenshots in apps/ios/.build/screenshots (--shots <dir> to change it). It exits non-zero if any
- * phase fails. --phases test0_forgetThenPair,test1_awake runs only those; --udid <id> picks the
- * Simulator, --derived-data <dir> where xcodebuild builds (apps/ios/.build/DerivedData), and
- * --no-build runs what was built there last.
+ * everything back up, then Home's profiles, list styles and a space's page, then a lead's sub-agents,
+ * Usage, Scheduled and Review, then the composer, then a session started from Home, a row pinned,
+ * renamed and archived, and the Mac's queue, each in light, dark, at the largest text size and with
+ * Reduce Transparency — moving the Mac between them, and leaves each test's screenshots in
+ * apps/ios/.build/screenshots (--shots <dir> to change it). It exits non-zero if any phase fails.
+ * --phases test0_forgetThenPair,test1_awake runs only those; --udid <id> picks the Simulator,
+ * --derived-data <dir> where xcodebuild builds (apps/ios/.build/DerivedData), and --no-build runs what
+ * was built there last.
  *
  * Never the owner's ~/Realm: the scratch home is made fresh and removed on quit.
  */
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 import { bootServer, freePort, removeHome, repoRoot, scratchGateway } from "../../server/scripts/lib/mobile-rig";
@@ -64,8 +82,55 @@ function relayOn(port: number): { url: string; stop(): Promise<void>; ready: Pro
   };
 }
 
+const HOUR = 3_600_000;
+/** A turn's words, one every three seconds: what keeps a turn under way, or a sub-agent working, for as
+ *  long as a run of the UI tests looks at it. */
+const slowly = (minutes: number) => Array.from({ length: minutes * 20 }, (_, i) => `step${i + 1}`).join(" ");
+/** What the sessions in the profiles beyond Work are asked, and what the scripted agent says back: put
+ *  ahead of its own script (`REALM_FAKE_SCRIPT`), so these replies are the same on every run. */
+const SCRIPT = [
+  // Plan 29's parity: a lead with sub-agents, its plan's limits and the month's spend, a queue held up by
+  // a long turn, a team's role sending a post to Review, and a scheduled task's run. The sub-agents'
+  // briefs first of all: what each is handed carries its lead's conversation too, and the first entry
+  // that matches is the one that runs.
+  { on: "Write the theme migration", emit: [{ kind: "usage", costUsd: 3.75 }, { kind: "text", text: "Added `migrations/0042_theme.sql` with an up and a down step. The suite passes." }] },
+  { on: "Backfill the theme column", emit: [{ kind: "text", paceMs: 3_000, text: slowly(10) }] },
+  { on: "Plan dark mode with two teammates", emit: [
+    { kind: "rateLimit", payload: { subscriptionType: "max", organization: null, alert: "approaching", alertWindow: "seven_day", unavailable: null, detail: null, windows: [
+      { id: "five_hour", label: "5-hour", utilization: 34, resetsAt: Date.now() + 3 * HOUR },
+      { id: "seven_day", label: "Weekly", utilization: 81, resetsAt: Date.now() + 4 * 24 * HOUR },
+    ] } },
+    { kind: "usage", costUsd: 12.4 },
+    { kind: "text", text: "Two teammates: one writes the migration, one backfills the column. I'll fold their work in when both report." },
+  ] },
+  { on: "Hold the queue", emit: [{ kind: "text", paceMs: 3_000, text: slowly(30) }] },
+  { on: "Send the launch post for review", emit: [
+    { kind: "usage", costUsd: 0.84 },
+    { kind: "call", tool: "realm-team__review_submit", input: { kind: "launch", title: "Dark mode launch", note: "The toggle shipped today; this says so where people will see it.", items: [
+      { files: ["renders/launch.png"], body: "Dark mode is here: Settings ▸ App ▸ Theme.", target: { channel: "instagram", account: "@realm" } },
+      { body: "Hi Dana,\n\nDark mode ships on Friday, and the beta has it now.\n\nCarlton", meta: { Subject: "Dark mode ships Friday" } },
+    ] } },
+    { kind: "text", text: "Sent the launch post and the note to Dana to Review." },
+  ] },
+  { on: "Write the morning brief", emit: [{ kind: "text", text: "Three commits since yesterday, all on the theme work; nothing is blocked." }] },
+  { on: "Summarise the compilers lecture", emit: [{ kind: "text", text: "Today was **register allocation** by graph colouring:\n\n"
+    + "1. Build the interference graph from the live ranges.\n2. Simplify: set aside each node with fewer than *k* neighbours.\n"
+    + "3. When none is left, spill one, then colour the rest on the way back.\n\nThe midterm asks for one graph coloured by hand." }] },
+  { on: "Make flashcards for the midterm", emit: [{ kind: "text", text: "Made 24 flashcards from weeks 1 to 6: lexing, parsing, type checking and register allocation." }] },
+  { on: "Check my proof for question 2", emit: [{ kind: "tool", name: "Bash", needsPermission: true, input: { command: "python3 check_proof.py q2.tex" }, result: "All 7 steps check." }] },
+  { on: "Go through the feedback on problem set 3", emit: [{ kind: "text", text: "Two marks were lost on 3(b): the induction never states its base case." }] },
+  { on: "Outline the course", emit: [{ kind: "text", text: "Twelve weeks: front end, middle end, back end, then a project." }] },
+  { on: "Find a hotel near Alfama", emit: [{ kind: "text", text: "Three hotels within ten minutes' walk of Alfama have rooms for the 14th; the quietest is on Rua de São Miguel." }] },
+  { on: "Plan this week's dinners", emit: [{ kind: "text", text: "Five dinners, one shop: a tray bake, dal, a stir fry, soup, and pizza on Friday." }] },
+  { on: "Think of gift ideas", emit: [{ kind: "text", text: "A pottery class, the new edition of her favourite cookbook, or a framed print of the harbour." }] },
+];
+
 process.env.REALM_FAKE_STANDS_IN = "claude,codex";
-const server = await bootServer();
+// The home is made here rather than by `bootServer`, so the script is in it before the server reads it.
+const scratch = mkdtempSync(join(tmpdir(), "realm-mobile-home-"));
+writeFileSync(join(scratch, "staging-script.json"), JSON.stringify(SCRIPT));
+process.env.REALM_FAKE_SCRIPT = join(scratch, "staging-script.json");
+const server = await bootServer({ home: scratch });
 const port = Number(arg("relay-port") ?? (await freePort()));
 let relay = relayOn(port);
 await relay.ready;
@@ -87,12 +152,20 @@ const waitFor = async (what: string, ok: () => Promise<boolean>, ms = 20_000) =>
 const status = async (id: string) => (await rpc.call("sessions.get", { id })).status;
 const settled = (id: string) => waitFor(`${id} to settle`, async () => ["idle", "waiting_permission", "error"].includes(await status(id)));
 
-const [profile] = await rpc.call("profiles.list", {});
-const space = (name: string, icon: string, color: string) => rpc.call("spaces.create", { profileId: profile!.id, name, icon, color });
+// Three profiles, the first the one a home starts with. Each wears a glyph or an emoji, as a space does.
+const [first] = await rpc.call("profiles.list", {});
+const work = await rpc.call("profiles.update", { id: first!.id, name: "Work", icon: "briefcase", color: "#3b82f6" });
+const school = await rpc.call("profiles.create", { name: "School", icon: "emoji:🎓", color: "#f59e0b" });
+const personal = await rpc.call("profiles.create", { name: "Personal", icon: "home", color: "#10b981" });
+const space = (name: string, icon: string, color: string, profileId = work.id) => rpc.call("spaces.create", { profileId, name, icon, color });
 const realm = await space("Realm", "emoji:🌊", "#3b82f6");
 // Site wears one of the picker's glyphs rather than an emoji, so the glyph is drawn in its colour.
 const site = await space("Site", "browser", "#10b981");
 const laya = await space("Laya", "emoji:🦜", "#f59e0b");
+const lectures = await space("Compilers", "book", "#8b5cf6", school.id);
+const problems = await space("Problem sets", "emoji:✏️", "#f43f5e", school.id);
+const trip = await space("Lisbon trip", "plane", "#0ea5e9", personal.id);
+const kitchen = await space("Kitchen", "emoji:🍳", "#f97316", personal.id);
 
 const session = async (spaceId: string, agentKind: "claude" | "codex", model: string, title: string) =>
   (await rpc.call("sessions.create", { spaceId, agentKind, model, title })).session.id;
@@ -183,11 +256,120 @@ await send(sessions.permission, "Build the dark-mode toggle");
 const plan = await rpc.call("sessions.events", { id: sessions.plan, afterSeq: 0, limit: 1 });
 if (plan[0]) await rpc.call("sessions.markSeen", { id: sessions.plan, seq: plan[0].seq });
 await send(sessions.plan, "Carry on");
+// The session a phone makes work for minutes (`work running`, or a message with "keep working" in it),
+// so a turn under way holds still long enough to be looked at.
+sessions.running = await session(site.id, "claude", "claude-opus-5-5", "Review the composer redesign");
+await send(sessions.running, "Read the composer redesign");
+// The other profiles: School's lectures and problem sets, with a proof waiting on a permission, and
+// Personal's trip and kitchen.
+for (const [key, spaceId, agent, model, title, text] of [
+  ["lecture", lectures.id, "claude", "claude-sonnet-5", "Notes from the compilers lecture", "Summarise the compilers lecture"],
+  ["flashcards", lectures.id, "codex", "gpt-6-luna", "Flashcards for the midterm", "Make flashcards for the midterm"],
+  ["outline", lectures.id, "claude", "claude-opus-5-5", "The course outline", "Outline the course"],
+  ["feedback", problems.id, "claude", "claude-opus-5-5", "Problem set 3 feedback", "Go through the feedback on problem set 3"],
+  ["proof", problems.id, "claude", "claude-opus-5-5", "Check the proof for question 2", "Check my proof for question 2"],
+  ["hotel", trip.id, "codex", "gpt-6-astra", "Book a hotel near Alfama", "Find a hotel near Alfama"],
+  ["dinners", kitchen.id, "claude", "claude-haiku-4-5", "This week's dinners", "Plan this week's dinners"],
+  ["gifts", kitchen.id, "claude", "claude-sonnet-5", "Gift ideas for Mum", "Think of gift ideas"],
+] as const) {
+  sessions[key] = await session(spaceId, agent, model, title);
+  await send(sessions[key]!, text);
+}
+/** Statements run on this scratch home's own database, for what no call sets: when a session last moved. */
+const sql = (statements: string[]) =>
+  execFileSync("sqlite3", ["-cmd", ".timeout 5000", join(server.home, "realm.db"), statements.join("\n")], { stdio: "pipe" });
+// When each was last active, so Home's "Most recent" and "By day" (Today, Yesterday, Previous 7 days,
+// Earlier) all have rows: a fixed hour of a day counted back from today. The rest stay today's.
+const dayAt = (daysAgo: number, hour: number): number => {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - daysAgo);
+  d.setHours(hour);
+  return d.getTime();
+};
+const aged: [string, number][] = [
+  [sessions["Tidy the settings page"]!, dayAt(1, 16)], [sessions.flashcards!, dayAt(1, 11)], [sessions.gifts!, dayAt(1, 20)],
+  [sessions["Ship 2.0.3"]!, dayAt(3, 10)], [sessions.feedback!, dayAt(4, 14)], [sessions.hotel!, dayAt(5, 9)],
+  [sessions["Audit the sign-in sheet"]!, dayAt(12, 15)], [sessions.outline!, dayAt(18, 10)], [sessions.dinners!, dayAt(20, 18)],
+  [sessions["Fix the flaky upload test"]!, dayAt(30, 13)],
+];
+sql(aged.map(([id, at]) => {
+  if (!/^[0-9A-Z]{26}$/.test(id)) throw new Error(`not a session id: ${id}`);
+  return `UPDATE sessions SET updated_at = ${at}, activity_at = ${at}, created_at = ${at - 2 * 3_600_000} WHERE id = '${id}';`;
+}));
+// A space with more sessions than one page of its own on the phone (50), a day apart and all older
+// than Personal's others, so its page has a second page to scroll to and Work's lists stay as they are.
+const journal = await space("Journal", "emoji:📓", "#6366f1", personal.id);
+const entries: string[] = [];
+for (let n = 1; n <= 55; n++) entries.push(await session(journal.id, "claude", "claude-haiku-4-5", `Journal entry ${n}`));
+sql(entries.map((id, i) => {
+  const at = dayAt(61 - i, 21);
+  return `UPDATE sessions SET updated_at = ${at}, activity_at = ${at} WHERE id = '${id}';`;
+}));
+
+// Plan 29's parity, for the phone's Pinned, queue, sub-agents, Usage, Review and Scheduled, each made
+// through the Mac's RPC as the desktop makes it: a pinned session; in App, a lead whose plan reported
+// Claude's limits and most of the month's spend, with a teammate that finished and one still working,
+// a turn long enough to queue two messages behind, and two scheduled tasks, one of them run; in Studio,
+// a team whose role has sent a post with its picture to Review; and a budget for the month, set last so
+// no threshold of it is crossed while staging.
+const appSpace = await space("App", "emoji:📱", "#ec4899");
+const studio = await space("Studio", "emoji:🎬", "#a855f7");
+const pinned = (await rpc.call("items.listAll", {})).find((it) => it.kind === "session" && it.refId === sessions["Tidy the settings page"]);
+await rpc.call("items.update", { id: pinned!.id, pinned: true });
+sessions.pinned = pinned!.refId;
+sessions.lead = await session(appSpace.id, "claude", "claude-opus-5-5", "Ship dark mode");
+await send(sessions.lead, "Plan dark mode with two teammates");
+const teammate = async (lead: string, brief: string) => (await rpc.call("delegation.addTeammate", { sessionId: lead, agentKind: "claude", brief })).childId;
+sessions.migration = await teammate(sessions.lead, "Write the theme migration");
+await waitFor("the migration's run to settle", async () =>
+  (await rpc.call("delegation.children", { sessionId: sessions.lead! })).children.some((c) => c.session.id === sessions.migration && c.outcome === "done"));
+sessions.backfill = await teammate(sessions.lead, "Backfill the theme column");
+await waitFor("the backfill to start", async () => (await status(sessions.backfill!)) === "running");
+sessions.queued = await session(appSpace.id, "claude", "claude-opus-5-5", "Polish the onboarding sheet");
+await rpc.call("sessions.send", { id: sessions.queued, text: "Hold the queue while I add to it" });
+await waitFor("the long turn", async () => (await status(sessions.queued!)) === "running");
+const sketch = join((appSpace as { folderPath: string }).folderPath, "onboarding-sketch.png");
+execFileSync("sips", ["-s", "format", "png", join(repoRoot, "site/public/product/appearance-1440.webp"), "--out", sketch], { stdio: "pipe" });
+await rpc.call("sessions.send", { id: sessions.queued, text: "Then rename the column to theme_mode", delivery: "queue" });
+await rpc.call("sessions.send", { id: sessions.queued, text: "And put the toggle on the onboarding sheet, like this", delivery: "queue", attachments: [{ path: sketch, mime: "image/png" }] });
+const briefTask = await rpc.call("schedules.create", { spaceId: appSpace.id, title: "Morning brief", cron: "0 8 * * 1-5", constraints: { agentKind: "claude" },
+  goal: "Write the morning brief for this space: what changed since yesterday, and what is blocked." });
+const weeklyTask = await rpc.call("schedules.create", { spaceId: appSpace.id, title: "Weekly review", cron: "0 16 * * 5", constraints: { agentKind: "claude" },
+  goal: "Look back over this week in this space, and write a short status update: what shipped, what is in progress, what is blocked." });
+const fired = await rpc.call("schedules.runNow", { id: briefTask.id });
+await waitFor("the morning brief's run", async () => (await rpc.call("runs.get", { id: fired.lastRunId! }))?.run.state === "succeeded", 60_000);
+const studioFolder = (studio as { folderPath: string }).folderPath;
+mkdirSync(join(studioFolder, "renders"), { recursive: true });
+execFileSync("sips", ["-s", "format", "png", join(repoRoot, "site/public/product/connections-1440.webp"), "--out", join(studioFolder, "renders/launch.png")], { stdio: "pipe" });
+await rpc.call("team.make", { spaceId: studio.id, templates: [] });
+const producer = await rpc.call("team.roleCreate", { spaceId: studio.id, name: "Content Producer", brief: "Make the launch posts, and send each to Review.",
+  realmite: { seed: "content-producer-32" }, agentKind: "claude", permissionMode: "acceptEdits" });
+// The cards a team's policy draws for its run are the person's, answered here as they would be at the Mac.
+const answering = rpc.onEvent((event, payload) => {
+  const p = payload as { sessionId?: string; event?: { type: string; payload: { requestId?: string } } };
+  if (event !== "session.event" || p.event?.type !== "permission_request" || !p.sessionId) return;
+  void rpc.call("sessions.get", { id: p.sessionId }).then((s) => {
+    if (s.spaceId === studio.id) return rpc.call("sessions.respondPermission", { id: p.sessionId!, requestId: p.event!.payload.requestId!, decision: "allow" });
+  }).catch(() => {});
+});
+const askForReview = () => rpc.call("team.roleRun", { id: producer.id, message: "Send the launch post for review" });
+await askForReview();
+await waitFor("the launch post in Review", async () => (await rpc.call("team.space", { spaceId: studio.id })).reviews.some((r) => r.state === "waiting"), 60_000);
+answering();
+const launch = (await rpc.call("team.space", { spaceId: studio.id })).reviews.find((r) => r.state === "waiting")!;
+await rpc.call("usage.setBudget", { monthlyUsd: 50, thresholds: [0.5, 0.8, 1], includeEstimated: true });
 
 await waitFor("the relay link", async () => gw.state === "connected");
 let pairing = gw.openPairing();
-console.log(JSON.stringify({ pairLink: pairing.url, relay: relay.url, home: server.home, sessions }));
-say(`staged on ${server.home}; relay ${relay.url}. Commands: sleep · wake · relay-down · relay-up · pair · send <key> <text> · quit`);
+const profiles = { Work: work.id, School: school.id, Personal: personal.id };
+const spaces = Object.fromEntries([realm, site, laya, lectures, problems, trip, kitchen, appSpace, studio].map((sp) => [sp.name, sp.id]));
+console.log(JSON.stringify({
+  pairLink: pairing.url, relay: relay.url, home: server.home, sessions, profiles, spaces,
+  roles: { producer: producer.id }, reviews: { launch: launch.id }, schedules: { brief: briefTask.id, weekly: weeklyTask.id },
+}));
+const COMMANDS = "sleep · wake · relay-down · relay-up · pair · send <key> <text> · work <key> · queue <key> <text> · teammate <key> <brief> · review · midturn queue|steer · quit";
+say(`staged on ${server.home}; relay ${relay.url}. Commands: ${COMMANDS}`);
 
 /** One `xcrun simctl` call; resolves to its exit code. */
 const simctl = (args: string[]): Promise<number> => new Promise((done) => {
@@ -224,10 +406,13 @@ async function runUiTests(): Promise<boolean> {
   if (!process.argv.includes("--no-build") && await xcodebuild(["build-for-testing", ...common]) !== 0) { say("the UI tests did not build"); return false; }
   const results: [string, boolean][] = [];
   const only = arg("phases")?.split(",");
+  const runs = (test: string) => !only || only.includes(test);
   const phase = async (test: string, env: Record<string, string> = {}) => {
-    if (only && !only.includes(test)) return;
+    if (!runs(test)) return;
     say(`— ${test}`);
-    const code = await xcodebuild(["test-without-building", ...common, `-only-testing:RealmUITests/LiveTests/${test}`],
+    // No diagnostics after a failure: gathering them holds the next phase up for ten minutes, and the
+    // failure, its picture and its recording are in the result bundle without them.
+    const code = await xcodebuild(["test-without-building", ...common, "-collect-test-diagnostics", "never", `-only-testing:RealmUITests/LiveTests/${test}`],
       { TEST_RUNNER_SHOTS: shots, ...env });
     results.push([test, code === 0]);
   };
@@ -249,6 +434,146 @@ async function runUiTests(): Promise<boolean> {
     simctl(["spawn", udid, "defaults", "write", "com.apple.Accessibility", "EnhancedBackgroundContrastEnabled", "-bool", String(on)]);
   await reduceTransparency(true);
   await phase("test6_reduceTransparency");
+  await reduceTransparency(false);
+  // Home (Plan 29 §2): one profile at a time, the list styles, Settings ▸ Session list and a space's
+  // page; then the same in dark, at the largest text size and with Reduce Transparency.
+  await phase("testH1_profiles");
+  await phase("testH2_listStyles");
+  await phase("testH3_sessionListSettings");
+  await phase("testH4_spacePage");
+  await simctl(["ui", udid, "appearance", "dark"]);
+  await phase("testH5_dark");
+  await simctl(["ui", udid, "appearance", "light"]);
+  await phase("testH6_largestText");
+  await reduceTransparency(true);
+  await phase("testH7_reduceTransparency");
+  await reduceTransparency(false);
+  // Sub-agents, Usage, Scheduled and Review (Plan 29's parity): the lead's sub-agents and one opened,
+  // the bar's menu and Usage, Scheduled with Run now, the same pages dark, at the largest text size and
+  // with Reduce Transparency, then Ask for changes on the launch post — last, since it takes the post
+  // out of what waits in Review. A phase that looks at a sub-agent working starts one where none is:
+  // each works ten minutes, and a lead may have only four going.
+  const work = {
+    TEST_RUNNER_LEAD_SESSION: sessions.lead!, TEST_RUNNER_SUBAGENT_DONE: sessions.migration!,
+    TEST_RUNNER_SUBAGENT_DONE_TITLE: (await rpc.call("sessions.get", { id: sessions.migration! })).title,
+    TEST_RUNNER_TASK_TO_RUN: weeklyTask.title, TEST_RUNNER_REVIEW_TITLE: launch.title, TEST_RUNNER_REVIEW_PICTURE: "launch.png",
+    TEST_RUNNER_REVIEW_NOTE: "Say it ships Friday in the caption too",
+  };
+  const working = async (test: string) => {
+    if (!runs(test)) return;
+    const { children } = await rpc.call("delegation.children", { sessionId: sessions.lead! });
+    const statuses = await Promise.all(children.map((c) => status(c.session.id)));
+    if (!statuses.includes("running")) await teammate(sessions.lead!, "Backfill the theme column");
+  };
+  await working("testQ1_subagents");
+  await phase("testQ1_subagents", work);
+  await phase("testQ2_menuAndUsage", work);
+  await phase("testQ3_scheduled", work);
+  if (runs("testQ3_scheduled")) {
+    const weekly = (await rpc.call("schedules.list", { spaceId: appSpace.id })).find((s) => s.id === weeklyTask.id);
+    results.push(["testQ3_scheduled: the Mac ran Weekly review", weekly?.lastRunId != null]);
+  }
+  await simctl(["ui", udid, "appearance", "dark"]);
+  await working("testQ4_dark");
+  await phase("testQ4_dark", work);
+  await simctl(["ui", udid, "appearance", "light"]);
+  await working("testQ5_largestText");
+  await phase("testQ5_largestText", work);
+  await reduceTransparency(true);
+  await working("testQ6_reduceTransparency");
+  await phase("testQ6_reduceTransparency", work);
+  await reduceTransparency(false);
+  await phase("testQ7_review", work);
+  if (runs("testQ7_review")) {
+    const review = await rpc.call("team.review", { id: launch.id });
+    results.push(["testQ7_review: the Mac has the note", review.state === "changes" && review.note === work.TEST_RUNNER_REVIEW_NOTE]);
+  }
+  // The composer (Plan 29 §1): at rest and composing, its settings changed on the Mac, photos sent —
+  // one as the camera hands it over, one picked from the library — Stop and Queue on a turn under way;
+  // then dark, the largest text size and Reduce Transparency.
+  const photo = join(server.home, "staged-photo.jpg");
+  execFileSync("sips", ["-s", "format", "jpeg", join(repoRoot, "site/public/product/connections-1440.webp"), "--out", photo], { stdio: "pipe" });
+  const composer = { TEST_RUNNER_COMPOSER_SESSION: sessions.markdown!, TEST_RUNNER_RUNNING_SESSION: sessions.running!, TEST_RUNNER_STAGED_PHOTO: photo };
+  await simctl(["ui", udid, "appearance", "light"]);
+  await phase("testC1_composer", composer);
+  if (runs("testC1_composer")) {
+    const configured = await rpc.call("sessions.get", { id: sessions.markdown! });
+    results.push(["testC1_composer: the Mac has Opus 5.5 in Plan", configured.model === "claude-opus-5-5" && configured.permissionMode === "plan"]);
+  }
+  // A photo in the library for the picker, taken today.
+  if (runs("testC2_photo")) {
+    const library = join(server.home, "library-photo.jpg");
+    execFileSync("sips", ["-s", "format", "jpeg", join(repoRoot, "site/public/product/appearance-1440.webp"), "--out", library], { stdio: "pipe" });
+    if (await simctl(["addmedia", udid, library]) !== 0) say("warning: the photo was not added to the Simulator's library");
+  }
+  await phase("testC2_photo", composer);
+  if (runs("testC3_runningTurn")) {
+    await rpc.call("settings.set", { key: "sessions.midTurnMode", value: "queue" });
+    await rpc.call("sessions.send", { id: sessions.running!, text: "keep working on the composer review" });
+  }
+  await phase("testC3_runningTurn", composer);
+  await simctl(["ui", udid, "appearance", "dark"]);
+  await phase("testC4_dark", composer);
+  await simctl(["ui", udid, "appearance", "light"]);
+  await phase("testC5_largestText", composer);
+  await reduceTransparency(true);
+  await phase("testC6_reduceTransparency", composer);
+  await reduceTransparency(false);
+  // Plan 29's parity (a): a session started from Home's sheet; a row pinned, renamed and archived, with
+  // Undo; the Mac's queue over the composer, two waiting behind a long turn, one sent now, one edited,
+  // one removed; then dark, the largest text size and Reduce Transparency, each over a queue staged anew.
+  const parity = { TEST_RUNNER_QUEUE_SESSION: sessions.queued! };
+  /** The queue's session working through a long turn, with the Mac's own messages queued behind it. */
+  const stageQueue = async (texts: string[]) => {
+    const id = sessions.queued!;
+    if (["running", "waiting_permission"].includes(await status(id))) {
+      await rpc.call("sessions.interrupt", { id });
+      await settled(id);
+    }
+    for (const q of (await rpc.call("sessions.queued", { id })).queued) await rpc.call("sessions.dequeue", { id, queuedId: q.id });
+    await rpc.call("sessions.send", { id, text: "Hold the queue while I add to it" });
+    await waitFor("the long turn", async () => (await status(id)) === "running");
+    for (const [i, text] of texts.entries()) {
+      await rpc.call("sessions.send", { id, text, delivery: "queue", ...(i === 0 ? { attachments: [{ path: sketch, mime: "image/png" }] } : {}) });
+    }
+  };
+  const startedAt = Date.now();
+  await phase("testP1_newSession", parity);
+  if (runs("testP1_newSession")) {
+    const made = (await rpc.call("sessions.listAll", { profileId: null })).filter((s) => s.spaceId === site.id && s.createdAt >= startedAt);
+    const first = made.length === 1 ? (await rpc.call("sessions.events", { id: made[0]!.id, afterSeq: 0, limit: 20 })).find((e) => e.event.type === "user_message") : undefined;
+    results.push(["testP1_newSession: the Mac made one session in Site, with its first message",
+      first?.event.type === "user_message" && first.event.payload.text === "Write the release notes for 2.4"]);
+  }
+  await phase("testP2_pinRenameArchive", parity);
+  if (runs("testP2_pinRenameArchive")) {
+    const item = (await rpc.call("items.listAll", {})).find((it) => it.kind === "session" && it.refId === sessions.plan);
+    results.push(["testP2_pinRenameArchive: the Mac has the new name, and the session neither pinned nor archived",
+      item?.title === "Rework the mapper's events" && !item.pinned && !item.archived]);
+  }
+  if (runs("testP3_queue")) {
+    await rpc.call("settings.set", { key: "sessions.midTurnMode", value: "queue" });
+    await stageQueue(["Use the sketch for the toggle's place"]);
+  }
+  await phase("testP3_queue", parity);
+  if (runs("testP3_queue")) {
+    const { queued } = await rpc.call("sessions.queued", { id: sessions.queued! });
+    const sent = (await rpc.call("sessions.events", { id: sessions.queued!, afterSeq: 0, limit: 1_000 }))
+      .flatMap((e) => (e.event.type === "user_message" ? [e.event.payload.text] : []));
+    results.push(["testP3_queue: the edited message went with its picture, and the removed one never did",
+      queued.length === 0 && sent.includes("Use the sketch for the toggle's place, at the top") && !sent.includes("Then check the toolbar at every size")]);
+  }
+  const tour = ["Use the sketch for the toggle's place", "Then check the toolbar at every size"];
+  await simctl(["ui", udid, "appearance", "dark"]);
+  // Three in dark, which the strip folds to its head, so the queue's sheet is pictured too.
+  if (runs("testP4_dark")) await stageQueue([...tour, "And open the PR once the checks pass"]);
+  await phase("testP4_dark", parity);
+  await simctl(["ui", udid, "appearance", "light"]);
+  if (runs("testP5_largestText")) await stageQueue(tour);
+  await phase("testP5_largestText", parity);
+  await reduceTransparency(true);
+  if (runs("testP6_reduceTransparency")) await stageQueue(tour);
+  await phase("testP6_reduceTransparency", parity);
   await reduceTransparency(false);
   for (const [test, passed] of results) say(`${passed ? "passed" : "FAILED"}  ${test}`);
   say(`screenshots in ${shots}`);
@@ -280,8 +605,13 @@ function interactive(): void {
       else if (cmd === "relay-up") { relay = relayOn(port); await relay.ready; say("relay up"); }
       else if (cmd === "pair") { pairing = gw.openPairing(); console.log(JSON.stringify({ pairLink: pairing.url })); }
       else if (cmd === "send") { await rpc.call("sessions.send", { id: sessions[key ?? ""] ?? key ?? "", text: rest.join(" ") }); say("sent"); }
+      else if (cmd === "work") { await rpc.call("sessions.send", { id: sessions[key ?? ""] ?? key ?? "", text: "keep working on the composer review" }); say("working"); }
+      else if (cmd === "queue") { await rpc.call("sessions.send", { id: sessions[key ?? ""] ?? key ?? "", text: rest.join(" "), delivery: "queue" }); say("queued"); }
+      else if (cmd === "teammate") { console.log(JSON.stringify({ teammate: await teammate(sessions[key ?? ""] ?? key ?? "", rest.join(" ")) })); }
+      else if (cmd === "review") { await askForReview(); say("the role is sending another post to Review"); }
+      else if (cmd === "midturn" && (key === "queue" || key === "steer")) { await rpc.call("settings.set", { key: "sessions.midTurnMode", value: key }); say(`mid-turn: ${key}`); }
       else if (cmd === "quit") { await shutdown(); }
-      else if (cmd) say("commands: sleep · wake · relay-down · relay-up · pair · send <key> <text> · quit");
+      else if (cmd) say(`commands: ${COMMANDS}`);
     } catch (e) {
       say(`error: ${(e as Error).message}`);
     }

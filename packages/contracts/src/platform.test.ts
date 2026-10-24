@@ -9,12 +9,14 @@ describe("platformCapabilities", () => {
       expect(mac[k], k).toBe(true);
     }
     expect(mac.fileManager).toBe("Finder");
+    expect(mac.machine).toBe("Mac");
   });
 
   it.each([["win32", "windows", "File Explorer"], ["linux", "linux", "Files"], ["freebsd", "linux", "Files"]] as const)("gives %s none of them", (platform, os, fileManager) => {
     const caps = platformCapabilities(platform);
     expect(caps.os).toBe(os);
     expect(caps.fileManager).toBe(fileManager);
+    expect(caps.machine).toBe("computer");
     const flags = Object.entries(caps).filter(([, v]) => typeof v === "boolean");
     expect(flags.length).toBeGreaterThan(0);
     for (const [k, v] of flags) expect(v, k).toBe(false);
@@ -44,6 +46,15 @@ describe("shellArgs", () => {
     expect(shellArgs("win32", "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe")).toEqual(["-NoLogo"]);
     expect(shellArgs("win32", "pwsh")).toEqual(["-NoLogo"]);
     expect(shellArgs("win32", "C:\\Windows\\System32\\cmd.exe")).toEqual([]);
+  });
+
+  it("runs one command line, in each shell's own spelling, when given one", () => {
+    expect(shellArgs("darwin", "/bin/zsh", "python3 agent.py 'fix it'")).toEqual(["-l", "-c", "python3 agent.py 'fix it'"]);
+    expect(shellArgs("linux", "/bin/bash", "true")).toEqual(["-l", "-c", "true"]);
+    expect(shellArgs("win32", "pwsh", "agent.exe")).toEqual(["-NoLogo", "-Command", "agent.exe"]);
+    expect(shellArgs("win32", "C:\\Windows\\System32\\cmd.exe", "agent.exe")).toEqual(["/d", "/s", "/c", "agent.exe"]);
+    // An empty command is still a command: the shell runs nothing and exits, rather than staying open.
+    expect(shellArgs("darwin", "/bin/zsh", "")).toEqual(["-l", "-c", ""]);
   });
 });
 

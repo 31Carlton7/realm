@@ -3,6 +3,7 @@ import { Icon } from "@realm/ui";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { FALLBACK_AGENT, folderName, useApp } from "../state/store";
 import { agentAvailability, type AgentAvailability } from "../state/agent-availability";
+import { capabilities } from "../platform";
 import { Spinner } from "./Spinner";
 import { useDissolve } from "./ScrollFades";
 import { DEFAULT_SPACE_ICON, SpaceFolderField, SpaceIdentityField } from "./space-fields";
@@ -39,7 +40,7 @@ function standing(kind: AgentKind, probe: Parameters<typeof agentAvailability>[1
   const a = agentAvailability(kind, probe);
   if (a.state !== "unknown" || !probedAll) return a;
   const label = AGENT_META[kind].label;
-  return { state: "missing", title: `${label} isn’t installed`, reason: `Realm could not find ${label} on this Mac.`, command: AGENT_CLI_COMMANDS[kind].install };
+  return { state: "missing", title: `${label} isn’t installed`, reason: `Realm could not find ${label} on this ${capabilities().machine}.`, command: AGENT_CLI_COMMANDS[kind].install };
 }
 
 /** One word for where an agent stands, for the folded list. */
@@ -154,7 +155,7 @@ export function Onboarding() {
           {/* The product's own mark, once, at the size the page opens on; decorative, beside its name. */}
           <img className="onboarding-mark" src={markUrl} alt="" width={40} height={48} draggable={false} />
           <h1 id="onboarding-title">Welcome to Realm</h1>
-          <p className="onboarding-lead">One workspace for every coding agent, on your Mac.</p>
+          <p className="onboarding-lead">One workspace for every coding agent, on your {capabilities().machine}.</p>
         </header>
 
         <fieldset className="onboarding-step" aria-busy={!probed || undefined}>
@@ -310,7 +311,7 @@ function AgentCard({ kind, selected, onPick }: { kind: LeadAgent; selected: bool
           </button>
         ) : (
           <>
-            <span className="agent-card-note">{cli?.refusal ?? `${copy.name} isn't on this Mac yet.`}</span>
+            <span className="agent-card-note">{cli?.refusal ?? `${copy.name} isn't on this ${capabilities().machine} yet.`}</span>
             {/node/i.test(cli?.refusal ?? "") && (
               <button type="button" className="btn-quiet" onClick={() => window.open("https://nodejs.org/en/download", "_blank")}>Get Node.js</button>
             )}

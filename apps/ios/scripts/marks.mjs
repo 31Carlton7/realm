@@ -95,10 +95,19 @@ export async function sources() {
   const { flatMarkSvg, markSvg } = await import(pathToFileURL(join(repoRoot, "resources/icon-src/mark.mjs")).href);
   const { brandMarks } = await import(pathToFileURL(join(repoRoot, "packages/ui/src/brand-icons.ts")).href);
   const { AGENT_META, SPACE_ICONS } = await import(pathToFileURL(join(repoRoot, "packages/contracts/src/presets.ts")).href);
-  const require = createRequire(join(repoRoot, "packages/ui/package.json"));
-  const packIndex = require.resolve("@hugeicons-pro/core-stroke-rounded").replace(/\/cjs\/index\.js$/, "/esm/index.js");
-  const pack = await import(pathToFileURL(packIndex).href);
+  const pack = await import(pathToFileURL(packIndex()).href);
   return { flatMarkSvg, markSvg, brandMarks, AGENT_META, SPACE_ICONS, pack, iconTsx: readFileSync(ICON_TSX, "utf8") };
+}
+
+/** The pack the desktop draws from: the Hugeicons Pro pack where it is installed, and otherwise the free
+ *  pack under the same names (packages/ui/src/hugeicons.ts). */
+function packIndex() {
+  const require = createRequire(join(repoRoot, "packages/ui/package.json"));
+  try {
+    return require.resolve("@hugeicons-pro/core-stroke-rounded").replace(/\/cjs\/index\.js$/, "/esm/index.js");
+  } catch {
+    return join(repoRoot, "packages/ui/src/hugeicons.ts");
+  }
 }
 
 /** Every file the script owns, path → contents. */

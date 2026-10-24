@@ -115,7 +115,7 @@ async function main() {
   const wrapper = path.join(scratch, "wrapper.mjs");
   fs.writeFileSync(wrapper, ['import { app } from "electron";', 'app.setPath("userData", process.env.LIVE_USER_DATA);', "await import(process.env.LIVE_MAIN);"].join("\n"));
   const electronBin = process.platform === "darwin"
-    ? path.join(repoRoot, "node_modules/.pnpm/electron@37.10.3/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron")
+    ? path.join(repoRoot, "node_modules/.pnpm/electron@45.0.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron")
     : path.join(repoRoot, "apps/desktop/node_modules/.bin/electron");
   electron = spawn(electronBin, [wrapper], {
     env: { ...process.env, REALM_HOME: path.join(scratch, "home"), REALM_ENABLE_FAKE_AGENT: "1",

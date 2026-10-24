@@ -34,6 +34,9 @@ struct SettingsSheet: View {
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var confirmingForget = false
+    @AppStorage(ListOptions.Key.style) private var style = ListOptions().style
+    @AppStorage(ListOptions.Key.spaceOrder) private var spaceOrder = ListOptions().spaceOrder
+    @AppStorage(ListOptions.Key.needsYouFirst) private var needsYouFirst = ListOptions().needsYouFirst
 
     var body: some View {
         Form {
@@ -64,6 +67,32 @@ struct SettingsView: View {
             }
 
             Section {
+                Picker("List", selection: $style) {
+                    ForEach(ListStyle.allCases) { style in
+                        Text(style.title).tag(style)
+                    }
+                }
+                .modifier(ChoiceStyle())
+                .listRowBackground(Fill.card)
+                if style == .bySpace {
+                    Picker("Order spaces", selection: $spaceOrder) {
+                        ForEach(SpaceOrder.allCases) { order in
+                            Text(order.title).tag(order)
+                        }
+                    }
+                    .modifier(ChoiceStyle())
+                    .listRowBackground(Fill.card)
+                }
+                Toggle("Needs you first", isOn: $needsYouFirst)
+                    .tint(Palette.accent)
+                    .listRowBackground(Fill.card)
+            } header: {
+                Text("Session list")
+            } footer: {
+                Text(style.explanation)
+            }
+
+            Section {
                 LabeledContent("Notifications") {
                     Text(notificationWords)
                         .foregroundStyle(Palette.ink2)
@@ -72,11 +101,13 @@ struct SettingsView: View {
                 switch model.notificationStatus {
                 case .notDetermined:
                     Button("Allow notifications") { model.registerForPushes() }
+                        .tint(Palette.accentInk)
                         .listRowBackground(Fill.card)
                 case .denied:
                     Button("Turn them on in Settings") {
                         if let url = URL(string: UIApplication.openNotificationSettingsURLString) { UIApplication.shared.open(url) }
                     }
+                    .tint(Palette.accentInk)
                     .listRowBackground(Fill.card)
                 default:
                     EmptyView()
@@ -127,19 +158,38 @@ struct SettingsView: View {
     }
 }
 
+/// A choice on a row of its own, its value in a menu; at the accessibility sizes, where that value
+/// is cut short on one line, its options are rows of their own.
+private struct ChoiceStyle: ViewModifier {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    func body(content: Content) -> some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            content.pickerStyle(.inline)
+        } else {
+            content.pickerStyle(.menu)
+        }
+    }
+}
+
 /// The Mac this iPhone shows, as the head of its own group: its name, and its state in words with the
 /// glyph that says it.
 private struct MacHeader: View {
     let name: String
     let status: LinkStatus
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        HStack(spacing: 14) {
+        // At the accessibility sizes the glyph goes above the words, which keep the row's width: beside
+        // it, "Connected" was hyphenated.
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 14))
+        layout {
             Image(systemName: "laptopcomputer")
                 .font(.system(size: 30, weight: .regular))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(Palette.accent)
-                .frame(width: 48)
+                .frame(width: dynamicTypeSize.isAccessibilitySize ? nil : 48)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
                 Text(name)

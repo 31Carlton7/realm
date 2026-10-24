@@ -1,4 +1,5 @@
 import Observation
+import PhotosUI
 import RealmKit
 import SwiftUI
 import UIKit
@@ -7,6 +8,13 @@ import os
 
 enum Route: Hashable {
     case session(String)
+    /// A space's own page: all of its sessions, a page at a time.
+    case space(String)
+    /// Teams' open reviews, and one review's page.
+    case reviews
+    case review(String)
+    case scheduled
+    case usage
 }
 
 enum PairingStatus: Equatable {
@@ -23,10 +31,13 @@ enum PairingStatus: Equatable {
     }
 }
 
-/// Something that happened, said once and then gone.
+/// Something that happened, said once and then gone; with `undo`, the one action that takes it back.
 struct Toast: Equatable, Identifiable {
     let id = UUID()
     let text: String
+    var undo: (@MainActor () -> Void)?
+
+    static func == (a: Toast, b: Toast) -> Bool { a.id == b.id }
 }
 
 /// Everything the screens act through: pairing, the connection to the Mac, the cache, what waits to
@@ -36,6 +47,8 @@ struct Toast: Equatable, Identifiable {
 final class AppModel {
     let store: RealmStore
     let diagnostics = Diagnostics()
+    /// Review, Scheduled and Usage, and the sub-agents of the sessions opened here.
+    let work = WorkModel()
     var path: [Route] = []
     /// Settings, in its sheet over Home.
     var settingsShown = false
@@ -56,8 +69,32 @@ final class AppModel {
     var replacingPairLink: String?
     /// What is typed in each session's composer and not sent yet: leaving a session keeps it.
     var composerDrafts: [String: String] = [:]
+    /// The files in each session's composer, not sent yet: leaving a session keeps them, as it keeps
+    /// the words.
+    private(set) var draftAttachments: [String: [OutgoingAttachment]] = [:]
+    /// Picked for a session's composer, and still being read or made smaller.
+    private(set) var preparingAttachments: [String: Int] = [:]
+    /// Each session's settings and what they could be, as its Mac last said: what the composer's chips
+    /// show. Asked when the session opens, and again when its settings sheet does.
+    private(set) var sessionOptions: [String: SessionOptions] = [:]
+    /// Sessions whose Mac has no `session.options`, being older: their settings sheet says to update it.
+    private(set) var optionsUnanswered: Set<String> = []
+    /// The setting a change is on its way to the Mac for, by session.
+    private(set) var configuring: [String: SessionSetting] = [:]
+    /// What the person changed about sessions' rows here — a rename, a pin, an archive — shown over what
+    /// the Mac lists until it lists them so.
+    var rowEdits = RowEdits()
+    /// The Rename alert, while it is up: the session, and the title in its field.
+    var renaming: RenameDraft?
+    /// The agents a new session could be given, as the Mac last said; nil until it answers `agents.list`,
+    /// and Home's compose button with it.
+    var agentList: AgentList?
+    /// The queued messages a Send now, an edit or a removal is on its way to the Mac for, by session.
+    var queueCalls: [String: Set<String>] = [:]
     /// The person asked to pair again over the Mac this phone shows (after the Mac removed it).
     var pairingRequested = false
+    /// The profile Home shows, as the person last chose it for this Mac; nil until they choose.
+    private(set) var keptProfile: ProfileChoice?
     private(set) var notificationStatus: UNAuthorizationStatus = .notDetermined
     /// Goes up with every new channel. Open sessions open again, since a subscription does not
     /// outlive the channel it was made on.
@@ -88,6 +125,13 @@ final class AppModel {
     @ObservationIgnored private var previews: [String: FilePreview] = [:]
     @ObservationIgnored private var previewOrder: [String] = []
     @ObservationIgnored private var askedThumbnails: Set<String> = []
+    /// Home is asked for again on every change the Mac reports and every switch of profile: these
+    /// count the asks, and the last answered, so an answer overtaken by a later one is not shown.
+    @ObservationIgnored private(set) var homeAsks = 0
+    @ObservationIgnored private var homeShown = 0
+    /// Each session's row changes on their way to the Mac, one after another, so an Undo never overtakes
+    /// the archive it takes back.
+    @ObservationIgnored var rowChanges: [String: Task<Void, Never>] = [:]
 
     init() {
         let store = RealmStore()
@@ -97,6 +141,7 @@ final class AppModel {
             // An answer confirms when the Mac takes it, never when the button is pressed.
             if case .answer = item.payload { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
         }
+        work.api = { [weak self] in self?.isConnected == true ? self?.api : nil }
     }
 
     var api: MobileAPI? { connection.map(MobileAPI.init) }
@@ -176,6 +221,15 @@ final class AppModel {
         self.cache = cache
         if let home = cache.loadHome() { store.restoreHome(home) }
         store.restoreOutbox(cache.loadOutbox())
+        keptProfile = UserDefaults.standard.string(forKey: Self.profileKey(mac.macId)).flatMap(ProfileChoice.init(stored:))
+    }
+
+    /// Where the profile chosen for a Mac is kept: on the phone, one key per Mac.
+    private static func profileKey(_ macId: String) -> String { "home.profile.\(macId)" }
+
+    private func forgetProfile(of macId: String) {
+        UserDefaults.standard.removeObject(forKey: Self.profileKey(macId))
+        keptProfile = nil
     }
 
     /// A link the system handed the app: the scheme, a Universal Link, or a code the scanner read.
@@ -224,6 +278,7 @@ final class AppModel {
                 // One Mac at a time: the one this replaces is forgotten here, as Forget would.
                 try? vault.removeMac(id: previous.macId)
                 if let cache { disk.async { try? cache.removeAll() } }
+                forgetProfile(of: previous.macId)
             }
             store.forgetEverything()
             forgetFetched()
@@ -256,6 +311,7 @@ final class AppModel {
         try? vault.removeMac(id: mac.macId)
         if let cache { disk.async { try? cache.removeAll() } }
         cache = nil
+        forgetProfile(of: mac.macId)
         store.forgetEverything()
         forgetFetched()
         store.pairedMac = nil
@@ -363,16 +419,29 @@ final class AppModel {
         guard case .connected(let mac) = state else { return }
         store.latency.handshake = mac.handshake
         store.latency.connect = mac.connect
-        if var paired = store.pairedMac, paired.macName != mac.name {
+        if var paired = store.pairedMac {
+            let moved = paired.moved(to: mac.relay)
+            if let moved { paired = moved }
             paired.macName = mac.name
-            store.pairedMac = paired
-            try? vault.save(paired)
+            if paired != store.pairedMac {
+                store.pairedMac = paired
+                try? vault.save(paired)
+            }
+            // The Mac is on another relay now (PROTOCOL.md §3.3): kept, and dialled from here on. The
+            // reconnect is one handshake, inside the 800 ms a drop goes unsaid (`shownLinkStatus`).
+            if let moved {
+                log.info("Following \(mac.name, privacy: .public) to \(moved.relay.absoluteString, privacy: .public)")
+                connect()
+                return
+            }
         }
         channelGeneration += 1
         Task {
             await refreshHome()
+            await work.refresh()
             await deliverOutsideOpenSessions()
         }
+        Task { await loadAgents() }
         if LaunchOptions.autoDiagnostics, !autoDiagnosticsStarted {
             autoDiagnosticsStarted = true
             Task {
@@ -391,6 +460,12 @@ final class AppModel {
         switch event {
         case .homeChanged:
             Task { await refreshHome() }
+            // A scheduled run's session read, here or on the Mac, is not an unread result any more.
+            Task { await work.refresh() }
+        case .workChanged:
+            Task { await work.refresh() }
+        case .sessionSubagents(let id) where visibleSessions.contains(id):
+            Task { await work.loadSubagents(id) }
         case .sessionRows(let update) where visibleSessions.contains(update.id):
             saveTranscriptSoon(update.id)
         default:
@@ -420,17 +495,49 @@ final class AppModel {
 
     // MARK: - Home
 
+    /// The profile Home shows: the one kept for this Mac while it still has it, else its first. Until
+    /// the Mac has said which profiles it has, the one kept, or all of them.
+    var profileChoice: ProfileChoice {
+        guard let home = store.home else { return keptProfile ?? .all }
+        return ProfileChoice.resolve(keptProfile, in: home)
+    }
+
+    /// Shows another profile, from the title's menu or a line saying what needs the person there. What
+    /// Home holds lists it at once; its recent sessions are asked of the Mac.
+    func choose(_ choice: ProfileChoice) {
+        guard let mac = store.pairedMac else { return }
+        let before = profileChoice
+        keptProfile = choice
+        UserDefaults.standard.set(choice.stored, forKey: Self.profileKey(mac.macId))
+        if profileChoice != before { Task { await refreshHome() } }
+    }
+
     func refreshHome() async {
         guard let api, isConnected else { return }
+        homeAsks += 1
+        let ask = homeAsks
+        let profileId = profileChoice.profileId
         do {
-            let home = try await api.home()
+            let home = try await api.home(profileId: profileId)
+            guard ask > homeShown else { return }
+            homeShown = ask
             store.showHome(home)
+            rowEdits.caughtUp(with: home, ask: ask)
             if let cache { disk.async { try? cache.saveHome(home) } }
             // The badge says what Needs you says: the same moments the Mac's pushes are for.
             try? await UNUserNotificationCenter.current().setBadgeCount(home.needsYou.count)
+            // A Mac's first answer names its profiles, and with them the one shown by default: its own
+            // recent sessions are asked for, unless a later ask is already on its way.
+            if profileChoice.profileId != profileId, ask == homeAsks { await refreshHome() }
         } catch {
             report(error)
         }
+    }
+
+    /// One page of a space's sessions, the newest activity first.
+    func spaceSessions(_ spaceId: String, from offset: Int) async throws -> SpaceSessions {
+        guard let api, isConnected else { throw ChannelError.notConnected }
+        return try await api.spaceSessions(id: spaceId, offset: offset, limit: SpacePages.size)
     }
 
     /// What Diagnostics opens when it is not told which: an idle session, since a message sent to one
@@ -448,6 +555,13 @@ final class AppModel {
             store.restoreTranscript(sessionId, from: cached)
         }
         guard let api, isConnected else { return }
+        Task { await work.loadSubagents(sessionId) }
+        Task {
+            await loadOptions(sessionId)
+            #if DEBUG
+            await stageLaunchPhoto(in: sessionId)
+            #endif
+        }
         store.beginOpening(sessionId)
         do {
             store.finishOpening(try await api.openSession(id: sessionId))
@@ -468,13 +582,23 @@ final class AppModel {
         try? await api.closeSession(id: sessionId)
     }
 
-    /// A message, in line behind anything already waiting. It shows as Sending… until the Mac has it.
-    func send(_ text: String, to sessionId: String) {
+    /// A message, in line behind anything already waiting, with the files it takes and what it does if
+    /// a turn is under way when it arrives. It shows as Sending… until the Mac has it.
+    func send(_ text: String, attachments: [OutgoingAttachment] = [], delivery: Delivery = .auto, to sessionId: String) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        store.enqueueMessage(text, in: sessionId)
+        guard !text.isEmpty || !attachments.isEmpty else { return }
+        store.enqueueMessage(text, attachments: attachments, delivery: delivery, in: sessionId)
         saveOutbox()
         Task { await deliver(sessionId) }
+    }
+
+    /// Sends what is in a session's composer, words and files, and empties it.
+    func sendDraft(_ sessionId: String, delivery: Delivery) {
+        let text = composerDrafts[sessionId] ?? "", attachments = draftAttachments[sessionId] ?? []
+        guard ComposerAction.hasContent(text: text, attachments: attachments) else { return }
+        send(text, attachments: attachments, delivery: delivery, to: sessionId)
+        composerDrafts[sessionId] = nil
+        draftAttachments[sessionId] = nil
     }
 
     func answer(_ decision: Decision, to request: TranscriptRow.Request, in sessionId: String) {
@@ -514,6 +638,127 @@ final class AppModel {
         } catch {
             report(error)
         }
+    }
+
+    // MARK: - The composer
+
+    /// A session's settings and what they could be. A Mac before Plan 29 has no such call; its
+    /// sessions are noted, and their composer takes no files.
+    func loadOptions(_ sessionId: String) async {
+        guard let api, isConnected else { return }
+        do {
+            sessionOptions[sessionId] = try await api.options(id: sessionId)
+            optionsUnanswered.remove(sessionId)
+        } catch ChannelError.rpc(let error) where error.code == "METHOD_NOT_FOUND" {
+            optionsUnanswered.insert(sessionId)
+        } catch {
+            // The chips keep what they last knew, and the sheet asks again when it opens.
+        }
+    }
+
+    /// One change to a session's settings: shown at once, then as the Mac has it, or put back with a
+    /// toast where it refuses. One at a time, so putting one back never undoes a later one: the
+    /// settings sheet and the mode chip are off while one travels.
+    func configure(_ changes: SessionChanges, _ setting: SessionSetting, in sessionId: String) async {
+        guard configuring[sessionId] == nil, let before = sessionOptions[sessionId] else { return }
+        guard let api, isConnected else {
+            show(toast: "Connect to your Mac to change these.")
+            return
+        }
+        configuring[sessionId] = setting
+        sessionOptions[sessionId] = before.applying(changes)
+        do {
+            sessionOptions[sessionId] = try await api.configure(id: sessionId, changes)
+        } catch {
+            sessionOptions[sessionId] = before
+            show(toast: "\(setting.word) did not change. \(Self.describe(error))")
+        }
+        configuring[sessionId] = nil
+    }
+
+    /// Adds what was picked to a composer's draft — a session's, or a new session's under its own key —
+    /// each made ready and kept on this phone until it is sent or taken out: a photo made a JPEG, a file
+    /// read whole. What the Mac would refuse, by `limits` or the session's own, is left out, and a toast
+    /// says why.
+    func attach(_ sources: [AttachmentSource], to sessionId: String, limits: SendLimits? = nil) async {
+        guard let limits = limits ?? sessionOptions[sessionId]?.attachments, !sources.isEmpty else { return }
+        preparingAttachments[sessionId, default: 0] += sources.count
+        for source in sources {
+            let name = AttachmentNames.photo(besides: draftAttachments[sessionId] ?? [])
+            let outcome = await Task.detached(priority: .userInitiated) { await Self.prepare(source, photoName: name, limits: limits) }.value
+            let left = (preparingAttachments[sessionId] ?? 1) - 1
+            preparingAttachments[sessionId] = left > 0 ? left : nil
+            let prepared: PreparedFile
+            switch outcome {
+            case .success(let file): prepared = file
+            case .failure(let refusal):
+                show(toast: refusal.words)
+                continue
+            }
+            let taken = draftAttachments[sessionId] ?? []
+            if let refusal = AttachmentLimits.refusal(prepared.name, size: prepared.data.count, joining: taken, limits: limits) {
+                show(toast: refusal)
+                continue
+            }
+            do {
+                draftAttachments[sessionId, default: []].append(try store.files.keep(prepared.data, name: prepared.name, mime: prepared.mime))
+            } catch {
+                show(toast: "\(prepared.name) could not be kept on this iPhone. \(error.localizedDescription)")
+            }
+        }
+    }
+
+    #if DEBUG
+    @ObservationIgnored private var photoStaged = false
+
+    /// `-stagePhoto <path>`: the picture, in the first session's composer that opens.
+    private func stageLaunchPhoto(in sessionId: String) async {
+        guard !photoStaged, let path = LaunchOptions.stagedPhoto, let image = UIImage(contentsOfFile: path) else { return }
+        photoStaged = true
+        await attach([.camera(image)], to: sessionId)
+    }
+    #endif
+
+    /// Takes a file out of a session's composer, and off this phone.
+    func removeAttachment(_ attachment: OutgoingAttachment, from sessionId: String) {
+        draftAttachments[sessionId]?.removeAll { $0.id == attachment.id }
+        store.files.remove([attachment])
+    }
+
+    /// A picked photo or file, ready to keep; or why it cannot go, in words. Off the main thread: a
+    /// photo takes a moment to make smaller, and a file to read.
+    private nonisolated static func prepare(_ source: AttachmentSource, photoName: String, limits: SendLimits) async -> Result<PreparedFile, Refusal> {
+        switch source {
+        case .library(let item):
+            guard let data = try? await item.loadTransferable(type: Data.self), let jpeg = PhotoPrep.jpeg(data) else {
+                return .failure(Refusal(words: "That photo could not be read."))
+            }
+            return .success(PreparedFile(data: jpeg, name: photoName, mime: "image/jpeg"))
+        case .camera(let image):
+            guard let jpeg = PhotoPrep.jpeg(image) else { return .failure(Refusal(words: "That photo could not be read.")) }
+            return .success(PreparedFile(data: jpeg, name: photoName, mime: "image/jpeg"))
+        case .file(let url):
+            let name = url.lastPathComponent
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            // Refused before it is read: a film from Files can be far larger than the phone should hold at once.
+            if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > limits.maxBytes {
+                return .failure(Refusal(words: AttachmentLimits.refusal(name, size: size, joining: [], limits: limits) ?? ""))
+            }
+            guard let data = try? Data(contentsOf: url) else { return .failure(Refusal(words: "\(name) could not be read.")) }
+            let file = FilePrep.prepared(data, name: name)
+            return .success(PreparedFile(data: file.data, name: file.name, mime: file.mime))
+        }
+    }
+
+    private struct PreparedFile: Sendable {
+        let data: Data
+        let name: String
+        let mime: String
+    }
+
+    private struct Refusal: Error {
+        let words: String
     }
 
     /// Marks the session read up to its last row, once that row has been on screen.
@@ -641,6 +886,19 @@ final class AppModel {
 
     private func forgetFetched() {
         everConnected = false
+        // A draft's files were for that Mac's sessions.
+        store.files.remove(draftAttachments.values.joined())
+        draftAttachments = [:]
+        work.forget()
+        sessionOptions = [:]
+        optionsUnanswered = []
+        configuring = [:]
+        for change in rowChanges.values { change.cancel() }
+        rowChanges = [:]
+        rowEdits = RowEdits()
+        renaming = nil
+        agentList = nil
+        queueCalls = [:]
         spacePictures = [:]
         thumbnails = [:]
         previews = [:]
@@ -719,8 +977,8 @@ final class AppModel {
 
     // MARK: - Words
 
-    func show(toast text: String) {
-        toast = Toast(text: text)
+    func show(toast text: String, undo: (@MainActor () -> Void)? = nil) {
+        toast = Toast(text: text, undo: undo)
     }
 
     private func report(_ error: any Error) {

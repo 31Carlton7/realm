@@ -33,7 +33,7 @@ import { panelPlace, splitRefusal } from "./view-room";
 import type { LibraryAddInput, LibraryAddResult, LibraryRemoveInput, LibraryRemoveResult, LibraryRestoreInput, LibraryRestoreResult } from "@realm/contracts";
 import { getMachineHub } from "../panes/machine/machine-hub";
 import { CHILD_ORIGINS } from "../panes/session-labels";
-import { QUICK_CHAT_SETTING } from "@realm/view";
+import { FALLBACK_AGENT, LAST_AGENT_SETTING, QUICK_CHAT_SETTING } from "@realm/view";
 import { CUE_BY_CATEGORY, cueVolume, type CueName } from "./cues";
 import { CONTRAST_RANGE, DEFAULT_FONTS, DEFAULT_GROUND_ALPHA, DEFAULT_PANE_ALPHA, DEFAULT_SELECTION, clampContrast, clampGroundAlpha, clampPaneAlpha, paneAlphaFromGround,
   isOverridden, parseFontPref, type FontPref,
@@ -96,8 +96,7 @@ export type SessionOptions = { model?: string; effort?: string | null; permissio
 /** A pending attachment as the prompter holds it. `path`/`mime` are the wire fields; `name` labels the
  *  chip and `size` is what the MAX_ATTACHMENT_BYTES check reads — neither is transmitted. */
 export type PickedAttachment = Attachment & { name: string; size: number };
-/** Agent a session is created with when the user never said (first run, or a wiped setting). */
-export const FALLBACK_AGENT: AgentKind = "claude";
+export { FALLBACK_AGENT };
 export type PermissionDecision = "allow" | "allow_always" | "deny";
 /** Where a sidebar row was dropped on a pane: an edge splits there, center replaces the pane's item.
  *  Canonical home of this type — PaneHost imports it from here. */
@@ -849,7 +848,7 @@ const SETTING_GROUND_ALPHA = "ui.groundAlpha";
  *  a home saved while one control moved both; boot carries that home's value over once. */
 export const SETTING_PANE_ALPHA = "ui.paneAlpha";
 /** Agent of the most recent session the user created or switched to — what "+"/⌘N reach for next. */
-export const SETTING_LAST_AGENT = "ui.lastAgentKind";
+export const SETTING_LAST_AGENT = LAST_AGENT_SETTING;
 /** Per agent kind, the model of the last message the user sent — what "+"/⌘N put the next session
  *  of that kind on. `null` is a send on the harness's own default, and is remembered as one. */
 export const SETTING_LAST_MODELS = "ui.lastModels";

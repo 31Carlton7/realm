@@ -13,9 +13,13 @@ import { PhysicalDevices } from "./simulators/physical";
 import { phoneVideo } from "./simulators/phone-video";
 import { simctl } from "./simulators/simctl";
 import { realLayaRuntime } from "./laya/runtime";
-import { DAEMON_PROTOCOL, DEFAULT_REMOTE_RELAY } from "@realm/contracts";
+import { DAEMON_PROTOCOL } from "@realm/contracts";
+import { relayBase } from "@realm/remote";
 import { realmHome } from "./paths";
+import { defaultRelay } from "./remote/relays";
 import { BOOT_ID, acquireLock, clearState, currentBundleId, newToken, readState, releaseLock, writeState } from "./daemon/state";
+import { listenFromEnv } from "./access/listen";
+import { homeKeyFile } from "./remote/home-key";
 
 const envPort = Number(process.env.REALM_PORT);
 const port = Number.isFinite(envPort) && envPort >= 0 ? envPort : 0;
@@ -24,6 +28,16 @@ const entry = process.argv[1] ?? "";
 let lockedHome: string | null = null;
 /** Set once the app exists; called when `daemon.drain` is accepted. */
 let markDraining: (() => void) | null = null;
+/** What `realm serve` and `realm service install` hand this process, read once and then removed, as
+ *  ELECTRON_RUN_AS_NODE is above: every terminal and agent spawned from here inherits this environment,
+ *  and a `realm serve` or `pnpm dev` started in one must not inherit this server's listener, its
+ *  headless key, or its service manager. */
+const handedOver = {
+  listen: process.env.REALM_LISTEN, cert: process.env.REALM_TLS_CERT, key: process.env.REALM_TLS_KEY,
+  allowPlaintext: process.env.REALM_ALLOW_PLAINTEXT, headless: process.env.REALM_HEADLESS === "1",
+  service: process.env.REALM_SERVICE === "1", remoteKeyFile: process.env.REALM_REMOTE_KEY_FILE || null,
+};
+for (const k of ["REALM_LISTEN", "REALM_TLS_CERT", "REALM_TLS_KEY", "REALM_ALLOW_PLAINTEXT", "REALM_HEADLESS", "REALM_SERVICE", "REALM_REMOTE_KEY_FILE"]) delete process.env[k];
 
 try {
   const home = realmHome();
@@ -36,12 +50,21 @@ try {
     // adopts the daemon already running instead of showing the user an error about a lock file.
     const running = readState(home);
     process.stdout.write(JSON.stringify({ type: "error", code: "ALREADY_RUNNING", message: `realm-server is already running on this home (pid ${lock.pid})`, pid: lock.pid, port: running?.port ?? null }) + "\n");
-    process.exit(3);
+    // Under a service manager (`realm service install` sets REALM_SERVICE), a home that is already
+    // served is the job done, not a failure: launchd and systemd restart a job that exits non-zero, and
+    // would start this one again every few seconds for as long as the Realm app's own server runs.
+    process.exit(handedOver.service ? 0 : 3);
   }
   lockedHome = home;
+  const remoteListen = listenFromEnv({ REALM_LISTEN: handedOver.listen, REALM_TLS_CERT: handedOver.cert, REALM_TLS_KEY: handedOver.key, REALM_ALLOW_PLAINTEXT: handedOver.allowPlaintext });
   // The live-video helper for a real iPhone's picture, as the app handed it over. Absent — a build
   // without swiftc, a launch that is not the app's — the picture is the runner's screenshots.
   const phoneScreen = process.env.REALM_PHONESCREEN_BIN && existsSync(process.env.REALM_PHONESCREEN_BIN) ? process.env.REALM_PHONESCREEN_BIN : null;
+
+  // A REALM_RELAY that is not a relay leaves the build's own in place; said here, so that is no mystery.
+  if (process.env.REALM_RELAY && !relayBase(process.env.REALM_RELAY)) {
+    process.stderr.write(`[realm-server] REALM_RELAY ${JSON.stringify(process.env.REALM_RELAY)} is not a ws:// or wss:// relay; dialling ${defaultRelay(process.env)}\n`);
+  }
 
   const app = await createApp({
     home, port, token,
@@ -82,9 +105,22 @@ try {
       rehearsal: (process.env.REALM_RUNNER_SIMULATOR ?? "").split(",").map((u) => u.trim()).filter(Boolean),
     }),
     // Realm Mobile's relay. Only here, for the probe's reason: no other `createApp` may dial one it did
-    // not name. A development build (`pnpm dev`, whose window is the Vite server) also takes the phone's
-    // `debug.report`, which is how a test build brings its own timings back; a packaged one never does.
-    remote: { defaultRelay: DEFAULT_REMOTE_RELAY, dev: Boolean(process.env.ELECTRON_RENDERER_URL) },
+    // not name. Production for a released build, staging for a development one (`pnpm dev`, whose
+    // window is the Vite server), REALM_RELAY over both (remote/relays.ts). A development build also
+    // takes the phone's `debug.report`, which is how a test build brings its own timings back; a
+    // packaged one never does.
+    remote: {
+      defaultRelay: defaultRelay(process.env), dev: Boolean(process.env.ELECTRON_RENDERER_URL),
+      // A server with no Realm window to hand it the Keychain's key keeps one in this home, or reads a
+      // systemd credential's. Every server reads it, so the app opens what a headless server paired;
+      // only one `realm serve` started may make it, and never at a path somebody else named.
+      homeKey: handedOver.remoteKeyFile
+        ? { file: handedOver.remoteKeyFile, create: false }
+        : { file: homeKeyFile(home), create: handedOver.headless },
+    },
+    // `realm serve --listen` (ctl/commands.ts) hands its listener over in the environment, as it does
+    // the home and the port. A server the app starts never has one: it listens on loopback only.
+    ...(remoteListen ? { access: { listen: remoteListen } } : {}),
   });
 
   // The state file is written only now, because `createApp` is what binds the port — a file

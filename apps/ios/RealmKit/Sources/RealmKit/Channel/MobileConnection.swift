@@ -13,20 +13,33 @@ public struct ClientInfo: Codable, Sendable, Equatable {
     }
 }
 
-/// IK message 2's payload: `{"v":1,"mac":"<Mac name>","server":"<Realm version>"}`.
+/// IK message 2's payload: `{"v":1,"mac":"<Mac name>","server":"<Realm version>","relay":"<relay base>"}`.
 struct MacHello: Decodable {
     let v: Int
     let mac: String
     let server: String?
+    /// The Mac's own relay (§3.3). A Mac before it, or one whose relay has not answered it, names none.
+    let relay: String?
 }
 
 public struct ConnectedMac: Sendable, Equatable {
     public let name: String
     public let server: String
+    /// The relay the Mac says it is on (§3.3), when it names one that is a relay base. A pairing that
+    /// dials another moves to it.
+    public let relay: URL?
     /// IK message 1 sent → message 2 read: the Noise round trip through the relay and the Mac.
     public let handshake: Duration
     /// Socket created → channel ready: what a person waits for.
     public let connect: Duration
+
+    init(name: String, server: String, relay: URL? = nil, handshake: Duration, connect: Duration) {
+        self.name = name
+        self.server = server
+        self.relay = relay
+        self.handshake = handshake
+        self.connect = connect
+    }
 }
 
 public enum ConnectionState: Sendable, Equatable {
@@ -336,7 +349,7 @@ public actor MobileConnection {
                 let hello = try JSONDecoder().decode(MacHello.self, from: payload)
                 channel = OpenChannel(send: ciphers.initiatorToResponder, receive: ciphers.responderToInitiator)
                 let now = ContinuousClock.now
-                let info = ConnectedMac(name: hello.mac, server: hello.server ?? "",
+                let info = ConnectedMac(name: hello.mac, server: hello.server ?? "", relay: hello.relay.flatMap(PairingLink.relayBase),
                                         handshake: now - inFlight.sentAt, connect: now - socketCreatedAt)
                 setState(.connected(info))
                 let current = waiters
@@ -413,6 +426,44 @@ public struct MobileAPI: Sendable {
         try await connection.call("home.get", as: Home.self)
     }
 
+    /// Home, with `recent` gathered for one profile; nil gathers it for every profile.
+    public func home(profileId: String?) async throws -> Home {
+        struct Params: Encodable, Sendable { let profileId: String? }
+        return try await connection.call("home.get", params: Params(profileId: profileId), as: Home.self)
+    }
+
+    /// One page of a space's listed sessions, most recently active first.
+    public func spaceSessions(id: String, offset: Int = 0, limit: Int = 50) async throws -> SpaceSessions {
+        struct Params: Encodable, Sendable { let id: String; let offset: Int; let limit: Int }
+        return try await connection.call("space.sessions", params: Params(id: id, offset: offset, limit: limit), as: SpaceSessions.self)
+    }
+
+    /// The session's model, reasoning, mode and permissions, and what each could be changed to. A Mac
+    /// before Plan 29 answers `METHOD_NOT_FOUND`, and takes no files with a message either.
+    public func options(id: String) async throws -> SessionOptions {
+        try await connection.call("session.options", params: SessionID(id: id), as: SessionOptions.self)
+    }
+
+    /// Changes what the composer's chips show, and answers with the options as they are now.
+    public func configure(id: String, _ changes: SessionChanges) async throws -> SessionOptions {
+        struct Params: Encodable, Sendable {
+            let id: String
+            let changes: SessionChanges
+            func encode(to encoder: Encoder) throws {
+                try changes.encode(to: encoder)
+                var c = encoder.container(keyedBy: Key.self)
+                try c.encode(id, forKey: .id)
+            }
+            enum Key: String, CodingKey { case id }
+        }
+        return try await connection.call("session.configure", params: Params(id: id, changes: changes), as: SessionOptions.self)
+    }
+
+    /// The agents a new session could be given, and the one the Mac starts with.
+    public func agents() async throws -> AgentList {
+        try await connection.call("agents.list", as: AgentList.self)
+    }
+
     public func openSession(id: String, limit: Int? = nil) async throws -> OpenedSession {
         struct Params: Encodable, Sendable { let id: String; let limit: Int? }
         return try await connection.call("session.open", params: Params(id: id, limit: limit), as: OpenedSession.self)
@@ -422,10 +473,26 @@ public struct MobileAPI: Sendable {
         _ = try await connection.call("session.close", params: SessionID(id: id), as: Acknowledged.self)
     }
 
-    public func send(id: String, text: String, delivery: Delivery? = nil, timeout: Duration? = nil) async throws {
-        struct Params: Encodable, Sendable { let id: String; let text: String; let delivery: Delivery? }
-        _ = try await connection.call("session.send", params: Params(id: id, text: text, delivery: delivery), as: Acknowledged.self,
-                                      timeout: timeout)
+    /// `attachments` go only to a Mac that answers `session.options`: an older one would drop them.
+    public func send(id: String, text: String, delivery: Delivery? = nil, attachments: [AttachmentUpload] = [],
+                     timeout: Duration? = nil) async throws {
+        struct Params: Encodable, Sendable {
+            let id: String
+            let text: String
+            let delivery: Delivery?
+            let attachments: [AttachmentUpload]
+            func encode(to encoder: Encoder) throws {
+                var c = encoder.container(keyedBy: Key.self)
+                try c.encode(id, forKey: .id)
+                try c.encode(text, forKey: .text)
+                try c.encodeIfPresent(delivery, forKey: .delivery)
+                // Left out when empty, so a message without files reads to an older Mac as it always did.
+                if !attachments.isEmpty { try c.encode(attachments, forKey: .attachments) }
+            }
+            enum Key: String, CodingKey { case id, text, delivery, attachments }
+        }
+        _ = try await connection.call("session.send", params: Params(id: id, text: text, delivery: delivery, attachments: attachments),
+                                      as: Acknowledged.self, timeout: timeout)
     }
 
     /// `answers` maps a question's text to the chosen label; several labels for a multi-select
@@ -484,10 +551,119 @@ public struct MobileAPI: Sendable {
                                          as: CreatedSession.self)
     }
 
+    /// A new session with its first message; what `settings` leaves nil is the Mac's default.
+    public func createSession(spaceId: String, agent: String, text: String, settings: SessionChanges,
+                              attachments: [AttachmentUpload] = [], timeout: Duration? = nil) async throws -> CreatedSession {
+        struct Params: Encodable, Sendable {
+            let spaceId: String
+            let agent: String
+            let text: String
+            let settings: SessionChanges
+            let attachments: [AttachmentUpload]
+            func encode(to encoder: Encoder) throws {
+                try settings.encode(to: encoder)
+                var c = encoder.container(keyedBy: Key.self)
+                try c.encode(spaceId, forKey: .spaceId)
+                try c.encode(agent, forKey: .agent)
+                try c.encode(text, forKey: .text)
+                if !attachments.isEmpty { try c.encode(attachments, forKey: .attachments) }
+            }
+            enum Key: String, CodingKey { case spaceId, agent, text, attachments }
+        }
+        return try await connection.call("session.create",
+                                         params: Params(spaceId: spaceId, agent: agent, text: text, settings: settings, attachments: attachments),
+                                         as: CreatedSession.self, timeout: timeout)
+    }
+
+    /// Renames, pins or archives a session's row; nil fields stay as they are. Answers with its row,
+    /// or nil once it is archived.
+    public func updateSession(id: String, title: String? = nil, pinned: Bool? = nil, archived: Bool? = nil) async throws -> SessionRow? {
+        struct Params: Encodable, Sendable { let id: String; let title: String?; let pinned: Bool?; let archived: Bool? }
+        struct Answer: Decodable, Sendable { let session: SessionRow? }
+        return try await connection.call("session.update", params: Params(id: id, title: title, pinned: pinned, archived: archived),
+                                         as: Answer.self).session
+    }
+
+    /// The messages waiting in the Mac's queue.
+    public func queue(id: String) async throws -> [QueuedMessage] {
+        struct Answer: Decodable, Sendable { let queued: [QueuedMessage] }
+        return try await connection.call("session.queue", params: SessionID(id: id), as: Answer.self).queued
+    }
+
+    /// Sends one queued message now, ahead of the turn it was waiting for.
+    public func sendQueuedNow(id: String, queuedId: String) async throws {
+        _ = try await connection.call("session.sendQueuedNow", params: QueuedID(id: id, queuedId: queuedId), as: Acknowledged.self)
+    }
+
+    /// Takes a queued message out of the queue; it is not sent.
+    public func removeQueued(id: String, queuedId: String) async throws {
+        _ = try await connection.call("session.removeQueued", params: QueuedID(id: id, queuedId: queuedId), as: Acknowledged.self)
+    }
+
+    /// Holds a queued message while it is edited here, or lets it go.
+    public func holdQueued(id: String, queuedId: String, held: Bool) async throws {
+        struct Params: Encodable, Sendable { let id: String; let queuedId: String; let held: Bool }
+        _ = try await connection.call("session.holdQueued", params: Params(id: id, queuedId: queuedId, held: held), as: Acknowledged.self)
+    }
+
+    /// Replaces a queued message's words, keeping its files, and lets it go.
+    public func editQueued(id: String, queuedId: String, text: String) async throws {
+        struct Params: Encodable, Sendable { let id: String; let queuedId: String; let text: String }
+        _ = try await connection.call("session.editQueued", params: Params(id: id, queuedId: queuedId, text: text), as: Acknowledged.self)
+    }
+
+    /// The sub-agents a session started, newest first.
+    public func subagents(id: String) async throws -> [Subagent] {
+        struct Answer: Decodable, Sendable { let subagents: [Subagent] }
+        return try await connection.call("session.subagents", params: SessionID(id: id), as: Answer.self).subagents
+    }
+
+    /// Every agent's plan limits, and this month's spend.
+    public func usage() async throws -> Usage {
+        try await connection.call("usage.get", as: Usage.self)
+    }
+
+    /// What teams have handed back for review and is still open, newest first.
+    public func reviews() async throws -> [ReviewSummary] {
+        struct Answer: Decodable, Sendable { let reviews: [ReviewSummary] }
+        return try await connection.call("reviews.list", as: Answer.self).reviews
+    }
+
+    public func review(id: String) async throws -> ReviewDetail {
+        try await connection.call("review.get", params: SessionID(id: id), as: ReviewDetail.self)
+    }
+
+    /// Approves a review, asks for changes with a note, or rejects it with a reason. Approving posts
+    /// nothing: each outward act is still pressed on the Mac.
+    public func decide(review id: String, _ decision: ReviewDecision, note: String? = nil) async throws -> ReviewSummary {
+        struct Params: Encodable, Sendable { let id: String; let decision: ReviewDecision; let note: String? }
+        struct Answer: Decodable, Sendable { let review: ReviewSummary }
+        return try await connection.call("review.decide", params: Params(id: id, decision: decision, note: note), as: Answer.self).review
+    }
+
+    /// A preview of a picture a review's item carries.
+    public func reviewFile(id: String, path: String) async throws -> FilePreview {
+        struct Params: Encodable, Sendable { let id: String; let path: String }
+        return try await connection.call("review.file", params: Params(id: id, path: path), as: FilePreview.self)
+    }
+
+    /// Every space's scheduled tasks, next to run first.
+    public func schedules() async throws -> [ScheduledTask] {
+        struct Answer: Decodable, Sendable { let tasks: [ScheduledTask] }
+        return try await connection.call("schedules.list", as: Answer.self).tasks
+    }
+
+    /// Runs a scheduled task now.
+    public func runNow(schedule id: String) async throws -> ScheduledTask {
+        struct Answer: Decodable, Sendable { let task: ScheduledTask }
+        return try await connection.call("schedules.runNow", params: SessionID(id: id), as: Answer.self).task
+    }
+
     public func debugReport(name: String, data: JSONValue) async throws {
         struct Params: Encodable, Sendable { let name: String; let data: JSONValue }
         _ = try await connection.call("debug.report", params: Params(name: name, data: data), as: Acknowledged.self)
     }
 
     private struct SessionID: Encodable, Sendable { let id: String }
+    private struct QueuedID: Encodable, Sendable { let id: String; let queuedId: String }
 }

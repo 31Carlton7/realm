@@ -4,8 +4,9 @@
  * Every other squircle in Realm is drawn by the paint worklet, which fills a background. A canvas
  * cannot be done that way: its content is opaque, so a fill behind it changes nothing, and
  * `mask-image: paint(rl-squircle)` parses in this Chromium without masking — measured against the
- * real renderer, where the masked box came out square. `corner-shape: squircle` is inert here too
- * (Chromium 138; it lands in 139).
+ * real renderer, where the masked box came out square (Chromium 138). `corner-shape: squircle` was
+ * inert there too; it draws from 139, which Electron 45's 156 is past, and moving this surface onto
+ * it is a change of its own.
  *
  * What is left is a clip, and a clip needs an explicit path. That is affordable here and nowhere
  * else in the app precisely because this surface already knows its own size in pixels: `fit.ts`

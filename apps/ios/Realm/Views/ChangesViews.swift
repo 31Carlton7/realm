@@ -72,8 +72,12 @@ private struct LineTotals: ViewModifier {
 /// A changed file: what happened to it as a glyph and a word, its name over its folder, its counts.
 struct ChangedFileRow: View {
     let file: ChangedFile
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
+        // At the accessibility sizes the counts go under the name, which keeps the row's width: beside
+        // it they left a name of three letters.
+        let ax = dynamicTypeSize.isAccessibilitySize
         HStack(spacing: 12) {
             Image(systemName: Self.symbol(file.status))
                 .font(.body)
@@ -85,18 +89,23 @@ struct ChangedFileRow: View {
                 Text(ChangesWords.name(file.path))
                     .mono(.subheadline, medium: true)
                     .foregroundStyle(Palette.ink)
-                    .lineLimit(1)
+                    .lineLimit(ax ? 3 : 1)
                     .truncationMode(.middle)
                 if let folder = ChangesWords.folder(file.path) {
                     Text(folder)
                         .mono(.caption)
                         .foregroundStyle(Palette.ink2)
-                        .lineLimit(1)
+                        .lineLimit(ax ? 2 : 1)
                         .truncationMode(.head)
+                }
+                if ax {
+                    LineCounts(additions: file.additions, deletions: file.deletions, binary: file.additions == nil)
                 }
             }
             Spacer(minLength: 8)
-            LineCounts(additions: file.additions, deletions: file.deletions, binary: file.additions == nil)
+            if !ax {
+                LineCounts(additions: file.additions, deletions: file.deletions, binary: file.additions == nil)
+            }
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
@@ -414,11 +423,14 @@ struct InlineDiff: View {
     }
 }
 
-/// A file a turn made, as the Mac lets the phone see it: a picture, the head of a text, or what it is
-/// and why it cannot be shown here.
+/// A file a turn made or a message took, as the Mac lets the phone see it: a picture, the head of a
+/// text, or what it is and why it cannot be shown here.
 struct FilePreviewSheet: View {
-    let file: MadeFile
+    let path: String
+    let name: String
     let sessionId: String
+    /// What its row said of its size, until the preview says.
+    var size: Double?
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @Environment(\.displayScale) private var displayScale
@@ -445,7 +457,7 @@ struct FilePreviewSheet: View {
                                                           lineWidth: 1 / displayScale)
                                     }
                                     .padding(16)
-                                    .accessibilityLabel(file.name)
+                                    .accessibilityLabel(name)
                             }
                             .defaultScrollAnchor(.center, for: .alignment)
                         } else {
@@ -480,8 +492,8 @@ struct FilePreviewSheet: View {
                 }
             }
             .background(Ground.transcript)
-            .navigationTitle(file.name)
-            .navigationSubtitle(ByteCountFormatter.string(fromByteCount: Int64(file.size), countStyle: .file))
+            .navigationTitle(name)
+            .navigationSubtitle((preview?.size ?? size).map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) } ?? "")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -490,7 +502,7 @@ struct FilePreviewSheet: View {
             }
             .task {
                 do {
-                    preview = try await model.preview(file.path, in: sessionId)
+                    preview = try await model.preview(path, in: sessionId)
                 } catch {
                     problem = AppModel.describe(error)
                 }
@@ -499,6 +511,6 @@ struct FilePreviewSheet: View {
     }
 
     private func unavailable(_ reason: String) -> some View {
-        ContentUnavailableView(file.name, systemImage: FileKind.symbol(file.path), description: Text(reason))
+        ContentUnavailableView(name, systemImage: FileKind.symbol(path), description: Text(reason))
     }
 }

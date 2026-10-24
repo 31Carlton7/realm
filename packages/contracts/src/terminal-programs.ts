@@ -30,6 +30,22 @@ export const TerminalProgramSchema = z.object({
 });
 export type TerminalProgram = z.infer<typeof TerminalProgramSchema>;
 
+/**
+ * One terminal as `terminals.list` reports it: where it runs, what it was started with, and whether
+ * it has ended. `command` is the line `terminals.create` was given — echoed back to the caller that
+ * supplied it, never broadcast — and null for an interactive shell.
+ *
+ * `exitCode` and `signal` are null while it runs. A command killed by a signal has `signal` set and
+ * whatever code the pty reported; a script deciding "did it succeed" reads `exitCode === 0 && signal
+ * === null`, never `!running` alone.
+ */
+export const TerminalStatusSchema = z.object({
+  terminalId: z.string(), spaceId: z.string(), cwd: z.string(), command: z.string().nullable(),
+  running: z.boolean(), exitCode: z.number().int().nullable(), signal: z.number().int().nullable(),
+  startedAt: z.number().int(), exitedAt: z.number().int().nullable(),
+});
+export type TerminalStatus = z.infer<typeof TerminalStatusSchema>;
+
 /** What the server could read about the foreground process group's leader. */
 export type ForegroundProcess = {
   /**

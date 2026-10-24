@@ -4,11 +4,13 @@ import SwiftUI
 import VisionKit
 
 /// Pairing: scan the code the Mac shows, or paste its link. The Mac asks its owner before this iPhone
-/// sees anything, and this screen says so while it waits. Plain, as a first run is: the mark, the
-/// steps, and the one action, live from the first frame below the scroller.
+/// sees anything, and this screen says so while it waits. Plain, as a first run is: the mark, what
+/// Realm is, the steps — the first of them saying where Realm for Mac comes from, for someone who has
+/// none yet — and the one action, live from the first frame below the scroller.
 struct PairView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var scanning = false
     @State private var pasting = false
     @State private var cameraProblem: String?
@@ -61,14 +63,18 @@ struct PairView: View {
                         .font(.largeTitle.bold())
                         .foregroundStyle(Palette.ink)
                         .accessibilityAddTraits(.isHeader)
-                    Text("See what your Mac's sessions are doing, answer what they wait on, and send the next message.")
+                    Text("Realm runs your coding agents on your Mac. Pair this iPhone with it to see what they're doing, answer what they wait on, and send the next message.")
                         .font(.body)
                         .foregroundStyle(Palette.ink2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 VStack(alignment: .leading, spacing: 16) {
-                    Step(number: 1, text: "On your Mac, open Realm's Settings ▸ Devices.")
-                    Step(number: 2, text: "Choose Pair an iPhone.")
+                    // Over a paired Mac, Realm is already there.
+                    Step(number: 1, text: overTheTop ? "Open Realm on your Mac."
+                                                     : "Open Realm on your Mac. New to Realm? It's free at **[realm.computer](https://realm.computer)**.")
+                    // The arrow is held to the word before it, so no line starts with it, and the button's
+                    // name is held whole.
+                    Step(number: 2, text: "In Settings\u{00A0}▸ Devices, choose Pair\u{00A0}an\u{00A0}iPhone.")
                     Step(number: 3, text: "Scan the code it shows.")
                 }
                 if case .failed(let message) = model.pairing {
@@ -101,6 +107,10 @@ struct PairView: View {
                         }
                     }
                 }
+                if dynamicTypeSize.isAccessibilitySize {
+                    actions
+                        .padding(.horizontal, -24)
+                }
             }
             .padding(.horizontal, 24)
             .padding(.top, 32)
@@ -109,36 +119,44 @@ struct PairView: View {
             .frame(maxWidth: .infinity)
         }
         .scrollBounceBehavior(.basedOnSize)
+        // At the accessibility sizes the actions are most of a screen: pinned, they would cover the
+        // title and the steps for good, so there they scroll with the rest.
         .safeAreaBar(edge: .bottom) {
-            VStack(spacing: 12) {
-                Button {
-                    startScanning()
-                } label: {
-                    Label("Scan the code", systemImage: "qrcode.viewfinder")
-                        .font(.body.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(Palette.accentFill)
-                .accessibilityIdentifier("scan")
-                Button("Paste the link") { pasting = true }
-                    .font(.body.weight(.semibold))
-                    .buttonStyle(.borderless)
-                    .frame(minHeight: 44)
-                Text("The code is good for five minutes, and your Mac asks you to confirm before this iPhone can see anything.")
-                    .font(.footnote)
-                    .foregroundStyle(Palette.ink2)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .controlSize(.large)
-            .buttonBorderShape(.capsule)
-            .padding(.horizontal, 24)
-            .padding(.top, 12)
-            .padding(.bottom, 8)
-            .frame(maxWidth: 540)
-            .disabled(model.pairing.isBusy)
+            if !dynamicTypeSize.isAccessibilitySize { actions }
         }
+    }
+
+    /// Scan, Paste, and what pairing promises: the one action, live from the first frame.
+    private var actions: some View {
+        VStack(spacing: 12) {
+            Button {
+                startScanning()
+            } label: {
+                Label("Scan the code", systemImage: "qrcode.viewfinder")
+                    .font(.body.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Palette.accentFill)
+            .accessibilityIdentifier("scan")
+            Button("Paste the link") { pasting = true }
+                .font(.body.weight(.semibold))
+                .buttonStyle(.borderless)
+                .tint(Palette.accentInk)
+                .frame(minHeight: 44)
+            Text("The code is good for five minutes, and your Mac asks you to confirm before this iPhone can see anything.")
+                .font(.footnote)
+                .foregroundStyle(Palette.ink2)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .controlSize(.large)
+        .buttonBorderShape(.capsule)
+        .padding(.horizontal, 24)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
+        .frame(maxWidth: 540)
+        .disabled(model.pairing.isBusy)
     }
 
     private func startScanning() {
@@ -178,10 +196,11 @@ struct PairView: View {
     }
 }
 
-/// A numbered step, the number in the accent as Apple's own setup screens draw it.
+/// A numbered step, the number in the accent as Apple's own setup screens draw it. Its words are
+/// Markdown, so a step can carry a link, drawn in the accent as a link is.
 private struct Step: View {
     let number: Int
-    let text: String
+    let text: LocalizedStringKey
     @ScaledMetric(relativeTo: .body) private var disc: CGFloat = 28
 
     var body: some View {
@@ -196,6 +215,7 @@ private struct Step: View {
             Text(text)
                 .font(.body)
                 .foregroundStyle(Palette.ink)
+                .tint(Palette.accentInk)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityElement(children: .combine)
@@ -266,6 +286,7 @@ private struct PasteLinkSheet: View {
             Form {
                 Section {
                     TextField("https://realm.computer/pair#1.…", text: $link, axis: .vertical)
+                        .tint(Palette.accent)
                         .lineLimit(1...4)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()

@@ -2070,7 +2070,8 @@ describe("the remote_devices migration — the phones paired with this Mac (Plan
     expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
     const cols = (db.prepare("PRAGMA table_info(remote_devices)").all() as { name: string; notnull: number; pk: number }[])
       .map((c) => `${c.name}${c.pk ? " pk" : ""}${c.notnull ? " not null" : ""}`);
-    expect(cols).toEqual(["phone_id pk", "name not null", "model not null", "dh_pub not null", "sign_pub not null", "added_at not null", "last_seen"]);
+    // `relay` is the column the chain adds after it (the next describe).
+    expect(cols).toEqual(["phone_id pk", "name not null", "model not null", "dh_pub not null", "sign_pub not null", "added_at not null", "last_seen", "relay"]);
     db.close();
   });
 
@@ -2107,5 +2108,37 @@ describe("the remote_devices migration — the phones paired with this Mac (Plan
     expect(() => again.exec(migrations[REMOTE_DEVICES_AT]!)).not.toThrow();
     expect(again.prepare("SELECT phone_id FROM remote_devices").all()).toEqual([{ phone_id: "phoneA" }]);
     again.close();
+  });
+});
+
+const REMOTE_RELAY_AT = migrations.findIndex((m) => m.includes("ALTER TABLE remote_devices ADD COLUMN relay"));
+
+describe("the remote_devices relay column — where each paired phone dials (PROTOCOL.md §3.3)", () => {
+  /** A home one short of the column: the table made, and a phone paired on it. */
+  const shortOfRelay = () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    beforeRemoteDevices(p);
+    const db = new DatabaseSync(p);
+    for (let v = REMOTE_DEVICES_AT; v < REMOTE_RELAY_AT; v++) {
+      db.exec(migrations[v]!);
+      db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v + 1, Date.now());
+    }
+    db.prepare(`INSERT INTO remote_devices (phone_id, name, model, dh_pub, sign_pub, added_at, last_seen)
+      VALUES ('phoneA', 'Carlton''s iPhone', 'iPhone18,1', 'ZGg', 'c2lnbg', 7, 9)`).run();
+    db.close();
+    return p;
+  };
+
+  it("is appended after the table, and keeps a phone paired before it, its relay left for the service to write in", () => {
+    expect(REMOTE_RELAY_AT).toBeGreaterThan(REMOTE_DEVICES_AT);
+    const db = openDatabase(shortOfRelay());
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    // The mutant: a column that is NOT NULL with a default, which would claim a relay for this phone
+    // that nobody knows it is on.
+    expect(db.prepare("SELECT phone_id, name, last_seen, relay FROM remote_devices").all())
+      .toEqual([{ phone_id: "phoneA", name: "Carlton's iPhone", last_seen: 9, relay: null }]);
+    const relay = (db.prepare("PRAGMA table_info(remote_devices)").all() as { name: string; notnull: number }[]).find((c) => c.name === "relay");
+    expect(relay).toMatchObject({ notnull: 0 });
+    db.close();
   });
 });

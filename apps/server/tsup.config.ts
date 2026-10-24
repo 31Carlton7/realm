@@ -1,9 +1,16 @@
+import { readFileSync } from "node:fs";
 import { defineConfig } from "tsup";
+
+/** The release this server ships in: the desktop app's version, which `system.info`, `realm status` and a
+ *  paired phone report. The server's own package stays 0.0.1 because it is never published on its own. */
+export const appVersion = (JSON.parse(readFileSync(new URL("../desktop/package.json", import.meta.url), "utf8")) as { version: string }).version;
+
 export default defineConfig({
-  entry: ["src/main.ts"], format: ["esm"], target: "node22", platform: "node",
-  outDir: "dist", clean: true, sourcemap: true, external: ["node-pty", "@anthropic-ai/claude-agent-sdk", "@modelcontextprotocol/sdk"], noExternal: ["@realm/contracts", "@realm/adapters", "@realm/remote", "@realm/view", "@xterm/headless"],
+  entry: ["src/main.ts", "src/realm.ts"], format: ["esm"], target: "node22", platform: "node",
+  outDir: "dist", clean: true, sourcemap: true, external: ["node-pty", "@anthropic-ai/claude-agent-sdk", "@modelcontextprotocol/sdk"], noExternal: ["@realm/contracts", "@realm/adapters", "@realm/remote", "@realm/view", "@xterm/headless", "uqr"],
   // node:sqlite has no unprefixed alias; keep the node: protocol on builtin imports.
   removeNodeProtocol: false,
+  define: { __REALM_VERSION__: JSON.stringify(appVersion) },
   // `@xterm/headless` is CJS, and tsup leaves anything in `dependencies` external by default — so it
   // shipped as a bare `import { Terminal } from "@xterm/headless"` in an ESM bundle, which Node
   // refuses at load: "Named export 'Terminal' not found". Bundling it makes esbuild resolve that name

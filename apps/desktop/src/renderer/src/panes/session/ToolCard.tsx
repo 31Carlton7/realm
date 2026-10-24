@@ -236,9 +236,9 @@ const ToolCardBody = memo(function ToolCardBody({ block, sessionStatus, enter = 
   const inputView = everOpened.current && !panel ? toolInputView(block.name, block.input) : null;
   const resultView = everOpened.current && !panel && block.result ? toolResultView(block.name, block.input, block.result.content, block.result.isError) : null;
   const cwd = useContext(ToolCwd);
-  /* The one state aicss.dev's image-generation component has, on the one call it belongs to: media
-     being made, right now. Bound to `state === "running"` — the call's REAL settled state — so the
-     canvas cannot outlive the work, and a failure leaves a failed card rather than a shimmer. */
+  /* The generating canvas, on the one call it belongs to: media being made, right now. Bound to
+     `state === "running"` — the call's REAL settled state — so the canvas cannot outlive the work,
+     and a failure leaves a failed card rather than a ring still turning. */
   const work = state === "running" ? mediaWorkFor(block.name, block.input) : null;
   /* Every other call answers with an empty list on the name alone, before the result is read. */
   const children = delegatedChildIds(block);
@@ -286,7 +286,7 @@ const ToolCardBody = memo(function ToolCardBody({ block, sessionStatus, enter = 
       {/* Outside the expander on purpose: the placeholder's whole job is to be seen while the work
           happens, and a canvas the reader has to open a card to find would be a spinner with extra
           steps. It leaves of its own accord when the result lands. */}
-      {work && <GeneratingCanvas label={work.label} detail={work.detail} aspect={work.aspect} />}
+      {work && <GeneratingCanvas kind={work.kind} label={work.label} detail={work.detail} aspect={work.aspect} />}
       {/* The view the server drew for this call, outside the expander: it is what the call was for,
           and a reader should not have to open a card to find it. */}
       {block.view && <AppView viewId={block.view.viewId} viewRef={block.view} mode="inline" />}

@@ -10,7 +10,7 @@ const store = () => new RemoteDevicesStore(openDatabase(join(tempDir("realm-devi
 
 const phone = (phoneId: string, addedAt: number, over: Partial<PairedPhone> = {}): PairedPhone => {
   const k = generateDeviceKeys();
-  return { phoneId, name: "Carlton's iPhone", model: "iPhone18,1", dh: k.dh.pub, sign: k.sign.pub, addedAt, lastSeen: null, ...over };
+  return { phoneId, name: "Carlton's iPhone", model: "iPhone18,1", dh: k.dh.pub, sign: k.sign.pub, addedAt, lastSeen: null, relay: "wss://relay.example", ...over };
 };
 
 describe("RemoteDevicesStore", () => {
@@ -47,6 +47,27 @@ describe("RemoteDevicesStore", () => {
     expect(s.list().map((p) => p.phoneId)).toEqual(["phoneB"]);
     s.clear();
     expect(s.list()).toEqual([]);
+  });
+
+  it("keeps the relay each phone dials: where it paired, then where it was seen", () => {
+    const s = store();
+    s.add(phone("phoneA", 1, { relay: "wss://staging.example" }));
+    expect(s.get("phoneA")!.relay).toBe("wss://staging.example");
+    s.setRelay("phoneA", "wss://production.example");
+    expect(s.get("phoneA")!.relay).toBe("wss://production.example");
+    // Pairing again names the relay that pairing was made on.
+    s.add(phone("phoneA", 2, { relay: "wss://elsewhere.example" }));
+    expect(s.get("phoneA")!.relay).toBe("wss://elsewhere.example");
+    expect(() => s.setRelay("nobody", "wss://x.example")).not.toThrow();
+  });
+
+  it("writes a relay in only for phones that have none, and counts them", () => {
+    const s = store();
+    s.add(phone("phoneA", 1, { relay: null }));
+    s.add(phone("phoneB", 2, { relay: "wss://production.example" }));
+    expect(s.adoptRelay("wss://staging.example")).toBe(1);
+    expect(s.list().map((p) => [p.phoneId, p.relay])).toEqual([["phoneA", "wss://staging.example"], ["phoneB", "wss://production.example"]]);
+    expect(s.adoptRelay("wss://staging.example")).toBe(0);
   });
 
   it("moves last seen forward only, so a late write from a closing channel cannot undo a fresher one", () => {

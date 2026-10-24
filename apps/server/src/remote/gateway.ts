@@ -12,11 +12,12 @@ import type { MacIdentity, PairedPhone, PhoneStore } from "./store";
 /**
  * Plan 28's gateway: the Mac's end of every phone's encrypted channel.
  *
- * It holds one outbound link to the relay, runs a Noise handshake per phone channel (IKpsk1 to pair,
- * IK after), answers mobile.v1 calls through the desktop's own RPC, and streams the rows of the
- * sessions a phone has open. It never forwards a broadcast as it is: each one is projected into rows
- * for the phones that asked for that session, so `terminal.data` and every other session's stream
- * simply have no path out.
+ * It holds an outbound link to its relay — and one to every other relay a paired phone is still on,
+ * until that phone has followed it (PROTOCOL.md §3.3) — runs a Noise handshake per phone channel
+ * (IKpsk1 to pair, IK after), answers mobile.v1 calls through the desktop's own RPC, and streams the
+ * rows of the sessions a phone has open. It never forwards a broadcast as it is: each one is projected
+ * into rows for the phones that asked for that session, so `terminal.data` and every other session's
+ * stream simply have no path out.
  */
 
 export type PushPayload = { kind: "permission" | "question" | "finished" | "failed" | "blocked" | "test"; title: string; body: string; session: string | null };
@@ -28,6 +29,10 @@ type Window = { id: string; secret: Buffer; expiresAt: number; url: string; time
 export type PairingWindow = { windowId: string; url: string; expiresAt: number };
 
 type Channel = {
+  /** Where `channels` keeps it: two relays may give their channels the same id. */
+  key: string;
+  /** The link it came in on, which every frame back to it goes out on. */
+  link: RelayLink;
   ch: string;
   mode: "phone" | "pair";
   phoneId: string | null;
@@ -39,10 +44,22 @@ type Channel = {
   /** Rows changed by text deltas, flushed at most ten times a second. */
   dirty: Map<string, Set<string>>;
   flush: NodeJS.Timeout | null;
+  /** Open leads whose sub-agents changed, said once for the changes that come together. */
+  leads: Set<string>;
+  leadsFlush: NodeJS.Timeout | null;
+  /** IK message 2 named the Mac's relay, so a phone on another relay has heard where to go. */
+  told: boolean;
 };
+
+const channelKey = (link: RelayLink, ch: string): string => `${link.relay} ${ch}`;
 
 const DELTA_FLUSH_MS = 100;
 const HOME_DEBOUNCE_MS = 1_000;
+/** Reviews and scheduled tasks change in bursts too — a run's every step is a `runs.changed` — and a
+ *  phone reads them again on each `work.changed`, so it is said as seldom as `home.changed`. */
+const WORK_DEBOUNCE_MS = 1_000;
+/** A sub-agent's settle moves its status and its lead's runs in one moment: one `session.subagents`. */
+const SUBAGENTS_FLUSH_MS = 250;
 const PAIR_TTL_MS = 5 * 60_000;
 const PUSH_TIMEOUT_MS = 15_000;
 
@@ -51,6 +68,7 @@ export type GatewayOptions = {
   identity: MacIdentity;
   /** Where paired phones are kept: `remote_devices` in realm-server, a scratch file in the live scripts. */
   phones: PhoneStore;
+  /** This Mac's relay: where a pairing window opens, and where every phone is told to find the Mac. */
   relay: string;
   /** The server's broadcasts, and the calls a phone makes when there is no port of its own to make them on. */
   rpc: RpcPort;
@@ -64,6 +82,8 @@ export type GatewayOptions = {
   confirm: (phone: { name: string; model: string; windowId: string }) => Promise<boolean>;
   /** Where `debug.report` writes, in development builds. */
   reportsDir: string;
+  /** The Realm home whose `tmp/attachments` takes the files a phone sends, as a desktop paste's does. */
+  realmHome: string;
   dev?: boolean;
   log?: (line: string) => void;
   /** Tests: the pairing link's scheme. */
@@ -76,11 +96,14 @@ export class RemoteGateway {
   private readonly store: PhoneStore;
   private readonly keys: DeviceKeys;
   readonly macId: string;
-  private readonly link: RelayLink;
+  /** Every link by its relay: this Mac's own (`home`), and the relays its phones have not all left. */
+  private readonly links = new Map<string, RelayLink>();
+  private readonly home: RelayLink;
   private readonly api: MobileApi;
   private readonly channels = new Map<string, Channel>();
   private window: Window | null = null;
   private homeTimer: NodeJS.Timeout | null = null;
+  private workTimer: NodeJS.Timeout | null = null;
   private offEvents: (() => void) | null = null;
   private readonly pushes = new Map<string, (r: PushResult) => void>();
   private readonly log: (line: string) => void;
@@ -91,21 +114,12 @@ export class RemoteGateway {
     this.store = o.phones;
     this.keys = o.identity.keys;
     this.macId = o.identity.macId;
-    this.api = new MobileApi({ macName: () => o.macName, reportsDir: o.reportsDir, dev: o.dev === true });
-    this.link = new RelayLink({
-      relay: o.relay, macId: this.macId, keys: this.keys, log: this.log,
-      on: {
-        ready: () => this.syncRelay(),
-        state: (s) => { for (const l of this.stateListeners) l(s); },
-        open: (ch, who) => this.openChannel(ch, who),
-        data: (ch, bytes) => { void this.onData(ch, bytes); },
-        close: (ch) => this.dropChannel(ch),
-        control: (m) => this.onControl(m),
-      },
-    });
+    this.api = new MobileApi({ macName: () => o.macName, reportsDir: o.reportsDir, realmHome: o.realmHome, dev: o.dev === true });
+    this.home = this.dial(o.relay);
   }
 
-  get state(): LinkState { return this.link.state; }
+  /** The link to this Mac's own relay: what Settings shows, and what a pairing window waits on. */
+  get state(): LinkState { return this.home.state; }
 
   get relay(): string { return this.o.relay; }
 
@@ -125,7 +139,8 @@ export class RemoteGateway {
 
   start(): void {
     this.offEvents = this.o.rpc.onEvent((event, payload) => this.onRpcEvent(event, payload));
-    this.link.start();
+    this.home.start();
+    this.followPhones();
   }
 
   stop(): void {
@@ -134,9 +149,11 @@ export class RemoteGateway {
     for (const c of [...this.channels.keys()]) this.dropChannel(c);
     if (this.homeTimer) clearTimeout(this.homeTimer);
     this.homeTimer = null;
+    if (this.workTimer) clearTimeout(this.workTimer);
+    this.workTimer = null;
     if (this.window) clearTimeout(this.window.timer);
     this.window = null;
-    this.link.stop();
+    for (const link of this.links.values()) link.stop();
   }
 
   devices(): PairedPhone[] { return this.store.list(); }
@@ -157,7 +174,7 @@ export class RemoteGateway {
     }, ttlMs);
     timer.unref?.();
     this.window = { id, secret, expiresAt, url, timer, expired: false };
-    this.link.control({ t: "pair", window: id, until: expiresAt });
+    this.home.control({ t: "pair", window: id, until: expiresAt });
     this.o.onChange?.();
     return { windowId: id, url, expiresAt };
   }
@@ -166,23 +183,26 @@ export class RemoteGateway {
     if (!this.window) return;
     clearTimeout(this.window.timer);
     this.window = null;
-    this.link.control({ t: "pair", window: null });
+    this.home.control({ t: "pair", window: null });
     this.o.onChange?.();
   }
 
   /** Remove: the relay forgets the phone's key (closing it with 4410) and its channels drop here at once. */
   revoke(phoneId: string): boolean {
     const removed = this.store.remove(phoneId);
-    for (const c of [...this.channels.values()]) if (c.phoneId === phoneId) { this.link.control({ t: "close", ch: c.ch }); this.dropChannel(c.ch); }
+    for (const c of [...this.channels.values()]) if (c.phoneId === phoneId) { c.link.control({ t: "close", ch: c.ch }); this.dropChannel(c.key); }
     this.syncPhones();
+    this.followPhones();
     this.o.onChange?.();
     return removed;
   }
 
-  /** Seals a push to one phone with Noise K and asks the relay to deliver it (PROTOCOL.md §4.3, §7). */
+  /** Seals a push to one phone with Noise K and asks the relay to deliver it (PROTOCOL.md §4.3, §7): the
+   *  relay the phone is on, which holds its push token. */
   push(phoneId: string, p: PushPayload, o: { urgent?: boolean; collapse?: string | null; badge?: number | null } = {}): Promise<PushResult> {
     const phone = this.store.get(phoneId);
     if (!phone) return Promise.resolve({ ok: false, status: 0, reason: "not-paired" });
+    const link = this.links.get(this.relayOf(phone)) ?? this.home;
     const id = b64u(randomBytes(12));
     const payload = { v: 1, id, at: Date.now(), ...p };
     const hs = new HandshakeState({ pattern: "K", initiator: true, prologue: PROLOGUE.push(this.macId, phoneId), s: this.keys.dh, rs: phone.dh });
@@ -190,7 +210,7 @@ export class RemoteGateway {
     return new Promise((resolve) => {
       const timer = setTimeout(() => { this.pushes.delete(id); resolve({ ok: false, status: 0, reason: "relay-timeout" }); }, PUSH_TIMEOUT_MS);
       this.pushes.set(id, (r) => { clearTimeout(timer); resolve(r); });
-      if (!this.link.control({ t: "push", id, phone: phoneId, blob, urgent: o.urgent ?? false, collapse: o.collapse ?? null, badge: o.badge ?? null })) {
+      if (!link.control({ t: "push", id, phone: phoneId, blob, urgent: o.urgent ?? false, collapse: o.collapse ?? null, badge: o.badge ?? null })) {
         clearTimeout(timer);
         this.pushes.delete(id);
         resolve({ ok: false, status: 0, reason: "relay-offline" });
@@ -198,13 +218,67 @@ export class RemoteGateway {
     });
   }
 
-  private syncRelay(): void {
-    this.syncPhones();
-    if (this.window && this.window.expiresAt > Date.now()) this.link.control({ t: "pair", window: this.window.id, until: this.window.expiresAt });
+  /** A link to `relay`, its events told apart from every other link's. Started by the caller. */
+  private dial(relay: string): RelayLink {
+    const link: RelayLink = new RelayLink({
+      relay, macId: this.macId, keys: this.keys, log: this.log,
+      on: {
+        ready: () => this.syncRelay(link),
+        state: (s) => this.linkState(link, s),
+        open: (ch, who) => this.openChannel(link, ch, who),
+        data: (ch, bytes) => { void this.onData(channelKey(link, ch), bytes); },
+        close: (ch) => this.dropChannel(channelKey(link, ch)),
+        control: (m) => this.onControl(m),
+      },
+    });
+    this.links.set(relay, link);
+    return link;
   }
 
-  private syncPhones(): void {
-    this.link.control({ t: "phones", list: this.store.list().map((p) => ({ id: p.phoneId, key: b64u(p.sign) })) });
+  /** Where a phone dials, as far as this Mac knows. One nobody wrote down is taken to be here. */
+  private relayOf(phone: PairedPhone): string {
+    return phone.relay ?? this.o.relay;
+  }
+
+  /**
+   * §3.3: dials every relay a paired phone is still on, so it can reach this Mac and hear where it is
+   * now, and lets go of a relay no phone is on any more — first telling it to forget every phone, which
+   * takes their keys and push tokens off it.
+   */
+  private followPhones(): void {
+    const wanted = new Set(this.store.list().map((p) => this.relayOf(p)));
+    for (const relay of wanted) if (!this.links.has(relay)) this.dial(relay).start();
+    for (const [relay, link] of [...this.links]) {
+      if (link === this.home || wanted.has(relay)) continue;
+      this.links.delete(relay);
+      link.control({ t: "phones", list: [] });
+      for (const c of [...this.channels.values()]) if (c.link === link) this.dropChannel(c.key);
+      link.stop();
+      this.log(`[remote] no paired phone is on ${relay} any more; hung up on it`);
+    }
+  }
+
+  private linkState(link: RelayLink, s: LinkState): void {
+    if (link !== this.home) return;
+    for (const l of this.stateListeners) l(s);
+    // A phone that came in on another relay before this one answered was not told where the Mac is
+    // now (`handshake`). Closed, it connects again, and hears it.
+    if (s !== "connected") return;
+    for (const c of [...this.channels.values()]) {
+      if (c.link !== this.home && c.mode === "phone" && c.send && !c.told) this.reject(c, "its phone has not heard where this Mac is now");
+    }
+  }
+
+  private syncRelay(link: RelayLink): void {
+    this.syncPhones(link);
+    // A window is opened at this Mac's own relay only: it is the relay the QR code names.
+    if (link === this.home && this.window && this.window.expiresAt > Date.now()) link.control({ t: "pair", window: this.window.id, until: this.window.expiresAt });
+  }
+
+  /** Every relay is sent the whole list, so a phone that follows the Mac is let in where it arrives. */
+  private syncPhones(only?: RelayLink): void {
+    const list = this.store.list().map((p) => ({ id: p.phoneId, key: b64u(p.sign) }));
+    for (const link of only ? [only] : this.links.values()) link.control({ t: "phones", list });
   }
 
   private onControl(m: Record<string, unknown>): void {
@@ -214,23 +288,26 @@ export class RemoteGateway {
     }
   }
 
-  private openChannel(ch: string, who: { phone: string } | { pair: string }): void {
-    this.dropChannel(ch);
+  private openChannel(link: RelayLink, ch: string, who: { phone: string } | { pair: string }): void {
+    const key = channelKey(link, ch);
+    this.dropChannel(key);
     const pair = "pair" in who;
-    if (!pair && !this.store.get(who.phone)) { this.link.control({ t: "close", ch }); return; }
+    if (!pair && !this.store.get(who.phone)) { link.control({ t: "close", ch }); return; }
     // A pairing channel never reaches the API (`onMessage` refuses it first), so it gets the plain port.
     const rpc = pair ? this.o.rpc : this.o.rpcFor?.(who.phone) ?? this.o.rpc;
-    this.channels.set(ch, {
-      ch, mode: pair ? "pair" : "phone", phoneId: pair ? null : who.phone, windowId: pair ? who.pair : null,
+    this.channels.set(key, {
+      key, link, ch, mode: pair ? "pair" : "phone", phoneId: pair ? null : who.phone, windowId: pair ? who.pair : null,
       handshake: null, send: null, reader: null, ctx: { phoneId: pair ? "" : who.phone, rpc, sessions: new Map() }, dirty: new Map(), flush: null,
+      leads: new Set(), leadsFlush: null, told: false,
     });
   }
 
-  private dropChannel(ch: string): void {
-    const c = this.channels.get(ch);
+  private dropChannel(key: string): void {
+    const c = this.channels.get(key);
     if (!c) return;
     if (c.flush) clearTimeout(c.flush);
-    this.channels.delete(ch);
+    if (c.leadsFlush) clearTimeout(c.leadsFlush);
+    this.channels.delete(key);
     // Last seen is when a phone was last connected, so a channel that got as far as speaking to us
     // marks it on the way out as well as on the way in.
     if (c.mode === "phone" && c.send && c.phoneId && this.store.get(c.phoneId)) {
@@ -243,12 +320,12 @@ export class RemoteGateway {
 
   private reject(c: Channel, why: string): void {
     this.log(`[remote] closing channel ${c.ch}: ${why}`);
-    this.link.control({ t: "close", ch: c.ch });
-    this.dropChannel(c.ch);
+    c.link.control({ t: "close", ch: c.ch });
+    this.dropChannel(c.key);
   }
 
-  private async onData(ch: string, bytes: Buffer): Promise<void> {
-    const c = this.channels.get(ch);
+  private async onData(key: string, bytes: Buffer): Promise<void> {
+    const c = this.channels.get(key);
     if (!c) return;
     try {
       if (!c.send) { await this.handshake(c, bytes); return; }
@@ -269,9 +346,17 @@ export class RemoteGateway {
       // IK reveals the phone's static key in its first message; it must be the one paired, or this is
       // someone else holding a relay key the Mac once trusted.
       if (!hs.remoteStatic?.equals(phone.dh)) return this.reject(c, "static key does not match the paired phone");
-      this.link.send(c.ch, hs.writeMessage(Buffer.from(JSON.stringify({ v: 1, mac: this.o.macName, server: this.o.version }), "utf8")));
+      // §3.3: this Mac's relay, once it is connected there, so a phone that dialled another follows it.
+      // Unnamed, the phone stays where it is — never sent to a relay that is not answering.
+      const relay = this.home.state === "connected" ? this.o.relay : undefined;
+      c.told = relay !== undefined;
+      c.link.send(c.ch, hs.writeMessage(Buffer.from(JSON.stringify({ v: 1, mac: this.o.macName, server: this.o.version, relay }), "utf8")));
       this.begin(c, hs);
       this.store.touch(phone.phoneId, Date.now());
+      if (this.relayOf(phone) !== c.link.relay) {
+        this.store.setRelay(phone.phoneId, c.link.relay);
+        this.followPhones();
+      }
       this.o.onChange?.();
       return;
     }
@@ -281,7 +366,7 @@ export class RemoteGateway {
     const hello = JSON.parse(hs.readMessage(msg1).toString("utf8")) as { v?: number; name?: unknown; model?: unknown; sign?: unknown };
     const sign = typeof hello.sign === "string" ? fromB64u(hello.sign) : null;
     if (hello.v !== 1 || !sign || sign.length !== 32 || !hs.remoteStatic) return this.reject(c, "malformed pairing hello");
-    this.link.send(c.ch, hs.writeMessage(Buffer.from(JSON.stringify({ v: 1, mac: this.o.macName }), "utf8")));
+    c.link.send(c.ch, hs.writeMessage(Buffer.from(JSON.stringify({ v: 1, mac: this.o.macName }), "utf8")));
     this.begin(c, hs);
     const name = typeof hello.name === "string" ? hello.name.slice(0, 80) : "iPhone";
     const model = typeof hello.model === "string" ? hello.model.slice(0, 40) : "";
@@ -297,7 +382,7 @@ export class RemoteGateway {
       return;
     }
     const phoneId = deviceId(sign);
-    this.store.add({ phoneId, name, model, dh: hs.remoteStatic, sign, addedAt: Date.now(), lastSeen: null });
+    this.store.add({ phoneId, name, model, dh: hs.remoteStatic, sign, addedAt: Date.now(), lastSeen: null, relay: c.link.relay });
     this.syncPhones();
     this.closePairing();
     this.sendEvent(c, "pair.result", { ok: true, phoneId });
@@ -312,7 +397,7 @@ export class RemoteGateway {
 
   private sendJson(c: Channel, v: unknown): void {
     if (!c.send) return;
-    for (const frame of sealMessage(c.send, JSON.stringify(v))) this.link.send(c.ch, frame);
+    for (const frame of sealMessage(c.send, JSON.stringify(v))) c.link.send(c.ch, frame);
   }
 
   private sendEvent(c: Channel, event: string, payload: unknown): void { this.sendJson(c, { event, payload }); }
@@ -341,14 +426,35 @@ export class RemoteGateway {
       case "session.status": {
         const p = payload as EventPayload<"session.status">;
         for (const c of this.channels.values()) {
-          if (!c.ctx.sessions.has(p.sessionId)) continue;
-          this.sendEvent(c, "session.status", { id: p.sessionId, status: p.status === "waiting_permission" ? "waiting" : p.status });
+          if (c.ctx.sessions.has(p.sessionId)) this.sendEvent(c, "session.status", { id: p.sessionId, status: p.status === "waiting_permission" ? "waiting" : p.status });
+          // A sub-agent's status is a line of its lead's list, as its Agents tab reads it again.
+          for (const [lead, open] of c.ctx.sessions) if (open.subagents.has(p.sessionId)) this.subagentsChanged(c, lead);
         }
         this.homeChanged();
         return;
       }
+      case "session.queue": {
+        const p = payload as EventPayload<"session.queue">;
+        for (const c of this.channels.values()) {
+          const open = c.ctx.sessions.get(p.sessionId);
+          if (!open || !c.send) continue;
+          // Still opening: its answer carries the queue, and this is newer than the queue it read.
+          if (open.buffer) { open.queued = p.queued; continue; }
+          this.sendEvent(c, "session.queue", { id: p.sessionId, queued: this.api.queuedMessages(p.queued) } satisfies MobileEventPayload<"session.queue">);
+        }
+        return;
+      }
+      case "delegation.changed": {
+        // A run began, settled or was collected: the lead's list of sub-agents is not what it was.
+        const p = payload as EventPayload<"delegation.changed">;
+        for (const c of this.channels.values()) if (c.ctx.sessions.has(p.sessionId)) this.subagentsChanged(c, p.sessionId);
+        return;
+      }
       case "spaces.changed": case "items.changed": case "notifications.changed":
         this.homeChanged();
+        return;
+      case "team.changed": case "schedules.changed": case "runs.changed":
+        this.workChanged();
         return;
       default:
         return;
@@ -403,6 +509,23 @@ export class RemoteGateway {
       this.homeTimer = null;
       for (const c of this.channels.values()) if (c.send && c.mode === "phone") this.sendEvent(c, "home.changed", {});
     }, HOME_DEBOUNCE_MS);
+  }
+
+  private workChanged(): void {
+    if (this.workTimer) return;
+    this.workTimer = setTimeout(() => {
+      this.workTimer = null;
+      for (const c of this.channels.values()) if (c.send && c.mode === "phone") this.sendEvent(c, "work.changed", {});
+    }, WORK_DEBOUNCE_MS);
+  }
+
+  private subagentsChanged(c: Channel, lead: string): void {
+    c.leads.add(lead);
+    c.leadsFlush ??= setTimeout(() => {
+      c.leadsFlush = null;
+      for (const id of c.leads) if (c.ctx.sessions.has(id)) this.sendEvent(c, "session.subagents", { id } satisfies MobileEventPayload<"session.subagents">);
+      c.leads.clear();
+    }, SUBAGENTS_FLUSH_MS);
   }
 }
 

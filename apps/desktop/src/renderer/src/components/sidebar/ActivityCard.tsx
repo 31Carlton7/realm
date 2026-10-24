@@ -63,7 +63,7 @@ export function ActivityCard({ row, space, usual, now, onChanged }: {
   const agent = kind && usual && kind !== usual ? AGENT_META[kind] : null;
   const branch = env?.kind === "worktree" ? environmentLabel(env, where) : null;
   return (
-    <div className="item sb-row sb-card" data-active={focused || undefined} data-unread={mark?.mark === "unseen" || undefined} data-actions="1"
+    <div className="item sb-row sb-card" data-session={row.id} data-active={focused || undefined} data-unread={mark?.mark === "unseen" || undefined} data-actions="1"
       data-dragging={dragging || undefined} draggable
       onDragStart={(e) => { e.dataTransfer.setData("application/x-realm-item", row.item.id); e.dataTransfer.effectAllowed = "move"; setDragging(true); }}
       onDragEnd={() => setDragging(false)} onContextMenu={onContextMenu(row.item)}>

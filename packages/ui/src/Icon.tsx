@@ -71,7 +71,7 @@ import {
   Bookmark02Icon,
   // The handle a queued message is dragged by, to a new place in the prompter's queue.
   DragDropVerticalIcon,
-} from "@hugeicons-pro/core-stroke-rounded";
+} from "#hugeicons";
 import type { IconSvgElement } from "@hugeicons/react";
 import { brandMarks, isBrandName, type BrandName } from "./brand-icons";
 

@@ -1,0 +1,18 @@
+Realm for iPhone is the companion to Realm, a free, open-source Mac app (https://realm.computer) that runs coding agents such as Claude Code and Codex. The iPhone app has no account, no sign-in and nothing to buy. It shows the work running in Realm on a Mac the person has paired it with, and lets them answer it from the phone.
+
+Without a paired Mac, the app opens on Pair with your Mac: what Realm is, the three steps to pair, and a link to get Realm for Mac.
+
+To see it work:
+1. On a Mac with Apple silicon, download Realm from https://realm.computer and open it. Pairing needs no account.
+2. In Realm, open Settings ▸ Devices and press Pair an iPhone. A QR code appears for five minutes.
+3. In Realm for iPhone, tap Scan the code and point the camera at it, or tap Paste the link and paste the link shown under the code.
+4. On the Mac, press Pair. The phone now lists the Mac's spaces and sessions.
+5. A session runs an agent signed in on the Mac under the person's own account (Realm's first run offers Claude and ChatGPT sign-in). With one, start a session from the phone's compose button, answer its permission requests, and stop it.
+
+A recording of the whole flow, the phone and the Mac side by side: {demoVideoUrl}
+
+How it reaches the Mac: through Realm's relay, a Cloudflare Worker. Everything between the phone and the Mac is encrypted end to end with keys made on the two devices, so the relay carries only ciphertext. A notification is encrypted on the Mac for one phone and opened by the app's notification service extension; Apple's push service sees only a placeholder.
+
+The app asks for the camera, to scan the pairing code and to take photos to send to a session, and for notifications, after pairing.
+
+Encryption: the app uses only Apple's CryptoKit (Curve25519, AES-GCM, SHA-256) and TLS, and declares ITSAppUsesNonExemptEncryption NO.
