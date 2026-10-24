@@ -260,9 +260,13 @@ private struct SessionPill: View {
                             Text(PillWords.away(away, reconnecting: model.linkTroubled))
                                 .font(.subheadline.weight(.medium))
                                 .foregroundStyle(Palette.ink)
+                                .multilineTextAlignment(.center)
                         }
                         .padding(.horizontal, 14)
-                        .frame(height: 40)
+                        // As tall as its words: at the accessibility sizes they take two lines rather
+                        // than lose the Retry at their end.
+                        .padding(.vertical, 6)
+                        .frame(minHeight: 40)
                     }
                     .buttonStyle(.plain)
                     .glassEffect(.regular.interactive(), in: Capsule())
