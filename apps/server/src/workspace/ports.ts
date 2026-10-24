@@ -128,11 +128,12 @@ export class PortAllocator {
     return null;
   }
 
-  /** Every port in the block must be free. Sequential and short-circuiting: a block whose first port
-   *  is busy costs one probe, and the common case (nothing listening) costs ten cheap binds once
-   *  per environment for the life of the row. */
+  /** Every port in the block must be free. The first port is probed alone, so a block in use costs
+   *  one bind; the other nine together, so the common case (nothing listening) costs one round of
+   *  binds rather than ten in a row — once per environment for the life of the row. */
   private async blockIsFree(start: number): Promise<boolean> {
-    for (let i = 0; i < PORT_BLOCK_SIZE; i++) if (!(await this.probe(start + i))) return false;
-    return true;
+    if (!(await this.probe(start))) return false;
+    const rest = await Promise.all(Array.from({ length: PORT_BLOCK_SIZE - 1 }, (_, i) => this.probe(start + 1 + i)));
+    return rest.every(Boolean);
   }
 }

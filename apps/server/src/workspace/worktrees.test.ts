@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
+import { gitCapture } from "./git-exec";
 import { BRANCH_PREFIX, NAME_ATTEMPTS, SLUG_MAX, UNNAMED_BRANCH, WorktreeService, slugifyBranch } from "./worktrees";
 
 /**
@@ -328,6 +329,17 @@ describe("WorktreeService — base branch, kept branch, branch list", () => {
     expect(git(wt.path, "rev-parse", "HEAD").trim()).toBe(git(repo, "rev-parse", "feat/x").trim());
     // …and it does not track the branch it started from, so a push cannot land on feat/x.
     expect(() => git(repo, "config", "--get", "branch.realm/on-x.merge")).toThrow();
+  });
+
+  it("asks git one question before adding the worktree, when the repository and its base are fine", async () => {
+    // Six worktrees opened at once pay for each spawn six times, so the happy path is one preflight
+    // (`rev-parse --git-dir --verify base`), the name check and the add. THE MUTANT: going back to
+    // three separate rev-parses for a request that needed none of their error messages.
+    const repo = makeRepo();
+    const calls: string[][] = [];
+    const s = new WorktreeService(home, { git: (cwd, args, opts) => { calls.push(args); return gitCapture(cwd, args, opts); } });
+    await s.create({ spaceId: SPACE, sourcePath: repo, title: "quick" });
+    expect(calls.map((a) => a[0])).toEqual(["rev-parse", "show-ref", "worktree"]);
   });
 
   it("refuses a base that names no commit, or that git would read as an option, and makes nothing", async () => {

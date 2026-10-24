@@ -1,4 +1,4 @@
-import { TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, defaultShell, newId, type TerminalProgram } from "@realm/contracts";
+import { TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, defaultShell, newId, type TerminalProgram, type TerminalStatus } from "@realm/contracts";
 import { existsSync } from "node:fs";
 import { basename } from "node:path";
 import type { Db } from "../db/database";
@@ -46,6 +46,11 @@ export class TerminalService {
   private flushed = new Map<string, string>();
   /** What each terminal is running — the program its tab names (foreground.ts). */
   private readonly foreground: ForegroundWatcher;
+  /** Every terminal started or restored this boot, and how each ended — `list`'s answer. Kept past a
+   *  pty's exit, because the row goes then and "how did it end" is asked afterwards; dropped on
+   *  `close`, which is the caller saying it has read the answer. In memory only: after a restart the
+   *  only terminals worth reporting are the ones running again. */
+  private readonly status = new Map<string, TerminalStatus>();
   private closed = false;
   constructor(private d: {
     db: Db; rpc: RpcServer; spaces: SpacesStore; items: ItemsStore; terminals: TerminalsStore;
@@ -64,8 +69,10 @@ export class TerminalService {
         // `open`/`restoreAll`, which both call `newRun` first, and not worth inventing a seq for.
         if (at) d.rpc.broadcast("terminal.data", { terminalId, data, runId: at.runId, seq: at.seq });
       },
-      onExit: (terminalId, exitCode) => {
+      onExit: (terminalId, exitCode, signal) => {
         this.scrollback.endRun(terminalId);
+        const st = this.status.get(terminalId);
+        if (st) this.status.set(terminalId, { ...st, running: false, exitCode, signal, exitedAt: Date.now() });
         this.foreground.forget(terminalId);
         if (this.closed) return; // shutting down: DB may already be closed
         // Row goes; item stays so the UI can show the pane as exited until the user removes it.
@@ -74,7 +81,7 @@ export class TerminalService {
         try { d.terminals.delete(terminalId); } catch (e) {
           if ((e as { code?: string }).code !== "ERR_INVALID_STATE") throw e;
         }
-        d.rpc.broadcast("terminal.exit", { terminalId, exitCode });
+        d.rpc.broadcast("terminal.exit", { terminalId, exitCode, signal });
       },
     });
     const every = d.setInterval ?? ((fn, ms) => setInterval(fn, ms));
@@ -148,6 +155,12 @@ export class TerminalService {
 
   has(terminalId: string): boolean { return this.manager.has(terminalId); }
 
+  /** Every terminal started or restored since boot, oldest first, optionally one space's. */
+  list(spaceId?: string): TerminalStatus[] {
+    const all = [...this.status.values()];
+    return spaceId ? all.filter((t) => t.spaceId === spaceId) : all;
+  }
+
   /** What every live terminal is running, for a client that has just connected. */
   programs(): Record<string, TerminalProgram> { return this.foreground.programs(); }
 
@@ -212,6 +225,9 @@ export class TerminalService {
         // appended to no ring is a chunk that never happened.
         this.scrollback.newRun(row.id, newId(), { cols, rows }, kept ? { data: kept.data, cols: kept.cols, rows: kept.rows } : null);
         this.manager.create({ id: row.id, cwd: row.cwd, shell: row.shell, cols, rows, env: this.envFor(row.spaceId, row.cwd), wrap: this.wrapFor(row.spaceId) });
+        // A restored row is an interactive shell whatever it was started as: the command it ran is not
+        // stored, and re-running an agent's command because the server restarted would do its work twice.
+        this.status.set(row.id, { terminalId: row.id, spaceId: row.spaceId, cwd: row.cwd, command: null, running: true, exitCode: null, signal: null, startedAt: Date.now(), exitedAt: null });
         this.foreground.watch(row.id);
         restored.push(row.id);
       } catch (e) {
@@ -234,7 +250,7 @@ export class TerminalService {
     return restored;
   }
 
-  open(p: { spaceId: string; cwd?: string; cols: number; rows: number }): { terminalId: string; itemId: string } {
+  open(p: { spaceId: string; cwd?: string; cols: number; rows: number; command?: string }): { terminalId: string; itemId: string } {
     const space = this.d.spaces.get(p.spaceId); if (!space) throw new NotFoundError("space", p.spaceId);
     const cwd = p.cwd ?? space.folderPath;
     const shell = defaultShell(process.platform, process.env);
@@ -248,11 +264,15 @@ export class TerminalService {
       itemId = this.d.items.create({ spaceId: p.spaceId, kind: "terminal", title: basename(cwd) || "Terminal", refId: terminalId }).id;
       // Before `create`, for `restoreAll`'s reason: the shell can print before the call returns.
       this.scrollback.newRun(terminalId, newId(), { cols: p.cols, rows: p.rows }, null);
-      this.manager.create({ id: terminalId, cwd, cols: p.cols, rows: p.rows, shell, env: this.envFor(p.spaceId, cwd), wrap: this.wrapFor(p.spaceId) });
+      // Recorded before the spawn: a command that fails at once exits inside `create`'s first tick, and
+      // its exit must find a status to land on.
+      this.status.set(terminalId, { terminalId, spaceId: p.spaceId, cwd, command: p.command ?? null, running: true, exitCode: null, signal: null, startedAt: Date.now(), exitedAt: null });
+      this.manager.create({ id: terminalId, cwd, cols: p.cols, rows: p.rows, shell, env: this.envFor(p.spaceId, cwd), wrap: this.wrapFor(p.spaceId), command: p.command });
       this.foreground.watch(terminalId);
       this.d.db.exec("COMMIT");
     } catch (e) {
       this.d.db.exec("ROLLBACK");
+      this.status.delete(terminalId);
       this.scrollback.forget(terminalId);
       this.foreground.forget(terminalId);
       if (this.manager.has(terminalId)) { try { this.manager.close(terminalId); } catch { /* best effort */ } }
@@ -277,6 +297,7 @@ export class TerminalService {
     const alive = this.manager.has(terminalId);
     if (!row && !item && !alive) throw new NotFoundError("terminal", terminalId);
     if (alive) this.manager.close(terminalId);
+    this.status.delete(terminalId);
     this.scrollback.forget(terminalId);
     this.foreground.forget(terminalId);
     // The cascade takes the history row with the terminals row; this is for the case where the row

@@ -47,6 +47,22 @@ describe("TerminalManager", () => {
       for (const [k, v] of Object.entries(prev)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
     }
   });
+  it("runs a command instead of a shell session, and ends with the command's exit code", async () => {
+    const chunks: string[] = []; let exit: { code: number; signal: number | null } | null = null;
+    const tm = new TerminalManager({ onData: (_id, d) => chunks.push(d), onExit: (_id, code, signal) => { exit = { code, signal }; } });
+    tm.create({ cwd: process.cwd(), cols: 80, rows: 24, shell: "/bin/sh", command: "echo REALM_RAN; exit 7" });
+    await waitFor(() => exit !== null);
+    expect(chunks.join("")).toContain("REALM_RAN");
+    expect(exit).toEqual({ code: 7, signal: null });
+  });
+  it("reports the signal that killed a command", async () => {
+    let exit: { code: number; signal: number | null } | null = null;
+    const tm = new TerminalManager({ onData: () => {}, onExit: (_id, code, signal) => { exit = { code, signal }; } });
+    // `exec` so the killed process IS the pty's child, the way a shell running one command often execs it.
+    tm.create({ cwd: process.cwd(), cols: 80, rows: 24, shell: "/bin/sh", command: "exec sh -c 'kill -9 $$'" });
+    await waitFor(() => exit !== null);
+    expect(exit!.signal).toBe(9);
+  });
   it("throws NOT_FOUND for unknown terminal", () => {
     const tm = new TerminalManager({ onData: () => {}, onExit: () => {} });
     expect(() => tm.write("nope", "x")).toThrowError(/not found/);
