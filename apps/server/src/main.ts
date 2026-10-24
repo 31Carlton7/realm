@@ -17,6 +17,7 @@ import { DAEMON_PROTOCOL, DEFAULT_REMOTE_RELAY } from "@realm/contracts";
 import { realmHome } from "./paths";
 import { BOOT_ID, acquireLock, clearState, currentBundleId, newToken, readState, releaseLock, writeState } from "./daemon/state";
 import { listenFromEnv } from "./access/listen";
+import { homeKeyFile } from "./remote/home-key";
 
 const envPort = Number(process.env.REALM_PORT);
 const port = Number.isFinite(envPort) && envPort >= 0 ? envPort : 0;
@@ -89,7 +90,15 @@ try {
     // Realm Mobile's relay. Only here, for the probe's reason: no other `createApp` may dial one it did
     // not name. A development build (`pnpm dev`, whose window is the Vite server) also takes the phone's
     // `debug.report`, which is how a test build brings its own timings back; a packaged one never does.
-    remote: { defaultRelay: DEFAULT_REMOTE_RELAY, dev: Boolean(process.env.ELECTRON_RENDERER_URL) },
+    remote: {
+      defaultRelay: DEFAULT_REMOTE_RELAY, dev: Boolean(process.env.ELECTRON_RENDERER_URL),
+      // A server with no Realm window to hand it the Keychain's key keeps one in this home, or reads a
+      // systemd credential's. Every server reads it, so the app opens what a headless server paired;
+      // only one `realm serve` started may make it, and never at a path somebody else named.
+      homeKey: process.env.REALM_REMOTE_KEY_FILE
+        ? { file: process.env.REALM_REMOTE_KEY_FILE, create: false }
+        : { file: homeKeyFile(home), create: process.env.REALM_HEADLESS === "1" },
+    },
     // `realm serve --listen` (ctl/commands.ts) hands its listener over in the environment, as it does
     // the home and the port. A server the app starts never has one: it listens on loopback only.
     ...(remoteListen ? { access: { listen: remoteListen } } : {}),

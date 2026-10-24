@@ -115,6 +115,7 @@ import { ShipsStore } from "./store/ships";
 import { NotificationsService } from "./notifications/service";
 import { NotificationRelay, realTransport } from "./notifications/relay";
 import { RemoteService } from "./remote/service";
+import type { HomeKey } from "./remote/home-key";
 import { readTls, startAccess, type Access, type AccessOptions } from "./access/service";
 import { checkListen } from "./access/listen";
 import { Presence } from "./remote/presence";
@@ -784,7 +785,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  none; only `main.ts` passes the real one, so no app a test builds reaches a relay it did not name.
    *  The rest are test knobs: development builds' `debug.report`, the pairing link's scheme, the
    *  pairing window's life, and the push hold-back. */
-  remote?: { defaultRelay?: string; dev?: boolean; linkBase?: string; pairTtlMs?: number; pushHoldMs?: number; holdAwake?: HoldAwake | null };
+  remote?: { defaultRelay?: string; dev?: boolean; linkBase?: string; pairTtlMs?: number; pushHoldMs?: number; holdAwake?: HoldAwake | null; homeKey?: HomeKey | null };
   /** Laya installs itself once there is a moment for it (`LayaService`'s auto-install). Only `main.ts`
    *  turns this on, and not in a harness: an app a test or a live check builds never downloads. */
   layaAutoInstall?: boolean;
@@ -1717,7 +1718,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const presence = new Presence({ attached: () => browserBridge.connected });
   const remote = new RemoteService({ rpc, settings, phones: new RemoteDevicesStore(db), macName: machine, version: SERVER_VERSION,
     reportsDir: join(opts.home, "remote", "reports"), defaultRelay: opts.remote?.defaultRelay, dev: opts.remote?.dev,
-    linkBase: opts.remote?.linkBase, pairTtlMs: opts.remote?.pairTtlMs, log: (line) => console.error(line) });
+    linkBase: opts.remote?.linkBase, pairTtlMs: opts.remote?.pairTtlMs, homeKey: opts.remote?.homeKey, log: (line) => console.error(line) });
   phonePushes = new PhonePushes({ remote, presence, settings, holdMs: opts.remote?.pushHoldMs,
     notification: (id) => notificationsStore.get(id),
     needsYou: () => sessions.statusCounts().needsYou,
