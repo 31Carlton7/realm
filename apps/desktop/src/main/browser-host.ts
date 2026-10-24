@@ -148,14 +148,14 @@ export function normalizeAddress(input: string): string | null {
  *
  * Two edits, and the restraint is the point of both.
  *
- * **`Electron/37.10.3` comes off.** It is the one token in the string that is not true of any
+ * **`Electron/45.0.0` comes off.** It is the one token in the string that is not true of any
  * browser a site has ever tested against, and sites do read it: some serve a degraded page, some
  * refuse outright, and all of it is invisible from here because the page simply behaves differently.
  * What is left is what Realm's panes actually are — Chromium, on macOS, at the version we ship.
  *
  * **The Chrome version is REDUCED to `<major>.0.0.0`**, which is not a lie but a convention: Chrome
  * itself has frozen the minor/build/patch in its UA since the UA-reduction rollout, so a real Chrome
- * 138 sends `Chrome/138.0.0.0`. Sending `138.0.7204.251` is a mismatch that marks the client as
+ * 156 sends `Chrome/156.0.0.0`. Sending `156.0.8078.48` is a mismatch that marks the client as
  * something other than a browser just as loudly as the Electron token does.
  *
  * What this deliberately does NOT do is claim a newer Chrome than we have. It would silence a

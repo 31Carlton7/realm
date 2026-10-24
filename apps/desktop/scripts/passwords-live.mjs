@@ -219,7 +219,7 @@ async function main() {
   fs.chmodSync(agent, 0o755);
   const wrapper = path.join(scratch, "wrapper.mjs");
   fs.writeFileSync(wrapper, WRAPPER);
-  const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@37.10.3/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
+  const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.0.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
   electron = spawn(electronBin, [wrapper, ...UNTHROTTLED], {
     env: {
       ...process.env, REALM_HOME: home, REALM_PORT: String(SERVER_PORT), REALM_DEVTOOLS_PORT: String(CDP_PORT),

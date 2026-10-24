@@ -3034,8 +3034,8 @@ describe("squircle surfaces", () => {
   const LIFTED = [".composer", ".install-card", ".commit-card"];
 
   it("every squircle surface keeps a circular-corner fallback AND the declarative form", () => {
-    // `corner-shape` is a no-op on Chromium 138 (measured in squircle-live.mjs) and takes over at
-    // 139. Dropping either half strands the app: without `border-radius` a failed worklet load
+    // `corner-shape` was a no-op on Chromium 138 and draws from 139 (both measured in
+    // squircle-live.mjs, which runs on Electron 45's 156 now). Dropping either half strands the app: without `border-radius` a failed worklet load
     // renders a square card, without `corner-shape` the upgrade brings nothing.
     for (const sel of SURFACES) {
       const body = bodiesFor(sel).join(" ");

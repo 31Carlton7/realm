@@ -5,7 +5,8 @@ import { atSoftWrap, caretBox, contains, drawnCaret, intersect, nativeCaret, spo
  * The app's caret (Settings ▸ Appearance ▸ Cursor): ONE drawn caret, laid over whichever field has
  * the keyboard — the prompter, every input and text area, an editable region, the code editor.
  *
- * Chromium 138 lets a stylesheet colour its caret and nothing else, so every shape but a thin line,
+ * Chromium 138 let a stylesheet colour its caret and nothing else (newer engines widen that, and
+ * `nativeCaret` hands them what they can draw), so every shape but a thin line,
  * every animation but its own blink and any glide is drawn here, over the field, with the field's own
  * caret made transparent underneath (`data-rl-caret`, and only while this one is standing in for it).
  * The selection, the keyboard, IME and a screen reader's idea of where the insertion point is all stay
