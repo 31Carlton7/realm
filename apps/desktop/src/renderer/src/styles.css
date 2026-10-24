@@ -44,7 +44,7 @@
 .terminal-dock-title,
 .sim-detail, .upl-path, .wt-branch, .laya-facts code, .whats-new-group code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code, .browser-runner-score,
 .edit-counts, .cr-tab-counts, .cr-setup-how code, .cr-branch, .cr-finding-where, .diff-split-cell, .cr-pending-where,
-.subagent-where[data-branch], .subagent-view-where[data-branch], .signin-hint code, .signin-code {
+.subagent-where[data-branch], .subagent-view-where[data-branch], .subagent-brief-chip-dir, .subagent-brief-branch, .subagent-brief-dir, .signin-hint code, .signin-code {
   letter-spacing: normal;
 }
 
@@ -4200,15 +4200,61 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    to the log under it — `flex: none`, because shrink is shared in proportion to size, and beside a
    long transcript a report of a dozen lines came out a strip two lines high. Read at the body size
    in the primary ink, with the padding a card the eye rests in gets; the right edge is the scroller's,
-   so a bar has somewhere to go. */
-.subagent-view-result { flex: none; max-height: 60%; display: flex; flex-direction: column; gap: 8px; margin: 0 12px 10px; padding: 12px 6px 14px 16px;
+   so a bar has somewhere to go. Its head is the disclosure that folds it (below), so the gap under the
+   head belongs to the body and folds with it, and a closed card is the head on even padding. */
+.subagent-view-result { flex: none; max-height: 60%; display: flex; flex-direction: column; margin: 0 12px 10px; padding: 12px 6px 12px 16px;
   border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); }
-.subagent-view-result-head { flex: none; display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; line-height: 18px; font-weight: var(--fw-title); color: var(--ink); }
-.subagent-view-result-head > svg { color: var(--ink-3); }
-.subagent-view-result[data-error] .subagent-view-result-head > svg { color: var(--rl-danger); }
-.subagent-view-result-scroll { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 10px; --fade-h: 20px; --fade-top-h: 16px; }
+.subagent-view-result-head { flex: none; margin: 0; font-size: 13px; line-height: 18px; font-weight: var(--fw-title); color: var(--ink); }
+/* The whole head row is the target, grown into the card's padding to a desktop control's 40px. Closed,
+   the report's first line follows the name in the secondary ink, so the card still says what came
+   back; the chevron points into the body when it is open. */
+.subagent-view-result-toggle { display: flex; align-items: center; gap: 6px; width: calc(100% + 8px); min-width: 0; margin: -11px 0 -11px -8px; padding: 11px 10px 11px 8px;
+  border: none; border-radius: var(--r-ctl); background: transparent; color: inherit; font: inherit; text-align: left; }
+.subagent-view-result-toggle:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--rl-accent); }
+.subagent-view-result-toggle > svg { flex: none; color: var(--ink-3); }
+.subagent-view-result[data-error] .subagent-view-result-toggle > svg:first-child { color: var(--rl-danger); }
+.subagent-view-result-name { flex: none; }
+.subagent-view-result-gist { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--fw-body); color: var(--ink-2); }
+.subagent-view-result-chevron { margin-left: auto; transition: transform var(--dur-pop) var(--ease-out-strong); }
+.subagent-view-result[data-open] .subagent-view-result-chevron { transform: rotate(90deg); }
+.subagent-view-result-toggle:hover > .subagent-view-result-chevron { color: var(--ink); transition: none; }
+.subagent-view-result-wrap { flex: 0 1 auto; min-height: 0; }
+.subagent-view-result-clip { display: flex; flex-direction: column; }
+.subagent-view-result-scroll { flex: 0 1 auto; min-height: 0; margin: 8px 0 2px; overflow-y: auto; overscroll-behavior: contain; padding-right: 10px; --fade-h: 20px; --fade-top-h: 16px; }
 .subagent-view-prose { font-size: 13px; color: var(--ink-2); }
 .subagent-view-result .subagent-view-prose { font-size: 14px; color: var(--ink); }
+/* What it was asked: the lead's brief in the parts it was written in, at a reading measure rather than
+   the panel's width. Each part's head wears its mark in the hanging margin, so the words of every part
+   start on one edge; the place is a chip with its branch, the files to read are chips that open them,
+   and the work is the body, in the primary ink. */
+.subagent-brief { display: flex; flex-direction: column; gap: 16px; max-width: 68ch; min-width: 0; font-size: 14px; }
+.subagent-brief-part { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.subagent-brief-part > :not(.subagent-brief-head) { margin-left: 20px; }
+.subagent-brief-part:not(:has(> .subagent-brief-head)) > * { margin-left: 0; }
+.subagent-brief-head { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; line-height: 18px; font-weight: var(--fw-title); color: var(--ink); }
+.subagent-brief-head > svg { flex: none; color: var(--ink-3); }
+.subagent-brief-prose { font-size: 14px; color: var(--ink-2); }
+.subagent-brief-part[data-kind="build"] .subagent-brief-prose { color: var(--ink); }
+.subagent-brief-place { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.subagent-brief-files { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.subagent-brief-file { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; min-width: 0; }
+.subagent-brief-chip { flex: 0 1 auto; display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; height: 32px; padding: 0 10px 0 8px;
+  border: none; border-radius: var(--r-chip); background-color: var(--rl-raised); box-shadow: var(--rl-object-shadow); color: var(--ink);
+  font: inherit; font-size: 13px; line-height: 16px; white-space: nowrap; }
+/* The hover is the ladder's own step laid over the object's fill, which holds on both faces. */
+button.subagent-brief-chip:hover { background-image: linear-gradient(var(--rl-hover), var(--rl-hover)); }
+button.subagent-brief-chip:focus-visible { outline: none; box-shadow: var(--rl-object-shadow), 0 0 0 2px var(--rl-accent); }
+.subagent-brief-chip > .file-mark { flex: none; }
+.subagent-brief-chip-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: var(--fw-label); }
+.subagent-brief-chip-dir { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); font-size: 12px; color: var(--ink-3); }
+.subagent-brief-branch { flex: 0 1 auto; display: inline-flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); }
+.subagent-brief-branch > svg { flex: none; color: var(--ink-3); }
+/* The folder it sits in, after the chip, giving way from its START so the end of the path stays. */
+.subagent-brief-dir { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left;
+  font-family: var(--font-mono); font-size: 12px; color: var(--ink-3); }
+.subagent-brief-note { flex: 1 1 16ch; min-width: 0; font-size: 13px; color: var(--ink-2); }
+.subagent-brief-note p { margin: 0; }
 /* The log: a delegated child's own transcript, set compact, or a harness agent's calls. */
 .subagent-view-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .subagent-view .transcript { padding: 8px 12px 16px; }
@@ -4432,9 +4478,9 @@ button.edit-file:hover { background: var(--rl-hover); }
    against a height the list does not have.
    The tool card's half addresses DIRECT children: a card now contains its sub-agent's cards, and a
    descendant selector would have opening the parent unfold every body beneath it. */
-.tool-body-wrap, .sb-section-wrap, .sched-runs-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-base) var(--ease-in-out-strong); }
-.tool-card[data-open] > .tool-body-wrap, .sb-section-wrap[data-open], .sched-runs-wrap[data-open] { grid-template-rows: 1fr; }
-.tool-body-clip, .sb-section-clip, .sched-runs-clip { overflow: hidden; min-height: 0; }
+.tool-body-wrap, .sb-section-wrap, .sched-runs-wrap, .subagent-view-result-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-base) var(--ease-in-out-strong); }
+.tool-card[data-open] > .tool-body-wrap, .sb-section-wrap[data-open], .sched-runs-wrap[data-open], .subagent-view-result-wrap[data-open] { grid-template-rows: 1fr; }
+.tool-body-clip, .sb-section-clip, .sched-runs-clip, .subagent-view-result-clip { overflow: hidden; min-height: 0; }
 .tool-card[data-open] > .tool-body-wrap .tool-body { opacity: 1; }
 
 /* Grouped runs (§2.8/§5) wear BUI ThinkingState's header + trace (Plan 9 W2): the head is
