@@ -32,7 +32,8 @@ export type PasswordsIpcDeps = {
   /** Draw the password in a native sheet over the window that asked. Resolves when it is closed;
    *  true when the person pressed its Copy. */
   showPassword(sender: unknown, title: string, value: string): Promise<boolean>;
-  clipboard: { writeText(text: string): void; readText(): string; clear(): void };
+  /** Electron's clipboard, whose reads and writes are promises since Electron 44. */
+  clipboard: { writeText(text: string): Promise<void>; readText(): Promise<string>; clear(): void };
   setTimer(fn: () => void, ms: number): void;
   /** Select a file in Finder. */
   reveal(path: string): void;
@@ -52,11 +53,13 @@ export function registerPasswordsIpc(d: PasswordsIpcDeps): void {
    * is still what is there. Only a digest is kept for that comparison: main holds no copy of the value
    * for the thirty seconds, and something the person copied since is left alone.
    */
-  const copy = (value: string) => {
-    d.clipboard.writeText(value);
+  const copy = async (value: string) => {
+    await d.clipboard.writeText(value);
     const digest = createHash("sha256").update(value).digest("hex");
     d.setTimer(() => {
-      if (createHash("sha256").update(d.clipboard.readText()).digest("hex") === digest) d.clipboard.clear();
+      void d.clipboard.readText().then((text) => {
+        if (createHash("sha256").update(text).digest("hex") === digest) d.clipboard.clear();
+      });
     }, PASSWORD_CLIPBOARD_CLEAR_MS);
   };
 
@@ -95,9 +98,9 @@ export function registerPasswordsIpc(d: PasswordsIpcDeps): void {
     const what = action === "copy" ? "copy" : "show";
     const row = ready.store.getCredential(ready.owner.id, str(id));
     const r = await ready.store.withCredentialValueForPerson(ready.owner.id, str(id), what, async (value) => {
-      if (what === "copy") { copy(value); return; }
+      if (what === "copy") { await copy(value); return; }
       const title = row ? `${row.username ? `${row.username} on ` : ""}${new URL(row.origin).host}` : "Password";
-      if (await d.showPassword(sender, title, value)) copy(value);
+      if (await d.showPassword(sender, title, value)) await copy(value);
     });
     if (r.ok) return { ok: true };
     return { ok: false, error: r.refused === "no_presence" ? "macOS didn't confirm it was you, so the password stays hidden." : "That password is no longer saved here." };

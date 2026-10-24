@@ -174,7 +174,7 @@ async function main() {
     "Menu.prototype.popup = function (opts = {}) { setTimeout(() => opts.callback?.(), 10); };",
     "await import(process.env.LIVE_MAIN);",
   ].join("\n"));
-  const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@37.10.3/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
+  const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.0.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
   electron = spawn(electronBin, [wrapper], {
     env: { ...process.env, REALM_HOME: home, REALM_ENABLE_FAKE_AGENT: "1", REALM_HTML_MENUS: "1",
       REALM_PORT: String(SERVER_PORT), REALM_DEVTOOLS_PORT: String(CDP_PORT),

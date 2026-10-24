@@ -85,7 +85,7 @@ fs.mkdirSync(home);
 fs.writeFileSync(path.join(scratch, "package.json"), JSON.stringify({ name: "realm-unlock-policy-live", main: "main.cjs" }));
 fs.writeFileSync(path.join(scratch, "main.cjs"), MAIN_SOURCE());
 
-const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@37.10.3/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
+const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.0.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
 const child = spawn(electronBin, [scratch, "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding"], {
   env: { ...process.env, LIVE_SCRATCH: scratch, LIVE_HOME: home, LIVE_CONTROL: control, LIVE_OWNER_LOG: ownerLog, LIVE_LISTWIN: listwin, LIVE_REAL_HELPER: realHelper },
   stdio: ["ignore", "pipe", "pipe"],

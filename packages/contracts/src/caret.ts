@@ -17,8 +17,8 @@
  * colour and the animation from here — the same split VS Code makes between `editor.*` and
  * `terminal.integrated.*`.
  *
- * Chromium 138 lets a stylesheet colour the native caret and nothing more (`caret-shape` and
- * `caret-animation` came later), so the app draws the caret itself, over the field (`caret.ts` in the
+ * Chromium 138 let a stylesheet colour the native caret and nothing more (`caret-shape` and
+ * `caret-animation` came later; `caret-geometry.ts` asks the engine), so the app draws the caret itself, over the field (`caret.ts` in the
  * renderer) — except a thin blinking line in an ordinary field, which IS the platform's caret and is
  * left to the platform.
  */

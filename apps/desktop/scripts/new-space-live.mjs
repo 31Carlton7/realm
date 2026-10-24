@@ -278,7 +278,7 @@ async function main() {
   for (const p of [CDP_PORT, SERVER_PORT]) if (!(await portFree(p))) throw new Error(`port ${p} is in use — refusing to run`);
   const wrapper = path.join(scratch, "wrapper.mjs");
   fs.writeFileSync(wrapper, ['import { app } from "electron";', 'app.setPath("userData", process.env.LIVE_USER_DATA);', "await import(process.env.LIVE_MAIN);"].join("\n"));
-  electron = spawn(path.join(repoRoot, "node_modules/.pnpm/electron@37.10.3/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"), [wrapper, ...UNTHROTTLED], {
+  electron = spawn(path.join(repoRoot, "node_modules/.pnpm/electron@45.0.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"), [wrapper, ...UNTHROTTLED], {
     env: { ...process.env, REALM_HOME: home, REALM_ENABLE_FAKE_AGENT: "1",
       REALM_PORT: String(SERVER_PORT), REALM_DEVTOOLS_PORT: String(CDP_PORT),
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"),

@@ -7,7 +7,7 @@ import { capturePermitted, refuseCapture } from "./capture-guard";
  * refusing permissions that have nothing to do with capture (notifications, the clipboard, fullscreen).
  */
 describe("refuseCapture", () => {
-  it("answers no to the camera and microphone, on request and on check, and yes to everything else", () => {
+  it("answers no to the camera, microphone and screen, on request and on check, and yes to everything else", () => {
     let request!: (wc: unknown, permission: string, answer: (granted: boolean) => void) => void;
     let check!: (wc: unknown, permission: string) => boolean;
     refuseCapture({ setPermissionRequestHandler: (h) => { request = h; }, setPermissionCheckHandler: (h) => { check = h; } });
@@ -21,6 +21,10 @@ describe("refuseCapture", () => {
       expect(check(null, p)).toBe(true);
     }
     expect(capturePermitted("media")).toBe(false);
+    // THE MUTANT: refuse only `media`. Electron 45 asks for the screen as `display-capture`, which
+    // Electron 37 asked as `media`, so the screen would quietly become any page's.
+    expect(asked("display-capture")).toBe(false);
+    expect(check(null, "display-capture")).toBe(false);
   });
 
   it("answers no to everything a view's frame asks for, and leaves Realm's own page as it was", () => {

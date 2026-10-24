@@ -5150,9 +5150,9 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 /* Squircle prompter. What is written here is the FALLBACK — a circular corner at --r-squircle,
    which is its own rung because a squircle reads visually smaller than a circular corner at the
    same radius and the two scales cannot track by arithmetic — plus `corner-shape`,
-   which states the shape declaratively and takes over once Electron ships Chromium 139. On the
-   runtime this app actually has (Chromium 138) `corner-shape` is not a recognised property at all,
-   so the curve is drawn by the paint worklet instead; see the squircle block further down. */
+   which states the shape declaratively and draws from Chromium 139 (Electron 45 ships 156). The
+   curve itself is still drawn by the paint worklet, which predates that; see the squircle block
+   further down. */
 .composer { width: 100%; border-radius: var(--r-squircle); corner-shape: squircle; background: var(--surface);
   box-shadow: var(--shadow-card); display: flex; flex-direction: column; position: relative; z-index: 1; }
 .composer:focus-within {
@@ -6000,9 +6000,9 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    The prompter, its under-strip, its drop hint, the install card that stands in for it and the
    commit dock all wear a continuous superellipse corner rather than the circular arc a plain
    `border-radius` draws. `corner-shape: squircle` is the declarative form of exactly this and it
-   stays on every rule above — but it lands in Chromium 139 and Electron 37.10.3 ships 138, where
-   the property is not recognised, so today the curve comes from a paint worklet
-   (public/squircle-paint.js). theme/squircle.ts sets `data-squircle` only after the worklet module
+   stays on every rule above — it draws from Chromium 139, and is what a surface falls back to
+   without the gate below — but the curve comes from a paint worklet (public/squircle-paint.js),
+   written when Electron 37's Chromium 138 did not recognise the property. theme/squircle.ts sets `data-squircle` only after the worklet module
    has loaded, so a failed load leaves every surface below on its `border-radius` fallback rather
    than on `paint()` with no painter — which resolves to nothing and would render an invisible card.
 
@@ -7116,9 +7116,8 @@ select { appearance: none; padding-right: 22px;
 .palette-opt, .menu [role^="menuitem"], .mp-row, .mp-seg-opt, .seg-opt, .mention-row, .skill-picker-row { transition-duration: 0s; }
 
 /* The continuous corner, on every control that has one.
-   Declarative only: `corner-shape` lands in Chromium 139 and Electron 37.10.3 ships 138, so today
-   this changes nothing and on the next Electron bump every one of these picks up the prompter's
-   curve at once. The paint worklet is deliberately NOT extended here — it is per-element, and these
+   Declarative only: `corner-shape` landed in Chromium 139, so it changed nothing on Electron 37
+   (Chromium 138) and on Electron 45 (Chromium 156) every one of these draws the curve. The paint worklet is deliberately NOT extended here — it is per-element, and these
    are hundreds of elements per window against the handful of singleton surfaces it draws now. The
    radii above are what make the difference visible in the meantime. */
 .btn, .icon-btn, .ghost-chip, .composer-chip, .msg-action, .tool-copy,
@@ -9937,7 +9936,7 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
 }
 /* Four stops rather than a path: each is a place on the canvas the reveal settles at, and the two
    ellipses are deliberately out of step with each other so the pair never reads as one blob sliding
-   around. Unprefixed only — this renderer is Chromium 138, which has had unprefixed `mask-*` since
+   around. Unprefixed only — this renderer is Chromium 156, and Chromium has had unprefixed `mask-*` since
    120, and a prefixed twin of an animated property is a second set of numbers to keep in step. */
 @keyframes gen-morph {
   0%, 100% { mask-size: 52% 46%, 40% 40%; mask-position: 16% 20%, 30% 32%; }

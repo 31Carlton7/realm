@@ -424,7 +424,7 @@ export type SetAside = { path: string; at: number };
 
 /**
  * What safeStorage throws when the Keychain is shut to Realm rather than the blob being bad: access
- * refused, or not available yet (Electron 37's own words). The keyring is fine then, and so is the
+ * refused, or not available yet (Electron's own words, the same in 37 and 45). The keyring is fine then, and so is the
  * file. Every other failure to open it — "Ciphertext does not appear to be encrypted", the bare
  * "Error while decrypting…", a blob that opens to garbage — is the content.
  */

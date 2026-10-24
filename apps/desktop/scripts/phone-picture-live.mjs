@@ -126,7 +126,7 @@ async function main() {
     REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"), REALM_PHONESCREEN_BIN: helper,
     LIVE_USER_DATA: path.join(scratch, "userData"), LIVE_MAIN: mainEntry,
   };
-  const app = path.join(repoRoot, "node_modules/.pnpm/electron@37.10.3/node_modules/electron/dist/Electron.app");
+  const app = path.join(repoRoot, "node_modules/.pnpm/electron@45.0.0/node_modules/electron/dist/Electron.app");
   execFileSync("open", ["-n", ...Object.entries(env).flatMap(([k, v]) => ["--env", `${k}=${v}`]), app, "--args", wrapper,
     "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"]);
   // `open` returns at once; the app is found by the wrapper only it was given.

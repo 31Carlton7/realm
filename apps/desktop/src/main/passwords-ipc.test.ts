@@ -37,7 +37,7 @@ function harness(over: Partial<PasswordsIpcDeps> = {}, file: string | null = nul
     readFile: async (path) => ({ size: files.get(path)?.length ?? 0, text: async () => files.get(path) ?? "" }),
     offerToTrash: async (_s, path) => { trashed.push(path); return true; },
     showPassword: async (_s, _title, value) => { shown.push(value); return false; },
-    clipboard: { writeText: (t) => { board.text = t; }, readText: () => board.text, clear: () => { board.text = ""; board.cleared++; } },
+    clipboard: { writeText: async (t) => { board.text = t; }, readText: async () => board.text, clear: () => { board.text = ""; board.cleared++; } },
     setTimer: (fn, ms) => { expect(ms).toBe(PASSWORD_CLIPBOARD_CLEAR_MS); timers.push(fn); },
     reveal: (path) => { revealed.push(path); },
     ...over,
@@ -110,10 +110,12 @@ describe("Show and Copy", () => {
     const row = h.store.addCredential(P, { origin: "https://example.com", username: "ada", label: "", value: SECRET });
     await h.call("credentials:reveal", P, row.id, "copy");
     h.timers.shift()!();
+    await Promise.resolve();
     expect(h.board.text).toBe("");
     await h.call("credentials:reveal", P, row.id, "copy");
     h.board.text = "something of theirs";
     h.timers.shift()!();
+    await Promise.resolve();
     expect(h.board.text).toBe("something of theirs");
     expect(h.board.cleared).toBe(1);
   });
