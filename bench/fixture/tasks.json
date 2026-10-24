@@ -1,0 +1,8 @@
+{
+"t1":"Bug fix: in shelf/paging.py, paginate() is documented as 1-indexed but returns wrong items, and page_count() drops the final partial page. Fix both bugs. page 0 or negative pages must return []. Do not touch other files. Run the existing tests with: python3 -m unittest discover -s tests -t .",
+"t2":"Feature: add a new module shelf/slug.py with slugify(text, max_len=None). Lowercase, replace any run of non-alphanumeric characters with a single '-', strip leading/trailing '-'. If max_len is given, truncate to max_len characters then strip any trailing '-'. slugify('???') returns ''. Only create/modify shelf/slug.py.",
+"t3":"Refactor: shelf/report.py has duplicated formatting logic in book_line and loan_line. Extract one shared helper (e.g. _fmt_row(title, who, year)) so the column formatting (.ljust(30)[:30], .ljust(20)[:20], rjust(4)) appears once. Public function names and output must stay byte-for-byte identical. Existing tests must still pass: python3 -m unittest discover -s tests -t .",
+"t4":"Write tests: shelf/stats.py has no tests. Create tests/test_stats.py using unittest covering mean, median (odd and even length, unsorted input), clamp (below, inside, above, lo>hi error) and empty-input errors. Do not modify shelf/stats.py. Tests must pass: python3 -m unittest discover -s tests -t .",
+"t5a":"Change: in shelf/config.py make the default 'retries' value 5 instead of 3. Update tests/test_smoke.py if needed.",
+"t5b":"Feature: in shelf/config.py add a keyword argument env=\"dev\" to load_config(overrides=None, env=\"dev\"); the returned dict must include key 'env' set to that value (overrides may still override it)."
+}
