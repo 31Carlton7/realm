@@ -325,12 +325,12 @@ async function main() {
   /* The generating canvas, CSS only. No adapter in this harness emits a long-running media tool call,
      so the component's own wiring is covered by the unit tests (media-views.test.tsx) and what is
      checked here is the thing they cannot see: that `aspect-ratio` actually produces a box, and that
-     the glow — a conic gradient at `inset: -40%` — is clipped by it instead of escaping. */
+     the box clips what is laid in it. */
   const canvas = await evalIn(c, `(() => {
     const host = document.createElement('div');
     host.style.cssText = 'position:fixed;left:20px;top:20px;width:400px';
     const box = (aspect, w) => '<div class="gen-canvas" style="aspect-ratio:' + aspect + ';width:' + w + 'px">' +
-      '<span class="gen-glow"></span><span class="gen-dots"></span></div>';
+      '<span class="gen-mark"><span class="gen-spin"></span></span></div>';
     // The three shapes and the widths GeneratingCanvas computes for them (genWidthPx, max 320).
     host.innerHTML = '<div class="gen-wrap">' + box('1080 / 1920', 180) + box('16 / 9', 320) + box('1 / 1', 320) + '</div>';
     document.body.appendChild(host);
@@ -339,7 +339,7 @@ async function main() {
       return { w: Math.round(b.width), h: Math.round(b.height), ratio: Math.round((b.width / b.height) * 100) / 100 };
     });
     // overflow is asserted rather than measured: a clipped child still reports its full LAYOUT rect,
-    // so comparing rectangles would call every glow an escape. This is the declaration that clips it.
+    // so comparing rectangles proves nothing. This is the declaration that clips it.
     const clip = getComputedStyle(host.querySelector('.gen-canvas')).overflow;
     host.remove();
     return { boxes: out, clip }; })()`);
@@ -348,7 +348,7 @@ async function main() {
     Math.abs(portrait.ratio - 1080 / 1920) < 0.02 && portrait.h > 300, portrait);
   check("a wide canvas and a square one keep their shapes too",
     Math.abs(wide.ratio - 16 / 9) < 0.02 && Math.abs(square.ratio - 1) < 0.02, { wide, square });
-  check("the canvas clips its glow", canvas.clip === "hidden", canvas.clip);
+  check("the canvas clips what it holds", canvas.clip === "hidden", canvas.clip);
 
   // The human verdict on the strip itself, before the lightbox covers it.
   {
