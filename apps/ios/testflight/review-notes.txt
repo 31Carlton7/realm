@@ -9,7 +9,7 @@ To see it work:
 4. On the Mac, press Pair. The phone now lists the Mac's spaces and sessions.
 5. A session runs an agent signed in on the Mac under the person's own account (Realm's first run offers Claude and ChatGPT sign-in). With one, start a session from the phone's compose button, answer its permission requests, and stop it.
 
-A recording of the whole flow, the phone and the Mac side by side: {demoVideoUrl}
+A one-minute recording of the app with a paired Mac, made in the iOS Simulator (the agent's replies in it are scripted for the recording): {demoVideoUrl}
 
 How it reaches the Mac: through Realm's relay, a Cloudflare Worker. Everything between the phone and the Mac is encrypted end to end with keys made on the two devices, so the relay carries only ciphertext. A notification is encrypted on the Mac for one phone and opened by the app's notification service extension; Apple's push service sees only a placeholder.
 
