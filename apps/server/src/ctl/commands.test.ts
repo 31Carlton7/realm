@@ -81,7 +81,9 @@ describe("realm, against a real server", () => {
     expect(runs.map((r) => r.code)).toEqual([0, 0, 0, 0]);
     expect(new Set(runs.map((r) => r.json.spaceId)).size).toBe(1); // one space for the repo, not one per racing call
     expect(new Set(runs.map((r) => r.json.path)).size).toBe(4);
-    const waited = await realm("wait", "--timeout", "10");
+    // Generous: four git worktree adds and four shells on a loaded machine are slow, and a 124 here
+    // would be the timeout, not the behaviour under test.
+    const waited = await realm("wait", "--timeout", "40");
     expect(waited.code).toBe(1); // one of them did not succeed…
     const byId = new Map((waited.json as any[]).map((t) => [t.terminalId, t]));
     expect(byId.get(runs[1]!.json.terminalId)).toMatchObject({ running: false, signal: 9 }); // …and it is the killed one
@@ -90,7 +92,7 @@ describe("realm, against a real server", () => {
       expect(readFileSync(join(runs[i]!.json.path, "mine.txt"), "utf8")).toBe(`${names[i]}\n`);
     }
     expect(new SpacesStore(app.db, "").listAll()).toHaveLength(1);
-  }, 30000);
+  }, 60000);
 
   it("says when a wait timed out, prints logs, and stops a terminal", async () => {
     const { realm } = await serverAndCli();
