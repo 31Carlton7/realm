@@ -227,6 +227,11 @@ const check = (name, cond, detail) => {
   console.log(`${cond ? "PASS" : "FAIL"} ${name}${detail !== undefined ? " " + JSON.stringify(detail) : ""}`);
 };
 const near = (v, target) => typeof v === "number" && Math.abs(v - target) < TOL;
+/** Every corner back to a circular arc, as Chromium 138 drew the fallback whatever `corner-shape` says. */
+const roundCorners = (on) => `(() => { document.getElementById("live-round")?.remove();
+  if (${on}) { const s = document.createElement("style"); s.id = "live-round";
+    s.textContent = "*, *::before, *::after { corner-shape: round !important; }"; document.head.append(s); }
+  return true; })()`;
 const shotOf = async (c) => (await c.send("Page.captureScreenshot", { format: "png" })).data;
 
 async function main() {
@@ -282,10 +287,11 @@ async function main() {
   await c.send("Emulation.setDeviceMetricsOverride", { width: 1200, height: 820, deviceScaleFactor: 1, mobile: false });
   await sleep(600);
 
-  console.log("runtime:", await evalIn(c, `JSON.stringify({
+  const runtime = await evalIn(c, `({
     chromium: navigator.userAgent.match(/Chrome\\/[0-9.]+/)?.[0],
     cornerShape: CSS.supports("corner-shape", "squircle"),
-  })`));
+  })`);
+  console.log("runtime:", JSON.stringify(runtime));
 
   check("the painter loaded in the real bundle, so the cards are off their fallback",
     await evalIn(c, `document.documentElement.hasAttribute("data-squircle")`));
@@ -416,8 +422,17 @@ async function main() {
     near(painted.fraction, SQUIRCLE), painted);
   const stripOn = await evalIn(c, `__live.cornerFill(${JSON.stringify(silhouette)}, ".composer-understrip", "bl")`);
 
-  // ── the mutant: without the gate the same measurement must find a circle ──
+  /* ── without the gate, on a Chromium that has `corner-shape` (139+) ─────────
+     The stylesheet's fallback is `border-radius` plus `corner-shape: squircle`, and from Electron 38
+     the second half draws: the card keeps its curve even when the worklet never loaded. */
   await evalIn(c, `(() => { document.documentElement.removeAttribute("data-squircle"); return true; })()`);
+  await sleep(300);
+  if (runtime.cornerShape) {
+    const declarative = await evalIn(c, `__live.cornerFill(${JSON.stringify(await shotOf(c))}, ".composer", "tl")`);
+    check("gate off, `corner-shape: squircle` draws the same superellipse the worklet does", near(declarative.fraction, SQUIRCLE), declarative);
+  }
+  // ── the mutant: without the gate or the declarative curve, the same measurement must find a circle ──
+  await evalIn(c, roundCorners(true));
   await sleep(300);
   const fallbackShot = await shotOf(c);
   const fallback = await evalIn(c, `__live.cornerFill(${JSON.stringify(fallbackShot)}, ".composer", "tl")`);
@@ -448,6 +463,7 @@ async function main() {
   const bubbleOffShot = await shotOf(c); // the gate is still off from the mutant above
   const bubbleOff = await evalIn(c, `__live.cornerFill(${JSON.stringify(bubbleOffShot)}, ".msg-user", "tl")`);
   await evalIn(c, `(() => { document.documentElement.setAttribute("data-squircle", ""); return true; })()`);
+  await evalIn(c, roundCorners(false));
   await sleep(350);
   const bubbleOnShot = await shotOf(c);
   const bubbleOn = await evalIn(c, `__live.cornerFill(${JSON.stringify(bubbleOnShot)}, ".msg-user", "tl")`);
@@ -484,10 +500,12 @@ async function main() {
   await sleep(250);
   const tileOn = await evalIn(c, `__live.cornerFill(${JSON.stringify(await shotOf(c))}, ".msg-user-files .attach-art", "tl")`);
   await evalIn(c, `(() => { document.documentElement.removeAttribute("data-squircle"); return true; })()`);
+  await evalIn(c, roundCorners(true));
   await evalIn(c, paintTile("background", "#ffffff"));
   await sleep(300);
   const tileOff = await evalIn(c, `__live.cornerFill(${JSON.stringify(await shotOf(c))}, ".msg-user-files .attach-art", "tl")`);
   await evalIn(c, `(() => { document.documentElement.setAttribute("data-squircle", ""); return true; })()`);
+  await evalIn(c, roundCorners(false));
   await evalIn(c, paintTile("--sq-fill"));
   await evalIn(c, paintTile("background"));
   await sleep(250);
