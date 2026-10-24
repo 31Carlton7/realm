@@ -1,0 +1,9 @@
+{
+  "locale": "en-US",
+  "feedbackEmail": null,
+  "marketingUrl": "https://realm.computer",
+  "privacyPolicyUrl": "https://realm.computer/docs/privacy",
+  "reviewContact": { "firstName": null, "lastName": null, "phone": null, "email": null },
+  "demoVideoUrl": null,
+  "group": { "name": "Public Beta", "publicLinkLimit": 1000, "feedbackEnabled": true }
+}
