@@ -53,6 +53,13 @@ enum SpaceOrder: String, CaseIterable, Identifiable {
         case .recentlyActive: "Recently active first"
         }
     }
+
+    var symbol: String {
+        switch self {
+        case .asOnMac: "laptopcomputer"
+        case .recentlyActive: "clock.arrow.circlepath"
+        }
+    }
 }
 
 /// How the person asked for the list, as kept on the phone.

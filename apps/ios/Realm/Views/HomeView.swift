@@ -112,8 +112,9 @@ struct HomeView: View {
         .toolbar {
             // While the Mac is away, a way to try now rather than at the end of the wait between
             // tries — in the bar, so the list under it never moves for the link's sake.
+            // On the leading side, opposite More, so the title stays centred while it is there.
             if home != nil, !shown.isConnected, shown.kind != .connecting {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .topBarLeading) {
                     Button {
                         Task {
                             reconnecting = true
@@ -297,7 +298,10 @@ struct ListSectionHead: View {
                 SectionHead(title: space.name) { SpaceGlyph(space: space) }
             }
         case .day(let day):
-            SectionHead(title: day.title) { EmptyView() }
+            // A glyph like every other head's, so the heads' words start together.
+            SectionHead(title: day.title) {
+                Image(systemName: "calendar").foregroundStyle(Palette.ink2)
+            }
         case .recent:
             SectionHead(title: "Recent") {
                 Image(systemName: "clock").foregroundStyle(Palette.ink2)
@@ -497,12 +501,17 @@ private struct ViewOptionsMenu: View {
             if style == .bySpace {
                 Section("Order spaces") {
                     ForEach(SpaceOrder.allCases) { order in
-                        Toggle(order.title, isOn: $spaceOrder.isChosen(order))
+                        Toggle(isOn: $spaceOrder.isChosen(order)) {
+                            Label(order.title, systemImage: order.symbol)
+                        }
                     }
                 }
             }
+            // Every item wears a glyph, so the menu's words start at one edge.
             Section {
-                Toggle("Needs you first", isOn: $needsYouFirst)
+                Toggle(isOn: $needsYouFirst) {
+                    Label("Needs you first", systemImage: "hand.raised")
+                }
             }
         } label: {
             Label("View options", systemImage: "line.3.horizontal.decrease.circle")
