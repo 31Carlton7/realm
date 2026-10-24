@@ -576,16 +576,16 @@ describe("BrowserPaneHost — a partition per profile", () => {
  * the page may then use and the renderer cannot do.
  */
 describe("browserUserAgent", () => {
-  const E37 = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.7204.251 Electron/37.10.3 Safari/537.36";
+  const E45 = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.8078.48 Electron/45.0.0 Safari/537.36";
 
   it("takes the Electron token out and freezes the Chrome build, leaving a plain Chrome UA", () => {
-    expect(browserUserAgent(E37)).toBe(
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+    expect(browserUserAgent(E45)).toBe(
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
     );
   });
 
   it("is idempotent — it is applied at the session AND at each view, and must not compound", () => {
-    const once = browserUserAgent(E37);
+    const once = browserUserAgent(E45);
     expect(browserUserAgent(once)).toBe(once);
     expect(browserUserAgent(browserUserAgent(once))).toBe(once);
   });
