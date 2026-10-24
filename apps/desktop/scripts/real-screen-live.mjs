@@ -162,7 +162,7 @@ const key = async (c, k, code, vk, modifiers = 0, text) => {
 async function launch() {
   const wrapper = path.join(scratch, "wrapper.mjs");
   fs.writeFileSync(wrapper, WRAPPER);
-  const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@37.10.3/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
+  const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.0.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
   const env = { REALM_HOME: path.join(scratch, "home"), REALM_ENABLE_FAKE_AGENT: "1",
     REALM_PORT: String(SERVER_PORT), REALM_DEVTOOLS_PORT: String(CDP_PORT),
     REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"), LIVE_CMD_PORT: String(CMD_PORT),

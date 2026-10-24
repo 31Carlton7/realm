@@ -40,7 +40,7 @@ function cdp(url) {
 async function main() {
   for (const p of [CDP, PORT]) if (!(await portFree(p))) throw new Error(`port ${p} is in use`);
   fs.writeFileSync(path.join(scratch, "w.mjs"), 'import { app } from "electron";\napp.setPath("userData", process.env.UD);\nawait import(process.env.MAIN);');
-  electron = spawn(path.join(repoRoot, "node_modules/.pnpm/electron@37.10.3/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"), [path.join(scratch, "w.mjs")], {
+  electron = spawn(path.join(repoRoot, "node_modules/.pnpm/electron@45.0.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"), [path.join(scratch, "w.mjs")], {
     env: { ...process.env, REALM_HOME: path.join(scratch, "home"), REALM_PORT: String(PORT), REALM_DEVTOOLS_PORT: String(CDP),
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"), UD: path.join(scratch, "ud"), MAIN: path.join(repoRoot, "apps/desktop/out/main/index.js") },
     stdio: ["ignore", "ignore", "pipe"],
