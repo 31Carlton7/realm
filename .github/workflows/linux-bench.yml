@@ -84,6 +84,15 @@ jobs:
           ls -l "$bench/tools/realm-x/squashfs-root/resources/bin" | tee "$out/realm-resources-bin.txt"
           dpkg-deb -c "$GITHUB_WORKSPACE"/apps/desktop/release/*.deb | grep resources/bin/ | tee "$out/deb-resources-bin.txt"
           {
+            for tool in realm orca; do
+              img=$realm; [ "$tool" = orca ] && img=$bench/tools/orca-x/orca-linux.AppImage
+              echo "$tool: $(stat -c %s "$img") bytes, runtime: $("$img" --appimage-version 2>&1 | head -1)"
+              du -sh "$bench/tools/$tool-x/squashfs-root"
+            done
+            ls -l "$GITHUB_WORKSPACE"/apps/desktop/release/*.deb
+            du -s "$bench"/tools/realm-x/squashfs-root/resources/server/node_modules/.pnpm/* | sort -n | tail -8
+          } 2>&1 | tee "$out/footprint.txt"
+          {
             echo "BENCH=$bench"; echo "OUT=$out"
             echo "REALM_APPIMAGE=$realm"; echo "ORCA_APPIMAGE=$bench/tools/orca-x/orca-linux.AppImage"
             echo "REALM_BIN=$bench/tools/realm-x/squashfs-root/resources/bin/realm"
@@ -113,18 +122,51 @@ jobs:
           for _ in $(seq 50); do DISPLAY=:90 xdotool getdisplaygeometry > /dev/null 2>&1 && exit 0; sleep 0.2; done
           echo "::error::Xvfb did not come up"; exit 1
 
+      # One launch of each first, kept but not counted: the first GUI app on a fresh runner pays for
+      # caches that belong to neither (fontconfig, Mesa's shaders). Then three each, the order turned
+      # round every time, so neither app always goes first.
       - name: GUI launch probes (Realm, Orca, alternating, 3 each)
         working-directory: ${{ runner.temp }}/bench
         run: |
           set -euo pipefail
-          for i in 1 2 3; do
-            for tool in realm orca; do
-              img=$REALM_APPIMAGE; [ "$tool" = orca ] && img=$ORCA_APPIMAGE
-              rm -rf /tmp/appimage_extracted_*
-              python3 harness/gui_probe.py "$tool" "$img"
-              mv "runs/E-gui-$tool" "runs/E-gui-$tool-run$i"
-            done
-          done
+          probe() {
+            img=$REALM_APPIMAGE; [ "$1" = orca ] && img=$ORCA_APPIMAGE
+            rm -rf /tmp/appimage_extracted_*
+            python3 harness/gui_probe.py "$1" "$img"
+            mv "runs/E-gui-$1" "runs/E-gui-$1-$2"
+          }
+          probe realm warmup; probe orca warmup
+          probe realm run1; probe orca run1
+          probe orca run2; probe realm run2
+          probe realm run3; probe orca run3
+
+      # Not a bench number: each app started from its already-extracted AppDir, so the launch has no
+      # unpacking in it, and what its process tree holds 12 s later, process by process.
+      - name: Launch from the extracted AppDir (diagnostic)
+        working-directory: ${{ runner.temp }}/bench
+        run: |
+          cat > "$RUNNER_TEMP/launch.py" <<'EOF'
+          import os, shutil, signal, subprocess, sys, time
+          tool, app = sys.argv[1], sys.argv[2]
+          home = f"/tmp/home-launch-{tool}"; shutil.rmtree(home, ignore_errors=True); os.makedirs(home)
+          env = {**os.environ, "DISPLAY": ":90", "HOME": home, "XDG_CONFIG_HOME": home + "/.config"}
+          t0 = time.time()
+          p = subprocess.Popen([app, "--no-sandbox"], env=env, stdout=open(f"{os.environ['OUT']}/launch-{tool}.log", "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True)
+          first = None
+          while time.time() - t0 < 45 and p.poll() is None:
+              if subprocess.run(["xdotool", "search", "--onlyvisible", "--name", "."], env=env, capture_output=True, text=True).stdout.split():
+                  first = round(time.time() - t0, 2); break
+              time.sleep(0.1)
+          time.sleep(12)
+          rows = [r.split(None, 3) for r in subprocess.run(["ps", "-eo", "pgid=,pid=,rss=,args="], capture_output=True, text=True).stdout.splitlines()]
+          mine = [r for r in rows if r[0] == str(p.pid)]
+          print(f"{tool}: first window {first} s from the extracted AppDir; {round(sum(int(r[2]) for r in mine) / 1024)} MB over {len(mine)} processes 12 s later")
+          for r in sorted(mine, key=lambda r: -int(r[2])): print(f"  {round(int(r[2]) / 1024):5d} MB  {r[3][:160]}")
+          os.killpg(p.pid, signal.SIGKILL)
+          EOF
+          for tool in realm orca realm orca; do
+            python3 "$RUNNER_TEMP/launch.py" "$tool" "$BENCH/tools/$tool-x/squashfs-root/AppRun"
+          done 2>&1 | tee "$OUT/launch-extracted.txt"
 
       - name: Realm lane A (packaged realm, no display)
         working-directory: ${{ runner.temp }}/bench
@@ -156,6 +198,8 @@ jobs:
           print(open(f"{os.environ['OUT']}/environment.txt").read().replace("\n", "  \n"))
           print("| | Realm | Orca |\n|---|---|---|")
           gui = {t: [load(f"runs/E-gui-{t}-run{i}/probe.json") or {} for i in (1, 2, 3)] for t in ("realm", "orca")}
+          warm = {t: (load(f"runs/E-gui-{t}-warmup/probe.json") or {}).get("first_window_s") for t in ("realm", "orca")}
+          print(f"| First window, warm-up launch, not counted (s) | {warm['realm']} | {warm['orca']} |")
           for label, k in (("First window (s)", "first_window_s"), ("RSS tree 12 s later (MB)", "rss_mb_tree"), ("Processes", "procs")):
               print(f"| {label} | {span([g.get(k) for g in gui['realm']])} | {span([g.get(k) for g in gui['orca']])} |")
           lane = {t: [load(f"runs/repeat/{t}-run{i}.json") or {} for i in (1, 2, 3)] for t in ("realm", "orca")}
@@ -232,9 +276,10 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # pack.mjs finds electron-builder in node_modules/.bin, which pnpm puts on PATH.
       - name: Package (unpacked)
         working-directory: apps/desktop
-        run: node scripts/stage-pack.mjs && node scripts/pack.mjs ${{ matrix.pack }} --publish never
+        run: node scripts/stage-pack.mjs && pnpm exec node scripts/pack.mjs ${{ matrix.pack }} --publish never
 
       - name: Shim tests
         run: pnpm vitest run apps/server/src/ctl/shim.test.ts
