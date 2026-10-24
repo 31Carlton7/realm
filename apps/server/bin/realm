@@ -1,15 +1,26 @@
 #!/bin/sh
-# realm: Realm's command line (../dist/realm.js). Inside Realm.app it runs on the app's own binary as
-# Node, the runtime the app's server already uses; from a source checkout, on the node on PATH.
-# Follows symlinks, so `ln -s …/Resources/server/bin/realm /usr/local/bin/realm` works.
+# realm: Realm's command line (dist/realm.js of the server package). A packaged app ships it as
+# <resources>/bin/realm (electron-builder.yml) and in <resources>/server/bin, and from either it runs on
+# the app's own binary as Node, the runtime the app's server already uses: no Node install, no display.
+# From a source checkout it runs on the node on PATH.
+# Follows symlinks, so `ln -s …/resources/bin/realm /usr/local/bin/realm` works.
 self=$0
 while [ -L "$self" ]; do
   link=$(readlink "$self")
   case $link in /*) self=$link ;; *) self=$(dirname "$self")/$link ;; esac
 done
 here=$(cd "$(dirname "$self")/.." && pwd)
-app="$here/../../MacOS/Realm"
-if [ -x "$app" ]; then ELECTRON_RUN_AS_NODE=1 exec "$app" "$here/dist/realm.js" "$@"; fi
-if command -v node >/dev/null 2>&1; then exec node "$here/dist/realm.js" "$@"; fi
-echo "realm: needs Node.js 22.13 or newer on PATH, or to be run from inside Realm.app" >&2
+# <resources>/bin's parent is <resources>, where the server package is server/.
+server=$here
+[ -f "$server/dist/realm.js" ] || server=$here/server
+resources=$server/..
+# A packaged app keeps app.asar in <resources>, and its binary beside it: Contents/MacOS/Realm on a
+# Mac, realm on Linux, Realm.exe on Windows (for a Git Bash).
+if [ -f "$resources/app.asar" ]; then
+  for app in "$resources/../MacOS/Realm" "$resources/../realm" "$resources/../Realm.exe"; do
+    if [ -f "$app" ] && [ -x "$app" ]; then ELECTRON_RUN_AS_NODE=1 exec "$app" "$server/dist/realm.js" "$@"; fi
+  done
+fi
+if command -v node >/dev/null 2>&1; then exec node "$server/dist/realm.js" "$@"; fi
+echo "realm: needs Node.js 22.13 or newer on PATH, or to be run from an installed Realm" >&2
 exit 1

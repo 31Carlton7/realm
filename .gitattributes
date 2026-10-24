@@ -1,3 +1,8 @@
 # Protocol fixtures are compared byte for byte, against bytes made in code on every platform: a
 # Windows checkout must not turn their line endings into CRLF.
 packages/remote/test/fixtures/** text eol=lf
+# The command line's launchers go into every packaged app as checked out (electron-builder.yml): the sh
+# one must keep LF even from a Windows checkout, and cmd.exe finds a batch file's labels reliably only
+# with CRLF.
+apps/server/bin/realm text eol=lf
+apps/server/bin/realm.cmd text eol=crlf
