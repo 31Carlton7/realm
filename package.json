@@ -12,6 +12,7 @@
     "relay:test": "pnpm --filter @realm/relay test",
     "ios:test": "swift test --package-path apps/ios/RealmKit",
     "ios:release": "node scripts/ios-release.mjs",
+    "ios:public-beta": "node scripts/ios-public-beta.mjs",
     "typecheck": "pnpm -r typecheck",
     "dev": "pnpm --filter @realm/server build && pnpm -r --parallel --filter @realm/server --filter @realm/desktop dev",
     "dist": "pnpm build && pnpm --filter @realm/desktop dist",

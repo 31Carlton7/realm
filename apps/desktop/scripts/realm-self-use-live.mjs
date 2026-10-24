@@ -269,7 +269,7 @@ async function main() {
     "await import(process.env.LIVE_MAIN);",
   ].join("\n"));
   const electronBin = process.platform === "darwin"
-    ? path.join(repoRoot, "node_modules/.pnpm/electron@37.10.3/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron")
+    ? path.join(repoRoot, "node_modules/.pnpm/electron@45.0.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron")
     : path.join(repoRoot, "apps/desktop/node_modules/.bin/electron");
   electron = spawn(electronBin, [wrapper, "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"], {
     env: {

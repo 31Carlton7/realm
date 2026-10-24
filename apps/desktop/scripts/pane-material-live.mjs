@@ -36,7 +36,7 @@ const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "realm-material-"));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let electron = null, backdrop = null;
 
-const ELECTRON_BIN = path.join(repoRoot, "node_modules/.pnpm/electron@37.10.3/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
+const ELECTRON_BIN = path.join(repoRoot, "node_modules/.pnpm/electron@45.0.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
 
 async function portFree(port) {
   return new Promise((resolve) => {

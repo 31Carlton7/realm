@@ -9,6 +9,7 @@ import { useApp } from "../../state/store";
 import { useDissolve } from "../../components/ScrollFades";
 import type { PaneProps } from "../registry";
 import { useScrollMemory } from "../scroll-memory";
+import { capabilities } from "../../platform";
 import {
   canSave, edited, externalChange, keepMine, opened, saved, takeTheirs, writeRejected, type Buffer,
 } from "./buffers";
@@ -16,7 +17,7 @@ import { DocumentsHome } from "./DocumentsHome";
 import { folderName, isOutsideTab, tildePath } from "./home-model";
 import { NewMenu, iconFor } from "./NewMenu";
 import { PreviewFrame } from "./PreviewFrame";
-import { publishShownFile } from "./shown-file";
+import { canReveal, publishShownFile, revealPath, showInLabel } from "./shown-file";
 import { QuickLookView } from "./QuickLookView";
 import { VideoView } from "./VideoView";
 
@@ -330,11 +331,11 @@ export function DocumentsPane({ item }: PaneProps) {
   }), [run, renameDocumentFile, documentsId]);
 
   const showingHome = home || !buf;
-  /* The file on screen, for the pane's menu (Open in Preview, Share) — which is drawn by the pane's bar,
-     outside this component. Only a PDF has rows there today. */
+  /* The file on screen, for the head's Show in Finder and the pane's menu (Reveal in Finder, and a
+     PDF's Open in Preview and Share) — which is drawn by the pane's bar, outside this component. */
   // An outside tab is its own absolute path; one inside the space is relative to the space's folder.
   const shownPath = buf && !showingHome ? isOutsideTab(buf.path) ? buf.path : root ? `${root.replace(/\/$/, "")}/${buf.path}` : null : null;
-  useEffect(() => publishShownFile(item.id, shownPath && kind === "pdf" ? { path: shownPath, kind } : null), [item.id, shownPath, kind]);
+  useEffect(() => publishShownFile(item.id, shownPath ? { path: shownPath, kind } : null), [item.id, shownPath, kind]);
   useEffect(() => () => publishShownFile(item.id, null), [item.id]);
   return (
     <div className="documents-pane">
@@ -374,7 +375,7 @@ export function DocumentsPane({ item }: PaneProps) {
         <>
           <DocumentHead
             buffer={buf} kind={unshown[buf.path] ? "unsupported" : kind} mode={mode} onSetMode={setMode}
-            renaming={renaming} onRenaming={setRenaming}
+            renaming={renaming} onRenaming={setRenaming} filePath={shownPath}
             onRename={(stem) => renameActive(buf.path, stem)} onToolsSlot={setHeadSlot}
           />
           {isOutsideTab(buf.path) && !unshown[buf.path] && <OutsideNote path={buf.path} />}
@@ -459,10 +460,12 @@ function TabStrip({ tabs, active, buffers, home, onHome, onSelect, onClose, menu
  * a third time. What a person actually wants from a document's chrome is the name (and the ability to
  * change it) and the answer to "is my work safe" — so that is what is here, and nothing else.
  */
-function DocumentHead({ buffer, kind, mode, onSetMode, renaming, onRenaming, onRename, onToolsSlot }: {
+function DocumentHead({ buffer, kind, mode, onSetMode, renaming, onRenaming, onRename, onToolsSlot, filePath }: {
   buffer: Buffer; kind: DocumentKind; mode: "rich" | "source"; onSetMode: (m: "rich" | "source") => void;
   renaming: boolean; onRenaming: (v: boolean) => void; onRename: (stem: string) => void;
   onToolsSlot: (el: HTMLElement | null) => void;
+  /** The file on disk, absolute, for Show in Finder; null until the space's folder has loaded. */
+  filePath: string | null;
 }) {
   const structured = structuredViewFor(kind);
   /* Realm never writes a PDF, and outside the space nothing is saved, so "Saved" beside either would
@@ -501,6 +504,13 @@ function DocumentHead({ buffer, kind, mode, onSetMode, renaming, onRenaming, onR
           <button type="button" aria-pressed={mode === "rich"} onClick={() => onSetMode("rich")}>{structuredLabel(structured)}</button>
           <button type="button" aria-pressed={mode === "source"} onClick={() => onSetMode("source")}>Source</button>
         </span>
+      )}
+      {/* Last in the row, after the view's own controls: it leaves the pane for the file's folder. */}
+      {filePath && canReveal() && (
+        <button type="button" className="icon-btn documents-reveal" aria-label={`Show ${baseName(buffer.path)} in ${capabilities().fileManager}`}
+          title={showInLabel()} onClick={() => revealPath(filePath)}>
+          <Icon name="folder" size={14} />
+        </button>
       )}
     </div>
   );
@@ -551,7 +561,7 @@ function OutsideNote({ path }: { path: string }) {
       <Icon name="padlock" size={12} />
       <span className="documents-outside-says">Outside this space · read-only</span>
       <span className="documents-outside-where">{folder}</span>
-      <button type="button" className="btn-quiet" onClick={() => { void window.realm?.files?.reveal?.(path); }}>Show in Finder</button>
+      <button type="button" className="btn-quiet" onClick={() => revealPath(path)}>{showInLabel()}</button>
     </div>
   );
 }
@@ -566,7 +576,7 @@ function Unshown({ path, reason }: { path: string; reason: { says: string; gone:
       <p className="pane-empty-line">{reason.says}</p>
       {!reason.gone && (
         <div className="docs-home-empty-actions">
-          <button type="button" className="btn" onClick={() => { void window.realm?.files?.reveal?.(path); }}>Show in Finder</button>
+          <button type="button" className="btn" onClick={() => revealPath(path)}>{showInLabel()}</button>
           <button type="button" className="btn" onClick={() => { void window.realm?.openAttachment?.(path); }}>Open with the default app</button>
         </div>
       )}

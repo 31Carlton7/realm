@@ -4,6 +4,8 @@ import SwiftUI
 /// Reduce Motion, where the change simply lands.
 enum Motion {
     static let spring = Animation.smooth(duration: 0.35)
+    /// The composer turning from its capsule into its card and back: quick, since it answers a touch.
+    static let morph = Animation.smooth(duration: 0.22)
 
     static func animation(_ reduceMotion: Bool) -> Animation? {
         reduceMotion ? nil : spring

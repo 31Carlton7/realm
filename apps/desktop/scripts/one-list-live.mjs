@@ -47,7 +47,7 @@ const WINDOW = { width: 1600, height: 1000 };
 const SHOTS = process.env.LIVE_SHOTS ?? os.tmpdir();
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "realm-one-list-live-"));
 const home = path.join(scratch, "home");
-const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@37.10.3/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
+const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.0.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
 const ALPHA = "Alpha in Homework", BRAVO = "Bravo in Thesis", CHARLIE = "Charlie in Thesis";
 const PAGE_TITLE = "Thesis sources";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

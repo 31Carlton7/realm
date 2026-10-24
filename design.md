@@ -453,8 +453,9 @@ corner, and everything else a box does — its `box-shadow` lift, the clip of wh
 outline — follows the curve with no filter and no extra layer, which matters when a transcript or a
 Library holds dozens of cards. `styles.test.ts` works the containment out rather than trusting it.
 
-`corner-shape: squircle` is inert in the Chromium this app ships on, so a surface that declares it
-must also be listed in the paint-worklet rule in `styles.css`. A panel that declares the curve
+`corner-shape: squircle` was inert in Electron 37's Chromium 138 and draws from 139, but the
+signature curve is the paint worklet's, so a surface that declares it must also be listed in the
+paint-worklet rule in `styles.css`. A panel that declares the curve
 without the paint renders a plain rounded rect next to a composer wearing a real one, which is worse
 than not having asked. `styles.test.ts` enforces this — the two can no longer drift.
 

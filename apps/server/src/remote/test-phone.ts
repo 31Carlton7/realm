@@ -1,6 +1,6 @@
 import {
-  b64u, deviceId, ed25519Sign, FrameReader, generateDeviceKeys, HandshakeState, HEARTBEAT_MS, parseLink, PING, PROLOGUE, relayAuthMessage, sealMessage,
-  type CipherState, type DeviceKeys,
+  b64u, deviceId, ed25519Sign, FrameReader, generateDeviceKeys, HandshakeState, HEARTBEAT_MS, parseLink, PING, PROLOGUE, relayAuthMessage, relayBase,
+  sealMessage, type CipherState, type DeviceKeys,
 } from "@realm/remote";
 import WebSocket from "ws";
 
@@ -93,6 +93,9 @@ export class TestPhone {
   readonly phoneId: string;
   mac: PairedMac | null = null;
   macOnline: boolean | null = null;
+  /** Goes where the Mac says it is (PROTOCOL.md §3.3), as the app does. Off, it is a phone from before
+   *  relays could move, which stays on the relay it paired at. */
+  followsMac = true;
   private socket: Socket | null = null;
   private send: CipherState | null = null;
   private reader: FrameReader | null = null;
@@ -157,8 +160,9 @@ export class TestPhone {
   }
 
   /** Connects as itself and runs IK (§4.2). The handshake is pipelined behind the auth message, as the
-   *  spec allows, so a reconnect costs one round trip to the Mac after the relay's challenge. */
-  async connect(): Promise<{ handshakeMs: number; macOnline: boolean; mac: string }> {
+   *  spec allows, so a reconnect costs one round trip to the Mac after the relay's challenge. A Mac that
+   *  names another relay in its answer is followed there at once, once, and `relay` says where it ended. */
+  async connect(follow = this.followsMac): Promise<{ handshakeMs: number; macOnline: boolean; mac: string; relay: string }> {
     const mac = this.mac;
     if (!mac) throw new Error("not paired");
     this.close();
@@ -168,9 +172,21 @@ export class TestPhone {
     const challenge = await s.next(control("challenge"));
     const sig = ed25519Sign(this.keys.sign.priv, relayAuthMessage("phone", mac.macId, this.phoneId, String(challenge.nonce)));
     s.ws.send(JSON.stringify({ t: "auth", key: b64u(this.keys.sign.pub), sig: b64u(sig) }));
-    const hs = new HandshakeState({ pattern: "IK", initiator: true, prologue: PROLOGUE.ik(mac.macId, this.phoneId), s: this.keys.dh, rs: mac.macKey });
-    s.ws.send(hs.writeMessage(json({ v: 1, app: "test-phone", os: process.platform })));
-    const hello = JSON.parse(hs.readMessage(await s.next(binary)).toString("utf8")) as { mac: string };
+    const handshake = (): HandshakeState => {
+      const hs = new HandshakeState({ pattern: "IK", initiator: true, prologue: PROLOGUE.ik(mac.macId, this.phoneId), s: this.keys.dh, rs: mac.macKey });
+      s.ws.send(hs.writeMessage(json({ v: 1, app: "test-phone", os: process.platform })));
+      return hs;
+    };
+    let hs = handshake();
+    // A Mac not at this relay yet drops the first message, and the relay says when it arrives: the
+    // handshake starts again then, as RealmKit's does (§4.2).
+    const macBack = control("mac");
+    let answer = await s.next((m) => (m.binary ? m.data : macBack(m)?.online === true ? null : undefined));
+    while (answer === null) {
+      hs = handshake();
+      answer = await s.next((m) => (m.binary ? m.data : macBack(m)?.online === true ? null : undefined));
+    }
+    const hello = JSON.parse(hs.readMessage(answer).toString("utf8")) as { mac: string; relay?: unknown };
     // `ready` precedes the Mac's reply on the wire, so it is already queued by now.
     const ready = await s.next(control("ready"), 1_000).catch(() => null);
     this.macOnline = (ready?.mac as { online?: boolean } | undefined)?.online ?? true;
@@ -182,7 +198,12 @@ export class TestPhone {
     });
     s.goLive((m) => this.onMessage(m));
     this.heartbeat = setInterval(() => { if (s.ws.readyState === WebSocket.OPEN) s.ws.send(PING); }, HEARTBEAT_MS);
-    return { handshakeMs: performance.now() - started, macOnline: this.macOnline, mac: hello.mac };
+    const moved = relayBase(hello.relay);
+    if (follow && moved && moved !== mac.relay) {
+      this.mac = { ...mac, relay: moved };
+      return this.connect(false);
+    }
+    return { handshakeMs: performance.now() - started, macOnline: this.macOnline, mac: hello.mac, relay: mac.relay };
   }
 
   call<T = unknown>(method: string, params: unknown = {}): Promise<T> {

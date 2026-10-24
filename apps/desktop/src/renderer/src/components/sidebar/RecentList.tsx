@@ -1,5 +1,5 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentKind } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { ActivityCardView } from "./ActivityCard";
@@ -26,6 +26,16 @@ export function RecentList({ rows, onChanged }: { rows: SessionRow[]; onChanged:
     }
     return new Map<string, AgentKind | null>([...bySpace].map(([id, list]) => [id, spaceUsualAgent(list)]));
   }, [rows]);
+  /* The session handed the keyboard has its card brought into view. Mostly that is one just made — by
+     the header's button, ⌘N or the palette — which is the newest card, at the very top, while the list
+     may be scrolled days down: left there, the card you were on went dark and nothing in the list said
+     where the new one went. A session opened from a list elsewhere is handed it too, and is found the
+     same way; one opened from its own card is already in view, and nothing moves. */
+  const list = useRef<HTMLDivElement>(null);
+  const handed = useApp((s) => s.keyboardFor);
+  useLayoutEffect(() => {
+    if (handed) list.current?.querySelector(`.sb-card[data-session="${handed.sessionId}"]`)?.scrollIntoView?.({ block: "nearest" });
+  }, [handed]);
   if (rows.length === 0) {
     return (
       <div className="sb-empty">
@@ -36,7 +46,7 @@ export function RecentList({ rows, onChanged }: { rows: SessionRow[]; onChanged:
     );
   }
   return (
-    <div className="sb-recent">
+    <div className="sb-recent" ref={list}>
       {days.map((day) => (
         <div key={day.key} className="sb-day">
           <div className="group-label">{day.label}</div>

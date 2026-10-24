@@ -43,8 +43,11 @@ jobs:
           cache: pnpm
 
       # @hugeicons-pro is a paid package on Hugeicons' own registry; the token is the repo secret
-      # HUGEICONS_TOKEN. Written to the user .npmrc so it never lands in the checkout.
+      # HUGEICONS_TOKEN. Written to the user .npmrc so it never lands in the checkout. A pull request
+      # from a fork is given no secrets, so it skips this and builds with the free pack under the same
+      # names (docs/dev/hugeicons.md). Every other run still needs the token.
       - name: Hugeicons registry
+        if: ${{ !github.event.pull_request.head.repo.fork }}
         shell: bash
         env:
           HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
@@ -54,6 +57,13 @@ jobs:
 
       - name: Install
         run: pnpm install --frozen-lockfile
+
+      # The Pro pack is an optional dependency, and pnpm skips one it cannot fetch without failing, so
+      # a token that has lapsed would otherwise build with the free pack and say nothing.
+      - name: Hugeicons Pro installed
+        if: ${{ !github.event.pull_request.head.repo.fork }}
+        shell: bash
+        run: test -e packages/ui/node_modules/@hugeicons-pro/core-stroke-rounded/package.json || { echo "::error::@hugeicons-pro did not install; check the HUGEICONS_TOKEN repo secret"; exit 1; }
 
       - name: Typecheck
         run: pnpm -r typecheck

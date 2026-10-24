@@ -23,7 +23,7 @@ What you will find here:
 
 ```mermaid
 flowchart TB
-  subgraph app["Realm.app: Electron 37"]
+  subgraph app["Realm.app: Electron 45"]
     direction LR
     renderer["Renderer windows<br/>React 19 + zustand, one per profile"]
     preload["Preload bridge<br/>window.realm"]
@@ -201,7 +201,7 @@ flowchart TB
     editors["TipTap 3, CodeMirror 6, xterm.js 5,<br/>pdf.js 5, Mermaid 12, KaTeX"]
   end
   subgraph shell["Desktop shell"]
-    electron["Electron 37.10<br/>Chromium 138, Node 22.21"]
+    electron["Electron 45.0<br/>Chromium 156, Node 24.22"]
     swift["Swift helpers<br/>AX, ScreenCaptureKit, Keychain"]
   end
   subgraph core["realm-server"]
@@ -233,13 +233,13 @@ Electron, Chromium, Node and SQLite versions were read from the Electron binary 
 | Languages | TypeScript | 5.9.3 | everything in the workspace and the site |
 | | Swift | system `swiftc` | the six helpers in `apps/desktop/native/`, the iPhone test runner |
 | | Python | 3.10 to 3.14, arm64 | Laya's runtime and training, in its own venv |
-| Desktop | Electron | 37.10.3 (Chromium 138.0.7204.251, Node 22.21.1) | the app, and the server's runtime |
+| Desktop | Electron | 45.0.0 (Chromium 156.0.8078.48, Node 24.22.0) | the app, and the server's runtime |
 | | electron-builder, @electron/notarize | 26.15.3, 2.5.0 | packaging, signing and notarizing |
 | | electron-updater | 6.8.9 | updates from GitHub releases, signed builds only |
 | Interface | React, react-dom | 19.2.8 | the renderer |
 | | zustand | 5.0.15 | the app store (`state/store.ts`) |
 | | react-resizable-panels | 3.0.6 | splits |
-| | Hugeicons (`@hugeicons/react`, `@hugeicons-pro/core-stroke-rounded`) | 1.1.9, 1.2.1 | every icon, through `packages/ui` |
+| | Hugeicons (`@hugeicons/react`, `@hugeicons-pro/core-stroke-rounded`, or `@hugeicons/core-free-icons` without the Pro token) | 1.1.9, 1.2.1, 1.2.1 | every icon, through `packages/ui` |
 | Styling | Tailwind CSS (`@tailwindcss/vite`) | 4.3.3 | utility layer under Realm's own tokens |
 | | Realm tokens | in repo | `theme/tokens.css`, `styles.css`, `packages/ui/src/themes.ts` |
 | | shadow-plugin | 2.1.0 | layered shadow stacks |

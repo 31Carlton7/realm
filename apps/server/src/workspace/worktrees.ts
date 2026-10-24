@@ -85,21 +85,12 @@ export class WorktreeService {
   async create(input: { spaceId: string; sourcePath: string; title?: string | null; base?: string | null }): Promise<{ path: string; branch: string }> {
     const src = input.sourcePath;
     if (!existsSync(src)) throw new RpcError("NOT_A_REPOSITORY", `${src} does not exist`);
-    if ((await this.git(src, ["rev-parse", "--git-dir"])).code !== 0) {
-      throw new RpcError("NOT_A_REPOSITORY", `${src} is not a git repository, so it has no worktrees`);
-    }
-    // An empty repository has no HEAD to branch from. git's own message ("invalid reference: HEAD")
-    // does not tell the user what to do about it, so we say it.
-    if ((await this.git(src, ["rev-parse", "--verify", "--quiet", "HEAD"])).code !== 0) {
-      throw new RpcError("WORKTREE_NO_COMMITS", "this repository has no commits yet — make one before opening a worktree");
-    }
-
     const base = input.base?.trim() || "HEAD";
-    // A name that starts with "-" would reach git as an option, and one that names no commit would
-    // fail inside `worktree add` with a message about a path the user never typed.
-    if (base.startsWith("-") || (await this.git(src, ["rev-parse", "--verify", "--quiet", `${base}^{commit}`])).code !== 0) {
-      throw new RpcError("WORKTREE_BAD_BASE", `${base} is not a branch or commit in this repository`);
-    }
+    // One git process in the common case — a repository whose base names a commit — since a script
+    // opening six worktrees at once pays for every spawn six times over. Only a refusal runs the
+    // checks below, which exist to say WHICH refusal it is.
+    const ready = !base.startsWith("-") && (await this.git(src, ["rev-parse", "--git-dir", "--verify", "--quiet", `${base}^{commit}`])).code === 0;
+    if (!ready) await this.diagnose(src, base);
 
     const root = this.spaceRoot(input.spaceId);
     mkdirSync(root, { recursive: true });
@@ -110,6 +101,24 @@ export class WorktreeService {
     const added = await this.git(src, ["worktree", "add", "--no-track", "-b", branch, path, base]);
     if (added.code !== 0) throw new RpcError("WORKTREE_ADD_FAILED", gitReason(added));
     return { path, branch };
+  }
+
+  /** Why `create` cannot branch `base` off `src`, thrown — in the order a person would fix them. Returns
+   *  only when each check passes on its own, which a combined one that failed for some other reason can. */
+  private async diagnose(src: string, base: string): Promise<void> {
+    if ((await this.git(src, ["rev-parse", "--git-dir"])).code !== 0) {
+      throw new RpcError("NOT_A_REPOSITORY", `${src} is not a git repository, so it has no worktrees`);
+    }
+    // An empty repository has no HEAD to branch from. git's own message ("invalid reference: HEAD")
+    // does not tell the user what to do about it, so we say it.
+    if ((await this.git(src, ["rev-parse", "--verify", "--quiet", "HEAD"])).code !== 0) {
+      throw new RpcError("WORKTREE_NO_COMMITS", "this repository has no commits yet — make one before opening a worktree");
+    }
+    // A name that starts with "-" would reach git as an option, and one that names no commit would
+    // fail inside `worktree add` with a message about a path the user never typed.
+    if (base.startsWith("-") || (await this.git(src, ["rev-parse", "--verify", "--quiet", `${base}^{commit}`])).code !== 0) {
+      throw new RpcError("WORKTREE_BAD_BASE", `${base} is not a branch or commit in this repository`);
+    }
   }
 
   /**

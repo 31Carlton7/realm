@@ -5,7 +5,7 @@ import type { AddMcpServerInput, AgentProbe, Api, BranchList, CredentialStatus, 
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
 import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, Schedule, SearchResults, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
 import type { SavedTurn } from "@realm/contracts";
-import { DEFAULT_REMOTE_RELAY, type PairRequest, type PairedPhone, type RemoteStatus } from "@realm/contracts";
+import { PRODUCTION_REMOTE_RELAY, type PairRequest, type PairedPhone, type RemoteStatus } from "@realm/contracts";
 import { RpcError } from "../rpc/client";
 import type { RoleRun, TeamActivity, TeamRecord, TeamRecordType, TeamReviewDetail, TeamReviewSummary, TeamRole, TeamSpace } from "@realm/contracts";
 import { recordPreset, recordTemplate } from "@realm/contracts";
@@ -156,7 +156,7 @@ export const macRow = (id: string, label: string, group: MacAccessRow["group"], 
 
 /** Realm Mobile's status on a Mac that has never paired: the link off, no phone, no window. */
 export const remoteStatus = (extra: Partial<RemoteStatus> = {}): RemoteStatus =>
-  ({ state: "off", relay: DEFAULT_REMOTE_RELAY, macName: "Carlton's MacBook Pro", phones: [], pairing: null, ...extra });
+  ({ state: "off", relay: PRODUCTION_REMOTE_RELAY, macName: "Carlton's MacBook Pro", phones: [], pairing: null, ...extra });
 
 /** A paired phone, seen a minute after it was added. */
 export const pairedPhone = (phoneId: string, extra: Partial<PairedPhone> = {}): PairedPhone =>
@@ -167,7 +167,7 @@ export const pairedPhone = (phoneId: string, extra: Partial<PairedPhone> = {}): 
  *  testing a smaller code than the one a phone is shown. */
 export const pairingLink = (windowId: string, expiresAt: number): string => {
   const key = (seed: string) => btoa(seed.repeat(32).slice(0, 32)).replace(/=+$/, "");
-  const data = { r: DEFAULT_REMOTE_RELAY, m: "q3VkM8Lw0FhZ1y2aYb9xXw", k: key("k"), s: key("s"), w: windowId, n: "Carlton's MacBook Pro", e: expiresAt };
+  const data = { r: PRODUCTION_REMOTE_RELAY, m: "q3VkM8Lw0FhZ1y2aYb9xXw", k: key("k"), s: key("s"), w: windowId, n: "Carlton's MacBook Pro", e: expiresAt };
   const b64u = btoa(JSON.stringify(data)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   return `https://realm.computer/pair#1.${b64u}`;
 };

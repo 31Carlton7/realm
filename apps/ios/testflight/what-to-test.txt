@@ -1,0 +1,10 @@
+Thanks for trying Realm for iPhone. It needs Realm 2.4 or later on your Mac (free at realm.computer).
+
+1. Pair: on your Mac, open Realm's Settings ▸ Devices and press Pair an iPhone. Scan the code with this app, then press Pair on the Mac.
+2. Home: Needs you lists what is waiting on you, with each space's sessions under it.
+3. A session: read the transcript, send a message, stop a turn, answer a permission or a question, and open the files a turn changed.
+4. A new session: start one from Home's compose button, with the agent and model you choose.
+5. Notifications: with Settings ▸ Notifications ▸ Notify my iPhone on, step away from the Mac and let a session ask for permission.
+6. Away: close Realm's window or let the Mac sleep. The app should say so, keep what you send, and catch up when the Mac is back.
+
+To send feedback, take a screenshot and tap Share Beta Feedback, or use Send Beta Feedback in TestFlight.

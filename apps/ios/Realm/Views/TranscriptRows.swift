@@ -14,7 +14,11 @@ struct TranscriptRowView: View {
     var body: some View {
         switch row.content {
         case .user(let text):
-            UserBubble(text: text)
+            VStack(alignment: .trailing, spacing: 6) {
+                if !text.isEmpty { UserBubble(text: text) }
+                if let files = row.sentFiles, !files.isEmpty { SentFiles(files: files, sessionId: sessionId) }
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
         case .assistant(let text, let streaming):
             VStack(alignment: .leading, spacing: 8) {
                 MarkdownView(text)
@@ -70,9 +74,11 @@ struct UserBubble: View {
     }
 }
 
-/// A message on its way: Sending… until the Mac has it, and what is in the way when it cannot go.
+/// A message on its way: Sending… until the Mac has it, and what is in the way when it cannot go. The
+/// files it takes show under it from this phone's own copies.
 struct OutgoingMessageView: View {
     let item: OutgoingItem
+    @Environment(AppModel.self) private var model
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
@@ -84,8 +90,11 @@ struct OutgoingMessageView: View {
                             .foregroundStyle(Palette.red)
                             .accessibilityHidden(true)
                     }
-                    UserBubble(text: text)
+                    if !text.isEmpty { UserBubble(text: text) }
                 }
+            }
+            if !item.attachments.isEmpty {
+                OutgoingFiles(attachments: item.attachments, files: model.store.files)
             }
             OutgoingStatusView(item: item)
         }
@@ -108,6 +117,9 @@ struct OutgoingStatusView: View {
             let status = model.linkStatus
             label(status.kind == .connected ? "Sending…" : status.waitingNote,
                   symbol: status.kind == .connected ? nil : status.symbol, tone: .quiet)
+        case .delivered where item.delivery == .queue:
+            // The Mac holds it for the turn's end; a turn that is stopped leaves it there, for the next.
+            label("Queued on your Mac", symbol: "list.number", tone: .quiet)
         case .delivered:
             label(item.isMessage ? "Sent" : "Sent to your Mac", symbol: "checkmark", tone: .quiet)
         case .failed(let reason):
@@ -187,7 +199,7 @@ struct FoldedWork: View {
                     Image(systemName: "checklist.checked")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(Palette.ink3)
-                        .frame(width: 20)
+                        .glyphColumn(20)
                     Text(Self.summary(rows))
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(Palette.ink2)
@@ -244,7 +256,7 @@ struct LiveLine: View {
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(Palette.accentInk)
                 .restingPulse(when: true)
-                .frame(width: 20)
+                .glyphColumn(20)
             Text(word)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(Palette.ink2)
@@ -343,7 +355,7 @@ private struct ToolLine: View {
             } label: {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     ToolStateGlyph(state: state)
-                        .frame(width: 20)
+                        .glyphColumn(20)
                     Text(words.verb)
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(Palette.ink2)
@@ -479,7 +491,7 @@ private struct ThinkingLine: View {
                     Image(systemName: "ellipsis")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(Palette.ink3)
-                        .frame(width: 20)
+                        .glyphColumn(20)
                     Text("Thinking")
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(Palette.ink2)
@@ -555,7 +567,7 @@ struct PlanSteps: View {
                     Image(systemName: Self.symbol(step.status))
                         .symbolRenderingMode(.hierarchical)
                         .foregroundStyle(Self.tone(step.status).color)
-                        .frame(width: 22)
+                        .glyphColumn(22, relativeTo: .body)
                     Text(step.text)
                         .font(.body)
                         .foregroundStyle(step.status == "completed" ? Palette.ink2 : Palette.ink)
@@ -607,6 +619,7 @@ struct ChangesCard: View {
     /// The Mac's own line for it, said until the files arrive or where they cannot.
     let summary: String
     @Environment(AppModel.self) private var model
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var reviewing = false
 
     static let listed = 3
@@ -620,7 +633,10 @@ struct ChangesCard: View {
     }
 
     private func card(_ changes: TurnChanges?) -> some View {
-        Button {
+        // At the accessibility sizes each count goes under what it counts: beside it, the title and the
+        // names were cut to a few letters.
+        let ax = dynamicTypeSize.isAccessibilitySize
+        return Button {
             reviewing = true
         } label: {
             VStack(alignment: .leading, spacing: 10) {
@@ -628,12 +644,17 @@ struct ChangesCard: View {
                     Image(systemName: "plusminus")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(Palette.ink2)
-                    Text(changes.map(ChangesWords.files) ?? summary)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Palette.ink)
-                        .lineLimit(2)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(changes.map(ChangesWords.files) ?? summary)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Palette.ink)
+                            .lineLimit(ax ? 4 : 2)
+                        if ax, let changes, changes.countsLines {
+                            LineCounts(additions: changes.additions, deletions: changes.deletions)
+                        }
+                    }
                     Spacer(minLength: 8)
-                    if let changes, changes.countsLines {
+                    if !ax, let changes, changes.countsLines {
                         LineCounts(additions: changes.additions, deletions: changes.deletions)
                     }
                     Image(systemName: "chevron.right")
@@ -643,13 +664,14 @@ struct ChangesCard: View {
                 if let changes {
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(changes.files.prefix(Self.listed), id: \.path) { file in
-                            HStack(spacing: 8) {
+                            let line = ax ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout(spacing: 8))
+                            line {
                                 Text(ChangesWords.name(file.path))
                                     .mono(.footnote)
                                     .foregroundStyle(Palette.ink2)
-                                    .lineLimit(1)
+                                    .lineLimit(ax ? 3 : 1)
                                     .truncationMode(.middle)
-                                Spacer(minLength: 8)
+                                if !ax { Spacer(minLength: 8) }
                                 LineCounts(additions: file.additions, deletions: file.deletions, binary: file.additions == nil)
                             }
                         }
@@ -771,7 +793,7 @@ struct MadeFilesRow: View {
             .scrollIndicators(.hidden)
         }
         .sheet(item: $previewing) { file in
-            FilePreviewSheet(file: file, sessionId: sessionId)
+            FilePreviewSheet(path: file.path, name: file.name, sessionId: sessionId, size: file.size)
         }
     }
 }

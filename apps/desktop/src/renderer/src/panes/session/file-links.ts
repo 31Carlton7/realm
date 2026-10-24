@@ -1,6 +1,6 @@
 import { iconSvg } from "@realm/ui";
 import { documentKindFor, type TurnChanges } from "@realm/contracts";
-import { useLayoutEffect, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState, type RefObject } from "react";
 import { fileIconFor } from "../../components/file-icon";
 import type { Block } from "./transcript-model";
 
@@ -256,6 +256,34 @@ function seen(path: string): boolean | undefined {
 async function look(path: string): Promise<void> {
   const r = await (window.realm?.files?.stat?.(path) ?? Promise.resolve(null)).catch(() => null);
   looked.set(path, { file: r !== null && r !== undefined, at: Date.now() });
+}
+
+/**
+ * The same answers for references that are not in rendered markup — a brief's "Read first" files,
+ * drawn as chips: each ref's file once the disk has confirmed it, and nothing for one it has not, so
+ * a chip opens only what is really there, by the rule every link in the prose follows.
+ */
+export function useResolvedFiles(refs: readonly string[], ctx: FileLinkContext | undefined): ReadonlyMap<string, string> {
+  const [answers, setAnswers] = useState(0);
+  const key = refs.join("\n");
+  const found = useMemo(() => {
+    const out = new Map<string, string>();
+    if (!ctx) return out;
+    for (const ref of refs) { const file = resolvedFile(ref, ctx); if (file) out.set(ref, file); }
+    return out;
+    // `refs` is read through `key`: a caller's array is new on every render, its contents are not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, ctx, answers]);
+  useEffect(() => {
+    if (!ctx) return;
+    const pending = refs.filter((ref) => resolvedFile(ref, ctx) === undefined).map((ref) => ask(ref, ctx));
+    if (pending.length === 0) return;
+    let live = true;
+    void Promise.all(pending).then(() => { if (live) setAnswers((n) => n + 1); });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, ctx, answers]);
+  return found;
 }
 
 /** Test seam: the answers are process-wide, so a suite must start each case from nothing. */

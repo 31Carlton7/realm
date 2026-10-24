@@ -2,28 +2,44 @@ import RealmKit
 import SwiftUI
 
 /// The sidebar's answer to "what should I look at", as an inbox: what needs you, what has not gone
-/// yet, then each space's sessions by activity. Under the title, the Mac and its state.
+/// yet, then the sessions in the list style the person chose. One profile at a time, named in the
+/// title, which switches it; under the title, the Mac and its state.
 struct HomeView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(ListOptions.Key.style) private var style = ListOptions().style
+    @AppStorage(ListOptions.Key.spaceOrder) private var spaceOrder = ListOptions().spaceOrder
+    @AppStorage(ListOptions.Key.needsYouFirst) private var needsYouFirst = ListOptions().needsYouFirst
     @State private var query = ""
     @State private var reconnecting = false
+    @State private var newSessionShown = false
+    /// The moment By day reckons its days from, moved on at midnight and on coming back to the app.
+    @State private var now = Date()
     @Namespace private var settingsZoom
 
     var body: some View {
         @Bindable var model = model
-        let home = model.store.home
-        let sections = home.map { HomeSections(home: $0, query: query) }
+        let home = model.store.home.map { model.rowEdits.applied(to: $0) }
+        let choice = model.profileChoice
+        let options = ListOptions(style: style, spaceOrder: spaceOrder, needsYouFirst: needsYouFirst)
+        let listing = home.map { HomeListing(home: $0, choice: choice, options: options, query: query, now: now) }
         let unsent = UnsentSession.list(outbox: model.store.outbox, home: home, connected: model.isConnected)
         let shown = model.shownLinkStatus
+        // A Mac that names its profiles pages a space's sessions too; an older one has only Home's few.
+        let pages = home?.profiles != nil
         List {
-            if let sections {
-                if !sections.needsYou.isEmpty {
+            if let listing {
+                ForEach(listing.elsewhere) { waiting in
+                    ElsewhereRow(waiting: waiting)
+                }
+                WorkHeadLines(searching: listing.isFiltered)
+                if !listing.needsYou.isEmpty {
                     Section {
                         // A session that needs you is listed in its space too: each row has its
                         // section's identity, or the list draws one of the two as a hole.
-                        ForEach(sections.needsYou, id: \.needsYouKey) { row in
-                            SessionLink(row: row, space: sections.space(of: row))
+                        ForEach(listing.needsYou, id: \.needsYouKey) { row in
+                            SessionLink(row: row, space: listing.space(of: row))
                         }
                     } header: {
                         SectionHead(title: "Needs you") {
@@ -31,7 +47,18 @@ struct HomeView: View {
                         }
                     }
                 }
-                if !unsent.isEmpty, !sections.isFiltered {
+                if !listing.pinned.isEmpty {
+                    Section {
+                        ForEach(listing.pinned, id: \.pinnedKey) { row in
+                            SessionLink(row: row, space: listing.space(of: row))
+                        }
+                    } header: {
+                        SectionHead(title: "Pinned") {
+                            Image(systemName: "pin.fill").foregroundStyle(Palette.ink2)
+                        }
+                    }
+                }
+                if !unsent.isEmpty, !listing.isFiltered {
                     Section {
                         ForEach(unsent) { session in
                             UnsentRow(session: session)
@@ -42,22 +69,16 @@ struct HomeView: View {
                         }
                     }
                 }
-                ForEach(sections.spaces) { space in
+                ForEach(listing.sections) { section in
                     Section {
-                        ForEach(space.sessions) { row in
-                            SessionLink(row: row, space: nil)
+                        ForEach(section.rows) { row in
+                            SessionLink(row: row, space: section.namesSpace ? nil : listing.space(of: row))
                         }
-                        // A line of the list rather than its footer, which a plain list paints in the
-                        // system's own ground instead of Realm's.
-                        if let words = SpaceFooter.words(space, searching: sections.isFiltered) {
-                            Text(words)
-                                .font(.footnote)
-                                .foregroundStyle(Palette.ink2)
-                                .listRowBackground(Color.clear)
-                                .listRowSeparator(.hidden, edges: .bottom)
+                        if case .space(let space) = section.head, let footer = SpaceFooter(section, pages: pages) {
+                            SpaceFooterRow(footer: footer, spaceName: space.name)
                         }
                     } header: {
-                        SectionHead(title: space.name) { SpaceGlyph(space: space) }
+                        ListSectionHead(section: section, opensSpace: pages)
                     }
                 }
             } else if shown.kind == .connecting || shown.kind == .connected {
@@ -67,25 +88,33 @@ struct HomeView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(Ground.transcript)
+        .id(ListIdentity(choice: choice, style: style))
         .overlay {
             if home == nil, shown.kind != .connecting, shown.kind != .connected {
                 FirstLoad()
-            } else if let sections, sections.isEmpty, unsent.isEmpty {
-                if sections.isFiltered {
-                    NoResults(query: query)
+            } else if let listing, listing.isEmpty, unsent.isEmpty {
+                if listing.isFiltered {
+                    NoResults(query: query, why: NoResults.words(style: style, pages: pages))
                 } else {
-                    ContentUnavailableView("No sessions yet", systemImage: "text.bubble",
+                    ContentUnavailableView(choice.emptyWords(in: home), systemImage: "text.bubble",
                                            description: Text("Start one in Realm on your Mac, and it shows here."))
                 }
             }
         }
-        .navigationTitle("Sessions")
+        .navigationTitle(choice.title(in: home))
+        .navigationBarTitleDisplayMode(.inline)
         .navigationSubtitle(MacLine.text(model: model, compact: dynamicTypeSize.isAccessibilitySize))
+        .modifier(ProfileSwitcher(home: home, choice: choice))
+        .sensoryFeedback(.selection, trigger: model.keptProfile)
+        .sensoryFeedback(.selection, trigger: style)
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in now = Date() }
+        .onChange(of: scenePhase) { _, phase in if phase == .active { now = Date() } }
         .toolbar {
             // While the Mac is away, a way to try now rather than at the end of the wait between
             // tries — in the bar, so the list under it never moves for the link's sake.
+            // On the leading side, opposite More, so the title stays centred while it is there.
             if home != nil, !shown.isConnected, shown.kind != .connecting {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .topBarLeading) {
                     Button {
                         Task {
                             reconnecting = true
@@ -103,20 +132,39 @@ struct HomeView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    model.settingsShown = true
-                } label: {
-                    Label("Settings", systemImage: "gearshape")
-                }
-                .accessibilityIdentifier("settings")
+                HomeMenu()
             }
             .matchedTransitionSource(id: "settings", in: settingsZoom)
+            // At the foot beside the search, as Mail has it: a third button in the top bar, beside
+            // Settings and Reconnect while the Mac is away, folds them all into a More menu.
+            ToolbarItem(placement: .bottomBar) {
+                ViewOptionsMenu()
+            }
+            ToolbarSpacer(.fixed, placement: .bottomBar)
+            DefaultToolbarItem(kind: .search, placement: .bottomBar)
+            // A Mac that names the agents a session could be given can start one.
+            if model.agentList != nil {
+                ToolbarSpacer(.fixed, placement: .bottomBar)
+                ToolbarItem(placement: .bottomBar) {
+                    Button {
+                        newSessionShown = true
+                    } label: {
+                        Label("New session", systemImage: "square.and.pencil")
+                    }
+                    .accessibilityIdentifier("new-session")
+                }
+                .matchedTransitionSource(id: "new-session", in: settingsZoom)
+            }
         }
         .searchable(text: $query, prompt: "Search sessions")
         .refreshable { await model.refresh() }
         .sheet(isPresented: $model.settingsShown) {
             SettingsSheet()
                 .navigationTransition(.zoom(sourceID: "settings", in: settingsZoom))
+        }
+        .sheet(isPresented: $newSessionShown) {
+            NewSessionSheet()
+                .navigationTransition(.zoom(sourceID: "new-session", in: settingsZoom))
         }
     }
 }
@@ -137,43 +185,10 @@ enum MacLine {
     }
 }
 
-/// What Home lists, narrowed by a search: the Needs-you rows and each space's, matched on the
-/// session's title, its space, its agent and its model.
-struct HomeSections {
-    let needsYou: [SessionRow]
-    let spaces: [Space]
-    let isFiltered: Bool
-    private let spacesById: [String: Space]
-
-    init(home: Home, query: String) {
-        let words = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        isFiltered = !words.isEmpty
-        spacesById = Dictionary(home.spaces.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        guard isFiltered else {
-            needsYou = home.needsYou
-            spaces = home.spaces
-            return
-        }
-        let matches = { (row: SessionRow) in
-            [row.title, row.spaceName, row.agentDisplayName, row.modelDisplayName ?? ""].contains { $0.localizedStandardContains(words) }
-        }
-        needsYou = home.needsYou.filter(matches)
-        spaces = home.spaces.compactMap { space in
-            let rows = space.sessions.filter(matches)
-            return rows.isEmpty ? nil
-                : Space(id: space.id, name: space.name, icon: space.icon, color: space.color, sessions: rows, more: space.more,
-                        iconKind: space.iconKind, glyph: space.glyph, emoji: space.emoji)
-        }
-    }
-
-    /// The space a Needs-you row belongs to, for its glyph and colour.
-    func space(of row: SessionRow) -> Space? {
-        spacesById[row.spaceId]
-    }
-
-    var isEmpty: Bool {
-        needsYou.isEmpty && spaces.isEmpty
-    }
+/// What makes one list another: a switch of profile or of style starts the new one at its top.
+private struct ListIdentity: Hashable {
+    let choice: ProfileChoice
+    let style: ListStyle
 }
 
 extension SessionRow {
@@ -234,6 +249,8 @@ enum RowState: Equatable {
 /// A section's name in sentence case beside its glyph, at the list's head rung.
 struct SectionHead<Glyph: View>: View {
     let title: String
+    /// The head opens what it names, and a chevron after the name says so.
+    var opens = false
     @ViewBuilder let glyph: Glyph
 
     var body: some View {
@@ -243,6 +260,12 @@ struct SectionHead<Glyph: View>: View {
             Text(title)
                 .lineLimit(2)
                 .accessibilityAddTraits(.isHeader)
+            if opens {
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Palette.ink3)
+                    .accessibilityHidden(true)
+            }
         }
         .font(.subheadline.weight(.semibold))
         .foregroundStyle(Palette.ink)
@@ -251,21 +274,267 @@ struct SectionHead<Glyph: View>: View {
     }
 }
 
-/// Under a space: how many more of its sessions the Mac holds, or that it has none yet.
-enum SpaceFooter {
-    static func words(_ space: Space, searching: Bool) -> String? {
-        if space.sessions.isEmpty { return "No sessions yet" }
-        if space.more > 0, !searching { return "\(space.more) more on your Mac" }
-        return nil
+/// The head of a section after Needs you. A space's opens its page where the Mac pages a space's
+/// sessions, with the chevron that says so; a day's and Most recent's only name what is under them.
+struct ListSectionHead: View {
+    let section: ListSection
+    let opensSpace: Bool
+
+    var body: some View {
+        switch section.head {
+        case .space(let space):
+            if opensSpace {
+                NavigationLink(value: Route.space(space.id)) {
+                    // The whole head is pressed, not only its words: it is a row's width to a finger,
+                    // as it is to VoiceOver.
+                    SectionHead(title: space.name, opens: true) { SpaceGlyph(space: space) }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityHint("Shows all of its sessions")
+            } else {
+                SectionHead(title: space.name) { SpaceGlyph(space: space) }
+            }
+        case .day(let day):
+            // A glyph like every other head's, so the heads' words start together.
+            SectionHead(title: day.title) {
+                Image(systemName: "calendar").foregroundStyle(Palette.ink2)
+            }
+        case .recent:
+            SectionHead(title: "Recent") {
+                Image(systemName: "clock").foregroundStyle(Palette.ink2)
+            }
+        }
     }
 }
 
-/// A session on Home: opens it, and stops its turn from a swipe or a press-and-hold.
-private struct SessionLink: View {
-    let row: SessionRow
-    /// The row's space, where no section names it (Needs you).
-    let space: Space?
+extension ListSection {
+    /// The section's head names the space of every row under it.
+    var namesSpace: Bool {
+        if case .space = head { return true }
+        return false
+    }
+}
+
+/// Under a space's rows, when the Mac holds more of its sessions: the way to all of them where the
+/// Mac pages them, else how many more it has. Nothing in a search, which lists only what matched.
+enum SpaceFooter: Equatable {
+    case showAll(spaceId: String, count: Int)
+    case more(Int)
+
+    init?(_ section: ListSection, pages: Bool) {
+        guard case .space(let space) = section.head, section.more > 0 else { return nil }
+        self = pages ? .showAll(spaceId: space.id, count: section.rows.count + section.more) : .more(section.more)
+    }
+
+    var words: String {
+        switch self {
+        case .showAll(_, let count): "Show all \(count)"
+        case .more(let count): "\(count) more on your Mac"
+        }
+    }
+}
+
+/// A line of the list rather than its footer, which a plain list paints in the system's own ground
+/// instead of Realm's.
+private struct SpaceFooterRow: View {
+    let footer: SpaceFooter
+    let spaceName: String
+
+    var body: some View {
+        Group {
+            switch footer {
+            case .showAll(let spaceId, let count):
+                NavigationLink(value: Route.space(spaceId)) {
+                    Text(footer.words)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(Palette.accentInk)
+                }
+                .accessibilityLabel("Show all \(count) sessions in \(spaceName)")
+            case .more:
+                Text(footer.words)
+                    .font(.footnote)
+                    .foregroundStyle(Palette.ink2)
+            }
+        }
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden, edges: .bottom)
+    }
+}
+
+/// At the head of the list, what needs the person in a profile Home is not showing, a press from
+/// being shown: one line for each such profile.
+struct ElsewhereRow: View {
+    let waiting: ProfileWaiting
     @Environment(AppModel.self) private var model
+
+    var body: some View {
+        HeadLine(symbol: "hand.raised.fill", tone: Palette.orange, words: waiting.words) {
+            model.choose(.profile(waiting.profile.id))
+        }
+        .accessibilityHint("Shows \(waiting.profile.name)")
+        .accessibilityIdentifier("elsewhere-\(waiting.profile.id)")
+    }
+}
+
+/// The title opens the menu of profiles while the Mac has more than one; with one, or none it says,
+/// there is nothing to switch, and no chevron says otherwise.
+private struct ProfileSwitcher: ViewModifier {
+    let home: Home?
+    let choice: ProfileChoice
+
+    func body(content: Content) -> some View {
+        if let home, let profiles = home.profilesToSwitch {
+            content.toolbarTitleMenu { ProfileMenu(home: home, profiles: profiles, choice: choice) }
+        } else {
+            content
+        }
+    }
+}
+
+/// The title's menu: the Mac's profiles in its order, each with its mark and what needs the person
+/// in it, then all of them at once. A profile with no spaces is listed and not offered, as on the Mac.
+private struct ProfileMenu: View {
+    let home: Home
+    let profiles: [Profile]
+    let choice: ProfileChoice
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let withSpaces = home.profilesWithSpaces
+        let selection = Binding(get: { choice }, set: { model.choose($0) })
+        ForEach(profiles) { profile in
+            Toggle(isOn: selection.isChosen(.profile(profile.id))) {
+                Self.item(profile.name, note: ProfileWaiting.note(for: profile, in: home), mark: ProfileMark.image(profile))
+            }
+            .disabled(!withSpaces.contains(profile.id))
+        }
+        Toggle(isOn: selection.isChosen(.all)) {
+            Self.item("All profiles", note: home.needsYou.isEmpty ? nil : ProfileWaiting.needYou(home.needsYou.count),
+                      mark: Image(systemName: "square.stack"))
+        }
+    }
+
+    /// A menu draws an item's second text as the line under its name, and its image as its mark — but
+    /// not from inside a label, so neither is wrapped in one.
+    @ViewBuilder
+    private static func item(_ name: String, note: String?, mark: Image) -> some View {
+        if let note {
+            Text(name)
+            Text(note)
+            mark
+        } else {
+            Text(name)
+            mark
+        }
+    }
+}
+
+/// A profile's mark, as the Mac reads it: one of the glyphs, or an emoji. Two of the profile picker's
+/// glyphs are no space's, so the phone has no drawing of them and takes the system's nearest; a
+/// picture of the person's own, which the phone is not sent, or a glyph it does not know, is a
+/// person's outline, as a new profile's is.
+enum ProfileMark: Equatable {
+    case glyph(String)
+    case symbol(String)
+    case emoji(String)
+
+    static let person = "person.crop.circle"
+    /// The profile picker's glyphs (`PROFILE_ICONS` on the Mac) that no space has.
+    static let symbols = ["user": person, "code": "chevron.left.forwardslash.chevron.right"]
+
+    init(_ profile: Profile) {
+        if profile.iconKind == .emoji, let emoji = profile.emoji, !emoji.isEmpty {
+            self = .emoji(emoji)
+        } else if profile.iconKind == .glyph, let glyph = profile.glyph, Marks.spaces.contains(glyph) {
+            self = .glyph(glyph)
+        } else if profile.iconKind == .glyph, let glyph = profile.glyph, let symbol = Self.symbols[glyph] {
+            self = .symbol(symbol)
+        } else {
+            self = .symbol(Self.person)
+        }
+    }
+
+    /// The mark as an image, which is all a menu draws: a glyph in the profile's colour, as the Mac's
+    /// switcher draws it, and an emoji drawn into one.
+    static func image(_ profile: Profile) -> Image {
+        let color = SpaceTint.color(profile.color).map(UIColor.init)
+        switch ProfileMark(profile) {
+        case .glyph(let name): return tinted(UIImage(named: "Spaces/\(name)"), color)
+        case .symbol(let name): return tinted(UIImage(systemName: name), color)
+        case .emoji(let emoji): return Image(uiImage: drawn(emoji)).renderingMode(.original)
+        }
+    }
+
+    static func tinted(_ image: UIImage?, _ color: UIColor?) -> Image {
+        guard let image else { return Image(systemName: person) }
+        guard let color else { return Image(uiImage: image) }
+        return Image(uiImage: image.withTintColor(color, renderingMode: .alwaysOriginal))
+    }
+
+    /// An emoji at a menu's glyph size.
+    static func drawn(_ emoji: String) -> UIImage {
+        let text = NSAttributedString(string: emoji, attributes: [.font: UIFont.systemFont(ofSize: 17)])
+        let size = text.size()
+        return UIGraphicsImageRenderer(size: size).image { _ in text.draw(at: .zero) }
+    }
+}
+
+/// How Home lists its sessions, from the bar: the list style, the order of the spaces where it lists
+/// by space, and whether Needs you heads it.
+private struct ViewOptionsMenu: View {
+    @AppStorage(ListOptions.Key.style) private var style = ListOptions().style
+    @AppStorage(ListOptions.Key.spaceOrder) private var spaceOrder = ListOptions().spaceOrder
+    @AppStorage(ListOptions.Key.needsYouFirst) private var needsYouFirst = ListOptions().needsYouFirst
+
+    var body: some View {
+        Menu {
+            Section("List") {
+                ForEach(ListStyle.allCases) { option in
+                    Toggle(isOn: $style.isChosen(option)) {
+                        Label(option.title, systemImage: option.symbol)
+                    }
+                }
+            }
+            if style == .bySpace {
+                Section("Order spaces") {
+                    ForEach(SpaceOrder.allCases) { order in
+                        Toggle(isOn: $spaceOrder.isChosen(order)) {
+                            Label(order.title, systemImage: order.symbol)
+                        }
+                    }
+                }
+            }
+            // Every item wears a glyph, so the menu's words start at one edge.
+            Section {
+                Toggle(isOn: $needsYouFirst) {
+                    Label("Needs you first", systemImage: "hand.raised")
+                }
+            }
+        } label: {
+            Label("View options", systemImage: "line.3.horizontal.decrease.circle")
+        }
+        .accessibilityIdentifier("view-options")
+    }
+}
+
+extension Binding where Value: Equatable & Sendable {
+    /// One of this choice's options, as a menu checks it: on while it is the one chosen, and choosing
+    /// it when pressed. A picker says the same, but a menu draws a picker's options with no title over
+    /// them and no second line under each.
+    func isChosen(_ option: Value) -> Binding<Bool> {
+        Binding<Bool>(get: { wrappedValue == option }, set: { if $0 { wrappedValue = option } })
+    }
+}
+
+/// A session on Home: opens it, and pins, renames, archives or stops it from a swipe or a
+/// press-and-hold.
+struct SessionLink: View {
+    let row: SessionRow
+    /// The row's space, where no section names it.
+    let space: Space?
 
     var body: some View {
         NavigationLink(value: Route.session(row.id)) {
@@ -274,22 +543,7 @@ private struct SessionLink: View {
         .listRowBackground(Color.clear)
         .listRowSeparatorTint(Palette.divider)
         .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if row.isWorking {
-                Button("Stop", systemImage: "stop.fill") { Task { await model.stop(row.id) } }
-                    .tint(Palette.ink2)
-            }
-        }
-        .contextMenu {
-            if row.isWorking {
-                Button("Stop", systemImage: "stop.fill") { Task { await model.stop(row.id) } }
-            }
-        }
-        .accessibilityActions {
-            if row.isWorking {
-                Button("Stop") { Task { await model.stop(row.id) } }
-            }
-        }
+        .sessionRowActions(row)
         .accessibilityIdentifier("session-\(row.id)")
     }
 }
@@ -320,7 +574,7 @@ struct SessionRowView: View {
                         StateWord(state: state)
                     } else {
                         TimelineView(.periodic(from: .now, by: 30)) { context in
-                            Text(Ago.text(row.updatedAt, now: context.date))
+                            Text(Ago.text(row.lastActivity, now: context.date))
                                 .font(.footnote)
                                 .monospacedDigit()
                                 .foregroundStyle(Palette.ink2)
@@ -347,9 +601,10 @@ struct SessionRowView: View {
         var parts = [row.displayTitle]
         if let state = RowState(row) { parts.append(state.word) }
         if row.unread { parts.append("Unread") }
+        if row.pinned == true { parts.append("Pinned") }
         parts.append(contentsOf: [row.spaceName, row.agentDisplayName].filter { !$0.isEmpty })
         if let model = row.modelDisplayName, !model.isEmpty { parts.append(model) }
-        parts.append(Ago.text(row.updatedAt, now: now))
+        parts.append(Ago.text(row.lastActivity, now: now))
         return parts.joined(separator: ", ")
     }
 }
@@ -389,6 +644,7 @@ private struct RowAbout: View {
 /// A row's state as its glyph and its word, bold, in its tone: never colour alone.
 struct StateWord: View {
     let state: RowState
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         HStack(spacing: 4) {
@@ -399,7 +655,8 @@ struct StateWord: View {
         }
         .font(.footnote.weight(.semibold))
         .foregroundStyle(state.tone.color)
-        .fixedSize()
+        // On a line of its own at the accessibility sizes, it wraps rather than run past the row's edge.
+        .fixedSize(horizontal: !dynamicTypeSize.isAccessibilitySize, vertical: true)
         .accessibilityHidden(true)
     }
 }
@@ -418,8 +675,8 @@ struct UnsentSession: Identifiable, Equatable {
             if item.isFailed { return true }
             return !connected && (item.state == .waiting || item.state == .unconfirmed)
         }
-        let titles = Dictionary(((home?.needsYou ?? []) + (home?.spaces.flatMap(\.sessions) ?? [])).map { ($0.id, $0.displayTitle) },
-                                uniquingKeysWith: { first, _ in first })
+        let rows = (home?.needsYou ?? []) + (home?.spaces.flatMap(\.sessions) ?? []) + (home?.recent ?? [])
+        let titles = Dictionary(rows.map { ($0.id, $0.displayTitle) }, uniquingKeysWith: { first, _ in first })
         var order: [String] = []
         var bySession: [String: [OutgoingItem]] = [:]
         for item in held {
@@ -582,14 +839,22 @@ private struct RetryButton: View {
 }
 
 /// A search that found nothing, and why the list it searched may be shorter than the Mac's.
-private struct NoResults: View {
+struct NoResults: View {
     let query: String
+    let why: String
 
     var body: some View {
         ContentUnavailableView {
             Label("No results for “\(query)”", systemImage: "magnifyingglass")
         } description: {
-            Text("This searches the sessions listed here: each space's latest. The rest are on your Mac.")
+            Text(why)
         }
+    }
+
+    /// Home's reason, for the style it lists in; `pages` where a space's page lists the rest of its sessions.
+    static func words(style: ListStyle, pages: Bool) -> String {
+        let listed = style == .bySpace ? "each space's latest" : "the most recent"
+        let rest = pages ? "Each space's page lists all of its sessions." : "The rest are on your Mac."
+        return "This searches the sessions listed here: \(listed). \(rest)"
     }
 }

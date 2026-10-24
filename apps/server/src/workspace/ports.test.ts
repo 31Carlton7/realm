@@ -102,6 +102,13 @@ describe("PortAllocator", () => {
     expect(await a.ensureBlock(mk().id)).toBe(PORT_POOL_START + 2 * PORT_BLOCK_SIZE);
   });
 
+  it("probes a block's first port alone, so a busy block costs one bind", async () => {
+    const probed: number[] = [];
+    const a = new PortAllocator(db, { probe: async (p) => { probed.push(p); return p >= PORT_POOL_START + PORT_BLOCK_SIZE; } });
+    expect(await a.ensureBlock(mk().id)).toBe(PORT_POOL_START + PORT_BLOCK_SIZE);
+    expect(probed.filter((p) => p < PORT_POOL_START + PORT_BLOCK_SIZE)).toEqual([PORT_POOL_START]);
+  });
+
   it("really does detect a listening socket", async () => {
     const server: Server = createServer();
     const port: number = await new Promise((r) => server.listen({ port: 0, host: "127.0.0.1" }, () => r((server.address() as { port: number }).port)));

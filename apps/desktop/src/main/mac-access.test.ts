@@ -209,7 +209,7 @@ describe("macHostName — the app macOS will actually name", () => {
   it("dev: the BUNDLE's name — macOS says “Electron”, not the package name the app answers with (the named mutant: sending the user hunting for a “@realm/desktop” row that will never exist)", () => {
     expect(macHostName({
       appName: "@realm/desktop",
-      bundlePath: "/repo/node_modules/.pnpm/electron@37.10.3/node_modules/electron/dist/Electron.app",
+      bundlePath: "/repo/node_modules/.pnpm/electron@45.0.0/node_modules/electron/dist/Electron.app",
       packaged: false,
     })).toBe("Electron");
   });

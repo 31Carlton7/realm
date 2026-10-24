@@ -1,10 +1,13 @@
-// Assembles apps/desktop/.pack-stage/ — everything electron-builder ships as extraResources — plus
-// build/icon.icns. Run by `pnpm dist` / `pnpm dist:dir` (see electron-builder.yml). Assumes the root
-// `pnpm build` already ran (server dist exists); fails loudly when it hasn't.
+// Assembles apps/desktop/.pack-stage/ — what electron-builder ships as extraResources, beside the
+// command line's bin/, which it takes from apps/server/bin itself — plus build/icon.icns. Run by
+// `pnpm dist` / `pnpm dist:dir` (see electron-builder.yml). Assumes the root `pnpm build` already ran
+// (server dist exists); fails loudly when it hasn't.
 import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { pruneDevFiles } from "./lib/prune-dev-files.mjs";
+import { pruneMusl } from "./lib/prune-musl.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 // The OS this package is for — electron-builder packs for the machine it runs on (CI builds each OS on
@@ -49,6 +52,10 @@ if (existsSync(pnpmDir)) {
     }
   }
 }
+// A Linux package runs only where glibc is; the musl builds pnpm installed beside it never load.
+if (process.platform === "linux" && existsSync(pnpmDir)) console.log("[stage-pack] dropped musl builds:", pruneMusl(pnpmDir).join(", ") || "none");
+// Source maps and type declarations are for a package's developers; nothing at runtime reads them.
+console.log("[stage-pack] dropped source maps and declarations:", pruneDevFiles(join(stage, "server", "node_modules")));
 
 // 2. Bundled skills — bundledSkillsDir()'s packaged branch reads <resources>/skills.
 cpSync(join(root, "skills"), join(stage, "skills"), { recursive: true });

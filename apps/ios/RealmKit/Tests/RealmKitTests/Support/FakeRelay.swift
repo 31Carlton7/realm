@@ -128,6 +128,8 @@ final class FakeRelay: WebSocketFactory, @unchecked Sendable {
         var pushTokens: [String] = []
         var params: [[String: JSONValue]] = []
         var seq = 100
+        /// What the Mac names as its relay in IK message 2 (§3.3), written as given.
+        var announcedRelay: String?
     }
 
     private let state = Mutex(State())
@@ -147,6 +149,11 @@ final class FakeRelay: WebSocketFactory, @unchecked Sendable {
         let id = Base64URL.encode(Data((0..<16).map { _ in UInt8.random(in: 0...255) }))
         state.withLock { $0.window = Window(id: id, secret: secret, answer: answer) }
         return id
+    }
+
+    /// The Mac names `relay` as where it is now, in every handshake from here on (§3.3).
+    func announce(relay: String?) {
+        state.withLock { $0.announcedRelay = relay }
     }
 
     var socketCount: Int { state.withLock { $0.sockets.count } }
@@ -306,7 +313,8 @@ final class FakeRelay: WebSocketFactory, @unchecked Sendable {
                                                    localStatic: macDH, remoteStatic: nil)
                 _ = try handshake.readMessage(data)
                 guard handshake.remoteStatic == phone.dh else { throw NoiseError.invalidKey }
-                let answer = try handshake.writeMessage(Data(#"{"v":1,"mac":"\#(macName)","server":"test","extra":true}"#.utf8))
+                let relay = state.withLock { $0.announcedRelay }.map { #","relay":"\#($0)""# } ?? ""
+                let answer = try handshake.writeMessage(Data(#"{"v":1,"mac":"\#(macName)","server":"test","extra":true\#(relay)}"#.utf8))
                 let ciphers = try handshake.split()
                 channel.send = ciphers.responderToInitiator
                 channel.receive = ciphers.initiatorToResponder

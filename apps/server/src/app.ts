@@ -115,6 +115,9 @@ import { ShipsStore } from "./store/ships";
 import { NotificationsService } from "./notifications/service";
 import { NotificationRelay, realTransport } from "./notifications/relay";
 import { RemoteService } from "./remote/service";
+import type { HomeKey } from "./remote/home-key";
+import { readTls, startAccess, type Access, type AccessOptions } from "./access/service";
+import { checkListen } from "./access/listen";
 import { Presence } from "./remote/presence";
 import { PhonePushes } from "./remote/push";
 import { HeadlessKeepAwake, type HoldAwake } from "./remote/keep-awake";
@@ -186,8 +189,12 @@ import { ToolClassesStore } from "./team/policies/tool-classes";
 /** `gateway` is exposed for tests and live checks that must speak MCP AS a given session (the
  *  per-session toolset shapes are wired in this file's closures — only a real list/call through the
  *  gateway proves them). Production callers use it via sessions, never directly. */
-export type App = { port: number; db: Db; rpc: RpcServer; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; teammates: Teammates; reviews: ReviewService; asks: AskService; runs: RunService; schedules: ScheduleService; team: TeamService; lab: LabService; acts: ActService; codeReview: CodeReviewService; gateway: McpGateway; close(): Promise<void> };
-export const SERVER_VERSION = "0.0.1";
+export type App = { port: number; access: { port: number; url: string } | null; db: Db; rpc: RpcServer; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; teammates: Teammates; reviews: ReviewService; asks: AskService; runs: RunService; schedules: ScheduleService; team: TeamService; lab: LabService; acts: ActService; codeReview: CodeReviewService; gateway: McpGateway; close(): Promise<void> };
+declare const __REALM_VERSION__: string | undefined;
+/** The Realm release this server belongs to, as `system.info` and a paired phone report it: the desktop
+ *  app's version, which tsup.config.ts bakes into the bundle. Unbundled (the suite, tsx scripts) there is no
+ *  release to name, so it says so. */
+export const SERVER_VERSION: string = typeof __REALM_VERSION__ === "string" ? __REALM_VERSION__ : "0.0.0-dev";
 
 /** The Vite dev server's origin, when Electron told us about it by inheriting it into our env. */
 function devRendererOrigin(): string | null {
@@ -380,6 +387,36 @@ export function defaultAdapters(): AdapterRegistry {
     // attached request would.
     on: "About pull request acme/widgets#42", emit: [
       { kind: "text", paceMs: 25, text: "It replaces the tokenizer's 64 KB read buffer with a stream: `Tokenizer.feed` takes chunks as they arrive and yields each token as soon as it is complete. The parser's public API is unchanged, so no caller has to move. The one change in behaviour is error reporting — an unterminated string used to throw `UnterminatedString`, and that check is gone." },
+    ],
+  }, {
+    // A lead that writes its sub-agent a brief in parts — where it works, what to read first, what
+    // to build — the way leads do, for the viewer that draws each part as what it is.
+    on: "Hand over a written brief", emit: [
+      { kind: "text", paceMs: 30, text: "One sub-agent, with a brief it can work from." },
+      { kind: "call", tool: "realm-agent__agent_start", input: { title: "Fold the report card", goal: [
+        "Where you work: `/Users/me/realm-worktrees/viewer` (branch `fix/viewer-readable`, off main). Never touch the primary checkout.",
+        "",
+        "Read first:",
+        "- `design.md` — the source of design judgment; read it completely",
+        "- `src/viewer.tsx` — the viewer as it stands",
+        "- `src/viewer.test.tsx`",
+        "",
+        "What to build:",
+        "Make the report card fold away. Its head becomes a **disclosure**: a real button with `aria-expanded`, operable from the keyboard, with a calm height animation that respects Reduce motion.",
+        "",
+        "1. Open by default, so nothing is hidden by surprise.",
+        "2. Remember the choice per viewer while the tab is open.",
+        "",
+        "Proof required:",
+        "Unit tests for the toggle, and a screenshot of each face, open and closed.",
+      ].join("\n") } },
+      { kind: "call", tool: "realm-agent__agent_wait", input: {} },
+      { kind: "text", paceMs: 30, text: "The report card folds now." },
+    ],
+  }, {
+    on: "Make the report card fold away", emit: [
+      { kind: "tool", name: "Read", input: { file_path: "src/viewer.tsx" }, result: "export function Viewer() { … }" },
+      { kind: "text", paceMs: 40, text: "Made the report card fold. Its head is a button with `aria-expanded`; it opens by default, and the tab remembers the choice per sub-agent.\n\n- Enter and Space toggle it, as any button\n- the body folds on the size rung and holds still under Reduce motion\n\n**Six tests pass.**" },
     ],
   }, {
     // Work handed to other models: the Agents tab's "Build with…" message, played the way an
@@ -782,11 +819,20 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  none; only `main.ts` passes the real one, so no app a test builds reaches a relay it did not name.
    *  The rest are test knobs: development builds' `debug.report`, the pairing link's scheme, the
    *  pairing window's life, and the push hold-back. */
-  remote?: { defaultRelay?: string; dev?: boolean; linkBase?: string; pairTtlMs?: number; pushHoldMs?: number; holdAwake?: HoldAwake | null };
+  remote?: { defaultRelay?: string; dev?: boolean; linkBase?: string; pairTtlMs?: number; pushHoldMs?: number; holdAwake?: HoldAwake | null; homeKey?: HomeKey | null };
   /** Laya installs itself once there is a moment for it (`LayaService`'s auto-install). Only `main.ts`
    *  turns this on, and not in a harness: an app a test or a live check builds never downloads. */
   layaAutoInstall?: boolean;
+  /** A second listener, for clients on other machines (`realm serve --listen`). Absent, the server
+   *  listens on loopback only, as it always has. */
+  access?: AccessOptions;
 }): Promise<App> {
+  // A listener the rules refuse, or a certificate that cannot be read, stops the boot before anything
+  // is opened: there is no half-started server to tidy up, and the person reads the reason first.
+  if (opts.access) {
+    checkListen(opts.access.listen);
+    if (opts.access.listen.tls) readTls(opts.access.listen.tls);
+  }
   const db = openDatabase(dbPath(opts.home));
   const profiles = new ProfilesStore(db);
   // First boot: without a profile the New Space sheet is a dead end (spaces require one), so seed a
@@ -1705,8 +1751,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // the owner is at this Mac. Nothing dials until a phone is paired or a pairing window opens.
   const presence = new Presence({ attached: () => browserBridge.connected });
   const remote = new RemoteService({ rpc, settings, phones: new RemoteDevicesStore(db), macName: machine, version: SERVER_VERSION,
-    reportsDir: join(opts.home, "remote", "reports"), defaultRelay: opts.remote?.defaultRelay, dev: opts.remote?.dev,
-    linkBase: opts.remote?.linkBase, pairTtlMs: opts.remote?.pairTtlMs, log: (line) => console.error(line) });
+    reportsDir: join(opts.home, "remote", "reports"), home: opts.home, defaultRelay: opts.remote?.defaultRelay, dev: opts.remote?.dev,
+    linkBase: opts.remote?.linkBase, pairTtlMs: opts.remote?.pairTtlMs, homeKey: opts.remote?.homeKey, log: (line) => console.error(line) });
   phonePushes = new PhonePushes({ remote, presence, settings, holdMs: opts.remote?.pushHoldMs,
     notification: (id) => notificationsStore.get(id),
     needsYou: () => sessions.statusCounts().needsYou,
@@ -1714,12 +1760,15 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     log: (line) => console.error(line) });
   // One searcher for ⌘P and the `@` list's Files, so the two read a checkout the same way.
   const projectSearch = new ProjectSearchService();
+  /** The remote listener, once it is up (below, after the loopback socket). */
+  let access: Access | null = null;
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
     profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, handoffs, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns, teammates,
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, agentSignIn,
     libraryFiles, remote, presence,
+    access: () => (access ? { url: access.url } : null),
     appViews: new AppViewService({ views: appViews, hub: mcpHub, mcp, servers: mcpServersStore, sessions: sessionsStore, server: appViewServer, gateway: mcpGateway, log: (line) => console.log(line) }),
     codeReview,
     /* A drain was accepted: watch for quiescence and close once it holds. The watcher owns the clock
@@ -1861,12 +1910,23 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     for (const off of offKeepAwake) off();
     keepAwake.close();
     remote.close();
+    await access?.close();
     await rpc.close();
     db.close();
   };
 
+  if (opts.access) {
+    try {
+      access = await startAccess({ rpc, home: opts.home, log: (line) => console.error(line), ...opts.access });
+    } catch (e) {
+      // The port was taken, most likely. Nothing may be left running for a boot that failed.
+      await closeApp();
+      throw e;
+    }
+  }
+
   return {
-    port, db, rpc, terminals, sessions, browserAgents, agentRuns, teammates, reviews, asks, runs, schedules, team, lab, acts: acts!, codeReview, gateway: mcpGateway,
+    port, access: access ? { port: access.port, url: access.url } : null, db, rpc, terminals, sessions, browserAgents, agentRuns, teammates, reviews, asks, runs, schedules, team, lab, acts: acts!, codeReview, gateway: mcpGateway,
     close: closeApp,
   };
 }

@@ -1,17 +1,22 @@
 import { WebSocketServer, WebSocket, type ServerOptions } from "ws";
 import { timingSafeEqual } from "node:crypto";
-import type { IncomingMessage } from "node:http";
+import { createServer as createHttpServer, type IncomingMessage, type Server as HttpServer } from "node:http";
+import { createServer as createHttpsServer, type Server as HttpsServer } from "node:https";
+import type { Duplex } from "node:stream";
 import type { ZodTypeAny, z } from "zod";
 import { parseWireMessage, type EventName, type EventPayload, type RpcResponse } from "@realm/contracts";
+import type { HandshakeLimiter } from "../access/limiter";
 import { RpcError } from "../store/rows";
 
 /**
  * Who a call is from. `local` is everything on this Mac: every socket (the renderer, main's bridge,
  * the CLI) and every in-process call made on the Mac's own behalf. `phone:<id>` is a paired phone,
  * which reaches handlers only through the mobile API (`remote/api.ts`) — an allowlist by construction,
- * so a handler checking the principal is a second lock, never the first.
+ * so a handler checking the principal is a second lock, never the first. `token:<id>` is the owner on
+ * another machine, through the access token with that id (`listenRemote`): the whole RPC, as `local`
+ * has it, except what only this machine's own app may do.
  */
-export type Principal = "local" | `phone:${string}`;
+export type Principal = "local" | `phone:${string}` | `token:${string}`;
 
 /** What a handler knows about its caller. `client` is null for an in-process `call()`, so a handler
  *  that needs a socket to answer later (`browserHost.register`) must refuse a null, never adopt it. */
@@ -70,11 +75,44 @@ export function acceptsHandshake(
 const offeredProtocols = (header: string | undefined): string[] =>
   header === undefined ? [] : header.split(",").map((p) => p.trim()).filter(Boolean);
 
+/** What `listenRemote` needs besides an address: how to judge a token, and the refusals' budget. */
+export type RemoteListenOptions = {
+  host: string;
+  port: number;
+  /** PEM certificate chain and key; null for plain `ws://` (loopback, or a network the owner vouched
+   *  for — `access/listen.ts` decides, before this is called). */
+  tls: { cert: string | Buffer; key: string | Buffer } | null;
+  /** Who an offered access token belongs to, or null. */
+  authenticate: (token: string) => { id: string; name: string } | null;
+  limiter: HandshakeLimiter;
+  log?: (line: string) => void;
+};
+
+export type RemoteListener = {
+  port: number;
+  /** Closes every client whose token is not among `valid` (ids), and says how many went. */
+  dropRevoked(valid: ReadonlySet<string>): number;
+  /** A renewed certificate, for the handshakes from now on. */
+  reloadTls(tls: { cert: string | Buffer; key: string | Buffer }): void;
+  close(): Promise<void>;
+};
+
+/** How long a client gets to finish its TLS and HTTP handshakes before the socket is dropped. */
+const HANDSHAKE_MS = 10_000;
+
+/** Refuse an upgrade with a bare status line and nothing else: no body, no hint at what was wrong. */
+function refuseUpgrade(socket: Duplex, status: 401 | 403 | 429): void {
+  const text = { 401: "Unauthorized", 403: "Forbidden", 429: "Too Many Requests" }[status];
+  socket.once("finish", () => socket.destroy());
+  socket.end(`HTTP/1.1 ${status} ${text}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+}
+
 export class RpcServer {
   private wss: WebSocketServer | null = null;
   private methods = new Map<string, { schema: ZodTypeAny; handler: Handler<ZodTypeAny> }>();
   private clients = new Set<WebSocket>();
   private listeners = new Set<BroadcastListener>();
+  private remotes = new Set<RemoteListener>();
 
   register<S extends ZodTypeAny>(name: string, schema: S, handler: Handler<S>): void {
     this.methods.set(name, { schema, handler: handler as Handler<ZodTypeAny> });
@@ -102,13 +140,93 @@ export class RpcServer {
         wss.on("error", (err) => process.stderr.write(`[realm-server] ws error: ${err.message}\n`));
         const addr = wss.address(); resolve(typeof addr === "object" && addr ? addr.port : port);
       });
-      wss.on("connection", (ws) => {
-        this.clients.add(ws);
-        ws.on("close", () => this.clients.delete(ws));
-        ws.on("error", (err) => process.stderr.write(`[realm-server] client error: ${err.message}\n`));
-        ws.on("message", (data) => void this.handle(ws, data.toString()));
+      wss.on("connection", (ws) => this.attach(ws, "local"));
+    });
+  }
+
+  /**
+   * A second listener, for clients on other machines (`realm serve --listen`).
+   *
+   * It shares nothing with the loopback one but the methods: its own address, its own credential and
+   * its own principal. A handshake must offer an access token as the `realm.<token>` subprotocol — the
+   * daemon's per-boot token is not one, so a `daemon.json` that leaked cannot open this door — and a
+   * handshake that carries an Origin is refused whatever it offers: a browser stamps one on every
+   * WebSocket, and no page anywhere is a client of this listener.
+   *
+   * The principal is `token:<id>` however the client arrived. Behind Tailscale Serve or an SSH tunnel
+   * every client comes from 127.0.0.1, so the address could never be what decides who someone is.
+   */
+  listenRemote(o: RemoteListenOptions): Promise<RemoteListener> {
+    const log = o.log ?? ((line: string) => process.stderr.write(`${line}\n`));
+    const server: HttpServer | HttpsServer = o.tls
+      ? createHttpsServer({ cert: o.tls.cert, key: o.tls.key, minVersion: "TLSv1.2", handshakeTimeout: HANDSHAKE_MS })
+      : createHttpServer();
+    server.headersTimeout = HANDSHAKE_MS;
+    server.requestTimeout = HANDSHAKE_MS;
+    // The protocol each accepted handshake offered, echoed back so a client sees the one it sent.
+    const accepted = new WeakMap<IncomingMessage, string>();
+    const wss = new WebSocketServer({ noServer: true, handleProtocols: (_offered, req) => accepted.get(req) ?? false });
+    const mine = new Map<WebSocket, string>();
+    server.on("request", (_req, res) => { res.writeHead(426, { Connection: "close", "Content-Length": "0" }); res.end(); });
+    server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+      socket.on("error", () => socket.destroy());
+      const from = req.socket.remoteAddress ?? "unknown";
+      if (o.limiter.blocked(from)) return refuseUpgrade(socket, 429);
+      const refuse = (status: 401 | 403, why: string) => {
+        if (o.limiter.fail(from)) log(`[realm-server] refusing ${from} for a while: too many refused handshakes`);
+        else log(`[realm-server] refused a remote client from ${from}: ${why}`);
+        refuseUpgrade(socket, status);
+      };
+      if (req.headers.origin !== undefined) return refuse(403, `a browser page (${req.headers.origin})`);
+      // One token per handshake: a client offering a list would otherwise try many for one refusal.
+      const offered = offeredProtocols(req.headers["sec-websocket-protocol"]).find((p) => p.startsWith("realm."));
+      const who = offered === undefined ? null : o.authenticate(offered.slice("realm.".length));
+      if (!offered || !who) return refuse(401, "no valid access token");
+      accepted.set(req, offered);
+      o.limiter.succeed(from);
+      const { id, name } = who;
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        mine.set(ws, id);
+        ws.on("close", () => mine.delete(ws));
+        log(`[realm-server] remote client "${name}" (token ${id}) connected from ${from}`);
+        this.attach(ws, `token:${id}`);
       });
     });
+    return new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(o.port, o.host, () => {
+        server.off("error", reject);
+        server.on("error", (err) => log(`[realm-server] remote listener error: ${err.message}`));
+        const addr = server.address();
+        const listener: RemoteListener = {
+          port: typeof addr === "object" && addr ? addr.port : o.port,
+          dropRevoked: (valid) => {
+            let dropped = 0;
+            for (const [ws, id] of mine) if (!valid.has(id)) { ws.terminate(); mine.delete(ws); dropped++; }
+            if (dropped > 0) log(`[realm-server] closed ${dropped} remote client(s) whose access token was revoked`);
+            return dropped;
+          },
+          reloadTls: (tls) => { if ("setSecureContext" in server) server.setSecureContext({ cert: tls.cert, key: tls.key }); },
+          close: async () => {
+            this.remotes.delete(listener);
+            for (const ws of mine.keys()) ws.terminate();
+            mine.clear();
+            wss.close();
+            await new Promise<void>((res) => { server.close(() => res()); server.closeAllConnections(); });
+          },
+        };
+        this.remotes.add(listener);
+        resolve(listener);
+      });
+    });
+  }
+
+  /** One accepted socket, on either listener: every call it makes is made as `principal`. */
+  private attach(ws: WebSocket, principal: Principal): void {
+    this.clients.add(ws);
+    ws.on("close", () => this.clients.delete(ws));
+    ws.on("error", (err) => process.stderr.write(`[realm-server] client error: ${err.message}\n`));
+    ws.on("message", (data) => void this.handle(ws, data.toString(), principal));
   }
 
   broadcast<E extends EventName>(event: E, payload: EventPayload<E>): void {
@@ -155,19 +273,20 @@ export class RpcServer {
   }
 
   async close(): Promise<void> {
+    await Promise.all([...this.remotes].map((r) => r.close()));
     for (const c of this.clients) c.terminate();
     this.clients.clear();
     await new Promise<void>((res) => (this.wss ? this.wss.close(() => res()) : res()));
   }
 
-  private async handle(ws: WebSocket, raw: string): Promise<void> {
+  private async handle(ws: WebSocket, raw: string, principal: Principal): Promise<void> {
     let id = "?";
     const send = (r: RpcResponse): void => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(r)); };
     try {
       const wire = parseWireMessage(raw);
       if (wire.kind !== "request") return;
       id = wire.msg.id;
-      const result = await this.dispatch(wire.msg.method, wire.msg.params, { client: ws, principal: "local" });
+      const result = await this.dispatch(wire.msg.method, wire.msg.params, { client: ws, principal });
       send({ id, ok: true, result });
     } catch (e) {
       send({ id, ok: false, error: toRpcError(e) });

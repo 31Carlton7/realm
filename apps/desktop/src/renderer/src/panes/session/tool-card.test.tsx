@@ -864,3 +864,16 @@ describe("a step in a run stands on the same lead column as every other row", ()
     for (const c of cards()) expect(c.parentElement).toHaveClass("tool-group-steps");
   });
 });
+
+describe("a media call in flight draws the generating canvas for its kind", () => {
+  it("wears the image glyph for an image, the video glyph for a video, and goes when the result lands", () => {
+    const { container, rerender } = render(<ToolCard sessionStatus="running"
+      block={tool("g1", "mcp__media__generate_image", { prompt: "a calm mountain lake at dawn" }, 0, false)} />);
+    expect(container.querySelector(".gen-canvas")).toHaveAttribute("data-kind", "image");
+    expect(container.querySelector(".gen-detail")).toHaveTextContent("a calm mountain lake at dawn");
+    rerender(<ToolCard sessionStatus="running" block={tool("g2", "Bash", { command: "ffmpeg -i a.mov b.mp4" }, 0, false)} />);
+    expect(container.querySelector(".gen-canvas")).toHaveAttribute("data-kind", "video");
+    rerender(<ToolCard sessionStatus="running" block={tool("g2", "Bash", { command: "ffmpeg -i a.mov b.mp4" }, 0, true)} />);
+    expect(container.querySelector(".gen-canvas")).toBeNull();
+  });
+});

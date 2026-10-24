@@ -5,6 +5,7 @@ import { mediaUrl, type MediaFile } from "@realm/contracts";
 import { Markdown } from "../Markdown";
 import { Transcript } from "../Transcript";
 import { emptyTranscript } from "../transcript-model";
+import { Icon } from "@realm/ui";
 import { GeneratingCanvas, MediaStrip, genResolution, genWidthPx } from "./MediaView";
 import { formatTime } from "../../../components/video/video-model";
 import { resetMediaCache, useMediaFiles } from "./use-media";
@@ -208,13 +209,29 @@ describe("genResolution", () => {
 describe("GeneratingCanvas", () => {
   it("is a placeholder the shape of the thing coming, captioned with what is being made", () => {
     const { container } = render(
-      <GeneratingCanvas label="Encoding video" detail="Encode all three mockup videos" aspect="1080 / 1920" />);
+      <GeneratingCanvas kind="video" label="Encoding video" detail="Encode all three mockup videos" aspect="1080 / 1920" />);
     expect(screen.getByRole("img", { name: "Encoding video" }))
       .toHaveStyle({ aspectRatio: "1080 / 1920", width: "180px" });
     expect(screen.getByText("Encode all three mockup videos")).toBeInTheDocument();
-    // Both dot layers are decoration; the caption is what a screen reader is given.
-    for (const el of container.querySelectorAll(".gen-glow, .gen-dots"))
-      expect(el).toHaveAttribute("aria-hidden", "true");
+    // The glyph and its ring are decoration; the caption is what a screen reader is given.
+    expect(container.querySelector(".gen-mark")).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("wears the glyph of what is coming at its centre, inside one ring and nothing else", () => {
+    const glyph = (name: "image" | "video") => render(<Icon name={name} size={20} />).container.innerHTML;
+    for (const kind of ["image", "video"] as const) {
+      const { container, unmount } = render(<GeneratingCanvas kind={kind} label="Generating" aspect="1 / 1" />);
+      const mark = container.querySelector(".gen-canvas > .gen-mark")!;
+      expect(mark.querySelector(".gen-glyph")!.outerHTML.replace(/ class="[^"]*"/, ""))
+        .toBe(glyph(kind).replace(/ class="[^"]*"/, ""));
+      expect(mark.querySelectorAll(".gen-spin")).toHaveLength(1);
+      // The lattice is gone, not hidden.
+      expect(container.querySelector(".gen-dots, .gen-glow")).toBeNull();
+      unmount();
+    }
+    // An image is the default: a generator that never said which kind gets the picture's glyph.
+    const { container } = render(<GeneratingCanvas label="Generating image" />);
+    expect(container.querySelector(".gen-canvas")).toHaveAttribute("data-kind", "image");
   });
 
   it("prints the frame size when the command stated one, and nothing when it did not", () => {

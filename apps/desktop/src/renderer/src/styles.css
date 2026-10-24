@@ -44,7 +44,7 @@
 .terminal-dock-title,
 .sim-detail, .upl-path, .wt-branch, .laya-facts code, .whats-new-group code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code, .browser-runner-score,
 .edit-counts, .cr-tab-counts, .cr-setup-how code, .cr-branch, .cr-finding-where, .diff-split-cell, .cr-pending-where,
-.subagent-where[data-branch], .subagent-view-where[data-branch], .signin-hint code, .signin-code {
+.subagent-where[data-branch], .subagent-view-where[data-branch], .subagent-brief-branch, .subagent-brief-dir, .signin-hint code, .signin-code {
   letter-spacing: normal;
 }
 
@@ -824,7 +824,10 @@ kbd { font: 11px var(--font-mono); }
      Nor does the bottom need a band of clearance any more: scrolled to the end there is no band, and
      the last row stops a step above New space, pinned at the foot (`.sb-foot`). */
   padding-top: 4px;
-  padding-bottom: 8px; }
+  padding-bottom: 8px;
+  /* A card the list brings into view (a session just made, RecentList) stops clear of the band its
+     end dissolves over, as a row does in every other dissolving list. */
+  scroll-padding-block: var(--fade-top-h) var(--fade-h); }
 /* The list is a SCROLLER, so it is never part of the window's drag region. Over a drag region macOS
    takes the wheel for the window and the page never sees it, so the column scrolled only with the
    pointer on a row — a button, which opts out — and not over the gaps between rows, a section's head
@@ -1772,7 +1775,7 @@ kbd { font: 11px var(--font-mono); }
 :root[data-quiet] .composer-thinking span,
 :root[data-quiet] .status-dot[data-status="circuit_open"],
 :root[data-quiet] .permission-dot,
-:root[data-quiet] .gen-glow,
+:root[data-quiet] .gen-spin,
 :root[data-quiet] .drive-frame-glow,
 :root[data-quiet] .wash[data-grain],
 :root[data-quiet] .reach-mark[data-busy] .reach-mark-glint,
@@ -4200,15 +4203,66 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    to the log under it — `flex: none`, because shrink is shared in proportion to size, and beside a
    long transcript a report of a dozen lines came out a strip two lines high. Read at the body size
    in the primary ink, with the padding a card the eye rests in gets; the right edge is the scroller's,
-   so a bar has somewhere to go. */
-.subagent-view-result { flex: none; max-height: 60%; display: flex; flex-direction: column; gap: 8px; margin: 0 12px 10px; padding: 12px 6px 14px 16px;
+   so a bar has somewhere to go. Its head is the disclosure that folds it (below), so the gap under the
+   head belongs to the body and folds with it, and a closed card is the head on even padding. */
+.subagent-view-result { flex: none; max-height: 60%; display: flex; flex-direction: column; margin: 0 12px 10px; padding: 12px 6px 12px 16px;
   border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); }
-.subagent-view-result-head { flex: none; display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; line-height: 18px; font-weight: var(--fw-title); color: var(--ink); }
-.subagent-view-result-head > svg { color: var(--ink-3); }
-.subagent-view-result[data-error] .subagent-view-result-head > svg { color: var(--rl-danger); }
-.subagent-view-result-scroll { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 10px; --fade-h: 20px; --fade-top-h: 16px; }
+.subagent-view-result-head { flex: none; margin: 0; font-size: 13px; line-height: 18px; font-weight: var(--fw-title); color: var(--ink); }
+/* The whole head row is the target, grown into the card's padding to a desktop control's 40px. Closed,
+   the report's first line follows the name in the secondary ink, so the card still says what came
+   back; the chevron points into the body when it is open. */
+.subagent-view-result-toggle { display: flex; align-items: center; gap: 6px; width: calc(100% + 8px); min-width: 0; margin: -11px 0 -11px -8px; padding: 11px 10px 11px 8px;
+  border: none; border-radius: var(--r-ctl); background: transparent; color: inherit; font: inherit; text-align: left; }
+/* Inset, so the ring stays inside the card's curve and clear of the report's first line. */
+.subagent-view-result-toggle:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--rl-accent); }
+.subagent-view-result-toggle > svg { flex: none; color: var(--ink-3); }
+.subagent-view-result[data-error] .subagent-view-result-toggle > svg:first-child { color: var(--rl-danger); }
+.subagent-view-result-name { flex: none; }
+.subagent-view-result-gist { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--fw-body); color: var(--ink-2); }
+.subagent-view-result-chevron { margin-left: auto; transition: transform var(--dur-pop) var(--ease-out-strong); }
+.subagent-view-result[data-open] .subagent-view-result-chevron { transform: rotate(90deg); }
+.subagent-view-result-toggle:hover > .subagent-view-result-chevron { color: var(--ink); transition: none; }
+.subagent-view-result-wrap { flex: 0 1 auto; min-height: 0; }
+.subagent-view-result-clip { display: flex; flex-direction: column; }
+.subagent-view-result-scroll { flex: 0 1 auto; min-height: 0; margin: 12px 0 2px; overflow-y: auto; overscroll-behavior: contain; padding-right: 10px; --fade-h: 20px; --fade-top-h: 16px; }
 .subagent-view-prose { font-size: 13px; color: var(--ink-2); }
 .subagent-view-result .subagent-view-prose { font-size: 14px; color: var(--ink); }
+/* What it was asked: the lead's brief in the parts it was written in, at a reading measure rather than
+   the panel's width. Each part's head wears its mark in the hanging margin, so the words of every part
+   start on one edge; the place is a chip with its branch, the files to read are chips that open them,
+   and the work is the body, in the primary ink. The measure is in `ch`, the width of a "0", which
+   Inter's running text averages well under: 68ch measured 81–87 characters a line in the window,
+   and 58ch holds a line to about seventy. */
+.subagent-brief { display: flex; flex-direction: column; gap: 16px; max-width: 58ch; min-width: 0; font-size: 14px; }
+.subagent-brief-part { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.subagent-brief-part > :not(.subagent-brief-head) { margin-left: 20px; }
+.subagent-brief-part:not(:has(> .subagent-brief-head)) > * { margin-left: 0; }
+.subagent-brief-head { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; line-height: 18px; font-weight: var(--fw-title); color: var(--ink); }
+.subagent-brief-head > svg { flex: none; color: var(--ink-3); }
+.subagent-brief-prose { font-size: 14px; color: var(--ink-2); }
+.subagent-brief-part[data-kind="build"] .subagent-brief-prose { color: var(--ink); }
+.subagent-brief-place { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.subagent-brief-files { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.subagent-brief-file { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; min-width: 0; }
+.subagent-brief-chip { flex: 0 1 auto; display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; height: 32px; padding: 0 10px 0 8px;
+  border: none; border-radius: var(--r-chip); background-color: var(--rl-raised); box-shadow: var(--rl-object-shadow); color: var(--ink);
+  font: inherit; font-size: 13px; line-height: 16px; white-space: nowrap; }
+/* The hover is the ladder's own step laid over the object's fill, which holds on both faces. */
+button.subagent-brief-chip:hover { background-image: linear-gradient(var(--rl-hover), var(--rl-hover)); }
+button.subagent-brief-chip:focus-visible { outline: none; box-shadow: var(--rl-object-shadow), 0 0 0 2px var(--rl-accent); }
+.subagent-brief-chip > .file-mark { flex: none; }
+.subagent-brief-chip-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: var(--fw-label); }
+.subagent-brief-chip-path { display: flex; align-items: baseline; min-width: 0; }
+.subagent-brief-chip-dir { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-3); }
+.subagent-brief-chip-line { flex: none; color: var(--ink-2); }
+.subagent-brief-branch { flex: 0 1 auto; display: inline-flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); }
+.subagent-brief-branch > svg { flex: none; color: var(--ink-3); }
+/* The folder it sits in, after the chip, giving way from its START so the end of the path stays. */
+.subagent-brief-dir { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left;
+  font-family: var(--font-mono); font-size: 12px; color: var(--ink-3); }
+.subagent-brief-note { flex: 1 1 16ch; min-width: 0; font-size: 13px; color: var(--ink-2); }
+.subagent-brief-note p { margin: 0; }
 /* The log: a delegated child's own transcript, set compact, or a harness agent's calls. */
 .subagent-view-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .subagent-view .transcript { padding: 8px 12px 16px; }
@@ -4432,9 +4486,9 @@ button.edit-file:hover { background: var(--rl-hover); }
    against a height the list does not have.
    The tool card's half addresses DIRECT children: a card now contains its sub-agent's cards, and a
    descendant selector would have opening the parent unfold every body beneath it. */
-.tool-body-wrap, .sb-section-wrap, .sched-runs-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-base) var(--ease-in-out-strong); }
-.tool-card[data-open] > .tool-body-wrap, .sb-section-wrap[data-open], .sched-runs-wrap[data-open] { grid-template-rows: 1fr; }
-.tool-body-clip, .sb-section-clip, .sched-runs-clip { overflow: hidden; min-height: 0; }
+.tool-body-wrap, .sb-section-wrap, .sched-runs-wrap, .subagent-view-result-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-base) var(--ease-in-out-strong); }
+.tool-card[data-open] > .tool-body-wrap, .sb-section-wrap[data-open], .sched-runs-wrap[data-open], .subagent-view-result-wrap[data-open] { grid-template-rows: 1fr; }
+.tool-body-clip, .sb-section-clip, .sched-runs-clip, .subagent-view-result-clip { overflow: hidden; min-height: 0; }
 .tool-card[data-open] > .tool-body-wrap .tool-body { opacity: 1; }
 
 /* Grouped runs (§2.8/§5) wear BUI ThinkingState's header + trace (Plan 9 W2): the head is
@@ -5150,9 +5204,9 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 /* Squircle prompter. What is written here is the FALLBACK — a circular corner at --r-squircle,
    which is its own rung because a squircle reads visually smaller than a circular corner at the
    same radius and the two scales cannot track by arithmetic — plus `corner-shape`,
-   which states the shape declaratively and takes over once Electron ships Chromium 139. On the
-   runtime this app actually has (Chromium 138) `corner-shape` is not a recognised property at all,
-   so the curve is drawn by the paint worklet instead; see the squircle block further down. */
+   which states the shape declaratively and draws from Chromium 139 (Electron 45 ships 156). The
+   curve itself is still drawn by the paint worklet, which predates that; see the squircle block
+   further down. */
 .composer { width: 100%; border-radius: var(--r-squircle); corner-shape: squircle; background: var(--surface);
   box-shadow: var(--shadow-card); display: flex; flex-direction: column; position: relative; z-index: 1; }
 .composer:focus-within {
@@ -6000,9 +6054,9 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    The prompter, its under-strip, its drop hint, the install card that stands in for it and the
    commit dock all wear a continuous superellipse corner rather than the circular arc a plain
    `border-radius` draws. `corner-shape: squircle` is the declarative form of exactly this and it
-   stays on every rule above — but it lands in Chromium 139 and Electron 37.10.3 ships 138, where
-   the property is not recognised, so today the curve comes from a paint worklet
-   (public/squircle-paint.js). theme/squircle.ts sets `data-squircle` only after the worklet module
+   stays on every rule above — it draws from Chromium 139, and is what a surface falls back to
+   without the gate below — but the curve comes from a paint worklet (public/squircle-paint.js),
+   written when Electron 37's Chromium 138 did not recognise the property. theme/squircle.ts sets `data-squircle` only after the worklet module
    has loaded, so a failed load leaves every surface below on its `border-radius` fallback rather
    than on `paint()` with no painter — which resolves to nothing and would render an invisible card.
 
@@ -7116,9 +7170,8 @@ select { appearance: none; padding-right: 22px;
 .palette-opt, .menu [role^="menuitem"], .mp-row, .mp-seg-opt, .seg-opt, .mention-row, .skill-picker-row { transition-duration: 0s; }
 
 /* The continuous corner, on every control that has one.
-   Declarative only: `corner-shape` lands in Chromium 139 and Electron 37.10.3 ships 138, so today
-   this changes nothing and on the next Electron bump every one of these picks up the prompter's
-   curve at once. The paint worklet is deliberately NOT extended here — it is per-element, and these
+   Declarative only: `corner-shape` landed in Chromium 139, so it changed nothing on Electron 37
+   (Chromium 138) and on Electron 45 (Chromium 156) every one of these draws the curve. The paint worklet is deliberately NOT extended here — it is per-element, and these
    are hundreds of elements per window against the handful of singleton surfaces it draws now. The
    radii above are what make the difference visible in the meantime. */
 .btn, .icon-btn, .ghost-chip, .composer-chip, .msg-action, .tool-copy,
@@ -9222,6 +9275,11 @@ button.cr-finding-where:hover { text-decoration: underline; }
 }
 .documents-modes button:hover { color: var(--rl-text-bright); }
 .documents-modes button[aria-pressed="true"] { background: var(--rl-raised); color: var(--rl-text-bright); box-shadow: var(--shadow-btn); }
+/* Show in Finder ends the head. Pushed right where no view control is there to push it; held to the
+   name's line so a code file's head does not grow by the button's height; and pulled into the padding
+   by half its box, so its glyph stands as far in from the right as the kind's glyph does from the left. */
+.documents-reveal { flex: none; margin-block: -4px; margin-right: -7px; }
+.documents-state + .documents-reveal { margin-left: auto; }
 
 .documents-bar {
   display: flex; align-items: center; gap: 8px; padding: 7px 12px; font-size: 12px;
@@ -9893,58 +9951,41 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
 .md-media-ref { display: block; margin: 10px 0; }
 .tool-media { margin-top: 6px; }
 
-/* ── The generating canvas (aicss.dev/components/image-generation) ─────────
-   A placeholder the SHAPE of the thing being made, not a spinner. The difference is the whole
-   point: a spinner says something is happening, a canvas of the right proportions says the picture
-   is being drawn and it will land here. Two dot grids on one lattice over a sunken well — a faint
-   one across the whole canvas, and an ink one shown only through two soft ellipses that wander —
-   so the canvas reads as being filled in, in the place it will be filled in. */
+/* ── The generating canvas ─────────────────────────────────────────────────
+   A placeholder the SHAPE of the thing being made, so the transcript holds still when it lands: a
+   quiet well, the kind's glyph at its centre in quiet ink, and one soft arc turning slowly round
+   the glyph. Nothing else moves and nothing is drawn across the well — the dotted lattice this
+   replaced was busy enough to read as content of its own (the owner, 10-23: "something cleaner"). */
 .gen-wrap { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 2px; }
 /* No max-width/max-height pair here: `aspect-ratio` clamps each side independently against them and
    stops preserving the ratio, which turned a 9:16 canvas square. The width is computed from the
    ratio in `genWidthPx`; `max-width` alone lets a narrow column shrink it with the shape intact. */
 .gen-canvas {
+  --gen-ring: 44px; --gen-ring-w: 1.5px; --gen-turn: 1.8s; --gen-arc: var(--ink);
   position: relative; max-width: 100%; overflow: hidden;
   display: grid; place-items: center;
   border-radius: var(--r-row); background: var(--rl-frame); box-shadow: var(--shadow-hairline);
 }
-/* Both layers sit on ONE 11px lattice, and `background-repeat: space` is what keeps them on it:
-   it distributes whole dots to the edges, so a canvas of any width ends on a full dot rather than a
-   sliced one. The 2px inset holds the lattice off the corner radius, where a dot cut by the clip
-   reads as a rendering fault rather than as grain. */
-.gen-dots {
-  position: absolute; inset: 2px;
-  background-image: radial-gradient(circle, var(--ink-3) 0.7px, transparent 1.3px);
-  background-size: 11px 11px; background-repeat: space; opacity: .22;
+.gen-mark { position: relative; display: grid; place-items: center; width: var(--gen-ring); height: var(--gen-ring); color: var(--ink-3); }
+.gen-glyph { grid-area: 1 / 1; }
+/* The ring: a faint track on the fill rung (`--mark`, so it holds on both faces) with a third of a
+   turn fading in behind the arc's head. One element, masked to a ring and turned by `rotate`, so the loop
+   is a compositor transform — no paint per frame, unlike a sweep of `background-position`. Linear,
+   because an eased turn surges once a revolution, and a surge is what reads as a busy spinner. */
+.gen-spin {
+  grid-area: 1 / 1; width: 100%; height: 100%; border-radius: 50%;
+  background: conic-gradient(transparent 0deg 250deg, var(--gen-arc) 360deg), var(--mark);
+  mask-image: radial-gradient(farthest-side, transparent calc(100% - var(--gen-ring-w) - 0.5px), #000 calc(100% - var(--gen-ring-w)));
+  animation: gen-turn var(--gen-turn) linear infinite;
 }
-/* The same lattice again in ink, revealed only through two soft ellipses that wander the canvas.
-   Masking a fixed grid rather than moving a painted shape is the whole idea: the dots never travel,
-   so what the eye reads is a picture RESOLVING in place, not a light being swept across a surface.
-   The sweep this replaced was the second reading, and it also washed the canvas in accent — §"the
-   blue accent is a condiment" — where this one is drawn in the same ink the picture will be.
-   The resting size and position are declared here as well as in the keyframes, so that under
-   prefers-reduced-motion the global kill leaves a legible half-drawn frame instead of an
-   unmasked one. */
-.gen-glow {
-  position: absolute; inset: 2px;
-  background-image: radial-gradient(circle, var(--ink) 1.1px, transparent 1.6px);
-  background-size: 11px 11px; background-repeat: space; opacity: .85;
-  mask-image: radial-gradient(ellipse at center, #000 0%, transparent 60%),
-              radial-gradient(ellipse at center, #000 0%, transparent 62%);
-  mask-repeat: no-repeat, no-repeat;
-  mask-size: 52% 46%, 40% 40%; mask-position: 16% 20%, 30% 32%;
-  animation: gen-morph 3.6s var(--ease-in-out-strong) infinite;
-}
-/* Four stops rather than a path: each is a place on the canvas the reveal settles at, and the two
-   ellipses are deliberately out of step with each other so the pair never reads as one blob sliding
-   around. Unprefixed only — this renderer is Chromium 138, which has had unprefixed `mask-*` since
-   120, and a prefixed twin of an animated property is a second set of numbers to keep in step. */
-@keyframes gen-morph {
-  0%, 100% { mask-size: 52% 46%, 40% 40%; mask-position: 16% 20%, 30% 32%; }
-  25% { mask-size: 46% 58%, 44% 38%; mask-position: 84% 16%, 66% 30%; }
-  50% { mask-size: 60% 44%, 38% 46%; mask-position: 82% 84%, 62% 68%; }
-  75% { mask-size: 48% 54%, 46% 40%; mask-position: 14% 82%, 34% 66%; }
-}
+@keyframes gen-turn { to { rotate: 1turn; } }
+/* The arc's head is a rung brighter on the dark face: light ink on a near-black well loses more of
+   its fading tail than dark ink on near-white, and at the light face's rung the dark ring read as
+   standing still (the coordinator, 10-23). The track stays on `--mark` in both. */
+:root[data-mode="light"] .gen-canvas { --gen-arc: var(--ink-2); }
+/* Simply drawn: a ring frozen mid-turn reads as a hang (A-L5), so it goes and the glyph stays — the
+   still form that carries the same state. The global `* { animation: none }` alone would leave it. */
+@media (prefers-reduced-motion: reduce) { .gen-spin { display: none; } }
 /* The frame size, when the command actually stated one. Machine state, so mono and tabular; pinned
    to the corner opposite the reveal's resting position so the two are never on top of each other.
    Raised rather than a step on the neutral ladder: the well under it is already `--rl-frame`, so a

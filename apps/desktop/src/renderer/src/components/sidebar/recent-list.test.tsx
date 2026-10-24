@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { Session } from "@realm/contracts";
 import { Sidebar } from "./Sidebar";
@@ -76,6 +76,27 @@ describe("Recent", () => {
     const row = await within(recent(container)).findByRole("button", { name: "chat b in Homework" });
     fireEvent.click(row);
     await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
+  });
+
+  it("brings a session made from it into view, however far down the list was scrolled", async () => {
+    // The owner, 10-23: "Fix creating a new session while in activity view mode." A new session is the
+    // newest card, so it lands at the very top of the list; scrolled down among older days, the card
+    // you were on went dark and nothing you could see in the list said where the new one went.
+    // THE MUTANT: RecentList without its scroll to the card handed the keyboard.
+    const scrolled: Element[] = [];
+    // jsdom has no layout, so no scrollIntoView of its own: record which element asked to be shown.
+    const original = Element.prototype.scrollIntoView;
+    onTestFinished(() => { Element.prototype.scrollIntoView = original; });
+    Element.prototype.scrollIntoView = vi.fn(function (this: Element, arg?: boolean | ScrollIntoViewOptions) {
+      expect(arg).toEqual({ block: "nearest" });
+      scrolled.push(this);
+    });
+    const now = Date.now();
+    const { container } = await mount([chat("a", "s1", now - 1000), chat("old", "s1", now - 9 * DAY)]);
+    fireEvent.click(await within(recent(container)).findByRole("button", { name: "chat old in Work" }));
+    fireEvent.click(screen.getByRole("button", { name: "New session" }));
+    const made = await within(recent(container)).findByRole("button", { name: "Fake agent session in Work" });
+    await waitFor(() => expect(scrolled.at(-1)).toBe(made.closest(".sb-card")));
   });
 
   it("says the list is empty rather than drawing nothing", async () => {

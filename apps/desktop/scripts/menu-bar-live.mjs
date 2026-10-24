@@ -116,7 +116,7 @@ async function launch() {
   const wrapper = path.join(scratch, "wrapper.mjs");
   fs.writeFileSync(wrapper, WRAPPER);
   const electronBin = process.platform === "darwin"
-    ? path.join(repoRoot, "node_modules/.pnpm/electron@37.10.3/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron")
+    ? path.join(repoRoot, "node_modules/.pnpm/electron@45.0.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron")
     : path.join(repoRoot, "apps/desktop/node_modules/.bin/electron");
   electron = spawn(electronBin, [wrapper], {
     env: { ...process.env,

@@ -99,7 +99,7 @@ export function attachTextContextMenu(wc: WebContents, { page = false, realmBrow
       learnSpelling: (w) => wc.session.addWordToSpellCheckerDictionary(w),
       ...(process.platform === "darwin" ? { lookUp: () => wc.showDefinitionForSelection() } : {}),
       openLink: (url) => void shell.openExternal(url),
-      copyLink: (url) => clipboard.writeText(url),
+      copyLink: (url) => void clipboard.writeText(url),
       copyImageAt: (x, y) => wc.copyImageAt(x, y),
       ...(realmBrowser ? { realmBrowser: realmBrowser() } : {}),
       ...(page ? {

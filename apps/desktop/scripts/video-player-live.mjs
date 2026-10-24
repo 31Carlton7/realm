@@ -158,7 +158,7 @@ async function main() {
     '  w.on("page-title-updated", (e) => e.preventDefault()); });',
     "await import(process.env.LIVE_MAIN);",
   ].join("\n"));
-  const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@37.10.3/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
+  const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.0.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
   electron = spawn(electronBin, [wrapper, "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"], {
     env: {
       ...process.env, REALM_HOME: home, REALM_HTML_MENUS: "1", REALM_ENABLE_FAKE_AGENT: "1",

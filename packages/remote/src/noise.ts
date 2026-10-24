@@ -7,7 +7,7 @@ import { x25519, x25519Generate, type KeyPair } from "./keys";
  * (PROTOCOL.md §4): IK, IKpsk1 and K, each with 25519, AES-GCM and SHA-256.
  *
  * AES-GCM rather than ChaCha20-Poly1305 because realm-server runs on Electron's Node, whose BoringSSL
- * has no `chacha20-poly1305` cipher (measured on Electron 37.10.3), while the suite's Node does — a
+ * has no `chacha20-poly1305` cipher (measured on Electron 37.10.3 and 45.0.0), while the suite's Node does — a
  * ChaCha build would pass every test here and fail in the shipped app.
  *
  * Checked against the published cacophony and snow vectors (test/noise-vectors.json) and against the

@@ -1,13 +1,15 @@
 import { randomBytes } from "node:crypto";
-import { REMOTE_RELAY_KEY, type PairingWindow, type RemoteState, type RemoteStatus } from "@realm/contracts";
+import { REMOTE_RELAY_KEY, STAGING_REMOTE_RELAY, type PairingWindow, type RemoteState, type RemoteStatus } from "@realm/contracts";
+import { relayBase } from "@realm/remote";
 import type { RpcServer } from "../rpc/server";
 import type { RemoteDevicesStore } from "../store/remote-devices";
 import { NotFoundError, RpcError } from "../store/rows";
 import type { SettingsStore } from "../store/settings";
 import { RemoteGateway, type PushPayload, type PushResult } from "./gateway";
-import { MacKeys, REMOTE_IDENTITY_KEY } from "./keys";
+import { HomeKeyError, makeHomeKey, readHomeKey, type HomeKey } from "./home-key";
+import { MacKeys, REMOTE_IDENTITY_KEY, REMOTE_IDENTITY_SOURCE_KEY } from "./keys";
 import { inProcessRpc } from "./rpc-port";
-import { remoteSecretBox } from "./secret";
+import { remoteSecretBox, type RemoteKeySource } from "./secret";
 import type { MacIdentity, PairedPhone } from "./store";
 
 export type RemoteServiceOptions = {
@@ -19,6 +21,8 @@ export type RemoteServiceOptions = {
   version: string;
   /** Where development builds' `debug.report` writes. */
   reportsDir: string;
+  /** The Realm home: a file a phone sends is written under its `tmp/attachments`, as a desktop paste is. */
+  home: string;
   /** The relay to dial when the `remote.relay` setting names none. Only `main.ts` passes one, so an app
    *  a test builds dials nothing unless the test names a relay itself. */
   defaultRelay?: string | null;
@@ -30,19 +34,15 @@ export type RemoteServiceOptions = {
   pairTtlMs?: number;
   /** Tests: how long `pair.start` waits for the relay before saying it cannot reach it. */
   relayWaitMs?: number;
+  /** The key file a server with no Realm window keeps its identity's key in (`home-key.ts`). Read at
+   *  start whoever started the server, so the app opens what a headless server paired; made only when
+   *  `create` says this server may. */
+  homeKey?: HomeKey | null;
   log?: (line: string) => void;
 };
 
 /** How long `pair.start` waits for the relay to answer before saying it cannot be reached. */
 const RELAY_WAIT_MS = 10_000;
-
-/** A relay URL as PROTOCOL.md §2 allows one: `ws://` or `wss://`, a host, no trailing slash. */
-function relayUrl(v: unknown): string | null {
-  if (typeof v !== "string") return null;
-  const url = v.trim().replace(/\/+$/, "");
-  if (!/^wss?:\/\/[^/]+(\/.*)?$/.test(url)) return null;
-  try { new URL(url); return url; } catch { return null; }
-}
 
 /**
  * Realm Mobile on the Mac (Plan 28): the gateway's owner, and what Settings ▸ Devices talks to.
@@ -64,6 +64,8 @@ export class RemoteService {
   private readonly requests = new Map<string, { windowId: string; answer: (yes: boolean) => void }>();
   private lastStatus = "";
   private closed = false;
+  /** Why the home's key file was refused, for the message a locked pairing gives. */
+  private homeKeyProblem: string | null = null;
   /** `pair.start`s waiting on the relay: each one a reason to keep dialling (`reconcile`). */
   private opening = 0;
   /** How to stop each of those waits, should the link it waits on be hung up first. */
@@ -74,7 +76,33 @@ export class RemoteService {
   }
 
   /** After `rpc.listen`: opens the identity if the key is already here, and dials if a phone is paired. */
-  start(): void { this.unlock(); }
+  start(): void {
+    this.loadHomeKey();
+    // A phone paired before the Mac wrote down each phone's relay was paired on the one it dialled then:
+    // the relay setting, or the only relay Realm had. Written in, so the gateway can go and find it.
+    const then = relayBase(this.o.settings.get(REMOTE_RELAY_KEY)) ?? STAGING_REMOTE_RELAY;
+    const adopted = this.o.phones.adoptRelay(then);
+    if (adopted > 0) this.o.log?.(`[remote] ${adopted} phone(s) paired before relays were recorded are on ${then}`);
+    this.unlock();
+  }
+
+  /** The home's key file, if this server has one and it is fit to use. */
+  private loadHomeKey(): void {
+    const hk = this.o.homeKey;
+    if (!hk) return;
+    try {
+      remoteSecretBox.setHomeKey(readHomeKey(hk.file));
+      this.homeKeyProblem = null;
+    } catch (e) {
+      if (!(e instanceof HomeKeyError)) throw e;
+      // Refused, not used: an identity sealed with it reads as locked, and says why when asked.
+      this.homeKeyProblem = e.message;
+      this.o.log?.(`[remote] ${e.message}`);
+    }
+  }
+
+  /** The `remote.relay` setting changed: the Mac moves, and its phones follow it (PROTOCOL.md §3.3). */
+  relayChanged(): void { this.reconcile(); }
 
   /** Electron main handed the `remote` key over: the identity can open now, and the link start. */
   keyChanged(): void { this.unlock(); }
@@ -98,8 +126,15 @@ export class RemoteService {
     if (this.closed) throw new RpcError("UNAVAILABLE", "Realm is shutting down");
     // A key that has arrived since the last look may open the identity already stored. Minting over it
     // would cut off every phone that pinned it.
+    // …and so may a key file put back since this server started.
+    if (!this.identity && !remoteSecretBox.has("home")) this.loadHomeKey();
     if (!this.identity) this.unlock();
     if (!this.identity) {
+      const loaded = this.keys.load();
+      // An identity that is stored but whose key is not here is one phones have pinned. It is never
+      // replaced for want of its key; the person is told where the key is.
+      if (loaded.kind === "locked") throw new RpcError("REMOTE_LOCKED", this.lockedMessage(loaded.source));
+      if (!remoteSecretBox.available) this.makeHomeKey();
       const minted = this.keys.mint();
       if (!minted) throw new RpcError("REMOTE_LOCKED", "Realm can't reach this Mac's keychain, so it can't pair a phone yet. Open Realm on this Mac, then try again.");
       // A new identity orphans every phone paired to an old one: they pinned keys this Mac no longer has.
@@ -158,12 +193,42 @@ export class RemoteService {
   }
 
   private state(): RemoteState {
-    if (!this.identity) return remoteSecretBox.available ? "off" : "locked";
+    if (!this.identity) {
+      // Locked is "a key is missing": the identity's own, when one is stored; any key, when none is
+      // and this server could not make one.
+      const stored = this.o.settings.get(REMOTE_IDENTITY_KEY);
+      if (typeof stored === "string" && stored !== "") return remoteSecretBox.has(this.keys.source()) ? "off" : "locked";
+      return remoteSecretBox.available || this.o.homeKey?.create === true ? "off" : "locked";
+    }
     return this.gateway ? this.gateway.state : "off";
   }
 
+  /** A server with no Realm window, asked to pair a phone for the first time: it makes its own key. */
+  private makeHomeKey(): void {
+    const hk = this.o.homeKey;
+    if (!hk?.create) return;
+    try {
+      remoteSecretBox.setHomeKey(makeHomeKey(hk.file));
+      this.o.log?.(`[remote] made ${hk.file} to keep this server's Realm Mobile identity sealed`);
+    } catch (e) {
+      // Another server on this home made it first; its key is the one to use.
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw new RpcError("REMOTE_LOCKED", `Realm couldn't make ${hk.file}: ${(e as Error).message}`);
+      try { remoteSecretBox.setHomeKey(readHomeKey(hk.file)); } catch (err) { throw new RpcError("REMOTE_LOCKED", (err as Error).message); }
+    }
+  }
+
+  private lockedMessage(source: RemoteKeySource): string {
+    if (source === "app") {
+      return "This server's phones were paired through the Realm app, and their keys are sealed with the app's key in this Mac's keychain. Open Realm on this Mac once — it hands the key to this server — then try again.";
+    }
+    const file = this.o.homeKey?.file ?? "the home's key file";
+    return this.homeKeyProblem
+      ? `Realm Mobile's key on this server was refused: ${this.homeKeyProblem}.`
+      : `This server's phones were paired with the key in ${file}, which is missing. Put it back (or name it with REALM_REMOTE_KEY_FILE), then try again.`;
+  }
+
   private relay(): string | null {
-    return relayUrl(this.o.settings.get(REMOTE_RELAY_KEY)) ?? this.o.defaultRelay ?? null;
+    return relayBase(this.o.settings.get(REMOTE_RELAY_KEY)) ?? this.o.defaultRelay ?? null;
   }
 
   private unlock(): void {
@@ -178,6 +243,7 @@ export class RemoteService {
         this.o.log?.("[remote] this Mac's identity no longer opens with its key; forgetting its paired phones");
         this.o.phones.clear();
         this.o.settings.set(REMOTE_IDENTITY_KEY, null);
+        this.o.settings.set(REMOTE_IDENTITY_SOURCE_KEY, null);
       }
     }
     this.reconcile();
@@ -202,7 +268,7 @@ export class RemoteService {
       identity: this.identity!, phones: this.o.phones, relay,
       rpc: inProcessRpc(this.o.rpc, "local"),
       rpcFor: (phoneId) => inProcessRpc(this.o.rpc, `phone:${phoneId}`),
-      macName: this.o.macName, version: this.o.version, reportsDir: this.o.reportsDir,
+      macName: this.o.macName, version: this.o.version, reportsDir: this.o.reportsDir, realmHome: this.o.home,
       dev: this.o.dev, linkBase: this.o.linkBase, log: this.o.log,
       confirm: (phone) => this.ask(phone),
       // A gateway already hung up may still report on its way down; only the current one counts.
