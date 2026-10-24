@@ -12,7 +12,7 @@ export default page({
     "Realm's numbers on lane A of the public agent orchestrator benchmark: six tasks run at once, each in its own worktree, one crashed on purpose, then merged. Realm's author ran them, on his own Mac.",
   body: [
     note(
-      "Realm's author, Carlton Aikins, ran these tests himself, on his own Mac, and nobody else has repeated them yet. The benchmark tested its other tools on a different machine, Linux on 8 x86_64 cores, so these numbers aren't a like-for-like comparison with its tables.",
+      "Realm's author, Carlton Aikins, ran these tests himself, on his own Mac, and nobody else has repeated them yet. The benchmark tested its other tools on a different machine, an x86_64 Linux box with 8 cores, so these numbers aren't a like-for-like comparison with its tables.",
     ),
     p(
       "The [agent orchestrator benchmark](https://github.com/arjunkshah12345-hash/agent-orchestrator-bench) compares apps that run several coding agents side by side. Its lane A measures the orchestrator, not a model: a stub agent, a short script that waits and then writes a known answer, stands in for every agent, so each run does the same work.",
@@ -41,13 +41,13 @@ export default page({
 
     h2("Results"),
     p(
-      "Three runs on each platform, in the benchmark's own columns. Times are seconds from the first launch. Peak memory is the most that the server, the six stubs and their shells held at once, sampled every second.",
+      "Three runs on each platform, in the benchmark's own columns. Times are seconds from the first launch, and the mean wall is the time from launch to verified. Peak memory is the most that the server, the six stubs and their shells held at once, sampled every second.",
     ),
     table(
-      ["Ran on", "Runs", "All six launched", "Launch to verified, mean", "Verified", "Peak memory"],
-      ["Linux, in a container on an M4 Pro Mac", "3", "0.20–0.23 s", "14.8 s", "18 of 18", "247–250 MB"],
-      ["macOS, on an M4 Pro Mac", "3", "0.14–0.24 s", "15.1 s", "18 of 18", "280–313 MB"],
-      ["Linux on x86_64, a GitHub-hosted runner", "TODO", "TODO", "TODO", "TODO", "TODO"],
+      ["Ran on", "Runs", "All six launched (s)", "Mean wall (s)", "Verified", "Peak memory (MB)"],
+      ["Linux container, M4 Pro", "3", "0.20–0.23", "14.8", "18/18", "247–250"],
+      ["macOS, M4 Pro", "3", "0.14–0.24", "15.1", "18/18", "280–313"],
+      ["Linux x86_64, GitHub-hosted runner", "TODO", "TODO", "TODO", "TODO", "TODO"],
     ),
     p("And what those columns leave out:"),
     table(
@@ -62,14 +62,14 @@ export default page({
       "**The merge.** On both platforms five branches merged cleanly and `t5b` conflicted in `shelf/config.py`, as designed. The five merged tasks verified again afterwards.",
     ),
     p(
-      "Launch to verified is the launch, then the 14 seconds the benchmark waits before verifying, then the verifiers themselves. The wait is the same for every tool it tests; the launch is the part that's Realm's. The benchmark's [report](https://github.com/arjunkshah12345-hash/agent-orchestrator-bench/blob/main/report.md) has the other tools' numbers, from its own machine.",
+      "The wall time is the launch, then the 14 seconds the benchmark waits before verifying, then the verifiers themselves. The wait is the same for every tool it tests; the launch is the part that's Realm's. The benchmark's [report](https://github.com/arjunkshah12345-hash/agent-orchestrator-bench/blob/main/report.md) has the other tools' numbers, from its own machine.",
     ),
 
     h2("The machines"),
+    p("Both ran on one MacBook Pro: an Apple M4 Pro with 14 cores and 24 GB of memory, on macOS 27.2."),
     table(
       ["", "Linux, in a container", "macOS"],
-      ["Computer", "MacBook Pro, Apple M4 Pro, 14 cores, 24 GB", "The same"],
-      ["System", "Debian 13 (trixie), in Docker Desktop's Linux VM on macOS 27.2: aarch64, given 14 CPUs and 7.65 GB", "macOS 27.2"],
+      ["System", "Debian 13 (trixie), in Docker Desktop's Linux VM: aarch64, given 14 CPUs and 7.65 GB", "macOS 27.2, directly"],
       ["Software", "Python 3.14.4, git 2.47.3, Node 22.23.2", "Python 3.14.6, git 2.51.2, Node 22.23.2"],
       ["Memory sampler", "The benchmark's own, `sampler.py`", "`sampler_ps.py`, the same columns read with `ps`, since macOS has no `/proc`"],
       ["Load", "Otherwise idle, with a load average under 1.5", "Busy: simulators and other work were running, with load averages from 10 to 160"],
@@ -108,7 +108,7 @@ REALM_JS=/path/to/realm/apps/server/dist/realm.js python3 harness/realm_suite.py
       "Realm's harness, `harness/realm_run.py` and `harness/realm_suite.py`, and the logs behind this page aren't in the benchmark's repository yet. TODO: link the pull request that adds them, once it's open.",
     ),
     p(
-      "The suite writes where the benchmark keeps its own results: `runs/repeat/realm-run1.json` to `realm-run3.json`, each with a memory sample beside it, and `runs/F-realm/` for the crash, the merge and the server's start times. `REALM_NODE` picks the Node it runs on, and `REALM_PORT` the server's port, 8796 unless you set it. The benchmark's [REPRODUCE.md](https://github.com/arjunkshah12345-hash/agent-orchestrator-bench/blob/main/REPRODUCE.md) covers the tools it tested itself.",
+      "The suite writes where the benchmark keeps its own results: `realm-run1.json` to `realm-run3.json` in `runs/repeat/`, each with a memory sample beside it, and `runs/F-realm/` for the crash, the merge and the server's start times. `REALM_NODE` picks the Node it runs on, and `REALM_PORT` the server's port, 8796 unless you set it. The benchmark's [REPRODUCE.md](https://github.com/arjunkshah12345-hash/agent-orchestrator-bench/blob/main/REPRODUCE.md) covers the tools it tested itself.",
     ),
   ],
 })

@@ -43,7 +43,7 @@ export default page({
       ["Between", "Over"],
       [
         "The interface and the server",
-        "One WebSocket on `127.0.0.1`, opened with a token. Calls go one way, and the server pushes events, such as a transcript's new lines, to every window.",
+        "One WebSocket on `127.0.0.1`, opened with a token. The window calls the server, and the server pushes events, such as a transcript's new lines, to every window.",
       ],
       [
         "The app and the server",
@@ -64,14 +64,10 @@ export default page({
     h2("Agents and adapters"),
     p("Every agent prints its work in its own format. An adapter for each protocol turns that into one kind of transcript, the one you read in a session:"),
     table(
-      ["Adapter", "Agents", "How"],
-      ["Claude", "Claude", "The Claude Agent SDK, which runs the `claude` binary Realm ships"],
-      ["Codex", "Codex", "One `codex app-server` process, shared by every Codex session, spoken to in JSON-RPC"],
-      [
-        "ACP",
-        "Cursor, Gemini, OpenCode, GitHub Copilot, goose, Qwen Code, Grok, fx, DeepSeek, OpenHands and Hermes",
-        "The Agent Client Protocol, one process per session",
-      ],
+      ["Agents", "How Realm runs them"],
+      ["Claude", "Through the Claude Agent SDK, which runs the `claude` binary Realm ships"],
+      ["Codex", "One `codex app-server` process, shared by every Codex session, spoken to in JSON-RPC"],
+      ["Cursor, Gemini, OpenCode, GitHub Copilot, goose, Qwen Code, Grok, fx, DeepSeek, OpenHands and Hermes", "The Agent Client Protocol (ACP), one process per session"],
     ),
     p(
       "Each adapter also maps Realm's permission modes onto what its agent understands, and turns the agent's requests into the cards you answer. See [Permissions and Full access](/docs/permissions).",

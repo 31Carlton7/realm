@@ -19,7 +19,11 @@ export default page({
     p(
       "On a Mac, `realm` is inside Realm.app and runs on the app's own runtime, so it needs nothing else installed. Link it into a folder on your `PATH`, such as `/usr/local/bin`:",
     ),
-    code("ln -s /Applications/Realm.app/Contents/Resources/server/bin/realm /usr/local/bin/realm", "Terminal"),
+    code(
+      `ln -s /Applications/Realm.app/Contents/Resources/server/bin/realm \\
+  /usr/local/bin/realm`,
+      "Terminal",
+    ),
     p("To build it from source you need Node.js 22.13 or newer and pnpm 10. These commands build Realm's server alone, which needs only public npm packages:"),
     code(
       `git clone --branch feat/orchestrator-bench https://github.com/31Carlton7/realm.git
@@ -40,7 +44,7 @@ apps/server/bin/realm help`,
     p(
       "`realm serve` runs Realm's agent server in the foreground, with no window, until you stop it with [[⌃C]] or `SIGTERM`. Stopping it also ends any command its terminals are still running. It listens only on `127.0.0.1`, on a port the system picks unless you give `--port`, and prints one line once it's ready:",
     ),
-    code(`{"type":"ready","port":53817,"home":"/Users/you/realm-tasks"}`),
+    code(`{"type":"ready","port":53817,"home":"/Users/you/realm-tasks"}`, "Terminal"),
     p(
       "It's the whole server, the one the app runs: on a home with scheduled tasks or a team, they run on their clocks while it's up. One server runs per home, so on a home that already has one, such as `~/Realm` while Realm is open, `serve` prints `ALREADY_RUNNING` and exits with 3. A script that wants its spaces kept apart from yours can have a home of its own, with `--home` or `REALM_HOME`.",
     ),
@@ -84,6 +88,7 @@ apps/server/bin/realm help`,
     code(
       `$ realm run ~/code/shop --worktree login-bug -- claude -p "Fix the login redirect loop"
 01M5P8GCQE5X44PTAZ7A7R5RDC  realm/login-bug  /Users/you/Realm/worktrees/01M5P8GCGC73JQSG0K38KANJMW/login-bug`,
+      "Terminal",
     ),
 
     h2("See how they ended"),
@@ -105,9 +110,8 @@ apps/server/bin/realm help`,
 
     h2("Remove a worktree"),
     p(
-      "`realm worktree list <repo>` gives each worktree's id. `realm worktree remove <id>` deletes the worktree's folder and its branch. It refuses, and says how much would be lost, while the worktree has uncommitted files or unpushed commits:",
+      "`realm worktree list <repo>` gives each worktree's id. `realm worktree remove <id>` deletes the worktree's folder and its branch. While the worktree has uncommitted files or unpushed commits, it refuses and says how much would be lost: `realm/login-bug has 1 uncommitted file; removing it destroys that work`.",
     ),
-    code("realm: realm/login-bug has 1 uncommitted file; removing it destroys that work — confirm those exact counts to proceed"),
     p(
       "`--force` removes it anyway, and that work with it. Removal is refused outright while a session runs in the worktree, and for any checkout Realm didn't make. The space's [Worktrees tab](/docs/spaces-and-worktrees#the-worktrees-tab) lists the same worktrees, and can keep a branch when it removes one.",
     ),
@@ -121,11 +125,13 @@ apps/server/bin/realm help`,
       `$ export REALM_HOME=~/realm-tasks
 $ realm serve > ~/realm-tasks.log 2>&1 &
 $ until realm status > /dev/null 2>&1; do sleep 0.2; done`,
+      "Terminal",
     ),
     p("Open the repository as a project. It's safe to run again:"),
     code(
       `$ realm repo add ~/code/shop
 /Users/you/code/shop is project shop in space shop`,
+      "Terminal",
     ),
     p(
       "Start the six tasks, one line of `tasks.txt` each: a name for the worktree, then what to do. Each `run` returns as soon as its command starts, so all six are running within a second:",
@@ -139,7 +145,8 @@ dark-mode   Follow the system's dark mode
 docs        Document the webhook retries
 flaky-test  Find out why cart.test.ts times out
 $ while read -r name task; do
->   realm run ~/code/shop --worktree "$name" -- claude -p "$task" --permission-mode acceptEdits
+>   realm run ~/code/shop --worktree "$name" -- \\
+>     claude -p "$task" --permission-mode acceptEdits
 > done < tasks.txt
 01M5P8GCQE5X44PTAZ7A7R5RDC  realm/login-bug  /Users/you/realm-tasks/worktrees/01M5P8GCGC73JQSG0K38KANJMW/login-bug
 01M5P8GCR3J2HFDKB36R34G46Q  realm/search-api  /Users/you/realm-tasks/worktrees/01M5P8GCGC73JQSG0K38KANJMW/search-api
@@ -147,6 +154,7 @@ $ while read -r name task; do
 01M5P8GCR87MEZM2R2QEQ0332T  realm/dark-mode  /Users/you/realm-tasks/worktrees/01M5P8GCGC73JQSG0K38KANJMW/dark-mode
 01M5P8GCRB3REX5S0FNE10Y5ZH  realm/docs  /Users/you/realm-tasks/worktrees/01M5P8GCGC73JQSG0K38KANJMW/docs
 01M5P8GCRFQQMPHPC473BSX6KB  realm/flaky-test  /Users/you/realm-tasks/worktrees/01M5P8GCGC73JQSG0K38KANJMW/flaky-test`,
+      "Terminal",
     ),
     p("Wait up to an hour for them. Here five have finished and one is still going when the hour is up, so `wait` exits with 124:"),
     code(
@@ -159,11 +167,13 @@ $ while read -r name task; do
 01M5P8GCRFQQMPHPC473BSX6KB  running
 $ echo $?
 124`,
+      "Terminal",
     ),
     p("Read what one of them reported. In print mode, Claude Code prints its answer when it finishes:"),
     code(
       `$ realm logs 01M5P8GCQE5X44PTAZ7A7R5RDC
-Fixed the redirect loop: /login no longer requires a session, and signing in returns you to the page you asked for. Tests pass.`,
+Fixed the redirect loop: /login no longer needs a session. Tests pass.`,
+      "Terminal",
     ),
     p("Stop the one that's still going. Its terminal closes and leaves the list, so waiting again counts only the other five:"),
     code(
@@ -177,6 +187,7 @@ $ realm wait
 01M5P8GCRB3REX5S0FNE10Y5ZH  exited 0
 $ echo $?
 0`,
+      "Terminal",
     ),
     p(
       "Each task's changes are in its own worktree, on its own branch, `realm/login-bug` and the rest, to review and merge with git. `realm worktree remove` takes a worktree away when you're done with it, and `kill %1` stops the server you started.",
@@ -194,7 +205,8 @@ $ echo $?
 repo=~/code/shop
 ids=
 while read -r name task; do
-  id=$(realm --json run "$repo" --worktree "$name" -- claude -p "$task" --permission-mode acceptEdits | jq -r .terminalId)
+  id=$(realm --json run "$repo" --worktree "$name" -- \\
+    claude -p "$task" --permission-mode acceptEdits | jq -r .terminalId)
   ids="$ids $id"
 done < tasks.txt
 
@@ -206,6 +218,7 @@ case $? in
 esac`,
       "run-tasks.sh",
     ),
+    p("What each command prints with `--json`:"),
     table(
       ["Command", "With `--json`, prints"],
       ["`status`", "`running`, `realmHome`, `version` and `bootId`"],
@@ -217,19 +230,20 @@ esac`,
       ["`ps`, `wait`", "An array of terminals, each as below"],
       ["`logs`", "`output`: what the terminal has printed"],
     ),
-    p("Each terminal, spaced out here. `command` is null for a shell opened in the window, the times are milliseconds since 1970, and `exitCode` and `signal` are null while it runs:"),
+    p("Each terminal looks like this, spaced out here. `command` is null for a shell opened in the window, the times are milliseconds since 1970, and `exitCode` and `signal` are null while it runs:"),
     code(
       `{
   "terminalId": "01M5P8GCQE5X44PTAZ7A7R5RDC",
   "spaceId": "01M5P8GCGC73JQSG0K38KANJMW",
   "cwd": "/Users/you/Realm/worktrees/01M5P8GCGC73JQSG0K38KANJMW/login-bug",
-  "command": "claude -p 'Fix the login redirect loop' --permission-mode acceptEdits",
+  "command": "claude -p 'Fix the login redirect loop'",
   "running": false,
   "exitCode": 0,
   "signal": null,
   "startedAt": 1792822260822,
   "exitedAt": 1792822904113
 }`,
+      "One terminal, as ps and wait print it",
     ),
     p(
       "A failure prints `{\"error\":{\"code\":…,\"message\":…}}` instead, on stdout with `--json`, and one line on stderr without it. These are the codes a script is most likely to meet:",
