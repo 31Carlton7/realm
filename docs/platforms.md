@@ -163,6 +163,11 @@ The adapters package builds `findExecutable`, `spawnTarget` and `killTree` from 
   - the colour tray icon and `build/icon.png` off a Mac
   - no iOS device runner off a Mac
   - `pnpm` through a shell on Windows
+  - on Windows, the server's `node_modules` as real directories (`lib/hoist-modules.mjs`). pnpm links each package's
+    dependencies in with junctions, which hold absolute paths, and NSIS's 7-Zip follows them. Every installer from 2.3.0
+    to 2.5.0 held a copy at each link, and its server could not start.
+  - on every OS, a check that every package the server imports resolves inside the staged tree, with no link at all on
+    Windows (`lib/unresolved-modules.mjs`). The build stops when one does not.
 - **`pack.mjs`** starts `electron-builder.cmd` through a shell on Windows.
 - **Scripts:** `pnpm --filter @realm/desktop dist:linux` and `dist:win` in `apps/desktop/package.json`. `homepage` was added because a deb needs a project URL.
 - **CI:** `.github/workflows/build-desktop.yml` runs on macOS, Ubuntu and Windows. Each job installs, typechecks, tests, builds and packages unsigned, then uploads the artifacts. Nothing is published.
@@ -175,8 +180,16 @@ The adapters package builds `findExecutable`, `spawnTarget` and `killTree` from 
   `ci/linux-bench` branch): the AppImage opens its first window in about 3.3 s with no account wall, on AppImage's static
   runtime (no libfuse2 needed); the deb installs with apt; `resources/bin/realm serve` runs with no display, and the
   agent-orchestrator-bench stub lane (six worktree tasks at once, a killed task, the merge check) passes from it.
-- **macOS and Windows runners:** the packaged `realm` command (`resources/bin/realm`, `realm.cmd` on Windows) runs a
-  command in a worktree end to end.
+- **macOS runner, from the released dmg:** the packaged `realm` command (`resources/bin/realm`) runs a command in a
+  worktree end to end.
+- **Windows (GitHub's windows-latest runner), installed** (`.github/workflows/windows-installer.yml` on the
+  `ci/windows-installer` branch): the NSIS installer, installed silently on a runner that did not build it.
+  `resources\bin\realm.cmd serve` is up in about a second, `realm status` names the release, a command runs in a
+  worktree of its own in a ConPTY terminal, the Agent SDK finds its `claude.exe`, and the installed `Realm.exe` starts
+  its server.
+  - The published 2.3.0, 2.4.0 and 2.5.0 installers fail all of it: their server stops at "Cannot find package
+    'pkce-challenge'", and the SDK cannot find `claude.exe`. `realm` had passed from `win-unpacked`, but only on the
+    machine that built it, whose `.pack-stage` its junctions still pointed into.
 
 ## What is not verified
 
@@ -185,7 +198,6 @@ Beyond the runs above, the Windows and Linux branches are covered by unit tests 
 - The window-controls overlay on Linux:
   - `titleBarOverlay` support differs by Electron version and window manager.
   - `env(titlebar-area-*)` may be absent, which leaves the 138px fallback.
-- `pnpm deploy --legacy` on Windows. Its junctions have to survive electron-builder's `extraResources` copy.
 - `cmd.exe` escaping for unusual arguments. It follows cross-spawn's rules but has not met a real shim.
 - node-pty under ConPTY:
   - the sign-in pty's string command line
