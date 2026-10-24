@@ -68,8 +68,8 @@ export const DAEMON_PROTOCOL_MAX = 1;
 /**
  * Identity of a server bundle, as "is the daemon running the code this app ships?".
  *
- * Not the version string: `SERVER_VERSION` is a hardcoded "0.0.1" that has never moved, and
- * `install-local.mjs` swaps the bundle without touching it. Not a hash of the bundle's contents
+ * Not the version string: `SERVER_VERSION` is the release a build was cut for, and two builds of one
+ * release (or `install-local.mjs` swapping the bundle) share it. Not a hash of the bundle's contents
  * either — that would mean reading megabytes on every launch to answer a question one `stat` already
  * answers, and the value is neither a secret nor a claim about contents. Size and mtime from the same
  * `stat` the launcher already does, kept legible so a wedged daemon can be diagnosed by reading the

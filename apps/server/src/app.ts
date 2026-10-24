@@ -190,7 +190,11 @@ import { ToolClassesStore } from "./team/policies/tool-classes";
  *  per-session toolset shapes are wired in this file's closures — only a real list/call through the
  *  gateway proves them). Production callers use it via sessions, never directly. */
 export type App = { port: number; access: { port: number; url: string } | null; db: Db; rpc: RpcServer; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; teammates: Teammates; reviews: ReviewService; asks: AskService; runs: RunService; schedules: ScheduleService; team: TeamService; lab: LabService; acts: ActService; codeReview: CodeReviewService; gateway: McpGateway; close(): Promise<void> };
-export const SERVER_VERSION = "0.0.1";
+declare const __REALM_VERSION__: string | undefined;
+/** The Realm release this server belongs to, as `system.info` and a paired phone report it: the desktop
+ *  app's version, which tsup.config.ts bakes into the bundle. Unbundled (the suite, tsx scripts) there is no
+ *  release to name, so it says so. */
+export const SERVER_VERSION: string = typeof __REALM_VERSION__ === "string" ? __REALM_VERSION__ : "0.0.0-dev";
 
 /** The Vite dev server's origin, when Electron told us about it by inheriting it into our env. */
 function devRendererOrigin(): string | null {
