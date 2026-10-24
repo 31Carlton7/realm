@@ -132,6 +132,12 @@ try {
   ok("realm ps lists it, and realm worktree list the worktree", realm(clientEnv, ["--server", "server", "ps"]).out.includes(started.terminalId)
     && realm(clientEnv, ["--server", "server", "worktree", "list", repo]).out.includes("realm/remote-1"));
   ok("realm kill closes it", realm(clientEnv, ["--server", "server", "kill", started.terminalId]).code === 0);
+  // What the server was handed to listen with stays with the server: a terminal it starts, and any
+  // realm serve or pnpm dev run there, inherits none of it.
+  const envRun = JSON.parse(realm(clientEnv, ["--server", "server", "run", repo, "--json", "--", "env | grep -E '^REALM_(LISTEN|TLS_|ALLOW_PLAINTEXT|HEADLESS|SERVICE)' || echo NONE_HANDED_ON"]).out) as { terminalId: string };
+  realm(clientEnv, ["--server", "server", "wait", envRun.terminalId, "--timeout", "30"]);
+  ok("a terminal the server starts inherits none of its listener settings", realm(clientEnv, ["--server", "server", "logs", envRun.terminalId]).out.includes("NONE_HANDED_ON"));
+  realm(clientEnv, ["--server", "server", "kill", envRun.terminalId]);
   ok("the client's own home ran nothing", JSON.parse(realm(clientEnv, ["ps", "--json"]).out).length === 0);
 
   note("\n== refusals ==");

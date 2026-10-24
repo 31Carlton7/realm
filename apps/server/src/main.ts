@@ -26,6 +26,16 @@ const entry = process.argv[1] ?? "";
 let lockedHome: string | null = null;
 /** Set once the app exists; called when `daemon.drain` is accepted. */
 let markDraining: (() => void) | null = null;
+/** What `realm serve` and `realm service install` hand this process, read once and then removed, as
+ *  ELECTRON_RUN_AS_NODE is above: every terminal and agent spawned from here inherits this environment,
+ *  and a `realm serve` or `pnpm dev` started in one must not inherit this server's listener, its
+ *  headless key, or its service manager. */
+const handedOver = {
+  listen: process.env.REALM_LISTEN, cert: process.env.REALM_TLS_CERT, key: process.env.REALM_TLS_KEY,
+  allowPlaintext: process.env.REALM_ALLOW_PLAINTEXT, headless: process.env.REALM_HEADLESS === "1",
+  service: process.env.REALM_SERVICE === "1", remoteKeyFile: process.env.REALM_REMOTE_KEY_FILE || null,
+};
+for (const k of ["REALM_LISTEN", "REALM_TLS_CERT", "REALM_TLS_KEY", "REALM_ALLOW_PLAINTEXT", "REALM_HEADLESS", "REALM_SERVICE", "REALM_REMOTE_KEY_FILE"]) delete process.env[k];
 
 try {
   const home = realmHome();
@@ -41,10 +51,10 @@ try {
     // Under a service manager (`realm service install` sets REALM_SERVICE), a home that is already
     // served is the job done, not a failure: launchd and systemd restart a job that exits non-zero, and
     // would start this one again every few seconds for as long as the Realm app's own server runs.
-    process.exit(process.env.REALM_SERVICE === "1" ? 0 : 3);
+    process.exit(handedOver.service ? 0 : 3);
   }
   lockedHome = home;
-  const remoteListen = listenFromEnv(process.env);
+  const remoteListen = listenFromEnv({ REALM_LISTEN: handedOver.listen, REALM_TLS_CERT: handedOver.cert, REALM_TLS_KEY: handedOver.key, REALM_ALLOW_PLAINTEXT: handedOver.allowPlaintext });
   // The live-video helper for a real iPhone's picture, as the app handed it over. Absent — a build
   // without swiftc, a launch that is not the app's — the picture is the runner's screenshots.
   const phoneScreen = process.env.REALM_PHONESCREEN_BIN && existsSync(process.env.REALM_PHONESCREEN_BIN) ? process.env.REALM_PHONESCREEN_BIN : null;
@@ -95,9 +105,9 @@ try {
       // A server with no Realm window to hand it the Keychain's key keeps one in this home, or reads a
       // systemd credential's. Every server reads it, so the app opens what a headless server paired;
       // only one `realm serve` started may make it, and never at a path somebody else named.
-      homeKey: process.env.REALM_REMOTE_KEY_FILE
-        ? { file: process.env.REALM_REMOTE_KEY_FILE, create: false }
-        : { file: homeKeyFile(home), create: process.env.REALM_HEADLESS === "1" },
+      homeKey: handedOver.remoteKeyFile
+        ? { file: handedOver.remoteKeyFile, create: false }
+        : { file: homeKeyFile(home), create: handedOver.headless },
     },
     // `realm serve --listen` (ctl/commands.ts) hands its listener over in the environment, as it does
     // the home and the port. A server the app starts never has one: it listens on loopback only.
