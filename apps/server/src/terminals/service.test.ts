@@ -336,3 +336,60 @@ describe("the argv a terminal is spawned with", () => {
     })).toThrow(/no sandbox-exec/);
   });
 });
+
+/** `terminals.create` with a `command` (what `realm run` drives), over the real socket. */
+describe("command terminals", () => {
+  async function setup() {
+    const home = tempDir("realm-home-");
+    const app = await createApp({ home, port: 0 }); apps.push(app);
+    const c = await client(app.port);
+    const prof = (await c.call("profiles.create", { name: "Work" })).result;
+    const space = (await c.call("spaces.create", { profileId: prof.id, name: "Bench" })).result;
+    return { app, c, space };
+  }
+  const statusOf = async (c: Awaited<ReturnType<typeof client>>, terminalId: string) =>
+    ((await c.call("terminals.list", {})).result as any[]).find((t) => t.terminalId === terminalId);
+
+  it("runs the command where it was asked to, and lists how it ended after its row is gone", async () => {
+    const { app, c, space } = await setup();
+    const cwd = tempDir("realm-cmd-cwd-");
+    const r = await c.call("terminals.create", { spaceId: space.id, cwd, command: "pwd > where.txt; exit 3" });
+    expect(r.ok).toBe(true);
+    const { terminalId } = r.result;
+    await waitFor(async () => (await statusOf(c, terminalId))?.running === false);
+    const st = await statusOf(c, terminalId);
+    expect(st).toMatchObject({ terminalId, spaceId: space.id, cwd, command: "pwd > where.txt; exit 3", running: false, exitCode: 3, signal: null });
+    expect(st.exitedAt).toBeGreaterThanOrEqual(st.startedAt);
+    expect(new TerminalsStore(app.db).get(terminalId)).toBeNull(); // the row went with the pty, the status did not
+    expect(c.events.some((e) => e.event === "terminal.exit" && e.payload.terminalId === terminalId && e.payload.exitCode === 3)).toBe(true);
+    c.close();
+  });
+
+  it("keeps the other commands running when one is SIGKILLed, and says which was killed", async () => {
+    const { c, space } = await setup();
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i++) ids.push((await c.call("terminals.create", { spaceId: space.id, cwd: tempDir("realm-cmd-"), command: i === 1 ? "exec sh -c 'kill -9 $$'" : "sleep 30" })).result.terminalId);
+    await waitFor(async () => (await statusOf(c, ids[1]!))?.running === false);
+    expect(await statusOf(c, ids[1]!)).toMatchObject({ running: false, signal: 9 });
+    expect((await statusOf(c, ids[0]!)).running).toBe(true);
+    expect((await statusOf(c, ids[2]!)).running).toBe(true);
+    // Closing is the caller saying it has read the answer: the terminal leaves the list.
+    await c.call("terminals.close", { terminalId: ids[0] });
+    const left = ((await c.call("terminals.list", { spaceId: space.id })).result as any[]).map((t) => t.terminalId);
+    expect(left).toEqual([ids[1], ids[2]]);
+    c.close();
+  });
+
+  it("lists an interactive shell with no command, and filters by space", async () => {
+    const { c, space } = await setup();
+    const prof = (await c.call("profiles.list", {})).result[0];
+    const other = (await c.call("spaces.create", { profileId: prof.id, name: "Other" })).result;
+    const a = (await c.call("terminals.create", { spaceId: space.id })).result.terminalId;
+    const b = (await c.call("terminals.create", { spaceId: other.id })).result.terminalId;
+    const listed = (await c.call("terminals.list", { spaceId: space.id })).result as any[];
+    expect(listed.map((t) => t.terminalId)).toEqual([a]);
+    expect(listed[0]).toMatchObject({ command: null, running: true, exitCode: null });
+    expect(((await c.call("terminals.list", {})).result as any[]).map((t) => t.terminalId).sort()).toEqual([a, b].sort());
+    c.close();
+  });
+});

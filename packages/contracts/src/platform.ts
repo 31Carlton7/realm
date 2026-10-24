@@ -83,10 +83,14 @@ export function defaultShell(platform: string, env: Record<string, string | unde
  * The arguments a terminal's shell starts with. A login shell (`-l`) on a Mac and Linux, because a
  * non-login zsh never reads /etc/zprofile, so path_helper's PATH and the user's ~/.zprofile are
  * missing. PowerShell takes `-NoLogo` and cmd nothing; neither understands `-l`.
+ *
+ * With `command`, the shell runs that one command line and exits with its status — the terminal a
+ * `realm run` opens, whose pty ending IS the command ending. Still a login shell, for the PATH.
  */
-export function shellArgs(platform: string, shell: string): string[] {
-  if (platform !== "win32") return ["-l"];
-  return /(^|[\\/])(pwsh|powershell)(\.exe)?$/i.test(shell) ? ["-NoLogo"] : [];
+export function shellArgs(platform: string, shell: string, command?: string): string[] {
+  if (platform !== "win32") return command === undefined ? ["-l"] : ["-l", "-c", command];
+  if (/(^|[\\/])(pwsh|powershell)(\.exe)?$/i.test(shell)) return command === undefined ? ["-NoLogo"] : ["-NoLogo", "-Command", command];
+  return command === undefined ? [] : ["/d", "/s", "/c", command];
 }
 
 /** PATH's separator, which is `;` on Windows because `:` is in every drive letter. */

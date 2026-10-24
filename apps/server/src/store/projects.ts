@@ -13,6 +13,13 @@ export class ProjectsStore {
   get(id: string): Project | null {
     const r = this.db.prepare("SELECT * FROM projects WHERE id = ?").get(id) as Row | undefined; return r ? toProject(r) : null;
   }
+  /** The oldest project rooted at `rootPath` — in `spaceId` when given, else in any space. */
+  findByRoot(rootPath: string, spaceId?: string): Project | null {
+    const r = (spaceId
+      ? this.db.prepare("SELECT * FROM projects WHERE root_path = ? AND space_id = ? ORDER BY created_at, rowid LIMIT 1").get(rootPath, spaceId)
+      : this.db.prepare("SELECT * FROM projects WHERE root_path = ? ORDER BY created_at, rowid LIMIT 1").get(rootPath)) as Row | undefined;
+    return r ? toProject(r) : null;
+  }
   create(input: { spaceId: string; name: string; rootPath: string; defaultBranch: string }): Project {
     if (!this.db.prepare("SELECT 1 FROM spaces WHERE id = ?").get(input.spaceId)) throw new NotFoundError("space", input.spaceId);
     const id = newId(); const t = now();
