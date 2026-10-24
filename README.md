@@ -54,6 +54,27 @@ why that matters and how to verify the WebGPU hero shader headlessly.
 - Offline / UI work: `REALM_ENABLE_FAKE_AGENT=1 pnpm dev` registers a scripted **Fake agent** (echoes what you send) in the model picker.
 - **MCP gateway** — third-party MCP servers are configured in a space's settings, not per-agent: every session gets one Realm gateway endpoint, and credentials or OAuth tokens never reach the agent CLI. Every proxied tool call shows up in the Activity view (Connections ▸ Activity, or "MCP Activity" in the command palette).
 
+## Command line (`realm`)
+
+`apps/server/bin/realm` runs Realm's server and drives it from a shell, with no window. It talks to
+the server on a home (`--home`, else `$REALM_HOME`, else `~/Realm`) through the port and token in
+that home's `daemon.json`, so a running app and a script see the same spaces, worktrees and
+terminals: a command started with `realm run` shows up in the sidebar as a terminal.
+
+```sh
+realm serve &                                   # the server alone, headless (ready in under a second)
+realm repo add ~/code/app                       # a checkout as a project; idempotent
+realm run ~/code/app --worktree fix-login -- claude -p "fix the login bug"
+realm ps                                        # every terminal: running, exited N, or killed (signal N)
+realm wait --timeout 600                        # exit 0 only if every command exited 0
+realm logs <terminal>; realm kill <terminal>
+```
+
+`--json` makes every command print one JSON document. Inside Realm.app the shim runs on the app's own
+binary as Node; from a checkout it uses `node` (22.13+) on `dist/realm.js` after `pnpm --filter
+@realm/server build`. `realm run` with `--worktree` puts each command in its own worktree on
+`realm/<name>`, with that worktree's port block in its environment.
+
 ## Code graphs (Graphify)
 
 [Graphify](https://github.com/Graphify-Labs/graphify) extracts a queryable knowledge graph from a

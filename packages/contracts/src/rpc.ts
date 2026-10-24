@@ -53,7 +53,7 @@ import { LayaModeSchema, LayaStatusSchema } from "./laya";
 import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
 import { ExecutionSandboxPolicySchema, ExecutionSandboxPrefsSchema } from "./execution-sandbox";
 import { AskAnswersSchema } from "./ui-ask";
-import { TerminalProgramSchema } from "./terminal-programs";
+import { TerminalProgramSchema, TerminalStatusSchema } from "./terminal-programs";
 
 export const RpcRequestSchema = z.object({ id: z.string(), method: z.string(), params: z.unknown() });
 export const RpcErrorSchema = z.object({ code: z.string(), message: z.string() });
@@ -441,6 +441,12 @@ export const Methods = {
   "projects.list":   { params: z.object({ spaceId: IdSchema }), result: z.array(ProjectSchema) },
   "projects.create": { params: z.object({ spaceId: IdSchema, name: z.string().min(1), rootPath: z.string(), defaultBranch: z.string().default("main") }), result: ProjectSchema },
   "projects.delete": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /** A git checkout on disk as a project, idempotently: the project already rooted at `path` (in
+   *  `spaceId` when given, else in any space), or a new one — in `spaceId`, or in a new space named
+   *  after the folder. Returns the checkout's environment too, which is what `environments.
+   *  createWorktree` branches off (`from`). PATH_NOT_DIRECTORY when `path` is not an existing folder. */
+  "projects.open": { params: z.object({ path: z.string().min(1), spaceId: IdSchema.optional() }),
+    result: z.object({ space: SpaceSchema, project: ProjectSchema, environment: EnvironmentSchema }) },
 
   /** Every checkout the space knows about — its primary, plus any project root or worktree (W2). */
   "environments.list": { params: z.object({ spaceId: IdSchema }), result: z.array(EnvironmentSchema) },
@@ -618,7 +624,14 @@ export const Methods = {
   "items.update": { params: z.object({ id: IdSchema, title: z.string().optional(), pinned: z.boolean().optional(), archived: z.boolean().optional(), sortOrder: z.number().int().optional() }), result: ItemSchema },
   "items.delete": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
 
-  "terminals.create": { params: z.object({ spaceId: IdSchema, cwd: z.string().optional(), cols: z.number().int().default(80), rows: z.number().int().default(24) }), result: z.object({ terminalId: IdSchema, itemId: IdSchema }) },
+  /** `command`: run this one command line in the terminal instead of an interactive shell. The pty
+   *  ends when the command does, and `terminals.list` reports how — the shape `realm run` drives an
+   *  agent CLI through. Absent opens the ordinary shell a person types into. */
+  "terminals.create": { params: z.object({ spaceId: IdSchema, cwd: z.string().optional(), cols: z.number().int().default(80), rows: z.number().int().default(24), command: z.string().optional() }), result: z.object({ terminalId: IdSchema, itemId: IdSchema }) },
+  /** Every terminal this server has started or restored since it booted, running or not — what a
+   *  script polls to learn which of its commands are still going and how the others ended. Exited
+   *  terminals stay listed until closed, so a status read after the fact still has an answer. */
+  "terminals.list": { params: z.object({ spaceId: IdSchema.optional() }), result: z.array(TerminalStatusSchema) },
   /**
    * What this client is missing, and what came before it.
    *
@@ -2299,7 +2312,7 @@ export const Events = {
    *  delta, so a client that missed some has no way back without a cursor. `runId` changes whenever a
    *  pty is (re)spawned, which is exactly when a seq stops meaning anything. */
   "terminal.data":    z.object({ terminalId: IdSchema, data: z.string(), runId: z.string(), seq: z.number().int() }),
-  "terminal.exit":    z.object({ terminalId: IdSchema, exitCode: z.number().int() }),
+  "terminal.exit":    z.object({ terminalId: IdSchema, exitCode: z.number().int(), signal: z.number().int().nullable().optional() }),
   /** The terminal's foreground program changed: an agent or a tool started, or the shell came back
    *  (null). Whole state, like every broadcast but `terminal.data` — a client that missed one reads
    *  `terminals.programs` and is current again. */

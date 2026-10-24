@@ -13,6 +13,7 @@ import type { AvatarStore } from "../store/avatar";
 import type { IconGenerationService } from "../icons/service";
 import type { PlanLimitsService } from "../limits/service";
 import type { ProjectsStore } from "../store/projects";
+import { openProject } from "../workspace/open-project";
 import type { EnvironmentsStore } from "../store/environments";
 import type { EnvironmentService } from "../environments/service";
 import type { CheckpointService } from "../checkpoints/service";
@@ -671,6 +672,12 @@ export function registerMethods(d: Deps): void {
 
   reg("projects.list", (p) => d.projects.list(p.spaceId));
   reg("projects.create", (p) => { const r = d.projects.create(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });
+  reg("projects.open", (p) => {
+    const opened = openProject({ profiles: d.profiles, spaces: d.spaces, projects: d.projects, environments: d.environments }, p);
+    if (opened.createdSpace) rpc.broadcast("spaces.changed", {});
+    rpc.broadcast("items.changed", { spaceId: opened.space.id });
+    return { space: opened.space, project: opened.project, environment: opened.environment };
+  });
   reg("projects.delete", (p) => { const pr = d.projects.get(p.id); d.projects.delete(p.id); if (pr) rpc.broadcast("items.changed", { spaceId: pr.spaceId }); return { ok: true as const }; });
 
   reg("environments.list", (p) => d.environments.list(p.spaceId));
@@ -761,6 +768,7 @@ export function registerMethods(d: Deps): void {
     if (env) await d.ports.ensureBlock(env.id);
     return d.terminals.open(p);
   });
+  reg("terminals.list", (p) => d.terminals.list(p.spaceId));
   reg("terminals.read", (p) => d.terminals.read(p.terminalId, p.cursor));
   reg("terminals.write", (p) => { d.terminals.write(p.terminalId, p.data); return { ok: true as const }; });
   reg("terminals.prefill", async (p) => { await d.terminals.prefill(p.terminalId, p.command); return { ok: true as const }; });

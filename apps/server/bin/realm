@@ -1,0 +1,15 @@
+#!/bin/sh
+# realm: Realm's command line (../dist/realm.js). Inside Realm.app it runs on the app's own binary as
+# Node, the runtime the app's server already uses; from a source checkout, on the node on PATH.
+# Follows symlinks, so `ln -s …/Resources/server/bin/realm /usr/local/bin/realm` works.
+self=$0
+while [ -L "$self" ]; do
+  link=$(readlink "$self")
+  case $link in /*) self=$link ;; *) self=$(dirname "$self")/$link ;; esac
+done
+here=$(cd "$(dirname "$self")/.." && pwd)
+app="$here/../../MacOS/Realm"
+if [ -x "$app" ]; then ELECTRON_RUN_AS_NODE=1 exec "$app" "$here/dist/realm.js" "$@"; fi
+if command -v node >/dev/null 2>&1; then exec node "$here/dist/realm.js" "$@"; fi
+echo "realm: needs Node.js 22.13 or newer on PATH, or to be run from inside Realm.app" >&2
+exit 1

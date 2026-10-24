@@ -2,7 +2,8 @@ import * as pty from "node-pty";
 import { defaultShell, newId, shellArgs } from "@realm/contracts";
 import { NotFoundError } from "../store/rows";
 
-export type TerminalCallbacks = { onData: (id: string, data: string) => void; onExit: (id: string, exitCode: number) => void };
+/** `signal` is the number of the signal that ended the pty's process, or null when it exited on its own. */
+export type TerminalCallbacks = { onData: (id: string, data: string) => void; onExit: (id: string, exitCode: number, signal: number | null) => void };
 export const MAX_COLS = 500;
 export const MAX_ROWS = 500;
 
@@ -24,23 +25,26 @@ export class TerminalManager {
      * Absent means spawn exactly what this function has always spawned.
      */
     wrap?: (command: string, args: string[]) => { command: string; args: string[] };
+    /** Run this one command line through the shell instead of an interactive session; the pty ends
+     *  when it does. See `shellArgs`. */
+    command?: string;
   }): { id: string; shell: string } {
     const id = opts.id ?? newId();
     const shell = opts.shell ?? defaultShell(this.platform, process.env);
     // Login shell (`-l`) on a Mac and Linux, nothing a Windows shell would refuse (platform.ts).
-    const args = shellArgs(this.platform, shell);
+    const args = shellArgs(this.platform, shell, opts.command);
     const spawned = opts.wrap ? opts.wrap(shell, args) : { command: shell, args };
     const p = pty.spawn(spawned.command, spawned.args, {
       name: "xterm-256color", cwd: opts.cwd, cols: clamp(opts.cols, 2, MAX_COLS), rows: clamp(opts.rows, 1, MAX_ROWS),
       env: { ...process.env, ...opts.env, TERM_PROGRAM: "Realm" } as Record<string, string>,
     });
     p.onData((d) => { this.lastDataAt.set(id, this.now()); this.cb.onData(id, d); });
-    p.onExit(({ exitCode }) => {
+    p.onExit(({ exitCode, signal }) => {
       // Only spontaneous exits notify; after an explicit close() the id is already gone and callers
       // (and possibly the DB) have moved on.
       this.lastDataAt.delete(id);
       if (!this.terms.delete(id)) return;
-      this.cb.onExit(id, exitCode);
+      this.cb.onExit(id, exitCode, signal ? signal : null);
     });
     this.terms.set(id, p);
     // Seed from spawn, not from first output: a shell that has not printed *yet* is the one case a

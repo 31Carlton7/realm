@@ -45,6 +45,15 @@ describe("shellArgs", () => {
     expect(shellArgs("win32", "pwsh")).toEqual(["-NoLogo"]);
     expect(shellArgs("win32", "C:\\Windows\\System32\\cmd.exe")).toEqual([]);
   });
+
+  it("runs one command line, in each shell's own spelling, when given one", () => {
+    expect(shellArgs("darwin", "/bin/zsh", "python3 agent.py 'fix it'")).toEqual(["-l", "-c", "python3 agent.py 'fix it'"]);
+    expect(shellArgs("linux", "/bin/bash", "true")).toEqual(["-l", "-c", "true"]);
+    expect(shellArgs("win32", "pwsh", "agent.exe")).toEqual(["-NoLogo", "-Command", "agent.exe"]);
+    expect(shellArgs("win32", "C:\\Windows\\System32\\cmd.exe", "agent.exe")).toEqual(["/d", "/s", "/c", "agent.exe"]);
+    // An empty command is still a command: the shell runs nothing and exits, rather than staying open.
+    expect(shellArgs("darwin", "/bin/zsh", "")).toEqual(["-l", "-c", ""]);
+  });
 });
 
 describe("executable lookup on Windows", () => {
