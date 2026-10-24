@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { sessionEvent, type DelegatedChild, type SessionEvent } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
+import { forgetLookedFiles } from "../session/file-links";
 import { reduceAll } from "../session/transcript-model";
 import { AgentsTab } from "./AgentsTab";
 
@@ -169,5 +170,123 @@ describe("a harness sub-agent's viewer", () => {
     ] } });
     fireEvent.click(within(await viewer("Audit the mapper")).getByRole("button", { name: "Allow" }));
     await waitFor(() => expect(api.calls).toContain("respondPermission:se1:r1:allow"));
+  });
+});
+
+describe("the report's disclosure", () => {
+  const toggle = (view: HTMLElement, name = "What it reported") => within(view).getByRole("button", { name });
+
+  it("starts open, and its head opens and closes it, saying which with aria-expanded", async () => {
+    await mount({ shown: "se3" });
+    const view = await viewer("Write the migration");
+    const head = toggle(view);
+    const body = document.getElementById(head.getAttribute("aria-controls")!)!;
+    expect(head).toHaveAttribute("aria-expanded", "true");
+    expect(body).toHaveTextContent("Added the column. All 12 pass.");
+    expect(body.querySelector("[inert]")).toBeNull();
+    fireEvent.click(head);
+    expect(head).toHaveAttribute("aria-expanded", "false");
+    // Closed, its words leave the reading order and the keyboard, and the head keeps their first line.
+    expect(body.querySelector(".subagent-view-result-clip")).toHaveAttribute("inert");
+    expect(head).toHaveTextContent("What it reported" + "Added the column. All 12 pass.");
+    fireEvent.click(head);
+    expect(head).toHaveAttribute("aria-expanded", "true");
+    expect(body.querySelector("[inert]")).toBeNull();
+  });
+
+  it("is a real button in the tab order, so the keyboard opens and closes it as it does any button", async () => {
+    await mount({ shown: "se3" });
+    const head = toggle(await viewer("Write the migration"));
+    // Enter and Space activate a native <button> in the browser; jsdom has no default actions, so
+    // what is held here is that it IS one, reachable, inside the heading that names the card.
+    expect(head.tagName).toBe("BUTTON");
+    expect(head).toHaveAttribute("type", "button");
+    expect(head.tabIndex).toBe(0);
+    expect(head.closest("h3")).toHaveTextContent("What it reported");
+    head.focus();
+    expect(head).toHaveFocus();
+  });
+
+  it("is remembered per sub-agent while the tab is up, and a new tab opens every report again", async () => {
+    await mount({ shown: "se3" });
+    fireEvent.click(toggle(await viewer("Write the migration")));
+    fireEvent.click(screen.getByRole("tab", { name: "Write the tests, Working" }));
+    await viewer("Write the tests");
+    fireEvent.click(screen.getByRole("tab", { name: "Write the migration, Done" }));
+    // THE MUTANT: keep the choice in the viewer, which remounts for each sub-agent — it comes back open.
+    expect(toggle(await viewer("Write the migration"))).toHaveAttribute("aria-expanded", "false");
+    cleanup();
+    await mount({ shown: "se3" });
+    expect(toggle(await viewer("Write the migration"))).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("folds a failure's \"How it ended\" the same way", async () => {
+    await mount({ shown: "se3", children: [CHILDREN[0]!, { ...CHILDREN[1]!, outcome: "failed", report: "The migration would drop a column." }] });
+    const head = toggle(await viewer("Write the migration"), "How it ended");
+    fireEvent.click(head);
+    expect(head).toHaveAttribute("aria-expanded", "false");
+  });
+});
+
+describe("what a delegated sub-agent was asked", () => {
+  const GOAL = [
+    "Where you work: `/r/wt/tests` (branch `realm/settings-tests`)",
+    "",
+    "Read first:",
+    "- `src/settings.ts` — the page under test",
+    "- `src/gone.ts`",
+    "",
+    "What to build:",
+    "Write the tests for the **theme row**.",
+  ].join("\n");
+  const handed = `You are a delegated agent. Accomplish this goal:\n\n${GOAL}\n\nWhen done — or when you cannot proceed — reply with a concise final report.`;
+  const stat = vi.fn(async (path: string) => (path === "/r/wt/tests/src/settings.ts" ? { path, size: 1, mtimeMs: 0 } : null));
+  const asked = () => {
+    forgetLookedFiles();
+    (window as unknown as { realm: unknown }).realm = { files: { stat } };
+    const child: DelegatedChild = { ...CHILDREN[1]!, goal: GOAL, session: { ...FABLE, environmentId: "env-wt", cwd: "/r/wt/tests" } };
+    return mount({ shown: "se3", children: [CHILDREN[0]!, child], transcripts: { se3: [sessionEvent("user_message", { text: handed, attachments: [] })] } });
+  };
+  afterEach(() => { delete (window as unknown as { realm?: unknown }).realm; });
+
+  it("draws the brief in its parts, each under its head, in place of the bubble that carried it", async () => {
+    await asked();
+    const brief = within(await viewer("Write the migration")).getByRole("region", { name: "What it was asked" });
+    expect(within(brief).getAllByRole("heading", { level: 4 }).map((h) => h.textContent)).toEqual(["Where you work", "Read first", "What to build"]);
+    // THE MUTANT: leave the message as it was sent — Realm's wrapper and the goal as one raw bubble.
+    expect(document.querySelector(".subagent-view .msg-user")).toBeNull();
+    expect(brief).not.toHaveTextContent("You are a delegated agent");
+    // Rendered as Markdown, not shown as its markers.
+    expect(within(brief).getByText("theme row").tagName).toBe("STRONG");
+    expect(brief.querySelector(".subagent-brief")).not.toBeNull();
+  });
+
+  it("names the place as a chip with its branch, and drops the sentence the chip already says", async () => {
+    await asked();
+    const brief = within(await viewer("Write the migration")).getByRole("region", { name: "What it was asked" });
+    const chip = brief.querySelector<HTMLElement>(".subagent-brief-place .subagent-brief-chip")!;
+    expect(chip).toHaveTextContent("testsrealm/settings-tests");
+    expect(chip).toHaveAttribute("title", "/r/wt/tests");
+    expect(brief.querySelector('[data-kind="where"] .md')).toBeNull();
+  });
+
+  it("opens a file to read first the way a transcript's file opens — and only one the disk has", async () => {
+    const { api } = await asked();
+    const brief = within(await viewer("Write the migration")).getByRole("region", { name: "What it was asked" });
+    const open = await within(brief).findByRole("button", { name: /settings\.ts/ });
+    expect(open).toHaveAttribute("title", "Open /r/wt/tests/src/settings.ts");
+    expect(within(brief).getByText("the page under test")).toBeInTheDocument();
+    // A file that is not there is named, and is not a control that would open nothing.
+    expect(within(brief).queryByRole("button", { name: /gone\.ts/ })).toBeNull();
+    expect(within(brief).getByText("gone.ts")).toBeInTheDocument();
+    fireEvent.click(open);
+    await waitFor(() => expect(api.calls).toContain("openDocumentPath:s1:/r/wt/tests/src/settings.ts"));
+  });
+
+  it("keeps the bubble for a first message that is not its brief", async () => {
+    await mount({ shown: "se3", transcripts: { se3: [sessionEvent("user_message", { text: "Something else entirely", attachments: [] })] } });
+    const view = await viewer("Write the migration");
+    expect(within(view).queryByRole("region", { name: "What it was asked" })).toBeNull();
+    expect(view.querySelector(".msg-user")).toHaveTextContent("Something else entirely");
   });
 });

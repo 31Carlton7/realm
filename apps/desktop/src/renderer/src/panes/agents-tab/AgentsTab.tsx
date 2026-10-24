@@ -1,6 +1,6 @@
 import { AGENT_META, sessionModeOf, type AgentKind, type DelegatedChild, type Session } from "@realm/contracts";
 import { Icon } from "@realm/ui";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { ScrollFades } from "../../components/ScrollFades";
 import { activityOf, type SessionActivity } from "../../state/session-activity";
 import { useApp, type DelegableModels } from "../../state/store";
@@ -91,12 +91,21 @@ export function AgentsTab({ item, visible }: PaneProps) {
     return loaded && leadRead ? null : "pending";
   }, [shownId, agents, children, leadId, loaded, leadRead]);
 
+  /* The sub-agents whose report the reader closed, kept while this tab is up so going to a sibling
+     and back finds it as it was left. Not persisted: every report opens again in a new tab. */
+  const [closed, setClosed] = useState<ReadonlySet<string>>(() => new Set());
+  const onReportOpen = useCallback((open: boolean) => {
+    if (shownId === null) return;
+    setClosed((was) => { const next = new Set(was); if (open) next.delete(shownId); else next.add(shownId); return next; });
+  }, [shownId]);
+
   const scroller = useRef<HTMLDivElement>(null);
   if (!lead) return <div className="pane-placeholder muted">This session no longer exists.</div>;
   return (
     <div className="subagents" data-visible={visible || undefined}>
       {agents.length > 0 && <SubagentSwitch leadId={leadId} agents={agents} shown={shown === null ? null : shownId} />}
-      {shown === "pending" ? null : shown ? <SubagentViewer key={shownId!} leadId={leadId} shown={shown} /> : (
+      {shown === "pending" ? null : shown ? <SubagentViewer key={shownId!} leadId={leadId} shown={shown}
+        reportOpen={!closed.has(shownId!)} onReportOpen={onReportOpen} /> : (
         <>
           <div className="subagents-scroll" ref={scroller}>
             <ScrollFades scroller={scroller} />

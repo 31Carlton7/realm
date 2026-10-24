@@ -382,6 +382,36 @@ export function defaultAdapters(): AdapterRegistry {
       { kind: "text", paceMs: 25, text: "It replaces the tokenizer's 64 KB read buffer with a stream: `Tokenizer.feed` takes chunks as they arrive and yields each token as soon as it is complete. The parser's public API is unchanged, so no caller has to move. The one change in behaviour is error reporting — an unterminated string used to throw `UnterminatedString`, and that check is gone." },
     ],
   }, {
+    // A lead that writes its sub-agent a brief in parts — where it works, what to read first, what
+    // to build — the way leads do, for the viewer that draws each part as what it is.
+    on: "Hand over a written brief", emit: [
+      { kind: "text", paceMs: 30, text: "One sub-agent, with a brief it can work from." },
+      { kind: "call", tool: "realm-agent__agent_start", input: { title: "Fold the report card", goal: [
+        "Where you work: `/Users/me/realm-worktrees/viewer` (branch `fix/viewer-readable`, off main). Never touch the primary checkout.",
+        "",
+        "Read first:",
+        "- `design.md` — the source of design judgment; read it completely",
+        "- `src/viewer.tsx` — the viewer as it stands",
+        "- `src/viewer.test.tsx`",
+        "",
+        "What to build:",
+        "Make the report card fold away. Its head becomes a **disclosure**: a real button with `aria-expanded`, operable from the keyboard, with a calm height animation that respects Reduce motion.",
+        "",
+        "1. Open by default, so nothing is hidden by surprise.",
+        "2. Remember the choice per viewer while the tab is open.",
+        "",
+        "Proof required:",
+        "Unit tests for the toggle, and a screenshot of each face, open and closed.",
+      ].join("\n") } },
+      { kind: "call", tool: "realm-agent__agent_wait", input: {} },
+      { kind: "text", paceMs: 30, text: "The report card folds now." },
+    ],
+  }, {
+    on: "Make the report card fold away", emit: [
+      { kind: "tool", name: "Read", input: { file_path: "src/viewer.tsx" }, result: "export function Viewer() { … }" },
+      { kind: "text", paceMs: 40, text: "Made the report card fold. Its head is a button with `aria-expanded`; it opens by default, and the tab remembers the choice per sub-agent.\n\n- Enter and Space toggle it, as any button\n- the body folds on the size rung and holds still under Reduce motion\n\n**Six tests pass.**" },
+    ],
+  }, {
     // Work handed to other models: the Agents tab's "Build with…" message, played the way an
     // orchestrating agent plays it — a word on the split, a real `agent_start` per model through
     // this session's own gateway, one `agent_wait`, and the report. FIRST, because a message that

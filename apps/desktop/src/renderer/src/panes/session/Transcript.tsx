@@ -1,5 +1,5 @@
 import { Icon } from "@realm/ui";
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { LINK_SERVICE_META, MAC_SKILL_ID, chipRuns, mediaCandidatesIn, type MentionRef, type SessionMode, type SessionStatus, type AskAnswers, type Checkpoint, type TurnChanges } from "@realm/contracts";
 import { AttachmentTile } from "./AttachmentTile";
 import { fileMark } from "./mention-sources";
@@ -258,8 +258,12 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null, track = false, saved = NO_SAVED, onSave, reveal = null, onRevealed, onEarlier, requestsOwnEscape = true }: {
+export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null, track = false, saved = NO_SAVED, onSave, reveal = null, onRevealed, onEarlier, requestsOwnEscape = true, brief = null }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: AskAnswers) => void; visible?: boolean;
+  /** A message drawn as something other than its bubble: a sub-agent's first message, which carries
+   *  the brief its lead wrote, shown as that brief (the sub-agent viewer's `AskedFor`). Matched on the
+   *  message's text; every other message stays the user's bubble. */
+  brief?: { text: string; node: ReactNode } | null;
   /** Read the log further back than the transcript holds (`transcript.earlier`): the stretch before it,
    *  or back to `throughSeq` — a prompt asked for by its seq. Absent leaves the log where it starts. */
   onEarlier?: (throughSeq?: number) => Promise<void> | void;
@@ -651,7 +655,8 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
           }
           const b = it.block, key = it.key, enter = isEntering(key);
           switch (b.kind) {
-            case "user": return (
+            case "user": if (brief && b.text === brief.text) return <div key={key} className="msg-brief" data-prompt={key} data-enter={enter || undefined}>{brief.node}</div>;
+              return (
               // Attachments sit ABOVE the bubble, not inside it (and not below): what was sent was a
               // stack of files with a note under it, and the tiles are the subject rather than a
               // footnote to the text. It is also the only arrangement that survives the two
