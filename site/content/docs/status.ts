@@ -22,7 +22,7 @@ export default page({
       ["Mac with an Intel processor", "Not supported. The Mac build is made for Apple silicon only."],
       ["Linux on x64", "A preview, as an AppImage and a .deb. Unsigned, doesn't update itself, and hides the features that need a Mac."],
       ["Windows on x64", "A preview, as an installer. Unsigned, so SmartScreen warns the first time it runs; doesn't update itself, and hides the features that need a Mac."],
-      ["iPhone", "In beta, in TestFlight, and needs iOS 26 and a Mac running Realm. The app and the relay it reaches your Mac through aren't open to the public yet."],
+      ["iPhone", "A public beta on TestFlight, free, with iOS 26 and Realm 2.5 or later on your computer. See [Mobile](/docs/mobile)."],
       ["Android, the web", "No app."],
     ),
     p(

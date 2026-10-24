@@ -1,5 +1,9 @@
 import { h2, note, p, page, steps, table, ul } from "@/lib/docs-blocks"
 
+/** Realm for iPhone's public TestFlight link. TODO(owner): put the code Apple gives in place of TESTFLIGHT_CODE;
+ *  this is the only place it is written. */
+const TESTFLIGHT_LINK = "https://testflight.apple.com/join/TESTFLIGHT_CODE"
+
 export default page({
   slug: "mobile",
   title: "Mobile",
@@ -7,13 +11,13 @@ export default page({
     "Realm runs on your Mac. This is how to pair an iPhone with it, how it reaches your phone, how to leave agents working while you're away, and how to build mobile apps with it.",
   body: [
     note(
-      "Realm for iPhone is in TestFlight for now, and needs iOS 26. It reaches your Mac through Realm's relay, so it works away from home, and only while Realm is open on the Mac.",
+      `Realm for iPhone is a public beta on TestFlight: open [the TestFlight link](${TESTFLIGHT_LINK}) on your iPhone to install it. It's free, and needs iOS 26 and Realm 2.5 or later on your computer. It reaches your Mac through Realm's relay, so it works away from home, and only while Realm is open, or while [\`realm serve\`](/docs/run-on-a-server) is running.`,
     ),
 
     h2("Pair an iPhone"),
     steps(
       "On your Mac, open **Settings ▸ Devices** and press **Pair an iPhone**. A code appears, good for five minutes.",
-      "Open Realm on your iPhone and scan the code.",
+      "On your iPhone, install Realm from TestFlight, open it and press **Scan the code**.",
       "Your Mac asks **Pair <name>?**, saying it can read every session on this Mac and answer for you. Press **Pair**.",
     ),
     p(
@@ -24,6 +28,7 @@ export default page({
       "While the Mac sleeps, the phone can't reach it. **Settings ▸ General ▸ Keep the Mac awake while agents work**, below, keeps it up.",
       "**Settings ▸ Devices** lists each paired iPhone and when it was last seen. **Remove** unpairs one. On the phone, its Settings can forget the Mac.",
       "If Realm's agent server restarts, a paired iPhone finds the Mac again on its own.",
+      "When an update moves your Mac to another relay, a paired iPhone follows it there the next time it connects, so nothing needs pairing again.",
     ),
 
     h2("Get told on your phone"),
