@@ -1,5 +1,6 @@
 import RealmKit
 import SwiftUI
+import UIKit
 
 /// A setting of a session's that a change can be on its way to the Mac for.
 enum SessionSetting: Equatable {
@@ -51,6 +52,17 @@ enum SettingWords {
         case "bypassPermissions": "exclamationmark.shield"
         default: "hand.raised"
         }
+    }
+
+    /// The rung that removes the gate: the one the chip and the menu draw in the warning's tone, on its
+    /// ink and never as a fill (design.md ▸ Controls).
+    static func removesGate(permission id: String) -> Bool {
+        id == "bypassPermissions"
+    }
+
+    /// The session runs on the rung that removes the gate.
+    static func warns(_ options: SessionOptions) -> Bool {
+        options.mode == .build && options.permissionMode.map(removesGate) == true
     }
 
     /// What the mode chip says: in Build, the rung the agent is on; in Plan or Ask, the mode. Build on a
@@ -129,6 +141,8 @@ struct ChipLabel<Icon: View>: View {
     let text: String
     /// The model's chip reads in ink; the rest in the quieter ink beside it.
     let emphasised: Bool
+    /// A tone the words take instead, where the setting warns.
+    var tone: Color?
     @ViewBuilder let icon: Icon
     @Environment(\.isEnabled) private var isEnabled
 
@@ -137,7 +151,7 @@ struct ChipLabel<Icon: View>: View {
             icon
             Text(text)
                 .font(.subheadline.weight(.medium))
-                .foregroundStyle(emphasised ? Palette.ink : Palette.ink2)
+                .foregroundStyle(tone ?? (emphasised ? Palette.ink : Palette.ink2))
                 .lineLimit(1)
                 .fixedSize()
             Image(systemName: "chevron.down")
@@ -173,16 +187,27 @@ private struct ModeMenu: View {
             if options.mode == .build, !options.agent.permissions.isEmpty {
                 Picker("Permissions", selection: permission) {
                     ForEach(options.agent.permissions) { choice in
-                        Label(choice.label, systemImage: SettingWords.symbol(permission: choice.id)).tag(Optional(choice.id))
+                        // A menu draws its icons in the tint; the rung that removes the gate keeps its tone.
+                        Label {
+                            Text(choice.label)
+                        } icon: {
+                            if SettingWords.removesGate(permission: choice.id) {
+                                ProfileMark.tinted(UIImage(systemName: SettingWords.symbol(permission: choice.id)), UIColor(Palette.orange))
+                            } else {
+                                Image(systemName: SettingWords.symbol(permission: choice.id))
+                            }
+                        }
+                        .tag(Optional(choice.id))
                     }
                 }
                 .pickerStyle(.inline)
             }
         } label: {
-            ChipLabel(text: chip.label, emphasised: false) {
+            let warns = SettingWords.warns(options)
+            ChipLabel(text: chip.label, emphasised: false, tone: warns ? Palette.orange : nil) {
                 Image(systemName: chip.symbol)
                     .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Palette.ink2)
+                    .foregroundStyle(warns ? Palette.orange : Palette.ink2)
             }
         }
         .accessibilityLabel("Mode, \(chip.label)")
