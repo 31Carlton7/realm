@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { pruneDevFiles } from "./lib/prune-dev-files.mjs";
 import { pruneMusl } from "./lib/prune-musl.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -53,6 +54,8 @@ if (existsSync(pnpmDir)) {
 }
 // A Linux package runs only where glibc is; the musl builds pnpm installed beside it never load.
 if (process.platform === "linux" && existsSync(pnpmDir)) console.log("[stage-pack] dropped musl builds:", pruneMusl(pnpmDir).join(", ") || "none");
+// Source maps and type declarations are for a package's developers; nothing at runtime reads them.
+console.log("[stage-pack] dropped source maps and declarations:", pruneDevFiles(join(stage, "server", "node_modules")));
 
 // 2. Bundled skills — bundledSkillsDir()'s packaged branch reads <resources>/skills.
 cpSync(join(root, "skills"), join(stage, "skills"), { recursive: true });
