@@ -619,6 +619,7 @@ struct ChangesCard: View {
     /// The Mac's own line for it, said until the files arrive or where they cannot.
     let summary: String
     @Environment(AppModel.self) private var model
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var reviewing = false
 
     static let listed = 3
@@ -632,7 +633,10 @@ struct ChangesCard: View {
     }
 
     private func card(_ changes: TurnChanges?) -> some View {
-        Button {
+        // At the accessibility sizes each count goes under what it counts: beside it, the title and the
+        // names were cut to a few letters.
+        let ax = dynamicTypeSize.isAccessibilitySize
+        return Button {
             reviewing = true
         } label: {
             VStack(alignment: .leading, spacing: 10) {
@@ -640,12 +644,17 @@ struct ChangesCard: View {
                     Image(systemName: "plusminus")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(Palette.ink2)
-                    Text(changes.map(ChangesWords.files) ?? summary)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Palette.ink)
-                        .lineLimit(2)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(changes.map(ChangesWords.files) ?? summary)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Palette.ink)
+                            .lineLimit(ax ? 4 : 2)
+                        if ax, let changes, changes.countsLines {
+                            LineCounts(additions: changes.additions, deletions: changes.deletions)
+                        }
+                    }
                     Spacer(minLength: 8)
-                    if let changes, changes.countsLines {
+                    if !ax, let changes, changes.countsLines {
                         LineCounts(additions: changes.additions, deletions: changes.deletions)
                     }
                     Image(systemName: "chevron.right")
@@ -655,13 +664,14 @@ struct ChangesCard: View {
                 if let changes {
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(changes.files.prefix(Self.listed), id: \.path) { file in
-                            HStack(spacing: 8) {
+                            let line = ax ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout(spacing: 8))
+                            line {
                                 Text(ChangesWords.name(file.path))
                                     .mono(.footnote)
                                     .foregroundStyle(Palette.ink2)
-                                    .lineLimit(1)
+                                    .lineLimit(ax ? 3 : 1)
                                     .truncationMode(.middle)
-                                Spacer(minLength: 8)
+                                if !ax { Spacer(minLength: 8) }
                                 LineCounts(additions: file.additions, deletions: file.deletions, binary: file.additions == nil)
                             }
                         }
