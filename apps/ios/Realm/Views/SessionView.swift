@@ -29,7 +29,8 @@ struct SessionView: View {
 
     var body: some View {
         let transcript = model.store.transcript(sessionId)
-        let outgoing = model.store.outbox.items(for: sessionId).filter(\.isMessage)
+        let outgoing = Self.outgoing(model.store.outbox, transcript, in: sessionId)
+        let row = transcript.session.map { model.rowEdits.applied(to: $0) ?? $0 }
         let status = transcript.status ?? transcript.session?.status
         // The request the foot holds is drawn there, not twice: answered, it comes back to where it
         // was asked, as the record of it.
@@ -134,9 +135,14 @@ struct SessionView: View {
                 scrollToBottom()
             }
         }
-        .navigationTitle(transcript.session?.displayTitle ?? "Session")
+        .navigationTitle(row?.displayTitle ?? "Session")
         .navigationBarTitleDisplayMode(.inline)
         .navigationSubtitle(subtitle(transcript))
+        .toolbar {
+            if let row {
+                ToolbarItem(placement: .topBarTrailing) { SessionMenu(row: row) }
+            }
+        }
         .task(id: model.channelGeneration) { await model.open(sessionId) }
         .onDisappear {
             Task { await model.close(sessionId) }
@@ -154,6 +160,13 @@ struct SessionView: View {
     private func scrollToBottom() {
         follows = true
         withAnimation(Motion.animation(reduceMotion)) { position.scrollTo(edge: .bottom) }
+    }
+
+    /// The messages on their way that the transcript's foot shows: not one the Mac's queue holds, which
+    /// the queue over the composer shows, so a message is never drawn twice.
+    static func outgoing(_ outbox: Outbox, _ transcript: Transcript, in sessionId: String) -> [OutgoingItem] {
+        let queued = outbox.inQueue(transcript.queued ?? [], for: sessionId)
+        return outbox.items(for: sessionId).filter { $0.isMessage && queued[$0.id] == nil }
     }
 }
 
@@ -244,12 +257,17 @@ private struct SessionPill: View {
                                 Image(systemName: away.glyph)
                                     .foregroundStyle(away.tone.color)
                             }
-                            Text(PillWords.away(away, reconnecting: model.linkTroubled))
+                            // The dot keeps to the words before it, so a second line starts on Retry.
+                            Text(PillWords.away(away, reconnecting: model.linkTroubled).replacingOccurrences(of: " · ", with: "\u{00A0}· "))
                                 .font(.subheadline.weight(.medium))
                                 .foregroundStyle(Palette.ink)
+                                .multilineTextAlignment(.center)
                         }
                         .padding(.horizontal, 14)
-                        .frame(height: 40)
+                        // As tall as its words: at the accessibility sizes they take two lines rather
+                        // than lose the Retry at their end.
+                        .padding(.vertical, 6)
+                        .frame(minHeight: 40)
                     }
                     .buttonStyle(.plain)
                     .glassEffect(.regular.interactive(), in: Capsule())
@@ -340,9 +358,10 @@ private struct SessionFoot: View {
         let transcript = model.store.transcript(sessionId)
         let pending = PendingRequest.first(in: transcript, outbox: model.store.outbox)
         let reviewable = TranscriptLayout.reviewable(transcript.rows)
-        let draft = model.composerDrafts[sessionId] ?? ""
-        let hint = draft.isEmpty ? transcript.hint.flatMap { $0.isEmpty ? nil : $0 } : nil
+        let empty = (model.composerDrafts[sessionId] ?? "").isEmpty && (model.draftAttachments[sessionId] ?? []).isEmpty
+        let hint = empty ? transcript.hint.flatMap { $0.isEmpty ? nil : $0 } : nil
         let docked = pending.map { folded != $0.request.requestId } ?? false
+        let delegated = !(model.work.subagents[sessionId] ?? []).isEmpty
         // The pill rides in the bar rather than over the transcript, so the newest row is never under it.
         let pill = showsLatest || !model.shownLinkStatus.isConnected || (transcript.isLive && transcript.status == .running)
         VStack(spacing: 10) {
@@ -359,12 +378,14 @@ private struct SessionFoot: View {
                 if let pending {
                     FoldedRequest(pending: pending, sessionId: sessionId, unfold: { folded = nil })
                         .padding(.horizontal, 12)
-                } else if reviewable != nil || hint != nil {
+                } else if reviewable != nil || hint != nil || delegated {
                     FootChips(sessionId: sessionId, checkpointId: reviewable, hint: hint) { text in
                         model.composerDrafts[sessionId] = text
                         composing.wrappedValue = true
                     }
                 }
+                QueueStrip(sessionId: sessionId)
+                    .padding(.horizontal, 12)
                 ComposerView(sessionId: sessionId, focused: composing)
                     .transition(.opacity)
             }
@@ -408,8 +429,8 @@ private struct FoldedRequest: View {
     }
 }
 
-/// The chips over the composer: Review changes for what the last turn changed, and the reply the Mac
-/// suggests, which a press puts in the field to send or to change.
+/// The chips over the composer: who is working (the session's sub-agents), Review changes for what the
+/// last turn changed, and the reply the Mac suggests, which a press puts in the field to send or to change.
 private struct FootChips: View {
     let sessionId: String
     let checkpointId: String?
@@ -422,6 +443,7 @@ private struct FootChips: View {
         ScrollView(.horizontal) {
             GlassEffectContainer(spacing: 8) {
                 HStack(spacing: 8) {
+                    SubagentsChip(sessionId: sessionId)
                     if let checkpointId, model.turnChanges[checkpointId]?.totalFiles != 0 {
                         Button {
                             reviewing = true
@@ -462,6 +484,8 @@ private struct FootChips: View {
         }
         .scrollIndicators(.hidden)
         .scrollClipDisabled()
+        // The chips stop growing at the last size before the accessibility ones, as the composer's do.
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 }
 

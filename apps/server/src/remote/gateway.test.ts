@@ -1,21 +1,24 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter } from "@realm/adapters";
-import { REMOTE_RELAY_KEY, sessionEvent, type EventName, type EventPayload } from "@realm/contracts";
+import { REMOTE_RELAY_KEY, sessionEvent, type EventName, type EventPayload, type MethodName } from "@realm/contracts";
 import { isSealed } from "@realm/contracts/src/secret-box";
 import { fromB64u, generateDeviceKeys, HandshakeState, HomeSchema, MobileCalls, MobileEvents, PROLOGUE, type Row } from "@realm/remote";
 import { startLocalRelay, type ApnsPush, type LocalRelay } from "@realm/relay/src/node";
 import WebSocket, { WebSocketServer } from "ws";
 import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
+import { fakeRpc, session as fakeSession, type Lists } from "./api.test-fakes";
+import { RemoteGateway } from "./gateway";
 import { REMOTE_IDENTITY_KEY } from "./keys";
 import { collapseId } from "./push";
 import { loopbackRpc, type RpcPort } from "./rpc-port";
 import { remoteSecretBox } from "./secret";
+import { FileRemoteStore } from "./store";
 import { PhoneCallError, TestPhone } from "./test-phone";
 
 /**
@@ -42,6 +45,16 @@ const fake = () => new FakeAdapter({ script: [
   { on: "plan it", emit: [
     { kind: "plan", planId: "p1", steps: [{ text: "Add the column", status: "pending" }, { text: "Backfill it", status: "pending" }] },
     { kind: "tool", name: "ExitPlanMode", needsPermission: true, input: { plan: "## Theme column\n\nAdd it, then backfill it." }, result: "Approved" },
+  ] },
+  // A turn that takes a few seconds, so messages sent during it wait in the queue.
+  { on: "take your time", emit: [{ kind: "text", text: Array.from({ length: 30 }, (_, i) => `word${i}`).join(" "), paceMs: 120 }] },
+  // A team's role sending its work to Review: a post with its picture, and an email.
+  { on: "send for review", emit: [
+    { kind: "call", tool: "realm-team__review_submit", input: { kind: "launch", title: "Dark mode launch", items: [
+      { files: ["renders/toggle.png"], body: "Dark mode is here.", target: { channel: "instagram", account: "@realm" } },
+      { body: "Hi Dana, it ships Friday.", meta: { Subject: "It ships Friday" } },
+    ] } },
+    { kind: "text", text: "Sent to Review." },
   ] },
   // The edit changes the file's size: one of the same size, made in the second git last looked at it,
   // can read as unchanged to git's stat check ("racy git"), and the turn would not count it.
@@ -429,6 +442,95 @@ describe("Plan 28: a paired phone, in process", () => {
     phone.close();
   });
 
+  it("takes files with a message: written under the Mac's own home, and the session is sent their paths", async () => {
+    const r = await boot();
+    const id = await newSession(r);
+    const phone = await pairPhone(r);
+    await phone.call("session.open", { id });
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
+    const shown = phone.waitFor("session.rows", (p) => rowsOf(p, id)?.find((row) => row.kind === "user" && (row.attachments?.length ?? 0) > 0));
+    await phone.call("session.send", { id, text: "What is in these?", attachments: [
+      { name: "IMG_0042.png", mime: "image/png", data: png.toString("base64") },
+      { name: "../../notes.md", mime: "text/markdown", data: Buffer.from("# Notes\n").toString("base64") },
+    ] });
+    const row = await shown;
+    if (row.kind !== "user" || !row.attachments) throw new Error("no files on the row");
+    const dir = join(r.home, "tmp", "attachments");
+    // Written under a name of the Mac's own, and named on the row as the phone named it.
+    expect(row.attachments.map((a) => [dirname(a.path), a.name, a.mime])).toEqual([[dir, "IMG_0042.png", "image/png"], [dir, "notes.md", "text/markdown"]]);
+    expect(row.attachments.map((a) => basename(a.path))).toEqual([expect.stringMatching(/^[0-9a-f]{12}-IMG_0042\.png$/), expect.stringMatching(/^[0-9a-f]{12}-notes\.md$/)]);
+    expect(readFileSync(row.attachments[0]!.path)).toEqual(png);
+    // The session's own record of the message holds those paths, as a desktop paste's does.
+    const [sent] = await r.mac.call("sessions.events", { id, afterSeq: 0, limit: 10, types: ["user_message"] });
+    expect(sent?.event.payload).toMatchObject({ text: "What is in these?", attachments: row.attachments.map(({ path, mime }) => ({ path, mime })) });
+    // And the phone may preview them, as it previews what a turn made.
+    expect(await phone.call("session.file", { id, path: row.attachments[1]!.path })).toMatchObject({ name: "notes.md", preview: { kind: "text", text: "# Notes\n" } });
+    // A file the Mac cannot take is refused before anything is written or sent.
+    const before = readdirSync(dir).length;
+    await expect(phone.call("session.send", { id, text: "", attachments: [{ name: "IMG.heic", mime: "image/heic", data: "aGVpYw==" }] })).rejects.toMatchObject({ code: "INVALID_PARAMS" });
+    expect(readdirSync(dir)).toHaveLength(before);
+    phone.close();
+  });
+
+  it("reads and changes a session's model, mode and permissions from the phone, as the desktop's chips do", async () => {
+    const r = await boot();
+    const id = await newSession(r);
+    const phone = await pairPhone(r);
+    const options = MobileCalls["session.options"].result.parse(await phone.call("session.options", { id }));
+    expect(options.agent).toMatchObject({ kind: "fake", modes: [{ id: "build" }, { id: "plan" }, { id: "ask" }], permissions: [{ id: "default" }, { id: "acceptEdits" }, { id: "bypassPermissions" }] });
+    expect(options).toMatchObject({ model: null, permissionMode: "default", midTurn: "queue" });
+    const planned = MobileCalls["session.configure"].result.parse(await phone.call("session.configure", { id, mode: "plan" }));
+    expect(planned.permissionMode).toBe("plan");
+    expect((await r.mac.call("sessions.get", { id })).permissionMode).toBe("plan");
+    await phone.call("session.configure", { id, permission: "acceptEdits", model: "fake" });
+    expect(await r.mac.call("sessions.get", { id })).toMatchObject({ permissionMode: "acceptEdits", model: "fake" });
+    await expect(phone.call("session.configure", { id, permission: "sudo" })).rejects.toMatchObject({ code: "INVALID_PARAMS" });
+    expect(MobileCalls["agents.list"].result.parse(await phone.call("agents.list")).agents.map((a) => a.kind)).toContain("claude");
+    phone.close();
+  });
+
+  it("keeps Home in the order its conversations moved: a session set up again since stays where it was", async () => {
+    const r = await boot();
+    // A few milliseconds apart, so neither the two sessions nor the two writes share a clock tick.
+    const tick = () => new Promise((res) => setTimeout(res, 20));
+    const older = await newSession(r);
+    await tick();
+    const newer = await newSession(r);
+    await tick();
+    // A change of settings writes the older row, which moves its `updatedAt` past the newer's, and
+    // reading it moves its read mark; neither is the conversation moving.
+    await r.mac.call("sessions.setOptions", { id: older, permissionMode: "acceptEdits" });
+    await r.mac.call("sessions.markSeen", { id: older, seq: 0 });
+    const [o, n] = [await r.mac.call("sessions.get", { id: older }), await r.mac.call("sessions.get", { id: newer })];
+    expect(o.updatedAt).toBeGreaterThan(n.updatedAt);
+    const phone = await pairPhone(r);
+    const home = HomeSchema.parse(await phone.call("home.get"));
+    const page = MobileCalls["space.sessions"].result.parse(await phone.call("space.sessions", { id: r.spaceId }));
+    for (const rows of [home.spaces.find((sp) => sp.id === r.spaceId)!.sessions, home.recent!, page.sessions]) {
+      expect(rows.map((s) => s.id)).toEqual([newer, older]);
+    }
+    expect(home.recent!.map((s) => s.activityAt)).toEqual([n.activityAt, o.activityAt]);
+    // A message is the conversation moving, and puts the older first.
+    await r.mac.call("sessions.send", { id: older, text: "hello again" });
+    await waitFor(async () => HomeSchema.parse(await phone.call("home.get")).recent![0]!.id === older);
+    phone.close();
+  });
+
+  it("lists Home for one profile, and a space's sessions a page at a time", async () => {
+    const r = await boot();
+    const [profile] = await r.mac.call("profiles.list", {});
+    const ids = [await newSession(r), await newSession(r)];
+    const phone = await pairPhone(r);
+    const home = HomeSchema.parse(await phone.call("home.get", { profileId: profile!.id }));
+    expect(home.profileId).toBe(profile!.id);
+    expect(home.profiles?.map((p) => p.id)).toEqual([profile!.id]);
+    expect(home.recent?.map((s) => s.id).sort()).toEqual([...ids].sort());
+    const page = MobileCalls["space.sessions"].result.parse(await phone.call("space.sessions", { id: r.spaceId, limit: 1 }));
+    expect(page.sessions).toHaveLength(1);
+    expect(page.more).toBe(true);
+    phone.close();
+  });
+
   it("only streams the sessions a phone has open", async () => {
     const r = await boot();
     const open = await newSession(r);
@@ -564,6 +666,233 @@ describe("Plan 28: a paired phone, in process", () => {
     expect(r.pushes.filter((p) => p.urgent)).toEqual([]);
     await waitFor(() => r.pushes.some((p) => p.urgent));
     expect(r.pushes.filter((p) => p.urgent).map((p) => p.collapse)).toEqual([collapseId("permission", second)]);
+    phone.close();
+  });
+});
+
+describe("Plan 29's parity: the queue, sub-agents and Review on a paired phone", () => {
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
+  const queueOf = (p: unknown, id: string) => {
+    const e = MobileEvents["session.queue"].parse(p);
+    return e.id === id ? e.queued : undefined;
+  };
+
+  it("sends an open session's queue whole each time it changes, and the phone holds, edits, removes and sends what waits", async () => {
+    const r = await boot();
+    const id = await newSession(r);
+    const other = await newSession(r);
+    const phone = await pairPhone(r);
+    expect(MobileCalls["session.open"].result.parse(await phone.call("session.open", { id })).queued).toEqual([]);
+    const queues: unknown[] = [];
+    phone.on("session.queue", (p) => { queues.push(p); });
+    const running = phone.waitFor("session.status", (p) => { const e = MobileEvents["session.status"].parse(p); return e.id === id && e.status === "running" ? e : undefined; });
+    await phone.call("session.send", { id, text: "take your time" });
+    await running;
+
+    // THE MUTANT: leave `session.queue` among the broadcasts the gateway drops, and none of these comes.
+    let next = phone.waitFor("session.queue", (p) => queueOf(p, id)?.length === 1 ? queueOf(p, id) : undefined);
+    await phone.call("session.send", { id, text: "first in line", delivery: "queue" });
+    const [first] = await next;
+    expect(first).toMatchObject({ text: "first in line", attachments: [], held: false, at: expect.any(Number) });
+    next = phone.waitFor("session.queue", (p) => queueOf(p, id)?.length === 2 ? queueOf(p, id) : undefined);
+    await phone.call("session.send", { id, text: "with a sketch", delivery: "queue", attachments: [{ name: "sketch.png", mime: "image/png", data: png.toString("base64") }] });
+    const [, second] = await next;
+    expect(second!.attachments.map((a) => [a.name, a.mime])).toEqual([["sketch.png", "image/png"]]);
+    // Its file is one the phone may preview while it waits.
+    expect(await phone.call("session.file", { id, path: second!.attachments[0]!.path })).toMatchObject({ name: "sketch.png", preview: { kind: "image" } });
+
+    next = phone.waitFor("session.queue", (p) => queueOf(p, id)?.[0]?.held ? queueOf(p, id) : undefined);
+    await phone.call("session.holdQueued", { id, queuedId: first!.id, held: true });
+    await next;
+    next = phone.waitFor("session.queue", (p) => queueOf(p, id)?.[0]?.text === "first, edited" ? queueOf(p, id) : undefined);
+    await phone.call("session.editQueued", { id, queuedId: first!.id, text: "first, edited" });
+    expect((await next).map((q) => [q.text, q.held, q.attachments.length])).toEqual([["first, edited", false, 0], ["with a sketch", false, 1]]);
+    next = phone.waitFor("session.queue", (p) => queueOf(p, id)?.length === 1 ? queueOf(p, id) : undefined);
+    await phone.call("session.removeQueued", { id, queuedId: second!.id });
+    expect((await next).map((q) => q.id)).toEqual([first!.id]);
+    expect(MobileCalls["session.queue"].result.parse(await phone.call("session.queue", { id })).queued.map((q) => q.text)).toEqual(["first, edited"]);
+
+    // The turn ends and the queue drains into the next one, as the edit left it.
+    const sent = phone.waitFor("session.rows", (p) => rowsOf(p, id)?.find((row) => row.kind === "user" && row.text === "first, edited"), 15_000);
+    next = phone.waitFor("session.queue", (p) => queueOf(p, id)?.length === 0 ? queueOf(p, id) : undefined, 15_000);
+    await next;
+    await sent;
+    // Too late to hold what has gone out.
+    await expect(phone.call("session.holdQueued", { id, queuedId: first!.id, held: true })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    // Only the session the phone has open: another's queue never reaches it.
+    await r.mac.call("sessions.send", { id: other, text: "take your time" });
+    await r.mac.call("sessions.send", { id: other, text: "not for the phone", delivery: "queue" });
+    await new Promise((res) => setTimeout(res, 300));
+    expect(queues.every((p) => MobileEvents["session.queue"].parse(p).id === id)).toBe(true);
+    phone.close();
+  });
+
+  it("tells a phone with a lead open that its sub-agents changed, and lists them as its Agents tab does", async () => {
+    const r = await boot();
+    const lead = await newSession(r);
+    const phone = await pairPhone(r);
+    await phone.call("session.open", { id: lead });
+    const changed = phone.waitFor("session.subagents", (p) => (MobileEvents["session.subagents"].parse(p).id === lead ? true : undefined));
+    const { childId } = await r.mac.call("delegation.addTeammate", { sessionId: lead, agentKind: "fake", brief: "Write the migration" });
+    // THE MUTANT: leave `delegation.changed` among the broadcasts the gateway drops, and this never comes.
+    await changed;
+    await waitFor(async () => {
+      const { subagents } = MobileCalls["session.subagents"].result.parse(await phone.call("session.subagents", { id: lead }));
+      return subagents.length === 1 && subagents[0]!.session.id === childId && subagents[0]!.outcome === "done";
+    }, { timeout: 10_000 });
+    phone.close();
+  });
+
+  it("reads a team's open review on the phone, previews its picture, and decides it through the desktop's Review", async () => {
+    const r = await boot();
+    const [profile] = await r.mac.call("profiles.list", {});
+    const deck = await r.mac.call("spaces.create", { profileId: profile!.id, name: "Deck" });
+    mkdirSync(join(deck.folderPath, "renders"), { recursive: true });
+    writeFileSync(join(deck.folderPath, "renders", "toggle.png"), png);
+    await r.mac.call("team.make", { spaceId: deck.id, templates: [] });
+    const role = await r.mac.call("team.roleCreate", { spaceId: deck.id, name: "Content Producer", brief: "Make posts.", realmite: { seed: "cp" }, agentKind: "fake", permissionMode: "acceptEdits" });
+    // A card the team's policy draws is the person's to answer, as they would at the Mac.
+    r.mac.onEvent((event, payload) => {
+      if (event !== "session.event") return;
+      const p = payload as EventPayload<"session.event">;
+      if (p.event.type === "permission_request") void r.mac.call("sessions.respondPermission", { id: p.sessionId, requestId: p.event.payload.requestId, decision: "allow" }).catch(() => {});
+    });
+    await r.mac.call("team.roleRun", { id: role.id, message: "send for review" });
+    await waitFor(async () => (await r.mac.call("team.space", { spaceId: deck.id })).reviews.length > 0, { timeout: 15_000 });
+    const phone = await pairPhone(r);
+
+    const listed = MobileCalls["reviews.list"].result.parse(await phone.call("reviews.list"));
+    expect(listed.reviews.map((v) => [v.title, v.state, v.spaceName, v.itemCount, v.roleName])).toEqual([["Dark mode launch", "waiting", "Deck", 2, "Content Producer"]]);
+    const id = listed.reviews[0]!.id;
+    const detail = MobileCalls["review.get"].result.parse(await phone.call("review.get", { id }));
+    expect(detail.items.map((i) => [i.title, i.body, i.channel])).toEqual([[null, "Dark mode is here.", "instagram"], ["It ships Friday", "Hi Dana, it ships Friday.", null]]);
+    const [picture] = detail.items[0]!.files;
+    expect(picture).toMatchObject({ name: "toggle.png", mime: "image/png" });
+    expect(await phone.call("review.file", { id, path: picture!.path })).toMatchObject({ name: "toggle.png", preview: { kind: "image", mime: "image/jpeg" } });
+    for (const path of [join(deck.folderPath, "renders"), join(r.home, "realm.db"), "/etc/hosts"]) {
+      await expect(phone.call("review.file", { id, path }), path).rejects.toMatchObject({ code: "FORBIDDEN" });
+    }
+
+    // Asking for changes says what should change; the desktop's Review then shows it sent back, and
+    // the phone hears that its work changed.
+    await expect(phone.call("review.decide", { id, decision: "changes" })).rejects.toMatchObject({ code: "INVALID_PARAMS" });
+    const work = phone.waitFor("work.changed", () => true);
+    const sentBack = MobileCalls["review.decide"].result.parse(await phone.call("review.decide", { id, decision: "changes", note: "Say it ships Friday in the caption too" }));
+    expect(sentBack.review).toMatchObject({ id, state: "changes", note: "Say it ships Friday in the caption too" });
+    expect(await r.mac.call("team.review", { id })).toMatchObject({ state: "changes", note: "Say it ships Friday in the caption too" });
+    await work;
+    expect(MobileCalls["review.decide"].result.parse(await phone.call("review.decide", { id, decision: "approve" })).review.state).toBe("approved");
+    // A yes already given is not given twice: the Mac's own words say why.
+    await expect(phone.call("review.decide", { id, decision: "approve" })).rejects.toMatchObject({ code: "FORBIDDEN", message: expect.stringContaining("approved") });
+    expect(MobileCalls["review.decide"].result.parse(await phone.call("review.decide", { id, decision: "reject", note: "Not this week" })).review).toMatchObject({ state: "rejected", note: "Not this week" });
+    // Rejected, it has come to rest, and leaves the phone's list of what is open.
+    expect(MobileCalls["reviews.list"].result.parse(await phone.call("reviews.list")).reviews).toEqual([]);
+    expect((await r.mac.call("team.review", { id })).state).toBe("rejected");
+    phone.close();
+  });
+});
+
+/**
+ * A gateway over a fake of the Mac's RPC, for what the real one cannot be made to do on cue: a
+ * broadcast at an exact moment of a call, or several in the same instant. A real relay, and a phone
+ * paired through it, as everywhere above.
+ */
+async function fakeMac(lists: Lists, more: Partial<Record<MethodName, (p: never) => unknown>> = {}) {
+  const relay = await startLocalRelay({ port: 0 });
+  relays.push(relay);
+  const home = tempDir("realm-remote-gateway-");
+  const store = new FileRemoteStore(home);
+  const base = fakeRpc(lists, more);
+  const listeners = new Set<(event: EventName, payload: unknown) => void>();
+  const rpc: RpcPort = { ...base, onEvent: (l) => { listeners.add(l as never); return () => { listeners.delete(l as never); }; } };
+  const gw = new RemoteGateway({
+    identity: store.identity(), phones: store, relay: relay.url, rpc, macName: "Test Mac", version: "test", confirm: async () => true,
+    reportsDir: join(home, "reports"), realmHome: home,
+  });
+  gw.start();
+  gateways.push(gw);
+  await waitFor(() => gw.state === "connected");
+  const phone = new TestPhone();
+  expect(await phone.pair(gw.openPairing().url)).toEqual({ ok: true });
+  await phone.connect();
+  const broadcast = <E extends EventName>(event: E, payload: EventPayload<E>) => { for (const l of listeners) l(event, payload); };
+  return { phone, broadcast };
+}
+
+const gateways: RemoteGateway[] = [];
+afterEach(() => { for (const gw of gateways.splice(0)) gw.stop(); });
+
+describe("Plan 29's parity: what a phone hears, at the moment it hears it", () => {
+  it("holds a change to the queue that comes while the session opens for the open's answer, and sends every change after", async () => {
+    // The open is stopped while it reads the session's history.
+    let reached!: () => void;
+    const atHistory = new Promise<void>((res) => { reached = res; });
+    let release!: () => void;
+    const gate = new Promise<void>((res) => { release = res; });
+    const older = [{ id: "q1", text: "older", attachments: [], ts: 1, held: false }];
+    const newer = [...older, { id: "q2", text: "newer", attachments: [], ts: 2, held: false }];
+    const { phone, broadcast } = await fakeMac({ sessions: [fakeSession("s1", "s1")], items: [], queued: { s1: older } }, {
+      "sessions.events": (async () => { reached(); await gate; return []; }) as never,
+    });
+    const heard: unknown[] = [];
+    phone.on("session.queue", (p) => { heard.push(p); });
+    const opening = phone.call("session.open", { id: "s1" });
+    await atHistory;
+    broadcast("session.queue", { sessionId: "s1", queued: newer });
+    release();
+    // THE MUTANTS: send the change at once, and it reaches the phone before the session it belongs to
+    // has opened; answer with the queue the open read, and the phone opens on one a message behind.
+    expect(MobileCalls["session.open"].result.parse(await opening).queued?.map((q) => q.text)).toEqual(["older", "newer"]);
+    expect(heard).toEqual([]);
+    const emptied = phone.waitFor("session.queue", (p) => (MobileEvents["session.queue"].parse(p).queued.length === 0 ? true : undefined));
+    broadcast("session.queue", { sessionId: "s1", queued: [] });
+    await emptied;
+    phone.close();
+  });
+
+  it("says once that a lead's sub-agents changed when a run and a sub-agent's status move together, and for a status alone", async () => {
+    const child = fakeSession("child", "s1", { status: "running", dispatchedBy: { sessionId: "lead", kind: "agent_run" } });
+    const { phone, broadcast } = await fakeMac({ sessions: [fakeSession("lead", "s1"), child], items: [] }, {
+      "delegation.children": ((p: { sessionId: string }) => ({ children: p.sessionId === "lead"
+        ? [{ session: child, goal: "Write it", startedAt: 1, settledAt: null, outcome: null, report: null, activity: null }] : [], dismissed: [] })) as never,
+      "delegation.running": (() => ({ running: [] })) as never,
+    });
+    await phone.call("session.open", { id: "lead" });
+    await phone.call("session.subagents", { id: "lead" });
+    // Opened again, as a phone does coming back to it, the lead still knows the sub-agents read of it.
+    await phone.call("session.open", { id: "lead" });
+    const heard: string[] = [];
+    phone.on("session.subagents", (p) => { heard.push(MobileEvents["session.subagents"].parse(p).id); });
+    // A settle: the sub-agent goes idle and its lead's runs change in the same instant.
+    broadcast("session.status", { sessionId: "child", status: "idle" });
+    broadcast("delegation.changed", { sessionId: "lead", running: [] });
+    await waitFor(() => heard.length > 0);
+    await new Promise((res) => setTimeout(res, 500));
+    // THE MUTANT: say each change as it comes, and the phone reads the same list twice.
+    expect(heard).toEqual(["lead"]);
+    // A sub-agent stopping to ask the person is a change to its lead's list, with no run moving.
+    // THE MUTANT: hear only `delegation.changed`, and its row on the phone says it is still working.
+    broadcast("session.status", { sessionId: "child", status: "waiting_permission" });
+    await waitFor(() => heard.length === 2);
+    // Another session's status is not this lead's.
+    broadcast("session.status", { sessionId: "someone-else", status: "running" });
+    await new Promise((res) => setTimeout(res, 500));
+    expect(heard).toEqual(["lead", "lead"]);
+    phone.close();
+  });
+
+  it("says once that reviews or scheduled tasks changed, however many of their changes come together", async () => {
+    const { phone, broadcast } = await fakeMac({ sessions: [], items: [] });
+    let heard = 0;
+    phone.on("work.changed", () => { heard += 1; });
+    broadcast("team.changed", { spaceId: "s1" });
+    broadcast("schedules.changed", { spaceId: "s1" });
+    broadcast("runs.changed", { spaceId: "s1", run: null });
+    broadcast("runs.changed", { spaceId: "s2", run: null });
+    await waitFor(() => heard > 0, { timeout: 3_000 });
+    await new Promise((res) => setTimeout(res, 1_300));
+    // THE MUTANT: say it for each, and a run's every step has the phone read Review and Scheduled again.
+    expect(heard).toBe(1);
     phone.close();
   });
 });

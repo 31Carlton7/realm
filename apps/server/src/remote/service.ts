@@ -20,6 +20,8 @@ export type RemoteServiceOptions = {
   version: string;
   /** Where development builds' `debug.report` writes. */
   reportsDir: string;
+  /** The Realm home: a file a phone sends is written under its `tmp/attachments`, as a desktop paste is. */
+  home: string;
   /** The relay to dial when the `remote.relay` setting names none. Only `main.ts` passes one, so an app
    *  a test builds dials nothing unless the test names a relay itself. */
   defaultRelay?: string | null;
@@ -265,7 +267,7 @@ export class RemoteService {
       identity: this.identity!, phones: this.o.phones, relay,
       rpc: inProcessRpc(this.o.rpc, "local"),
       rpcFor: (phoneId) => inProcessRpc(this.o.rpc, `phone:${phoneId}`),
-      macName: this.o.macName, version: this.o.version, reportsDir: this.o.reportsDir,
+      macName: this.o.macName, version: this.o.version, reportsDir: this.o.reportsDir, realmHome: this.o.home,
       dev: this.o.dev, linkBase: this.o.linkBase, log: this.o.log,
       confirm: (phone) => this.ask(phone),
       // A gateway already hung up may still report on its way down; only the current one counts.

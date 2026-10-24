@@ -1,0 +1,84 @@
+import {
+  AGENT_META, SELECTABLE_AGENT_KINDS, currentAlert, planUnavailableNote, windowHasReset, windowsByUrgency, type AgentKind, type PlanLimits, type UsageSummary,
+} from "@realm/contracts";
+import type { MobileResult } from "@realm/remote";
+
+/**
+ * Usage as a phone reads it (PROTOCOL.md §8): each agent's plan as Settings ▸ Usage draws it, and this
+ * calendar month's spend. The honesty rules are the page's: a window with no figure, or one that has
+ * reset since it was read, has no percent rather than a zero, and an agent that cannot report says why
+ * in the page's own sentence.
+ */
+
+type Usage = MobileResult<"usage.get">;
+type Limits = Usage["limits"][number];
+
+/** How many of the month's sessions the phone is shown, heaviest first. */
+const TOP_SESSIONS = 5;
+
+/** The first of this month on the Mac's clock: a budget is a calendar month where the Mac is. */
+export function monthStart(now: number): number {
+  const d = new Date(now);
+  return new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+}
+
+/** The provider's warning in words, beside the page's "limit reached", naming the window it is about
+ *  where the provider named one. Null once that window has reset, and when there is no warning. */
+function alertWords(row: PlanLimits, now: number): string | null {
+  const alert = currentAlert(row, now);
+  if (alert === "none") return null;
+  const window = row.windows.find((w) => w.id === row.alertWindow);
+  const limit = window ? `${window.label} limit` : "Limit";
+  return alert === "exceeded" ? `${limit} reached` : `${limit} nearly reached`;
+}
+
+/** Which window carries the warning's tone, as the page's PlanCard picks it: the one the provider named,
+ *  or every window where it named none; and how far the warning goes. Both null with no warning. */
+function alertTone(row: PlanLimits, now: number): { alertLevel: "approaching" | "exceeded" | null; alertWindow: string | null } {
+  const alert = currentAlert(row, now);
+  if (alert === "none") return { alertLevel: null, alertWindow: null };
+  return { alertLevel: alert, alertWindow: row.windows.some((w) => w.id === row.alertWindow) ? row.alertWindow : null };
+}
+
+/** Why there is nothing to draw, in the page's sentence: the provider's own reason, or a kind that
+ *  reports and has not been heard from yet. Null while there are windows. */
+function unavailableWords(row: PlanLimits, kind: AgentKind): string | null {
+  if (row.unavailable) return `${planUnavailableNote(kind, row.unavailable)}${row.detail ? ` (${row.detail})` : ""}`;
+  return row.windows.length === 0 ? planUnavailableNote(kind, "not-yet-known") : null;
+}
+
+function planLimits(row: PlanLimits, now: number): Limits {
+  const kind = row.agentKind as AgentKind;
+  return {
+    agent: kind, agentName: AGENT_META[kind].label, agentMark: AGENT_META[kind].icon, plan: row.subscriptionType,
+    // Fullest first, as the page draws them: what stops the person next.
+    windows: windowsByUrgency(row.windows).map((w) => ({
+      id: w.id, label: w.label, resetsAt: w.resetsAt,
+      usedPercent: w.utilization === null || windowHasReset(w, now) ? null : Math.max(0, Math.min(100, w.utilization)),
+    })),
+    alert: alertWords(row, now), ...alertTone(row, now), unavailable: unavailableWords(row, kind), at: row.ts,
+  };
+}
+
+/**
+ * The plan of every agent a person can run, in the order the desktop offers them — which puts the two
+ * that report one first, as the page puts their cards before its line naming the agents that cannot.
+ * `limits.get` answers for every kind there is, the scripted one the suite drives among them, which
+ * the page leaves out.
+ */
+export function everyPlan(rows: readonly PlanLimits[], now: number): Limits[] {
+  const by = new Map(rows.map((r) => [r.agentKind, r]));
+  return SELECTABLE_AGENT_KINDS.flatMap((k) => { const row = by.get(k); return row ? [planLimits(row, now)] : []; });
+}
+
+/** This month's spend, its budget, and the heaviest sessions by the names their rows have. */
+export function spend(summary: UsageSummary, titles: ReadonlyMap<string, string>): Usage["spend"] {
+  const heaviest = summary.sessions.filter((s) => s.totals.costUsd > 0)
+    .sort((a, b) => b.totals.costUsd - a.totals.costUsd || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .slice(0, TOP_SESSIONS);
+  return {
+    monthToDate: summary.budget.monthSpendUsd,
+    budget: summary.budget.budget.monthlyUsd,
+    topSessions: heaviest.map((s) => ({ id: s.id, title: titles.get(s.id) || s.title, spaceName: s.spaceName, cost: s.totals.costUsd })),
+  };
+}

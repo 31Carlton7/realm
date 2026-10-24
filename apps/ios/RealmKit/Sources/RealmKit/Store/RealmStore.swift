@@ -16,7 +16,12 @@ public final class RealmStore {
     /// When Home was last fresh from the Mac; nil while it is live on this connection.
     public private(set) var homeSavedAt: Date?
     public private(set) var transcripts: [String: Transcript] = [:]
-    public private(set) var outbox = Outbox()
+    public private(set) var outbox = Outbox() {
+        // A message's files go with it: once it settles, or is taken back.
+        didSet { files.remove(oldValue.attachments.subtracting(outbox.attachments)) }
+    }
+    /// Where the files of messages being written and waiting to go are kept.
+    public let files: OutboxFiles
     /// Question cards answered part way, by request id: put away, not sent.
     public private(set) var drafts: [String: AnswerDraft] = [:]
     public var latency = LatencySamples()
@@ -25,12 +30,15 @@ public final class RealmStore {
     @ObservationIgnored private var opening: [String: [TranscriptRow]] = [:]
     /// A suggested next message that changed while its session was opening, newer than the open's.
     @ObservationIgnored private var openingHint: [String: String?] = [:]
+    /// A queue that changed while its session was opening, newer than the open's.
+    @ObservationIgnored private var openingQueue: [String: [QueuedMessage]] = [:]
     @ObservationIgnored private var watches: [RowWatch] = []
     /// The seq each session was last marked read up to, by this phone.
     @ObservationIgnored private var seenUpTo: [String: Int] = [:]
 
-    public init(pairedMac: PairedMac? = nil) {
+    public init(pairedMac: PairedMac? = nil, files: OutboxFiles = OutboxFiles()) {
         self.pairedMac = pairedMac
+        self.files = files
     }
 
     public func linkStatus(now: Date = Date()) -> LinkStatus {
@@ -65,6 +73,7 @@ public final class RealmStore {
         homeSavedAt = nil
         transcripts = [:]
         opening = [:]
+        openingQueue = [:]
         outbox = Outbox()
         drafts = [:]
         seenUpTo = [:]
@@ -93,8 +102,10 @@ public final class RealmStore {
         transcript.status = opened.session.status
         transcript.hasMore = opened.hasMore
         transcript.hint = opened.hint
+        transcript.queued = opened.queued
         if let early = opening.removeValue(forKey: opened.session.id) { transcript.upsert(early) }
         if let hint = openingHint.removeValue(forKey: opened.session.id) { transcript.hint = hint }
+        if let queued = openingQueue.removeValue(forKey: opened.session.id) { transcript.queued = queued }
         transcripts[opened.session.id] = transcript
         settleOutbox(in: opened.session.id)
     }
@@ -102,13 +113,20 @@ public final class RealmStore {
     public func cancelOpening(_ sessionId: String) {
         opening[sessionId] = nil
         openingHint[sessionId] = nil
+        openingQueue[sessionId] = nil
     }
 
     public func closeSession(_ sessionId: String) {
         transcripts[sessionId] = nil
         opening[sessionId] = nil
         openingHint[sessionId] = nil
+        openingQueue[sessionId] = nil
         outbox.forgetDelivered(in: sessionId)
+    }
+
+    /// The Mac's row for a session the person renamed or pinned here: an open session's title follows it.
+    public func sessionChanged(_ row: SessionRow) {
+        transcripts[row.id]?.session = row
     }
 
     public func apply(_ event: MobileEvent, at arrival: ContinuousClock.Instant = .now) {
@@ -133,7 +151,14 @@ public final class RealmStore {
             } else {
                 transcripts[update.id]?.hint = update.text
             }
-        case .homeChanged, .pairResult, .unknown:
+        case .sessionQueue(let update):
+            if opening[update.id] != nil {
+                openingQueue[update.id] = update.queued
+            } else if transcripts[update.id] != nil {
+                transcripts[update.id]?.queued = update.queued
+                settleOutbox(in: update.id)
+            }
+        case .homeChanged, .workChanged, .sessionSubagents, .pairResult, .unknown:
             break
         }
     }
@@ -161,11 +186,13 @@ public final class RealmStore {
 
     // MARK: - What waits to be sent
 
-    /// A message, in line behind anything the session already has waiting.
+    /// A message, in line behind anything the session already has waiting, with the files it takes
+    /// (kept in `files` already) and what it does if a turn is under way when it arrives.
     @discardableResult
-    public func enqueueMessage(_ text: String, in sessionId: String, at date: Date = Date()) -> OutgoingItem {
+    public func enqueueMessage(_ text: String, attachments: [OutgoingAttachment] = [], delivery: Delivery = .auto,
+                               in sessionId: String, at date: Date = Date()) -> OutgoingItem {
         let item = OutgoingItem(sessionId: sessionId, payload: .message(text: text), createdAt: date,
-                                afterSeq: transcript(sessionId).lastSeq)
+                                afterSeq: transcript(sessionId).lastSeq, attachments: attachments, delivery: delivery)
         outbox.add(item)
         return item
     }
@@ -200,6 +227,8 @@ public final class RealmStore {
 
     public func restoreOutbox(_ saved: [OutgoingItem]) {
         outbox = Outbox.restored(saved)
+        // Any other file was a draft's when the app last went, or a message's the Mac already had.
+        files.removeAll(except: Set(outbox.attachments.map(\.file)))
     }
 
     public func settleOutbox(in sessionId: String) {

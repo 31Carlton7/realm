@@ -50,11 +50,12 @@ enum Drawing {
 
 /// A model with one open session, as the Mac would have sent it.
 @MainActor
-func modelWithSession(agent: String = "claude", status: SessionStatus = .waiting, rows: [TranscriptRow] = []) -> AppModel {
+func modelWithSession(agent: String = "claude", status: SessionStatus = .waiting, modelLabel: String? = nil,
+                      rows: [TranscriptRow] = []) -> AppModel {
     let model = AppModel()
     model.store.finishOpening(OpenedSession(
         session: SessionRow(id: "s1", title: "T", spaceId: "sp", spaceName: "Realm", agent: agent, model: nil, status: status,
-                            needsYou: status == .waiting, unread: false, updatedAt: 0),
+                            needsYou: status == .waiting, unread: false, updatedAt: 0, modelLabel: modelLabel),
         rows: rows, hasMore: false))
     return model
 }
@@ -184,6 +185,14 @@ struct RowDrawingTests {
         #expect(words.contains("Don't send") || words.contains("Don’t send"))
     }
 
+    /// A message shows what went with it under its words: a file as a chip by its name.
+    @Test func aMessageShowsTheFilesThatWentWithIt() throws {
+        let notes = SentFile(path: "/Users/me/Realm/tmp/attachments/x1-notes.pdf", name: "notes.pdf", mime: "application/pdf")
+        let row = TranscriptRow(key: "u:3", seq: 3, content: .user(text: "Read this"), sentFiles: [notes])
+        let words = try Drawing.words(TranscriptRowView(row: row, sessionId: "s1").environment(AppModel()))
+        #expect(words.contains("Read this") && words.contains("notes.pdf"), "\(words)")
+    }
+
     /// The work is quiet lines that say what they did, in the tense of their state.
     @Test func workSaysWhatItDid() throws {
         let rows = [Self.row(.tool(name: "Read", summary: "AppSettings.tsx", state: .done, detail: nil), key: "t1"),
@@ -250,8 +259,8 @@ struct SessionRowTests {
 }
 
 @MainActor
-@Suite("What Home lists")
-struct HomeSectionsTests {
+@Suite("What has not gone to the Mac")
+struct UnsentTests {
     static func row(_ id: String, _ title: String, space: String, spaceName: String, agent: String = "claude",
                     status: SessionStatus = .idle) -> SessionRow {
         SessionRow(id: id, title: title, spaceId: space, spaceName: spaceName, agent: agent, model: nil, status: status,
@@ -267,44 +276,6 @@ struct HomeSectionsTests {
             Space(id: "site", name: "Site", icon: "rocket", color: "#10b981", sessions: [database], more: 0),
         ])
     }()
-
-    @Test func withNoSearchEverythingIsListed() {
-        let sections = HomeSections(home: Self.home, query: "  ")
-        #expect(!sections.isFiltered)
-        #expect(sections.needsYou.map(\.id) == ["c", "a"])
-        #expect(sections.spaces.map(\.id) == ["realm", "site"])
-        #expect(sections.spaces.first?.more == 2)
-    }
-
-    @Test func aSearchMatchesTheTitleTheSpaceAndTheAgent() {
-        #expect(HomeSections(home: Self.home, query: "relay").spaces.flatMap(\.sessions).map(\.id) == ["b"])
-        #expect(HomeSections(home: Self.home, query: "site").spaces.flatMap(\.sessions).map(\.id) == ["c"])
-        #expect(HomeSections(home: Self.home, query: "Codex").needsYou.map(\.id) == ["c"])
-        #expect(HomeSections(home: Self.home, query: "DARK").needsYou.map(\.id) == ["a"])
-    }
-
-    @Test func aSpaceWithNothingMatchingIsLeftOut() {
-        let sections = HomeSections(home: Self.home, query: "relay")
-        #expect(sections.spaces.map(\.id) == ["realm"])
-        #expect(sections.needsYou.isEmpty)
-        #expect(HomeSections(home: Self.home, query: "nothing like this").isEmpty)
-    }
-
-    @Test func underASpaceIsWhatTheMacHoldsBeyondIt() {
-        let realm = Self.home.spaces[0], site = Self.home.spaces[1]
-        #expect(SpaceFooter.words(realm, searching: false) == "2 more on your Mac")
-        // A search lists what matched, not what the Mac holds besides.
-        #expect(SpaceFooter.words(realm, searching: true) == nil)
-        #expect(SpaceFooter.words(site, searching: false) == nil)
-        let empty = Space(id: "e", name: "Empty", icon: "", color: "", sessions: [], more: 0)
-        #expect(SpaceFooter.words(empty, searching: false) == "No sessions yet")
-    }
-
-    @Test func aNeedsYouRowFindsItsSpace() {
-        let sections = HomeSections(home: Self.home, query: "")
-        #expect(sections.space(of: Self.home.needsYou[0])?.name == "Site")
-        #expect(sections.space(of: Self.row("x", "T", space: "gone", spaceName: "Gone")) == nil)
-    }
 
     /// What has not gone to the Mac is gathered by session: a refusal always, held work while away.
     @Test func whatHasNotGoneIsGatheredBySession() {
@@ -653,21 +624,85 @@ struct RequestTests {
 }
 
 @MainActor
-@Suite("The composer's buttons")
-struct ComposerButtonsTests {
-    @Test func sendIsUpOnlyWithSomethingToSend() {
-        #expect(!ComposerButtons(working: false, draft: "").send)
-        #expect(!ComposerButtons(working: false, draft: "  \n ").send)
-        #expect(ComposerButtons(working: false, draft: "Ship it").send)
+@Suite("The composer, at rest and composing", .serialized)
+struct ComposerDrawingTests {
+    struct Host: View {
+        @FocusState private var focused: Bool
+
+        var body: some View {
+            ComposerView(sessionId: "s1", focused: $focused)
+        }
     }
 
-    /// Stop stays while a turn runs, whatever is typed: a draft never hides it.
-    @Test func stopStaysUpWhileATurnRunsWhateverIsTyped() {
-        #expect(ComposerButtons(working: true, draft: "").stop)
-        #expect(ComposerButtons(working: true, draft: "Ship it").stop)
-        #expect(ComposerButtons(working: true, draft: "Ship it") == ComposerButtons(working: true, draft: "Also this"))
-        #expect(ComposerButtons(working: true, draft: "Ship it").send)
-        #expect(!ComposerButtons(working: false, draft: "Ship it").stop)
+    static func model() -> AppModel {
+        modelWithSession(status: .idle, modelLabel: "Opus 5.5")
+    }
+
+    /// At rest it is one capsule, the field and its button, with no chip naming the model.
+    @Test func atRestItIsTheFieldAndItsButton() throws {
+        let words = try Drawing.words(Host().environment(Self.model()))
+        #expect(!words.contains("Opus"), "\(words)")
+    }
+
+    /// With words in it, it is a card, and the model the message goes to is a chip under them.
+    @Test func composingTheModelIsAChipUnderTheWords() throws {
+        let model = Self.model()
+        model.composerDrafts["s1"] = "Ship it on Friday"
+        let words = try Drawing.words(Host().environment(model))
+        #expect(words.contains("Ship it on Friday") && words.contains("Opus 5.5"), "\(words)")
+    }
+}
+
+@MainActor
+@Suite("The composer's one button")
+struct ComposerActionTests {
+    static let photo = OutgoingAttachment(id: UUID(), name: "Photo.jpg", mime: "image/jpeg", size: 1_000, file: "x.jpg")
+
+    /// Idle, it sends; with nothing to send it is there, and off.
+    @Test func idleItSendsAndIsOffWithNothingToSend() {
+        let off = ComposerAction(working: false, hasContent: false, midTurn: .queue, canSteer: true)
+        #expect(off.kind == .send && !off.enabled && off.alternatives.isEmpty)
+        let on = ComposerAction(working: false, hasContent: true, midTurn: .steer, canSteer: true)
+        #expect(on.kind == .send && on.enabled && on.alternatives.isEmpty)
+    }
+
+    /// While a turn runs, or waits on the person, and nothing is typed, it stops the turn.
+    @Test func midTurnWithNothingToSendItStops() {
+        let stop = ComposerAction(working: true, hasContent: false, midTurn: .steer, canSteer: true)
+        #expect(stop.kind == .stop && stop.enabled && stop.alternatives.isEmpty)
+    }
+
+    /// With something to send mid-turn it goes as the Mac takes a message then, and a long press offers
+    /// the other way and Stop.
+    @Test func midTurnItSendsAsTheMacTakesItWithTheOtherWayAndStopBeside() {
+        let queue = ComposerAction(working: true, hasContent: true, midTurn: .queue, canSteer: true)
+        #expect(queue.kind == .queue && queue.enabled && queue.alternatives == [.steer, .stop])
+        let steer = ComposerAction(working: true, hasContent: true, midTurn: .steer, canSteer: true)
+        #expect(steer.kind == .steer && steer.alternatives == [.queue, .stop])
+        // A Mac that does not answer `session.options` never says what steering does: it is not offered.
+        let older = ComposerAction(working: true, hasContent: true, midTurn: nil, canSteer: false)
+        #expect(older.kind == .queue && older.alternatives == [.stop])
+    }
+
+    /// Words, or a file with none: something to send.
+    @Test func wordsOrAFileAreSomethingToSend() {
+        #expect(!ComposerAction.hasContent(text: "", attachments: []))
+        #expect(!ComposerAction.hasContent(text: "  \n ", attachments: []))
+        #expect(ComposerAction.hasContent(text: "Ship it", attachments: []))
+        #expect(ComposerAction.hasContent(text: "", attachments: [Self.photo]))
+    }
+
+    /// Each sends as it says, and says what it does; Steer in the Mac's words for its agent.
+    @Test func eachGoesAsItSays() {
+        #expect(ComposerAction.delivery(.send) == .auto)
+        #expect(ComposerAction.delivery(.queue) == .queue)
+        #expect(ComposerAction.delivery(.steer) == .steer)
+        #expect(ComposerAction.delivery(.stop) == nil)
+        let note = "Sends now, into the turn Codex is already running. Nothing is interrupted."
+        #expect(ComposerAction.Kind.queue.explanation(steerNote: note) == "Sends when this turn ends.")
+        #expect(ComposerAction.Kind.steer.explanation(steerNote: note) == note)
+        #expect(ComposerAction.Kind.stop.explanation(steerNote: note) == "Stops the agent's turn.")
+        #expect([ComposerAction.Kind.send, .stop, .queue, .steer].map(\.symbol) == ["arrow.up", "stop.fill", "list.number", "arrow.turn.left.up"])
     }
 }
 

@@ -1747,7 +1747,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // the owner is at this Mac. Nothing dials until a phone is paired or a pairing window opens.
   const presence = new Presence({ attached: () => browserBridge.connected });
   const remote = new RemoteService({ rpc, settings, phones: new RemoteDevicesStore(db), macName: machine, version: SERVER_VERSION,
-    reportsDir: join(opts.home, "remote", "reports"), defaultRelay: opts.remote?.defaultRelay, dev: opts.remote?.dev,
+    reportsDir: join(opts.home, "remote", "reports"), home: opts.home, defaultRelay: opts.remote?.defaultRelay, dev: opts.remote?.dev,
     linkBase: opts.remote?.linkBase, pairTtlMs: opts.remote?.pairTtlMs, homeKey: opts.remote?.homeKey, log: (line) => console.error(line) });
   phonePushes = new PhonePushes({ remote, presence, settings, holdMs: opts.remote?.pushHoldMs,
     notification: (id) => notificationsStore.get(id),

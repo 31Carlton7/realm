@@ -39,10 +39,18 @@ type Channel = {
   /** Rows changed by text deltas, flushed at most ten times a second. */
   dirty: Map<string, Set<string>>;
   flush: NodeJS.Timeout | null;
+  /** Open leads whose sub-agents changed, said once for the changes that come together. */
+  leads: Set<string>;
+  leadsFlush: NodeJS.Timeout | null;
 };
 
 const DELTA_FLUSH_MS = 100;
 const HOME_DEBOUNCE_MS = 1_000;
+/** Reviews and scheduled tasks change in bursts too — a run's every step is a `runs.changed` — and a
+ *  phone reads them again on each `work.changed`, so it is said as seldom as `home.changed`. */
+const WORK_DEBOUNCE_MS = 1_000;
+/** A sub-agent's settle moves its status and its lead's runs in one moment: one `session.subagents`. */
+const SUBAGENTS_FLUSH_MS = 250;
 const PAIR_TTL_MS = 5 * 60_000;
 const PUSH_TIMEOUT_MS = 15_000;
 
@@ -64,6 +72,8 @@ export type GatewayOptions = {
   confirm: (phone: { name: string; model: string; windowId: string }) => Promise<boolean>;
   /** Where `debug.report` writes, in development builds. */
   reportsDir: string;
+  /** The Realm home whose `tmp/attachments` takes the files a phone sends, as a desktop paste's does. */
+  realmHome: string;
   dev?: boolean;
   log?: (line: string) => void;
   /** Tests: the pairing link's scheme. */
@@ -81,6 +91,7 @@ export class RemoteGateway {
   private readonly channels = new Map<string, Channel>();
   private window: Window | null = null;
   private homeTimer: NodeJS.Timeout | null = null;
+  private workTimer: NodeJS.Timeout | null = null;
   private offEvents: (() => void) | null = null;
   private readonly pushes = new Map<string, (r: PushResult) => void>();
   private readonly log: (line: string) => void;
@@ -91,7 +102,7 @@ export class RemoteGateway {
     this.store = o.phones;
     this.keys = o.identity.keys;
     this.macId = o.identity.macId;
-    this.api = new MobileApi({ macName: () => o.macName, reportsDir: o.reportsDir, dev: o.dev === true });
+    this.api = new MobileApi({ macName: () => o.macName, reportsDir: o.reportsDir, realmHome: o.realmHome, dev: o.dev === true });
     this.link = new RelayLink({
       relay: o.relay, macId: this.macId, keys: this.keys, log: this.log,
       on: {
@@ -134,6 +145,8 @@ export class RemoteGateway {
     for (const c of [...this.channels.keys()]) this.dropChannel(c);
     if (this.homeTimer) clearTimeout(this.homeTimer);
     this.homeTimer = null;
+    if (this.workTimer) clearTimeout(this.workTimer);
+    this.workTimer = null;
     if (this.window) clearTimeout(this.window.timer);
     this.window = null;
     this.link.stop();
@@ -223,6 +236,7 @@ export class RemoteGateway {
     this.channels.set(ch, {
       ch, mode: pair ? "pair" : "phone", phoneId: pair ? null : who.phone, windowId: pair ? who.pair : null,
       handshake: null, send: null, reader: null, ctx: { phoneId: pair ? "" : who.phone, rpc, sessions: new Map() }, dirty: new Map(), flush: null,
+      leads: new Set(), leadsFlush: null,
     });
   }
 
@@ -230,6 +244,7 @@ export class RemoteGateway {
     const c = this.channels.get(ch);
     if (!c) return;
     if (c.flush) clearTimeout(c.flush);
+    if (c.leadsFlush) clearTimeout(c.leadsFlush);
     this.channels.delete(ch);
     // Last seen is when a phone was last connected, so a channel that got as far as speaking to us
     // marks it on the way out as well as on the way in.
@@ -341,14 +356,35 @@ export class RemoteGateway {
       case "session.status": {
         const p = payload as EventPayload<"session.status">;
         for (const c of this.channels.values()) {
-          if (!c.ctx.sessions.has(p.sessionId)) continue;
-          this.sendEvent(c, "session.status", { id: p.sessionId, status: p.status === "waiting_permission" ? "waiting" : p.status });
+          if (c.ctx.sessions.has(p.sessionId)) this.sendEvent(c, "session.status", { id: p.sessionId, status: p.status === "waiting_permission" ? "waiting" : p.status });
+          // A sub-agent's status is a line of its lead's list, as its Agents tab reads it again.
+          for (const [lead, open] of c.ctx.sessions) if (open.subagents.has(p.sessionId)) this.subagentsChanged(c, lead);
         }
         this.homeChanged();
         return;
       }
+      case "session.queue": {
+        const p = payload as EventPayload<"session.queue">;
+        for (const c of this.channels.values()) {
+          const open = c.ctx.sessions.get(p.sessionId);
+          if (!open || !c.send) continue;
+          // Still opening: its answer carries the queue, and this is newer than the queue it read.
+          if (open.buffer) { open.queued = p.queued; continue; }
+          this.sendEvent(c, "session.queue", { id: p.sessionId, queued: this.api.queuedMessages(p.queued) } satisfies MobileEventPayload<"session.queue">);
+        }
+        return;
+      }
+      case "delegation.changed": {
+        // A run began, settled or was collected: the lead's list of sub-agents is not what it was.
+        const p = payload as EventPayload<"delegation.changed">;
+        for (const c of this.channels.values()) if (c.ctx.sessions.has(p.sessionId)) this.subagentsChanged(c, p.sessionId);
+        return;
+      }
       case "spaces.changed": case "items.changed": case "notifications.changed":
         this.homeChanged();
+        return;
+      case "team.changed": case "schedules.changed": case "runs.changed":
+        this.workChanged();
         return;
       default:
         return;
@@ -403,6 +439,23 @@ export class RemoteGateway {
       this.homeTimer = null;
       for (const c of this.channels.values()) if (c.send && c.mode === "phone") this.sendEvent(c, "home.changed", {});
     }, HOME_DEBOUNCE_MS);
+  }
+
+  private workChanged(): void {
+    if (this.workTimer) return;
+    this.workTimer = setTimeout(() => {
+      this.workTimer = null;
+      for (const c of this.channels.values()) if (c.send && c.mode === "phone") this.sendEvent(c, "work.changed", {});
+    }, WORK_DEBOUNCE_MS);
+  }
+
+  private subagentsChanged(c: Channel, lead: string): void {
+    c.leads.add(lead);
+    c.leadsFlush ??= setTimeout(() => {
+      c.leadsFlush = null;
+      for (const id of c.leads) if (c.ctx.sessions.has(id)) this.sendEvent(c, "session.subagents", { id } satisfies MobileEventPayload<"session.subagents">);
+      c.leads.clear();
+    }, SUBAGENTS_FLUSH_MS);
   }
 }
 

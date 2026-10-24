@@ -1,9 +1,11 @@
-import type { Item, MethodName, MethodParams, MethodResult, Session, Space } from "@realm/contracts";
+import type { Item, MethodName, MethodParams, MethodResult, Profile, QueuedPrompt, Session, Space } from "@realm/contracts";
 import type { ChannelContext } from "./api";
 import type { RpcPort } from "./rpc-port";
 
 /** Rows and a fake of the desktop's RPC, for the mobile API's tests. */
 
+export const profile = (id: string, name = `Profile ${id}`, icon = "user"): Profile =>
+  ({ id, name, icon, color: "#6b7280", sortOrder: 0, browserPartition: `persist:browser-${id}`, createdAt: 0, updatedAt: 0 });
 export const space = (id: string, profileId = "p1"): Space =>
   ({ id, profileId, name: `Space ${id}`, icon: "folder", color: "#7c6cff", sortOrder: 0, folderPath: "/tmp", groups: null, layout: null, activeItemId: null, createdAt: 0, updatedAt: 0 });
 export const item = (refId: string, spaceId: string, title: string, extra: Partial<Item> = {}): Item =>
@@ -12,7 +14,7 @@ export const session = (id: string, spaceId: string, extra: Partial<Session> = {
   ({ id, spaceId, projectId: null, agentKind: "fake", model: null, effort: null, fastMode: false, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", cwd: "/tmp", status: "idle",
     providerSessionId: null, title: `${id} (session)`, lastEventSeq: 0, seenSeq: 0, terminalItemId: null, dispatchedBy: null, activityAt: 0, createdAt: 0, updatedAt: 0, ...extra });
 
-export type Lists = { spaces?: Space[]; sessions: Session[]; items: Item[]; settings?: Record<string, unknown> };
+export type Lists = { profiles?: Profile[]; spaces?: Space[]; sessions: Session[]; items: Item[]; settings?: Record<string, unknown>; queued?: Record<string, QueuedPrompt[]> };
 
 /** The desktop's RPC as `home.get` reads it: `items.listAll` leaves archived rows out, as the store does. */
 export function fakeRpc(h: Lists, more: Partial<Record<MethodName, (p: never) => unknown>> = {}): RpcPort & { calls: string[] } {
@@ -21,6 +23,7 @@ export function fakeRpc(h: Lists, more: Partial<Record<MethodName, (p: never) =>
     const extra = more[method];
     if (extra) return extra(params as never);
     switch (method) {
+      case "profiles.list": return h.profiles ?? [profile("p1"), profile("p2")];
       case "spaces.list": return h.spaces ?? [space("s1"), space("s2", "p2")];
       case "sessions.listAll": return h.sessions;
       case "items.listAll": return h.items.filter((i) => !i.archived);
@@ -31,6 +34,7 @@ export function fakeRpc(h: Lists, more: Partial<Record<MethodName, (p: never) =>
         return found;
       }
       case "sessions.events": return [];
+      case "sessions.queued": return { queued: h.queued?.[(params as { id: string }).id] ?? [] };
       default: throw new Error(`the fake has no ${method}`);
     }
   };

@@ -1,49 +1,18 @@
-import type { DelegatedChild, SessionStatus } from "@realm/contracts";
+import type { DelegatedChild } from "@realm/contracts";
+import { isLive, type SubagentState } from "@realm/view";
 
 /**
- * Where one sub-agent stands, in the words its lead's Agents tab and transcript use for it.
- *
- * Two sources, and the order between them is the point. The child's LIVE status says what it is doing
- * now — a finished child someone has since sent a message to is working again, whatever its recorded
- * outcome says. Once it is not busy, the outcome `agent_run` wrote down says how its run ended, which
- * the status cannot: a child that timed out and one that finished both sit at `idle`.
+ * Where one sub-agent stands, in the words its lead's Agents tab and transcript use for it: the state
+ * itself (`subagentState`) is `@realm/view`'s, so Realm Mobile says how a sub-agent's work went in the
+ * same words, and is read from here as the tab always read it.
  */
-export type SubagentState = "queued" | "working" | "waiting" | "done" | "failed" | "timeout" | "stopped" | "cancelled";
-
-export const STATE_LABEL: Record<SubagentState, string> = {
-  queued: "Queued", working: "Working", waiting: "Needs you", done: "Done",
-  failed: "Failed", timeout: "Timed out", stopped: "Stopped", cancelled: "Cancelled",
-};
+export { isLive, STATE_LABEL, subagentState, type SubagentState } from "@realm/view";
 
 /** The transcript's line for the same state — "Sub-agent finished · <task>", as Codex writes it. */
 export const STATE_VERB: Record<SubagentState, string> = {
   queued: "Sub-agent starting", working: "Sub-agent working", waiting: "Sub-agent waiting on you", done: "Sub-agent finished",
   failed: "Sub-agent failed", timeout: "Sub-agent timed out", stopped: "Sub-agent stopped", cancelled: "Sub-agent cancelled",
 };
-
-/** Still going, in any sense a clock should keep ticking for. */
-export const isLive = (state: SubagentState): boolean => state === "queued" || state === "working" || state === "waiting";
-
-export function subagentState(child: DelegatedChild, live: SessionStatus | undefined, inFlight: boolean): SubagentState {
-  const status = live ?? child.session.status;
-  if (status === "waiting_permission") return "waiting";
-  if (status === "running") return "working";
-  switch (child.outcome) {
-    case "done": return "done";
-    case "timeout": return "timeout";
-    case "stopped": return "stopped";
-    case "interrupted": return "cancelled";
-    case "failed": case "gone": return "failed";
-    case null: break;
-  }
-  if (status === "error") return "failed";
-  // Nothing recorded. Either the run has not begun its first turn yet, or the child came from a tool
-  // that keeps no ledger (a browser agent, a reviewer) — whose last word is then the only evidence
-  // that it finished. A child no run is waiting on and that never spoke did not finish.
-  if (inFlight) return "queued";
-  if (child.report !== null) return "done";
-  return status === "ended" ? "failed" : "stopped";
-}
 
 /** How long it ran — still running, how long it has been going. */
 export function subagentElapsed(child: DelegatedChild, state: SubagentState, now: number): number {
