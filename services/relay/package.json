@@ -9,7 +9,9 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "dev": "wrangler dev",
-    "deploy:staging": "wrangler deploy --env staging"
+    "deploy:staging": "node --experimental-strip-types --no-warnings scripts/deploy.ts staging",
+    "deploy:production": "node --experimental-strip-types --no-warnings scripts/deploy.ts production",
+    "smoke": "node --experimental-strip-types --no-warnings scripts/smoke.ts"
   },
   "//": "Plan 28's relay: a Worker with one Durable Object per Mac. Its tests run in workerd under vitest 4 (what @cloudflare/vitest-pool-workers needs), so this package is outside the root vitest projects and runs as `pnpm relay:test`.",
   "dependencies": { "ws": "^8.18.0" },
