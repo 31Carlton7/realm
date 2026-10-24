@@ -18,6 +18,11 @@ extraResources:
   # spawnable server entry): server/ (dist + prod node_modules), skills/, scrollphase (when built).
   - from: .pack-stage
     to: .
+  # `realm`, the command line (apps/server/bin): <resources>/bin/realm, and realm.cmd for Windows. It
+  # runs server/dist/realm.js on the app's own binary as Node, so an extracted AppImage serves with
+  # `squashfs-root/resources/bin/realm serve`, with no Node installed and no display.
+  - from: ../server/bin
+    to: bin
 mac:
   target:
     - dmg
@@ -67,6 +72,11 @@ afterSign: scripts/notarize.cjs
 # stage-pack.mjs stages that OS's node-pty and icons. The icon is the 1024px PNG the .icns is drawn
 # from; electron-builder makes the hicolor set and the .ico from it. No update feed reads these
 # (updater.ts is the Mac's alone), so they are installed by hand from the release page.
+# The AppImage's runtime: AppImage's own static type2 runtime, with a zstd image. The default (0.0.0)
+# is AppImageKit's old one: it needs libfuse2, which Ubuntu 22.04 and later no longer install, reads
+# a gzip image, and prints every file it unpacks.
+toolsets:
+  appimage: "1.0.3"
 linux:
   target:
     - AppImage
