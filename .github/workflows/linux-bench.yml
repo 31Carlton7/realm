@@ -87,7 +87,7 @@ jobs:
             for tool in realm orca; do
               img=$realm; [ "$tool" = orca ] && img=$bench/tools/orca-x/orca-linux.AppImage
               echo "$tool: $(stat -c %s "$img") bytes, runtime: $("$img" --appimage-version 2>&1 | head -1)"
-              du -sh "$bench/tools/$tool-x/squashfs-root"
+              echo "$(du -sh "$bench/tools/$tool-x/squashfs-root" | cut -f1) in $(find "$bench/tools/$tool-x/squashfs-root" -type f | wc -l) files, extracted"
             done
             ls -l "$GITHUB_WORKSPACE"/apps/desktop/release/*.deb
             du -s "$bench"/tools/realm-x/squashfs-root/resources/server/node_modules/.pnpm/* | sort -n | tail -8
@@ -124,9 +124,9 @@ jobs:
           echo "::error::Xvfb did not come up"; exit 1
 
       # One launch of each first, kept but not counted: the first GUI app on a fresh runner pays for
-      # caches that belong to neither (on run 40071171133 Realm's, first, took 11.0 s and every later
-      # launch 3.55). Orca's goes first here. Then three each, the order turned round every time, so
-      # neither app always goes first.
+      # caches that belong to neither. Run 40071171133 warmed Realm up first (11.0 s, then 3.55 s every
+      # time); run 40072225515 warmed Orca up first (6.19 s, then 2.54). Then three each, the order
+      # turned round every time, so neither app always goes first.
       - name: GUI launch probes (Realm, Orca, alternating, 3 each)
         working-directory: ${{ runner.temp }}/bench
         run: |
@@ -153,17 +153,20 @@ jobs:
           tool, app = sys.argv[1], sys.argv[2]
           home = f"/tmp/home-launch-{tool}"; shutil.rmtree(home, ignore_errors=True); os.makedirs(home)
           env = {**os.environ, "DISPLAY": ":90", "HOME": home, "XDG_CONFIG_HOME": home + "/.config"}
+          visible = lambda: subprocess.run(["xdotool", "search", "--onlyvisible", "--name", "."], env=env, capture_output=True, text=True).stdout.split()
+          for _ in range(50):  # the last launch's window may not be gone yet, and would read as this one's
+              if not visible(): break
+              time.sleep(0.1)
           t0 = time.time()
           p = subprocess.Popen([app, "--no-sandbox"], env=env, stdout=open(f"{os.environ['OUT']}/launch-{tool}.log", "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True)
           first = None
           while time.time() - t0 < 45 and p.poll() is None:
-              if subprocess.run(["xdotool", "search", "--onlyvisible", "--name", "."], env=env, capture_output=True, text=True).stdout.split():
-                  first = round(time.time() - t0, 2); break
+              if visible(): first = round(time.time() - t0, 2); break
               time.sleep(0.1)
           time.sleep(12)
           rows = [r.split(None, 3) for r in subprocess.run(["ps", "-eo", "pgid=,pid=,rss=,args="], capture_output=True, text=True).stdout.splitlines()]
           mine = [r for r in rows if r[0] == str(p.pid)]
-          print(f"{tool}: first window {first} s from the extracted AppDir; {round(sum(int(r[2]) for r in mine) / 1024)} MB over {len(mine)} processes 12 s later")
+          print(f"{tool}: first window {first} s; {round(sum(int(r[2]) for r in mine) / 1024)} MB over {len(mine)} processes 12 s later")
           for r in sorted(mine, key=lambda r: -int(r[2])): print(f"  {round(int(r[2]) / 1024):5d} MB  {r[3][:160]}")
           os.killpg(p.pid, signal.SIGKILL)
           EOF
