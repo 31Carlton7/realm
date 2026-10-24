@@ -1,8 +1,8 @@
 import { h2, note, p, page, steps, table, ul } from "@/lib/docs-blocks"
 
-/** Realm for iPhone's public TestFlight link. TODO(owner): put the code Apple gives in place of TESTFLIGHT_CODE;
- *  this is the only place it is written. */
-const TESTFLIGHT_LINK = "https://testflight.apple.com/join/TESTFLIGHT_CODE"
+/** Realm for iPhone's public TestFlight link, once Apple's beta review approves it; until then the page says the
+ *  app is in TestFlight by invitation. This is the only place the link is written. */
+export const TESTFLIGHT_LINK: string | null = null
 
 export default page({
   slug: "mobile",
@@ -11,13 +11,17 @@ export default page({
     "Realm runs on your Mac. This is how to pair an iPhone with it, how it reaches your phone, how to leave agents working while you're away, and how to build mobile apps with it.",
   body: [
     note(
-      `Realm for iPhone is a public beta on TestFlight: open [the TestFlight link](${TESTFLIGHT_LINK}) on your iPhone to install it. It's free, and needs iOS 26 and Realm 2.5 or later on your computer. It reaches your Mac through Realm's relay, so it works away from home, and only while Realm is open, or while [\`realm serve\`](/docs/run-on-a-server) is running.`,
+      TESTFLIGHT_LINK === null
+        ? "Realm for iPhone is in TestFlight, by invitation for now, and a public beta link is on its way. It needs iOS 26 and Realm 2.5 or later on your computer. It reaches your Mac through Realm's relay, so it works away from home, and only while Realm is open, or while [`realm serve`](/docs/run-on-a-server) is running."
+        : `Realm for iPhone is a public beta on TestFlight: open [the TestFlight link](${TESTFLIGHT_LINK}) on your iPhone to install it. It's free, and needs iOS 26 and Realm 2.5 or later on your computer. It reaches your Mac through Realm's relay, so it works away from home, and only while Realm is open, or while [\`realm serve\`](/docs/run-on-a-server) is running.`,
     ),
 
     h2("Pair an iPhone"),
     steps(
       "On your Mac, open **Settings ▸ Devices** and press **Pair an iPhone**. A code appears, good for five minutes.",
-      "On your iPhone, install Realm from TestFlight, open it and press **Scan the code**.",
+      TESTFLIGHT_LINK === null
+        ? "On your iPhone, open Realm and press **Scan the code**."
+        : `On your iPhone, install Realm from [TestFlight](${TESTFLIGHT_LINK}), open it and press **Scan the code**.`,
       "Your Mac asks **Pair <name>?**, saying it can read every session on this Mac and answer for you. Press **Pair**.",
     ),
     p(

@@ -21,6 +21,52 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-5-0",
+    title: "Realm v2.5.0",
+    date: "2026-10-24",
+    version: "v2.5.0",
+    area: "Release",
+    summary:
+      "Realm is open source under the MIT License and builds without any private registry; a `realm` command line in every app drives Realm headless and from scripts; a Realm on another machine with access tokens, Tailscale and a service; phones that pair from a terminal and a production relay; Realm for iPhone's new Home and composer; a folding sub-agent report; Electron 45; and a Linux AppImage that opens in about three seconds.",
+    body: [
+      { kind: "h", text: "Open source" },
+      { kind: "ul", items: [
+        "**Realm is MIT-licensed.** The code is yours to read, build, change and ship. A few bundled parts keep their own licenses; THIRD-PARTY-NOTICES.md lists them.",
+        "**Anyone can build it.** `pnpm install && pnpm build` no longer needs the Hugeicons Pro registry: without it, Realm draws Hugeicons' free pack, which has every icon Realm uses, drawn the same.",
+      ] },
+      { kind: "h", text: "Run Realm anywhere" },
+      { kind: "ul", items: [
+        "**A `realm` command line.** Every Realm app now carries `realm` (in `Resources/bin`): serve Realm without a window, open a repository, give each task a worktree of its own, run a command in each, wait, read logs and kill one, with `--json` for scripts. A command you start shows in the sidebar as a terminal, and the worktree it makes is one you can review.",
+        "**A Realm on another machine.** `realm serve --listen` takes clients from other machines over TLS, behind Tailscale (`--tailscale`) or through an SSH tunnel, with access tokens you make and revoke (`realm token`). Save it once (`realm remote add`), then aim any command at it with `--server`. `realm service install` keeps it running as a systemd or launchd service.",
+        "**Pair a phone from a terminal.** `realm pair` shows the pairing code in the terminal, so Realm for iPhone works with a headless server too, on Linux included.",
+      ] },
+      { kind: "h", text: "Realm for iPhone" },
+      { kind: "ul", items: [
+        "**Home, one profile at a time.** Profiles in the title, your sessions listed your way, Pinned, and a compose button for a new session with its space, agent, model and mode.",
+        "**A new composer.** Photos, camera and files on +, the model and mode chips, and Stop in the send button.",
+        "**More of the Mac on the phone.** Pin, rename and archive; the Mac's queue (Send now, Edit, Remove); sub-agents; Usage; Review; Scheduled.",
+        "**Read on the phone means read on the Mac.** Home also stops listing the sub-agent and team runs the Mac's sidebar hides, the largest text sizes no longer cut or cover anything, and menus are drawn in ink.",
+        "**A production relay.** Released Macs pair through Realm's production relay. Phones paired on the old one follow their Mac there on their own, with nothing to pair again.",
+      ] },
+      { kind: "h", text: "Sessions" },
+      { kind: "ul", items: [
+        "**\"What it reported\" folds away,** and keeps its first line when closed. A sub-agent's brief is drawn as the parts its lead wrote — where it works, what to read first, what to build — as readable text.",
+        "**A new session made in the Activity view comes into view,** however far down the list was scrolled.",
+        "**A calmer loader** for an image or video being made: the picture's own size, its glyph, one slow ring.",
+        "**Skills keep your login.** On a machine whose Claude login lives in `~/.claude/settings.json` (an `apiKeyHelper` and an `env` block), sessions in a space with skills no longer answer \"Not logged in\". Thanks to Abdulrahman Sadiq (#209).",
+      ] },
+      { kind: "h", text: "Documents" },
+      { kind: "ul", items: [
+        "**Show in Finder** from the Documents pane: the open document, or the space's folder.",
+      ] },
+      { kind: "h", text: "Under the hood" },
+      { kind: "ul", items: [
+        "**Electron 45, Chromium 156.** Squircle corners are now drawn by the engine itself, and the browser pane's user agent says Chrome 156.",
+        "**Linux opens in about 3 seconds.** The AppImage runs on AppImage's static runtime (no libfuse2 needed) and is 150 MB smaller; the deb is 100 MB smaller.",
+      ] },
+    ],
+  },
+  {
     slug: "v2-4-0",
     title: "Realm v2.4.0",
     date: "2026-10-19",

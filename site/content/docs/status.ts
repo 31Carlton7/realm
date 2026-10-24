@@ -1,3 +1,4 @@
+import { TESTFLIGHT_LINK } from "./mobile"
 import { h2, p, page, table, ul } from "@/lib/docs-blocks"
 
 // Checked on 23 October 2026 against the v2.4.0 tree, main, CHANGELOG.md, docs/platforms.md, the release list on
@@ -22,7 +23,9 @@ export default page({
       ["Mac with an Intel processor", "Not supported. The Mac build is made for Apple silicon only."],
       ["Linux on x64", "A preview, as an AppImage and a .deb. Unsigned, doesn't update itself, and hides the features that need a Mac."],
       ["Windows on x64", "A preview, as an installer. Unsigned, so SmartScreen warns the first time it runs; doesn't update itself, and hides the features that need a Mac."],
-      ["iPhone", "A public beta on TestFlight, free, with iOS 26 and Realm 2.5 or later on your computer. See [Mobile](/docs/mobile)."],
+      ["iPhone", TESTFLIGHT_LINK === null
+        ? "In TestFlight by invitation, with a public beta on its way. Needs iOS 26 and Realm 2.5 or later on your computer. See [Mobile](/docs/mobile)."
+        : "A public beta on TestFlight, free, with iOS 26 and Realm 2.5 or later on your computer. See [Mobile](/docs/mobile)."],
       ["Android, the web", "No app."],
     ),
     p(
@@ -34,7 +37,7 @@ export default page({
     ul(
       "**The MIT License.** Realm's source has been MIT-licensed since 23 October 2026 (#221). The repository had no license before that, including at Realm 2.4.0. A few bundled parts, such as the fonts, keep their own licenses.",
     ),
-    p("Coming in Realm 2.5:"),
+    p("New in Realm 2.5:"),
     ul(
       "**The command line.** `realm` runs the agent server without a window and drives it from scripts, and every packaged app carries it. See [Command line](/docs/command-line).",
       "**Realm on a server.** `realm serve` takes clients on other machines, behind access tokens and TLS or Tailscale Serve, and `realm service install` keeps it running. See [Run Realm on a server](/docs/run-on-a-server).",
