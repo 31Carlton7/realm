@@ -134,7 +134,7 @@ describe("home.get lists sessions as the sidebar does", () => {
     // THE MUTANTS: list every session with an item (the teammate and the role's run come back), or drop
     // every dispatched session (the orphan goes with nothing left to reach it by).
     expect(h.spaces.map((sp) => sp.sessions.map((r) => r.id))).toEqual([["orphan", "lead"], ["own"]]);
-    expect(h.recent.map((r) => r.id)).toEqual(["orphan", "lead", "own"]);
+    expect(h.recent?.map((r) => r.id)).toEqual(["orphan", "lead", "own"]);
   });
 });
 
