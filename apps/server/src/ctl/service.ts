@@ -46,8 +46,8 @@ export function systemdUnit(s: ServiceSpec): string {
   return [
     "[Unit]",
     "Description=Realm server (realm serve)",
-    "After=network-online.target",
-    "Wants=network-online.target",
+    // No network-online.target: a user manager cannot see the system's targets. A listener whose
+    // address is not up yet fails, and Restart= tries again until it is.
     "",
     "[Service]",
     "Type=simple",

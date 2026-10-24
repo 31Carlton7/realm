@@ -193,7 +193,8 @@ try {
   const exit = new Promise<number>((res) => term.onExit(({ exitCode }) => res(exitCode)));
   term.onData((d) => {
     screen += d;
-    const link = /https:\/\/realm\.computer\/pair#[A-Za-z0-9._-]+/.exec(screen)?.[0];
+    // Only a whole line: the terminal hands its bytes over in pieces, and half a link is no link.
+    const link = /(https:\/\/realm\.computer\/pair#[A-Za-z0-9._-]+)\r?\n/.exec(screen)?.[1];
     if (link && !paired) paired = phone.pair(link, { name: "Live iPhone", model: "iPhone18,1" });
     if (!answered && /\[y\/N\]/.test(screen)) { answered = true; term.write("y\r"); }
   });

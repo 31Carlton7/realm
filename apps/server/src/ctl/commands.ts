@@ -523,7 +523,7 @@ async function pair(c: CtlClient, io: CtlIo, json: boolean, print: (value: unkno
     const started = now();
     const win = await c.call<PairingWindow>("remote.pair.start");
     const status = await c.call<RemoteStatus>("remote.status");
-    say(`Open Realm on your iPhone and scan this, or paste the link below into Pair with your Mac.\n`);
+    say(`Open Realm on your iPhone and scan this, or copy the link below and choose Paste the link.\n`);
     say(terminalQr(win.url, { columns: io.columns, color: io.tty !== false && !json }));
     say(`\n${win.url}\n`);
     say(`The code works once, for ${clock(win.expiresAt - now())}. Waiting for a phone… (Ctrl-C to stop)`);
