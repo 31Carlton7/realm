@@ -55,7 +55,8 @@
       // The workers.dev address, until realm.computer's DNS moves to Cloudflare: a Worker's custom
       // domain needs its zone there, and the zone is on Vercel. Then this gains
       //   "routes": [{ "pattern": "relay.realm.computer", "custom_domain": true }]
-      // and the address Realm dials moves with it.
+      // and the address Realm dials moves with it. Paired phones follow their Mac to the new address
+      // (PROTOCOL.md §3.3), so the move pairs nobody again.
       "workers_dev": true,
       "preview_urls": false,
       "durable_objects": {

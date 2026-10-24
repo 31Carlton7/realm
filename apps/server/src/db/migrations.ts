@@ -1224,4 +1224,10 @@ export const migrations: string[] = [
     added_at INTEGER NOT NULL,
     last_seen INTEGER);
   `,
+  // The relay each paired phone dials (Realm Mobile, PROTOCOL.md §3.3): where it paired, then wherever
+  // the Mac last saw it. A Mac moved to another relay keeps dialling every relay one of its phones is
+  // still on, and tells each phone where to find it now. NULL for every phone paired before this:
+  // RemoteService takes those to be on the relay the Mac dialled then, the only one they can have been
+  // paired on, and writes it in as it starts.
+  `ALTER TABLE remote_devices ADD COLUMN relay TEXT;`,
 ];

@@ -21,6 +21,15 @@ export class LinkError extends Error {
   constructor(readonly reason: "malformed" | "version" | "expired") { super(`pairing link ${reason}`); }
 }
 
+/** A relay base as PROTOCOL.md §2 writes `r`: `ws://` or `wss://`, a host, and no trailing slash. A value
+ *  with surrounding space or trailing slashes is tidied first; anything else is null. */
+export function relayBase(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const url = v.trim().replace(/\/+$/, "");
+  if (!/^wss?:\/\/[^/]+(\/.*)?$/.test(url)) return null;
+  try { new URL(url); return url; } catch { return null; }
+}
+
 /** The payload goes after `#`, so a browser that opens the link sends none of it to the website. */
 export function encodeLink(l: PairingLink, base = LINK_BASE): string {
   const data = { r: l.relay, m: l.macId, k: b64u(l.macKey), s: b64u(l.secret), w: l.windowId, n: l.macName, e: l.expiresAt };
@@ -40,7 +49,7 @@ export function parseLink(url: string, now = Date.now()): PairingLink {
   const key = (k: string): Buffer => { try { const b = fromB64u(str(k)); if (b.length !== 32) throw new Error(); return b; } catch { throw new LinkError("malformed"); } };
   if (typeof d.e !== "number" || !Number.isFinite(d.e)) throw new LinkError("malformed");
   const link: PairingLink = { relay: str("r"), macId: str("m"), macKey: key("k"), secret: key("s"), windowId: str("w"), macName: str("n"), expiresAt: d.e };
-  if (!/^wss?:\/\/[^/]+(\/.*)?$/.test(link.relay) || link.relay.endsWith("/")) throw new LinkError("malformed");
+  if (relayBase(link.relay) !== link.relay) throw new LinkError("malformed");
   if (link.expiresAt <= now) throw new LinkError("expired");
   return link;
 }

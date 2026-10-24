@@ -1,13 +1,14 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer, type AddressInfo } from "node:net";
 import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter } from "@realm/adapters";
 import { REMOTE_RELAY_KEY, sessionEvent, type EventName, type EventPayload, type MethodName } from "@realm/contracts";
 import { isSealed } from "@realm/contracts/src/secret-box";
-import { fromB64u, generateDeviceKeys, HandshakeState, HomeSchema, MobileCalls, MobileEvents, PROLOGUE, type Row } from "@realm/remote";
+import { fromB64u, generateDeviceKeys, HandshakeState, HomeSchema, MobileCalls, MobileEvents, parseLink, PROLOGUE, type Row } from "@realm/remote";
 import { startLocalRelay, type ApnsPush, type LocalRelay } from "@realm/relay/src/node";
 import WebSocket, { WebSocketServer } from "ws";
 import { createApp, type App } from "../app";
@@ -142,6 +143,9 @@ async function boot(o: { home?: string; relay?: LocalRelay; key?: string | null;
 }
 
 const status = (r: Rig) => r.mac.call("remote.status", {});
+
+/** A port that was free a moment ago, for a relay that starts later. */
+const freePort = () => new Promise<number>((ok) => { const s = createServer(); s.listen(0, "127.0.0.1", () => { const p = (s.address() as AddressInfo).port; s.close(() => ok(p)); }); });
 
 /** Pairs through Settings: the window, the phone's handshake, and the owner's yes. */
 async function pairPhone(r: Rig, phone = new TestPhone()): Promise<TestPhone> {
@@ -303,6 +307,104 @@ describe("Plan 28: pairing from Settings ▸ Devices", () => {
     await expect(r.app.rpc.call("browserHost.register", { hasWindow: true }, asPhone)).rejects.toMatchObject({ code: "FORBIDDEN" });
     // The window is the Mac's own register, still in place.
     expect((await r.mac.call("system.info", {})).detachedSince).toBeNull();
+  });
+});
+
+describe("PROTOCOL.md §3.3: a Mac that moves to another relay takes its phones with it", () => {
+  const sender = (into: ApnsPush[]) => ({ send: async (p: ApnsPush) => { into.push(p); return { ok: true, status: 200, reason: null }; } });
+
+  /** Resolves once `relay` refuses this phone itself (4403): the Mac has told it to forget the phone. */
+  const refusedAt = async (phone: TestPhone, relay: string) => {
+    const stale = new TestPhone(phone.keys, { ...phone.mac!, relay });
+    stale.followsMac = false;
+    await waitFor(async () => {
+      try { await stale.connect(); stale.close(); return false; } catch (e) { return /socket closed 4403/.test((e as Error).message); }
+    });
+  };
+
+  it("names its new relay in the handshake: the phone moves, the old relay forgets it, and its pushes go the new way", async () => {
+    const pushesA: ApnsPush[] = [];
+    const pushesB: ApnsPush[] = [];
+    const a = await startLocalRelay({ port: 0, apns: sender(pushesA) });
+    const b = await startLocalRelay({ port: 0, apns: sender(pushesB) });
+    relays.push(a, b);
+    const r = await boot({ relay: a });
+    const id = await newSession(r);
+    const phone = await pairPhone(r);
+    expect(phone.mac!.relay).toBe(a.url);
+
+    // The Mac moves, as a release that dials production moves a Mac paired on staging.
+    await r.mac.call("settings.set", { key: REMOTE_RELAY_KEY, value: b.url });
+    await waitFor(async () => { const s = await status(r); return s.relay === b.url && s.state === "connected"; });
+    // The phone still dials the relay it paired at, where the Mac is still listening for it, and is
+    // sent on to the new one in the same connect.
+    expect(await phone.connect()).toMatchObject({ relay: b.url });
+    expect(phone.mac!.relay).toBe(b.url);
+    expect(await phone.call("ping")).toMatchObject({ at: expect.any(Number) });
+    // No phone is on the old relay now: the Mac had it forget the phone's key before hanging up.
+    await refusedAt(phone, a.url);
+
+    // The push token goes up at the new relay, and the push goes out through it.
+    const token = randomBytes(32).toString("hex");
+    phone.apns(token);
+    await phone.call("ping");
+    await r.mac.call("sessions.send", { id, text: "ask me something" });
+    await waitFor(() => pushesB.length > 0);
+    expect(pushesB[0]).toMatchObject({ token, macId: phone.mac!.macId });
+    expect(pushesA).toEqual([]);
+    // A new code is made at the new relay too.
+    const { url } = await r.mac.call("remote.pair.start", {});
+    expect(parseLink(url).relay).toBe(b.url);
+    phone.close();
+  });
+
+  it("never sends a phone to a relay that is not answering, and tells it once that relay is up", async () => {
+    const a = await startLocalRelay({ port: 0 });
+    relays.push(a);
+    const r = await boot({ relay: a });
+    const phone = await pairPhone(r);
+    // A port nothing listens on yet: the Mac moves to it and keeps dialling.
+    const port = await freePort();
+    const b = `ws://127.0.0.1:${port}`;
+    await r.mac.call("settings.set", { key: REMOTE_RELAY_KEY, value: b });
+    await waitFor(async () => (await status(r)).relay === b);
+    // THE mutant: name the new relay whether or not it answers. The phone would leave a relay where
+    // its Mac is for one where nobody is.
+    expect(await phone.connect()).toMatchObject({ relay: a.url });
+    expect(await phone.call("ping")).toMatchObject({ at: expect.any(Number) });
+
+    relays.push(await startLocalRelay({ port }));
+    await waitFor(async () => (await status(r)).state === "connected", { timeout: 15_000 });
+    // The Mac closes the channel of the phone it could not tell, so it connects again and hears.
+    await waitFor(async () => phone.call("ping").then(() => false, () => true));
+    expect(await phone.connect()).toMatchObject({ relay: b });
+    expect(await phone.call("ping")).toMatchObject({ at: expect.any(Number) });
+    await refusedAt(phone, a.url);
+    phone.close();
+  });
+
+  it("stays on the old relay for a phone from before relays could move, without bouncing it, until it is removed", async () => {
+    const a = await startLocalRelay({ port: 0 });
+    relays.push(a);
+    const b = await startLocalRelay({ port: 0 });
+    const r = await boot({ relay: a });
+    const phone = await pairPhone(r);
+    phone.followsMac = false;
+    await r.mac.call("settings.set", { key: REMOTE_RELAY_KEY, value: b.url });
+    await waitFor(async () => (await status(r)).state === "connected");
+    expect(await phone.connect()).toMatchObject({ relay: a.url });
+    expect(await phone.call("ping")).toMatchObject({ at: expect.any(Number) });
+    // It was told, and chose not to go. The new relay going and coming back leaves its channel alone:
+    // only a phone that was never told is closed to hear it.
+    await b.close();
+    await waitFor(async () => (await status(r)).state !== "connected");
+    relays.push(await startLocalRelay({ port: Number(new URL(b.url).port) }));
+    await waitFor(async () => (await status(r)).state === "connected", { timeout: 15_000 });
+    expect(await phone.call("ping")).toMatchObject({ at: expect.any(Number) });
+    // Removed, it is forgotten at the relay it never left, and the Mac stops dialling there.
+    await r.mac.call("remote.phones.remove", { phoneId: phone.phoneId });
+    await refusedAt(phone, a.url);
+    phone.close();
   });
 });
 

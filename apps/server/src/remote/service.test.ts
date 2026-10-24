@@ -2,7 +2,7 @@ import { createServer, type AddressInfo } from "node:net";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { tempDir } from "@realm/test-utils";
-import { REMOTE_RELAY_KEY, type RemoteStatus } from "@realm/contracts";
+import { REMOTE_RELAY_KEY, STAGING_REMOTE_RELAY, type RemoteStatus } from "@realm/contracts";
 import { newSecretKey } from "@realm/contracts/src/secret-box";
 import { generateDeviceKeys } from "@realm/remote";
 import { openDatabase } from "../db/database";
@@ -97,13 +97,33 @@ describe("RemoteService", () => {
     remoteSecretBox.setKey(key());
     expect(new MacKeys(r.settings).mint()).not.toBeNull();
     const k = generateDeviceKeys();
-    r.phones.add({ phoneId: "phoneA", name: "iPhone", model: "iPhone18,1", dh: k.dh.pub, sign: k.sign.pub, addedAt: 1, lastSeen: null });
+    r.phones.add({ phoneId: "phoneA", name: "iPhone", model: "iPhone18,1", dh: k.dh.pub, sign: k.sign.pub, addedAt: 1, lastSeen: null, relay: "wss://relay.example" });
     // The keyring was reset under it: a different key arrives.
     remoteSecretBox.setKey(key());
     const svc = r.make();
     svc.start();
     expect(svc.status()).toMatchObject({ state: "off", phones: [] });
     expect(r.settings.get(REMOTE_IDENTITY_KEY)).toBeNull();
+  });
+
+  it("takes a phone paired before relays were recorded to be on the relay the Mac dialled then", () => {
+    // Every Realm before this dialled the relay setting or else staging, so that is where such a phone
+    // paired, whatever this build would dial.
+    const r = rig({ defaultRelay: "wss://production.example" });
+    const k = generateDeviceKeys();
+    r.phones.add({ phoneId: "old", name: "iPhone", model: "iPhone18,1", dh: k.dh.pub, sign: k.sign.pub, addedAt: 1, lastSeen: null, relay: null });
+    r.phones.add({ phoneId: "new", name: "iPad", model: "iPad16,1", dh: k.dh.pub, sign: k.sign.pub, addedAt: 2, lastSeen: null, relay: "wss://production.example" });
+    r.make().start();
+    expect(r.phones.list().map((p) => [p.phoneId, p.relay])).toEqual([["old", STAGING_REMOTE_RELAY], ["new", "wss://production.example"]]);
+  });
+
+  it("takes such a phone to be on the relay setting, where one was set", () => {
+    const r = rig({ defaultRelay: "wss://production.example" });
+    r.settings.set(REMOTE_RELAY_KEY, "ws://127.0.0.1:9/");
+    const k = generateDeviceKeys();
+    r.phones.add({ phoneId: "old", name: "iPhone", model: "iPhone18,1", dh: k.dh.pub, sign: k.sign.pub, addedAt: 1, lastSeen: null, relay: null });
+    r.make().start();
+    expect(r.phones.get("old")!.relay).toBe("ws://127.0.0.1:9");
   });
 
   it("keeps an identity it can open: the same Mac, by the same keys, on every start", () => {

@@ -83,8 +83,9 @@ describe("the QR code", () => {
   });
 
   it("is the size a real link makes at M, which the sheet draws three pixels a module", () => {
-    // A real link is ~380 characters: the relay, two ids, two keys, the Mac's name and the expiry.
-    expect(url.length).toBeGreaterThan(370);
+    // A real link is ~370 characters: the production relay, two ids, two keys, the Mac's name and the
+    // expiry.
+    expect(url.length).toBeGreaterThan(360);
     expect(qrCode(url).size).toBe(85);
   });
 });

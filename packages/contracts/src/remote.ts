@@ -6,10 +6,12 @@ import { z } from "zod";
  * nothing here is reachable from a phone.
  */
 
-/** The relay this Mac dials. One deployment serves every Mac; a Mac's pairings remember the relay they
- *  were made on, so changing this re-pairs every phone. */
+/** The relay this Mac dials, when it is not the one its build would dial. One deployment serves every
+ *  Mac. Unset, a released build dials production and a development build staging. */
 export const REMOTE_RELAY_KEY = "remote.relay";
-export const DEFAULT_REMOTE_RELAY = "wss://realm-relay-staging.realm-relay.workers.dev";
+/** Realm's two relays, as services/relay/wrangler.jsonc deploys them. */
+export const PRODUCTION_REMOTE_RELAY = "wss://realm-relay.realm-relay.workers.dev";
+export const STAGING_REMOTE_RELAY = "wss://realm-relay-staging.realm-relay.workers.dev";
 
 /** Whether the moments `RELAYED_CATEGORIES` names also go to paired phones as pushes. On by default:
  *  pairing a phone is the opt-in, and the row only appears once one is paired. */

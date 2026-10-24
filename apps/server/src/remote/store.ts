@@ -12,6 +12,9 @@ export type PairedPhone = {
   sign: Buffer;
   addedAt: number;
   lastSeen: number | null;
+  /** The relay this phone dials, as far as this Mac knows: the one it paired at, then the one it was
+   *  last seen on (PROTOCOL.md §3.3). Null where nobody wrote it down; the gateway takes that to be its own. */
+  relay: string | null;
 };
 
 /** Where the gateway keeps the phones it has paired: the `remote_devices` table inside realm-server
@@ -23,6 +26,8 @@ export interface PhoneStore {
   add(p: PairedPhone): void;
   remove(phoneId: string): boolean;
   touch(phoneId: string, at: number): void;
+  /** The phone was seen on `relay`: that is where it dials now. */
+  setRelay(phoneId: string, relay: string): void;
 }
 
 /** This Mac's identity at the relay and in every handshake. */
@@ -50,8 +55,8 @@ export class FileRemoteStore implements PhoneStore {
     mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     const devices = join(this.dir, "devices.json");
     if (existsSync(devices)) {
-      const raw = JSON.parse(readFileSync(devices, "utf8")) as { phones: (Omit<PairedPhone, "dh" | "sign"> & { dh: string; sign: string })[] };
-      this.phones = raw.phones.map((p) => ({ ...p, dh: fromB64u(p.dh), sign: fromB64u(p.sign) }));
+      const raw = JSON.parse(readFileSync(devices, "utf8")) as { phones: (Omit<PairedPhone, "dh" | "sign" | "relay"> & { dh: string; sign: string; relay?: string | null })[] };
+      this.phones = raw.phones.map((p) => ({ ...p, dh: fromB64u(p.dh), sign: fromB64u(p.sign), relay: p.relay ?? null }));
     }
   }
 
@@ -91,6 +96,13 @@ export class FileRemoteStore implements PhoneStore {
     const p = this.phones.find((x) => x.phoneId === phoneId);
     if (!p) return;
     p.lastSeen = at;
+    this.save();
+  }
+
+  setRelay(phoneId: string, relay: string): void {
+    const p = this.phones.find((x) => x.phoneId === phoneId);
+    if (!p) return;
+    p.relay = relay;
     this.save();
   }
 
