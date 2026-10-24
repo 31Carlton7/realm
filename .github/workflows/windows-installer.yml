@@ -120,7 +120,14 @@ jobs:
       matrix:
         include:
           - label: fix
+            works: true
           - label: base
+          # The fix installed over 2.5.0, as anyone who has 2.5.0 will get it.
+          - label: fix over v2.5.0
+            artifact: fix
+            over: Realm-Setup-2.5.0.exe
+            over_sha256: 3b25272740d96d30f641cd00a29474ce745ca77e432f98edb32a5237a41d1705
+            works: true
           - label: v2.5.0
             asset: Realm-Setup-2.5.0.exe
             sha256: 3b25272740d96d30f641cd00a29474ce745ca77e432f98edb32a5237a41d1705
@@ -136,8 +143,20 @@ jobs:
       - uses: actions/download-artifact@v4
         if: ${{ !matrix.asset }}
         with:
-          name: installer-${{ matrix.label }}
+          name: installer-${{ matrix.artifact || matrix.label }}
           path: ${{ runner.temp }}/installer
+
+      - name: Install the release it goes over
+        if: ${{ matrix.over }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $exe = "$env:RUNNER_TEMP\${{ matrix.over }}"
+          curl.exe -fsSL -o $exe "https://github.com/31Carlton7/realm/releases/download/v2.5.0/${{ matrix.over }}"
+          if ((Get-FileHash $exe -Algorithm SHA256).Hash -ne "${{ matrix.over_sha256 }}") { throw "sha256 mismatch" }
+          Start-Process -FilePath $exe -ArgumentList '/S', "/D=$env:RUNNER_TEMP\RealmApp" -Wait
+          "first installed: ${{ matrix.over }}; its resources\server\node_modules holds: " + ((Get-ChildItem -Force "$env:RUNNER_TEMP\RealmApp\resources\server\node_modules" | Select-Object -ExpandProperty Name) -join ' ') | Tee-Object -FilePath "$env:RUNNER_TEMP\over.txt"
+          Get-Content "$env:RUNNER_TEMP\over.txt" | ForEach-Object { "    $_" } | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
 
       - name: Download the published installer
         if: ${{ matrix.asset }}
@@ -204,7 +223,7 @@ jobs:
           fi
           sed 's/^/    /' "$RUNNER_TEMP/serve.txt" >> "$GITHUB_STEP_SUMMARY"
           taskkill //F //T //IM Realm.exe > /dev/null 2>&1
-          if [ "${{ matrix.label }}" = fix ]; then
+          if [ "${{ matrix.works }}" = true ]; then
             grep -q "Realm 2.5.0 is running on" "$RUNNER_TEMP/serve.txt" && grep -v "echo packaged-cli-ok" "$RUNNER_TEMP/logs.txt" | grep -q packaged-cli-ok
           fi
 
@@ -229,7 +248,7 @@ jobs:
             fi
           } | tee "$RUNNER_TEMP/claude.txt"
           sed 's/^/    /' "$RUNNER_TEMP/claude.txt" >> "$GITHUB_STEP_SUMMARY"
-          if [ "${{ matrix.label }}" = fix ]; then grep -q "claude.exe --version: [0-9]" "$RUNNER_TEMP/claude.txt"; fi
+          if [ "${{ matrix.works }}" = true ]; then grep -q "claude.exe --version: [0-9]" "$RUNNER_TEMP/claude.txt"; fi
 
       # The app itself, as a person starts it: on Windows it runs its server as a child on a pipe.
       - name: Realm.exe starts its server
@@ -256,4 +275,4 @@ jobs:
           } | Tee-Object -FilePath "$env:RUNNER_TEMP\app.txt"
           Get-Content "$env:RUNNER_TEMP\app.txt" | ForEach-Object { "    $_" } | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
           Get-Process Realm -ErrorAction SilentlyContinue | Stop-Process -Force
-          if ("${{ matrix.label }}" -eq "fix" -and $status -notmatch "Realm 2.5.0 is running on") { throw "the installed app did not start its server" }
+          if ("${{ matrix.works }}" -eq "true" -and $status -notmatch "Realm 2.5.0 is running on") { throw "the installed app did not start its server" }
