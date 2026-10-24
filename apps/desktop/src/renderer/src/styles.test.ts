@@ -3663,6 +3663,24 @@ describe("§6 do-NOT-animate list", () => {
     expect(reduced).toContain("transition: none !important");
     expect(reduced).toContain(".spinner { display: none; }");
   });
+
+  it("the generating canvas turns one compositor ring round a still glyph, and stills to the glyph", () => {
+    /* The owner's ask (10-23): the dotted lattice was busy, so the canvas is a quiet well with the
+       kind's glyph and one slow ring. The ring turns by `rotate`, which the compositor takes — a
+       wandering mask or a moving `background-position` repaints the box every frame. */
+    const spin = bodiesFor(".gen-spin").join(" ");
+    expect(spin).toMatch(/animation: gen-turn var\(--gen-turn\) linear infinite/);
+    expect(css).toMatch(/@keyframes gen-turn \{\s*to \{ rotate: 1turn; \}\s*\}/);
+    expect(bodiesFor(".gen-canvas").join(" ")).toMatch(/--gen-turn: 1\.8s/);
+    // Nothing of the lattice is left to repaint.
+    expect(css).not.toMatch(/\.gen-(dots|glow)\b|gen-morph/);
+    // Under Reduce motion the ring goes rather than freezing mid-turn, and the glyph stays.
+    const reduced = blockAfter("@media (prefers-reduced-motion: reduce)").replace(/\s+/g, " ");
+    expect(reduced).toContain(".gen-spin { display: none; }");
+    expect(reduced).not.toContain(".gen-glyph");
+    // A loop that cannot rest pauses when nobody is looking.
+    expect(RULES.flatMap(partsOf)).toContain(":root[data-quiet] .gen-spin");
+  });
 });
 
 /** The three layout regressions the space page and the icon picker shipped with. All of them are
