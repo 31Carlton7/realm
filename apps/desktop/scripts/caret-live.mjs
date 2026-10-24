@@ -304,9 +304,14 @@ const press = async (c, key, code, keyCode, modifiers = 0) => {
   await c.send("Input.dispatchKeyEvent", { type: "keyUp", modifiers, key, code, windowsVirtualKeyCode: keyCode });
 };
 
+/** The solid shape the drawn caret is measured in. A thin solid line is the app's to draw only where
+ *  the engine has no `caret-animation`; from Chromium 14x it is the platform's (`nativeCaret`), so on
+ *  such an engine the comparison is made with the 2px line, which only the app draws. */
+let drawnLine = "line-thin";
+
 /**
  * The platform's caret and the drawn one at the same offset of one field, both magenta: off (thin
- * blinking line — the platform's own), then on (thin SOLID line — the app's). `select` puts the
+ * blinking line — the platform's own), then on (a SOLID line — the app's). `select` puts the
  * caret there; `clip` is where to look.
  */
 async function compareAt(c, label, select, clipExpr, results) {
@@ -316,7 +321,7 @@ async function compareAt(c, label, select, clipExpr, results) {
   const clip = await evalIn(c, clipExpr);
   const native = await findCaret(c, `native-${label}`, clip);
   const offState = await evalIn(c, `({ marked: !!document.querySelector('[data-rl-caret]'), drawn: __live.drawn() })`);
-  await setCaret(c, { shape: "line-thin", animation: "solid", glide: false });
+  await setCaret(c, { shape: drawnLine, animation: "solid", glide: false });
   await evalIn(c, select);
   await sleep(120);
   const drawn = await findCaret(c, `drawn-${label}`, clip, 3);
@@ -372,7 +377,20 @@ async function main() {
   const env = await evalIn(c, `({ dpr: devicePixelRatio, supports: { shape: CSS.supports('caret-shape', 'block'), animation: CSS.supports('caret-animation', 'manual') },
     root: { caret: document.documentElement.getAttribute('data-caret'), animation: document.documentElement.getAttribute('data-caret-animation') } })`);
   note("the engine and the default caret", env);
-  check("this engine has no caret-shape or caret-animation, so the shapes are drawn", env.supports.shape === false && env.supports.animation === false, env.supports);
+  if (env.supports.shape || env.supports.animation) {
+    // Electron 45 (Chromium 156) has both: a block or a still thin line is then the platform's caret.
+    for (const shape of ["line-thin", ...(env.supports.shape ? ["block"] : [])]) {
+      await setCaret(c, { shape, animation: "solid", glide: false });
+      await evalIn(c, `(() => { document.querySelector('.composer-input').focus(); return true; })()`);
+      await sleep(120);
+      const native = await evalIn(c, `({ caretShape: document.documentElement.style.getPropertyValue('caret-shape'), caretAnimation: document.documentElement.style.getPropertyValue('caret-animation'),
+        marked: !!document.querySelector('[data-rl-caret]'), drawn: !!__live.drawn()?.shown })`);
+      const want = shape === "block" ? "block" : "auto";
+      check(`this engine draws a solid ${shape} itself, so the app's caret steps aside`,
+        native.caretShape === want && native.caretAnimation === "manual" && !native.marked && !native.drawn, { supports: env.supports, ...native });
+    }
+    drawnLine = "line";
+  } else check("this engine has no caret-shape or caret-animation, so the shapes are drawn", true, env.supports);
   check("the default caret is a line that blinks", env.root.caret === "line" && env.root.animation === "blink", env.root);
 
   /* ── 1. The prompter: the drawn caret on the platform's pixel ─────────────────────────────────── */
@@ -446,7 +464,8 @@ async function main() {
   await evalIn(c, `(() => { document.getElementById('live-password').remove(); return true; })()`);
 
   /* ── 3. IME: the platform's caret comes back while an input method composes ─────────────────── */
-  await setCaret(c, { shape: "block", animation: "solid", glide: false });
+  // A pill, which no engine draws natively — a solid block is the platform's own on Chromium 156.
+  await setCaret(c, { shape: "pill", animation: "solid", glide: false });
   await evalIn(c, inSearch(6));
   await sleep(150);
   const beforeIme = await evalIn(c, `({ marked: !!document.querySelector('.settings-search[data-rl-caret]'), shown: __live.drawn().shown })`);
