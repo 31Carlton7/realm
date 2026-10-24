@@ -13,8 +13,10 @@ import { PhysicalDevices } from "./simulators/physical";
 import { phoneVideo } from "./simulators/phone-video";
 import { simctl } from "./simulators/simctl";
 import { realLayaRuntime } from "./laya/runtime";
-import { DAEMON_PROTOCOL, STAGING_REMOTE_RELAY } from "@realm/contracts";
+import { DAEMON_PROTOCOL } from "@realm/contracts";
+import { relayBase } from "@realm/remote";
 import { realmHome } from "./paths";
+import { defaultRelay } from "./remote/relays";
 import { BOOT_ID, acquireLock, clearState, currentBundleId, newToken, readState, releaseLock, writeState } from "./daemon/state";
 
 const envPort = Number(process.env.REALM_PORT);
@@ -42,6 +44,11 @@ try {
   // The live-video helper for a real iPhone's picture, as the app handed it over. Absent — a build
   // without swiftc, a launch that is not the app's — the picture is the runner's screenshots.
   const phoneScreen = process.env.REALM_PHONESCREEN_BIN && existsSync(process.env.REALM_PHONESCREEN_BIN) ? process.env.REALM_PHONESCREEN_BIN : null;
+
+  // A REALM_RELAY that is not a relay leaves the build's own in place; said here, so that is no mystery.
+  if (process.env.REALM_RELAY && !relayBase(process.env.REALM_RELAY)) {
+    process.stderr.write(`[realm-server] REALM_RELAY ${JSON.stringify(process.env.REALM_RELAY)} is not a ws:// or wss:// relay; dialling ${defaultRelay(process.env)}\n`);
+  }
 
   const app = await createApp({
     home, port, token,
@@ -82,9 +89,11 @@ try {
       rehearsal: (process.env.REALM_RUNNER_SIMULATOR ?? "").split(",").map((u) => u.trim()).filter(Boolean),
     }),
     // Realm Mobile's relay. Only here, for the probe's reason: no other `createApp` may dial one it did
-    // not name. A development build (`pnpm dev`, whose window is the Vite server) also takes the phone's
-    // `debug.report`, which is how a test build brings its own timings back; a packaged one never does.
-    remote: { defaultRelay: STAGING_REMOTE_RELAY, dev: Boolean(process.env.ELECTRON_RENDERER_URL) },
+    // not name. Production for a released build, staging for a development one (`pnpm dev`, whose
+    // window is the Vite server), REALM_RELAY over both (remote/relays.ts). A development build also
+    // takes the phone's `debug.report`, which is how a test build brings its own timings back; a
+    // packaged one never does.
+    remote: { defaultRelay: defaultRelay(process.env), dev: Boolean(process.env.ELECTRON_RENDERER_URL) },
   });
 
   // The state file is written only now, because `createApp` is what binds the port — a file
