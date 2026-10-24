@@ -6,6 +6,7 @@ import { defineConfig } from "electron-vite";
 import type { Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { hasHugeiconsPro, hugeiconsAlias } from "../../packages/ui/src/hugeicons-pack";
 import { scaleTextSizes } from "./src/renderer/src/theme/text-scale";
 import { releaseNotes } from "./src/main/whats-new-notes";
 
@@ -67,6 +68,10 @@ const pdfjsAssets = (): Plugin => ({
 const here = dirname(fileURLToPath(import.meta.url));
 const appVersion = (JSON.parse(readFileSync(join(here, "package.json"), "utf8")) as { version: string }).version;
 const whatsNew = { version: appVersion, notes: releaseNotes(readFileSync(join(here, "../../CHANGELOG.md"), "utf8"), appVersion) };
+/** The glyphs are the Hugeicons Pro pack's where the owner's registry token installed it, and the free
+ *  pack's, under the same names, everywhere else (packages/ui/src/hugeicons.ts). The build says which,
+ *  because a token that has lapsed fails nothing: pnpm skips a pack it can no longer fetch. */
+if (!hasHugeiconsPro()) console.warn("[hugeicons] the Pro pack is not installed; drawing the free pack (docs/dev/hugeicons.md)");
 export default defineConfig({
   // __REALM_SIGNED_BUILD__ feeds the updater gate (src/main/updater.ts): true only when the build
   // env carries signing credentials — the same CSC_* vars electron-builder signs from — so a signed
@@ -83,6 +88,7 @@ export default defineConfig({
   // React components that drew an element from them (app-pick/describe.ts).
   renderer: {
     plugins: [katexWoff2Only(), textScale(), pdfjsAssets(), react(), tailwindcss()],
+    resolve: { alias: hugeiconsAlias() },
     server: { host: "127.0.0.1" },
     build: { minify: "esbuild" },
     esbuild: { keepNames: true },
