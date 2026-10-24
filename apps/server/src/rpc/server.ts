@@ -178,16 +178,13 @@ export class RpcServer {
         refuseUpgrade(socket, status);
       };
       if (req.headers.origin !== undefined) return refuse(403, `a browser page (${req.headers.origin})`);
-      let who: { id: string; name: string } | null = null;
-      for (const p of offeredProtocols(req.headers["sec-websocket-protocol"])) {
-        if (!p.startsWith("realm.")) continue;
-        who = o.authenticate(p.slice("realm.".length));
-        if (who) { accepted.set(req, p); break; }
-      }
-      if (!who) return refuse(401, "no valid access token");
+      // One token per handshake: a client offering a list would otherwise try many for one refusal.
+      const offered = offeredProtocols(req.headers["sec-websocket-protocol"]).find((p) => p.startsWith("realm."));
+      const who = offered === undefined ? null : o.authenticate(offered.slice("realm.".length));
+      if (!offered || !who) return refuse(401, "no valid access token");
+      accepted.set(req, offered);
       o.limiter.succeed(from);
-      const id = who.id;
-      const name = who.name;
+      const { id, name } = who;
       wss.handleUpgrade(req, socket, head, (ws) => {
         mine.set(ws, id);
         ws.on("close", () => mine.delete(ws));
