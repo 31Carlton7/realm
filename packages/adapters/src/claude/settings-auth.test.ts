@@ -90,7 +90,10 @@ describe("carrySettingsAuth", () => {
   });
 
   it("proceeds without a key — env block intact, onLog told — when the helper fails, prints nothing, or times out", async () => {
-    for (const [helper, timeoutMs] of [["exit 3", undefined], ["true", undefined], ["sleep 5", 200]] as const) {
+    // The last helper ignores SIGTERM and spins in the shell itself (no child to hold stdout open),
+    // so only the SIGKILL deadline ends it: under the default signal it would run until the test timed out.
+    const deaf = "trap '' TERM; while :; do :; done";
+    for (const [helper, timeoutMs] of [["exit 3", undefined], ["true", undefined], ["sleep 5", 200], [deaf, 200]] as const) {
       const logs: string[] = [];
       const env = homeWith({ env: { ANTHROPIC_BASE_URL: "https://gw.example" }, apiKeyHelper: helper });
       const began = Date.now();

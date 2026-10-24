@@ -1067,6 +1067,25 @@ describe("ClaudeAdapter skills", () => {
     await handle.dispose();
   });
 
+  it("holds a mid-carry interrupt until the spawn it stops exists", async () => {
+    // The same window as setOptions above: a Stop pressed while the helper is still minting found no
+    // `q`, so `q?.interrupt()` did nothing and the first turn ran on as if Stop was never pressed.
+    settingsFile({ apiKeyHelper: "sleep 0.2; printf sk-slow" });
+    const interrupt = vi.fn();
+    const adapter = new ClaudeAdapter({
+      query: (() => {
+        const g = (async function* () {})() as AsyncGenerator<unknown> & { interrupt: typeof interrupt };
+        g.interrupt = interrupt;
+        return g;
+      }) as never,
+    });
+    const handle = adapter.start({ cwd: "/tmp", mcpServers: [], skills: { pluginPath: "/tmp/realm-plugin", root: "/tmp/realm-plugin/skills" } });
+    await handle.send({ text: "hi", attachments: [] });
+    await handle.interrupt(); // pressed while the helper is still minting
+    expect(interrupt).toHaveBeenCalledTimes(1);
+    await handle.dispose();
+  });
+
   it("leaves a non-skills session's env byte-for-byte what it always was, settings file or not", async () => {
     // The CLI reads the file itself here, so carrying it too would apply every entry twice — and run
     // a token-minting helper on sessions that never lost their login.
