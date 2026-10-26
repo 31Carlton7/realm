@@ -6,7 +6,7 @@
 
 **One workspace for every coding agent, on your Mac.**
 
-[realm.computer](https://realm.computer) &nbsp;·&nbsp; [Download](https://github.com/31Carlton7/realm/releases/latest) &nbsp;·&nbsp; [Changelog](https://realm.computer/changelog)
+[realm.computer](https://realm.computer) &nbsp;·&nbsp; [Download](https://github.com/31Carlton7/realm/releases/latest) &nbsp;·&nbsp; [iPhone app (TestFlight)](https://testflight.apple.com/join/YJEqF6ZM) &nbsp;·&nbsp; [Changelog](https://realm.computer/changelog)
 
 macOS · Apple silicon · in active development
 
