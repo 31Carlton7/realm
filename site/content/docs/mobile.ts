@@ -2,7 +2,7 @@ import { h2, note, p, page, steps, table, ul } from "@/lib/docs-blocks"
 
 /** Realm for iPhone's public TestFlight link, once Apple's beta review approves it; until then the page says the
  *  app is in TestFlight by invitation. This is the only place the link is written. */
-export const TESTFLIGHT_LINK: string | null = null
+export const TESTFLIGHT_LINK: string | null = "https://testflight.apple.com/join/YJEqF6ZM"
 
 export default page({
   slug: "mobile",
