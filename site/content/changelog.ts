@@ -21,6 +21,23 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-5-1",
+    title: "Realm v2.5.1",
+    date: "2026-10-27",
+    version: "v2.5.1",
+    area: "Release",
+    summary:
+      "Clicks in the sidebar work again on Electron 45, updates finish and reconnect instead of leaving the old server running, and Realm on Windows starts its server.",
+    body: [
+      { kind: "h", text: "Fixes" },
+      { kind: "ul", items: [
+        "**Clicks in the sidebar work again.** Since 2.5.0, a real click on Settings' pages, Back, the search field, the profile header, Activity, a session's row or New space could do nothing, because Chromium 156 made the window's drag areas reach every element inside them. Only the strips meant for dragging drag the window now, and a window in full screen has none at all.",
+        "**Updates finish.** Restart and update now stops Realm's server before the new version replaces the app, and a relaunch that finds an old or stuck server replaces it instead of showing \"Connection lost — reconnecting…\" forever. Quit Realm & stop agents waits until nothing is left running, so a fresh download can replace the app. If an update can't install, Realm reopens and says so.",
+        "**Realm on Windows starts.** The installer now carries a server that can find its own packages; no Windows release before this one could start its server once installed. Installing over 2.3, 2.4 or 2.5 works, and the installer is half the size.",
+      ] },
+    ],
+  },
+  {
     slug: "v2-5-0",
     title: "Realm v2.5.0",
     date: "2026-10-24",
