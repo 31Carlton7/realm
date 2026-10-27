@@ -213,6 +213,13 @@ struct RowDrawingTests {
         #expect(kept.sizeThatFits(in: CGSize(width: 358, height: 1_000)).width <= 358)
     }
 
+    /// Three reads in a row are one line that counts them.
+    @Test func aRunOfReadsIsOneLine() throws {
+        let rows = (1...3).map { Self.row(.tool(name: "Read", summary: "/repo/src/file\($0).ts", state: .done, detail: nil), key: "t\($0)") }
+        let words = try Drawing.words(WorkRun(rows: rows, sessionId: "s1").environment(AppModel()))
+        #expect(words.contains("Read 3 files") && !words.contains("file2.ts"), "\(words)")
+    }
+
     /// The work is quiet lines that say what they did, in the tense of their state.
     @Test func workSaysWhatItDid() throws {
         let rows = [Self.row(.tool(name: "Read", summary: "AppSettings.tsx", state: .done, detail: nil), key: "t1"),
@@ -443,6 +450,46 @@ struct WorkWordsTests {
         #expect(ToolWords.line(tool: "realm-team__review_submit", summary: "", running: false).verb == "Review submit")
         #expect(ToolWords.connectorTool("Bash") == nil)
         #expect(ToolWords.connectorTool("mcp__realm__") == nil)
+    }
+
+    /// Every tool has a kind, the same for every agent, and Realm's own servers are known by name.
+    @Test func aToolIsKnownByWhatItDoes() {
+        #expect(ToolWords.kind("Bash") == .run)
+        #expect(ToolWords.kind("exec_command") == .run)
+        #expect(ToolWords.kind("apply_patch") == .edit)
+        #expect(ToolWords.kind("TodoWrite") == .plan)
+        #expect(ToolWords.kind("mcp__realm__realm-simulator__simulator_tap") == .simulator)
+        #expect(ToolWords.kind("mcp__realm__realm-agent__agent_start") == .delegate)
+        #expect(ToolWords.kind("mcp__realm__realm-browser__browser_open") == .browser)
+        #expect(ToolWords.kind("mcp__linear__save_issue") == .connector)
+        #expect(ToolWords.kind("frobnicate") == .other)
+        #expect(ToolWords.Kind.run.glyph != ToolWords.Kind.read.glyph)
+    }
+
+    /// A file is named by its own name on its line; a command is shown as it was run.
+    @Test func aLineNamesAFileByItsOwnName() {
+        #expect(ToolWords.shown("/Users/someone/Realm/work/persona/plans/pr1.md", kind: .write) == "pr1.md")
+        #expect(ToolWords.shown("cd /Users/someone && ls", kind: .run) == "cd /Users/someone && ls")
+        #expect(ToolWords.shown("src/", kind: .read) == "src/")
+        #expect(ToolWords.shown("Persona package", kind: .delegate) == "Persona package")
+    }
+
+    /// Calls of one kind in a row are counted under one line; a kind whose calls each say something
+    /// of their own never is.
+    @Test func callsOfOneKindAreSaidOnce() {
+        #expect(ToolWords.group(.read, count: 4, running: false) == "Read 4 files")
+        #expect(ToolWords.group(.run, count: 3, running: true) == "Running 3 commands")
+        #expect(ToolWords.group(.edit, count: 1, running: false) == "Edited 1 file")
+        #expect(ToolWords.group(.delegate, count: 2, running: false) == nil)
+        #expect(ToolWords.group(.connector, count: 2, running: false) == nil)
+
+        func tool(_ key: String, _ name: String) -> TranscriptRow {
+            TranscriptRow(key: key, seq: 1, content: .tool(name: name, summary: "a", state: .done, detail: nil))
+        }
+        let rows = [tool("t1", "Read"), tool("t2", "Read"), tool("t3", "Bash"), tool("t4", "Read"),
+                    TranscriptRow(key: "k1", seq: 1, content: .thinking(text: "Hmm")),
+                    tool("t5", "mcp__realm__realm-agent__agent_start"), tool("t6", "mcp__realm__realm-agent__agent_start")]
+        #expect(WorkRun.segments(rows).map { $0.map(\.key) } == [["t1", "t2"], ["t3"], ["t4"], ["k1"], ["t5"], ["t6"]])
     }
 
     @Test func anEditFindsItsFileHoweverEitherPathWasShortened() {
