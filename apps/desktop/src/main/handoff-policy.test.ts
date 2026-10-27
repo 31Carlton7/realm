@@ -19,6 +19,14 @@ describe("decideHandoff", () => {
     expect(decideHandoff({ why: "bundle", work: null })).toEqual({ kind: "confirm", working: 0, keepable: true });
   });
 
+  it("restarts a daemon whose Realm.app was replaced under it without asking, busy or not", () => {
+    // The update's own "Restart and update" was the yes. MUTANT: let it fall through to `confirm`, and
+    // the relaunched app waits on a dialog before any window, which nobody sees — the update that
+    // "closed itself but never reopened".
+    expect(decideHandoff({ why: "replaced", work: { working: 3, activeRuns: 1 } })).toEqual({ kind: "restart" });
+    expect(decideHandoff({ why: "replaced", work: null })).toEqual({ kind: "restart" });
+  });
+
   it("offers Keep working only when the wire is one this app can drive", () => {
     // A different bundle still speaks our protocol, so carrying on is a real choice.
     expect(decideHandoff({ why: "bundle", work: { working: 1, activeRuns: 0 } })).toMatchObject({ keepable: true });

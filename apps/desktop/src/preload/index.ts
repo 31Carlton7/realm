@@ -287,6 +287,9 @@ contextBridge.exposeInMainWorld("realm", {
     ipcRenderer.on("daemon:state", handler);
     return () => ipcRenderer.removeListener("daemon:state", handler);
   },
+  /** What main last said about the server, asked for: a state main sent before this page was
+   *  listening (the first window of a launch that kept an older server) reached nobody. */
+  daemonState: (): Promise<{ kind: string; attempt?: number; logPath?: string; why?: string } | null> => ipcRenderer.invoke("daemon:state-now"),
   /** Where the server is now — asked by the RPC client before every redial, because a server main
    *  started after a crash has a new port and token, and the ones on this window's command line are
    *  the old server's. */

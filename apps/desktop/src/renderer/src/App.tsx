@@ -348,17 +348,26 @@ export function ThemeBridge() {
  * a server that has stopped for good. Main can tell those apart and this subscribes to what it says;
  * the words themselves live in `bannerFor`, so what is claimed in each state is testable without a
  * window. `role="status"` for the ones you wait out, `alert` for the ones you have to act on.
+ * Exported for its test.
  */
-function ConnectionBanner() {
+export function ConnectionBanner() {
   const connectionDown = useApp((s) => s.connectionState !== "connected");
   const offline = useApp((s) => s.connectionState === "offline");
   const [daemon, setDaemon] = useState<DaemonUiState | null>(null);
-  useEffect(() => window.realm?.onDaemonState?.((state) => {
-    setDaemon(state as DaemonUiState);
-    // Main is on the server again — very likely a new one, on a new port. Dial it now rather than at
-    // the end of whatever backoff this window is part-way through.
-    if (state.kind === "connected") rpc().retryNow();
-  }), []);
+  useEffect(() => {
+    let heard = false;
+    const off = window.realm?.onDaemonState?.((state) => {
+      heard = true;
+      setDaemon(state as DaemonUiState);
+      // Main is on the server again — very likely a new one, on a new port. Dial it now rather than at
+      // the end of whatever backoff this window is part-way through.
+      if (state.kind === "connected") rpc().retryNow();
+    });
+    // And what it said before this listened: the first window of a launch is loaded before main
+    // publishes, so "this is the previous version's server" went to a page that was not listening.
+    void window.realm?.daemonState?.().then((state) => { if (state && !heard) setDaemon(state as DaemonUiState); }).catch(() => {});
+    return off;
+  }, []);
   const restart = async () => {
     await window.realm?.restartServer?.().catch(() => {});
     rpc().retryNow();

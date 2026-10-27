@@ -14,6 +14,7 @@
  *   - `system.info` returns the SAME bootId as the file — the only test that says "this is the daemon
  *     that wrote this file", and the only reason the other two are worth asking.
  */
+import { performance } from "node:perf_hooks";
 import { DAEMON_PROTOCOL_MAX, DAEMON_PROTOCOL_MIN, type DaemonState } from "@realm/contracts";
 
 /** What `system.info` said, or null for a port that did not answer in time. */
@@ -24,11 +25,16 @@ export type LaunchDecision =
   /** Nothing usable is running. `none` — no state file at all; `dead` — the file names a pid that is
    *  gone; `stale` — the pid is alive and the port answers, but as somebody other than our daemon. */
   | { kind: "spawn"; reason: "none" | "dead" | "stale" }
-  /** A daemon of ours is up, but it is not running code this app can drive. */
-  | { kind: "handoff"; state: DaemonState; why: "bundle" | "protocol" }
+  /** A daemon of ours is up, but it is not running code this app can drive. `replaced` — the
+   *  Realm.app it was started from has been replaced on disk since (an update, a reinstall): it is
+   *  running files that are gone, and loads the new bundle's in their place for anything it has not
+   *  loaded yet. */
+  | { kind: "handoff"; state: DaemonState; why: HandoffWhy }
   /** Something is there and not answering yet: mid-boot, or draining for a handoff already underway.
    *  The caller waits and asks again rather than starting a second one. */
   | { kind: "wait"; state: DaemonState; why: "booting" | "draining" };
+
+export type HandoffWhy = "bundle" | "protocol" | "replaced";
 
 export function decideLaunch(d: {
   state: DaemonState | null;
@@ -36,12 +42,20 @@ export function decideLaunch(d: {
   probe: Probe;
   /** What THIS app ships: the bundle it would spawn, and the range of wire versions it can drive. */
   ours: { bundleId: string; protocolMin?: number; protocolMax?: number };
+  /** The bundle id of whatever is at the daemon's own `entry` now (`currentBundleId`'s "missing" for
+   *  nothing). Unknown — undefined — is never read as replaced. */
+  onDisk?: string;
 }): LaunchDecision {
   const { state, pidAlive, probe, ours } = d;
   if (!state) return { kind: "spawn", reason: "none" };
   // The pid first, because it is the one fact we can check without a round trip, and a file naming a
   // dead process is by far the commonest case — every crash and every hard shutdown leaves one.
   if (!pidAlive) return { kind: "spawn", reason: "dead" };
+  // Before the drain and the probe: a daemon whose own files were replaced under it is what an update
+  // leaves behind (ShipIt renames the old Realm.app away and deletes it), and nothing it says changes
+  // what happens to it. It cannot be kept working — the next chunk it loads is the new bundle's — so
+  // there is nothing to ask it, and nothing to wait for if it will not answer.
+  if (d.onDisk !== undefined && d.onDisk !== state.bundleId) return { kind: "handoff", state, why: "replaced" };
   // Draining is checked before the port, because a draining daemon still answers perfectly well and
   // would otherwise be adopted — which is precisely the thing a drain exists to stop.
   if (state.state === "draining") return { kind: "wait", state, why: "draining" };
@@ -142,6 +156,10 @@ export function followDaemon(known: DaemonEndpoint, recorded: DaemonState | null
 /** How long a `wait` decision is honoured before we stop believing in the daemon it named. Matches
  *  the ready-line timeout the child-process path has always used. */
 export const DAEMON_WAIT_MS = 15_000;
+/** How long a daemon this launch did not start may go without answering before it is replaced. It
+ *  wrote its state file, so it finished booting long ago: one that will not answer `system.info` for
+ *  this long is stuck, and waiting on it is how every launch after an update failed to start. */
+export const DAEMON_UNRESPONSIVE_MS = 10_000;
 
 export type DaemonHandle = {
   port: number; home: string; token: string; adopted: boolean; state: DaemonState;
@@ -150,7 +168,7 @@ export type DaemonHandle = {
   stale: "bundle" | "protocol" | null;
 };
 
-/** What a handoff did. `replaced` means the old daemon is going away and the loop should look again;
+/** What a handoff did. `replaced` means the old daemon is gone and the loop should look again;
  *  `adopt` means the user chose to carry on with it. */
 export type HandoffResult = { kind: "replaced" } | { kind: "adopt"; stale: "bundle" | "protocol" };
 
@@ -168,28 +186,48 @@ export async function ensureDaemon(d: {
   readState: (home: string) => DaemonState | null;
   probe: (port: number, token: string) => Promise<Probe>;
   spawn: (home: string) => void;
-  onHandoff: (state: DaemonState, why: "bundle" | "protocol") => Promise<HandoffResult>;
+  onHandoff: (state: DaemonState, why: HandoffWhy) => Promise<HandoffResult>;
+  /** Stop a daemon this launch did not start that will not answer, or will not finish a drain nobody
+   *  is waiting on any more. Resolves once it is gone, or is known not to be a realm-server at all. */
+  replace: (state: DaemonState, why: "unresponsive" | "draining") => Promise<void>;
+  /** The bundle id now at a daemon's `entry` (see `decideLaunch`'s `onDisk`). */
+  bundleOnDisk?: (entry: string) => string;
+  /** Stop any realm-server still holding this home that no state file names — called right before
+   *  this launch starts the one a home may have. */
+  clearStrays?: () => Promise<void>;
   pidAlive?: (pid: number) => boolean;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   log?: (line: string) => void;
 }): Promise<DaemonHandle> {
   const pidAlive = d.pidAlive ?? isAlive;
-  const now = d.now ?? Date.now;
+  // Monotonic: a launch the Mac slept through (the lid closed on an update's relaunch) must not wake
+  // to find every deadline it set already in the past.
+  const now = d.now ?? (() => performance.now());
   const sleep = d.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   // The budget bounds ONE wait for a daemon to come up — not the whole orchestration. Stopping a
   // daemon we are replacing legitimately takes seconds, and charging that to the replacement's clock
   // is how a handoff on a slow machine fails to start anything at all. So every ACTION restarts it.
   let deadline = now() + DAEMON_WAIT_MS;
   let spawned = false;
+  /** When each daemon we have waited on, by boot id, was first found not answering. */
+  const waitingSince = new Map<string, number>();
+  /** Daemons already handed off or replaced, by boot id. One still there afterwards is not going. */
+  const replaced = new Set<string>();
 
   for (;;) {
     const state = d.readState(d.home);
+    const alive = state ? pidAlive(state.pid) : false;
+    const onDisk = state && alive ? d.bundleOnDisk?.(state.entry) : undefined;
+    // Not asked of a server running a replaced bundle: nothing it answers changes what happens to it,
+    // and one that cannot answer would cost the probe's whole timeout.
+    const replacedOnDisk = state !== null && onDisk !== undefined && onDisk !== state.bundleId;
     const decision = decideLaunch({
       state,
-      pidAlive: state ? pidAlive(state.pid) : false,
-      probe: state ? await d.probe(state.port, state.token) : null,
+      pidAlive: alive,
+      probe: state && alive && !replacedOnDisk ? await d.probe(state.port, state.token) : null,
       ours: { bundleId: d.ourBundleId },
+      onDisk,
     });
 
     if (decision.kind === "adopt") {
@@ -197,7 +235,13 @@ export async function ensureDaemon(d: {
       return { port: decision.state.port, home: d.home, token: decision.state.token, adopted: !spawned, state: decision.state, stale: null };
     }
     if (decision.kind === "handoff") {
-      d.log?.(`[daemon] running daemon is a different ${decision.why}; handing off`);
+      // A hand-off that said `replaced` and left the daemon where it was would otherwise be asked again
+      // on every pass, each one restarting the clock that is meant to end this.
+      if (replaced.has(decision.state.bootId)) {
+        throw new Error(`the previous realm-server (pid ${decision.state.pid}) could not be stopped — see the log under ${d.home}/logs/server.log`);
+      }
+      replaced.add(decision.state.bootId);
+      d.log?.(`[daemon] running daemon ${decision.why === "replaced" ? "is running a Realm.app that has been replaced" : `is a different ${decision.why}`}; handing off`);
       const outcome = await d.onHandoff(decision.state, decision.why);
       // `adopt` is the user choosing to carry on with the old server. Returned from here rather than
       // looped back into `decideLaunch`, which would decide `handoff` again and ask a second time.
@@ -212,17 +256,41 @@ export async function ensureDaemon(d: {
       // Once. A spawn that has not produced a readable state file yet reads as `none` on the next
       // pass, and spawning again on that would be exactly the two-daemons bug.
       if (!spawned) {
+        // Whatever still holds this home now is left over from a hand-off that did not finish, and its
+        // home lock is released, so it would not even stop ours from starting — only run beside it.
+        await d.clearStrays?.();
         d.log?.(`[daemon] starting realm-server (${decision.reason})`);
         d.spawn(d.home);
         spawned = true;
         deadline = now() + DAEMON_WAIT_MS;
       }
+    } else if (!spawned) {
+      // A daemon that was here before this launch, and has had its chance: it wrote its state file, so
+      // it finished booting long ago, and one that will not answer is stuck. A drain that has not
+      // finished in the budget is waiting on agents that may never stop, and the launcher that asked
+      // for it is not here to stop it. Either way it is in the way, and waiting longer is how every
+      // launch after an update ended in "Realm failed to start".
+      d.log?.(`[daemon] waiting for realm-server (${decision.why})`);
+      const { state: stuck } = decision;
+      if (replaced.has(stuck.bootId)) {
+        throw new Error(`realm-server (pid ${stuck.pid}) is not answering and could not be stopped — see the log under ${d.home}/logs/server.log`);
+      }
+      if (!waitingSince.has(stuck.bootId)) waitingSince.set(stuck.bootId, now());
+      if (now() - waitingSince.get(stuck.bootId)! >= (decision.why === "draining" ? DAEMON_WAIT_MS : DAEMON_UNRESPONSIVE_MS)) {
+        d.log?.(`[daemon] pid ${stuck.pid} is ${decision.why === "draining" ? "still draining" : "not answering"}; replacing it`);
+        replaced.add(stuck.bootId);
+        await d.replace(stuck, decision.why === "draining" ? "draining" : "unresponsive");
+        deadline = now() + DAEMON_WAIT_MS;
+        continue;
+      }
+      await sleep(200);
+      continue;
     } else {
       d.log?.(`[daemon] waiting for realm-server (${decision.why})`);
     }
 
     if (now() >= deadline) {
-      const what = decision.kind === "spawn" ? "did not report ready" : `is ${decision.kind === "wait" ? decision.why : "not usable"}`;
+      const what = decision.kind === "spawn" || spawned ? "did not report ready" : "could not be replaced";
       throw new Error(`realm-server ${what} within ${DAEMON_WAIT_MS / 1000}s — see the log under ${d.home}/logs/server.log`);
     }
     await sleep(200);

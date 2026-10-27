@@ -823,6 +823,12 @@ describe("General → Updates row (Plan 15 W1)", () => {
     expect(await screen.findByText("Update check failed: ENOTFOUND github.com")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Check for updates" })).toBeEnabled();
   });
+
+  it("an install that failed says so, not that a check did", async () => {
+    // The download was fine; "Update check failed" would send somebody to their network.
+    await openApp({ updateStatus: { version: "2.5.0", state: { kind: "error", during: "install", message: "macOS's installer did not take the update." } } });
+    expect(await screen.findByText("The update didn't install: macOS's installer did not take the update.")).toBeInTheDocument();
+  });
 });
 
 /** A `mac doctor` audit with nothing in it — used where a test is about the OTHER section and the

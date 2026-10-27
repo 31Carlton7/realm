@@ -36,13 +36,15 @@ describe("the confirmation's words", () => {
 describe("main leaves the daemon running when it exits for an update or a failed launch", () => {
   // Read as text: importing main would start an Electron app. `quitAndInstall` closes the windows and
   // then calls `app.quit()`, so `before-quit` runs after `before-quit-for-update` — and used to stop the
-  // daemon there, every running agent with it.
+  // daemon there, every running agent with it. (An update stops it itself now, before it asks for the
+  // quit, once the installer holds the update: `stopServerForUpdate`.)
   const src = readFileSync(join(__dirname, "index.ts"), "utf8");
   const beforeQuit = src.slice(src.indexOf('app.on("before-quit", (e) => {'));
 
   it("checks for that exit before anything that would stop the daemon", () => {
     expect(beforeQuit.indexOf("if (detachOnQuit) { detachFromDaemon(); return; }")).toBeGreaterThan(0);
-    expect(beforeQuit.indexOf("if (detachOnQuit)")).toBeLessThan(beforeQuit.indexOf("shutdownForQuit()"));
+    expect(beforeQuit.indexOf("stopDaemon()")).toBeGreaterThan(0);
+    expect(beforeQuit.indexOf("if (detachOnQuit)")).toBeLessThan(beforeQuit.indexOf("stopDaemon()"));
   });
 
   it("is that exit for an update restart, and for a launch that failed to start", () => {
