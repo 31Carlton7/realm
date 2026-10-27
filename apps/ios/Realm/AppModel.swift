@@ -62,6 +62,9 @@ final class AppModel {
     /// When each session's turn began, where this phone saw it begin: a turn already running when the
     /// session opened has no start this phone can vouch for, so it shows no clock.
     private(set) var workingSince: [String: Date] = [:]
+    /// The simulators and machines in each opened session's space, as the Mac last said. A session whose
+    /// Mac has no such call is absent, and its bar has no Screens button.
+    private(set) var sessionScreens: [String: [SessionScreen]] = [:]
     /// When a row first arrived live, by its key; rows that came with the session's opening have none.
     @ObservationIgnored private(set) var rowBirths: [String: Date] = [:]
     var toast: Toast?
@@ -640,6 +643,27 @@ final class AppModel {
         }
     }
 
+    // MARK: - Screens
+
+    /// What a session's space has open to watch. Asked again whenever its bar is drawn anew — the
+    /// session opened, its turn started or ended, the Mac came back — since a turn is what opens one.
+    func loadScreens(_ sessionId: String) async {
+        guard let api, isConnected else { return }
+        do {
+            sessionScreens[sessionId] = try await api.screens(id: sessionId)
+        } catch ChannelError.rpc(let error) where error.code == "METHOD_NOT_FOUND" {
+            sessionScreens[sessionId] = nil
+        } catch {
+            // The button keeps what it last knew.
+        }
+    }
+
+    /// One picture of a screen in a session's space.
+    func screenFrame(_ screen: SessionScreen, in sessionId: String, maxSide: Int) async throws -> ScreenFrame {
+        guard let api, isConnected else { throw ChannelError.notConnected }
+        return try await api.screen(id: sessionId, screen: screen, maxSide: maxSide)
+    }
+
     // MARK: - The composer
 
     /// A session's settings and what they could be. A Mac before Plan 29 has no such call; its
@@ -906,6 +930,7 @@ final class AppModel {
         askedThumbnails = []
         turnChanges = [:]
         workingSince = [:]
+        sessionScreens = [:]
         rowBirths = [:]
         askedPictures = []
         askedChanges = []

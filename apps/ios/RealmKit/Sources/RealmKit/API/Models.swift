@@ -1393,6 +1393,53 @@ public struct SpacePicture: Decodable, Sendable, Hashable {
     }
 }
 
+/// `session.screens`: a simulator or a machine open in a session's space, which the phone can watch.
+public struct SessionScreen: Codable, Sendable, Hashable, Identifiable {
+    public enum Kind: String, Codable, Sendable, Hashable {
+        case simulator, machine
+    }
+
+    public let id: String
+    public let kind: Kind
+    /// What its pane is called: "iPhone 17 Pro", a machine's name.
+    public let name: String
+    /// A second line a person reads: the simulator's platform, the machine's kind in words.
+    public let detail: String?
+    /// There is a picture to ask for now.
+    public let live: Bool
+
+    public init(id: String, kind: Kind, name: String, detail: String?, live: Bool) {
+        self.id = id
+        self.kind = kind
+        self.name = name
+        self.detail = detail
+        self.live = live
+    }
+}
+
+/// `session.screen`: one picture of a screen, a JPEG kept small enough to ask for every second or two.
+public struct ScreenFrame: Decodable, Sendable, Hashable {
+    public let mime: String
+    public let data: Data
+    public let width: Double
+    public let height: Double
+    public let capturedAt: Millis
+
+    private enum CodingKeys: String, CodingKey { case mime, data, width, height, capturedAt }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        mime = (try? c.decode(String.self, forKey: .mime)) ?? "image/jpeg"
+        guard let data = Data(base64Encoded: try c.decode(String.self, forKey: .data)) else {
+            throw DecodingError.dataCorruptedError(forKey: .data, in: c, debugDescription: "not base64")
+        }
+        self.data = data
+        width = (try? c.decode(Double.self, forKey: .width)) ?? 0
+        height = (try? c.decode(Double.self, forKey: .height)) ?? 0
+        capturedAt = (try? c.decode(Millis.self, forKey: .capturedAt)) ?? 0
+    }
+}
+
 /// `ping`
 public struct Pong: Decodable, Sendable, Hashable {
     public let at: Millis
