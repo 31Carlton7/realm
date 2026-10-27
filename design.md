@@ -1062,6 +1062,15 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   Library lists every saved turn of the profile, because the Library holds what a person kept and the
   activity view is a log of what went by.
 - Never invent human-like agent presence, mood, or certainty.
+- On the phone, nothing floats over the reading while the Mac is there. A turn's state is the live
+  line at the transcript's foot — "Working · 2m 14s" where its next words will come, as ChatGPT says
+  "Thinking" — and the glass over the composer is only for what wants a press: the link's trouble,
+  the way back to the newest row. A "Working" capsule over the queue read as a button and said what
+  the bar's subtitle already said (the owner, 10-26: "looks ugly in general").
+- A phone's row never takes more width than it is offered. One work line set at its own width — a
+  connector's full name, `mcp__realm__realm-agent__agent_start` — widened the column, and every row
+  and the composer under them slid off the screen's left edge. The verb yields last but can still be
+  cut, and the column holds each row to its width (`keepsToOfferedWidth`).
 - A team role wears a Realmite (`packages/ui/src/realmite/`), at the owner's ask (10-08): a small
   creature, generated from a seed and customisable, in place of a glyph. It is a mark, not a persona.
   Its face reports the role's run and nothing else — idle, working, needs you, asleep — never a mood,
