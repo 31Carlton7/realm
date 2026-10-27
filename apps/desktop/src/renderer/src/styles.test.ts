@@ -1309,6 +1309,17 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(RULES.filter((r) => partsOf(r).some((s) => s.includes(".sidebar-shade")) && r.body.includes("app-region"))).toEqual([]);
   });
 
+  it("a window in native full screen has no drag regions at all", () => {
+    /* It cannot be moved there, and Electron's full-screen region handling turns a click on a
+       draggable row or tab inside a region into a drag on any display but the main one
+       (electron/electron#55100). THE mutants: the rule dropped, made to lose to the regions the
+       stylesheet names, or left off the pseudo-element onboarding's strip is drawn with. */
+    const off = RULES.filter((r) => partsOf(r).includes(":root[data-fullscreen] *"));
+    expect(off.map((r) => r.body)).toEqual(["-webkit-app-region: initial !important;"]);
+    expect(partsOf(off[0]!)).toEqual([":root[data-fullscreen] *", ":root[data-fullscreen] ::before", ":root[data-fullscreen] ::after"]);
+    expect(bodiesFor(".onboarding-stage::before").join(" ")).toContain("-webkit-app-region: drag");
+  });
+
   it("the sidebar's lists scroll wherever the pointer is over them, not only over a row", () => {
     /* The column is a window-drag region, and over a drag region macOS takes the wheel for the window:
        the sessions list scrolled only with the pointer on a row (a button, which opts out) — not over

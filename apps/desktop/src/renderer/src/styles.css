@@ -286,6 +286,12 @@
    screen, while CDP's clicks, which never meet the OS's regions, still landed. This puts back the rule
    the stylesheet was written to: a box is a region only where a rule says so. */
 *, ::before, ::after { -webkit-app-region: initial; }
+/* …and in native full screen there are none at all (App.tsx, FullScreenBridge). The window cannot be
+   moved there, and a region only hands the presses inside it to Electron's full-screen handling, which
+   on any display but the main one follows a press with a stray move and turns a click on a draggable
+   row or tab into a drag (electron/electron#55100). `initial` rather than `no-drag`: no region is no
+   rect at all, where `no-drag` would send Electron one for every box in the window. */
+:root[data-fullscreen] *, :root[data-fullscreen] ::before, :root[data-fullscreen] ::after { -webkit-app-region: initial !important; }
 /* 14/20 rather than 14/1.5: tembo pairs every type step with an explicit line
    height, and 21px line boxes are what left Realm's chrome sitting a hair
    looser than the references it gets measured against. */

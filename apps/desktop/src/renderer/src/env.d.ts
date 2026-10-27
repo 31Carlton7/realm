@@ -43,6 +43,9 @@ interface Window {
     /** Whether the window is key (AppKit's sense: it has the keyboard), as main sees it. */
     onWindowKey(cb: (key: boolean) => void): () => void;
     isWindowKey(): Promise<boolean>;
+    /** Whether the window is in native full screen, as main sees it. Optional like every late bridge. */
+    onWindowFullScreen?(cb: (fullScreen: boolean) => void): () => void;
+    isWindowFullScreen?(): Promise<boolean>;
     setMenuKeybindings?(rules: unknown[]): void;
     onAppCommand?(cb: (command: string) => void): () => void;
     /** OS menus (main/native-menu.ts): the chosen row's id, or null. Optional: absent in jsdom, where
