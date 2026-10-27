@@ -145,14 +145,14 @@ final class LiveTests: XCTestCase {
         XCTAssert(element(containing: "withInviteDefaults").waitForExistence(timeout: 10), "the diff did not load")
         shot("diff")
         back()
-        app.navigationBars.buttons["Done"].firstMatch.tap()
+        app.navigationBars.buttons["Close"].firstMatch.tap()
         let picture = app.buttons["connections-page.png"]
         for _ in 0..<4 where !picture.isHittable { app.swipeUp(velocity: .slow) }
         XCTAssert(picture.exists, "the picture the turn made is not drawn")
         picture.tap()
         XCTAssert(app.images["connections-page.png"].waitForExistence(timeout: 10), "the picture did not arrive")
         shot("file-preview")
-        app.navigationBars.buttons["Done"].firstMatch.tap()
+        app.navigationBars.buttons["Close"].firstMatch.tap()
         // A turn under way: the pill says how long it has worked, and the way back to the newest row
         // slides out of the same glass once the reader scrolls away.
         let message = app.textViews["Message"].exists ? app.textViews["Message"] : app.textFields["Message"]
@@ -351,7 +351,7 @@ final class LiveTests: XCTestCase {
         app.buttons["By day"].tap()
         XCTAssertFalse(element(containing: "Order spaces").waitForExistence(timeout: 2), "Order spaces is offered for a list by day")
         shot("settings-session-list-by-day")
-        app.navigationBars.buttons["Done"].firstMatch.tap()
+        app.navigationBars.buttons["Close"].firstMatch.tap()
         XCTAssert(app.staticTexts["Today"].waitForExistence(timeout: 5), "Home did not follow Settings")
         viewOption("By space")
     }
@@ -421,7 +421,7 @@ final class LiveTests: XCTestCase {
         for _ in 0..<6 where !(recently.exists && recently.isHittable) { app.swipeUp(velocity: .slow) }
         XCTAssert(recently.exists)
         shot("ax-settings-session-list-order")
-        app.navigationBars.buttons["Done"].firstMatch.tap()
+        app.navigationBars.buttons["Close"].firstMatch.tap()
     }
 
     /// Reduce Transparency, set on the Simulator by the script: the bars and menus over Home.
@@ -700,7 +700,7 @@ final class LiveTests: XCTestCase {
         shot("settings-model-picked")
         app.swipeUp(velocity: .slow)
         shot("settings-sheet-permissions")
-        app.navigationBars.buttons["Done"].firstMatch.tap()
+        app.navigationBars.buttons["Close"].firstMatch.tap()
         XCTAssert(app.buttons["Model, Opus 5.5"].waitForExistence(timeout: 10), "the chip does not say the model picked")
         XCTAssert(modeChip.wait(for: \.isEnabled, toEqual: true, timeout: 10), "the mode chip stayed off after the Mac answered")
         shot("composer-chip-updated")
@@ -752,7 +752,7 @@ final class LiveTests: XCTestCase {
         sent.tap()
         XCTAssert(app.images["Photo.jpg"].waitForExistence(timeout: 15), "the Mac's copy of the photo did not arrive")
         shot("sent-photo-preview")
-        app.navigationBars.buttons["Done"].firstMatch.tap()
+        app.navigationBars.buttons["Close"].firstMatch.tap()
     }
 
     /// A turn under way: Stop in the button's place; words typed make it Queue, the Mac's choice for a
@@ -830,10 +830,10 @@ final class LiveTests: XCTestCase {
         XCTAssert(modelChip.waitForExistence(timeout: 5))
         shot("\(prefix)-composer-typing")
         modelChip.tap()
-        XCTAssert(app.navigationBars.buttons["Done"].waitForExistence(timeout: 10))
+        XCTAssert(app.navigationBars.buttons["Close"].waitForExistence(timeout: 10))
         sleep(1)
         shot("\(prefix)-settings-sheet")
-        app.navigationBars.buttons["Done"].firstMatch.tap()
+        app.navigationBars.buttons["Close"].firstMatch.tap()
         XCTAssert(modeChip.waitForExistence(timeout: 10))
         modeChip.tap()
         sleep(1)
@@ -871,9 +871,9 @@ final class LiveTests: XCTestCase {
         shot("p-new-session-agents")
         claude.tap()
         modelChip.tap()
-        XCTAssert(app.navigationBars.buttons["Done"].waitForExistence(timeout: 10), "the model chip opened no settings")
+        XCTAssert(app.navigationBars.buttons["Close"].waitForExistence(timeout: 10), "the model chip opened no settings")
         shot("p-new-session-settings")
-        app.navigationBars.buttons["Done"].firstMatch.tap()
+        app.navigationBars.buttons["Close"].firstMatch.tap()
         composerField.tap()
         composerField.typeText("Write the release notes for 2.4")
         shot("p-new-session-typed")
@@ -1065,7 +1065,7 @@ final class LiveTests: XCTestCase {
         let folded = app.buttons["queue-show"].exists
         if folded {
             app.buttons["queue-show"].tap()
-            XCTAssert(app.navigationBars.buttons["Done"].waitForExistence(timeout: 10), "Show all opened no sheet")
+            XCTAssert(app.navigationBars.buttons["Close"].waitForExistence(timeout: 10), "Show all opened no sheet")
             sleep(1)
             shot("\(prefix)-p-queue-sheet")
         }
@@ -1076,7 +1076,7 @@ final class LiveTests: XCTestCase {
         shot("\(prefix)-p-queue-edit")
         sheet.buttons["Cancel"].tap()
         XCTAssert(sheet.waitForNonExistence(timeout: 5))
-        if folded { app.navigationBars.buttons["Done"].firstMatch.tap() }
+        if folded { app.navigationBars.buttons["Close"].firstMatch.tap() }
         app.buttons["session-menu"].tap()
         XCTAssert(app.buttons["Rename"].waitForExistence(timeout: 5))
         shot("\(prefix)-p-session-menu")
@@ -1118,10 +1118,10 @@ final class LiveTests: XCTestCase {
     @MainActor
     private func openMenu() {
         app.navigationBars.buttons["home-menu"].tap()
-        XCTAssert(app.buttons["Settings"].waitForExistence(timeout: 5), "the bar's menu did not open")
+        XCTAssert(app.navigationBars["Settings"].waitForExistence(timeout: 5), "the profile sheet did not open")
     }
 
-    /// One of the pages in the bar's menu, which says what waits there after its name.
+    /// One of the Mac's pages in the profile sheet, which says what waits there after its name.
     @MainActor
     private func menuPage(_ title: String) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", title, "\(title), ")).firstMatch
@@ -1130,7 +1130,6 @@ final class LiveTests: XCTestCase {
     @MainActor
     private func openSettings() {
         openMenu()
-        app.buttons["Settings"].tap()
     }
 
     /// Quick Look's own button that puts it away, once Quick Look is up: known by its identifier, since

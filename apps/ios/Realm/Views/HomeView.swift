@@ -12,6 +12,8 @@ struct HomeView: View {
     @AppStorage(ListOptions.Key.spaceOrder) private var spaceOrder = ListOptions().spaceOrder
     @AppStorage(ListOptions.Key.needsYouFirst) private var needsYouFirst = ListOptions().needsYouFirst
     @State private var query = ""
+    @State private var searching = false
+    @State private var filter = HomeFilter.all
     @State private var reconnecting = false
     @State private var newSessionShown = false
     /// The moment By day reckons its days from, moved on at midnight and on coming back to the app.
@@ -33,8 +35,10 @@ struct HomeView: View {
                 ForEach(listing.elsewhere) { waiting in
                     ElsewhereRow(waiting: waiting)
                 }
-                WorkHeadLines(searching: listing.isFiltered)
-                if !listing.needsYou.isEmpty {
+                if filter == .all {
+                    WorkHeadLines(searching: listing.isFiltered)
+                }
+                if !listing.needsYou.isEmpty, filter != .pinned {
                     Section {
                         // A session that needs you is listed in its space too: each row has its
                         // section's identity, or the list draws one of the two as a hole.
@@ -47,7 +51,7 @@ struct HomeView: View {
                         }
                     }
                 }
-                if !listing.pinned.isEmpty {
+                if !listing.pinned.isEmpty, filter != .needsYou {
                     Section {
                         ForEach(listing.pinned, id: \.pinnedKey) { row in
                             SessionLink(row: row, space: listing.space(of: row))
@@ -58,7 +62,7 @@ struct HomeView: View {
                         }
                     }
                 }
-                if !unsent.isEmpty, !listing.isFiltered {
+                if !unsent.isEmpty, !listing.isFiltered, filter == .all {
                     Section {
                         ForEach(unsent) { session in
                             UnsentRow(session: session)
@@ -69,7 +73,7 @@ struct HomeView: View {
                         }
                     }
                 }
-                ForEach(listing.sections) { section in
+                ForEach(filter == .all ? listing.sections : []) { section in
                     Section {
                         ForEach(section.rows) { row in
                             SessionLink(row: row, space: section.namesSpace ? nil : listing.space(of: row))
@@ -89,6 +93,21 @@ struct HomeView: View {
         .scrollContentBackground(.hidden)
         .background(Ground.transcript)
         .id(ListIdentity(choice: choice, style: style))
+        // Manus's chips under the bar: what the list holds, by what it asks of the person.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if let listing {
+                HomeChips(filter: $filter, needsYou: listing.needsYou.count, pinned: listing.pinned.count)
+            }
+        }
+        // Manus's one button for a new task, floating at the foot's trailing corner.
+        .overlay(alignment: .bottomTrailing) {
+            if model.agentList != nil, !searching {
+                NewSessionButton { newSessionShown = true }
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 12)
+                    .matchedTransitionSource(id: "new-session", in: settingsZoom)
+            }
+        }
         .overlay {
             if home == nil, shown.kind != .connecting, shown.kind != .connected {
                 FirstLoad()
@@ -131,32 +150,26 @@ struct HomeView: View {
                     .disabled(reconnecting)
                 }
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                HomeMenu()
+            // The Mac and everything about it, at the leading corner as Manus keeps its profile.
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    model.settingsShown = true
+                } label: {
+                    Label("Your Mac", systemImage: "laptopcomputer")
+                }
+                .accessibilityIdentifier("home-menu")
             }
             .matchedTransitionSource(id: "settings", in: settingsZoom)
-            // At the foot beside the search, as Mail has it: a third button in the top bar, beside
-            // Settings and Reconnect while the Mac is away, folds them all into a More menu.
-            ToolbarItem(placement: .bottomBar) {
-                ViewOptionsMenu()
-            }
-            ToolbarSpacer(.fixed, placement: .bottomBar)
-            DefaultToolbarItem(kind: .search, placement: .bottomBar)
-            // A Mac that names the agents a session could be given can start one.
-            if model.agentList != nil {
-                ToolbarSpacer(.fixed, placement: .bottomBar)
-                ToolbarItem(placement: .bottomBar) {
-                    Button {
-                        newSessionShown = true
-                    } label: {
-                        Label("New session", systemImage: "square.and.pencil")
-                    }
-                    .accessibilityIdentifier("new-session")
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    searching = true
+                } label: {
+                    Label("Search", systemImage: "magnifyingglass")
                 }
-                .matchedTransitionSource(id: "new-session", in: settingsZoom)
+                .accessibilityIdentifier("search")
             }
         }
-        .searchable(text: $query, prompt: "Search sessions")
+        .modifier(SearchWhenAsked(query: $query, searching: $searching))
         .refreshable { await model.refresh() }
         .sheet(isPresented: $model.settingsShown) {
             SettingsSheet()
@@ -484,7 +497,7 @@ enum ProfileMark: Equatable {
 
 /// How Home lists its sessions, from the bar: the list style, the order of the spaces where it lists
 /// by space, and whether Needs you heads it.
-private struct ViewOptionsMenu: View {
+struct ViewOptionsMenu: View {
     @AppStorage(ListOptions.Key.style) private var style = ListOptions().style
     @AppStorage(ListOptions.Key.spaceOrder) private var spaceOrder = ListOptions().spaceOrder
     @AppStorage(ListOptions.Key.needsYouFirst) private var needsYouFirst = ListOptions().needsYouFirst
@@ -514,8 +527,13 @@ private struct ViewOptionsMenu: View {
                 }
             }
         } label: {
-            Label("View options", systemImage: "line.3.horizontal.decrease.circle")
+            Image(systemName: "line.3.horizontal.decrease")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Palette.ink2)
+                .frame(width: 44, height: 36)
+                .contentShape(Rectangle())
         }
+        .accessibilityLabel("View options")
         .accessibilityIdentifier("view-options")
     }
 }
@@ -529,28 +547,57 @@ extension Binding where Value: Equatable & Sendable {
     }
 }
 
+/// The search field under Home's bar, there only once the bar's Search asks for it, as Manus's is;
+/// cancelled with nothing typed, it goes again.
+private struct SearchWhenAsked: ViewModifier {
+    @Binding var query: String
+    @Binding var searching: Bool
+    @State private var shown = false
+
+    func body(content: Content) -> some View {
+        Group {
+            if shown {
+                content.searchable(text: $query, isPresented: $searching, placement: .navigationBarDrawer(displayMode: .always),
+                                   prompt: "Search sessions")
+            } else {
+                content
+            }
+        }
+        .onChange(of: searching) { _, now in
+            if now { shown = true } else if query.isEmpty { shown = false }
+        }
+    }
+}
+
 /// A session on Home: opens it, and pins, renames, archives or stops it from a swipe or a
-/// press-and-hold.
+/// press-and-hold. A plain press rather than a link, so the row ends at its time, as Manus's rows do,
+/// with no chevron after it.
 struct SessionLink: View {
     let row: SessionRow
     /// The row's space, where no section names it.
     let space: Space?
+    @Environment(AppModel.self) private var model
 
     var body: some View {
-        NavigationLink(value: Route.session(row.id)) {
+        Button {
+            model.path.append(Route.session(row.id))
+        } label: {
             SessionRowView(row: row, space: space)
+                .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .listRowBackground(Color.clear)
-        .listRowSeparatorTint(Palette.divider)
-        .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
+        // Manus's list rests on space between its rows, not lines.
+        .listRowSeparator(.hidden)
         .sessionRowActions(row)
         .accessibilityIdentifier("session-\(row.id)")
     }
 }
 
-/// One session, as a line of an inbox: first what it is about — its space where no section names it,
-/// the agent's mark and its model — with its state or its age at the end; then its title. A turn
-/// working on its own recedes a step; one that waits on you, failed or finished unread does not.
+/// One session, as Manus lists a task: a round tile with its space's mark (or the agent's, where the
+/// section names the space), ringed while a turn works and dotted while it waits on you or is unread;
+/// its title on one line, with its age at the end; and under it a quiet line — the state worth acting
+/// on, else what it is about.
 struct SessionRowView: View {
     let row: SessionRow
     let space: Space?
@@ -558,38 +605,41 @@ struct SessionRowView: View {
 
     var body: some View {
         let state = RowState(row)
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Circle()
-                .fill(row.unread ? Palette.accent : .clear)
-                .frame(width: 9, height: 9)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .center, spacing: 12) {
+            RowTile(row: row, space: space, state: state)
+            VStack(alignment: .leading, spacing: 3) {
                 let line = dynamicTypeSize.isAccessibilitySize
-                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2))
                     : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 8))
                 line {
-                    RowAbout(row: row, space: space)
+                    Text(row.displayTitle)
+                        .font(.body.weight(row.unread ? .semibold : .medium))
+                        .foregroundStyle(Palette.ink)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 4 : 1)
                         .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? nil : .infinity, alignment: .leading)
-                    if let state {
-                        StateWord(state: state)
-                    } else {
+                    HStack(spacing: 4) {
+                        if row.pinned == true {
+                            Image(systemName: "pin.fill")
+                                .font(.caption2)
+                                .foregroundStyle(Palette.ink3)
+                        }
                         TimelineView(.periodic(from: .now, by: 30)) { context in
                             Text(Ago.text(row.lastActivity, now: context.date))
                                 .font(.footnote)
                                 .monospacedDigit()
-                                .foregroundStyle(Palette.ink2)
-                                .fixedSize()
+                                .foregroundStyle(Palette.ink3)
                         }
                     }
+                    .fixedSize()
                 }
-                Text(row.displayTitle)
-                    .font(.body.weight(row.unread ? .semibold : .regular))
-                    .foregroundStyle(state == .working ? Palette.ink2 : Palette.ink)
-                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 6 : 2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                if let state {
+                    StateWord(state: state)
+                } else {
+                    RowAbout(row: row, space: space)
+                }
             }
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Self.spoken(row))
         .accessibilityHint("Opens the session")
@@ -606,6 +656,45 @@ struct SessionRowView: View {
         if let model = row.modelDisplayName, !model.isEmpty { parts.append(model) }
         parts.append(Ago.text(row.lastActivity, now: now))
         return parts.joined(separator: ", ")
+    }
+}
+
+/// A row's round tile, as Manus marks a task: the space's mark, or the agent's where the section
+/// names the space; a ring of the accent while a turn works, and a dot — orange while it waits on
+/// you, the accent while it is unread — at its corner, each beside the words that say it too.
+private struct RowTile: View {
+    let row: SessionRow
+    let space: Space?
+    let state: RowState?
+    @ScaledMetric(relativeTo: .body) private var side: CGFloat = 40
+
+    var body: some View {
+        ZStack {
+            Circle().fill(Fill.pill)
+            if let space {
+                SpaceGlyph(space: space, size: 18, relativeTo: .body)
+            } else {
+                AgentMark(kind: row.agent, mark: row.agentMark, colored: true, size: 18, relativeTo: .body)
+            }
+        }
+        .frame(width: side, height: side)
+        .overlay {
+            if state == .working {
+                Circle()
+                    .strokeBorder(Palette.accent, lineWidth: 2)
+                    .restingPulse(when: true)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if state == .waiting || row.unread {
+                Circle()
+                    .fill(state == .waiting ? Palette.orange : Palette.accent)
+                    .frame(width: 11, height: 11)
+                    .overlay(Circle().strokeBorder(Ground.transcript, lineWidth: 2))
+                    .offset(x: 1, y: -1)
+            }
+        }
+        .accessibilityHidden(true)
     }
 }
 
@@ -797,9 +886,7 @@ private struct FirstLoad: View {
                 Text("To see its sessions again, make a pairing code in Settings ▸ Devices on your Mac and scan it here.")
             } actions: {
                 Button("Pair again") { model.pairingRequested = true }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Palette.accentFill)
-                    .buttonBorderShape(.capsule)
+                    .buttonStyle(InkButtonStyle())
             }
         case .notConnected:
             ContentUnavailableView {
@@ -827,13 +914,11 @@ private struct RetryButton: View {
             }
         } label: {
             HStack(spacing: 6) {
-                if trying { ProgressView().controlSize(.small).tint(.white) }
+                if trying { ProgressView().controlSize(.small).tint(Fill.onPrimary) }
                 Text(trying ? "Reconnecting…" : "Reconnect")
             }
         }
-        .buttonStyle(.borderedProminent)
-        .tint(Palette.accentFill)
-        .buttonBorderShape(.capsule)
+        .buttonStyle(InkButtonStyle())
         .disabled(trying)
     }
 }

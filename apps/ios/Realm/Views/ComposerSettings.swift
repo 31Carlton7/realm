@@ -308,8 +308,8 @@ struct SettingsSheetFrame<Content: View>: View {
                         .accessibilityElement(children: .combine)
                         .accessibilityAddTraits(.isHeader)
                     }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { dismiss() }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Close", systemImage: "xmark") { dismiss() }
                     }
                 }
         }

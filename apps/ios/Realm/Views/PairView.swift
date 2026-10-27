@@ -133,11 +133,9 @@ struct PairView: View {
                 startScanning()
             } label: {
                 Label("Scan the code", systemImage: "qrcode.viewfinder")
-                    .font(.body.weight(.semibold))
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Palette.accentFill)
+            .buttonStyle(InkButtonStyle())
             .accessibilityIdentifier("scan")
             Button("Paste the link") { pasting = true }
                 .font(.body.weight(.semibold))

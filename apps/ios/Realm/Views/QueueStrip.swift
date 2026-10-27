@@ -220,8 +220,8 @@ private struct QueueSheet: View {
             .navigationTitle(QueueWords.title(max(1, queued.count)))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Close", systemImage: "xmark") { dismiss() }
                 }
             }
         }
