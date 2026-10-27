@@ -1296,6 +1296,19 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect(bodiesFor(".sidebar[data-collapsed] *").join(" ")).toContain("-webkit-app-region: initial");
   });
 
+  it("a drag region is the box a rule names, not what it holds, so a decoration over the column leaves its controls clickable", () => {
+    /* Electron 45's Chromium inherits `-webkit-app-region` (Electron 37's did not), and Electron lays
+       the regions down in document order: the sidebar's shade, last in the column and over all of it,
+       inherited `drag` and filled back in every hole the column's controls punch, so Settings' rail,
+       the rows and Back took no real click in 2.5.0. CDP's clicks never meet the OS's regions, so no
+       live check sees it. THE mutants: the reset dropped, or narrowed so a pseudo-element inherits
+       again, or the shade opted back in. */
+    const resets = RULES.filter((r) => r.body.includes("-webkit-app-region") && partsOf(r).includes("*"));
+    expect(resets.map((r) => r.body)).toEqual(["-webkit-app-region: initial;"]);
+    expect(partsOf(resets[0]!)).toEqual(["*", "::before", "::after"]);
+    expect(RULES.filter((r) => partsOf(r).some((s) => s.includes(".sidebar-shade")) && r.body.includes("app-region"))).toEqual([]);
+  });
+
   it("the sidebar's lists scroll wherever the pointer is over them, not only over a row", () => {
     /* The column is a window-drag region, and over a drag region macOS takes the wheel for the window:
        the sessions list scrolled only with the pointer on a row (a button, which opts out) — not over
