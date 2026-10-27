@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { RECONNECT_ATTEMPTS, RECONNECT_BASE_MS, RECONNECT_CAP_MS, RpcClient, type Endpoint } from "./client";
+import { DIAL_TIMEOUT_MS, RECONNECT_ATTEMPTS, RECONNECT_BASE_MS, RECONNECT_CAP_MS, RpcClient, type Endpoint } from "./client";
 
 class FakeSocket {
   static instances: FakeSocket[] = [];
@@ -198,7 +198,8 @@ describe("RpcClient reconnect", () => {
     c.retryNow();
     expect(sockets).toHaveLength(3); // Retry is honest mid-dial: the stale dial is aborted, a fresh one starts
     expect(sockets[1]!.readyState).toBe(3); // the superseded socket was actually closed
-    vi.advanceTimersByTime(60_000);
+    // Short of the dial's own timeout, which is a redial of its own (tested below).
+    vi.advanceTimersByTime(DIAL_TIMEOUT_MS - 1);
     expect(sockets).toHaveLength(3); // no timer ever fires a duplicate dial
     off();
     sockets[2]!.open();
@@ -259,7 +260,12 @@ describe("RpcClient reconnect", () => {
     const sockets = ReconnSocket.instances;
     sockets[0]!.open();
     sockets[0]!.fail();
-    for (let i = 0; i < RECONNECT_ATTEMPTS; i++) { vi.advanceTimersByTime(RECONNECT_CAP_MS); sockets.at(-1)!.fail(); }
+    // Each redial fails as soon as it is made — refused, not left hanging (that is the next test's).
+    for (let i = 0; i < RECONNECT_ATTEMPTS; i++) {
+      const dialed = sockets.length;
+      while (sockets.length === dialed) vi.advanceTimersByTime(100);
+      sockets.at(-1)!.fail();
+    }
     // MUTANT: drop the bound and the client redials every 15s for as long as the window is open, and
     // the banner says "reconnecting…" about a server that is not coming back.
     expect(sockets).toHaveLength(1 + RECONNECT_ATTEMPTS);
@@ -273,6 +279,28 @@ describe("RpcClient reconnect", () => {
     sockets.at(-1)!.fail();
     vi.advanceTimersByTime(RECONNECT_BASE_MS);
     expect(sockets).toHaveLength(3 + RECONNECT_ATTEMPTS);
+  });
+
+  it("gives up on a dial that neither opens nor fails, and dials again", () => {
+    // A stopped or wedged server still listens: the connection is accepted and the handshake never
+    // answered. MUTANT: no dial timeout, and the window sits under "reconnecting…" for as long as the
+    // browser cares to wait, with no redial ever reaching the point where Restart is offered.
+    const c = new RpcClient("ws://x", Reconn);
+    const statuses: string[] = [];
+    c.onStatusChange((s) => statuses.push(s));
+    const sockets = ReconnSocket.instances;
+    vi.advanceTimersByTime(DIAL_TIMEOUT_MS - 1);
+    expect(sockets[0]!.readyState).toBe(0);
+    vi.advanceTimersByTime(1);
+    expect(sockets[0]!.readyState).toBe(3);
+    expect(statuses).toEqual(["reconnecting"]);
+    vi.advanceTimersByTime(RECONNECT_BASE_MS);
+    expect(sockets).toHaveLength(2);
+    // An open socket is never timed out, however long it lives.
+    sockets[1]!.open();
+    vi.advanceTimersByTime(10 * DIAL_TIMEOUT_MS);
+    expect(sockets[1]!.readyState).toBe(1);
+    expect(statuses).toEqual(["reconnecting", "connected"]);
   });
 
   it("asks where the server is before every redial, and takes its handlers and calls to the new one", async () => {

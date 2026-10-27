@@ -29,10 +29,17 @@ export type HandoffDecision =
   /** Refuse to work against it: the wire is incompatible, so there is nothing to keep. */
   | { kind: "blocked" };
 
-export function decideHandoff(d: { why: "bundle" | "protocol"; work: DaemonWork; preapproved?: boolean }): HandoffDecision {
+export function decideHandoff(d: { why: "bundle" | "protocol" | "replaced"; work: DaemonWork; preapproved?: boolean }): HandoffDecision {
   // The lab's update window drained this daemon and asked for the install: the person said yes when
   // they made this Mac a lab, and a dialog here would wait for someone who is not there.
   if (d.preapproved) return { kind: "restart" };
+  // The Realm.app this daemon runs from was replaced under it, which is what installing an update
+  // does. The person already said yes to the restart — "Restart and update" is the button that got
+  // here — and there is no "Keep working" to offer: the files it runs are gone, and what it loads next
+  // is the new bundle's. A question here is also asked of nobody: it comes up before any window, in
+  // an app the installer relaunched in the background, and the update reads as one that never
+  // reopened (2026-10-26).
+  if (d.why === "replaced") return { kind: "restart" };
   // A daemon that will not answer `daemon.info` is a daemon we know nothing about. Treat it as busy:
   // a dialog somebody dismisses costs a click, and a silent stop costs a turn.
   const busy = d.work === null || d.work.working > 0 || d.work.activeRuns > 0;

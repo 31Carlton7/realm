@@ -73,7 +73,9 @@ export type UpdateState =
   | { kind: "available"; version: string }
   | { kind: "downloading"; version: string; percent: number | null }
   | { kind: "downloaded"; version: string }
-  | { kind: "error"; message: string };
+  /** `during: "install"` — the download was fine and installing it was not; the message says what to
+   *  do instead. Absent for a check or a download that failed. */
+  | { kind: "error"; message: string; during?: "install" };
 export type UpdateStatus = { version: string; state: UpdateState };
 
 /** The slice of electron-updater's AppUpdater this module drives; injected so tests can prove the
@@ -101,6 +103,22 @@ export const CHECK_EVERY_MS = 4 * 60 * 60 * 1000;
 export const CHECK_TICK_MS = 60 * 60 * 1000;
 export const CHECK_ON_FOCUS_AFTER_MS = 60 * 60 * 1000;
 
+/**
+ * How long "Restart and update" waits for macOS's installer to hold the update before giving up on
+ * it. electron-updater reports a download finished before it has handed the file to Squirrel (through
+ * a proxy on 127.0.0.1), and asking Squirrel to install before then waits on an event that may never
+ * come — on 2026-10-14 the proxy fetch failed, and Restart did nothing at all.
+ */
+export const INSTALL_HANDOFF_WAIT_MS = 60_000;
+/** How long after `quitAndInstall` Realm should be gone. Squirrel closes the windows and quits within
+ *  a second or two; a Realm still here after this was left with no windows and no server by an
+ *  install that is not going to happen. */
+export const INSTALL_STALL_MS = 30_000;
+
+/** Electron's own autoUpdater — Squirrel.Mac — whose `update-downloaded` is the installer holding the
+ *  update. Not electron-updater's event of the same name, which comes first. */
+export type NativeUpdaterLike = { on(event: "update-downloaded", cb: () => void): unknown };
+
 export function scheduleUpdateChecks(u: { checkIfStale(maxAgeMs: number): Promise<unknown> }, hooks: {
   every: (fn: () => void, ms: number) => unknown;
   onFocus: (fn: () => void) => unknown;
@@ -114,6 +132,14 @@ export class RealmUpdater {
   private updater: UpdaterLike | null = null;
   /** When the last real check started (0: never). What `checkIfStale` measures against. */
   private lastCheckAt = 0;
+  /** Squirrel holds the update (`NativeUpdaterLike`), and who is waiting to hear it. */
+  private handedOff = false;
+  private handOffWaiters: (() => void)[] = [];
+  /** Between "Restart and update" and Realm going, or the install failing. */
+  private installing = false;
+  private stallTimer: unknown = null;
+  private readonly setTimer: (fn: () => void, ms: number) => unknown;
+  private readonly clearTimer: (t: unknown) => void;
   constructor(private readonly d: {
     version: string;
     decision: UpdaterDecision;
@@ -122,10 +148,27 @@ export class RealmUpdater {
     /** Every change of state, as `status()` would answer it — what main pushes to the windows, so a
      *  download's progress reaches the rail without the renderer polling for it. */
     onChange?: (status: UpdateStatus) => void;
-    /** The clock, for tests. */
+    /** Squirrel, when there is one to wait for. Absent, an install goes straight to `quitAndInstall`. */
+    native?: NativeUpdaterLike;
+    /** Run once the installer holds the update and before Realm quits for it: main stops realm-server
+     *  here, so nothing is still running from the Realm.app the installer is about to replace. */
+    beforeInstall?: () => Promise<void>;
+    /** The install did not happen. `reopen` is true once Realm has closed its windows and stopped its
+     *  server for it — there is nothing left to show the message in, and main has to bring Realm back;
+     *  false when nothing was touched yet, and Realm is still on screen as it was. */
+    onInstallFailed?: (message: string, d: { reopen: boolean }) => void;
+    /** The clock and timers, for tests. */
     now?: () => number;
+    setTimer?: (fn: () => void, ms: number) => unknown;
+    clearTimer?: (t: unknown) => void;
   }) {
     this.state = d.decision.enabled ? { kind: "idle" } : { kind: "disabled", reason: d.decision.reason };
+    this.setTimer = d.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
+    this.clearTimer = d.clearTimer ?? ((t) => clearTimeout(t as ReturnType<typeof setTimeout>));
+    if (d.decision.enabled) d.native?.on("update-downloaded", () => {
+      this.handedOff = true;
+      for (const wake of this.handOffWaiters.splice(0)) wake();
+    });
   }
 
   private set(state: UpdateState): void {
@@ -183,10 +226,54 @@ export class RealmUpdater {
     return this.status();
   }
 
-  /** Quit-and-install, only from the downloaded state — never a blind relaunch. */
-  install(): void {
-    if (this.state.kind !== "downloaded") return;
-    this.updater?.quitAndInstall();
+  /**
+   * Quit-and-install, only from the downloaded state — never a blind relaunch.
+   *
+   * In order, because each step is only safe once the one before it has happened: the installer has
+   * the update, so quitting will install something; then the server is stopped, so nothing runs from
+   * the Realm.app being replaced (it used to be left to the relaunched app, which found it running
+   * deleted files — busy, so it asked a question before any window, or stuck, so it never started);
+   * then Realm quits. And if Realm is still here long after that, the install did not happen.
+   */
+  async install(): Promise<void> {
+    if (this.state.kind !== "downloaded" || !this.updater || this.installing) return;
+    const { version } = this.state;
+    const updater = this.updater;
+    this.installing = true;
+    try {
+      if (!(await this.installerHasIt())) throw new Error("macOS's installer did not take the update");
+      await this.d.beforeInstall?.();
+    } catch (e) {
+      this.installing = false;
+      const message = `${e instanceof Error ? e.message : String(e)}. Quit Realm from its menu-bar icon (Quit Realm & stop agents) and open it again to retry, or download v${version} from realm.computer.`;
+      this.set({ kind: "error", message, during: "install" });
+      this.d.onInstallFailed?.(message, { reopen: false });
+      return;
+    }
+    updater.quitAndInstall();
+    this.stallTimer = this.setTimer(() => this.installFailed("Realm closed for the update, but macOS's installer did not take over"), INSTALL_STALL_MS);
+  }
+
+  /** Whether Squirrel holds the update, waiting for it up to `INSTALL_HANDOFF_WAIT_MS`. */
+  private installerHasIt(): Promise<boolean> {
+    if (!this.d.native || this.handedOff) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const wake = (): void => { this.clearTimer(timer); resolve(true); };
+      const timer = this.setTimer(() => {
+        this.handOffWaiters = this.handOffWaiters.filter((w) => w !== wake);
+        resolve(false);
+      }, INSTALL_HANDOFF_WAIT_MS);
+      this.handOffWaiters.push(wake);
+    });
+  }
+
+  /** The install was started — windows closed, server stopped — and is not going to finish. */
+  private installFailed(message: string): void {
+    if (!this.installing) return;
+    this.installing = false;
+    if (this.stallTimer !== null) { this.clearTimer(this.stallTimer); this.stallTimer = null; }
+    this.set({ kind: "error", message, during: "install" });
+    this.d.onInstallFailed?.(message, { reopen: true });
   }
 
   private async ensure(): Promise<UpdaterLike> {
@@ -207,8 +294,11 @@ export class RealmUpdater {
     u.on("error", (e) => {
       if (this.state.kind === "downloading") this.set({ kind: "available", version: this.state.version });
       // After the download, an error is the install's: Squirrel's hand-off failed. Staying at
-      // `downloaded` would leave Restart doing nothing, and a check refusing to start over.
-      else if (this.state.kind === "downloaded") this.set({ kind: "error", message: e.message });
+      // `downloaded` would leave Restart doing nothing, and a check refusing to start over. Once
+      // "Restart and update" has closed the windows and stopped the server, main has to bring both
+      // back as well.
+      else if (this.installing) this.installFailed(e.message);
+      else if (this.state.kind === "downloaded") this.set({ kind: "error", message: e.message, during: "install" });
     });
     this.updater = u;
     return u;

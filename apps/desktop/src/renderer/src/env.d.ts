@@ -33,6 +33,9 @@ interface Window {
     quitAndStopAgents(): Promise<void>;
     /** The agent server's health, as main sees it. Replayed on every new window. */
     onDaemonState(cb: (state: { kind: string; attempt?: number; logPath?: string; why?: string }) => void): () => void;
+    /** What main last said, asked rather than heard — so a state sent before this page listened is
+     *  not lost. Optional like every late bridge. */
+    daemonState?(): Promise<{ kind: string; attempt?: number; logPath?: string; why?: string } | null>;
     /** Where the server is now. The `port` and `token` above are the ones this window was opened with;
      *  a server started since — after a crash, or from the banner's Restart — has its own. Optional
      *  like every late bridge: jsdom has none. */
@@ -358,7 +361,7 @@ type UpdateState =
   | { kind: "available"; version: string }
   | { kind: "downloading"; version: string; percent: number | null }
   | { kind: "downloaded"; version: string }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string; during?: "install" };
 interface UpdateStatus { version: string; state: UpdateState }
 /** Mirrors WhatsNew in main/whats-new.ts and ReleaseNotes in main/whats-new-notes.ts. */
 interface WhatsNewSpan { text: string; strong?: true; code?: true }

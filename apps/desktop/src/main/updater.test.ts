@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
-import { CHECK_EVERY_MS, CHECK_ON_FOCUS_AFTER_MS, CHECK_TICK_MS, pruneInstalledDownload, RealmUpdater, scheduleUpdateChecks, updaterDecision, UPDATE_FEED_LIVE, type UpdaterLike } from "./updater";
+import { CHECK_EVERY_MS, CHECK_ON_FOCUS_AFTER_MS, CHECK_TICK_MS, INSTALL_HANDOFF_WAIT_MS, INSTALL_STALL_MS, pruneInstalledDownload, RealmUpdater, scheduleUpdateChecks, updaterDecision, UPDATE_FEED_LIVE, type UpdaterLike } from "./updater";
 
 describe("updaterDecision — the hard gate (Plan 15 W1)", () => {
   it("dev is absolute: never enabled unpackaged, whatever else claims to be true", () => {
@@ -95,11 +95,11 @@ describe("RealmUpdater", () => {
     const up = new RealmUpdater({ version: "1.0.0", decision: { enabled: true }, load: async () => fake });
     fake.nextResult = { isUpdateAvailable: true, updateInfo: { version: "1.1.0" } };
     expect((await up.check()).state).toEqual({ kind: "downloading", version: "1.1.0", percent: null });
-    up.install(); // not downloaded yet — must be a no-op
+    await up.install(); // not downloaded yet — must be a no-op
     expect(fake.installed).toBe(0);
     fake.fireDownloaded("1.1.0");
     expect(up.status().state).toEqual({ kind: "downloaded", version: "1.1.0" });
-    up.install();
+    await up.install();
     expect(fake.installed).toBe(1);
   });
 
@@ -166,7 +166,7 @@ describe("RealmUpdater", () => {
     expect(up.status().state).toEqual({ kind: "available", version: "1.1.0" });
     expect((await up.download()).state).toEqual({ kind: "downloading", version: "1.1.0", percent: null });
     expect(fake.downloads).toBe(1);
-    up.install(); // not downloaded yet
+    await up.install(); // not downloaded yet
     expect(fake.installed).toBe(0);
   });
 
@@ -178,9 +178,9 @@ describe("RealmUpdater", () => {
     fake.nextResult = { isUpdateAvailable: true, updateInfo: { version: "1.1.0" } };
     await up.check();
     fake.fireDownloaded("1.1.0");
-    up.install();
+    await up.install();
     fake.fireError("Could not locate update bundle");
-    expect(up.status().state).toEqual({ kind: "error", message: "Could not locate update bundle" });
+    expect(up.status().state).toEqual({ kind: "error", message: "Could not locate update bundle", during: "install" });
     expect((await up.check()).state).toEqual({ kind: "downloading", version: "1.1.0", percent: null });
   });
 
@@ -232,6 +232,108 @@ describe("RealmUpdater", () => {
     settle(null);
     expect((await first).state).toEqual({ kind: "up-to-date" });
     expect(fake.checks).toBe(1);
+  });
+});
+
+describe("Restart and update", () => {
+  /** Squirrel (Electron's own autoUpdater), the timers, and a record of what happened in what order. */
+  const rig = () => {
+    const fake = fakeUpdater();
+    const log: string[] = [];
+    let squirrelHasIt: () => void = () => { throw new Error("no native listener"); };
+    const timers: { fn: () => void; at: number }[] = [];
+    let now = 0;
+    const failures: { message: string; reopen: boolean }[] = [];
+    const quit = fake.quitAndInstall.bind(fake);
+    fake.quitAndInstall = () => { log.push("quitAndInstall"); quit(); };
+    const opts = {
+      version: "2.5.0", decision: { enabled: true } as const, load: async () => fake,
+      native: { on: (_e: "update-downloaded", cb: () => void) => { squirrelHasIt = cb; } },
+      beforeInstall: async () => { log.push("stop server"); },
+      onInstallFailed: (message: string, d: { reopen: boolean }) => { failures.push({ message, reopen: d.reopen }); log.push(`failed:${d.reopen ? "reopen" : "stay"}`); },
+      setTimer: (fn: () => void, ms: number) => { const t = { fn, at: now + ms }; timers.push(t); return t; },
+      clearTimer: (t: unknown) => { const i = timers.indexOf(t as never); if (i >= 0) timers.splice(i, 1); },
+    };
+    const advance = (ms: number) => {
+      now += ms;
+      for (const t of [...timers]) if (t.at <= now) { timers.splice(timers.indexOf(t), 1); t.fn(); }
+    };
+    const downloaded = async (up: RealmUpdater) => {
+      fake.nextResult = { isUpdateAvailable: true, updateInfo: { version: "2.5.1" } };
+      await up.check();
+      fake.fireDownloaded("2.5.1");
+    };
+    return { fake, log, failures, opts, advance, downloaded, squirrel: () => squirrelHasIt() };
+  };
+
+  it("waits for the installer to hold the update, stops the server, and only then quits", async () => {
+    // MUTANT: quit before the server stops, and the installer swaps the bundle under a server that is
+    // still running it — what the relaunched app found, busy or stuck, on 2026-10-26.
+    const r = rig();
+    const up = new RealmUpdater(r.opts);
+    await r.downloaded(up);
+    const installing = up.install();
+    await Promise.resolve();
+    expect(r.log).toEqual([]); // electron-updater has the file; Squirrel does not yet
+    r.squirrel();
+    await installing;
+    expect(r.log).toEqual(["stop server", "quitAndInstall"]);
+    // A second click while that is under way starts nothing.
+    await up.install();
+    expect(r.fake.installed).toBe(1);
+  });
+
+  it("gives up on an installer that never takes the update, and touches nothing", async () => {
+    // 2026-10-14: Squirrel's fetch from electron-updater's proxy failed, and Restart did nothing at
+    // all. MUTANT: stop the server before this wait, and a failed hand-off also stops every agent.
+    const r = rig();
+    const up = new RealmUpdater(r.opts);
+    await r.downloaded(up);
+    const installing = up.install();
+    r.advance(INSTALL_HANDOFF_WAIT_MS);
+    await installing;
+    expect(r.log).toEqual(["failed:stay"]);
+    expect(up.status().state).toMatchObject({ kind: "error", during: "install" });
+    expect(r.failures[0]!.message).toMatch(/Quit Realm & stop agents.*v2\.5\.1 from realm\.computer/);
+  });
+
+  it("brings Realm back when the install fails after the windows closed", async () => {
+    const r = rig();
+    const up = new RealmUpdater(r.opts);
+    await r.downloaded(up);
+    r.squirrel();
+    await up.install();
+    // Squirrel's error, after Electron closed every window and the server was stopped for it.
+    r.fake.fireError("Could not locate update bundle");
+    expect(r.log).toEqual(["stop server", "quitAndInstall", "failed:reopen"]);
+    expect(up.status().state).toEqual({ kind: "error", message: "Could not locate update bundle", during: "install" });
+    // The stall timer it set is gone with it: one failure, reported once.
+    r.advance(INSTALL_STALL_MS);
+    expect(r.failures).toHaveLength(1);
+  });
+
+  it("brings Realm back when nothing happens after the quit was asked for", async () => {
+    // MUTANT: no stall timer, and Realm sits with no window, no menu-bar item and no server — the
+    // process a fresh copy cannot be dragged over.
+    const r = rig();
+    const up = new RealmUpdater(r.opts);
+    await r.downloaded(up);
+    r.squirrel();
+    await up.install();
+    r.advance(INSTALL_STALL_MS - 1);
+    expect(r.failures).toEqual([]);
+    r.advance(1);
+    expect(r.failures).toEqual([{ message: expect.stringMatching(/did not take over/), reopen: true }]);
+  });
+
+  it("does not quit when the server could not be stopped", async () => {
+    const r = rig();
+    const up = new RealmUpdater({ ...r.opts, beforeInstall: async () => { throw new Error("realm-server would not stop"); } });
+    await r.downloaded(up);
+    r.squirrel();
+    await up.install();
+    expect(r.fake.installed).toBe(0);
+    expect(r.failures).toEqual([{ message: expect.stringMatching(/^realm-server would not stop\./), reopen: false }]);
   });
 });
 

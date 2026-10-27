@@ -19,6 +19,10 @@ export const RECONNECT_CAP_MS = 15_000;
 /** Redials before the client gives up and says so: about two minutes at the backoff above, longer
  *  than main's supervisor takes to bring back a crashed server or decide it cannot. */
 export const RECONNECT_ATTEMPTS = 12;
+/** How long a dial may sit connecting before it counts as a failed one. A server that is stopped or
+ *  wedged still has a listening socket — the kernel accepts the connection and nothing ever answers
+ *  the handshake — and a browser waits minutes on that, all of them under "reconnecting…". */
+export const DIAL_TIMEOUT_MS = 10_000;
 
 /** One client for the app's lifetime. The socket underneath is disposable: on close the client marks
  *  itself reconnecting and redials with capped exponential backoff, asking `locate` where the server
@@ -48,8 +52,13 @@ export class RpcClient {
     // so a reconnect that forgot it would look exactly like a server that never came back.
     const ws = new this.Impl(this.url, this.protocols);
     this.ws = ws;
+    // Closing a socket that is still connecting fails it, and its `close` takes the reconnect path below.
+    const dialTimer = setTimeout(() => {
+      if (this.ws === ws && ws.readyState === WS_CONNECTING) { try { ws.close(); } catch { /* already failing */ } }
+    }, DIAL_TIMEOUT_MS);
     this.opened = new Promise((res) => {
       ws.onopen = () => {
+        clearTimeout(dialTimer);
         if (this.ws !== ws) return; // superseded dial
         this.attempt = 0;
         res();
@@ -59,6 +68,7 @@ export class RpcClient {
     ws.onmessage = (e) => { if (this.ws === ws) this.onMessage(String(e.data)); };
     // onerror is deliberately unattached: every socket error is followed by close, so onclose is the single reconnect path.
     ws.onclose = () => {
+      clearTimeout(dialTimer);
       if (this.ws !== ws) return;
       for (const p of this.pending.values()) p.reject(new RpcError("DISCONNECTED", "socket closed"));
       this.pending.clear();

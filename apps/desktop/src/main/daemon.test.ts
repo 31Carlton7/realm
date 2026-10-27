@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { daemonModeEnabled, decideLaunch, ensureDaemon, followDaemon, type Probe } from "./daemon";
+import { DAEMON_UNRESPONSIVE_MS, DAEMON_WAIT_MS, daemonModeEnabled, decideLaunch, ensureDaemon, followDaemon, type HandoffWhy, type Probe } from "./daemon";
 import type { DaemonState } from "@realm/contracts";
 
 const OURS = { bundleId: "100:200" };
@@ -50,6 +50,28 @@ describe("decideLaunch", () => {
       .toEqual({ kind: "handoff", state: state(), why: "protocol" });
   });
 
+  it("hands off a daemon whose own Realm.app was replaced under it, whatever it answers", () => {
+    // What an update leaves: ShipIt renamed the old bundle away and deleted it, so the daemon's entry
+    // now holds the new build. MUTANT: check this after the probe, and a stuck old server is waited on
+    // until the launch fails; after the drain check, and one draining is waited on instead of replaced.
+    const old = state({ bundleId: "99:1" });
+    for (const [probed, st] of [[probe(), old], [null, old], [probe(), state({ bundleId: "99:1", state: "draining" })]] as const) {
+      expect(decideLaunch({ state: st, pidAlive: true, probe: probed, ours: OURS, onDisk: OURS.bundleId }))
+        .toEqual({ kind: "handoff", state: st, why: "replaced" });
+    }
+    // Gone from disk altogether reads the same.
+    expect(decideLaunch({ state: old, pidAlive: true, probe: probe(), ours: OURS, onDisk: "missing" }).kind).toBe("handoff");
+    // Its files still there — another copy of Realm, say — is the ordinary bundle hand-off, with its
+    // "Keep working". And unknown is never read as replaced.
+    expect(decideLaunch({ state: old, pidAlive: true, probe: probe(), ours: OURS, onDisk: "99:1" }))
+      .toEqual({ kind: "handoff", state: old, why: "bundle" });
+    expect(decideLaunch({ state: state(), pidAlive: true, probe: probe(), ours: OURS }))
+      .toEqual({ kind: "adopt", state: state() });
+    // A dead pid is still just dead.
+    expect(decideLaunch({ state: old, pidAlive: false, probe: null, ours: OURS, onDisk: OURS.bundleId }))
+      .toEqual({ kind: "spawn", reason: "dead" });
+  });
+
   it("a dead pid outranks everything, including a port that still answers", () => {
     // The port answering with our own bootId while the pid is gone cannot happen honestly; if it
     // does, the file is the thing we trust least and starting fresh is the safe answer.
@@ -68,14 +90,21 @@ describe("ensureDaemon", () => {
       log,
       spawns: 0,
       handoffs: [] as string[],
+      /** Pids `replace` was asked to stop, and what `clearStrays` and `spawn` were called in. */
+      replaced: [] as number[],
+      order: [] as string[],
       set: (s: DaemonState | null) => { file = s; },
+      clock: () => clock,
       deps() {
         return {
           home: "/tmp/realm", ourBundleId: OURS.bundleId,
           readState: () => file,
           probe: async (_port: number, _token: string): Promise<Probe> => (file ? probe({ bootId: file.bootId, protocol: file.protocol }) : null),
-          spawn: () => { this.spawns++; },
-          onHandoff: async (_s: DaemonState, why: "bundle" | "protocol") => { this.handoffs.push(why); return { kind: "replaced" as const }; },
+          spawn: () => { this.spawns++; this.order.push("spawn"); },
+          onHandoff: async (_s: DaemonState, why: HandoffWhy) => { this.handoffs.push(why); return { kind: "replaced" as const }; },
+          // Stopping it takes its state file with it, as a real server's shutdown does.
+          replace: async (s: DaemonState) => { this.replaced.push(s.pid); file = null; },
+          clearStrays: async () => { this.order.push("clearStrays"); },
           pidAlive: () => true,
           now: () => clock,
           sleep: async (ms: number) => { clock += ms; },
@@ -117,11 +146,83 @@ describe("ensureDaemon", () => {
     expect(w.log.filter((l) => l.includes("booting")).length).toBe(4);
   });
 
-  it("gives up with the log path once the wait budget is spent", async () => {
-    const w = world(state());
-    await expect(ensureDaemon({ ...w.deps(), probe: async () => null }))
-      .rejects.toThrow(/booting within 15s.*logs\/server\.log/s);
+  it("replaces a daemon from before this launch that will not answer, then starts ours", async () => {
+    // A server that wrote its state file finished booting long ago; one that will not answer is stuck
+    // (2026-10-26: the old server after an update). It used to be waited on until the launch failed —
+    // "realm-server is booting within 15s" — on every launch, for as long as it held on.
+    const w = world(state({ pid: 777, bootId: "stuck" }));
+    let fresh = false;
+    const deps = w.deps();
+    const handle = await ensureDaemon({
+      ...deps,
+      probe: async () => (fresh ? probe() : null),
+      replace: async (s, why) => { w.replaced.push(s.pid); expect(why).toBe("unresponsive"); w.set(null); },
+      spawn: () => { deps.spawn(); fresh = true; w.set(state()); },
+    });
+    expect(w.replaced).toEqual([777]);
+    expect(w.order).toEqual(["clearStrays", "spawn"]);
+    expect(handle.state.bootId).toBe("boot-a");
+    expect(handle.adopted).toBe(false);
+    // Not before it had its chance. MUTANT: replace on the first unanswered probe, and a server
+    // that was only busy for a moment is killed mid-turn.
+    expect(w.clock()).toBeGreaterThanOrEqual(DAEMON_UNRESPONSIVE_MS);
+  });
+
+  it("gives up with the log path when the daemon it started never answers", async () => {
+    const w = world(null);
+    const deps = w.deps();
+    // Ours writes its file and then never answers: that is a failure to start, not something to replace.
+    await expect(ensureDaemon({ ...deps, probe: async () => null, spawn: () => { deps.spawn(); w.set(state()); } }))
+      .rejects.toThrow(/did not report ready within 15s.*logs\/server\.log/s);
+    expect(w.spawns).toBe(1);
+    expect(w.replaced).toEqual([]);
+  });
+
+  it("replaces a daemon still draining once the wait budget is spent", async () => {
+    // A drain waits on agents that may never stop, and the launcher that asked for it is gone.
+    const w = world(state({ pid: 888, bootId: "draining", state: "draining" }));
+    const deps = w.deps();
+    const handle = await ensureDaemon({ ...deps, spawn: () => { deps.spawn(); w.set(state()); } });
+    expect(w.replaced).toEqual([888]);
+    expect(handle.state.bootId).toBe("boot-a");
+    expect(w.clock()).toBeGreaterThanOrEqual(DAEMON_WAIT_MS);
+  });
+
+  it("stops, rather than loops, on a daemon that outlives being replaced", async () => {
+    const w = world(state({ pid: 999, bootId: "immortal" }));
+    // `replace` could not get rid of it (MUTANT: drop the once-only guard and this never returns).
+    await expect(ensureDaemon({ ...w.deps(), probe: async () => null, replace: async (s) => { w.replaced.push(s.pid); } }))
+      .rejects.toThrow(/pid 999.*could not be stopped/);
+    expect(w.replaced).toEqual([999]);
     expect(w.spawns).toBe(0);
+  });
+
+  it("hands off a daemon running replaced files as `replaced`, and fails rather than loops if it stays", async () => {
+    const w = world(state({ bundleId: "an-older-build" }));
+    const deps = w.deps();
+    const handle = await ensureDaemon({
+      ...deps,
+      bundleOnDisk: () => OURS.bundleId,
+      onHandoff: async (_s, why) => { w.handoffs.push(why); w.set(null); return { kind: "replaced" as const }; },
+      spawn: () => { deps.spawn(); w.set(state()); },
+    });
+    expect(w.handoffs).toEqual(["replaced"]);
+    expect(w.order).toEqual(["clearStrays", "spawn"]);
+    expect(handle.state.bundleId).toBe(OURS.bundleId);
+    // And without asking it anything first: a stuck one would cost the probe's whole timeout.
+    let probed = 0;
+    const quiet = world(state({ bundleId: "an-older-build" }));
+    const qd = quiet.deps();
+    await ensureDaemon({
+      ...qd, bundleOnDisk: () => OURS.bundleId,
+      probe: async (port, token) => { if (quiet.handoffs.length === 0) probed++; return qd.probe(port, token); },
+      onHandoff: async (_s, why) => { quiet.handoffs.push(why); quiet.set(state()); return { kind: "replaced" as const }; },
+    });
+    expect(probed).toBe(0);
+    // A hand-off that says `replaced` and leaves it where it was is asked once, not on every pass.
+    const stays = world(state({ bundleId: "an-older-build" }));
+    await expect(ensureDaemon({ ...stays.deps(), bundleOnDisk: () => OURS.bundleId })).rejects.toThrow(/could not be stopped/);
+    expect(stays.handoffs).toEqual(["replaced"]);
   });
 
   it("hands off, then re-reads the world rather than assuming what the handoff did", async () => {

@@ -2201,7 +2201,7 @@ function UpdatesField() {
     : st.kind === "available" ? `v${st.version} is available. Its download did not finish.`
     : st.kind === "downloading" ? `Downloading v${st.version}…${st.percent === null ? "" : ` ${Math.round(st.percent)}%`}`
     : st.kind === "downloaded" ? `v${st.version} is ready — restart to finish installing.`
-    : st.kind === "error" ? `Update check failed: ${st.message}`
+    : st.kind === "error" ? (st.during === "install" ? `The update didn't install: ${st.message}` : `Update check failed: ${st.message}`)
     : "Realm checks for updates on launch. You can also check now.";
   /* The one row on this tab whose description is the whole point of it: what the updater is doing,
      or why it cannot. The section head above says "Updates", so the row says the version instead. */
