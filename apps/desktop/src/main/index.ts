@@ -63,6 +63,7 @@ import { PRESENCE_POLL_MS, PresenceReporter } from "./presence";
 import { installedEditors, openInEditor } from "./editors";
 import { InstalledApps, applicationDirs } from "./installed-apps";
 import { registerKeyWindowQuery, wireKeyWindow } from "./key-window";
+import { registerFullScreenQuery, wireFullScreen } from "./full-screen";
 import { popupNativeMenu, registerNativeMenus } from "./native-menu";
 import { PasswordAutofill } from "./password-autofill";
 import { registerPasswordsIpc } from "./passwords-ipc";
@@ -577,6 +578,7 @@ async function createWindow(info: { port: number; home: string; token: string },
   else if (savedWindow?.maximized) win.maximize();
   trackWindowState(win, windowStateFile);
   wireKeyWindow(win);
+  wireFullScreen(win);
   attachTextContextMenu(win.webContents, { realmBrowser: () => ({ open: openInRealm, linksOpenIn }) });
   // Replay whatever the server's health last was. A window created after the event — reopened from
   // the tray, or the first one on a launch that adopted a stale daemon — has heard nothing yet.
@@ -820,6 +822,7 @@ const HISTORY_MENU_MAX = 12;
  * what `popup` takes.
  */
 registerKeyWindowQuery();
+registerFullScreenQuery();
 registerNativeMenus();
 /* Every chord the person's keybindings claim belongs to the page, in every webContents — the
    window's renderer, where the keybinding layer's `when` clauses decide, and a browser pane's page,

@@ -302,6 +302,15 @@ contextBridge.exposeInMainWorld("realm", {
   },
   /** The same state, asked for — what a window that opened behind another app learns on mount. */
   isWindowKey: (): Promise<boolean> => ipcRenderer.invoke("window:is-key"),
+  /** Whether the window is in native full screen, where it cannot be moved and the page takes its drag
+   *  regions away (main/full-screen.ts). */
+  onWindowFullScreen: (cb: (fullScreen: boolean) => void): (() => void) => {
+    const handler = (_e: IpcRendererEvent, fullScreen: boolean) => cb(fullScreen);
+    ipcRenderer.on("window:full-screen", handler);
+    return () => ipcRenderer.removeListener("window:full-screen", handler);
+  },
+  /** The same state, asked for — what a window restored into full screen learns on mount. */
+  isWindowFullScreen: (): Promise<boolean> => ipcRenderer.invoke("window:is-full-screen"),
   /** A window per profile (Plan 27 Phase 2). `openProfile` opens the profile in a window of its own,
    *  or brings forward the window already showing it; `focusProfile` answers whether ANOTHER window
    *  shows it (and brings that one forward); `setProfile` tells main which profile this window shows. */

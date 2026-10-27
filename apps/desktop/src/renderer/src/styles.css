@@ -277,6 +277,21 @@
   --rl-terminal-bg: #1c1d1f;
 }
 * { box-sizing: border-box; }
+/* A window-drag region is the box a rule names, and none of what it holds. Electron 45's Chromium made
+   `-webkit-app-region` inherited where Electron 37's did not (measured: a span in a drag box computes
+   `none` in Chromium 138 and `drag` in 156), and Electron lays every region down in document order —
+   so each child of a drag box laid its own drag rect AFTER the holes its controls had punched. The
+   sidebar's shade (`.sidebar-shade`), last in the column and over all of it, filled every hole back
+   in: in 2.5.0 no row, rail item, field or Back below the column's head took a real click, windowed or full
+   screen, while CDP's clicks, which never meet the OS's regions, still landed. This puts back the rule
+   the stylesheet was written to: a box is a region only where a rule says so. */
+*, ::before, ::after { -webkit-app-region: initial; }
+/* …and in native full screen there are none at all (App.tsx, FullScreenBridge). The window cannot be
+   moved there, and a region only hands the presses inside it to Electron's full-screen handling, which
+   on any display but the main one follows a press with a stray move and turns a click on a draggable
+   row or tab into a drag (electron/electron#55100). `initial` rather than `no-drag`: no region is no
+   rect at all, where `no-drag` would send Electron one for every box in the window. */
+:root[data-fullscreen] *, :root[data-fullscreen] ::before, :root[data-fullscreen] ::after { -webkit-app-region: initial !important; }
 /* 14/20 rather than 14/1.5: tembo pairs every type step with an explicit line
    height, and 21px line boxes are what left Realm's chrome sitting a hair
    looser than the references it gets measured against. */
