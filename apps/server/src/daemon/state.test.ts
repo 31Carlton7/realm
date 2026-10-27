@@ -42,12 +42,27 @@ describe("daemon state file", () => {
     expect(readState(home)).toBeNull();
   });
 
-  it("clears", () => {
+  it("clears its own file", () => {
     const home = tempDir("realm-daemon-");
     writeState(home, state());
-    clearState(home);
+    clearState(home, { pid: 4242 });
     expect(readState(home)).toBeNull();
-    clearState(home); // absent is not an error
+    clearState(home, { pid: 4242 }); // absent is not an error
+    // Nor is one nobody can read: it names no server, so it is nobody's to keep.
+    writeFileSync(stateFile(home), "{not json");
+    clearState(home, { pid: 4242 });
+    expect(() => readFileSync(stateFile(home), "utf8")).toThrow();
+  });
+
+  it("leaves the file a newer server wrote", () => {
+    // A server stopped while busy runs its shutdown late — after the launcher gave up waiting and the
+    // replacement wrote its own file. MUTANT: clear unconditionally, and the app attached to the new
+    // server has no file to find it by the next time its socket drops.
+    const home = tempDir("realm-daemon-");
+    const replacement = state({ pid: 5151 });
+    writeState(home, replacement);
+    clearState(home, { pid: 4242 });
+    expect(readState(home)).toEqual(replacement);
   });
 });
 

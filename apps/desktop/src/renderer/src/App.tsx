@@ -221,6 +221,28 @@ export function KeyWindowBridge() {
 }
 
 /**
+ * Whether the window is in native full screen, stamped on `:root` as `data-fullscreen`, under which
+ * the stylesheet takes every drag region away: a window in full screen cannot be moved, and its
+ * regions there only expose the clicks inside them to Electron's full-screen region bug
+ * (main/full-screen.ts). Main reports it, as it does the key state, and is asked on mount for the
+ * window restored into full screen before this subscribed.
+ */
+export function FullScreenBridge() {
+  useEffect(() => {
+    const root = document.documentElement;
+    const apply = (fullScreen: boolean) => {
+      if (fullScreen) root.setAttribute("data-fullscreen", "");
+      else root.removeAttribute("data-fullscreen");
+    };
+    let pushed = false;
+    const off = window.realm?.onWindowFullScreen?.((fullScreen) => { pushed = true; apply(fullScreen); });
+    void window.realm?.isWindowFullScreen?.().then((fullScreen) => { if (!pushed) apply(fullScreen); }).catch(() => {});
+    return () => { off?.(); root.removeAttribute("data-fullscreen"); };
+  }, []);
+  return null;
+}
+
+/**
  * Whether the system draws OVERLAY scrollbars — macOS's "show scroll bars: when scrolling", which is
  * also what "automatically" resolves to on a Mac with only a trackpad. Stamped on `:root` as
  * `data-overlay-scrollbars`, and the stylesheet's own scrollbar treatment stands down under it but for
@@ -348,17 +370,26 @@ export function ThemeBridge() {
  * a server that has stopped for good. Main can tell those apart and this subscribes to what it says;
  * the words themselves live in `bannerFor`, so what is claimed in each state is testable without a
  * window. `role="status"` for the ones you wait out, `alert` for the ones you have to act on.
+ * Exported for its test.
  */
-function ConnectionBanner() {
+export function ConnectionBanner() {
   const connectionDown = useApp((s) => s.connectionState !== "connected");
   const offline = useApp((s) => s.connectionState === "offline");
   const [daemon, setDaemon] = useState<DaemonUiState | null>(null);
-  useEffect(() => window.realm?.onDaemonState?.((state) => {
-    setDaemon(state as DaemonUiState);
-    // Main is on the server again — very likely a new one, on a new port. Dial it now rather than at
-    // the end of whatever backoff this window is part-way through.
-    if (state.kind === "connected") rpc().retryNow();
-  }), []);
+  useEffect(() => {
+    let heard = false;
+    const off = window.realm?.onDaemonState?.((state) => {
+      heard = true;
+      setDaemon(state as DaemonUiState);
+      // Main is on the server again — very likely a new one, on a new port. Dial it now rather than at
+      // the end of whatever backoff this window is part-way through.
+      if (state.kind === "connected") rpc().retryNow();
+    });
+    // And what it said before this listened: the first window of a launch is loaded before main
+    // publishes, so "this is the previous version's server" went to a page that was not listening.
+    void window.realm?.daemonState?.().then((state) => { if (state && !heard) setDaemon(state as DaemonUiState); }).catch(() => {});
+    return off;
+  }, []);
   const restart = async () => {
     await window.realm?.restartServer?.().catch(() => {});
     rpc().retryNow();
@@ -792,6 +823,7 @@ export function App() {
       <ThemeBridge />
       <QuietBridge />
       <KeyWindowBridge />
+      <FullScreenBridge />
       <ProfileWindowBridge />
       <ScrollbarStyleBridge />
       <RubberBandBridge />

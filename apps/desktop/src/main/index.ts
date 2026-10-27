@@ -7,8 +7,9 @@ import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
 import { serverEntry, spawnDaemon, startServer } from "./server-process";
-import { daemonStatePath, readDaemonState, readStateForPort, realmHomePath } from "./daemon-state";
-import { callDaemon, daemonModeEnabled, ensureDaemon, followDaemon, probeDaemon, type HandoffResult } from "./daemon";
+import { daemonStatePath, forgetDeadServer, readDaemonState, readStateForPort, realmHomePath } from "./daemon-state";
+import { callDaemon, daemonModeEnabled, ensureDaemon, followDaemon, probeDaemon, type DaemonEndpoint, type HandoffResult, type HandoffWhy } from "./daemon";
+import { SERVER_ENTRY_SUFFIX, STOP_WAIT_MS, realProcessOps, runsServer, stopServerProcess, stopStrayServers, waitForExit } from "./daemon-stop";
 import { ProfileDirectory, isBrowserPartition, type ProfileFacts } from "./profile-directory";
 import { decideHandoff, handoffCopy, type DaemonWork } from "./handoff-policy";
 import { bundleIdOf, DAEMON_HANDOFF_MODE_DEFAULT, DAEMON_HANDOFF_MODE_KEY, platformCapabilities, resolveHandoffMode, type DaemonState } from "@realm/contracts";
@@ -63,6 +64,7 @@ import { PRESENCE_POLL_MS, PresenceReporter } from "./presence";
 import { installedEditors, openInEditor } from "./editors";
 import { InstalledApps, applicationDirs } from "./installed-apps";
 import { registerKeyWindowQuery, wireKeyWindow } from "./key-window";
+import { registerFullScreenQuery, wireFullScreen } from "./full-screen";
 import { popupNativeMenu, registerNativeMenus } from "./native-menu";
 import { PasswordAutofill } from "./password-autofill";
 import { registerPasswordsIpc } from "./passwords-ipc";
@@ -240,7 +242,12 @@ const sessionTray = new SessionTray({
  *  here, because it is the answer that makes a quit look safe. */
 async function daemonCounts(): Promise<{ working: number; needsYou: number } | null> {
   try {
-    const info = await bridgeClient?.call("daemon.info", {});
+    // Bounded: a server that has stopped answering can leave the bridge's socket open, and unbounded,
+    // the tray's Quit Realm & stop agents waited on it forever — the one quit that frees Realm.app.
+    const info = await Promise.race([
+      bridgeClient?.call("daemon.info", {}),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("daemon.info timed out")), 3_000)),
+    ]);
     const r = info as { working?: unknown; needsYou?: unknown } | undefined;
     if (typeof r?.working !== "number" || typeof r.needsYou !== "number") return null;
     return { working: r.working, needsYou: r.needsYou };
@@ -577,6 +584,7 @@ async function createWindow(info: { port: number; home: string; token: string },
   else if (savedWindow?.maximized) win.maximize();
   trackWindowState(win, windowStateFile);
   wireKeyWindow(win);
+  wireFullScreen(win);
   attachTextContextMenu(win.webContents, { realmBrowser: () => ({ open: openInRealm, linksOpenIn }) });
   // Replay whatever the server's health last was. A window created after the event — reopened from
   // the tray, or the first one on a launch that adopted a stale daemon — has heard nothing yet.
@@ -820,6 +828,7 @@ const HISTORY_MENU_MAX = 12;
  * what `popup` takes.
  */
 registerKeyWindowQuery();
+registerFullScreenQuery();
 registerNativeMenus();
 /* Every chord the person's keybindings claim belongs to the page, in every webContents — the
    window's renderer, where the keybinding layer's `when` clauses decide, and a browser pane's page,
@@ -1586,23 +1595,79 @@ updater = new RealmUpdater({
   version: app.getVersion(),
   decision: updaterDecision({ packaged: app.isPackaged, signed: __REALM_SIGNED_BUILD__, feedLive: UPDATE_FEED_LIVE, autoUpdate: platform.autoUpdate }),
   load: async () => (await import("electron-updater")).autoUpdater,
-  onDownloaded: (version) => void labTakesUpdate(labUpdate(), version).then((taken) => {
+  native: electronAutoUpdater,
+  beforeInstall: () => stopServerForUpdate(),
+  onInstallFailed: (message, { reopen }) => {
+    console.error(`[update] the install did not go through: ${message}`);
+    if (reopen) { reopenAfterFailedInstall(message); return; }
+    const win = windows.primary();
+    const box = { type: "warning" as const, message: "Realm couldn't install the update", detail: message, buttons: ["OK"] };
+    void (win ? dialog.showMessageBox(win, box) : dialog.showMessageBox(box));
+  },
+  onDownloaded: (version) => void labTakesUpdate(labUpdate(), version).then(async (taken) => {
     // On a lab the update window installs it between team runs; nobody is there for a dialog.
     if (taken) return;
+    // Restarting stops the server, and every agent working in it, before the installer runs — said
+    // here, where the choice is made, rather than discovered after.
+    const working = (await daemonCounts())?.working ?? 0;
+    const interrupts = working === 0 ? ""
+      : ` ${working === 1 ? "1 session is" : `${working} sessions are`} working: restarting stops ${working === 1 ? "it" : "them"}, and ${working === 1 ? "it picks" : "they pick"} up where ${working === 1 ? "it" : "they"} left off after.`;
+    const lastTry = previousInstallFailure
+      ? ` The last try didn't install (${previousInstallFailure}). If this one doesn't either, download Realm from realm.computer.`
+      : "";
     void dialog.showMessageBox({
       type: "info",
       title: "Realm update ready",
       message: `Realm v${version} is ready to install.`,
-      detail: "Restart now to finish the update, or keep working and install it later from Settings → General.",
+      detail: `Restart now to finish the update, or keep working and install it later from Settings → General.${interrupts}${lastTry}`,
       buttons: ["Restart and update", "Later"],
       defaultId: 0,
       cancelId: 1,
-    }).then(({ response }) => { if (response === 0) updater.install(); });
+    }).then(({ response }) => { if (response === 0) void updater.install(); });
   }),
   // Pushed, not polled: a download's progress has to reach the rail's button while the window sits
   // at the front, which is exactly when nothing else would make the renderer ask.
   onChange: (status) => { for (const w of BrowserWindow.getAllWindows()) w.webContents.send("updates:changed", status); },
 });
+
+/** What a launch after a failed install was told about it (`reopenAfterFailedInstall`). */
+const INSTALL_FAILED_ARG = "--realm-update-failed=";
+const previousInstallFailure = (() => {
+  const arg = process.argv.find((a) => a.startsWith(INSTALL_FAILED_ARG));
+  if (!arg) return null;
+  try { return decodeURIComponent(arg.slice(INSTALL_FAILED_ARG.length)); } catch { return null; }
+})();
+
+/**
+ * "Restart and update": the server goes before the installer swaps Realm.app.
+ *
+ * This used to be left running, for the relaunched app's hand-off to deal with. But the installer
+ * renames the old Realm.app away and deletes it, so the server the relaunch found was running files
+ * that no longer existed — and the hand-off then asked "Restart the agent server?" before any window
+ * (in an app the installer had launched in the background, so nobody saw it), or waited on a server
+ * that had stopped answering until the launch failed. The person chose to restart; their sessions
+ * pick up again on the new server's boot. The experimental drain hand-off is the exception: it exists
+ * to let a turn finish across the update, and keeps its server for the new app to drain.
+ */
+async function stopServerForUpdate(): Promise<void> {
+  if (!realmHome || !daemonModeEnabled({ packaged: app.isPackaged, env: process.env.REALM_DAEMON, platform: process.platform })) return;
+  const endpoint = serverEndpoint();
+  if (endpoint && await handoffMode(endpoint) === "drain") return;
+  // The supervisor would only bring back what this stops.
+  detachFromDaemon();
+  await stopDaemon();
+}
+
+/**
+ * The install closed the windows and stopped the server, and then did not happen. A fresh launch is
+ * the one thing that brings both back as they were; it finds the update still downloaded, and offers
+ * it again with the reason this one failed.
+ */
+function reopenAfterFailedInstall(message: string): void {
+  const args = process.argv.slice(1).filter((a) => !a.startsWith(INSTALL_FAILED_ARG));
+  app.relaunch({ args: [...args, `${INSTALL_FAILED_ARG}${encodeURIComponent(message)}`] });
+  app.exit(0);
+}
 // The zip of the update this Realm now is: installed, so never read again (updater.ts). The cache is
 // where electron-updater's `getAppCacheDir` puts it on macOS.
 if (app.isPackaged && process.platform === "darwin") {
@@ -1658,7 +1723,7 @@ ipcMain.handle("lab:open-settings", (_e, pane: unknown) => {
 ipcMain.handle("updates:status", () => updater.status());
 ipcMain.handle("updates:check", () => updater.check());
 ipcMain.handle("updates:download", () => updater.download());
-ipcMain.handle("updates:install", () => { updater.install(); });
+ipcMain.handle("updates:install", () => { void updater.install(); });
 
 /**
  * Desktop notifications (the feed's last hop). The DECISIONS live in notify.ts — this is only the
@@ -1710,6 +1775,7 @@ ipcMain.handle("daemon:endpoint", () => {
   return endpoint ? { port: endpoint.port, token: endpoint.token } : null;
 });
 ipcMain.handle("daemon:restart", () => restartRealmServer());
+ipcMain.handle("daemon:state-now", () => lastDaemonState);
 ipcMain.handle("notify:show", (_e, input: DesktopNotificationInput) => desktopNotifier.show(input));
 ipcMain.handle("notify:badge", (_e, count: number) => { desktopNotifier.badge(Number(count)); });
 /** Settings ▸ Appearance ▸ Reduce motion, answered on the window that asked — the quick chat is a
@@ -1925,9 +1991,13 @@ ipcMain.handle("files:save-copy", async (_e, path: unknown): Promise<string | nu
  * requeued by `recoverOnBoot`, and terminals come back with what they printed. A turn that happens
  * to be mid-flight is the exception, and it is the one the dialog exists for.
  */
-async function handOff(running: DaemonState, why: "bundle" | "protocol"): Promise<HandoffResult> {
-  const work = await daemonWork(running);
-  let decision = decideHandoff({ why, work, preapproved: await labPreapprovesRestart((method, params) => callDaemon(running, method, params)) });
+async function handOff(running: DaemonState, why: HandoffWhy): Promise<HandoffResult> {
+  // Asked together: each waits out its own timeout on a server that will not answer, and one after
+  // another they were seconds of an update's relaunch with nothing on screen.
+  const [work, preapproved, mode] = await Promise.all([
+    daemonWork(running), labPreapprovesRestart((method, params) => callDaemon(running, method, params)), handoffMode(running),
+  ]);
+  let decision = decideHandoff({ why, work, preapproved });
   if (decision.kind === "confirm") {
     const copy = handoffCopy(decision);
     const buttons = decision.keepable ? [copy.restart, copy.keep] : [copy.restart];
@@ -1937,46 +2007,50 @@ async function handOff(running: DaemonState, why: "bundle" | "protocol"): Promis
     });
     decision = r.response === 0 ? { kind: "restart" } : { kind: "keep" };
   }
-  if (decision.kind === "keep") return { kind: "adopt", stale: why };
+  if (decision.kind === "keep") return { kind: "adopt", stale: why === "replaced" ? "bundle" : why };
   // Experimental, and off by default: let the old daemon finish what is in flight instead of
   // interrupting it. Best-effort — a daemon that will not take `daemon.drain` (an older build that
   // does not have the method, which is exactly the `protocol` case) gets the SIGTERM below anyway.
-  if (await handoffMode(running) === "drain") {
+  if (mode === "drain") {
     try {
       await callDaemon(running, "daemon.drain", {});
       console.error("[daemon] draining the previous server; waiting for it to finish");
-      if (await waitForExit(running.pid, DRAIN_WAIT_MS)) return { kind: "replaced" };
+      if (await waitForExit(running.pid, DRAIN_WAIT_MS, realProcessOps)) return { kind: "replaced" };
       console.error("[daemon] drain did not finish in time; stopping it");
     } catch (e) {
       console.error(`[daemon] drain refused (${e instanceof Error ? e.message : String(e)}); stopping it`);
     }
   }
-  // Stop it and wait for the pid to actually go: spawning ours while the old one still holds the home
-  // lock would just fail, and the launcher's next pass would read a state file that is still current.
-  try { process.kill(running.pid, "SIGTERM"); } catch { /* already gone */ }
-  await waitForExit(running.pid, STOP_WAIT_MS);
+  // Stop it, and for certain. It used to be SIGTERM and ten seconds' grace, after which the launcher
+  // carried on whether or not the old server had gone — and one whose shutdown hung (an agent that
+  // would not exit, a socket the Mac's sleep had broken) lived on beside the new one, running from a
+  // Realm.app that was no longer there and holding it so a fresh copy could not be dragged over it.
+  await replaceServer(running);
   return { kind: "replaced" };
 }
 
 /** How long a drain is given before it is stopped instead. Generous, because the whole point is a
  *  turn finishing; capped, because a session that keeps being handed work never goes quiet. */
 const DRAIN_WAIT_MS = 120_000;
-/** How long a SIGTERM'd daemon is given to go. Its own shutdown closes ptys and the database. */
-const STOP_WAIT_MS = 10_000;
 
-/** Wait for a pid to leave. True if it did. */
-async function waitForExit(pid: number, timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try { process.kill(pid, 0); } catch { return true; }
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  return false;
+/**
+ * Stop the realm-server a state file names: SIGTERM, then SIGKILL if its shutdown hangs. A pid that is
+ * no longer realm-server is somebody else's now, and is never signalled — the file and the lock it
+ * left are, instead, forgotten, or the lock would turn the next server away.
+ */
+async function replaceServer(state: DaemonState, why?: "unresponsive" | "draining"): Promise<void> {
+  if (!runsServer(state.pid, state.entry, realProcessOps)) { forgetDeadServer(state); return; }
+  console.error(`[daemon] stopping realm-server pid ${state.pid}`);
+  // One that has not answered a probe in ten seconds will not run its own shutdown in ten more, and
+  // this is all time the launch spends with nothing on screen.
+  const grace = why === "unresponsive" ? UNRESPONSIVE_STOP_WAIT_MS : STOP_WAIT_MS;
+  if (!(await stopServerProcess(state.pid, realProcessOps, grace))) console.error(`[daemon] pid ${state.pid} survived SIGKILL`);
 }
+const UNRESPONSIVE_STOP_WAIT_MS = 3_000;
 
 /** The user's handoff preference, read from the daemon we are replacing — it is the one holding the
  *  settings table. Unreadable means the default, which is `restart`. */
-async function handoffMode(running: DaemonState): Promise<string> {
+async function handoffMode(running: DaemonEndpoint): Promise<string> {
   try {
     const v = await callDaemon(running, "settings.get", { key: DAEMON_HANDOFF_MODE_KEY });
     return resolveHandoffMode((v as { value?: unknown } | null)?.value);
@@ -2018,6 +2092,9 @@ async function startRealmServer(): Promise<{ port: number; home: string; token: 
       probe: (port, token) => probeDaemon({ port, token }),
       spawn: startDaemonProcess,
       onHandoff: (running, why) => handOff(running, why),
+      replace: replaceServer,
+      bundleOnDisk: (entry) => { try { return bundleIdOf(statSync(entry)); } catch { return "missing"; } },
+      clearStrays: () => clearStrayServers(home),
       log: (line) => console.error(line),
     });
     staleDaemon = handle.stale;
@@ -2228,11 +2305,25 @@ function detachFromDaemon() {
  * adopted. SIGTERM is the graceful path — the server's own handler clears its state file, releases
  * the home lock, closes the ptys and closes the database.
  */
-function stopDaemon() {
+async function stopDaemon(): Promise<void> {
+  const home = realmHome ?? realmHomePath();
+  // Our own child needs no `ps` to say it is ours — and Windows, where it is the only kind, has none.
   serverChild?.kill("SIGTERM");
-  const pid = daemonChild?.pid ?? readDaemonState(realmHome ?? realmHomePath())?.pid;
-  if (pid && pid !== process.pid) { try { process.kill(pid, "SIGTERM"); } catch { /* already gone */ } }
+  const pids = new Set<number>();
+  for (const pid of [daemonChild?.pid, readDaemonState(home)?.pid]) if (pid) pids.add(pid);
+  serverChild = null;
   daemonChild = null;
+  // Waited for, and SIGKILLed past the grace: the tray's quit is the one Realm tells people to use
+  // before installing a fresh copy, and Finder will not replace a Realm.app anything is running from.
+  await Promise.all([...pids].map((pid) => (runsServer(pid, SERVER_ENTRY_SUFFIX, realProcessOps) ? stopServerProcess(pid) : true)));
+  await clearStrayServers(home);
+}
+
+/** Stop every realm-server still holding `home` that nothing names — what an older Realm's hand-off
+ *  left running when the server it stopped did not go (daemon-stop.ts). */
+async function clearStrayServers(home: string): Promise<void> {
+  const strays = await stopStrayServers(home, []);
+  if (strays.length) console.error(`[daemon] stopped realm-server left running from before: pid ${strays.join(", ")}`);
 }
 
 /**
@@ -2241,13 +2332,18 @@ function stopDaemon() {
  * finds the new server through `serverEndpoint`.
  */
 async function restartRealmServer(): Promise<void> {
-  // Main is on the socket, so the server is answering: the window only has to dial where it is now.
-  if (bridgeClient || !realmHome) return;
+  if (!realmHome) return;
+  // The server answers, so the window only has to dial where it is now. Asked, rather than read off
+  // main's bridge: a server that stopped answering can leave that socket open, and the button that
+  // trusted it did nothing at all.
+  const endpoint = serverEndpoint();
+  if (endpoint && await probeDaemon({ port: endpoint.port, token: endpoint.token })) return;
   if (daemonSupervisor) {
     // Running but not answering. Its home lock would turn the new one away, so it goes first — but
     // only if the pid is still realm-server: a pid from a stale file may be somebody else's by now.
     const recorded = readDaemonState(realmHome);
-    if (recorded && runsServer(recorded.pid, recorded.entry)) await stopServerProcess(recorded.pid);
+    if (recorded) await replaceServer(recorded);
+    await clearStrayServers(realmHome);
     daemonSupervisor.restartNow();
     return;
   }
@@ -2258,20 +2354,6 @@ async function restartRealmServer(): Promise<void> {
   serverChild = child;
   child.on("exit", () => { if (serverChild === child) serverChild = null; });
   await ready;
-}
-
-/** Whether `pid` is a live process running the server bundle at `entry`. */
-function runsServer(pid: number, entry: string): boolean {
-  if (pid === process.pid) return false;
-  try { return execFileSync("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8" }).includes(entry); } catch { return false; }
-}
-
-/** SIGTERM, then SIGKILL for a server too stuck to run its own shutdown. */
-async function stopServerProcess(pid: number): Promise<void> {
-  try { process.kill(pid, "SIGTERM"); } catch { return; }
-  if (await waitForExit(pid, STOP_WAIT_MS)) return;
-  try { process.kill(pid, "SIGKILL"); } catch { return; }
-  await waitForExit(pid, 2_000);
 }
 
 /**
@@ -2360,8 +2442,8 @@ ipcMain.on("window:set-profile", (e, profileId: unknown) => {
  *  `window-all-closed`, both of which otherwise divert into resident mode. */
 let quittingForReal = false;
 /** Set when Realm exits and leaves the daemon as it is: an update restart (`decideQuit`'s
- *  "update-restart" — the relaunched app's handoff deals with the daemon it finds) and a launch that
- *  failed to start. */
+ *  "update-restart" — `stopServerForUpdate` has dealt with the server before the quit) and a launch
+ *  that failed to start. */
 let detachOnQuit = false;
 
 /** The tray's *Quit Realm & stop agents* — the one path that stops the daemon, and the only place in
@@ -2381,10 +2463,8 @@ async function quitAndStopAll() {
   app.quit();
 }
 
-function shutdownForQuit() {
-  detachFromDaemon();
-  stopDaemon();
-}
+/** Set once a quit for real has stopped the server, so the `app.quit()` after it goes through. */
+let serverStoppedForQuit = false;
 
 /**
  * ⌘Q means "put the UI away", not "stop the agents".
@@ -2417,7 +2497,14 @@ app.on("before-quit", (e) => {
       .finally(() => app.quit());
     return;
   }
-  shutdownForQuit();
+  // The server goes first, and the quit waits for it: a server left to finish its own shutdown after
+  // the app has gone is one nobody sees again if that shutdown hangs.
+  if (!serverStoppedForQuit) {
+    e.preventDefault();
+    serverStoppedForQuit = true;
+    detachFromDaemon();
+    void stopDaemon().catch((err: unknown) => console.error("[daemon] stopping realm-server:", err)).finally(() => app.quit());
+  }
 });
 /** Set once Windows' quit has asked the server to stop itself (above). */
 let askedServerToStop = false;
@@ -2426,7 +2513,6 @@ let askedServerToStop = false;
 // that path is `autoUpdater`'s before-quit-for-update. Without it an update-restart would strand the
 // server child (and its ptys) while Squirrel swaps the bundle under it. Registered unconditionally:
 // it costs nothing while the updater gate (updater.ts) keeps quitAndInstall unreachable.
-// An update restart deliberately does NOT stop the daemon — the opposite of what this hook used to
-// do. Squirrel swaps the bundle and relaunches us, and the launcher's handoff deals with the daemon
-// it finds; killing it here would stop every agent for an update the user may not have noticed.
+// The server is not stopped here: `RealmUpdater.install` has stopped it already, before it asked for
+// the quit (see `stopServerForUpdate`), and a quit for the update must not go on to stop it again.
 electronAutoUpdater.on("before-quit-for-update", () => { quittingForReal = true; detachOnQuit = true; detachFromDaemon(); });

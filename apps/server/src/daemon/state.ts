@@ -63,7 +63,14 @@ export function readState(home: string): DaemonState | null {
   } catch { return null; }
 }
 
-export function clearState(home: string): void {
+/**
+ * Remove the state file — if it is this server's. A server whose shutdown ran late (it was stopped
+ * while busy, or hung on the way out) can reach here after its replacement has written the file, and
+ * deleting that would leave the app with no way to find the server it is running on.
+ */
+export function clearState(home: string, owner: { pid: number }): void {
+  const current = readState(home);
+  if (current && current.pid !== owner.pid) return;
   rmSync(stateFile(home), { force: true });
 }
 
