@@ -39,6 +39,22 @@ enum Fill {
     static let bubble = Color.dynamic(light: "Hover2", dark: "Hover")
     /// A well inside a card, a step below it.
     static let well = Color.dynamic(light: "Page", dark: "Canvas")
+    /// A tool call's pill in the transcript, Manus's grey: the same step off the ground as what the
+    /// person sent, since both are things set down in the reading rather than the reading itself.
+    static let pill = bubble
+    /// The one action, as Manus draws it: ink, not the accent — black on the light face, white on the
+    /// dark — for Send, Stop and a filled choice.
+    static let primary = Palette.ink
+    /// A word or a glyph on `primary`: the paper it is printed on.
+    static let onPrimary = Color.dynamic(light: "Surface", dark: "Page")
+}
+
+extension View {
+    /// The lift a floating card wears over the transcript — the composer, the current step — as Manus
+    /// floats its own: a soft shadow and no edge.
+    func floatingLift() -> some View {
+        shadow(color: .black.opacity(0.08), radius: 14, y: 4)
+    }
 }
 
 extension Color {

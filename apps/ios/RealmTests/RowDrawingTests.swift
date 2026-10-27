@@ -422,6 +422,39 @@ struct TranscriptLayoutTests {
         #expect(LiveActivity.of([]) == .working)
     }
 
+    /// A reply is headed with who answers: the first item after each thing the person said, and
+    /// nothing else.
+    @Test func aReplyOpensAfterWhatThePersonSaid() {
+        let items = TranscriptLayout.items([Self.user("u1"), Self.said("a1"), Self.tool("t1", "Read"), Self.user("u2"), Self.said("a2")],
+                                           settled: false)
+        #expect(TranscriptLayout.replyStarts(items) == ["a1", "a2"])
+        #expect(TranscriptLayout.replyStarts([]).isEmpty)
+    }
+
+    /// The current step is the turn's newest: the tool under way and what it acts on, thinking, or the
+    /// last tool done while words are written — never the words themselves, which the transcript says
+    /// — and nothing once the turn is over.
+    @Test func theCurrentStepIsTheTurnsNewest() {
+        func transcript(_ rows: [TranscriptRow], status: SessionStatus = .running) -> Transcript {
+            modelWithSession(status: status, rows: rows).store.transcript("s1")
+        }
+        let running = Self.row("t1", .tool(name: "Read", summary: "/repo/src/app.ts", state: .running, detail: nil))
+        let read = Self.row("t1", .tool(name: "Read", summary: "/repo/src/app.ts", state: .done, detail: nil))
+        let writing = Self.row("a1", .assistant(text: "Wri", streaming: true))
+        #expect(CurrentStep.of(transcript([running]))?.words == "Reading app.ts")
+        #expect(CurrentStep.of(transcript([read, writing]))?.words == "Read app.ts")
+        #expect(CurrentStep.of(transcript([read, Self.user("u2"), writing]))?.words == "Working")
+        #expect(CurrentStep.of(transcript([Self.row("k1", .thinking(text: "Hmm"))]))?.words == "Thinking")
+        #expect(CurrentStep.of(transcript([running], status: .idle)) == nil)
+    }
+
+    @Test func theCurrentStepsClockCountsAsManusDoes() {
+        #expect(CurrentStep.clock(16) == "00:16")
+        #expect(CurrentStep.clock(723) == "12:03")
+        #expect(CurrentStep.clock(3_723) == "1:02:03")
+        #expect(CurrentStep.clock(-4) == "00:00")
+    }
+
     @Test func aFoldSaysHowMuchWorkItHolds() {
         let rows = [Self.said("p1"), Self.tool("t1", "Read"), Self.row("k1", .thinking(text: "Hmm")), Self.tool("t2", "Edit")]
         #expect(FoldedWork.summary(rows) == "Worked · 3 steps")
@@ -715,10 +748,11 @@ struct ComposerDrawingTests {
         modelWithSession(status: .idle, modelLabel: "Opus 5.5")
     }
 
-    /// At rest it is one capsule, the field and its button, with no chip naming the model.
-    @Test func atRestItIsTheFieldAndItsButton() throws {
+    /// At rest it is already the card, as Manus's composer is: the model a message goes to is a chip
+    /// under the field before anything is typed.
+    @Test func atRestTheModelIsAlreadyAChip() throws {
         let words = try Drawing.words(Host().environment(Self.model()))
-        #expect(!words.contains("Opus"), "\(words)")
+        #expect(words.contains("Opus 5.5"), "\(words)")
     }
 
     /// With words in it, it is a card, and the model the message goes to is a chip under them.
