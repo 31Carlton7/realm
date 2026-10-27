@@ -886,9 +886,7 @@ private struct FirstLoad: View {
                 Text("To see its sessions again, make a pairing code in Settings ▸ Devices on your Mac and scan it here.")
             } actions: {
                 Button("Pair again") { model.pairingRequested = true }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Palette.accentFill)
-                    .buttonBorderShape(.capsule)
+                    .buttonStyle(InkButtonStyle())
             }
         case .notConnected:
             ContentUnavailableView {
@@ -916,13 +914,11 @@ private struct RetryButton: View {
             }
         } label: {
             HStack(spacing: 6) {
-                if trying { ProgressView().controlSize(.small).tint(.white) }
+                if trying { ProgressView().controlSize(.small).tint(Fill.onPrimary) }
                 Text(trying ? "Reconnecting…" : "Reconnect")
             }
         }
-        .buttonStyle(.borderedProminent)
-        .tint(Palette.accentFill)
-        .buttonBorderShape(.capsule)
+        .buttonStyle(InkButtonStyle())
         .disabled(trying)
     }
 }
