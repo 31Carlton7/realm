@@ -26,7 +26,7 @@ enum WorkHead {
     }
 }
 
-/// The Mac's pages beyond Home that the phone shows, as the bar's menu offers them.
+/// The Mac's pages beyond Home that the phone shows, as the profile sheet offers them.
 enum WorkPage: CaseIterable {
     case reviews, scheduled, usage
 
@@ -65,49 +65,6 @@ enum WorkPage: CaseIterable {
             return count > 0 ? (count == 1 ? "1 unread result" : "\(count) unread results") : nil
         case .usage:
             return nil
-        }
-    }
-}
-
-/// Home's one button in the top bar: Review, with how many wait there, Scheduled, Usage, then
-/// Settings. One menu rather than a button for each, since a third button in the bar makes iOS fold
-/// them all into a More menu of its own. Its glyph is the ellipsis, not a person: the title already
-/// switches profiles, and a person's outline beside it would read as a second way to. A Mac older than
-/// these pages leaves Settings alone there, as the gear it was.
-struct HomeMenu: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        if model.work.unsupported {
-            Button {
-                model.settingsShown = true
-            } label: {
-                Label("Settings", systemImage: "gearshape")
-            }
-            .accessibilityIdentifier("settings")
-        } else {
-            Menu {
-                Section {
-                    ForEach(WorkPage.allCases, id: \.self) { page in
-                        Button {
-                            model.path.append(page.route)
-                        } label: {
-                            Label(page.title, systemImage: page.symbol)
-                            if let note = page.note(reviews: model.work.reviews, schedules: model.work.schedules) { Text(note) }
-                        }
-                    }
-                }
-                Section {
-                    Button {
-                        model.settingsShown = true
-                    } label: {
-                        Label("Settings", systemImage: "gearshape")
-                    }
-                }
-            } label: {
-                Label("More", systemImage: "ellipsis.circle")
-            }
-            .accessibilityIdentifier("home-menu")
         }
     }
 }

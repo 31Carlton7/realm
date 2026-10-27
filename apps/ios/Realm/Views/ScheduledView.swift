@@ -151,11 +151,10 @@ struct ScheduledView: View {
         List {
             ForEach(tasks ?? []) { task in
                 TaskRow(task: task) { runNow(task) }
-                    // No head above the first row: a line there would rule off the bar.
-                    .listRowSeparator(task.id == tasks?.first?.id ? .hidden : .automatic, edges: .top)
             }
         }
         .listStyle(.plain)
+        .listRowSpacing(12)
         .scrollContentBackground(.hidden)
         .background(Ground.transcript)
         .overlay {
@@ -184,26 +183,32 @@ struct ScheduledView: View {
     }
 }
 
-/// One task as a line of the list: its space and when it runs, with its last run's state at the end;
-/// its title; then when it runs next. A task that has run opens the session it ran in.
+/// One task as Manus's scheduled tasks are drawn: a card with its title and where and when it runs,
+/// then, under a line, when it runs next, its last run's state and a menu with Run now. A task that
+/// has run opens the session it ran in.
 private struct TaskRow: View {
     let task: ScheduledTask
     let runNow: () -> Void
+    @Environment(AppModel.self) private var model
 
     var body: some View {
         Group {
             if let session = task.lastRun?.sessionId {
-                NavigationLink(value: Route.session(session)) {
-                    TaskLine(task: task)
+                // A press rather than a link, so no chevron stands outside the card.
+                Button {
+                    model.path.append(Route.session(session))
+                } label: {
+                    TaskLine(task: task, runNow: runNow)
                 }
+                .buttonStyle(.plain)
                 .accessibilityHint("Opens the session its last run ran in")
             } else {
-                TaskLine(task: task)
+                TaskLine(task: task, runNow: runNow)
             }
         }
         .listRowBackground(Color.clear)
-        .listRowSeparatorTint(Palette.divider)
-        .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
+        .listRowSeparator(.hidden)
+        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button("Run now", systemImage: "play.fill", action: runNow)
                 .tint(Palette.accentFill)
@@ -220,52 +225,68 @@ private struct TaskRow: View {
 
 private struct TaskLine: View {
     let task: ScheduledTask
+    let runNow: () -> Void
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         let unread = task.lastRun?.unread ?? false
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Circle()
-                .fill(unread ? Palette.accent : .clear)
-                .frame(width: 9, height: 9)
-            VStack(alignment: .leading, spacing: 4) {
-                let line = dynamicTypeSize.isAccessibilitySize
-                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
-                    : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 8))
-                line {
-                    Text([task.spaceName, task.when].filter { !$0.isEmpty }.joined(separator: " · "))
-                        .font(.footnote)
-                        .foregroundStyle(Palette.ink2)
-                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
-                        .fixedSize(horizontal: false, vertical: dynamicTypeSize.isAccessibilitySize)
-                        .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? nil : .infinity, alignment: .leading)
-                    if let run = task.lastRun {
-                        let state = RunState(run.state)
-                        HStack(spacing: 4) {
-                            Image(systemName: state.symbol)
-                                .symbolRenderingMode(.hierarchical)
-                                .restingPulse(when: state == .running)
-                            Text(state.word)
-                        }
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(state.tone.color)
-                        .fixedSize()
-                    }
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                if unread {
+                    Circle()
+                        .fill(Palette.accent)
+                        .frame(width: 9, height: 9)
                 }
                 Text(task.title)
-                    .font(.body.weight(unread ? .semibold : .regular))
+                    .font(.body.weight(.semibold))
                     .foregroundStyle(Palette.ink)
                     .lineLimit(dynamicTypeSize.isAccessibilitySize ? 6 : 2)
                     .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Text([task.spaceName, task.when].filter { !$0.isEmpty }.joined(separator: " · "))
+                .font(.subheadline)
+                .foregroundStyle(Palette.ink2)
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 4 : 2)
+                .padding(.top, 4)
+            Rectangle()
+                .fill(Palette.line)
+                .frame(height: 1)
+                .padding(.vertical, 12)
+                .accessibilityHidden(true)
+            HStack(alignment: .center, spacing: 8) {
                 TimelineView(.periodic(from: .now, by: 60)) { context in
                     Text(ScheduleWords.next(task, now: context.date))
-                        .font(.footnote)
-                        .foregroundStyle(Palette.ink2)
+                        .font(.subheadline)
+                        .foregroundStyle(Palette.ink)
                 }
+                if let run = task.lastRun {
+                    let state = RunState(run.state)
+                    HStack(spacing: 4) {
+                        Image(systemName: state.symbol)
+                            .symbolRenderingMode(.hierarchical)
+                            .restingPulse(when: state == .running)
+                        Text(state.word)
+                    }
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(state.tone.color)
+                    .fixedSize()
+                }
+                Spacer(minLength: 0)
+                Menu {
+                    Button("Run now", systemImage: "play.fill", action: runNow)
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Palette.ink2)
+                        .frame(width: 44, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("More")
             }
         }
-        .padding(.vertical, 6)
-        .accessibilityElement(children: .ignore)
+        .padding(16)
+        .background(Fill.card, in: RoundedRectangle(cornerRadius: Radius.card - 4, style: .continuous))
+        .accessibilityElement(children: .combine)
         .accessibilityLabel(ScheduleWords.spoken(task))
     }
 }

@@ -47,8 +47,8 @@ struct ChangesSheet: View {
                 DiffView(file: file, checkpointId: checkpointId, sessionId: sessionId)
             }
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Close", systemImage: "xmark") { dismiss() }
                 }
             }
         }
@@ -414,7 +414,7 @@ struct InlineDiff: View {
                     DiffView(file: file, checkpointId: checkpointId, sessionId: sessionId)
                         .toolbar {
                             ToolbarItem(placement: .cancellationAction) {
-                                Button("Done") { opening = false }
+                                Button("Close", systemImage: "xmark") { opening = false }
                             }
                         }
                 }
@@ -496,8 +496,8 @@ struct FilePreviewSheet: View {
             .navigationSubtitle((preview?.size ?? size).map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) } ?? "")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Close", systemImage: "xmark") { dismiss() }
                 }
             }
             .task {
