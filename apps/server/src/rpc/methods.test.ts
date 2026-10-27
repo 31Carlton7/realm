@@ -7,6 +7,7 @@ import { tempDir } from "@realm/test-utils";
 import { sessionEvent } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { SessionEventsStore } from "../store/sessions";
+import type { Simctl } from "../simulators/simctl";
 import { waitFor } from "../test-utils";
 
 let app: App;
@@ -575,6 +576,38 @@ describe("the computer-use allowed-apps list over rpc", () => {
       expect(r.ok, method).toBe(false);
       expect(r.error.code, method).toBe("NOT_FOUND");
     }
+    c.close();
+  });
+});
+
+describe("a simulator's screen over rpc", () => {
+  /** A PNG's signature and header, which is all of one its size is read from. */
+  const png = (width: number, height: number) => {
+    const b = Buffer.alloc(33);
+    b.writeUInt32BE(0x89504e47, 0); b.writeUInt32BE(0x0d0a1a0a, 4); b.writeUInt32BE(13, 8); b.write("IHDR", 12, "latin1");
+    b.writeUInt32BE(width, 16); b.writeUInt32BE(height, 20);
+    return b;
+  };
+
+  it("simulators.capture hands back the screen's PNG at the device's size, and keeps no file of it", async () => {
+    const home = tempDir("realm-home-");
+    const shot = png(1206, 2622);
+    const written: string[] = [];
+    // Only the capture is asked of simctl here.
+    const simctl = { screenshot: async (_udid: string, path: string) => { written.push(path); writeFileSync(path, shot); return { ok: true, detail: "" }; } } as unknown as Simctl;
+    app = await createApp({ home, port: 0, simulator: { simctl } });
+    const c = await client(app.port);
+    const [personal] = (await c.call("profiles.list", {})).result;
+    const space = (await c.call("spaces.create", { profileId: personal.id, name: "Versed" })).result;
+    const { simulatorId } = (await c.call("simulators.create", { spaceId: space.id, name: "iPhone 17 Pro", udid: "UDID-1" })).result;
+
+    expect((await c.call("simulators.capture", { simulatorId })).result).toEqual({ data: shot.toString("base64"), mimeType: "image/png", width: 1206, height: 2622 });
+    // THE MUTANT: capture through `simulators.screenshot`, the keeper — a phone watching would leave a
+    // PNG in the space's folder every second or two.
+    expect(written).toHaveLength(1);
+    expect(existsSync(written[0]!)).toBe(false);
+    expect(existsSync(join(space.folderPath, "simulator"))).toBe(false);
+    expect((await c.call("simulators.capture", { simulatorId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" })).error.code).toBe("NOT_FOUND");
     c.close();
   });
 });

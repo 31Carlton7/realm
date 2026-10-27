@@ -49,6 +49,7 @@ import type { EggService } from "../eggs/service";
 import { eggSecretBox } from "../eggs/service";
 import { machineSecretBox } from "../machines/secret";
 import { CATALOG_ABSENT_NOTE } from "../machines/catalog-data";
+import { pngSize } from "../machines/qmp-driver";
 import type { DocumentService } from "../documents/service";
 import type { BrowserHostBridge } from "../browsers/host-bridge";
 import type { SessionService } from "../sessions/service";
@@ -831,6 +832,13 @@ export function registerMethods(d: Deps): void {
   reg("simulators.ax", async (p) => ({ tree: await d.simulators.ax(p.simulatorId) }));
   reg("simulators.apps", async (p) => ({ apps: await d.simulators.apps(p.simulatorId) }));
   reg("simulators.screenshot", (p) => d.simulators.screenshot(p.simulatorId));
+  reg("simulators.capture", async (p) => {
+    // A PNG whichever way it was taken — simctl's, adb's `screencap` or the phone runner's — so its
+    // size is read off its own header rather than asked of the device a second time.
+    const png = await d.simulators.capture(p.simulatorId);
+    const size = pngSize(png);
+    return { data: png.toString("base64"), mimeType: "image/png", width: size?.width ?? 0, height: size?.height ?? 0 };
+  });
   reg("simulators.webcams", async () => ({ webcams: await d.simulators.webcams() }));
   reg("simulators.events", async (p) => ({ events: await d.simulators.events(p.simulatorId, p.limit) }));
   reg("simulators.act", (p) => d.simulators.act(p.simulatorId, p.act));
