@@ -6,13 +6,16 @@ import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { hoistModules } from "./lib/hoist-modules.mjs";
 import { pruneDevFiles } from "./lib/prune-dev-files.mjs";
 import { pruneMusl } from "./lib/prune-musl.mjs";
+import { unresolvedModules } from "./lib/unresolved-modules.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 // The OS this package is for — electron-builder packs for the machine it runs on (CI builds each OS on
 // its own runner), so what is staged is that OS's: its node-pty, its icons, and only a Mac's helpers.
 const mac = process.platform === "darwin";
+const windows = process.platform === "win32";
 const desktop = join(here, "..");
 const root = join(desktop, "..", "..");
 const stage = join(desktop, ".pack-stage");
@@ -56,6 +59,8 @@ if (existsSync(pnpmDir)) {
 if (process.platform === "linux" && existsSync(pnpmDir)) console.log("[stage-pack] dropped musl builds:", pruneMusl(pnpmDir).join(", ") || "none");
 // Source maps and type declarations are for a package's developers; nothing at runtime reads them.
 console.log("[stage-pack] dropped source maps and declarations:", pruneDevFiles(join(stage, "server", "node_modules")));
+// A Windows package cannot carry pnpm's links, so there the same packages go in as real directories.
+if (windows) console.log("[stage-pack] node_modules rebuilt without links:", hoistModules(join(stage, "server", "node_modules")));
 
 // 2. Bundled skills — bundledSkillsDir()'s packaged branch reads <resources>/skills.
 cpSync(join(root, "skills"), join(stage, "skills"), { recursive: true });
@@ -96,4 +101,13 @@ mkdirSync(join(desktop, "build"), { recursive: true });
 if (mac) cpSync(join(root, "resources", "icon.icns"), join(desktop, "build", "icon.icns"));
 else cpSync(join(root, "resources", "icon.png"), join(desktop, "build", "icon.png"));
 
+// 5. The server's imports, checked against the tree as it will be packaged. Running the server here proves
+// little: win-unpacked's junctions pointed back into .pack-stage, so its server started on the machine that
+// built it while no installed one from 2.3.0 to 2.5.0 could.
+const { packages, problems } = unresolvedModules(join(stage, "server"), { links: !windows });
+if (problems.length) {
+  console.error(`[stage-pack] the packaged server could not import:\n  ${problems.join("\n  ")}`);
+  process.exit(1);
+}
+console.log(`[stage-pack] the server's ${packages} packages all resolve inside it${windows ? ", with no links" : ""}`);
 console.log("[stage-pack] staged:", stage);
