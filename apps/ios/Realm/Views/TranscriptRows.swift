@@ -284,7 +284,21 @@ enum ToolWords {
         if planTools.contains(tool) {
             return Line(verb: running ? "Updating the plan" : "Updated the plan", object: nil)
         }
+        if let called = connectorTool(tool) {
+            return Line(verb: called, object: acted)
+        }
         return Line(verb: running ? "Calling \(tool)" : "Called \(tool)", object: acted)
+    }
+
+    /// A connector's tool as the desktop says it: the tool's own name in words, without the servers it
+    /// came through. `mcp__realm__realm-agent__agent_start` is "Agent start", `mcp__linear__save_issue`
+    /// is "Save issue"; nil for a tool that came through no connector.
+    static func connectorTool(_ tool: String) -> String? {
+        guard let range = tool.range(of: "__", options: .backwards) else { return nil }
+        let words = tool[range.upperBound...].replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ").trimmingCharacters(in: .whitespaces)
+        guard let first = words.first else { return nil }
+        return first.uppercased() + words.dropFirst()
     }
 
     private static let planTools: Set<String> = ["TodoWrite", "update_plan", "todo_write"]
@@ -356,10 +370,13 @@ private struct ToolLine: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     ToolStateGlyph(state: state)
                         .glyphColumn(20)
+                    // The verb is whole before the object gets any room, but it can still be cut:
+                    // set at its own width, a long name pushed every row of the transcript off screen.
                     Text(words.verb)
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(Palette.ink2)
-                        .fixedSize()
+                        .lineLimit(1)
+                        .layoutPriority(1)
                         .shimmer(when: state == .running)
                     if let object = words.object {
                         Text(object)

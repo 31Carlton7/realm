@@ -193,6 +193,26 @@ struct RowDrawingTests {
         #expect(words.contains("Read this") && words.contains("notes.pdf"), "\(words)")
     }
 
+    /// A row is never wider than the screen gives it, however long a tool's name: one that was pushed
+    /// every row of the transcript, and the bars under it, off the screen's left edge.
+    @Test func aLongToolNameStaysInsideTheColumn() {
+        let name = "an_extraordinarily_long_tool_name_that_some_server_registered_without_a_thought"
+        for tool in [name, "mcp__realm__realm-agent__\(name)"] {
+            let row = TranscriptRowView(row: Self.row(.tool(name: tool, summary: "/Users/someone/Realm/work/persona/plans/persona-adapters-design.md",
+                                                            state: .running, detail: nil)), sessionId: "s1")
+            let host = UIHostingController(rootView: row.environment(AppModel()))
+            #expect(host.sizeThatFits(in: CGSize(width: 358, height: 1_000)).width <= 358, "\(tool)")
+        }
+    }
+
+    /// Whatever a row sets at its own width, the column only ever sees the width it offered.
+    @Test func aRowThatCannotFitDoesNotWidenTheColumn() {
+        let wide = Text(String(repeating: "mcp__realm__realm-agent__agent_start ", count: 4)).fixedSize()
+        #expect(UIHostingController(rootView: wide).sizeThatFits(in: CGSize(width: 358, height: 1_000)).width > 358)
+        let kept = UIHostingController(rootView: wide.keepsToOfferedWidth())
+        #expect(kept.sizeThatFits(in: CGSize(width: 358, height: 1_000)).width <= 358)
+    }
+
     /// The work is quiet lines that say what they did, in the tense of their state.
     @Test func workSaysWhatItDid() throws {
         let rows = [Self.row(.tool(name: "Read", summary: "AppSettings.tsx", state: .done, detail: nil), key: "t1"),
@@ -411,8 +431,18 @@ struct WorkWordsTests {
         #expect(ToolWords.line(tool: "Edit", summary: "a.ts", running: false).verb == "Edited")
         #expect(ToolWords.line(tool: "Write", summary: "a.ts", running: false).verb == "Wrote")
         #expect(ToolWords.line(tool: "TodoWrite", summary: "3 todos", running: false) == .init(verb: "Updated the plan", object: nil))
-        #expect(ToolWords.line(tool: "Linear__create_issue", summary: "", running: false) == .init(verb: "Called Linear__create_issue", object: nil))
+        #expect(ToolWords.line(tool: "frobnicate", summary: "", running: false) == .init(verb: "Called frobnicate", object: nil))
         #expect(ToolWords.line(tool: "Read", summary: "Read", running: false).object == nil)
+    }
+
+    /// A connector's tool is said by its own name, never the servers it came through, as the desktop says it.
+    @Test func aConnectorsToolIsSaidByItsOwnName() {
+        #expect(ToolWords.line(tool: "mcp__realm__realm-agent__agent_start", summary: "Persona package", running: false)
+            == .init(verb: "Agent start", object: "Persona package"))
+        #expect(ToolWords.line(tool: "mcp__claude_ai_Linear__save_issue", summary: "", running: true).verb == "Save issue")
+        #expect(ToolWords.line(tool: "realm-team__review_submit", summary: "", running: false).verb == "Review submit")
+        #expect(ToolWords.connectorTool("Bash") == nil)
+        #expect(ToolWords.connectorTool("mcp__realm__") == nil)
     }
 
     @Test func anEditFindsItsFileHoweverEitherPathWasShortened() {
