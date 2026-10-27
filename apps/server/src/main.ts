@@ -135,7 +135,7 @@ try {
   // checks anything about the port, because a draining daemon answers perfectly well.
   markDraining = () => {
     const current = readState(home);
-    if (current) writeState(home, { ...current, state: "draining" });
+    if (current?.pid === process.pid) writeState(home, { ...current, state: "draining" });
   };
 
   // Still announced on stdout, unchanged, for the child-process mode `pnpm dev` and the live checks
@@ -154,7 +154,7 @@ try {
     // Tidy up on the way out. Not load-bearing — a launcher finding a state file whose pid is gone
     // decides to spawn, and a lock whose pid is gone is broken and retaken — but leaving them behind
     // means the next launch's log says "stale" about a crash it could have said nothing about.
-    try { clearState(home); releaseLock(home, { pid: process.pid }); } catch { /* nothing left to do */ }
+    try { clearState(home, { pid: process.pid }); releaseLock(home, { pid: process.pid }); } catch { /* nothing left to do */ }
     process.exit(1);
   };
   process.on("unhandledRejection", fatal("unhandledRejection"));
@@ -163,7 +163,7 @@ try {
   const shutdown = async () => {
     // Clear before closing: between these two a launcher must not read a file pointing at a socket
     // that is already refusing connections.
-    clearState(home);
+    clearState(home, { pid: process.pid });
     releaseLock(home, { pid: process.pid });
     await app.close();
     process.exit(0);
