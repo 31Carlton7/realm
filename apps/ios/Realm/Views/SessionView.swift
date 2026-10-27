@@ -149,10 +149,18 @@ struct SessionView: View {
         .navigationSubtitle(subtitle(transcript))
         .toolbar {
             if let row {
+                // The space's simulators and machines, beside the menu in the bar's one glass.
+                if !(model.sessionScreens[sessionId] ?? []).isEmpty {
+                    ToolbarItem(placement: .topBarTrailing) { ScreensButton(sessionId: sessionId) }
+                }
                 ToolbarItem(placement: .topBarTrailing) { SessionMenu(row: row) }
             }
         }
         .task(id: model.channelGeneration) { await model.open(sessionId) }
+        // A turn is what opens a simulator or a machine, so the bar asks again as one starts and ends.
+        .task(id: ScreensAsked(generation: model.channelGeneration, connected: model.isConnected, status: status)) {
+            await model.loadScreens(sessionId)
+        }
         .onDisappear {
             Task { await model.close(sessionId) }
         }
@@ -177,6 +185,13 @@ struct SessionView: View {
         let queued = outbox.inQueue(transcript.queued ?? [], for: sessionId)
         return outbox.items(for: sessionId).filter { $0.isMessage && queued[$0.id] == nil }
     }
+}
+
+/// When the bar asks the Mac again what the session's space has open to watch.
+private struct ScreensAsked: Equatable {
+    let generation: Int
+    let connected: Bool
+    let status: SessionStatus?
 }
 
 /// Where a transcript stands in its scroll view, as one value, so a change can be told apart from the
