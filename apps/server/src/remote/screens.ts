@@ -11,7 +11,7 @@ import type { Downscale } from "./preview";
  * pictured is not decided here: the caller has found it in the session's own space and seen it live.
  *
  * A frame is polled every second or two while the phone's viewer is open, so it is bounded on every
- * side: a JPEG at most the side asked for, at a quality that keeps a phone's screen near 100 KB, made
+ * side: a JPEG at most the side asked for (a simulator's home screen at 1000 px is about 50 KB), made
  * from a capture that is written only to a folder of its own under the system's temporary folder and
  * gone again before the answer is.
  */
