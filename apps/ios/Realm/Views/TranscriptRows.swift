@@ -162,7 +162,9 @@ struct WorkRun: View {
     var checkpointAfter: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        // Each pill's touch is taller than the pill, so the run overlaps its touches to keep Manus's
+        // small gap between them.
+        VStack(alignment: .leading, spacing: -PillButtonStyle.reach) {
             ForEach(Self.segments(rows), id: \.first?.key) { segment in
                 if segment.count > 1 {
                     ToolGroupLine(rows: segment, sessionId: sessionId, checkpointAfter: checkpointAfter)
@@ -171,7 +173,7 @@ struct WorkRun: View {
                 }
             }
         }
-        .padding(.vertical, -4)
+        .padding(.vertical, -PillButtonStyle.reach)
     }
 
     /// The run in the lines it is drawn as: calls of one kind in a row, where the kind can be said as
@@ -221,7 +223,7 @@ private struct WorkLine: View {
     }
 }
 
-/// Calls of one kind in a row under one line — "Ran 3 commands" — that opens to each of them, as
+/// Calls of one kind in a row under one pill — "Ran 3 commands" — that opens to each of them, as
 /// ChatGPT folds a run of commands. It says the newest's state: running, or failed if any did.
 private struct ToolGroupLine: View {
     let rows: [TranscriptRow]
@@ -239,44 +241,31 @@ private struct ToolGroupLine: View {
         let state: ToolState = running ? .running : states.contains(.error) ? .error : .done
         let kind = rows.first?.groupableKind ?? .other
         let words = ToolWords.group(kind, count: rows.count, running: running) ?? ""
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 0) {
             Button {
                 holdPlace()
                 withAnimation(Motion.animation(reduceMotion)) { open.toggle() }
             } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                WorkPill(running: running) {
                     ToolStateGlyph(state: state, kind: kind)
-                        .glyphColumn(20)
+                } label: {
                     Text(words)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(Palette.ink2)
-                        .lineLimit(1)
-                        .shimmer(when: running)
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
+                    Image(systemName: open ? "chevron.up" : "chevron.down")
+                        .font(.caption2.weight(.bold))
                         .foregroundStyle(Palette.ink3)
-                        .rotationEffect(.degrees(open ? 90 : 0))
-                    Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 4)
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(LineButtonStyle())
+            .buttonStyle(PillButtonStyle())
             .sensoryFeedback(.selection, trigger: open)
             .accessibilityLabel("\(words)\(state == .error ? ", one failed" : "")")
             .accessibilityValue(open ? "Open" : "Folded")
             if open {
-                VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: -PillButtonStyle.reach) {
                     ForEach(rows) { row in
                         WorkLine(row: row, sessionId: sessionId, checkpointAfter: checkpointAfter)
                     }
                 }
-                .padding(.leading, 12)
-                .overlay(alignment: .leading) {
-                    Capsule().fill(Palette.mark).frame(width: 2)
-                }
-                .padding(.leading, 13)
+                .padding(.leading, 16)
                 .transition(.opacity)
             }
         }
@@ -299,38 +288,20 @@ struct FoldedWork: View {
                 holdPlace()
                 withAnimation(Motion.animation(reduceMotion)) { open.toggle() }
             } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Image(systemName: "checklist.checked")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Palette.ink3)
-                        .glyphColumn(20)
-                    Text(Self.summary(rows))
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(Palette.ink2)
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Palette.ink3)
-                        .rotationEffect(.degrees(open ? 90 : 0))
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 4)
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
+                StepHead(title: Self.summary(rows), done: true, open: open)
             }
-            .buttonStyle(LineButtonStyle())
+            .buttonStyle(.plain)
             .sensoryFeedback(.selection, trigger: open)
             .accessibilityLabel(Self.summary(rows))
             .accessibilityValue(open ? "Open" : "Folded")
             if open {
+                // Under the step's words, as Manus sets a step's work under its title.
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach(TranscriptLayout.items(rows, settled: false)) { item in
                         TranscriptItemView(item: item, sessionId: sessionId, checkpointAfter: checkpointAfter)
                     }
                 }
-                .padding(.leading, 12)
-                .overlay(alignment: .leading) {
-                    Capsule().fill(Palette.mark).frame(width: 2)
-                }
+                .padding(.leading, StepHead.indent)
                 .transition(.opacity)
             }
         }
@@ -348,39 +319,58 @@ struct FoldedWork: View {
     }
 }
 
-/// What a running turn is doing at the transcript's foot — thinking, working, or writing the words
-/// above it — as the one live line, in the present tense, that rests after a few sweeps. Given when
-/// the turn started (only a start this phone saw), it says for how long, as ChatGPT's "Thinking" line
-/// sits where the next words will come.
+/// What a running turn is doing at the transcript's foot — thinking, or writing the words above it —
+/// as Manus says it: a small dot of the accent beside the word, which shimmers a few times and rests.
 struct LiveLine: View {
-    /// What the turn is doing, in the present tense: "Thinking", "Working", "Writing".
+    /// What the turn is doing, in the present tense: "Thinking", "Writing".
     let word: String
-    var since: Date?
+    @ScaledMetric(relativeTo: .subheadline) private var dot: CGFloat = 9
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: "progress.indicator")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(Palette.accentInk)
+        HStack(spacing: 8) {
+            Circle()
+                .fill(Palette.accent)
+                .frame(width: dot, height: dot)
                 .restingPulse(when: true)
-                .glyphColumn(20)
+                .accessibilityHidden(true)
             Text(word)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(Palette.ink2)
                 .shimmer(when: true)
-            if let since {
-                TimelineView(.periodic(from: since, by: 1)) { context in
-                    Text(PillWords.elapsed(context.date.timeIntervalSince(since)))
-                        .font(.subheadline)
-                        .monospacedDigit()
-                        .foregroundStyle(Palette.ink3)
-                        .accessibilityLabel(PillWords.elapsed(context.date.timeIntervalSince(since), spoken: true))
-                }
-            }
         }
-        .padding(.horizontal, 4)
         .frame(minHeight: 32)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// A step's head, as Manus draws one: a round check when it is done (an empty ring while it is not),
+/// its words in the strong weight, and the chevron that says it opens.
+struct StepHead: View {
+    let title: String
+    let done: Bool
+    let open: Bool
+
+    /// How far a step's work sits in: under its words, past the check.
+    static let indent: CGFloat = 28
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: done ? "checkmark.circle.fill" : "circle")
+                .font(.subheadline)
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(Palette.ink3)
+                .glyphColumn(20, relativeTo: .subheadline)
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Palette.ink)
+                .multilineTextAlignment(.leading)
+            Image(systemName: open ? "chevron.up" : "chevron.down")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Palette.ink3)
+            Spacer(minLength: 0)
+        }
+        .frame(minHeight: 44)
+        .contentShape(Rectangle())
     }
 }
 
@@ -546,11 +536,48 @@ enum Edits {
     }
 }
 
-/// A line of the work that opens: the press is a fill, arriving at once, never a size.
-private struct LineButtonStyle: ButtonStyle {
+/// A pill of the work that opens: the press is a deeper fill, arriving at once, never a size. Its touch
+/// reaches past the pill above and below, to 44 points.
+struct PillButtonStyle: ButtonStyle {
+    /// How far the touch reaches past the pill, top and bottom.
+    static let reach: CGFloat = 6
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .background(configuration.isPressed ? Palette.hover : .clear, in: RoundedRectangle(cornerRadius: Radius.well, style: .continuous))
+            .environment(\.pillPressed, configuration.isPressed)
+            .padding(.vertical, Self.reach)
+            .contentShape(Rectangle())
+    }
+}
+
+extension EnvironmentValues {
+    @Entry var pillPressed = false
+}
+
+/// One step of the work as Manus draws it: a grey pill, as wide as its words, with the glyph of its
+/// kind, the verb in the medium weight and what it acted on quieter beside it. A long one is cut in
+/// the middle of what it acted on, never past the screen.
+struct WorkPill<Glyph: View, Label: View>: View {
+    var running = false
+    @ViewBuilder let glyph: Glyph
+    @ViewBuilder let label: Label
+    @Environment(\.pillPressed) private var pressed
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            glyph
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                label
+            }
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(Palette.ink2)
+            .lineLimit(1)
+            .shimmer(when: running)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(pressed ? Palette.hover2 : Fill.pill, in: RoundedRectangle(cornerRadius: Radius.well + 2, style: .continuous))
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -573,42 +600,28 @@ private struct ToolLine: View {
     var body: some View {
         let words = ToolWords.line(tool: name, summary: summary, running: state == .running)
         let kind = ToolWords.kind(name)
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 0) {
             Button {
                 holdPlace()
                 withAnimation(Motion.animation(reduceMotion)) { open.toggle() }
             } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                WorkPill(running: state == .running) {
                     ToolStateGlyph(state: state, kind: kind)
-                        .glyphColumn(20)
+                } label: {
                     // The verb is whole before the object gets any room, but it can still be cut:
                     // set at its own width, a long name pushed every row of the transcript off screen.
                     Text(words.verb)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(Palette.ink2)
-                        .lineLimit(1)
                         .layoutPriority(1)
-                        .shimmer(when: state == .running)
-                    // Then the object, before the space after it: left to share with the spacer, a
-                    // short file name was cut in half beside room it could have had.
                     if let object = words.object {
                         ToolObject(text: ToolWords.shown(object, kind: kind), code: kind.objectIsCode)
-                            .layoutPriority(0.5)
                     }
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Palette.ink3)
-                        .rotationEffect(.degrees(open ? 90 : 0))
-                    Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 4)
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(LineButtonStyle())
+            .buttonStyle(PillButtonStyle())
             .sensoryFeedback(.selection, trigger: open)
             .accessibilityLabel("\([words.verb, words.object].compactMap { $0 }.joined(separator: " "))\(state == .error ? ", failed" : "")")
             .accessibilityValue(open ? "Open" : "Folded")
+            .accessibilityHint(checkpointId == nil ? "Shows what it printed" : "Shows the change")
             if open {
                 Group {
                     if let checkpointId {
@@ -617,8 +630,8 @@ private struct ToolLine: View {
                         output
                     }
                 }
-                .padding(.leading, 32)
-                .padding(.bottom, 6)
+                .padding(.leading, 16)
+                .padding(.vertical, 6)
                 .transition(.opacity)
             }
         }
@@ -662,7 +675,7 @@ private struct ToolObject: View {
             if code {
                 Text(text).mono(.footnote)
             } else {
-                Text(text).font(.subheadline)
+                Text(text).font(.subheadline.weight(.regular))
             }
         }
         .foregroundStyle(Palette.ink3)
@@ -731,30 +744,20 @@ private struct ThinkingLine: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 0) {
             Button {
                 holdPlace()
                 withAnimation(Motion.animation(reduceMotion)) { open.toggle() }
             } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Image(systemName: "ellipsis")
+                WorkPill {
+                    Image(systemName: "brain")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(Palette.ink3)
-                        .glyphColumn(20)
+                } label: {
                     Text("Thinking")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(Palette.ink2)
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Palette.ink3)
-                        .rotationEffect(.degrees(open ? 90 : 0))
-                    Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 4)
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(LineButtonStyle())
+            .buttonStyle(PillButtonStyle())
             .sensoryFeedback(.selection, trigger: open)
             .accessibilityLabel("Thinking")
             .accessibilityValue(open ? "Open" : "Folded")
@@ -765,8 +768,8 @@ private struct ThinkingLine: View {
                     .foregroundStyle(Palette.ink2)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.leading, 32)
-                    .padding(.bottom, 8)
+                    .padding(.leading, 16)
+                    .padding(.vertical, 6)
             }
         }
     }

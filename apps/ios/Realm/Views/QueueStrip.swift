@@ -302,9 +302,9 @@ private struct QueuedRow: View {
                     Button { Task { await model.sendQueuedNow(message, in: sessionId) } } label: {
                         Image(systemName: "arrow.up")
                             .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Fill.onPrimary)
                             .frame(width: 28, height: 28)
-                            .background(Palette.accentFill, in: Circle())
+                            .background(Fill.primary, in: Circle())
                             .frame(width: ComposerLayout.button, height: ComposerLayout.button)
                             .contentShape(Rectangle())
                     }

@@ -43,31 +43,10 @@ enum ScreenWords {
     }
 }
 
-/// The bar's Screens button: what the session's space has open on the Mac — a simulator, a machine —
-/// to watch from here. The bar draws it only once the Mac has said there is one.
-struct ScreensButton: View {
-    let sessionId: String
-    @Environment(AppModel.self) private var model
-    @State private var shown = false
-
-    var body: some View {
-        let screens = model.sessionScreens[sessionId] ?? []
-        Button {
-            shown = true
-        } label: {
-            Label("Screens", systemImage: ScreenWords.glyph(screens))
-        }
-        .accessibilityHint(ScreenWords.hint(screens))
-        .accessibilityIdentifier("screens")
-        .sheet(isPresented: $shown) {
-            ScreensSheet(sessionId: sessionId)
-        }
-    }
-}
-
-/// A screen the session's space has open, watched from the phone: its picture, asked of the Mac about
-/// once a second while the sheet is up, as Manus shows its computer. Pause holds the picture still and
-/// stops asking; with more than one screen, a control along the top picks which.
+/// A screen the session's space has open, watched from the phone as Manus shows its computer: the
+/// picture on a card headed with the screen's name, asked of the Mac about once a second while the
+/// sheet is up; what the agent is doing under it; and Pause, which holds the picture still and stops
+/// asking, beside Share. With more than one screen, a menu at the bar's trailing edge picks which.
 struct ScreensSheet: View {
     let sessionId: String
     @Environment(AppModel.self) private var model
@@ -93,48 +72,68 @@ struct ScreensSheet: View {
     var body: some View {
         let screens = model.sessionScreens[sessionId] ?? []
         let screen = screens.first { $0.id == selected } ?? screens.first
+        let shown = picture.flatMap { $0.screenId == screen?.id ? $0 : nil }
+        let transcript = model.store.transcript(sessionId)
         NavigationStack {
-            VStack(spacing: 14) {
-                if screens.count > 1 {
-                    Picker("Screen", selection: Binding(get: { screen?.id }, set: { selected = $0 })) {
-                        ForEach(screens) { screen in
-                            Label(screen.name, systemImage: ScreenWords.glyph(screen.kind)).tag(Optional(screen.id))
+            VStack(spacing: 16) {
+                ScreenStage(screen: screen, picture: shown, trouble: trouble, resting: resting == screen?.id)
+                if let step = CurrentStep.of(transcript), let session = transcript.session {
+                    AgentAtWork(session: session, step: step)
+                }
+                ScreenStatus(screen: screen, picture: shown, paused: paused, trouble: trouble)
+                if let screen, screen.live {
+                    HStack(spacing: 12) {
+                        Button {
+                            paused.toggle()
+                        } label: {
+                            Label(paused ? "Jump to live" : "Pause", systemImage: paused ? "play.fill" : "pause.fill")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Palette.ink)
+                                .padding(.horizontal, 20)
+                                .frame(minHeight: 44)
+                                .background(Fill.card, in: Capsule())
+                                .floatingLift()
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint(paused ? "Asks your Mac for the picture again" : "Holds the picture still")
+                        if let shown {
+                            ShareLink(item: Image(uiImage: shown.image), preview: SharePreview(screen.name, image: Image(uiImage: shown.image))) {
+                                Image(systemName: "square.and.arrow.up")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundStyle(Palette.ink)
+                                    .frame(width: 44, height: 44)
+                                    .background(Fill.card, in: Circle())
+                                    .floatingLift()
+                            }
+                            .accessibilityLabel("Share")
                         }
                     }
-                    .pickerStyle(.segmented)
+                    .padding(.bottom, 8)
                 }
-                ScreenStage(screen: screen, picture: picture.flatMap { $0.screenId == screen?.id ? $0 : nil },
-                            trouble: trouble, resting: resting == screen?.id)
-                ScreenStatus(screen: screen, picture: picture.flatMap { $0.screenId == screen?.id ? $0 : nil },
-                             paused: paused, trouble: trouble)
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(Ground.grouped)
-            .navigationTitle(screen?.name ?? "Screens")
-            .navigationSubtitle(screen?.detail ?? "")
+            .navigationTitle(screens.count > 1 ? "Screens" : screen?.name ?? "Screens")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close", systemImage: "xmark") { dismiss() }
                 }
-                if let screen, screen.live {
-                    ToolbarItemGroup(placement: .bottomBar) {
-                        Spacer()
-                        Button {
-                            paused.toggle()
-                        } label: {
-                            Label(paused ? "Resume" : "Pause", systemImage: paused ? "play.fill" : "pause.fill")
-                                .labelStyle(.titleAndIcon)
-                        }
-                        .accessibilityHint(paused ? "Asks your Mac for the picture again" : "Holds the picture still")
-                        if let picture, picture.screenId == screen.id {
-                            ShareLink(item: Image(uiImage: picture.image), preview: SharePreview(screen.name, image: Image(uiImage: picture.image))) {
-                                Label("Share", systemImage: "square.and.arrow.up")
+                if screens.count > 1, let screen {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Menu {
+                            Picker("Screen", selection: Binding(get: { screen.id }, set: { selected = $0 })) {
+                                ForEach(screens) { screen in
+                                    Label(screen.name, systemImage: ScreenWords.glyph(screen.kind)).tag(screen.id)
+                                }
                             }
+                        } label: {
+                            Label(screen.name, systemImage: ScreenWords.glyph(screen.kind))
                         }
-                        Spacer()
+                        .accessibilityLabel("Screen, \(screen.name)")
+                        .accessibilityIdentifier("screen-picker")
                     }
                 }
             }
@@ -196,6 +195,33 @@ private struct ScreenStage: View {
     @Environment(\.displayScale) private var displayScale
 
     var body: some View {
+        VStack(spacing: 0) {
+            // The card's head names what is on it, as Manus heads its computer with the file it shows.
+            if let screen {
+                HStack(spacing: 6) {
+                    Image(systemName: ScreenWords.glyph(screen.kind))
+                    Text([screen.name, screen.detail].compactMap { $0 }.joined(separator: " · "))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .font(.footnote)
+                .foregroundStyle(Palette.ink2)
+                .padding(.horizontal, 14)
+                .frame(maxWidth: .infinity, minHeight: 40)
+                .accessibilityElement(children: .combine)
+                Rectangle()
+                    .fill(Palette.line)
+                    .frame(height: 1)
+                    .accessibilityHidden(true)
+            }
+            picturePlace
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .surface(Fill.card)
+        .animation(.easeOut(duration: 0.2), value: picture == nil)
+    }
+
+    private var picturePlace: some View {
         ZStack {
             if let picture {
                 Image(uiImage: picture.image)
@@ -224,8 +250,33 @@ private struct ScreenStage: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .surface(Fill.card)
-        .animation(.easeOut(duration: 0.2), value: picture == nil)
+    }
+}
+
+/// Under the picture, while a turn runs, what the agent is doing, as Manus says it is using a tool:
+/// the agent's mark on a tile, the agent at work, and the step in its words.
+private struct AgentAtWork: View {
+    let session: SessionRow
+    let step: CurrentStep
+
+    var body: some View {
+        HStack(spacing: 12) {
+            AgentMark(kind: session.agent, mark: session.agentMark, colored: true, size: 18, relativeTo: .body)
+                .frame(width: 38, height: 38)
+                .background(Fill.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(session.agentDisplayName) is working")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Palette.ink)
+                Text(step.words)
+                    .font(.footnote)
+                    .foregroundStyle(Palette.ink2)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 
