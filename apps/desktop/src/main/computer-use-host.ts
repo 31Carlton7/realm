@@ -35,6 +35,14 @@ const REFUSALS = new Set<string>([
   "no_accessibility", "stale_snapshot", "no_element", "occluded", "not_frontmost", "forbidden_app", "secure_field",
 ]);
 
+/**
+ * The ops this host answers: the server's `COMPUTER_HOST_OPS`. Main routes by this list rather than by
+ * a prefix, because a `mac` machine's frame (`machineCaptureOnce`) is one of them and its name does not
+ * start with "computer" — routed by the prefix, it went to the browser host, which refused it.
+ */
+const COMPUTER_OPS: readonly string[] = ["computerListApps", "machineCaptureOnce", "computerSnapshot", "computerAct"];
+export const isComputerOp = (op: string): boolean => COMPUTER_OPS.includes(op);
+
 export class ComputerUseHost {
   constructor(private readonly d: ComputerUseHostDeps) {}
 

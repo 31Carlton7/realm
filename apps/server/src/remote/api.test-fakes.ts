@@ -1,4 +1,4 @@
-import type { Item, MethodName, MethodParams, MethodResult, Profile, QueuedPrompt, Session, Space } from "@realm/contracts";
+import type { Item, Machine, MachineState, MethodName, MethodParams, MethodResult, Profile, QueuedPrompt, Session, Simulator, SimulatorState, Space } from "@realm/contracts";
 import type { ChannelContext } from "./api";
 import type { RpcPort } from "./rpc-port";
 
@@ -13,6 +13,29 @@ export const item = (refId: string, spaceId: string, title: string, extra: Parti
 export const session = (id: string, spaceId: string, extra: Partial<Session> = {}): Session =>
   ({ id, spaceId, projectId: null, agentKind: "fake", model: null, effort: null, fastMode: false, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", cwd: "/tmp", status: "idle",
     providerSessionId: null, title: `${id} (session)`, lastEventSeq: 0, seenSeq: 0, terminalItemId: null, dispatchedBy: null, activityAt: 0, createdAt: 0, updatedAt: 0, ...extra });
+
+export const simulator = (id: string, spaceId: string, name: string, extra: Partial<Simulator> = {}): Simulator =>
+  ({ id, spaceId, name, udid: `UDID-${id}`, platform: "ios", physical: false, createdAt: 0, updatedAt: 0, ...extra });
+export const simulatorState = (simulatorId: string, status: SimulatorState["status"]): SimulatorState =>
+  ({ simulatorId, status, udid: `UDID-${simulatorId}`, serial: null, streamUrl: null, wsUrl: null, screen: null, error: null, detail: null, physical: false });
+export const machine = (id: string, spaceId: string, name: string, source: Machine["source"]): Machine =>
+  ({ id, spaceId, name, source, endpoint: null, hasPassword: false, createdAt: 0, updatedAt: 0 });
+export const machineState = (machineId: string, status: MachineState["status"]): MachineState =>
+  ({ machineId, status, wsUrl: null, width: null, height: null, error: null, detail: null });
+
+/** A PNG's signature and header: all of one that its size is read from. */
+export function pngHeader(width: number, height: number): Buffer {
+  const b = Buffer.alloc(33);
+  b.writeUInt32BE(0x89504e47, 0); b.writeUInt32BE(0x0d0a1a0a, 4); b.writeUInt32BE(13, 8); b.write("IHDR", 12, "latin1");
+  b.writeUInt32BE(width, 16); b.writeUInt32BE(height, 20);
+  return b;
+}
+
+/** A JPEG's start, frame header and end: all of one that its size is read from. */
+export const jpegHeader = (width: number, height: number): Buffer => Buffer.from([
+  0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, height >> 8, height & 0xff, width >> 8, width & 0xff,
+  0x03, 0x01, 0x22, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01, 0xff, 0xd9,
+]);
 
 export type Lists = { profiles?: Profile[]; spaces?: Space[]; sessions: Session[]; items: Item[]; settings?: Record<string, unknown>; queued?: Record<string, QueuedPrompt[]> };
 

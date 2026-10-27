@@ -361,6 +361,36 @@ export const FilePreviewSchema = z.object({
   ]),
 });
 
+/** A simulator or a machine the session's space has open on the Mac: a pane with a screen in it. */
+export const ScreenSchema = z.object({
+  id: Id,
+  kind: z.enum(["simulator", "machine"]),
+  /** What its pane is called ("iPhone 17 Pro"). */
+  name: z.string(),
+  /** A second line in words: "iOS Simulator", "Your iPhone", "Mac app", "Remote screen", "Virtual machine". */
+  detail: z.string().optional(),
+  /** There is a picture to fetch right now: the device is running, the machine connected. */
+  live: z.boolean(),
+});
+export type Screen = z.infer<typeof ScreenSchema>;
+
+/** How long a frame's longer side may be asked to be, in pixels, and how long it is when none is asked
+ *  for. A side outside these is brought inside them, not refused. */
+export const SCREEN_SIDE = { min: 320, max: 1280, default: 1000 } as const;
+
+/** One picture of a screen, made small for a phone. */
+export const ScreenFrameSchema = z.object({
+  mime: z.literal("image/jpeg"),
+  /** The JPEG's bytes, base64. */
+  data: z.string(),
+  /** The JPEG's own size, in pixels: its longer side at most the side asked for. */
+  width: z.number().int(),
+  height: z.number().int(),
+  /** When the picture was taken, on the Mac's clock. */
+  capturedAt: z.number(),
+});
+export type ScreenFrame = z.infer<typeof ScreenFrameSchema>;
+
 /** What a session runs on, as `session.configure` changes it and `session.create` starts it. */
 const sessionChoices = {
   /** A model by its id, or null for the agent's own default. */
@@ -473,6 +503,14 @@ export const MobileCalls = {
   "space.icon": {
     params: z.object({ id: Id }),
     result: z.object({ mime: z.string(), data: z.string() }),
+  },
+  /** The simulators and machines the session's space has open on the Mac, the live ones first, then by name. */
+  "session.screens": { params: z.object({ id: Id }), result: z.object({ screens: z.array(ScreenSchema) }) },
+  /** A picture of one of them as it is now, for a phone watching it: only a screen of the session's own
+   *  space, and only while it is live. `maxSide` is brought inside `SCREEN_SIDE`. */
+  "session.screen": {
+    params: z.object({ id: Id, screenId: Id, kind: ScreenSchema.shape.kind, maxSide: z.number().optional() }),
+    result: ScreenFrameSchema,
   },
   "debug.report": { params: z.object({ name: z.string().regex(/^[\w.-]{1,80}$/), data: z.unknown() }), result: Ok },
 } as const;

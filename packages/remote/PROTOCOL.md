@@ -479,6 +479,8 @@ else keeps its own name, whatever it looks like.
 | `session.diff` | `{id, checkpointId, path, from?: int = 0}` | `{path, oldPath, status, binary, additions, deletions, lines: [string], from, next: int\|null, total, truncated, truncatedReason}` |
 | `session.file` | `{id, path}` | `{path, name, size, mime, preview: {kind: "image", mime, data} \| {kind: "text", text, truncated} \| {kind: "none", reason}}` |
 | `space.icon` | `{id}` | `{mime, data}`: base64 |
+| `session.screens` | `{id}` | `{screens: [Screen]}`: the live first, then by name |
+| `session.screen` | `{id, screenId, kind: "simulator"\|"machine", maxSide?: number = 1000}` | `{mime: "image/jpeg", data, width: int, height: int, capturedAt: ms}`: `data` is base64 |
 | `debug.report` | `{name, data}` | `{ok: true}` |
 
 `Space` is `{id, name, icon, color, sessions: [SessionRow], more: int, iconKind?, glyph?, emoji?, profileId?}`.
@@ -745,6 +747,38 @@ ScheduledTask {
 - **`schedules.runNow`** is the page's Run now: one run, now, without moving the task's own clock. A
   task that continues one session refuses another run while its last is still going (`FORBIDDEN`).
 
+**A session's screens are its space's.** `session.screens` lists every simulator and machine the
+session's space has open on the Mac: each a pane with a screen in it, whichever session opened it.
+
+```
+Screen {
+  id,
+  kind: "simulator"|"machine",
+  name,                      what its pane is called: its sidebar row's title ("iPhone 17 Pro")
+  detail?: string,           what it is, in words: "iOS Simulator", "Android emulator", "Your iPhone" or
+                             "Your iPad" for a real one on the Mac's cable; "Mac app", "Remote screen",
+                             "Virtual machine" for a machine
+  live: bool                 there is a picture to take now: the simulator's pane is showing pixels, the
+                             machine is running (connected, booted, or for a Mac app, started)
+}
+```
+
+- **Order**: the live first, then by name as a person reads a list, then by id. A space with none
+  answers an empty list.
+- **`session.screen`** is a picture of one of them as it is now, for a phone watching it: a JPEG no
+  longer than `maxSide` on its longer side, and never enlarged. `maxSide` is brought inside 320 to 1280
+  (`SCREEN_SIDE`), not refused, and is 1000 when none is given. A frame heavier than 320 KB is made once
+  more at seven tenths of the side; a phone's screen at 1000 is usually well under that. `width` and
+  `height` are the JPEG's own; `capturedAt` is when the Mac took it.
+- **Only its own space's**: a screen that is not one `session.screens` lists for that session, or is
+  listed under the other kind, is `NOT_FOUND`, exactly as one that never existed. One that is not live
+  is `FORBIDDEN`, and so is a live one the Mac could not capture just then (a phone's runner not
+  answering, an app with no window open), each in the Mac's words.
+- **Polled**, about once a second or two while the phone's viewer is open. The Mac takes a picture for
+  each call, through the same capture an agent's look takes, and keeps nothing of it: the capture is
+  written to a folder of its own under the system's temporary folder for `sips` to read, and removed
+  before the answer goes. Nothing is written into the space's folder.
+
 **Opening a session subscribes the channel to it.** From then until `session.close` or the end of
 the channel, the Mac sends that session's `session.rows`, `session.status`, `session.hint`,
 `session.queue` and `session.subagents` events. A change to the queue that comes while the session is
@@ -802,9 +836,15 @@ phone read, and what bounds it:
   Anything else, a file that holds a secret included, is `FORBIDDEN`.
 - **`schedules.list`** and **`schedules.runNow`**: every space's scheduled tasks, each with how its last
   run went and that run's session, and Run now. A task's instructions are not sent.
+- **`session.screens`** and **`session.screen`**: the simulators and machines open in that session's
+  space, by their panes' names, what kind each is and whether it is live; and a picture of one of them
+  as it is now, at most 1280 px on its longer side, while it is live. A screen is shared by every
+  session in its space, and a picture shows whatever is on it: another session's work on a simulator,
+  or any window on a machine's screen. A screen of another space is not found.
 
-No call or event carries a terminal's output, a file outside those rules, another session's stream,
-any other setting, or a key.
+Beyond those pictures, which show whatever is on a screen the person opened in that space, no call or
+event carries a terminal's output, a file outside those rules, another session's stream, any other
+setting, or a key.
 
 ### Events
 
@@ -824,7 +864,8 @@ any other setting, or a key.
 `METHOD_NOT_FOUND`, `INVALID_PARAMS`, `NOT_FOUND`, `FORBIDDEN`, `SESSION_NOT_LIVE`, `INTERNAL`.
 
 `FORBIDDEN` is also what the Mac answers when it refuses what was asked in the state a thing is in —
-a review already decided, a task whose last run is still going — with its own words for why.
+a review already decided, a task whose last run is still going, a screen that is not live — with its
+own words for why.
 
 ## 9. What holds this in place
 

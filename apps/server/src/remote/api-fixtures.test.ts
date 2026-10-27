@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import {
   normalizeAnswers, sessionEvent, type AskCard, type DelegatedChild, type FileDiff, type Item, type PlanLimits, type QueuedPrompt, type Run, type Schedule,
@@ -9,7 +9,7 @@ import {
 import { tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
 import { MobileCalls, MobileEvents, RowSchema, type MobileEvent } from "@realm/remote";
 import { MobileApi } from "./api";
-import { channel, fakeRpc, profile } from "./api.test-fakes";
+import { channel, fakeRpc, jpegHeader, machine, machineState, pngHeader, profile, simulator, simulatorState } from "./api.test-fakes";
 
 /**
  * mobile.v1's answers as the Mac writes them, for RealmKit to decode (PROTOCOL.md §9): `home.get` for
@@ -19,7 +19,8 @@ import { channel, fakeRpc, profile } from "./api.test-fakes";
  * picture, three agents' session options and a change to them, every agent a new session can have;
  * the queue, the lead's sub-agents (one working, two ended), the plans and the month's spend, the
  * reviews still open and one read, a decision and a picture of it, the scheduled tasks and one run
- * now, a rename with a pin and an archive; and every event but `session.rows` and `session.status` —
+ * now, the screens the theme column's space has open and a frame of one, a rename with a pin and an
+ * archive; and every event but `session.rows` and `session.status` —
  * every one made by the real projector and the real `MobileApi`, over a fake of the desktop's RPC.
  * Generated, not hand-written, so this test also proves the committed file is what the code produces
  * today: `REALM_WRITE_FIXTURES=1 pnpm vitest run apps/server/src/remote/api-fixtures.test.ts` rewrites it.
@@ -53,6 +54,11 @@ const BRIEF_RUN = "01JRUN00000000000000000001";
 const CI_RUN = "01JRUN00000000000000000002";
 const NOW_RUN = "01JRUN00000000000000000003";
 const BRIEF_SESSION = "01JBRIEF000000000000000000";
+/** The Realm space's screens: two simulators, this Mac's TextEdit and a guest that is off. */
+const SIM = "01JSIMULATOR00000000000001";
+const PHONE = "01JSIMULATOR00000000000002";
+const TEXTEDIT = "01JMACHINE0000000000000001";
+const GUEST = "01JMACHINE0000000000000002";
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 /** Far enough ahead that no window has reset whenever this runs, and far enough back that one has. */
@@ -301,9 +307,24 @@ async function generate(): Promise<Record<string, unknown>> {
     "schedules.list": ((p: { spaceId: string }) => tasks[p.spaceId] ?? []) as never,
     "schedules.runNow": ((p: { id: string }) => ({ ...tasks.sp1!.find((t) => t.id === p.id)!, lastRunAt: 1_790_000_400_000, lastRunId: NOW_RUN })) as never,
     "runs.get": ((p: { id: string }) => (runs[p.id] ? { run: runs[p.id], attempts: [] } : null)) as never,
+    "simulators.list": ((p: { spaceId: string }) => (p.spaceId !== "sp1" ? { simulators: [], states: [] } : {
+      simulators: [simulator(SIM, "sp1", "iPhone 17 Pro"), simulator(PHONE, "sp1", "Carlton's iPhone", { physical: true })],
+      states: [simulatorState(SIM, "running"), simulatorState(PHONE, "off")],
+    })) as never,
+    "machines.list": ((p: { spaceId: string }) => (p.spaceId !== "sp1" ? { machines: [], states: [] } : {
+      machines: [machine(TEXTEDIT, "sp1", "TextEdit", "mac"), machine(GUEST, "sp1", "Ubuntu", "qemu")],
+      states: [machineState(TEXTEDIT, "running"), machineState(GUEST, "off")],
+    })) as never,
+    "simulators.capture": (() => ({ data: pngHeader(1206, 2622).toString("base64"), mimeType: "image/png", width: 1206, height: 2622 })) as never,
   });
   const api = new MobileApi({ macName: () => "MacBook Pro", reportsDir: "/nonexistent", realmHome: home, dev: false, downscale: async () => Buffer.from("jpeg") });
   const call = (method: string, params: unknown) => api.handle(channel(rpc), method, params);
+  // A frame is the JPEG `sips` makes at the side asked for — here its header alone, which keeps the file
+  // small — taken at a clock held still, so the file is the same each time it is made.
+  const frames = new MobileApi({ macName: () => "MacBook Pro", reportsDir: "/nonexistent", realmHome: home, dev: false,
+    downscale: async (_path, side) => jpegHeader(Math.round(side * 1206 / 2622), side) });
+  const clock = vi.spyOn(Date, "now").mockReturnValue(1_790_000_500_000);
+  const frame = await frames.handle(channel(rpc), "session.screen", { id: S, screenId: SIM, kind: "simulator", maxSide: 1000 }).finally(() => clock.mockRestore());
 
   // What a phone answering the open question sends, as the Mac's own card keeps it.
   const answers = { team: "ops", labels: ["bug", "Regression"], token: "tok_live_123", ship: "no" };
@@ -339,6 +360,8 @@ async function generate(): Promise<Record<string, unknown>> {
       "review.decide:changes": await call("review.decide", { id: REVIEW, decision: "changes", note: "Say it ships Friday in the caption too" }),
       "schedules.list": await call("schedules.list", {}),
       "schedules.runNow": await call("schedules.runNow", { id: WEEKLY }),
+      "session.screens": await call("session.screens", { id: S }),
+      "session.screen": frame,
       // Last, because they change the lists every call above reads.
       "session.update": await call("session.update", { id: OLDER[5]!, title: "Write the 2.0.3 changelog", pinned: true }),
       "session.update:archived": await call("session.update", { id: OLDER[3]!, archived: true }),

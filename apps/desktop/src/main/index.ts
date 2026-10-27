@@ -36,7 +36,7 @@ import { registerAppPick } from "./app-pick";
 import { startBrowserAgentBridge } from "./browser-agent-bridge";
 import { TCC_SETTINGS_URLS, isTccPermissionId, probeTcc, type TccRow } from "./tcc";
 import { ComputerUseHelper, axHelperPath, probeGrantsOnce } from "./computer-use-helper";
-import { ComputerUseHost } from "./computer-use-host";
+import { ComputerUseHost, isComputerOp } from "./computer-use-host";
 import { ComputerDrivingIndicator } from "./computer-driving";
 import { ComputerAccess, isComputerAccessId, type ComputerAccessStatus, type ComputerGrantHistory } from "./computer-access";
 import {
@@ -2167,8 +2167,9 @@ app.whenReady().then(async () => {
         if (op === "teamPolicyVerify") return Promise.resolve(policyPresses.verify((params as { items?: unknown }).items));
         if (op === "teamPolicyBump") return Promise.resolve(policyPresses.bump((params as { scope?: unknown }).scope));
         // Computer-use ops share this socket but not the browser executor: they need no window and
-        // no view, so they are answered before the window check below.
-        if (op.startsWith("computer")) return computerHost.handleOp(op, params);
+        // no view, so they are answered before the window check below. A `mac` machine's frame is
+        // one, though its name does not say so.
+        if (isComputerOp(op)) return computerHost.handleOp(op, params);
         // Realm's own window, which is a different target from any browser view — so these are
         // answered before the executor below, whose `host` is about panes and would refuse first
         // with a message about a pane.
