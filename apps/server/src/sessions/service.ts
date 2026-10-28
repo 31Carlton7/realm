@@ -1050,6 +1050,8 @@ export class SessionService {
       if (term && keepTerminal) { this.d.items.moveToSpace(term.id, spaceId); this.d.terminals.moveToSpace(term.refId, spaceId); }
       this.d.db.exec("COMMIT");
     } catch (e) { this.d.db.exec("ROLLBACK"); throw e; }
+    // The memory its starts were frozen to was the origin space's: the next start composes the destination's.
+    this.d.memory.forgetSession(id);
     // The origin space drops the item and the destination picks it up, the same two-broadcast shape
     // `delete`/`create` each use for their own single side of this.
     this.d.rpc.broadcast("items.changed", { spaceId: s.spaceId });
