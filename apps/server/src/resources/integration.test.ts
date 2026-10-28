@@ -5,7 +5,7 @@ import { FakeAdapter } from "@realm/adapters";
 import type { ResourceReport } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
-import type { MachineProbe, ProcRow } from "./machine";
+import { quietMachineProbe, type MachineProbe, type ProcRow } from "./machine";
 import type { Simctl } from "../simulators/simctl";
 import type { ServeSim } from "../simulators/serve-sim";
 import { REALM_BOOTED_KEY } from "../simulators/service";
@@ -88,6 +88,22 @@ describe("resources.snapshot through the app", () => {
     expect(r.parts.find((p) => p.category === "server")).toMatchObject({ footprintBytes: 2 * MB });
     // The boot is remembered where a restart of the server will find it.
     expect(Object.keys((await c.call("settings.get", { key: REALM_BOOTED_KEY })).result.value)).toEqual([SIM]);
+    c.close();
+  });
+
+  it("shortens the engines' idle window while the Mac reports memory pressure, and only then", async () => {
+    let pressure: "normal" | "warn" = "warn";
+    const probe: MachineProbe = {
+      ...quietMachineProbe(),
+      memory: async () => ({ memory: { totalBytes: 1, availablePercent: 10, pressure, pressureWhy: null, swap: null, compressedBytes: null, swapOutPerSecond: null, load: [1, 1, 1], cpus: 1 }, counters: { at: 0, swapouts: null } }),
+    };
+    app = await createApp({ home: tempDir("realm-res-"), port: 0, resources: { probe } });
+    // Pressure is read once at boot, and every half minute after.
+    await waitFor(() => app!.sessions.idleMinutes() === 10);
+    pressure = "normal";
+    const c = await client(app.port);
+    await c.call("resources.snapshot", { fresh: true }); // a report reads the machine again
+    expect(app.sessions.idleMinutes()).toBe(30);
     c.close();
   });
 

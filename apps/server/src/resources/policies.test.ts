@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BROWSER_DISCARD_HIDDEN_KEY, BROWSER_KEEP_HIDDEN_KEY } from "@realm/contracts";
+import { BROWSER_DISCARD_HIDDEN_KEY, BROWSER_KEEP_HIDDEN_KEY, MCP_IDLE_STOP_KEY } from "@realm/contracts";
 import { POLICY_TICK_MS, ResourcePolicies, minutesSetting } from "./policies";
 
 afterEach(() => { vi.useRealTimers(); });
@@ -57,5 +57,27 @@ describe("the browser pane policy", () => {
     expect(minutesSetting(-1, 20)).toBe(20);
     expect(minutesSetting("10", 20)).toBe(20);
     expect(minutesSetting(0, 20)).toBe(0);
+  });
+});
+
+describe("the MCP policy", () => {
+  it("stops stdio servers idle thirty minutes each tick, sooner when memory is short, never at 0", async () => {
+    const asked: number[] = [];
+    let adapt = (m: number) => m;
+    const settings = new Map<string, unknown>();
+    const p = new ResourcePolicies({ settings: { get: (k) => settings.get(k) }, app: () => null, mcp: { sleepIdle: (ms) => { asked.push(ms); return []; } }, adapt: (m) => adapt(m) });
+    await p.tick();
+    adapt = (m) => Math.min(m, 10);
+    await p.tick();
+    settings.set(MCP_IDLE_STOP_KEY, 0);
+    await p.tick();
+    expect(asked).toEqual([30 * 60_000, 10 * 60_000]);
+  });
+
+  it("shortens the browser window under pressure too", async () => {
+    const { asked } = setup();
+    const p = new ResourcePolicies({ settings: { get: () => undefined }, adapt: (m) => Math.min(m, 5), app: () => ({ call: async (_op, params) => { asked.push(params); } }) });
+    await p.tick();
+    expect(asked).toEqual([{ hiddenMs: 5 * 60_000, keepHidden: 3 }]);
   });
 });

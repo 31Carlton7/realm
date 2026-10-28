@@ -137,6 +137,10 @@ export class SessionService {
   /** Handles stopped for being idle. Their teardown (an `ended` status, a "session ended" error) is
    *  not news: the session is as idle as it was, and resumes on its next send. */
   private reapedHandles = new WeakSet<AgentHandle>();
+  /** Background sub-agents still working inside each session's engine after its turn settled — the
+   *  `background_task` events' launching calls, until each says it stopped. An engine holding one is
+   *  never idle: stopping it would stop them. */
+  private background = new Map<string, Set<string>>();
   private reapTimer: ReturnType<typeof setInterval> | null = null;
   /**
    * Messages waiting for the current turn to end, oldest first, per session.
@@ -287,6 +291,13 @@ export class SessionService {
      *  active goal, a durable run (schedule, team role), a delegation either end of it. The idle
      *  reaper never stops an engine this answers true for. */
     keepEngine?: (sessionId: string) => boolean;
+    /** The idle window as memory pressure leaves it (`adaptIdleMinutes`): shorter when the Mac is
+     *  short of memory. Only the window — what counts as idle is this service's alone. */
+    adaptIdle?: (minutes: number) => number;
+    /** The sessions whose engine is still running a shell command its agent backgrounded — a dev
+     *  server, a watcher — read off the process table (`resources/`). Asked only when an engine is
+     *  about to be reaped; absent, no engine is assumed to hold one. */
+    backgroundShells?: () => Promise<ReadonlySet<string>>;
     teamPolicy?: {
       decides(sessionId: string, spaceId: string, gatewayTool: string): Promise<boolean>;
       isRoleRun(sessionId: string): boolean;
@@ -1217,17 +1228,43 @@ export class SessionService {
    * counting on it (`keepEngine`: a goal, a durable run, a delegation). Returns the sessions stopped.
    */
   async reapIdle(now = Date.now()): Promise<string[]> {
-    const raw = this.d.settings.get(ENGINE_IDLE_MINUTES_KEY);
-    const minutes = typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? raw : ENGINE_IDLE_MINUTES_DEFAULT;
+    const minutes = this.idleMinutes();
     if (minutes === 0 || this.closing) return [];
+    const due = [...this.live.keys()].filter((id) => now - (this.lastActive.get(id) ?? now) >= minutes * 60_000 && this.engineIdle(id));
+    if (due.length === 0) return [];
+    // A command the agent backgrounded runs under its engine and dies with it. Read once, and only now.
+    const shells = await this.d.backgroundShells?.().catch(() => null) ?? new Set<string>();
     const reaped: string[] = [];
-    for (const id of [...this.live.keys()]) {
-      if (now - (this.lastActive.get(id) ?? now) < minutes * 60_000) continue;
-      if (!this.engineIdle(id)) continue;
+    for (const id of due) {
+      // Read again: the await above is a moment a message could arrive in.
+      if (shells.has(id) || !this.live.has(id) || !this.engineIdle(id)) continue;
       reaped.push(id);
       await this.reap(id);
     }
     return reaped;
+  }
+
+  /** The engine idle window in force: the setting, shortened while memory is short. */
+  idleMinutes(): number {
+    const raw = this.d.settings.get(ENGINE_IDLE_MINUTES_KEY);
+    const base = typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? raw : ENGINE_IDLE_MINUTES_DEFAULT;
+    return this.d.adaptIdle?.(base) ?? base;
+  }
+
+  /** Every engine that is idle now and could be stopped without interrupting anything, and the ones
+   *  that could not — what the Memory page's "Stop idle engines" counts and does. */
+  async stopIdleNow(): Promise<string[]> {
+    if (this.closing) return [];
+    const idle = [...this.live.keys()].filter((id) => this.engineIdle(id));
+    if (idle.length === 0) return [];
+    const shells = await this.d.backgroundShells?.().catch(() => null) ?? new Set<string>();
+    const stopped: string[] = [];
+    for (const id of idle) {
+      if (shells.has(id) || !this.live.has(id) || !this.engineIdle(id)) continue;
+      stopped.push(id);
+      await this.reap(id);
+    }
+    return stopped;
   }
 
   private engineIdle(id: string): boolean {
@@ -1236,7 +1273,14 @@ export class SessionService {
     if ((this.queued.get(id)?.length ?? 0) > 0 || this.queueHolds.has(id) || this.drainOwed.has(id)) return false;
     if (this.turnStarted.has(id) || this.measuring.has(id) || this.forkInFlight.has(id) || this.rewindTurns.has(id)) return false;
     for (const a of this.asked.values()) if (a.sessionId === id) return false;
+    if ((this.background.get(id)?.size ?? 0) > 0) return false;
     return !(this.d.keepEngine?.(id) ?? false);
+  }
+
+  private noteBackground(id: string, toolUseId: string, status: "running" | "stopped"): void {
+    const set = this.background.get(id) ?? new Set<string>();
+    if (status === "running") set.add(toolUseId); else set.delete(toolUseId);
+    if (set.size > 0) this.background.set(id, set); else this.background.delete(id);
   }
 
   private reap(id: string): Promise<void> {
@@ -1246,6 +1290,7 @@ export class SessionService {
     // `reaping` and then starts a fresh engine that resumes the conversation.
     this.live.delete(id);
     this.lastActive.delete(id);
+    this.background.delete(id);
     this.reapedHandles.add(l.handle);
     this.d.gateway.release(id);
     const done: Promise<void> = (async () => {
@@ -1734,7 +1779,7 @@ export class SessionService {
         }
       }
       catch (e) { console.error(`[sessions] pump failed for ${id}: ${e instanceof Error ? e.message : String(e)}`); }
-      finally { if (this.live.get(id)?.handle === handle) { this.live.delete(id); this.d.gateway.release(id); } }
+      finally { if (this.live.get(id)?.handle === handle) { this.live.delete(id); this.background.delete(id); this.d.gateway.release(id); } }
     })();
     this.live.set(id, { handle, pump, skillsInjected: skills !== undefined, startedAt: Date.now() });
     this.lastActive.set(id, Date.now());
@@ -1926,6 +1971,7 @@ export class SessionService {
     const ev = this.withView(id, this.secrets.scrub(id, raw));
     if (ev.type === "permission_request" && ev.payload.ask) this.asked.set(ev.payload.requestId, { sessionId: id, card: ev.payload.ask });
     else if (ev.type === "permission_response") this.asked.delete(ev.payload.requestId);
+    else if (ev.type === "background_task") this.noteBackground(id, ev.payload.toolUseId, ev.payload.status);
     // BEFORE the status update below, so the hook sees the row's PREVIOUS status — a settle is a
     // transition, and only this side of the update still knows both ends of it.
     this.d.notifications?.handleSessionEvent(before, ev);

@@ -975,7 +975,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      the simulator sweep before it shuts anything down. A quiet, empty machine unless `main.ts` passed
      the real one. */
   const machineProbe = opts.resources?.probe ?? quietMachineProbe();
-  const simulators = new SimulatorService({ rpc, spaces, items, simulators: simulatorsStore, settings, processes: () => machineProbe.processes(), ...opts.simulator, physical: physicalDevices });
+  /* The resource service, built further down once every service it asks exists; the idle windows read
+     its pressure through this, as late-bound as the other knots in this file. */
+  let resourcesLate: ResourceService | null = null;
+  const adaptIdle = (minutes: number): number => resourcesLate?.adapt(minutes) ?? minutes;
+  const simulators = new SimulatorService({ rpc, spaces, items, simulators: simulatorsStore, settings, processes: () => machineProbe.processes(), adaptIdle, ...opts.simulator, physical: physicalDevices });
   simulatorsLate = simulators;
   // Plan 22: the preview listener guides and PDFs are framed from. Its root lookup is late-bound to
   // the service below (a workspace id → its checkout), which is the only thing it needs to know.
@@ -1236,7 +1240,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     onChange: () => laya.recordingChanged(),
   });
   const laya = new LayaService({
-    runtime: layaRuntime, settings, log: layaLog, recorder: layaRecorder,
+    runtime: layaRuntime, settings, log: layaLog, recorder: layaRecorder, adaptIdle,
     publish: (status) => {
       rpc.broadcast("laya.changed", status);
       const listed = layaAssist?.gate().available ?? false;
@@ -1380,6 +1384,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     keepEngine: (sessionId) => goals.get(sessionId)?.status === "active"
       || (runs?.listLive().some((r) => r.sessionId === sessionId) ?? false)
       || delegationEngine.involves(sessionId),
+    // Sooner when memory is short; never for an engine holding a command its agent backgrounded.
+    adaptIdle,
+    backgroundShells: () => resourcesLate?.backgroundShells() ?? Promise.resolve(new Set<string>()),
     // A team's policy answers for its gateway's calls itself: the engine's own MCP card is answered
     // before it is drawn wherever the policy decides (team/policies/gate.ts `decides`).
     teamPolicy: {
@@ -1847,7 +1854,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /* What Realm costs this Mac in memory, by part (`resources/`): each service says what it owns, the
      app says which of its processes is which, and the service sizes them all itself. */
   const resources = new ResourceService({
-    probe: machineProbe,
+    probe: machineProbe, settings,
     owners: () => ({
       engines: sessions.engines().map((e) => ({ sessionId: e.sessionId, title: e.title, kind: e.kind, providerSessionId: e.providerSessionId, startedAt: e.startedAt, detail: engineDetail(e, Date.now()) })),
       terminals: terminals.processes(),
@@ -1864,9 +1871,19 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   });
   /* The policies that act through the app on the server's clock: browser panes off screen past their
      window are discarded, page and scroll kept (`resources/policies.ts`). */
+  resourcesLate = resources;
   const resourcePolicies = new ResourcePolicies({
-    settings,
+    settings, mcp: mcpHub, adapt: adaptIdle,
     app: () => (browserBridge.connected ? { call: (op, params) => browserBridge.call(op, params) } : null),
+  });
+  /* Memory just got short: every idle window shrinks now, and what is already past the shorter one goes
+     at once rather than on each policy's next tick. */
+  resources.onPressure((pressure) => {
+    if (pressure !== "warn" && pressure !== "critical") return;
+    void sessions.reapIdle().catch(() => {});
+    void resourcePolicies.tick();
+    void simulators.sweepIdle().catch(() => {});
+    laya.idleChanged();
   });
   // One searcher for ⌘P and the `@` list's Files, so the two read a checkout the same way.
   const projectSearch = new ProjectSearchService();

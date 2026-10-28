@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MachineMemory, MemoryPressure } from "@realm/contracts";
 import { APP_METRICS_TIMEOUT_MS, OTHERS_TTL_MS, PRESSURE_EVERY_MS, ResourceService, SNAPSHOT_TTL_MS } from "./service";
+import { RESOURCES_ADAPTIVE_KEY } from "@realm/contracts";
 import type { MachineProbe, ProcRow } from "./machine";
 import type { Owners } from "./attribute";
 
@@ -123,5 +124,41 @@ describe("pressure", () => {
     level = "normal";
     await s.machine();
     expect(heard).toEqual(["normal", "warn", "normal"]);
+  });
+});
+
+describe("what the policies ask of it", () => {
+  it("shortens a window under pressure, unless switched off in Settings", async () => {
+    let level: MemoryPressure = "critical";
+    const { probe } = fakeMachine({ pressure: () => level });
+    const settings = new Map<string, unknown>();
+    const s = new ResourceService({ probe, owners, app: async () => null, settings: { get: (k) => settings.get(k) } });
+    expect(s.adapt(30)).toBe(30); // nothing read yet: unknown
+    await s.machine();
+    expect(s.adapt(30)).toBe(5);
+    settings.set(RESOURCES_ADAPTIVE_KEY, false);
+    expect(s.adapt(30)).toBe(30);
+    settings.delete(RESOURCES_ADAPTIVE_KEY);
+    level = "warn";
+    await s.machine();
+    expect(s.adapt(30)).toBe(10);
+  });
+
+  it("finds the engines still running a command their agent backgrounded", async () => {
+    const T = 1_000_000;
+    const table: ProcRow[] = [
+      { ...row(50, 1, 100, "realm-server"), startedAt: T },
+      { ...row(60, 50, 300, "/x/claude --output-format stream-json --resume=conv-a"), startedAt: T },
+      { ...row(61, 60, 5, "/bin/zsh -c source /Users/me/.claude/shell-snapshots/snapshot-zsh-1-x.sh 2>/dev/null || true && eval 'pnpm dev'"), startedAt: T },
+      { ...row(70, 50, 300, "/x/claude --output-format stream-json --resume=conv-b"), startedAt: T },
+      { ...row(71, 70, 5, "node /opt/homebrew/bin/claudestory --mcp"), startedAt: T },
+    ];
+    const { probe } = fakeMachine({ table });
+    const s = new ResourceService({ probe, serverPid: 50, app: async () => null, owners: () => ({ ...owners(), engines: [
+      { sessionId: "a", title: "A", kind: "claude", providerSessionId: "conv-a", startedAt: T, detail: null },
+      // An MCP server the engine runs for itself is not background work.
+      { sessionId: "b", title: "B", kind: "claude", providerSessionId: "conv-b", startedAt: T, detail: null },
+    ] }) });
+    expect([...await s.backgroundShells()]).toEqual(["a"]);
   });
 });

@@ -105,7 +105,11 @@ export const OTHER_APPS_LISTED = 8;
 
 /** A report's parts and sizes; the machine half and the time are the service's. `claimed` is every
  *  process counted as Realm's — what the service reads footprints for, and never part of a report. */
-export type Attribution = Pick<ResourceReport, "realm" | "categories" | "parts" | "others" | "measure"> & { claimed: number[] };
+export type Attribution = Pick<ResourceReport, "realm" | "categories" | "parts" | "others" | "measure"> & {
+  claimed: number[];
+  /** Each part's processes, by part id — what a policy reads to look inside one part. */
+  members: Map<string, number[]>;
+};
 
 export function attribute(o: {
   table: readonly ProcRow[];
@@ -146,6 +150,7 @@ export function attribute(o: {
   };
 
   const parts: ResourcePart[] = [];
+  const members = new Map<string, number[]>();
   const sizeOf = (pids: readonly number[]): ResourceSize => {
     let resident = 0, footprint = 0;
     for (const pid of pids) {
@@ -158,7 +163,9 @@ export function attribute(o: {
   };
   const add = (category: ResourceCategory, ownerId: string | null, label: string, detail: string | null, pids: readonly number[]): void => {
     if (pids.length === 0) return;
-    parts.push({ id: `${category}:${ownerId ?? pids[0]}`, category, ownerId, label, detail, ...sizeOf(pids) });
+    const id = `${category}:${ownerId ?? pids[0]}`;
+    parts.push({ id, category, ownerId, label, detail, ...sizeOf(pids) });
+    members.set(id, [...pids]);
   };
 
   // The server's own descendants are what every server-side owner lives under; the app's are Electron's.
@@ -299,5 +306,5 @@ export function attribute(o: {
   const others: OtherApp[] = [...apps].map(([name, s]) => ({ name, ...s }))
     .sort((a, b) => weight(b) - weight(a)).slice(0, OTHER_APPS_LISTED);
 
-  return { realm, categories, parts, others, measure: o.footprintMeasured ? "footprint" : "resident", claimed: [...claimed] };
+  return { realm, categories, parts, others, measure: o.footprintMeasured ? "footprint" : "resident", claimed: [...claimed], members };
 }

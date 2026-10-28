@@ -113,3 +113,31 @@ export const BROWSER_DISCARD_HIDDEN_DEFAULT = 20;
 /** How many of the most recently hidden browser panes are kept loaded whatever the window says. */
 export const BROWSER_KEEP_HIDDEN_KEY = "browser.keepHidden";
 export const BROWSER_KEEP_HIDDEN_DEFAULT = 3;
+
+/**
+ * When memory is short, everything idle goes sooner: each idle window — engines, MCP servers, Laya,
+ * hidden browser panes, the simulators Realm booted — shrinks to at most `PRESSURE_IDLE_MINUTES` of
+ * the level. Only the WINDOW shrinks: what counts as idle does not change, so an engine mid-turn,
+ * waiting on you or holding background work is never stopped, however short of memory the Mac is.
+ * Off, the windows are the settings' own.
+ */
+export const RESOURCES_ADAPTIVE_KEY = "resources.adaptive";
+export const RESOURCES_ADAPTIVE_DEFAULT = true;
+/** A stopped engine resumes its conversation on the next message in a few seconds; what the window
+ *  trades is that wait, never the conversation. */
+export const PRESSURE_IDLE_MINUTES = { warn: 10, critical: 5 } as const;
+
+/** An idle window, as memory pressure leaves it. Only ever shorter, so 0 (never) stays never. */
+export function adaptIdleMinutes(minutes: number, pressure: MemoryPressure, adaptive: boolean): number {
+  if (!adaptive) return minutes;
+  if (pressure === "critical") return Math.min(minutes, PRESSURE_IDLE_MINUTES.critical);
+  if (pressure === "warn") return Math.min(minutes, PRESSURE_IDLE_MINUTES.warn);
+  return minutes;
+}
+
+/**
+ * Minutes a stdio MCP server Realm started may go without a call before its process is stopped (0:
+ * never). Its tool list is kept, so sessions still see its tools, and the next call starts it again.
+ */
+export const MCP_IDLE_STOP_KEY = "mcp.idleStopMinutes";
+export const MCP_IDLE_STOP_DEFAULT = 30;

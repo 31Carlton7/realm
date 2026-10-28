@@ -115,6 +115,9 @@ type Entry = {
   transport: Transport | null;
   /** When this server was last connected to or called; what the resource report and the idle sweep read. */
   usedAt: number;
+  /** A stdio server stopped for having nothing to do (`sleepIdle`): its last tool list is still served,
+   *  and the next call starts it again. */
+  asleep: boolean;
 };
 
 /**
@@ -184,6 +187,10 @@ export class McpHub {
    * now" without erroring the whole `tools/list` response.
    */
   async tools(id: string): Promise<McpLiveTool[]> {
+    // Asleep is not gone: its tools are the ones it listed before it was stopped, and a list is no
+    // reason to start it again — every session start asks for one.
+    const resting = this.entries.get(id);
+    if (resting?.asleep && resting.tools && !resting.client) return [...resting.tools.values()];
     const { client, entry } = await this.ensureClient(id);
     try {
       const { tools } = await client.listTools();
@@ -325,6 +332,29 @@ export class McpHub {
     return out;
   }
 
+  /**
+   * Stop every stdio server that has gone `idleMs` without a call, and say which. Its process goes;
+   * its tool list stays (`tools` answers from it), and the next call starts it again — a few seconds a
+   * session waits once, against a process held all day for nothing (mobile-mcp had been up 17 hours).
+   * Never one with a call open, a connect under way, or a question to the user out; never a remote
+   * server, which is a socket and holds no memory here.
+   */
+  sleepIdle(idleMs: number, now = Date.now()): string[] {
+    const stopped: string[] = [];
+    for (const [id, e] of this.entries) {
+      if (!e.client || e.connecting || !e.tools) continue;
+      if (typeof (e.transport as { pid?: unknown } | null)?.pid !== "number") continue;
+      if ([...this.open].some((c) => c.serverId === id)) continue;
+      if (now - e.usedAt < idleMs) continue;
+      const client = e.client;
+      e.client = null;
+      e.asleep = true;
+      void client.close().catch(() => {});
+      stopped.push(id);
+    }
+    return stopped;
+  }
+
   /** Closes the circuit and drops the client; the next `tools()`/`call()` reconnects from scratch. */
   async retry(id: string): Promise<void> {
     const entry = this.entries.get(id);
@@ -365,7 +395,7 @@ export class McpHub {
 
   private entry(id: string): Entry {
     let e = this.entries.get(id);
-    if (!e) { e = { status: "idle", client: null, connecting: null, failures: 0, tools: null, resources: new Map(), redact: [], transport: null, usedAt: Date.now() }; this.entries.set(id, e); }
+    if (!e) { e = { status: "idle", client: null, connecting: null, failures: 0, tools: null, resources: new Map(), redact: [], transport: null, usedAt: Date.now(), asleep: false }; this.entries.set(id, e); }
     return e;
   }
 
@@ -455,6 +485,7 @@ export class McpHub {
       entry.client = client;
       entry.connecting = null;
       entry.usedAt = Date.now();
+      entry.asleep = false;
       // A server that exits (a crash, a stdio server quitting when idle) leaves a client that can only
       // answer "Not connected": let go of it, so the next call connects again.
       client.onclose = () => { if (entry.client === client) entry.client = null; };

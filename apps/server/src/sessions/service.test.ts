@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, RestartRequiredError } from "@realm/adapters";
 import { createApp, type App } from "../app";
-import { DEFAULT_PERMISSION_MODE_KEY } from "@realm/contracts";
+import { DEFAULT_PERMISSION_MODE_KEY, adaptIdleMinutes } from "@realm/contracts";
 import { AGENT_PROBE_TTL_MS, ENGINE_IDLE_MINUTES_KEY, PROBE_CRASH_BACKOFF_MS, titleFromMessage, TITLE_MAX } from "./service";
 import { waitFor } from "../test-utils";
 
@@ -386,6 +386,62 @@ describe("SessionService over rpc", () => {
     expect(await app.sessions.reapIdle(later)).toEqual([]);
     await c.call("settings.set", { key: ENGINE_IDLE_MINUTES_KEY, value: 5 });
     expect(await app.sessions.reapIdle(Date.now() + 6 * 60_000)).toEqual([session.id]);
+    c.close();
+  });
+
+  it("under memory pressure stops an idle engine sooner — the window shrinks, what counts as idle does not", async () => {
+    const { c, sp } = await boot(new FakeAdapter({ script: [{ on: "hi", emit: [{ kind: "text", text: "hello" }] }] }));
+    let pressure = "normal";
+    (app.sessions as unknown as { d: { adaptIdle: (m: number) => number } }).d.adaptIdle = (m) => adaptIdleMinutes(m, pressure as "normal", true);
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "hi" });
+    await waitFor(async () => (await c.call("sessions.get", { id: session.id })).result.status === "idle");
+    expect(await app.sessions.reapIdle(Date.now() + 11 * 60_000)).toEqual([]);
+    pressure = "warn";
+    expect(app.sessions.idleMinutes()).toBe(10);
+    expect(await app.sessions.reapIdle(Date.now() + 11 * 60_000)).toEqual([session.id]);
+    c.close();
+  });
+
+  it("never stops an engine waiting on the user, even when memory is critical", async () => {
+    const { c, sp } = await boot(); // "go" stops on a permission card
+    (app.sessions as unknown as { d: { adaptIdle: (m: number) => number } }).d.adaptIdle = (m) => adaptIdleMinutes(m, "critical", true);
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "go" });
+    await waitFor(async () => (await c.call("sessions.get", { id: session.id })).result.status === "waiting_permission");
+    expect(await app.sessions.reapIdle(Date.now() + 24 * 60 * 60_000)).toEqual([]);
+    expect(await app.sessions.stopIdleNow()).toEqual([]);
+    c.close();
+  });
+
+  it("never stops an engine whose background agent is still working after the turn settled", async () => {
+    // THE MUTANT: reading only the row's status. The turn is over, the row is idle — and the sub-agent
+    // the agent sent off in the background dies with its engine.
+    const { c, sp } = await boot(new FakeAdapter({ script: [{ on: "bg", emit: [{ kind: "background", description: "Long job", runMs: 400 }, { kind: "text", text: "sent it off" }] }] }));
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "bg" });
+    await waitFor(async () => (await c.call("sessions.get", { id: session.id })).result.status === "idle");
+    const later = Date.now() + 24 * 60 * 60_000;
+    expect(await app.sessions.reapIdle(later)).toEqual([]);
+    expect(await app.sessions.stopIdleNow()).toEqual([]);
+    await waitFor(() => c.eventTypes(session.id).filter((t) => t === "background_task").length === 2);
+    expect(await app.sessions.reapIdle(later)).toEqual([session.id]);
+    c.close();
+  });
+
+  it("never stops an engine still running a command its agent backgrounded", async () => {
+    const { c, sp } = await boot(new FakeAdapter({ script: [{ on: "hi", emit: [{ kind: "text", text: "hello" }] }] }));
+    let shells = new Set<string>();
+    (app.sessions as unknown as { d: { backgroundShells: () => Promise<ReadonlySet<string>> } }).d.backgroundShells = async () => shells;
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "hi" });
+    await waitFor(async () => (await c.call("sessions.get", { id: session.id })).result.status === "idle");
+    shells = new Set([session.id]);
+    const later = Date.now() + 24 * 60 * 60_000;
+    expect(await app.sessions.reapIdle(later)).toEqual([]);
+    expect(await app.sessions.stopIdleNow()).toEqual([]);
+    shells = new Set();
+    expect(await app.sessions.stopIdleNow()).toEqual([session.id]);
     c.close();
   });
 

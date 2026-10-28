@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, vi } from "vitest";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tempDir } from "@realm/test-utils";
@@ -637,5 +637,71 @@ describe("MCP Apps: what a server says about its views", () => {
     for (let i = 0; i < 4; i++) await expect(hub.uiResource(row.id, "ui://stub/missing")).rejects.toThrow();
     expect(statuses).not.toContain("circuit_open");
     await expect(hub.call(row.id, "echo", { ok: 1 })).resolves.toMatchObject({ content: [{ text: JSON.stringify({ ok: 1 }) }] });
+  });
+});
+
+describe("stopping a stdio server nobody has called", () => {
+  /** The in-memory wire, wearing the pid a stdio transport has — only a process Realm started is stopped. */
+  function sleepyHub(stub: StubServer, o: { pid?: number | null } = {}) {
+    const connects = { n: 0 };
+    const statuses: string[] = [];
+    const hub = new McpHub({
+      servers, onStatus: (_id, s) => statuses.push(s), authHeaders: noAuth,
+      makeTransport: async (): Promise<Transport> => { connects.n += 1; return Object.assign(await stub.connectInMemory(), { pid: o.pid === undefined ? 4242 : o.pid }); },
+    });
+    return { hub, connects, statuses };
+  }
+
+  it("stops one idle past the window, keeps serving its tools, and starts it again on the next call", async () => {
+    // mobile-mcp had been up seventeen hours at 02:15.
+    const row = newRow();
+    const { hub, connects, statuses } = sleepyHub(makeStubServer());
+    await hub.tools(row.id);
+    expect(hub.processes().map((p) => p.serverId)).toEqual([row.id]);
+    expect(hub.sleepIdle(30 * 60_000, Date.now() + 29 * 60_000)).toEqual([]);
+    expect(hub.sleepIdle(30 * 60_000, Date.now() + 31 * 60_000)).toEqual([row.id]);
+    expect(hub.processes()).toEqual([]);
+    // A session starting now lists its tools without waking it — and the UI hears nothing of it.
+    expect((await hub.tools(row.id)).map((t) => t.name).sort()).toEqual(["boom", "echo"]);
+    expect(connects.n).toBe(1);
+    expect(statuses.filter((s) => s !== "connected")).toEqual([]);
+    // A call is what starts it again.
+    expect(await hub.call(row.id, "echo", { x: 1 })).toMatchObject({ content: [{ type: "text" }] });
+    expect(connects.n).toBe(2);
+    expect(hub.processes().map((p) => p.serverId)).toEqual([row.id]);
+  });
+
+  it("never stops one with a call open, however long it has gone", async () => {
+    const row = newRow();
+    const { hub } = sleepyHub(makeStubServer({ delayMs: 100 }));
+    await hub.tools(row.id);
+    const call = hub.call(row.id, "echo", {});
+    await new Promise((r) => setTimeout(r, 10));
+    expect(hub.sleepIdle(0, Date.now() + 99 * 60_000)).toEqual([]);
+    await call;
+  });
+
+  it("measures the window from the last call, not from the connect", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const row = newRow();
+      const { hub } = sleepyHub(makeStubServer());
+      const t0 = Date.now();
+      await hub.tools(row.id);
+      vi.setSystemTime(t0 + 20 * 60_000);
+      await hub.call(row.id, "echo", {});
+      // Forty minutes after the connect, twenty after the call.
+      expect(hub.sleepIdle(30 * 60_000, t0 + 40 * 60_000)).toEqual([]);
+      expect(hub.sleepIdle(30 * 60_000, t0 + 51 * 60_000)).toEqual([row.id]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never stops a remote server, which holds no process here", async () => {
+    const row = newRow();
+    const { hub } = sleepyHub(makeStubServer(), { pid: null });
+    await hub.tools(row.id);
+    expect(hub.sleepIdle(0, Date.now() + 99 * 60_000)).toEqual([]);
   });
 });

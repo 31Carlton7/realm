@@ -143,6 +143,8 @@ export class LayaService {
     train?: (o: { name: string; signal: AbortSignal; onProgress: (p: TrainProgress) => void }) => Promise<TrainResult>;
     /** Keeps screens while a person uses an app (`recorder.ts`); absent, recording is refused. */
     recorder?: LayaRecorder;
+    /** The idle window as memory pressure leaves it (`adaptIdleMinutes`): shorter when memory is short. */
+    adaptIdle?: (minutes: number) => number;
     /** What the auto-install waits on. Absent — a test, a script, a harness — nothing installs itself. */
     autoInstall?: {
       /** A space exists: first run is behind the person. */
@@ -176,7 +178,8 @@ export class LayaService {
   /** Minutes with no step before the process is stopped; 0 keeps it loaded. */
   idleMinutes(): number {
     const raw = this.d.settings.get(LAYA_IDLE_STOP_KEY);
-    return typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : LAYA_IDLE_STOP_DEFAULT;
+    const m = typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : LAYA_IDLE_STOP_DEFAULT;
+    return this.d.adaptIdle?.(m) ?? m;
   }
 
   /** Whether the process comes and goes with the steps: Shadow, with an idle window set. */

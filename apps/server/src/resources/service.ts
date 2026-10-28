@@ -1,4 +1,4 @@
-import type { MachineMemory, MemoryPressure, ResourceReport } from "@realm/contracts";
+import { RESOURCES_ADAPTIVE_DEFAULT, RESOURCES_ADAPTIVE_KEY, adaptIdleMinutes, type MachineMemory, type MemoryPressure, type ResourceReport } from "@realm/contracts";
 import { attribute, type Owners } from "./attribute";
 import type { MachineCounters, MachineProbe } from "./machine";
 
@@ -12,6 +12,8 @@ export const OTHERS_TTL_MS = 60_000;
 export const PRESSURE_EVERY_MS = 30_000;
 /** How long the app may take to list its processes before a report goes out without them. */
 export const APP_METRICS_TIMEOUT_MS = 3_000;
+/** A Claude Code Bash call, as its shell runs it. */
+export const SHELL_TOOL = /\/shell-snapshots\/snapshot-/;
 
 /**
  * What Realm costs this Mac in memory, and how short the Mac is of it (`machine.ts` for the method,
@@ -40,7 +42,34 @@ export class ResourceService {
     app: () => Promise<Owners["app"]>;
     serverPid?: number;
     now?: () => number;
+    /** Where the adaptive switch is kept (`RESOURCES_ADAPTIVE_KEY`). */
+    settings?: { get(key: string): unknown };
   }) {}
+
+  /** An idle window as the Mac's memory leaves it: shorter under pressure, unless that is switched off. */
+  adapt(minutes: number): number {
+    const raw = this.d.settings?.get(RESOURCES_ADAPTIVE_KEY);
+    return adaptIdleMinutes(minutes, this.pressure(), typeof raw === "boolean" ? raw : RESOURCES_ADAPTIVE_DEFAULT);
+  }
+
+  /**
+   * The sessions whose engine is still running a shell command its agent backgrounded. Claude Code runs
+   * every Bash call as `<shell> -c source …/shell-snapshots/snapshot-… && eval …`, so one of those still
+   * alive under an engine whose turn has settled is a command left running on purpose — a dev server, a
+   * watcher — and stopping the engine would stop it.
+   */
+  async backgroundShells(): Promise<Set<string>> {
+    const table = await this.d.probe.processes();
+    const owners: Owners = { ...this.d.owners(), serverPid: this.d.serverPid ?? process.pid, app: null };
+    const { parts, members } = attribute({ table, owners, footprint: new Map(), allFootprint: null, footprintMeasured: false });
+    const command = new Map(table.map((p) => [p.pid, p.command]));
+    const out = new Set<string>();
+    for (const part of parts) {
+      if (part.category !== "engines" || !part.ownerId) continue;
+      if ((members.get(part.id) ?? []).some((pid) => SHELL_TOOL.test(command.get(pid) ?? ""))) out.add(part.ownerId);
+    }
+    return out;
+  }
 
   /** Start reading pressure. Unref'd: a daemon with nothing else to do must not stay up for this. */
   start(): void {
@@ -100,7 +129,7 @@ export class ResourceService {
     const first = attribute({ table, owners, footprint: new Map(), allFootprint: null, footprintMeasured: false });
     const footprint = await this.d.probe.footprints(first.claimed);
     const measured = footprint.size > 0;
-    const { claimed: _claimed, ...attribution } = attribute({ table, owners, footprint, allFootprint, footprintMeasured: measured });
+    const { claimed: _claimed, members: _members, ...attribution } = attribute({ table, owners, footprint, allFootprint, footprintMeasured: measured });
     const report: ResourceReport = { at: this.now(), machine: memory, ...attribution };
     this.cached = { at: report.at, report };
     return report;

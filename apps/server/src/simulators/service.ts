@@ -67,6 +67,8 @@ export type SimulatorServiceDeps = {
    *  the boot Realm made, and that nothing else — an `xcodebuild` an agent ran from its own shell — is
    *  using it. Absent, the idle sweep shuts nothing down: it cannot tell. */
   processes?: () => Promise<ProcRow[]>;
+  /** The idle window as memory pressure leaves it (`adaptIdleMinutes`): shorter when memory is short. */
+  adaptIdle?: (minutes: number) => number;
 };
 
 /** How often the simulators Realm booted are looked over for one gone idle. */
@@ -173,7 +175,8 @@ export class SimulatorService {
   /** Minutes a simulator Realm booted may sit unseen and untouched; 0 never shuts one down. */
   idleMinutes(): number {
     const raw = this.d.settings?.get(SIMULATOR_IDLE_SHUTDOWN_KEY);
-    return typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : SIMULATOR_IDLE_SHUTDOWN_DEFAULT;
+    const m = typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : SIMULATOR_IDLE_SHUTDOWN_DEFAULT;
+    return this.d.adaptIdle?.(m) ?? m;
   }
 
   /** Look over the simulators Realm booted once a minute. Unref'd: it never keeps the server up. */
