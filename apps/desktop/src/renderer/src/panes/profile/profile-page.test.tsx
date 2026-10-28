@@ -322,28 +322,73 @@ describe("ProfilePage · Memory repo sync", () => {
 
 describe("ProfilePage · Claude memory", () => {
   const openMemory = () => fireEvent.click(screen.getByRole("radio", { name: "Memory" }));
-  const ran = { imported: 0, updated: 0, total: 0, unmatched: [], skipped: [], error: null, sha: null, at: Date.now() - 60_000 };
+  const ran = { imported: 0, updated: 0, total: 0, unmatched: [], chosen: [], skipped: [], error: null, sha: null, at: Date.now() - 60_000 };
+  const spaces = [space("s1", "p1", "Versed"), space("s3", "p1", "Side project"), space("s2", "p2", "Homework")];
+  const big = { project: "-Users-me-code-stora-platform", path: "/Users/me/code/stora-platform", files: 80, reason: "no space works in that folder" };
+  const small = { project: "-Users-me-code-clubology", path: null, files: 1, reason: "Versed and Side project both work there" };
 
   it("says what of Claude's own memory is in the repo, lists what stays out, and checks again on asking", async () => {
     const { api } = await mount({
       memoryRepos: { p1: fakeMemoryRepo() },
       claudeBackfills: { p1: {
-        last: { ...ran, total: 12, unmatched: [{ project: "-Users-me-code-clubology", reason: "no space works in that folder" }],
-          skipped: [{ file: "/Users/me/.claude/projects/-Users-me-code-realm/memory/keys.md", reason: "it looks like it holds an API key, and memory never holds credentials" }] },
+        last: { ...ran, total: 12, skipped: [{ file: "/Users/me/.claude/projects/-Users-me-code-realm/memory/keys.md", reason: "it looks like it holds an API key, and memory never holds credentials" }] },
         next: { ...ran, total: 13, imported: 1, sha: "f00dfeed", at: Date.now() },
       } },
     });
     openMemory();
     expect(await screen.findByText("12 files of Claude's own memory are in this repo, each in the folder of the space it was kept for.")).toBeInTheDocument();
-    expect(screen.getByText("1 Claude project matches no single space, so it stays in Claude's folder.")).toBeInTheDocument();
-    expect(screen.getByText("-Users-me-code-clubology")).toBeInTheDocument();
+    expect(screen.getByText("1 file stays in Claude's folder.")).toBeInTheDocument();
     expect(screen.getByText("memory/keys.md")).toBeInTheDocument();
     // Read on its own; it runs only when asked here (or by itself on the server).
     expect(api.calls).not.toContain("claudeBackfill:p1:true");
     fireEvent.click(screen.getByRole("button", { name: "Check now" }));
     await waitFor(() => expect(api.calls).toContain("claudeBackfill:p1:true"));
     expect(await screen.findByText("13 files of Claude's own memory are in this repo, each in the folder of the space it was kept for. The last check brought in 1 new file.")).toBeInTheDocument();
-    expect(screen.queryByText("Not brought in")).toBeNull();
+    // Nothing waits and nothing new stays out: no list at all.
+    expect(screen.queryByText("Claude projects")).toBeNull();
+  });
+
+  it("gives each project no single space claims a select of this profile's spaces, biggest first with its size", async () => {
+    const { api, container } = await mount({
+      spaces, memoryRepos: { p1: fakeMemoryRepo() },
+      claudeBackfills: { p1: {
+        last: { ...ran, total: 3, unmatched: [big, small] },
+        placed: { ...ran, total: 83, imported: 80, sha: "f00dfeed", at: Date.now(), unmatched: [small], chosen: [{ project: big.project, path: big.path, files: 80, spaceId: "s3" }] },
+      } },
+    });
+    openMemory();
+    expect(await screen.findByText("2 Claude projects match no single space: choose where each one's memory goes.")).toBeInTheDocument();
+    const rows = [...container.querySelectorAll(".memory-claude-project")];
+    // The folder a project names, by its last two parts; Claude's own name where the folder is gone.
+    expect(rows.map((r) => r.querySelector(".memory-repo-log-subject")!.textContent)).toEqual(["code/stora-platform", "-Users-me-code-clubology"]);
+    expect(rows.map((r) => r.querySelector(".memory-claude-project-files")!.textContent)).toEqual(["80 files", "1 file"]);
+    expect(within(rows[1] as HTMLElement).getByText("Versed and Side project both work there")).toBeInTheDocument();
+    const select = screen.getByRole("combobox", { name: "Where the memory of code/stora-platform goes" }) as HTMLSelectElement;
+    // Nothing is chosen for the person: the select starts on the question.
+    expect(select.value).toBe("");
+    // Only this profile's spaces, then the way out.
+    expect([...select.options].map((o) => o.textContent)).toEqual(["Choose a space…", "Versed", "Side project", "Leave out"]);
+    fireEvent.change(select, { target: { value: "s3" } });
+    await waitFor(() => expect(api.calls).toContain("setClaudeProject:p1:-Users-me-code-stora-platform:s3"));
+    expect(await screen.findByText("83 files of Claude's own memory are in this repo, each in the folder of the space it was kept for. The last check brought in 80 new files.")).toBeInTheDocument();
+    expect(screen.getByText("1 Claude project matches no single space: choose where its memory goes.")).toBeInTheDocument();
+    // The placed project keeps its select, on the space chosen, so the choice can be changed.
+    expect((screen.getByRole("combobox", { name: "Where the memory of code/stora-platform goes" }) as HTMLSelectElement).value).toBe("s3");
+  });
+
+  it("leaves a project out on asking, and says so on its select", async () => {
+    const { api } = await mount({
+      spaces, memoryRepos: { p1: fakeMemoryRepo() },
+      claudeBackfills: { p1: {
+        last: { ...ran, unmatched: [small] },
+        placed: { ...ran, chosen: [{ project: small.project, path: null, files: 1, spaceId: null }] },
+      } },
+    });
+    openMemory();
+    fireEvent.change(await screen.findByRole("combobox", { name: "Where the memory of -Users-me-code-clubology goes" }), { target: { value: "skip" } });
+    await waitFor(() => expect(api.calls).toContain("setClaudeProject:p1:-Users-me-code-clubology:skip"));
+    expect(await screen.findByText("Placed by hand.")).toBeInTheDocument();
+    expect((screen.getByRole("combobox", { name: "Where the memory of -Users-me-code-clubology goes" }) as HTMLSelectElement).value).toBe("skip");
   });
 
   it("says why nothing came in when the repo would not take it", async () => {

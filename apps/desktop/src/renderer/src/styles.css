@@ -7692,6 +7692,12 @@ select { appearance: none; padding-right: 22px;
 /* What Claude memory stays out: a long project name over its reason, which wraps rather than pushes. */
 .memory-left-out li { flex-direction: column; align-items: stretch; gap: 0; }
 .memory-left-out .memory-repo-log-when { white-space: normal; }
+/* A Claude project to place: its folder over why it waits, its size — so the big ones stand out — and
+   the one select that says where its memory goes. The name yields first; the size and select keep theirs. */
+.memory-left-out li.memory-claude-project { flex-direction: row; align-items: center; gap: 12px; }
+.memory-claude-project-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.memory-left-out .memory-claude-project-files { white-space: nowrap; }
+.memory-claude-project select { flex: none; max-width: 180px; }
 /* Sync: the remote's URL typed in place, the privacy question asked in place, and the one command
    that resolves a diverged repo — copyable, never run by Realm. */
 .memory-repo .env-path { word-break: normal; overflow-wrap: anywhere; }

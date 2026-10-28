@@ -10,8 +10,10 @@ import { ClaudeMemoryBackfill, claudeProjectName, claudeProjectRoot, matchClaude
 import { MemoryRepoService } from "./repo";
 
 const PROFILE = "01ARZ3NDEKTSV4RRFFQ69G5FP1";
+const SCHOOL = "01ARZ3NDEKTSV4RRFFQ69G5FP2";
 const REALM = "01ARZ3NDEKTSV4RRFFQ69G5FS1";
 const STORA = "01ARZ3NDEKTSV4RRFFQ69G5FS2";
+const HOMEWORK = "01ARZ3NDEKTSV4RRFFQ69G5FS3";
 const P = { scope: "profile", id: PROFILE } as const;
 const KEY = `sk-${"a".repeat(30)}`;
 
@@ -103,7 +105,11 @@ describe("bringing in Claude's own memory", () => {
     ];
     const repos = new MemoryRepoService({
       home, settings,
-      scopes: { profileIdOf: () => PROFILE, spaceIdsOf: () => [REALM, STORA], spaceNameOf: (s) => spaces.find((x) => x.id === s)?.name ?? null },
+      scopes: {
+        profileIdOf: (s) => spaces.find((x) => x.id === s)?.profileId ?? null,
+        spaceIdsOf: (p) => spaces.filter((x) => x.profileId === p).map((x) => x.id),
+        spaceNameOf: (s) => spaces.find((x) => x.id === s)?.name ?? null,
+      },
       committerName: async () => "Tester",
     });
     const { path: repo } = await repos.create(P);
@@ -116,8 +122,9 @@ describe("bringing in Claude's own memory", () => {
       mkdirSync(dir, { recursive: true });
       writeFileSync(join(dir, file), text);
     };
+    /** A run, and what it did — as the server holds it, not yet shown on any page. */
     const run = async () => { await backfill.run(); return backfill.result(PROFILE); };
-    return { home, settings, repos, repo, claudeDir, scratch, realmDir, storaDir, claudeKept, run, backfill };
+    return { home, settings, repos, repo, claudeDir, scratch, realmDir, storaDir, spaces, claudeKept, run, backfill };
   }
   const commits = (repo: string): number => Number(git(repo, "rev-list", "--count", "HEAD").trim());
 
@@ -216,7 +223,7 @@ describe("bringing in Claude's own memory", () => {
     h.claudeKept(lost, "a.md", "a\n");
     h.claudeKept(scratchProject, "b.md", "b\n");
     const r = await h.run();
-    expect(r.unmatched).toEqual([{ project: projectOf(lost), reason: "no space works in that folder" }]);
+    expect(r.unmatched).toEqual([{ project: projectOf(lost), path: lost, files: 1, reason: "no space works in that folder" }]);
     expect(r.skipped).toEqual([{ file: join(h.claudeDir, "projects", projectOf(scratchProject)), reason: "it is a temporary folder, not a project" }]);
     expect(readdirSync(join(h.repo))).not.toContain("spaces");
   });
@@ -239,5 +246,167 @@ describe("bringing in Claude's own memory", () => {
     expect(existsSync(join(h.repo, "spaces", "realm", "a.md"))).toBe(false);
     rmSync(join(h.repo, "draft.md"));
     expect(await h.run()).toMatchObject({ imported: 1, error: null });
+  });
+
+  it("lists a file left out once per version of it: once the page has shown it, not again until it changes", async () => {
+    const h = await harness();
+    h.claudeKept(h.realmDir, "keys.md", `staging key ${KEY}\n`);
+    const keys = join(h.claudeDir, "projects", projectOf(h.realmDir), "memory", "keys.md");
+    expect((await h.run()).skipped.map((s) => s.file)).toEqual([keys]);
+    // Nobody has looked yet: a file left out overnight is still listed in the morning.
+    expect((await h.run()).skipped.map((s) => s.file)).toEqual([keys]);
+    expect(h.backfill.seen(PROFILE).skipped.map((s) => s.file)).toEqual([keys]);
+    // THE MUTANT: list everything left out on every run — the same line every five minutes.
+    expect((await h.run()).skipped).toEqual([]);
+    expect((await h.run()).skipped).toEqual([]);
+    // Changed in Claude's folder: a new version, listed once more.
+    h.claudeKept(h.realmDir, "keys.md", `rotated key ${KEY}9\n`);
+    expect((await h.run()).skipped.map((s) => s.file)).toEqual([keys]);
+    h.backfill.seen(PROFILE);
+    expect((await h.run()).skipped).toEqual([]);
+  });
+
+  it("forgets a file once it is no longer left out, so the same file left out again is listed again", async () => {
+    const h = await harness();
+    h.claudeKept(h.realmDir, "keys.md", `staging key ${KEY}\n`);
+    await h.run();
+    h.backfill.seen(PROFILE);
+    rmSync(join(h.claudeDir, "projects", projectOf(h.realmDir), "memory", "keys.md"));
+    expect((await h.run()).skipped).toEqual([]);
+    h.claudeKept(h.realmDir, "keys.md", `staging key ${KEY}\n`);
+    expect((await h.run()).skipped).toHaveLength(1);
+  });
+
+  it("lists a temporary project once too", async () => {
+    const h = await harness();
+    mkdirSync(join(h.scratch, "realm-live-x"), { recursive: true });
+    h.claudeKept(join(h.scratch, "realm-live-x"), "b.md", "b\n");
+    expect((await h.run()).skipped).toHaveLength(1);
+    h.backfill.seen(PROFILE);
+    expect((await h.run()).skipped).toEqual([]);
+  });
+});
+
+describe("placing a Claude project by hand", () => {
+  async function harness() {
+    const home = realpathSync(tempDir("realm-backfill-choice-"));
+    const settings = new SettingsStore(openDatabase(join(home, "realm.db")));
+    const dir = (...p: string[]): string => { const d = join(home, ...p); mkdirSync(d, { recursive: true }); return d; };
+    const realmDir = dir("code", "realm");
+    const shared = dir("code", "shared");
+    const spaces: BackfillSpace[] = [
+      { id: REALM, profileId: PROFILE, name: "Realm", paths: [realmDir, shared] },
+      { id: STORA, profileId: PROFILE, name: "Stora", paths: [dir("code", "stora"), shared] },
+      { id: HOMEWORK, profileId: SCHOOL, name: "Homework", paths: [dir("school")] },
+    ];
+    const repos = new MemoryRepoService({
+      home, settings,
+      scopes: {
+        profileIdOf: (s) => spaces.find((x) => x.id === s)?.profileId ?? null,
+        spaceIdsOf: (p) => spaces.filter((x) => x.profileId === p).map((x) => x.id),
+        spaceNameOf: (s) => spaces.find((x) => x.id === s)?.name ?? null,
+      },
+      committerName: async () => "Tester",
+    });
+    const { path: repo } = await repos.create(P);
+    const claudeDir = join(home, "fake-claude");
+    /** Holds the next write back until `release` — a run caught mid-way. */
+    const hold: { gate: Promise<void> | null } = { gate: null };
+    const held: typeof repos.writeBatch = async (...a) => { const g = hold.gate; hold.gate = null; await g; return repos.writeBatch(...a); };
+    const backfill = new ClaudeMemoryBackfill({ claudeDir, repos: { spaceFolderFor: (s) => repos.spaceFolderFor(s), config: (o) => repos.config(o), writeBatch: held }, settings, spaces: () => spaces, profileIds: () => [PROFILE, SCHOOL], temporaryRoots: [] });
+    /** Files Claude kept for a session in `cwd` (made if need be), outside Realm; its project's name. */
+    const claudeKept = (cwd: string, files: Record<string, string>): string => {
+      mkdirSync(cwd, { recursive: true });
+      const at = join(claudeDir, "projects", projectOf(cwd), "memory");
+      mkdirSync(at, { recursive: true });
+      for (const [f, text] of Object.entries(files)) writeFileSync(join(at, f), text);
+      return projectOf(cwd);
+    };
+    const run = async () => { await backfill.run(); return backfill.result(PROFILE); };
+    return { home, settings, repo, realmDir, shared, spaces, claudeKept, run, backfill, hold };
+  }
+  const has = (repo: string, rel: string): boolean => existsSync(join(repo, rel));
+
+  it("brings a project two spaces share into the one chosen for it, over the tie", async () => {
+    const h = await harness();
+    const project = h.claudeKept(h.shared, { "a.md": "a\n", "b.md": "b\n" });
+    expect((await h.run()).unmatched).toEqual([{ project, path: h.shared, files: 2, reason: "Realm and Stora both work there" }]);
+    const r = await h.backfill.choose(PROFILE, project, STORA);
+    expect(r).toMatchObject({ imported: 2, unmatched: [], chosen: [{ project, path: h.shared, files: 2, spaceId: STORA }], error: null });
+    expect(readFileSync(join(h.repo, "spaces", "stora", "a.md"), "utf8")).toBe("a\n");
+    expect(has(h.repo, "spaces/realm")).toBe(false);
+    expect(h.settings.get(`memory.claudeProjectSpace:${project}`)).toBe(STORA);
+  });
+
+  it("puts the choice over a space that matches by itself", async () => {
+    const h = await harness();
+    const project = h.claudeKept(h.realmDir, { "a.md": "a\n" });
+    // THE MUTANT: match first, and ask the choice only when matching has no answer.
+    const r = await h.backfill.choose(PROFILE, project, STORA);
+    expect(has(h.repo, "spaces/stora/a.md")).toBe(true);
+    expect(has(h.repo, "spaces/realm/a.md")).toBe(false);
+    expect(r.chosen).toEqual([{ project, path: h.realmDir, files: 1, spaceId: STORA }]);
+  });
+
+  it("leaves a project left out in Claude's folder, and says it was left out", async () => {
+    const h = await harness();
+    const project = h.claudeKept(h.shared, { "a.md": "a\n" });
+    const r = await h.backfill.choose(PROFILE, project, "skip");
+    expect(r).toMatchObject({ imported: 0, unmatched: [], chosen: [{ project, path: h.shared, files: 1, spaceId: null }], skipped: [] });
+    expect(has(h.repo, "spaces")).toBe(false);
+  });
+
+  it("asks again about a project whose chosen space is gone, and never guesses another", async () => {
+    const h = await harness();
+    const project = h.claudeKept(h.realmDir, { "a.md": "a\n" });
+    await h.backfill.choose(PROFILE, project, STORA);
+    h.spaces.splice(h.spaces.findIndex((s) => s.id === STORA), 1);
+    h.claudeKept(h.realmDir, { "b.md": "b\n" });
+    const r = await h.run();
+    // The folder still matches Realm by itself; a choice that can no longer be honoured is no licence to guess.
+    expect(r.unmatched).toEqual([{ project, path: h.realmDir, files: 2, reason: "the space it was brought into is gone" }]);
+    expect(r.chosen).toEqual([]);
+    expect(has(h.repo, "spaces/realm")).toBe(false);
+  });
+
+  it("only places a project in a space of the profile asking", async () => {
+    const h = await harness();
+    const project = h.claudeKept(h.shared, { "a.md": "a\n" });
+    await expect(h.backfill.choose(PROFILE, project, HOMEWORK)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(h.backfill.choose(PROFILE, project, "01ARZ3NDEKTSV4RRFFQ69G5FZZ")).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(h.settings.get(`memory.claudeProjectSpace:${project}`)).toBeNull();
+  });
+
+  it("shows each profile the projects placed in its own spaces, and every profile the ones left out", async () => {
+    const h = await harness();
+    const placed = h.claudeKept(h.shared, { "a.md": "a\n" });
+    const left = h.claudeKept(join(h.home, "elsewhere", "left"), { "c.md": "c\n" });
+    await h.backfill.choose(PROFILE, placed, REALM);
+    await h.backfill.choose(PROFILE, left, "skip");
+    expect(h.backfill.result(PROFILE).chosen.map((c) => c.project).sort()).toEqual([left, placed].sort());
+    expect(h.backfill.result(SCHOOL).chosen.map((c) => c.project)).toEqual([left]);
+  });
+
+  it("counts each waiting project's files and lists the biggest first", async () => {
+    const h = await harness();
+    const one = h.claudeKept(join(h.home, "elsewhere", "one"), { "a.md": "a\n" });
+    const three = h.claudeKept(join(h.home, "elsewhere", "three"), { "a.md": "a\n", "b.md": "b\n", "c.md": "c\n" });
+    expect((await h.run()).unmatched.map((u) => [u.project, u.files])).toEqual([[three, 3], [one, 1]]);
+  });
+
+  it("runs again after a run already going, so a choice made during it is honoured at once", async () => {
+    const h = await harness();
+    h.claudeKept(h.realmDir, { "r.md": "r\n" });
+    const project = h.claudeKept(h.shared, { "a.md": "a\n" });
+    let release!: () => void;
+    h.hold.gate = new Promise<void>((r) => { release = r; });
+    // A run that matched before the choice existed, held mid-way at its write.
+    const first = h.backfill.run();
+    const chosen = h.backfill.choose(PROFILE, project, STORA);
+    release();
+    await first;
+    // THE MUTANT: join the run already going — its plan never heard of the choice.
+    expect(await chosen).toMatchObject({ unmatched: [], chosen: [{ project, spaceId: STORA }] });
+    expect(has(h.repo, "spaces/stora/a.md")).toBe(true);
   });
 });
