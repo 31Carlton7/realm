@@ -49,7 +49,9 @@ struct HomeView: View {
                         SectionHead(title: "Needs you") {
                             Image(systemName: "hand.raised.fill").foregroundStyle(Palette.orange)
                         }
+                        .headOnGround()
                     }
+                    .listSectionSeparator(.hidden)
                 }
                 if !listing.pinned.isEmpty, filter != .needsYou {
                     Section {
@@ -60,7 +62,9 @@ struct HomeView: View {
                         SectionHead(title: "Pinned") {
                             Image(systemName: "pin.fill").foregroundStyle(Palette.ink2)
                         }
+                        .headOnGround()
                     }
+                    .listSectionSeparator(.hidden)
                 }
                 if !unsent.isEmpty, !listing.isFiltered, filter == .all {
                     Section {
@@ -71,7 +75,9 @@ struct HomeView: View {
                         SectionHead(title: "Unsent") {
                             Image(systemName: "arrow.up.circle.fill").foregroundStyle(Palette.ink2)
                         }
+                        .headOnGround()
                     }
+                    .listSectionSeparator(.hidden)
                 }
                 ForEach(filter == .all ? listing.sections : []) { section in
                     Section {
@@ -83,7 +89,9 @@ struct HomeView: View {
                         }
                     } header: {
                         ListSectionHead(section: section, opensSpace: pages)
+                            .headOnGround()
                     }
+                    .listSectionSeparator(.hidden)
                 }
             } else if shown.kind == .connecting || shown.kind == .connected {
                 LoadingSections()
@@ -284,6 +292,20 @@ struct SectionHead<Glyph: View>: View {
         .foregroundStyle(Palette.ink)
         .textCase(nil)
         .padding(.top, 6)
+    }
+}
+
+extension View {
+    /// A section's head on the list's own ground, edge to edge, as the bar above it is. Pinned while
+    /// its rows scroll under it, it stays the bar's colour, rather than a band of material with a line
+    /// under it.
+    func headOnGround() -> some View {
+        frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.top, 6)
+            .padding(.bottom, 8)
+            .background(Ground.transcript)
+            .listRowInsets(EdgeInsets())
     }
 }
 

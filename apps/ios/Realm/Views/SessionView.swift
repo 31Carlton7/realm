@@ -145,6 +145,9 @@ struct SessionView: View {
             if live && atBottom { model.markSeen(sessionId) }
         }
         .background(Ground.transcript)
+        // A light blur where the reading passes under the bar and the composer, as Photos fades its
+        // grid under its own: the soft edge, never the frosted band with a line along it.
+        .scrollEdgeEffectStyle(.soft, for: .all)
         .safeAreaBar(edge: .bottom) {
             SessionFoot(sessionId: sessionId, composing: $composing, showsLatest: !atBottom && !transcript.rows.isEmpty) {
                 scrollToBottom()
