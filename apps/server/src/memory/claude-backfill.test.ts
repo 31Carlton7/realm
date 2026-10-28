@@ -248,6 +248,20 @@ describe("bringing in Claude's own memory", () => {
     expect(await h.run()).toMatchObject({ imported: 1, error: null });
   });
 
+  it("touches nothing on a check with nothing to bring in: a file Claude is writing waits, and someone's changes are no error", async () => {
+    const h = await harness();
+    h.claudeKept(h.realmDir, "a.md", "a\n");
+    await h.run();
+    const before = commits(h.repo);
+    writeFileSync(join(h.repo, "spaces", "realm", "half-written.md"), "Claude, mid-turn.\n");
+    writeFileSync(join(h.repo, "draft.md"), "the person's own");
+    // THE MUTANT: the clean check ahead of the empty check — every five minutes, an error on the row,
+    // or Claude's half-written file committed under somebody else's message.
+    expect(await h.run()).toMatchObject({ imported: 0, updated: 0, error: null });
+    expect(commits(h.repo)).toBe(before);
+    expect(git(h.repo, "status", "--porcelain")).toBe("?? draft.md\n?? spaces/realm/half-written.md\n");
+  });
+
   it("lists a file left out once per version of it: once the page has shown it, not again until it changes", async () => {
     const h = await harness();
     h.claudeKept(h.realmDir, "keys.md", `staging key ${KEY}\n`);

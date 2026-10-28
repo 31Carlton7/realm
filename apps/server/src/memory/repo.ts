@@ -543,31 +543,43 @@ export class MemoryRepoService {
     const cfg = this.mustConfig(owner);
     const repo = cfg.path;
     const out = await this.locked(repo, async () => {
-      const asked = new Map<string, string | null>();
-      for (const [path, content] of plan(repo)) {
-        const rel = this.checkedRel(path);
-        if (rel === "") throw new RpcError("MEMORY_PATH", "give a path inside the memory repo");
-        if (content !== null) {
-          if (content.length > MEMORY_DOC_MAX) throw new RpcError("MEMORY_FILE_TOO_LARGE", `${rel}: a memory file is capped at ${MEMORY_DOC_MAX} characters`);
-          const secret = secretShapeIn(content);
-          if (secret) throw new RpcError("MEMORY_SECRET", `${rel} looks like it holds ${secret}; memory never holds credentials`);
-        }
-        asked.set(rel, content);
-      }
-      await this.ensureWritable(owner, repo, cfg, [...asked.keys()]);
-      const writes = new Map<string, string | null>();
-      for (const [rel, content] of asked) {
-        const abs = this.inside(repo, rel);
-        const before = existsSync(abs) ? readFileSync(abs, "utf8") : null;
-        if (before !== content) writes.set(rel, content);
-      }
+      const why = await this.invalidReason(repo);
+      if (why) throw new RpcError("MEMORY_REPO_INVALID", `${repo} is not a memory repo: ${why}`);
+      // Nothing to write is nothing to do: a file Claude is still writing waits for its own turn's
+      // commit, and someone's changes in the repo are no refusal to report.
+      if (this.changesIn(repo, plan(repo)).size === 0) return { changed: false, file: "", line: null, sha: null, diff: "" };
+      // What Claude left in a profile's space folders goes in first, and the plan is made again on top
+      // of it — that commit can link a folder from the root index, which a plan made before would undo.
+      if (owner.scope === "profile") await this.commitUnder(repo, SPACES_DIR, CLAUDE_LEFT);
+      const writes = this.changesIn(repo, plan(repo));
       const first = writes.keys().next().value ?? "";
       if (writes.size === 0) return { changed: false, file: first, line: null, sha: null, diff: "" };
+      await this.ensureWritable(owner, repo, cfg, [...writes.keys()]);
       const done = await this.commitFiles(repo, writes, message, author);
       return { changed: true, file: first, line: null, ...done };
     });
     if (out.changed) void this.queueSync(owner);
     return out;
+  }
+
+  /** What a plan would change, checked before anything is written: every path stays inside the repo
+   *  and out of `.git`, every content is within size and holds nothing shaped like a secret. Files
+   *  already as asked are left out. */
+  private changesIn(repo: string, planned: Map<string, string | null>): Map<string, string | null> {
+    const writes = new Map<string, string | null>();
+    for (const [path, content] of planned) {
+      const rel = this.checkedRel(path);
+      if (rel === "") throw new RpcError("MEMORY_PATH", "give a path inside the memory repo");
+      if (content !== null) {
+        if (content.length > MEMORY_DOC_MAX) throw new RpcError("MEMORY_FILE_TOO_LARGE", `${rel}: a memory file is capped at ${MEMORY_DOC_MAX} characters`);
+        const secret = secretShapeIn(content);
+        if (secret) throw new RpcError("MEMORY_SECRET", `${rel} looks like it holds ${secret}; memory never holds credentials`);
+      }
+      const abs = this.inside(repo, rel);
+      const before = existsSync(abs) ? readFileSync(abs, "utf8") : null;
+      if (before !== content) writes.set(rel, content);
+    }
+    return writes;
   }
 
   // ─── Claude's own writes ───────────────────────────────────────────────────────────────────────
