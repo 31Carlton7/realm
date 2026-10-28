@@ -49,6 +49,39 @@ enum Fill {
     static let onPrimary = Color.dynamic(light: "Surface", dark: "Page")
 }
 
+/// Manus's primary button: a capsule of ink with the paper's word on it, a shade lighter while pressed.
+struct InkButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        CapsuleLabel(configuration: configuration, fill: Fill.primary, ink: Fill.onPrimary)
+    }
+}
+
+/// Its quieter neighbour, as Manus sets "Not now" beside "Approve": the pill's grey, the words in ink.
+struct GreyButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        CapsuleLabel(configuration: configuration, fill: Fill.pill, ink: Palette.ink)
+    }
+}
+
+private struct CapsuleLabel: View {
+    let configuration: ButtonStyleConfiguration
+    let fill: Color
+    let ink: Color
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        configuration.label
+            .font(.body.weight(.semibold))
+            .foregroundStyle(ink)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 8)
+            .frame(minHeight: 48)
+            .background(fill, in: Capsule())
+            .opacity(configuration.isPressed ? 0.8 : isEnabled ? 1 : 0.45)
+            .contentShape(Capsule())
+    }
+}
+
 extension View {
     /// The lift a floating card wears over the transcript — the composer, the current step — as Manus
     /// floats its own: a soft shadow and no edge.
