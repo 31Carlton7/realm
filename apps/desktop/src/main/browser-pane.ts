@@ -5,6 +5,7 @@ import {
   shownPage, windowOpenAction, type FaviconFetch, type KeepReason, type ViewFactory,
 } from "./browser-host";
 import { attachTextContextMenu } from "./text-context-menu";
+import { PAGE_BUSY, TypedSince } from "./page-busy";
 import { refuseCapture } from "./capture-guard";
 import type { CdpBinding } from "./browser-agent-host";
 import { asDownloadItem, type DownloadDecision, type DownloadItemLike } from "./downloads";
@@ -375,29 +376,9 @@ export type BrowserPane = {
   viewProcesses(): { browserId: string; pid: number; title: string; hiddenSince: number | null }[];
 };
 
-/**
- * Why a page must not be discarded right now, read off the page itself, every frame: a video or a
- * sound playing (muted autoplay included, which `isCurrentlyAudible` cannot hear), a field holding text
- * that differs from what the page loaded with, a box ticked or a file chosen, or the keyboard in an
- * editable region. Read-only, and in the page's own world — a page that lies can only keep itself.
- */
-const PAGE_BUSY = `(() => {
-  if ([...document.querySelectorAll("video,audio")].some((m) => !m.paused && !m.ended && m.readyState > 2)) return "media";
-  const dirty = [...document.querySelectorAll("input,textarea,select")].some((el) => {
-    if (el.disabled || el.readOnly) return false;
-    if (el.tagName === "SELECT") return [...el.options].some((o) => o.selected !== o.defaultSelected);
-    if (el.type === "checkbox" || el.type === "radio") return el.checked !== el.defaultChecked;
-    if (el.type === "file") return el.files && el.files.length > 0;
-    if (["hidden", "submit", "button", "reset", "image"].includes(el.type)) return false;
-    return el.value !== el.defaultValue;
-  });
-  if (dirty) return "form";
-  const active = document.activeElement;
-  return active && active.isContentEditable ? "form" : null;
-})()`;
-
-export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: PasskeyInstaller): BrowserPane {
+export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: PasskeyInstaller, o: { retainedLimit?: () => number | null } = {}): BrowserPane {
   const views = new Map<string, WebContents>();
+  const typedSince = new TypedSince();
   const viewBoxes = new Map<string, WebContentsView>();
   const destroyedCbs: ((id: string) => void)[] = [];
   const send = (channel: string, payload: unknown) => { if (!win.isDestroyed()) win.webContents.send(channel, payload); };
@@ -406,6 +387,7 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
     const wc = views.get(id);
     if (!wc || wc.isDestroyed()) return null;
     if (wc.isDevToolsOpened()) return "devtools";
+    if (typedSince.has(id)) return "form";
     if (wc.isCurrentlyAudible()) return "media";
     if (wc.isLoading()) return "loading";
     if (host.popupsOf(id).length > 0) return "popup";
@@ -415,15 +397,20 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
         frame.executeJavaScript(PAGE_BUSY).catch(() => null),
         new Promise((resolve) => setTimeout(() => resolve("loading"), 1_000).unref?.()),
       ]);
-      if (said === "media" || said === "form" || said === "loading") return said;
+      if (said === "media" || said === "form" || said === "session" || said === "loading") return said;
     }
     return null;
   };
   const host = new BrowserPaneHost({
     guard,
+    ...(o.retainedLimit ? { retainedLimit: o.retainedLimit } : {}),
     createView: electronViewFactory(win, (id, wc, view) => {
-      if (wc) { views.set(id, wc); if (view) viewBoxes.set(id, view); }
-      else { views.delete(id); viewBoxes.delete(id); for (const cb of destroyedCbs) cb(id); }
+      if (wc) {
+        views.set(id, wc); if (view) viewBoxes.set(id, view);
+        typedSince.forget(id);
+        wc.on("before-input-event", (_e, input) => typedSince.input(id, input));
+        wc.on("did-navigate", () => typedSince.navigated(id));
+      } else { views.delete(id); viewBoxes.delete(id); typedSince.forget(id); for (const cb of destroyedCbs) cb(id); }
     }, installPasskeysFor),
     sendState: (s) => send("realm:browser-state", s),
     scaleFactor: () => screen.getDisplayMatching(win.getBounds()).scaleFactor,

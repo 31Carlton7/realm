@@ -1903,6 +1903,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     settings, snapshot: (o) => resources.snapshot(o), adapt: adaptIdle,
     engines: sessions, simulators, laya,
     browsers: () => (browserBridge.connected ? { call: (op, params) => browserBridge.call(op, params) } : null),
+    browserPolicyChanged: () => { void resourcePolicies.tick(); },
   });
   /* Memory just got short: every idle window shrinks now, and what is already past the shorter one goes
      at once rather than on each policy's next tick. */

@@ -29,6 +29,7 @@ function setup(o: { stoppable?: boolean; attached?: boolean } = {}) {
     simulators: { idleCandidates: () => ["SIM-A"], sweepIdle: async (x) => { calls.push(`simulators:${x.minutes}`); return ["SIM-A"]; } },
     laya: { stoppable: () => o.stoppable ?? true, stopIdle: async () => { calls.push("laya"); return true; }, idleChanged: () => calls.push("laya-window") },
     browsers: () => (o.attached === false ? null : { call: async (_op, p) => { calls.push(`browsers:${p.hiddenMs}:${p.keepHidden}`); return { discarded: ["b-hidden"], kept: [] }; } }),
+    browserPolicyChanged: () => calls.push("browser-policy"),
   });
   return { c, calls, settings };
 }
@@ -63,6 +64,15 @@ describe("the Memory page's controls", () => {
     expect(() => c.setPolicy("resources.adaptive", 5)).toThrow(/on or off/);
     c.setPolicy("laya.idleStopMinutes", 0);
     expect(calls.filter((x) => x === "laya-window")).toHaveLength(2);
+  });
+
+  it("tell main at once when a browser window, the number kept loaded or the switch changes", () => {
+    const { c, calls } = setup();
+    c.setPolicy("browser.discardHiddenMinutes", 0);
+    c.setPolicy("browser.keepHidden", 5);
+    c.setPolicy("resources.adaptive", true);
+    c.setPolicy("mcp.idleStopMinutes", 10);
+    expect(calls.filter((x) => x === "browser-policy")).toHaveLength(3);
   });
 
   it("free memory with each button through the policy's own rules, skipping only the wait", async () => {

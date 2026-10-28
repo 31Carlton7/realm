@@ -20,7 +20,10 @@ export class ResourceControls {
     simulators: { idleCandidates(): string[]; sweepIdle(o: { minutes?: number }): Promise<string[]> };
     laya: { stoppable(): boolean; stopIdle(): Promise<boolean>; idleChanged(): void };
     /** main's sweep; null when no app is attached. */
-    browsers: () => { call(op: "browserSweep", params: { hiddenMs: number; keepHidden: number }): Promise<unknown> } | null;
+    browsers: () => { call(op: "browserSweep", params: { hiddenMs: number | null; keepHidden: number }): Promise<unknown> } | null;
+    /** A browser window or the adaptive switch changed: the policies look again now, so main's budget
+     *  for unmounted panes keeps to the new settings before the clock's next tick. */
+    browserPolicyChanged?: () => void;
   }) {}
 
   async snapshot(o: { fresh?: boolean } = {}): Promise<ResourceReport> {
@@ -68,6 +71,7 @@ export class ResourceControls {
     this.d.settings.set(key, value);
     // Laya's window is a timer of its own, armed from the last step: measured again now.
     if (key === "laya.idleStopMinutes" || key === "resources.adaptive") this.d.laya.idleChanged();
+    if (key === "browser.discardHiddenMinutes" || key === "browser.keepHidden" || key === "resources.adaptive") this.d.browserPolicyChanged?.();
     return this.policies();
   }
 

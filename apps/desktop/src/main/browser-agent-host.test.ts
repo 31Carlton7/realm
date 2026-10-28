@@ -35,6 +35,8 @@ function setup(opts: {
   duringCapture?: () => void;
   /** Answers that depend on the params — consulted first, `undefined` falls through to the rest. */
   respond?: (method: string, params?: Record<string, unknown>) => unknown;
+  /** The page being brought back from a discard: settles when it has loaded. */
+  revived?: (id: string) => Promise<void>;
 } = {}) {
   let emit: ((method: string, params: unknown) => void) | null = null;
   const calls: { method: string; params?: Record<string, unknown> }[] = [];
@@ -115,9 +117,32 @@ function setup(opts: {
     } : undefined,
     readFile: opts.readFile === false ? undefined : async () => new Uint8Array([1, 2, 3]),
     ...(opts.paneProfile !== undefined ? { profileOf: (id: string) => (liveViews.has(id) ? opts.paneProfile ?? null : null) } : {}),
+    ...(opts.revived ? { revived: opts.revived } : {}),
   });
   return { host, calls, liveViews, audit, minted, grants, touched, emitEvent: (method: string, params: unknown) => emit?.(method, params) };
 }
+
+describe("BrowserAgentHost — a page given up for memory", () => {
+  it("waits for the page to come back before an agent's step reads it, and never for describe or navigate", async () => {
+    // THE MUTANT: no wait. The first snapshot after a discard reads the about:blank a revived view
+    // boots on, and the agent is told the page is empty.
+    let loaded!: () => void;
+    const asked: string[] = [];
+    const { host, calls } = setup({ revived: (id) => { asked.push(id); return new Promise<void>((r) => { loaded = r; }); } });
+    let done = false;
+    const snap = host.handleOp("snapshot", { browserId: "b1" }).then(() => { done = true; });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(asked).toEqual(["b1"]);
+    expect(done).toBe(false);
+    expect(calls).toEqual([]);
+    loaded();
+    await snap;
+    expect(done).toBe(true);
+    await host.handleOp("describe", { browserId: "b1" });
+    await host.handleOp("navigate", { browserId: "b1", url: "https://allowed.example" });
+    expect(asked).toEqual(["b1"]);
+  });
+});
 
 /**
  * A page that did not load. The view holds Chromium's empty error document and the pane draws Realm's

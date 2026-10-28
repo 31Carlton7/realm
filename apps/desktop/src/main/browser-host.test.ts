@@ -518,6 +518,24 @@ describe("BrowserPaneHost retention", () => {
     expect(alive(views.get(ids[1]!)!)).toBe(false);
   });
 
+  it("keeps to Settings ▸ RAM: as many unmounted views as it says stay loaded, and none discarded at Never", async () => {
+    // THE MUTANT: the old fixed budget of three, which discards a fourth page the person said to keep.
+    let limit: number | null = 5;
+    const views = new Map<string, ReturnType<typeof fakeView>>();
+    const host = new BrowserPaneHost({
+      createView: (id, hooks) => { const v = fakeView(); v.setHooks(hooks); views.set(id, v); return v.handle; },
+      sendState: () => {}, scaleFactor: () => 2, retainedLimit: () => limit,
+    });
+    const ids = Array.from({ length: 6 }, (_, i) => `p${i}`);
+    for (const id of ids) { host.create(id, `https://${id}.example`, null, P); host.retain(id); }
+    await host.settled();
+    expect(ids.filter((id) => host.isDiscarded(id))).toEqual(["p0"]);
+    limit = null;
+    for (const id of ["q0", "q1", "q2", "q3", "q4", "q5", "q6"]) { host.create(id, `https://${id}.example`, null, P); host.retain(id); }
+    await host.settled();
+    expect(["q0", "q1", "q2", "q3", "q4", "q5", "q6"].filter((id) => host.isDiscarded(id))).toEqual([]);
+  });
+
   it("retain on an unknown id is refused, not thrown", () => {
     const { host } = makeHost();
     expect(() => host.retain("nope")).not.toThrow();
@@ -570,6 +588,24 @@ describe("BrowserPaneHost — discarding hidden views", () => {
     expect(host.has("a")).toBe(true);
   });
 
+  it("does not count a pane behind a page overlay as hidden — Settings over the window hides every view", async () => {
+    // THE MUTANT: the idle clock read off the view's own show flag, which a page overlay, a drag and
+    // the mount settle all turn off. Settings ▸ RAM is such an overlay: its button would discard
+    // every page that was on screen behind it.
+    const { host, views, page, at } = clocked();
+    page("behind", "https://behind.example");
+    page("other-tab", "https://other.example");
+    at(0);
+    host.setBounds("behind", R, 2, false, true); // covered, still the pane showing
+    host.setBounds("other-tab", R, 2, false, false); // its tab switched away
+    expect(views.get("behind")!.calls.at(-1)).toBe("visible:false");
+    expect(host.visibilityOf("behind")).toEqual({ visible: true, hiddenSince: null });
+    at(60);
+    expect((await host.sweep({ hiddenMs: 0, keepHidden: 0 })).discarded).toEqual(["other-tab"]);
+    expect(host.isDiscarded("behind")).toBe(false);
+    expect(await host.discard("behind")).toBe(false);
+  });
+
   it("never discards a view on screen, or one hidden for less than the window", async () => {
     const { host, page, hide, at } = clocked();
     page("on", "https://on.example");
@@ -608,6 +644,32 @@ describe("BrowserPaneHost — discarding hidden views", () => {
     const r = await host.sweep({ hiddenMs: 20 * MIN, keepHidden: 0 });
     expect(r.discarded).toEqual(["plain"]);
     expect(r.kept).toEqual(expect.arrayContaining([{ id: "video", reason: "media" }, { id: "draft", reason: "form" }]));
+  });
+
+  it("lets an agent's step wait for a revived page to load rather than read the blank it boots on", async () => {
+    const { host, views, page, hide, at } = clocked();
+    page("b", "https://b.example/inbox");
+    hide("b");
+    at(60);
+    await host.sweep({ hiddenMs: 20 * MIN, keepHidden: 0 });
+    let settled = false;
+    const waiting = host.revivedPage("b", { pollMs: 5 }).then(() => { settled = true; });
+    await new Promise((r) => setTimeout(r, 30));
+    // Brought back, loading — and the step still waits.
+    expect(views.get("b")!.calls).toContain("load:https://b.example/inbox");
+    expect(settled).toBe(false);
+    views.get("b")!.nav.ready = true;
+    await waiting;
+    // A live page that never left, or one that will not load, waits no longer than it must.
+    page("c", "https://c.example");
+    await host.revivedPage("c");
+    hide("c");
+    at(200);
+    await host.sweep({ hiddenMs: 20 * MIN, keepHidden: 0 });
+    const failing = host.revivedPage("c", { pollMs: 5 });
+    await new Promise((r) => setTimeout(r, 15));
+    views.get("c")!.nav.error = { code: -105, name: "ERR_NAME_NOT_RESOLVED", url: "https://c.example/" };
+    await failing;
   });
 
   it("leaves a view that came back on screen while its scroll was being read", async () => {

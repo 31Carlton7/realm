@@ -580,7 +580,10 @@ type Discarded = {
 
 /** Why a hidden view is kept rather than discarded: its page says so, an agent drove it within the
  *  window, or it is one of the most recently hidden. */
-export type KeepReason = "media" | "form" | "loading" | "popup" | "devtools" | "agent" | "recent";
+export type KeepReason = "media" | "form" | "session" | "loading" | "popup" | "devtools" | "agent" | "recent";
+
+/** How long an agent's first step waits for a page brought back from a discard to load. */
+export const REVIVE_WAIT_MS = 15_000;
 
 /**
  * One `WebContentsView` per open browser item, keyed by browser id. Owns lifecycle (create is
@@ -601,8 +604,13 @@ export class BrowserPaneHost {
     device: DevicePreset | null; host: ViewRect | null;
     /** The metrics last sent, so a resize that changes nothing sends nothing. */
     emulated: string | null;
-    /** Whether the pane last said the view is on screen, and since when it has not been. */
-    visible: boolean; hiddenSince: number | null;
+    /** Whether the view is on screen, as the pane last said — a page overlay, a drag or the mount
+     *  settle hide it for a moment over a pane that is still the one showing. */
+    visible: boolean;
+    /** Whether the PANE is the one showing, overlays aside, and since when it has not been: the clock
+     *  the idle discard runs on. A page open over the workspace hides every view, and must not make
+     *  every page in the window hidden. */
+    shown: boolean; hiddenSince: number | null;
     /** When an agent's op last reached it (`touch`). */
     agentAt: number;
     /** Brought back from a discard and not yet painted: kept hidden until its page is ready, so the
@@ -632,6 +640,9 @@ export class BrowserPaneHost {
     /** Why this view's page must not be discarded right now — media playing, input not yet sent, a
      *  load or a popup under way, DevTools open — or null when it may be. Absent, nothing is spared. */
     guard?: (id: string) => Promise<KeepReason | null>;
+    /** How many unmounted views stay loaded (Settings ▸ RAM's "kept loaded"), or null for no limit (its
+     *  window set to Never). Absent, `RETAINED_VIEW_LIMIT`. */
+    retainedLimit?: () => number | null;
     now?: () => number;
   }) {}
 
@@ -646,7 +657,7 @@ export class BrowserPaneHost {
   /** Visibility as the pane last reported it, for the resource report: null when there is no live view. */
   visibilityOf(id: string): { visible: boolean; hiddenSince: number | null } | null {
     const v = this.views.get(id);
-    return v ? { visible: v.visible, hiddenSince: v.hiddenSince } : null;
+    return v ? { visible: v.shown, hiddenSince: v.hiddenSince } : null;
   }
 
   /** The URL a discarded view will come back on, for whoever asks about its page before it does. */
@@ -660,6 +671,20 @@ export class BrowserPaneHost {
   live(id: string): boolean {
     if (this.views.has(id)) return true;
     return this.revive(id);
+  }
+
+  /**
+   * For an agent's step: the live view, brought back from a discard first, with the page it comes back
+   * on loaded — or failed, or as far along as `REVIVE_WAIT_MS` gets it. A step taken at once would read
+   * the `about:blank` a revived view boots on.
+   */
+  async revivedPage(id: string, o: { timeoutMs?: number; pollMs?: number } = {}): Promise<void> {
+    if (!this.live(id)) return;
+    const v = this.views.get(id)!;
+    const deadline = Date.now() + (o.timeoutMs ?? REVIVE_WAIT_MS);
+    while (v.reviving && this.views.get(id) === v && !v.handle.isReady() && v.handle.getLoadError() === null && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, o.pollMs ?? 50));
+    }
   }
 
   /**
@@ -682,7 +707,7 @@ export class BrowserPaneHost {
     if (existing && existing.partition === partition) { this.emitState(id); return; }
     if (existing) this.destroy(id);
     const handle = this.opts.createView(id, this.hooks(id), partition);
-    this.views.set(id, { handle, allowlist, partition, device: null, host: null, emulated: null, visible: false, hiddenSince: this.now(), agentAt: 0, reviving: false });
+    this.views.set(id, { handle, allowlist, partition, device: null, host: null, emulated: null, visible: false, shown: false, hiddenSince: this.now(), agentAt: 0, reviving: false });
     const normalized = normalizeAddress(url);
     if (normalized && originAllowed(normalized, allowlist)) handle.loadURL(normalized);
     this.emitState(id);
@@ -704,9 +729,9 @@ export class BrowserPaneHost {
    */
   async discard(id: string): Promise<boolean> {
     const v = this.views.get(id);
-    if (!v || v.visible) return false;
+    if (!v || v.visible || v.shown) return false;
     const scroll = await v.handle.readScroll().catch(() => null);
-    if (this.views.get(id) !== v || v.visible) return false;
+    if (this.views.get(id) !== v || v.visible || v.shown) return false;
     this.discarded.set(id, { url: v.handle.getURL(), scroll, allowlist: v.allowlist, partition: v.partition, device: v.device, host: v.host });
     this.views.delete(id);
     this.retained.delete(id);
@@ -723,11 +748,13 @@ export class BrowserPaneHost {
     if (!d) return false;
     this.discarded.delete(id);
     const handle = this.opts.createView(id, this.hooks(id), d.partition);
-    this.views.set(id, { handle, allowlist: d.allowlist, partition: d.partition, device: d.device, host: d.host, emulated: null, visible: false, hiddenSince: this.now(), agentAt: 0, reviving: true });
     const url = normalizeAddress(d.url);
-    if (url && originAllowed(url, d.allowlist)) {
+    const loads = Boolean(url && originAllowed(url, d.allowlist));
+    // Hidden until painted only when there is a page coming to paint.
+    this.views.set(id, { handle, allowlist: d.allowlist, partition: d.partition, device: d.device, host: d.host, emulated: null, visible: false, shown: false, hiddenSince: this.now(), agentAt: 0, reviving: loads });
+    if (loads) {
       if (d.scroll && (d.scroll.x !== 0 || d.scroll.y !== 0)) handle.scrollAfterLoad(d.scroll.x, d.scroll.y);
-      handle.loadURL(url);
+      handle.loadURL(url!);
     }
     this.place(id);
     this.emitState(id);
@@ -741,7 +768,7 @@ export class BrowserPaneHost {
    */
   async sweep(o: { hiddenMs: number; keepHidden: number }): Promise<{ discarded: string[]; kept: { id: string; reason: KeepReason }[] }> {
     const now = this.now();
-    const hidden = [...this.views].filter(([, v]) => !v.visible && v.hiddenSince !== null)
+    const hidden = [...this.views].filter(([, v]) => !v.shown && !v.visible && v.hiddenSince !== null)
       .sort((a, b) => b[1].hiddenSince! - a[1].hiddenSince!);
     const out: { discarded: string[]; kept: { id: string; reason: KeepReason }[] } = { discarded: [], kept: [] };
     for (const [i, [id, v]] of hidden.entries()) {
@@ -843,7 +870,7 @@ export class BrowserPaneHost {
   /** Per-frame renderer→main sync: placeholder rect + the renderer's devicePixelRatio, plus the
    *  renderer's visibility verdict (it hides the view during pane drags and layout settles — the
    *  research's bounds-lag mitigation lives on the renderer side, where the drag is known). */
-  setBounds(id: string, rect: ViewRect, dpr: number, visible: boolean): void {
+  setBounds(id: string, rect: ViewRect, dpr: number, visible: boolean, shown = visible): void {
     if (!this.views.has(id)) {
       const gone = this.discarded.get(id);
       if (!gone) return;
@@ -855,10 +882,11 @@ export class BrowserPaneHost {
     v.host = toViewBounds(rect, dpr, this.opts.scaleFactor());
     this.place(id);
     if (v.reviving && v.handle.isReady()) v.reviving = false;
-    const shown = visible && !v.reviving;
-    v.handle.setVisible(shown);
-    if (visible) { v.visible = true; v.hiddenSince = null; }
-    else if (v.visible || v.hiddenSince === null) { v.visible = false; v.hiddenSince = this.now(); }
+    v.handle.setVisible(visible && !v.reviving);
+    v.visible = visible;
+    // The idle clock follows the pane, not the view (`shown`).
+    if (shown) { v.shown = true; v.hiddenSince = null; }
+    else if (v.shown || v.hiddenSince === null) { v.shown = false; v.hiddenSince = this.now(); }
   }
 
   /** Show the page at a device preset's width, or (null) fit the pane again. In memory, per view. */
@@ -904,7 +932,8 @@ export class BrowserPaneHost {
   retain(id: string): void {
     const v = this.views.get(id); if (!v) return;
     v.handle.setVisible(false);
-    if (v.visible || v.hiddenSince === null) { v.visible = false; v.hiddenSince = this.now(); }
+    v.visible = false;
+    if (v.shown || v.hiddenSince === null) { v.shown = false; v.hiddenSince = this.now(); }
     this.retained.delete(id);
     this.retained.add(id); // to the back: most recently retained
     // Never a rejected chain: one guard that failed must not stop every budget after it.
@@ -920,8 +949,10 @@ export class BrowserPaneHost {
    * page with media or input the budget would have taken keeps the budget over by one instead.
    */
   private async enforceBudget(): Promise<void> {
+    const limit = this.opts.retainedLimit ? this.opts.retainedLimit() : RETAINED_VIEW_LIMIT;
+    if (limit === null) return;
     for (const id of [...this.retained]) {
-      if (this.retained.size <= RETAINED_VIEW_LIMIT) return;
+      if (this.retained.size <= limit) return;
       if (await this.opts.guard?.(id)) continue;
       if (this.retained.has(id)) await this.discard(id);
     }

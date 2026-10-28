@@ -452,8 +452,10 @@ contextBridge.exposeInMainWorld("realm", {
     historyMenu: (id: string, dir: "back" | "forward", at: { x: number; y: number }): Promise<void> =>
       ipcRenderer.invoke("browser:history-menu", id, dir, at),
     setAllowlist: (id: string, allowlist: string[] | null): Promise<void> => ipcRenderer.invoke("browser:set-allowlist", id, allowlist),
-    setBounds: (id: string, rect: { x: number; y: number; width: number; height: number }, dpr: number, visible: boolean): void =>
-      ipcRenderer.send("browser:set-bounds", id, rect, dpr, visible),
+    /** `visible`: the view on screen. `shown`: the pane the one showing, a page overlay, a drag or the
+     *  mount settle aside — the clock the idle discard runs on. */
+    setBounds: (id: string, rect: { x: number; y: number; width: number; height: number }, dpr: number, visible: boolean, shown?: boolean): void =>
+      ipcRenderer.send("browser:set-bounds", id, rect, dpr, visible, shown ?? visible),
     onState: (cb: (s: BrowserViewState) => void): (() => void) => {
       const handler = (_e: IpcRendererEvent, s: BrowserViewState) => cb(s);
       ipcRenderer.on("realm:browser-state", handler);

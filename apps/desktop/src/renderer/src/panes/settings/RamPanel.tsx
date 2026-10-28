@@ -67,7 +67,7 @@ const WINDOWS: WindowRow[] = [
     title: "Counted from the last time a pane showed it, anything acted on it, or Realm started. A simulator that was already running when Realm showed it is never shut down, nor one an xcodebuild, an agent's own mirror or anything else is using, nor any while Simulator.app or Xcode has been in front, or a debugger has run, in the last 30 minutes: Realm cannot tell which simulator was meant.",
     available: () => capabilities().simulators },
   { id: "ram-browser-idle", key: "browser.discardHiddenMinutes", label: "Discard a hidden browser pane after", value: (p) => p.browserHiddenMinutes, effective: (p) => p.effective.browsers, choices: [5, 10, 20, 30, 60, 0],
-    title: "The page and where it was scrolled are kept, and it loads again when the pane is shown. Never one an agent drove within the window, or one playing media, holding text you have not sent, loading or showing a sign-in window." },
+    title: "Counted while its pane is not the one showing — a page like this one open over it does not count. The page and where it was scrolled are kept, and it loads again when the pane is shown. Never one an agent drove within the window, or one playing media, typed into since it loaded, holding text you have not sent or a session of its own, loading or showing a sign-in window." },
 ];
 
 const FREE_ROWS: { id: string; action: FreeAction; label: string; verb: string; noun: [string, string]; none: string; available?: () => boolean }[] = [
@@ -207,7 +207,7 @@ export function RamPanel() {
             </li>
           );
         })}
-        <li className="settings-row" data-setting="ram-browser-keep" title="The panes hidden most recently stay loaded however long ago that was, so switching back to them is instant.">
+        <li className="settings-row" data-setting="ram-browser-keep" title="The panes hidden most recently stay loaded however long ago that was, so switching back to them is instant — panes in other spaces included.">
           <div className="settings-row-main"><span className="settings-row-name">Hidden browser panes kept loaded</span></div>
           <select aria-label="Hidden browser panes kept loaded" value={policies.browserKeepHidden}
             onChange={(e) => run(() => setPolicy("browser.keepHidden", Number(e.target.value)))}>

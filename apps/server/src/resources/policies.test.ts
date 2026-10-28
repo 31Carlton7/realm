@@ -5,7 +5,7 @@ import { POLICY_TICK_MS, ResourcePolicies, minutesSetting } from "./policies";
 afterEach(() => { vi.useRealTimers(); });
 
 function setup(o: { settings?: Record<string, unknown>; attached?: boolean; slow?: Promise<void> } = {}) {
-  const asked: { hiddenMs: number; keepHidden: number }[] = [];
+  const asked: { hiddenMs: number | null; keepHidden: number; policy?: boolean }[] = [];
   const settings = new Map(Object.entries(o.settings ?? {}));
   let attached = o.attached ?? true;
   const p = new ResourcePolicies({
@@ -22,7 +22,7 @@ describe("the browser pane policy", () => {
     p.start();
     expect(asked).toEqual([]);
     await vi.advanceTimersByTimeAsync(POLICY_TICK_MS);
-    expect(asked).toEqual([{ hiddenMs: 20 * 60_000, keepHidden: 3 }]);
+    expect(asked).toEqual([{ hiddenMs: 20 * 60_000, keepHidden: 3, policy: true }]);
     await vi.advanceTimersByTimeAsync(POLICY_TICK_MS);
     expect(asked).toHaveLength(2);
     p.close();
@@ -30,16 +30,17 @@ describe("the browser pane policy", () => {
     expect(asked).toHaveLength(2);
   });
 
-  it("follows its settings, and asks nothing at 0 or with no app attached", async () => {
+  it("follows its settings — Never sent as no window, so main's budget for unmounted panes keeps to it too — and asks nothing with no app attached", async () => {
     const { p, asked, settings, attach } = setup({ settings: { [BROWSER_DISCARD_HIDDEN_KEY]: 45, [BROWSER_KEEP_HIDDEN_KEY]: 1 } });
     await p.tick();
-    expect(asked).toEqual([{ hiddenMs: 45 * 60_000, keepHidden: 1 }]);
+    expect(asked).toEqual([{ hiddenMs: 45 * 60_000, keepHidden: 1, policy: true }]);
     settings.set(BROWSER_DISCARD_HIDDEN_KEY, 0);
     await p.tick();
+    expect(asked[1]).toEqual({ hiddenMs: null, keepHidden: 1, policy: true });
     attach(false);
     settings.set(BROWSER_DISCARD_HIDDEN_KEY, 5);
     await p.tick();
-    expect(asked).toHaveLength(1);
+    expect(asked).toHaveLength(2);
   });
 
   it("never runs two sweeps at once while pages are slow to answer", async () => {
@@ -78,6 +79,6 @@ describe("the MCP policy", () => {
     const { asked } = setup();
     const p = new ResourcePolicies({ settings: { get: () => undefined }, adapt: (m) => Math.min(m, 5), app: () => ({ call: async (_op, params) => { asked.push(params); } }) });
     await p.tick();
-    expect(asked).toEqual([{ hiddenMs: 5 * 60_000, keepHidden: 3 }]);
+    expect(asked).toEqual([{ hiddenMs: 5 * 60_000, keepHidden: 3, policy: true }]);
   });
 });

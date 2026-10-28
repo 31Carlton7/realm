@@ -23,7 +23,7 @@ export class ResourcePolicies {
   constructor(private readonly d: {
     settings: { get(key: string): unknown };
     /** main's side of the bridge; null when no app is attached, and then there are no panes to discard. */
-    app: () => { call(op: "browserSweep", params: { hiddenMs: number; keepHidden: number }): Promise<unknown> } | null;
+    app: () => { call(op: "browserSweep", params: { hiddenMs: number | null; keepHidden: number; policy?: boolean }): Promise<unknown> } | null;
     mcp?: { sleepIdle(idleMs: number): string[] };
     /** A window as memory pressure leaves it (`ResourceService.adapt`). */
     adapt?: (minutes: number) => number;
@@ -65,7 +65,9 @@ export class ResourcePolicies {
       if (mcp > 0) this.d.mcp?.sleepIdle(mcp * 60_000);
       const minutes = this.browserMinutes();
       const app = this.d.app();
-      if (minutes > 0 && app) await app.call("browserSweep", { hiddenMs: minutes * 60_000, keepHidden: this.browserKeep() }).catch(() => {});
+      // Sent with the window at Never too (`hiddenMs: null`): main's budget for unmounted panes keeps to
+      // the same two settings, and learns them from here.
+      if (app) await app.call("browserSweep", { hiddenMs: minutes > 0 ? minutes * 60_000 : null, keepHidden: this.browserKeep(), policy: true }).catch(() => {});
     } finally {
       this.running = false;
     }
