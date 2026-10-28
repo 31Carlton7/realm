@@ -1416,7 +1416,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     claudeBackfill: async (profileId, run) => {
       calls.push(`claudeBackfill:${profileId}:${run}`);
       const b = data.claudeBackfills[profileId];
-      if (!b) return { imported: 0, updated: 0, total: 0, unmatched: [], chosen: [], skipped: [], error: null, sha: null, at: null };
+      if (!b) return { imported: 0, updated: 0, removed: 0, total: 0, unmatched: [], chosen: [], skipped: [], error: null, sha: null, at: null };
       if (run && b.next) b.last = b.next;
       return b.last;
     },

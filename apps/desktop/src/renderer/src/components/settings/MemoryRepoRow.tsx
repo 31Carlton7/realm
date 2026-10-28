@@ -284,10 +284,12 @@ function ClaudeMemoryRows({ profileId, head }: { profileId: string; head: string
   const brought = last.imported + last.updated > 0
     ? ` The last check brought in ${plural(last.imported, "new file", "new files")}${last.updated > 0 ? ` and updated ${plural(last.updated, "copy", "copies")}` : ""}.`
     : "";
+  // A project placed somewhere else by hand, or left out, takes its copies with it.
+  const took = last.removed > 0 ? ` It took ${plural(last.removed, "copy", "copies")} out of a space ${last.removed === 1 ? "it no longer goes" : "they no longer go"} in.` : "";
   const text = last.error !== null ? `Nothing came in on the last check: ${last.error}.`
     : last.at === null ? "Not checked yet."
-    : last.total > 0 ? `${plural(last.total, "file", "files")} of Claude's own memory ${last.total === 1 ? "is in this repo, in the folder of the space it was" : "are in this repo, each in the folder of the space it was"} kept for.${brought}`
-    : "None of this profile's spaces has memory Claude kept outside Realm.";
+    : last.total > 0 ? `${plural(last.total, "file", "files")} of Claude's own memory ${last.total === 1 ? "is in this repo, in the folder of the space it was" : "are in this repo, each in the folder of the space it was"} kept for.${brought}${took}`
+    : `None of this profile's spaces has memory Claude kept outside Realm.${took}`;
   const projects = [
     ...last.unmatched.map((p) => ({ ...p, into: "", why: p.reason })),
     ...last.chosen.map((p) => ({ ...p, into: p.spaceId ?? CLAUDE_PROJECT_LEFT_OUT, why: null })),

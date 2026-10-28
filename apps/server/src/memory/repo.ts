@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, rmdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
@@ -99,6 +99,13 @@ const realish = (p: string): string => {
   }
   return join(realpathSync(head), ...tail);
 };
+
+/** Remove `rel` and each folder above it that is left empty, up to — never including — the repo itself. */
+function pruneEmpty(repo: string, rel: string): void {
+  for (let at = rel; at !== "." && at !== ""; at = dirname(at)) {
+    try { rmdirSync(join(repo, at)); } catch { return; }
+  }
+}
 
 /** Why a synced repo is refusing saves, as the row says it. */
 const DIVERGED_REASON = "this repo and its remote have both changed since they last matched — Realm never merges memory, so saving is paused until you resolve it in Terminal";
@@ -533,13 +540,14 @@ export class MemoryRepoService {
    * clean repo, staged and committed by path. Files already as asked are left out of the commit.
    *
    * The writes may be a function of the repo's folder, called inside the lock: a read-modify-write
-   * (an index line, a merge) worked out there never overwrites a save that landed in between.
+   * (an index line, a merge) worked out there never overwrites a save that landed in between. The
+   * message may be one too, asked once the writes are known, so it can say what they do.
    */
-  async writeBatch(owner: RepoOwner, writes: Map<string, string | null> | ((repo: string) => Map<string, string | null>), message: string, author?: string): Promise<MemoryEditOutcome> {
+  async writeBatch(owner: RepoOwner, writes: Map<string, string | null> | ((repo: string) => Map<string, string | null>), message: string | (() => string), author?: string): Promise<MemoryEditOutcome> {
     return this.batch(owner, typeof writes === "function" ? writes : () => writes, message, author);
   }
 
-  private async batch(owner: RepoOwner, plan: (repo: string) => Map<string, string | null>, message: string, author?: string): Promise<MemoryEditOutcome> {
+  private async batch(owner: RepoOwner, plan: (repo: string) => Map<string, string | null>, message: string | (() => string), author?: string): Promise<MemoryEditOutcome> {
     const cfg = this.mustConfig(owner);
     const repo = cfg.path;
     const out = await this.locked(repo, async () => {
@@ -555,7 +563,7 @@ export class MemoryRepoService {
       const first = writes.keys().next().value ?? "";
       if (writes.size === 0) return { changed: false, file: first, line: null, sha: null, diff: "" };
       await this.ensureWritable(owner, repo, cfg, [...writes.keys()]);
-      const done = await this.commitFiles(repo, writes, message, author);
+      const done = await this.commitFiles(repo, writes, typeof message === "function" ? message() : message, author);
       return { changed: true, file: first, line: null, ...done };
     });
     if (out.changed) void this.queueSync(owner);
@@ -1041,6 +1049,8 @@ export class MemoryRepoService {
       if (paths.length > 0) await this.git(repo, ["reset", "-q", "--", ...paths]);
       throw e;
     }
+    // A folder its last file left goes too — git keeps no empty folders, and neither does the repo.
+    for (const [rel, content] of writes) if (content === null) pruneEmpty(repo, dirname(rel));
     const sha = (await this.git(repo, ["rev-parse", "HEAD"])).stdout.trim();
     const show = await this.git(repo, ["show", ...GIT_DIFF_FLAGS, "--format=", "HEAD"], { maxBytes: 64 * 1024 });
     return { sha, diff: short(show.stdout, DIFF_MAX) };
