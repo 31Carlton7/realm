@@ -123,6 +123,21 @@ struct APIFixtureTests {
         #expect(picture.data == Data("a picture".utf8))
     }
 
+    /// A session's screens, live first, each with its words, and a picture of one as the Mac made it.
+    @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
+    func aSessionsScreensAndAPictureOfOneDecode() throws {
+        struct Answer: Decodable { let screens: [SessionScreen] }
+        let screens = try Self.decode(Answer.self, "calls", "session.screens").screens
+        #expect(screens.map(\.kind) == [.simulator, .machine, .simulator, .machine])
+        #expect(screens.first == SessionScreen(id: "01JSIMULATOR00000000000001", kind: .simulator, name: "iPhone 17 Pro",
+                                               detail: "iOS Simulator", live: true))
+        #expect(screens.map(\.live) == [true, true, false, false])
+        let frame = try Self.decode(ScreenFrame.self, "calls", "session.screen")
+        #expect(frame.mime == "image/jpeg")
+        #expect(frame.data.starts(with: [0xFF, 0xD8]))
+        #expect(frame.width == 460 && frame.height == 1000 && frame.capturedAt > 0)
+    }
+
     @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
     func theHintEventDecodes() throws {
         let hints = try JSONSerialization.jsonObject(with: Self.part(["events", "session.hint"])) as? [Any] ?? []

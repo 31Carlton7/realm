@@ -19,6 +19,8 @@ const DETAIL_LIMIT = 2_000;
 const PLAN_LIMIT = 32_000;
 
 const clip = (s: string, n: number): string => (s.length <= n ? s : `${s.slice(0, n - 1)}…`);
+/** The end of a path, which names its file: the folders at its start are what a short line can lose. */
+const clipStart = (s: string, n: number): string => (s.length <= n ? s : `…${s.slice(s.length - n + 1)}`);
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() !== "" ? v : null);
 
 export function summarize(name: string, input: Record<string, unknown>): string {
@@ -26,7 +28,7 @@ export function summarize(name: string, input: Record<string, unknown>): string 
   const line = (s: string) => clip(s.split("\n")[0]!.trim(), 120);
   switch (name) {
     case "Bash": return line(first("command") ?? name);
-    case "Read": case "Write": case "Edit": case "MultiEdit": case "NotebookEdit": return line(first("file_path", "notebook_path", "path") ?? name);
+    case "Read": case "Write": case "Edit": case "MultiEdit": case "NotebookEdit": return clipStart((first("file_path", "notebook_path", "path") ?? name).split("\n")[0]!.trim(), 120);
     case "Grep": case "Glob": return line(first("pattern") ?? name);
     case "WebFetch": return line(first("url") ?? name);
     case "WebSearch": return line(first("query") ?? name);

@@ -69,6 +69,9 @@ export class ComputerUseHost {
        * delegate on its own queue, a `didStopWithError` path for display reconfiguration and
        * mid-stream permission revocation, filter re-creation whenever the app's window set changes,
        * and a long-lived helper process with its own lifecycle here. None of that for a first ship.
+       *
+       * Main does not hand it here in 2.6.1 (`index.ts` says why), and the helper's snapshot carries
+       * no size, so the frame it makes is 0×0.
        */
       case "machineCaptureOnce": {
         this.requireHelper();

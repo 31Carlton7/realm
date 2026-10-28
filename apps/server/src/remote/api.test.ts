@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { tempDir } from "@realm/test-utils";
@@ -7,13 +8,16 @@ import {
   type QueuedPrompt, type Run, type Schedule, type Session, type StoredSessionEvent, type TeamReviewDetail, type TeamReviewItem, type TeamReviewSummary,
   type TurnChanges, type UsageSessionRow,
 } from "@realm/contracts";
-import { HomeSchema, MobileCalls, RECENT_LIMIT, SEND_LIMITS } from "@realm/remote";
+import { HomeSchema, MobileCalls, RECENT_LIMIT, SCREEN_SIDE, SEND_LIMITS } from "@realm/remote";
 import { needsYou } from "@realm/view";
 import { ICON_MAX_BYTES, MobileApi, MobileError, needsYouInput } from "./api";
-import { channel, fakeRpc, item, profile, session, space, type Lists } from "./api.test-fakes";
+import {
+  channel, fakeRpc, item, jpegHeader, machine, machineState, pngHeader, profile, session, simulator, simulatorState, space, type Lists,
+} from "./api.test-fakes";
 import { DIFF_PAGE_BYTES } from "./changes";
 import { PREVIEW_MAX_BYTES, TEXT_HEAD_BYTES, type Downscale } from "./preview";
 import { RpcCallError, type RpcPort } from "./rpc-port";
+import { CAPTURE_LEFTOVER, clearCaptureLeftovers, FRAME_MAX_BYTES, SCREEN_DEADLINE_MS } from "./screens";
 
 /**
  * mobile.v1's `home.get` against a fake of the desktop's RPC. Needs you is `@realm/view`'s rule; what
@@ -1300,5 +1304,275 @@ describe("Scheduled", () => {
     expect(asked.filter(([m]) => m === "schedules.runNow")).toEqual([["schedules.runNow", { id: "later" }]]);
     // A task whose last run is still going says why it will not start another, in the Mac's words.
     expect(await attempt(api(), rpc, "schedules.runNow", { id: "busy" })).toMatchObject({ ok: false, code: "FORBIDDEN", message: expect.stringContaining("still going") });
+  });
+});
+
+describe("session.screens and session.screen", () => {
+  /** Space s1 holds a phone, an emulator, a renamed simulator, this Mac's TextEdit, a Mac at an address
+   *  connected, one still connecting and a guest that is off; s2 holds one simulator of its own. */
+  const sims = [
+    simulator("sim-pro", "s1", "iPhone 17 Pro"),
+    simulator("sim-pixel", "s1", "Pixel 9", { platform: "android" }),
+    simulator("sim-phone", "s1", "Carlton's iPhone", { physical: true }),
+    simulator("sim-renamed", "s1", "Simulator"),
+    simulator("sim-other", "s2", "iPad Air"),
+  ];
+  const simStates = [simulatorState("sim-pro", "running"), simulatorState("sim-pixel", "off"), simulatorState("sim-phone", "running"),
+    simulatorState("sim-renamed", "serving"), simulatorState("sim-other", "running")];
+  const machines = [machine("m-textedit", "s1", "TextEdit", "mac"), machine("m-mini", "s1", "Mac mini", "vnc"), machine("m-studio", "s1", "Studio", "vnc"),
+    machine("m-debian", "s1", "Debian", "qemu")];
+  const machineStates = [machineState("m-textedit", "running"), machineState("m-mini", "running"), machineState("m-studio", "booting"), machineState("m-debian", "off")];
+  const items = [item("sim-renamed", "s1", "Checkout flow", { kind: "simulator" }), item("m-textedit", "s1", "TextEdit", { kind: "machine" })];
+
+  function rig(o: { capture?: (p: { simulatorId: string }) => unknown; machineCapture?: (p: { machineId: string }) => unknown } = {}) {
+    return recorded({ sessions: [session("in-s1", "s1"), session("in-s2", "s2")], items: [] }, {
+      "simulators.list": ((p: { spaceId: string }) => ({ simulators: sims.filter((x) => x.spaceId === p.spaceId), states: simStates })) as never,
+      "machines.list": ((p: { spaceId: string }) => ({ machines: machines.filter((x) => x.spaceId === p.spaceId), states: machineStates })) as never,
+      "items.list": ((p: { spaceId: string }) => items.filter((it) => it.spaceId === p.spaceId)) as never,
+      "simulators.capture": (o.capture ?? (() => ({ data: pngHeader(1206, 2622).toString("base64"), mimeType: "image/png", width: 1206, height: 2622 }))) as never,
+      // A machine's frame: a JPEG, at a size the machine reports that is not the picture's.
+      "machines.capture": (o.machineCapture ?? (() => ({ data: jpegHeader(1600, 1000).toString("base64"), mimeType: "image/jpeg", width: 800, height: 500 }))) as never,
+    });
+  }
+  /** A downscaler that records what it was asked, and what it found at the path it was given, then
+   *  answers with a JPEG the size `sips -Z` would make of a 1206 by 2622 screen. */
+  function shrinking(answer?: (side: number) => Buffer) {
+    const asked: { path: string; side: number; quality: number; read: Buffer }[] = [];
+    const downscale: Downscale = async (path, side, quality) => {
+      asked.push({ path, side, quality, read: readFileSync(path) });
+      return answer?.(side) ?? jpegHeader(Math.round(side * 1206 / 2622), side);
+    };
+    return { asked, downscale };
+  }
+  const captures = (asked: [string, unknown][]) => asked.filter(([m]) => m.endsWith(".capture"));
+
+  it("lists every simulator and machine in the session's space but a Mac app, live ones first, then by name, each said in words", async () => {
+    const got = await attempt(api(), rig().rpc, "session.screens", { id: "in-s1" });
+    if (!got.ok) throw new Error(got.message);
+    const { screens } = MobileCalls["session.screens"].result.parse(got.result);
+    // This Mac's TextEdit is started, but a phone is not shown a Mac app in 2.6.1 (`phoneMayWatch`).
+    // THE MUTANT: list every machine in the space.
+    expect(screens.map((s) => s.id)).not.toContain("m-textedit");
+    expect(screens).toEqual([
+      { id: "sim-phone", kind: "simulator", name: "Carlton's iPhone", detail: "Your iPhone", live: true },
+      { id: "sim-pro", kind: "simulator", name: "iPhone 17 Pro", detail: "iOS Simulator", live: true },
+      { id: "m-mini", kind: "machine", name: "Mac mini", detail: "Remote screen", live: true },
+      // Renamed in the sidebar: the pane is called what its row is called. Serving is not yet a picture.
+      { id: "sim-renamed", kind: "simulator", name: "Checkout flow", detail: "iOS Simulator", live: false },
+      { id: "m-debian", kind: "machine", name: "Debian", detail: "Virtual machine", live: false },
+      { id: "sim-pixel", kind: "simulator", name: "Pixel 9", detail: "Android emulator", live: false },
+      // Still connecting: nothing has arrived from it yet.
+      { id: "m-studio", kind: "machine", name: "Studio", detail: "Remote screen", live: false },
+    ]);
+    // Another space's session sees that space's, and a space with none answers none.
+    expect(await attempt(api(), rig().rpc, "session.screens", { id: "in-s2" })).toEqual({ ok: true, result: { screens: [
+      { id: "sim-other", kind: "simulator", name: "iPad Air", detail: "iOS Simulator", live: true },
+    ] } });
+  });
+
+  it("pictures a live screen as a JPEG no longer than the side asked for, from a capture kept outside the space's folder and gone after", async () => {
+    const { rpc, asked } = rig();
+    const small = shrinking();
+    const before = Date.now();
+    const got = await attempt(api(small.downscale), rpc, "session.screen", { id: "in-s1", screenId: "sim-pro", kind: "simulator", maxSide: 1000 });
+    expect(got).toEqual({ ok: true, result: { mime: "image/jpeg", data: jpegHeader(460, 1000).toString("base64"), width: 460, height: 1000, capturedAt: expect.any(Number) } });
+    expect(MobileCalls["session.screen"].result.safeParse((got as { result: unknown }).result).success).toBe(true);
+    expect((got as { result: { capturedAt: number } }).result.capturedAt).toBeGreaterThanOrEqual(before);
+    expect(captures(asked)).toEqual([["simulators.capture", { simulatorId: "sim-pro" }]]);
+    // The capture itself, written where nobody looks for `sips` to read, at the quality a frame is made at.
+    expect(small.asked.map(({ side, quality }) => [side, quality])).toEqual([[1000, 65]]);
+    const { path, read } = small.asked[0]!;
+    expect(read.equals(pngHeader(1206, 2622))).toBe(true);
+    expect(path.startsWith(tmpdir())).toBe(true);
+    expect(path.endsWith(".png")).toBe(true);
+    // THE MUTANT: leave the capture behind. A frame every second or two would fill the folder.
+    expect(existsSync(dirname(path))).toBe(false);
+    // …and one a server left there when it stopped part way is one its next start clears.
+    expect(CAPTURE_LEFTOVER.test(basename(dirname(path)))).toBe(true);
+
+    // A machine's frame may be a JPEG, read as one; its size is the frame's, never the one the machine reported.
+    const mac = shrinking(() => jpegHeader(1000, 625));
+    expect(await attempt(api(mac.downscale), rig().rpc, "session.screen", { id: "in-s1", screenId: "m-mini", kind: "machine" }))
+      .toMatchObject({ ok: true, result: { width: 1000, height: 625 } });
+    expect(mac.asked[0]!.path.endsWith(".jpg")).toBe(true);
+  });
+
+  it("brings the side asked for inside SCREEN_SIDE, and makes a heavy frame again, smaller, at most twice", async () => {
+    const sides = async (maxSide?: number) => {
+      const small = shrinking();
+      await attempt(api(small.downscale), rig().rpc, "session.screen", { id: "in-s1", screenId: "sim-pro", kind: "simulator", ...(maxSide === undefined ? {} : { maxSide }) });
+      return small.asked.map((a) => a.side);
+    };
+    expect(await sides()).toEqual([SCREEN_SIDE.default]);
+    expect(await sides(100)).toEqual([SCREEN_SIDE.min]);
+    expect(await sides(5_000)).toEqual([SCREEN_SIDE.max]);
+    expect(await sides(-1)).toEqual([SCREEN_SIDE.min]);
+    expect(await sides(777.4)).toEqual([777]);
+
+    const heavy = shrinking((side) => side === 1000 ? Buffer.concat([jpegHeader(460, 1000), Buffer.alloc(FRAME_MAX_BYTES)]) : jpegHeader(322, 700));
+    expect(await attempt(api(heavy.downscale), rig().rpc, "session.screen", { id: "in-s1", screenId: "sim-pro", kind: "simulator" }))
+      .toMatchObject({ ok: true, result: { width: 322, height: 700 } });
+    expect(heavy.asked.map(({ side, quality }) => [side, quality])).toEqual([[1000, 65], [700, 50]]);
+
+    // Heavy still at seven tenths: once more at half, plainer.
+    const heavier = shrinking((side) => side > 500 ? Buffer.concat([jpegHeader(Math.round(side * 0.46), side), Buffer.alloc(FRAME_MAX_BYTES)]) : jpegHeader(230, 500));
+    expect(await attempt(api(heavier.downscale), rig().rpc, "session.screen", { id: "in-s1", screenId: "sim-pro", kind: "simulator" }))
+      .toMatchObject({ ok: true, result: { width: 230, height: 500 } });
+    expect(heavier.asked.map(({ side, quality }) => [side, quality])).toEqual([[1000, 65], [700, 50], [500, 40]]);
+    // Heavier than FRAME_MAX_BYTES even then, it is not sent. THE MUTANT: send the last encode whatever it
+    // weighs — "bounded on every side" would then be bounded on all but one.
+    const noisy = shrinking((side) => Buffer.concat([jpegHeader(Math.round(side * 0.46), side), Buffer.alloc(FRAME_MAX_BYTES)]));
+    expect(await attempt(api(noisy.downscale), rig().rpc, "session.screen", { id: "in-s1", screenId: "sim-pro", kind: "simulator" }))
+      .toEqual({ ok: false, code: "INTERNAL", message: "That screen is too detailed to send to a phone, even made small." });
+    expect(noisy.asked).toHaveLength(3);
+  });
+
+  it("refuses a screen of another space as one it does not have, and one that is not live in words, capturing neither", async () => {
+    const { rpc, asked } = rig();
+    const small = shrinking();
+    const a = api(small.downscale);
+    // THE MUTANT: capture by the id the phone names, whatever space it is in.
+    expect(await attempt(a, rpc, "session.screen", { id: "in-s1", screenId: "sim-other", kind: "simulator" })).toMatchObject({ ok: false, code: "NOT_FOUND" });
+    expect(await attempt(a, rpc, "session.screen", { id: "in-s1", screenId: "m-textedit", kind: "simulator" })).toMatchObject({ ok: false, code: "NOT_FOUND" });
+    expect(await attempt(a, rpc, "session.screen", { id: "in-s1", screenId: "sim-pixel", kind: "simulator" })).toEqual({ ok: false, code: "FORBIDDEN", message: "Pixel 9 is not running on the Mac." });
+    expect(await attempt(a, rpc, "session.screen", { id: "in-s1", screenId: "m-studio", kind: "machine" })).toMatchObject({ ok: false, code: "FORBIDDEN" });
+    // A Mac app, though started, is refused as one that is not live: each frame of one would be a whole
+    // snapshot on the helper an agent acts through. THE MUTANT: picture it because it is running.
+    expect(await attempt(a, rpc, "session.screen", { id: "in-s1", screenId: "m-textedit", kind: "machine" }))
+      .toEqual({ ok: false, code: "FORBIDDEN", message: "TextEdit is an app on the Mac, and Realm does not show a Mac app's screen on a phone." });
+    // …and in another space's session it is not found, as one that never was.
+    expect(await attempt(a, rpc, "session.screen", { id: "in-s2", screenId: "m-textedit", kind: "machine" })).toMatchObject({ ok: false, code: "NOT_FOUND" });
+    expect(captures(asked)).toEqual([]);
+    expect(small.asked).toEqual([]);
+  });
+
+  it("says why a live screen could not be captured just now, in the Mac's words, as a failure worth asking again", async () => {
+    // THE MUTANT: FORBIDDEN, as a screen that is not live is refused — a phone takes that as gone for
+    // good, and stops watching a device whose runner missed one answer.
+    const stalled = rig({ capture: () => { throw new RpcCallError("UNAVAILABLE", "the device's runner is not answering"); } });
+    expect(await attempt(api(shrinking().downscale), stalled.rpc, "session.screen", { id: "in-s1", screenId: "sim-phone", kind: "simulator" }))
+      .toEqual({ ok: false, code: "INTERNAL", message: "the device's runner is not answering" });
+    // Not even the Mac's NOT_FOUND for the capture: the screen is listed and live, so it is a capture that failed.
+    const driverless = rig({ machineCapture: () => { throw new RpcCallError("NOT_FOUND", "that machine has nothing to capture"); } });
+    expect(await attempt(api(shrinking().downscale), driverless.rpc, "session.screen", { id: "in-s1", screenId: "m-mini", kind: "machine" }))
+      .toEqual({ ok: false, code: "INTERNAL", message: "that machine has nothing to capture" });
+    const empty = rig({ machineCapture: () => ({ data: null, mimeType: "image/jpeg", width: 0, height: 0 }) });
+    expect(await attempt(api(shrinking().downscale), empty.rpc, "session.screen", { id: "in-s1", screenId: "m-mini", kind: "machine" }))
+      .toEqual({ ok: false, code: "INTERNAL", message: "Mac mini had nothing on screen to show." });
+    // Bytes that are no picture are not handed to `sips`, and a frame that comes back no JPEG is not sent.
+    const garbled = rig({ capture: () => ({ data: Buffer.from("not a picture").toString("base64"), mimeType: "image/png", width: 0, height: 0 }) });
+    const untouched = shrinking();
+    expect(await attempt(api(untouched.downscale), garbled.rpc, "session.screen", { id: "in-s1", screenId: "sim-pro", kind: "simulator" })).toMatchObject({ ok: false, code: "INTERNAL" });
+    expect(untouched.asked).toEqual([]);
+    expect(await attempt(api(shrinking(() => Buffer.from("jpeg")).downscale), rig().rpc, "session.screen", { id: "in-s1", screenId: "sim-pro", kind: "simulator" }))
+      .toMatchObject({ ok: false, code: "INTERNAL" });
+  });
+
+  it("takes one capture of a screen at a time, for every call that comes while it is taken: the viewer's, the session card's, another phone's", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const png = { data: pngHeader(1206, 2622).toString("base64"), mimeType: "image/png", width: 1206, height: 2622 };
+    const phone = rig({ capture: async () => { await held; return png; } });
+    const another = rig({ capture: async () => { await held; return png; } });
+    const small = shrinking();
+    const a = api(small.downscale);
+    const ask = (rpc: RpcPort, maxSide: number) => attempt(a, rpc, "session.screen", { id: "in-s1", screenId: "sim-pro", kind: "simulator", maxSide });
+    const asking = [ask(phone.rpc, 1000), ask(phone.rpc, 320), ask(another.rpc, 1000)];
+    // Every call has come to the capture before it answers.
+    await new Promise((resolve) => setImmediate(resolve));
+    release();
+    const frames = await Promise.all(asking);
+    // THE MUTANT: no guard — the gateway answers a phone's calls as they come, so each took a capture of its own.
+    expect([...captures(phone.asked), ...captures(another.asked)]).toEqual([["simulators.capture", { simulatorId: "sim-pro" }]]);
+    // Each made at the side it asked for, from the one capture, taken at one moment.
+    expect(frames.map((f) => f.ok && (f.result as { height: number }).height)).toEqual([1000, 320, 1000]);
+    expect(new Set(frames.map((f) => (f as { result: { capturedAt: number } }).result.capturedAt)).size).toBe(1);
+    // Once it is taken the screen is let go, and the next call takes a new one.
+    expect(await ask(another.rpc, 1000)).toMatchObject({ ok: true });
+    expect(captures(another.asked)).toHaveLength(1);
+  });
+
+  it("gives up on a capture after SCREEN_DEADLINE_MS, inside a phone's 15 s, as a failure worth asking again, and lets the screen go", async () => {
+    vi.useFakeTimers();
+    try {
+      let taken = 0;
+      const png = { data: pngHeader(1206, 2622).toString("base64"), mimeType: "image/png", width: 1206, height: 2622 };
+      // A device whose first capture never answers.
+      const { rpc, asked } = rig({ capture: () => (taken++ === 0 ? new Promise(() => {}) : png) });
+      const a = api(shrinking().downscale);
+      const ask = () => attempt(a, rpc, "session.screen", { id: "in-s1", screenId: "sim-pro", kind: "simulator" });
+      let answered = false;
+      const first = ask().finally(() => { answered = true; });
+      const joined = ask();
+      await vi.advanceTimersByTimeAsync(SCREEN_DEADLINE_MS - 1);
+      expect(answered).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await first).toEqual({ ok: false, code: "INTERNAL", message: "The Mac could not take a picture of iPhone 17 Pro in time." });
+      expect(await joined).toEqual({ ok: false, code: "INTERNAL", message: "The Mac could not take a picture of iPhone 17 Pro in time." });
+      expect(SCREEN_DEADLINE_MS).toBeLessThan(15_000);
+      // THE MUTANT: hold the screen until its capture answers — one that never does would hold it for good,
+      // and every call after would wait on it until the phone gave up.
+      expect(await ask()).toMatchObject({ ok: true, result: { height: 1000 } });
+      expect(captures(asked)).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("answers within SCREEN_DEADLINE_MS though the capture came and its frame did not", async () => {
+    vi.useFakeTimers();
+    try {
+      let release!: () => void;
+      const stuck = new Promise<void>((resolve) => { release = resolve; });
+      const written: string[] = [];
+      // `sips` stuck on the capture, as one under load can be for half a minute.
+      const downscale: Downscale = async (path, side) => { written.push(path); await stuck; return jpegHeader(Math.round(side * 1206 / 2622), side); };
+      const asking = attempt(api(downscale), rig().rpc, "session.screen", { id: "in-s1", screenId: "sim-pro", kind: "simulator" });
+      await vi.advanceTimersByTimeAsync(SCREEN_DEADLINE_MS);
+      // THE MUTANT: a deadline on the capture alone — the phone would wait out its own 15 s instead.
+      expect(await asking).toEqual({ ok: false, code: "INTERNAL", message: "The Mac could not take a picture of iPhone 17 Pro in time." });
+      // The capture it was made from is still removed, once `sips` lets go of it.
+      release();
+      await vi.waitFor(() => expect(existsSync(dirname(written[0]!))).toBe(false));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("what a picture of a screen leaves in the temporary folder", () => {
+  it("is cleared as the server starts, once it is older than any still being made, and nothing else is", async () => {
+    const dir = tempDir("realm-tmp-");
+    const now = Date.now();
+    const HOUR = 3_600_000;
+    const left = (name: string, age: number, folder = false): string => {
+      const path = join(dir, name);
+      if (folder) { mkdirSync(path); writeFileSync(join(path, "capture.png"), "a picture"); } else writeFileSync(path, "a picture");
+      utimesSync(path, new Date(now - age), new Date(now - age));
+      return path;
+    };
+    const stale = [
+      // A simulator's PNG as 2.6.0 named it, and as it is named now.
+      left("realm-simulator-01JSIMULATOR00000000000001-1790000000000.png", HOUR),
+      left("realm-simulator-01JSIMULATOR00000000000001-6f1c2a4e-9b0d-4f3a-8e2b-1c5d7a9e3f60.png", HOUR),
+      left("realm-screen-w22hRq", HOUR, true),
+      left("realm-preview-Ab3dE9", HOUR, true),
+    ];
+    const kept = [
+      // One being made just now, by a server running beside this one.
+      left("realm-screen-q9ZrT2", 30_000, true),
+      // A live check's pictures, kept on purpose, and what is not a picture's at all.
+      left("realm-simulator-agent-tools-tap.png", HOUR),
+      left("realm-simulator-pick", HOUR, true),
+      left("realm-checkpoint-Xy12Ab", HOUR, true),
+      left("serve-sim", HOUR, true),
+    ];
+    await clearCaptureLeftovers(dir, now);
+    // THE MUTANT: clear nothing — a frame cut off by a crash is up to three full-size files that stay for good.
+    expect(stale.filter((path) => existsSync(path))).toEqual([]);
+    // THE MUTANT: clear by the prefix alone, or whatever its age.
+    expect(kept.filter((path) => !existsSync(path))).toEqual([]);
+    // As the real server starts, and only there: no test's server clears the Mac's own temporary folder.
+    expect(readFileSync(join(__dirname, "../main.ts"), "utf8")).toContain("void clearCaptureLeftovers();");
   });
 });

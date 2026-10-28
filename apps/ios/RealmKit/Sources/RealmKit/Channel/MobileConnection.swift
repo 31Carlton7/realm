@@ -531,6 +531,19 @@ public struct MobileAPI: Sendable {
     }
 
     /// A space's own picture, for a space whose icon is one.
+    /// The simulators and machines open in the session's space, live ones first.
+    public func screens(id: String) async throws -> [SessionScreen] {
+        struct Answer: Decodable, Sendable { let screens: [SessionScreen] }
+        return try await connection.call("session.screens", params: SessionID(id: id), as: Answer.self).screens
+    }
+
+    /// One picture of a screen in the session's space, no larger than `maxSide` on its longer side.
+    public func screen(id: String, screen: SessionScreen, maxSide: Int) async throws -> ScreenFrame {
+        struct Params: Encodable, Sendable { let id: String; let screenId: String; let kind: SessionScreen.Kind; let maxSide: Int }
+        return try await connection.call("session.screen", params: Params(id: id, screenId: screen.id, kind: screen.kind, maxSide: maxSide),
+                                         as: ScreenFrame.self)
+    }
+
     public func spaceIcon(id: String) async throws -> SpacePicture {
         try await connection.call("space.icon", params: SessionID(id: id), as: SpacePicture.self)
     }

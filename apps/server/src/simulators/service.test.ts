@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { tempDir } from "@realm/test-utils";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { openDatabase, type Db } from "../db/database";
@@ -8,6 +8,7 @@ import { ItemsStore } from "../store/items";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
 import { SimulatorsStore } from "../store/simulators";
+import { CAPTURE_LEFTOVER } from "../remote/screens";
 import { SimulatorService, toolchainAvailable, usedElsewhere } from "./service";
 import { SIMULATOR_IDLE_SHUTDOWN_ERROR, SIMULATOR_IDLE_SHUTDOWN_KEY } from "@realm/contracts";
 import type { Simctl } from "./simctl";
@@ -397,6 +398,24 @@ describe("the agent's screenshot", () => {
     expect(existsSync(join(folder, "simulator"))).toBe(false);
     // THE MUTANT: drop the unlink. A temp file per look is the same mess, one folder over.
     expect(existsSync(seen[0]!)).toBe(false);
+  });
+
+  it("names each capture's file for that call alone: two in the same millisecond never share one", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_790_000_000_000);
+    const seen: string[] = [];
+    const png = Buffer.from("the same device, twice");
+    const { service, spaceId } = bring({ simctl: writing(png, seen) });
+    const { simulatorId } = service.create({ spaceId, name: "Simulator", udid: "UDID-1" });
+    // An agent's look and a phone's frame of one device, at once.
+    const got = await Promise.all([service.capture(simulatorId), service.capture(simulatorId)]);
+    expect(got.every((b) => b.equals(png))).toBe(true);
+    // THE MUTANT: name it by the clock alone, as before — the second writes over the first's file, and
+    // the first's unlink can take it from under the second before it is read.
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).not.toBe(seen[1]);
+    expect(seen.filter((path) => existsSync(path))).toEqual([]);
+    // One a server left there when it stopped part way is one its next start clears.
+    expect(seen.filter((path) => !CAPTURE_LEFTOVER.test(basename(path)))).toEqual([]);
   });
 
   it("a failed capture says what the command said, and still leaves nothing behind", async () => {

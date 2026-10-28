@@ -808,6 +808,9 @@ export const Methods = {
   /** A full-resolution PNG in the space's `simulator/` folder. The path is relative to the space, so
    *  the caller can hand it straight to `documents.openPath`. */
   "simulators.screenshot": { params: z.object({ simulatorId: IdSchema }), result: z.object({ path: z.string(), absolute: z.string() }) },
+  /** The screen as it is now: a PNG at the device's own size, base64, kept nowhere — the frame a phone
+   *  watching the pane is sent a smaller copy of (`session.screen`). `machines.capture`'s sibling. */
+  "simulators.capture": { params: z.object({ simulatorId: IdSchema }), result: z.object({ data: z.string(), mimeType: z.string(), width: z.number(), height: z.number() }) },
   /** This Mac's cameras, for the `webcam` feed. */
   "simulators.webcams": { params: z.object({}), result: z.object({ webcams: z.array(z.string()) }) },
   /** What the device has lately been told to do, by anyone. */

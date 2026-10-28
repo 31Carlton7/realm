@@ -2284,7 +2284,12 @@ app.whenReady().then(async () => {
         if (op === "teamPolicyVerify") return Promise.resolve(policyPresses.verify((params as { items?: unknown }).items));
         if (op === "teamPolicyBump") return Promise.resolve(policyPresses.bump((params as { scope?: unknown }).scope));
         // Computer-use ops share this socket but not the browser executor: they need no window and
-        // no view, so they are answered before the window check below.
+        // no view, so they are answered before the window check below. A `mac` machine's frame
+        // (`machineCaptureOnce`) is held back in 2.6.1 and goes on to the browser host, which refuses
+        // it, as in 2.6.0: each frame is a whole accessibility snapshot on the helper, which keeps one
+        // per app, so a pane or a phone watching an app would leave an agent's `computer_snapshot` of
+        // it stale before its `computer_act`; and the path is unfinished — the frame has no size, and
+        // `vm_act`'s points take no account of where the app's window is.
         if (op.startsWith("computer")) return computerHost.handleOp(op, params);
         // The resource report's question about the app's own processes: no window needed either.
         if (op === "appMetrics") return Promise.resolve(appProcesses());

@@ -199,6 +199,11 @@ describe("the phone's rows", () => {
 
   it("names a tool call by what it touches", () => {
     expect(summarize("Read", { file_path: "/a/b.ts" })).toBe("/a/b.ts");
+    // A long path loses its folders, never its file's name, which is what the phone's line shows.
+    const deep = `/private/tmp/${"nested/".repeat(20)}tasks/b0by9i0ez.output`;
+    expect(summarize("Read", { file_path: deep })).toMatch(/^….*\/tasks\/b0by9i0ez\.output$/);
+    expect(summarize("Read", { file_path: deep })).toHaveLength(120);
+    expect(summarize("Bash", { command: `echo ${"x".repeat(200)}` })).toMatch(/^echo x+…$/);
     expect(summarize("WebSearch", { query: "noise protocol" })).toBe("noise protocol");
     expect(summarize("mcp__x__y", { url: "https://x" })).toBe("https://x");
     expect(summarize("Mystery", {})).toBe("Mystery");

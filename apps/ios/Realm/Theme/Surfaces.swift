@@ -39,6 +39,55 @@ enum Fill {
     static let bubble = Color.dynamic(light: "Hover2", dark: "Hover")
     /// A well inside a card, a step below it.
     static let well = Color.dynamic(light: "Page", dark: "Canvas")
+    /// A tool call's pill in the transcript, Manus's grey: the same step off the ground as what the
+    /// person sent, since both are things set down in the reading rather than the reading itself.
+    static let pill = bubble
+    /// The one action, as Manus draws it: ink, not the accent — black on the light face, white on the
+    /// dark — for Send, Stop and a filled choice.
+    static let primary = Palette.ink
+    /// A word or a glyph on `primary`: the paper it is printed on.
+    static let onPrimary = Color.dynamic(light: "Surface", dark: "Page")
+}
+
+/// Manus's primary button: a capsule of ink with the paper's word on it, a shade lighter while pressed.
+struct InkButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        CapsuleLabel(configuration: configuration, fill: Fill.primary, ink: Fill.onPrimary)
+    }
+}
+
+/// Its quieter neighbour, as Manus sets "Not now" beside "Approve": the pill's grey, the words in ink.
+struct GreyButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        CapsuleLabel(configuration: configuration, fill: Fill.pill, ink: Palette.ink)
+    }
+}
+
+private struct CapsuleLabel: View {
+    let configuration: ButtonStyleConfiguration
+    let fill: Color
+    let ink: Color
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        configuration.label
+            .font(.body.weight(.semibold))
+            .foregroundStyle(ink)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 8)
+            .frame(minHeight: 48)
+            .background(fill, in: Capsule())
+            .opacity(configuration.isPressed ? 0.8 : isEnabled ? 1 : 0.45)
+            .contentShape(Capsule())
+    }
+}
+
+extension View {
+    /// The lift a floating card wears over the transcript — the composer, the current step — as Manus
+    /// floats its own: a soft shadow and no edge.
+    func floatingLift() -> some View {
+        shadow(color: .black.opacity(0.08), radius: 14, y: 4)
+    }
 }
 
 extension Color {
@@ -127,6 +176,26 @@ extension View {
     /// At least 44 points to touch, whatever the glyph's size.
     func touchTarget() -> some View {
         frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+    }
+
+    /// Never wider than the width it is offered. A row that cannot fit runs past its own edge instead
+    /// of widening the column it stands in, which would shift every row beside it off the screen.
+    func keepsToOfferedWidth() -> some View {
+        OfferedWidth { self }
+    }
+}
+
+/// Lays its content out in the width offered and reports no more than that width.
+private struct OfferedWidth: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let content = subviews.first else { return .zero }
+        let size = content.sizeThatFits(proposal)
+        guard let width = proposal.width else { return size }
+        return CGSize(width: min(size.width, width), height: size.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
     }
 }
 

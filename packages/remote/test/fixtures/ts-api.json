@@ -3084,6 +3084,45 @@
         }
       }
     },
+    "session.screens": {
+      "screens": [
+        {
+          "id": "01JSIMULATOR00000000000001",
+          "kind": "simulator",
+          "name": "iPhone 17 Pro",
+          "detail": "iOS Simulator",
+          "live": true
+        },
+        {
+          "id": "01JMACHINE0000000000000003",
+          "kind": "machine",
+          "name": "Studio",
+          "detail": "Remote screen",
+          "live": true
+        },
+        {
+          "id": "01JSIMULATOR00000000000002",
+          "kind": "simulator",
+          "name": "Carlton's iPhone",
+          "detail": "Your iPhone",
+          "live": false
+        },
+        {
+          "id": "01JMACHINE0000000000000002",
+          "kind": "machine",
+          "name": "Ubuntu",
+          "detail": "Virtual machine",
+          "live": false
+        }
+      ]
+    },
+    "session.screen": {
+      "mime": "image/jpeg",
+      "data": "/9j/wAARCAPoAcwDASIAAhEBAxEB/9k=",
+      "width": 460,
+      "height": 1000,
+      "capturedAt": 1790000500000
+    },
     "session.update": {
       "session": {
         "id": "01JREALM000000000000000006",

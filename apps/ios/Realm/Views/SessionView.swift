@@ -41,17 +41,23 @@ struct SessionView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 if drawn.count < items.count, let first = drawn.first {
+                    // A quiet line, as ChatGPT says its earlier messages: the reading below it is the point.
                     Button {
                         shown += Self.window
                         // The reader stays with the row they were reading; the earlier ones open above it.
                         position.scrollTo(id: first.id, anchor: .top)
                     } label: {
-                        Label("Show earlier messages", systemImage: "arrow.up")
-                            .font(.footnote.weight(.medium))
+                        HStack(spacing: 6) {
+                            Text("Earlier messages")
+                            Image(systemName: "chevron.up")
+                                .font(.caption.weight(.semibold))
+                        }
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(Palette.ink2)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.capsule)
-                    .frame(maxWidth: .infinity)
+                    .buttonStyle(.plain)
                 } else if transcript.hasMore {
                     Label("Earlier messages are on your Mac", systemImage: "laptopcomputer")
                         .font(.footnote)
@@ -61,17 +67,26 @@ struct SessionView: View {
                 if transcript.rows.isEmpty && outgoing.isEmpty {
                     EmptyTranscript(isLoaded: transcript.session != nil)
                 }
+                let replies = TranscriptLayout.replyStarts(Array(drawn))
                 ForEach(drawn) { item in
-                    TranscriptItemView(item: item, sessionId: sessionId)
-                        .freshEntrance(born: item.firstKey.flatMap { model.rowBirths[$0] })
-                        .id(item.id)
+                    VStack(alignment: .leading, spacing: 10) {
+                        if replies.contains(item.id), let row {
+                            SpeakerLabel(session: row)
+                        }
+                        TranscriptItemView(item: item, sessionId: sessionId)
+                    }
+                    .keepsToOfferedWidth()
+                    .freshEntrance(born: item.firstKey.flatMap { model.rowBirths[$0] })
+                    .id(item.id)
                 }
-                // Thinking is said at the foot; the turn's work in general is the pill's to say.
+                // Thinking is said where the next words will come, as Manus says it; what the turn is
+                // doing otherwise, and for how long, is the current step's card over the composer.
                 if transcript.isLive, status == .running, LiveActivity.of(transcript.rows) == .thinking {
                     LiveLine(word: "Thinking")
                 }
                 ForEach(outgoing) { item in
                     OutgoingMessageView(item: item)
+                        .keepsToOfferedWidth()
                         .id(item.id.uuidString)
                 }
             }
@@ -144,6 +159,10 @@ struct SessionView: View {
             }
         }
         .task(id: model.channelGeneration) { await model.open(sessionId) }
+        // A turn is what opens a simulator or a machine, so the bar asks again as one starts and ends.
+        .task(id: ScreensAsked(generation: model.channelGeneration, connected: model.isConnected, status: status)) {
+            await model.loadScreens(sessionId)
+        }
         .onDisappear {
             Task { await model.close(sessionId) }
         }
@@ -168,6 +187,13 @@ struct SessionView: View {
         let queued = outbox.inQueue(transcript.queued ?? [], for: sessionId)
         return outbox.items(for: sessionId).filter { $0.isMessage && queued[$0.id] == nil }
     }
+}
+
+/// When the bar asks the Mac again what the session's space has open to watch.
+private struct ScreensAsked: Equatable {
+    let generation: Int
+    let connected: Bool
+    let status: SessionStatus?
 }
 
 /// Where a transcript stands in its scroll view, as one value, so a change can be told apart from the
@@ -206,8 +232,7 @@ extension EnvironmentValues {
 }
 
 /// What a running turn is doing where no row on screen says so already: a tool that runs and text
-/// that streams say it themselves. Thinking gets a line at the foot; anything else is the pill's
-/// "Working" to say.
+/// that streams say it themselves. Thinking is the foot's live line to say; working, the current step's.
 enum LiveActivity: Equatable {
     case thinking, working
 
@@ -223,11 +248,11 @@ enum LiveActivity: Equatable {
     }
 }
 
-/// The glass pill at the top of the session's foot: the turn's clock while it works — only from a
-/// start this phone saw — or the link's trouble, with a press to try again, and beside it the way
-/// back to the newest row, which slides out of the same glass.
+/// The glass at the top of the session's foot: the link's trouble in the middle, with a press to try
+/// again, and the way back to the newest row at the trailing edge, as Manus keeps its own. A turn's
+/// work is not its to say: that is the current step's card, so nothing floats over the reading while
+/// the Mac is there.
 private struct SessionPill: View {
-    let sessionId: String
     let showsLatest: Bool
     let toLatest: () -> Void
     @Environment(AppModel.self) private var model
@@ -238,10 +263,8 @@ private struct SessionPill: View {
     var body: some View {
         let shown = model.shownLinkStatus
         let shownLink: LinkStatus.Kind? = shown.isConnected ? nil : shown.kind
-        let transcript = model.store.transcript(sessionId)
-        let working = transcript.isLive && transcript.status == .running
         GlassEffectContainer(spacing: 10) {
-            HStack(spacing: 10) {
+            ZStack(alignment: .trailing) {
                 if let away = shownLink {
                     Button {
                         Task {
@@ -274,28 +297,9 @@ private struct SessionPill: View {
                     .glassEffectID("pill", in: glass)
                     .disabled(trying || away == .connecting)
                     .accessibilityHint("Tries to reach your Mac again")
-                } else if working {
-                    HStack(spacing: 7) {
-                        Image(systemName: "progress.indicator")
-                            .foregroundStyle(Palette.accentInk)
-                            .restingPulse(when: true)
-                        if let since = model.workingSince[sessionId] {
-                            TimelineView(.periodic(from: since, by: 1)) { context in
-                                Text("Working \(PillWords.elapsed(context.date.timeIntervalSince(since)))")
-                                    .monospacedDigit()
-                                    .accessibilityLabel("Working, \(PillWords.elapsed(context.date.timeIntervalSince(since), spoken: true))")
-                            }
-                        } else {
-                            Text("Working")
-                        }
-                    }
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(Palette.ink)
-                    .padding(.horizontal, 14)
-                    .frame(height: 40)
-                    .glassEffect(.regular, in: Capsule())
-                    .glassEffectID("pill", in: glass)
-                    .accessibilityElement(children: .combine)
+                    .frame(maxWidth: .infinity)
+                    // Clear of the way to the newest row beside it.
+                    .padding(.horizontal, 56)
                 }
                 if showsLatest {
                     Button(action: toLatest) {
@@ -310,12 +314,13 @@ private struct SessionPill: View {
                     .accessibilityLabel("Latest")
                     .accessibilityHint("Scrolls to the newest message")
                     .accessibilityShowsLargeContentViewer()
+                    .padding(.trailing, 16)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .animation(Motion.animation(reduceMotion), value: showsLatest)
         .animation(Motion.animation(reduceMotion), value: shownLink)
-        .animation(Motion.animation(reduceMotion), value: working)
     }
 }
 
@@ -363,10 +368,10 @@ private struct SessionFoot: View {
         let docked = pending.map { folded != $0.request.requestId } ?? false
         let delegated = !(model.work.subagents[sessionId] ?? []).isEmpty
         // The pill rides in the bar rather than over the transcript, so the newest row is never under it.
-        let pill = showsLatest || !model.shownLinkStatus.isConnected || (transcript.isLive && transcript.status == .running)
+        let pill = showsLatest || !model.shownLinkStatus.isConnected
         VStack(spacing: 10) {
             if pill {
-                SessionPill(sessionId: sessionId, showsLatest: showsLatest, toLatest: toLatest)
+                SessionPill(showsLatest: showsLatest, toLatest: toLatest)
                     .transition(.opacity)
             }
             if let pending, docked {
@@ -384,6 +389,8 @@ private struct SessionFoot: View {
                         composing.wrappedValue = true
                     }
                 }
+                CurrentStepCard(sessionId: sessionId)
+                    .padding(.horizontal, 12)
                 QueueStrip(sessionId: sessionId)
                     .padding(.horizontal, 12)
                 ComposerView(sessionId: sessionId, focused: composing)
@@ -539,6 +546,12 @@ enum TranscriptItem: Identifiable, Equatable {
         }
     }
 
+    /// Something the person said.
+    var isSaid: Bool {
+        if case .row(let row) = self, case .user = row.content { return true }
+        return false
+    }
+
     /// The key of the row it starts with, which says how long ago it arrived.
     var firstKey: String? {
         switch self {
@@ -592,6 +605,16 @@ enum TranscriptLayout {
             close()
         }
         return items
+    }
+
+    /// The items a reply opens with — the first after something the person said — which Manus heads
+    /// with who is answering.
+    static func replyStarts(_ items: [TranscriptItem]) -> Set<String> {
+        var starts: Set<String> = []
+        for (previous, item) in zip(items, items.dropFirst()) where previous.isSaid && !item.isSaid {
+            starts.insert(item.id)
+        }
+        return starts
     }
 
     /// The transcript's turns: each runs from something the person said to the next.

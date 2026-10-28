@@ -162,20 +162,113 @@ struct WorkRun: View {
     var checkpointAfter: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(rows) { row in
-                switch row.content {
-                case .tool(let name, let summary, let state, let detail):
-                    ToolLine(name: name, summary: summary, state: state, detail: detail, sessionId: sessionId,
-                             checkpointId: Edits.changes(name) ? checkpointAfter : nil)
-                case .thinking(let text):
-                    ThinkingLine(text: text)
-                default:
-                    EmptyView()
+        // Each pill's touch is taller than the pill, so the run overlaps its touches to keep Manus's
+        // small gap between them.
+        VStack(alignment: .leading, spacing: -PillButtonStyle.reach) {
+            ForEach(Self.segments(rows), id: \.first?.key) { segment in
+                if segment.count > 1 {
+                    ToolGroupLine(rows: segment, sessionId: sessionId, checkpointAfter: checkpointAfter)
+                } else if let row = segment.first {
+                    WorkLine(row: row, sessionId: sessionId, checkpointAfter: checkpointAfter)
                 }
             }
         }
-        .padding(.vertical, -4)
+        .padding(.vertical, -PillButtonStyle.reach)
+    }
+
+    /// The run in the lines it is drawn as: calls of one kind in a row, where the kind can be said as
+    /// a count, together — "Read 4 files" — and everything else on its own.
+    static func segments(_ rows: [TranscriptRow]) -> [[TranscriptRow]] {
+        var segments: [[TranscriptRow]] = []
+        var kind: ToolWords.Kind?
+        for row in rows {
+            let rowKind = row.groupableKind
+            if let rowKind, rowKind == kind, var last = segments.popLast() {
+                last.append(row)
+                segments.append(last)
+            } else {
+                segments.append([row])
+            }
+            kind = rowKind
+        }
+        return segments
+    }
+}
+
+private extension TranscriptRow {
+    /// A tool call's kind when its calls can be counted under one line.
+    var groupableKind: ToolWords.Kind? {
+        guard case .tool(let name, _, _, _) = content else { return nil }
+        let kind = ToolWords.kind(name)
+        return ToolWords.group(kind, count: 2, running: false) == nil ? nil : kind
+    }
+}
+
+/// One line of the work: a tool call or the thinking.
+private struct WorkLine: View {
+    let row: TranscriptRow
+    let sessionId: String
+    var checkpointAfter: String?
+
+    var body: some View {
+        switch row.content {
+        case .tool(let name, let summary, let state, let detail):
+            ToolLine(name: name, summary: summary, state: state, detail: detail, sessionId: sessionId,
+                     checkpointId: Edits.changes(name) ? checkpointAfter : nil)
+        case .thinking(let text):
+            ThinkingLine(text: text)
+        default:
+            EmptyView()
+        }
+    }
+}
+
+/// Calls of one kind in a row under one pill — "Ran 3 commands" — that opens to each of them, as
+/// ChatGPT folds a run of commands. It says the newest's state: running, or failed if any did.
+private struct ToolGroupLine: View {
+    let rows: [TranscriptRow]
+    let sessionId: String
+    var checkpointAfter: String?
+    @State private var open = false
+    @Environment(\.holdPlace) private var holdPlace
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let states = rows.compactMap { row -> ToolState? in
+            if case .tool(_, _, let state, _) = row.content { state } else { nil }
+        }
+        let running = states.last == .running
+        let state: ToolState = running ? .running : states.contains(.error) ? .error : .done
+        let kind = rows.first?.groupableKind ?? .other
+        let words = ToolWords.group(kind, count: rows.count, running: running) ?? ""
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                holdPlace()
+                withAnimation(Motion.animation(reduceMotion)) { open.toggle() }
+            } label: {
+                WorkPill(running: running) {
+                    ToolStateGlyph(state: state, kind: kind)
+                } label: {
+                    Text(words)
+                    Image(systemName: open ? "chevron.up" : "chevron.down")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(Palette.ink3)
+                }
+            }
+            .buttonStyle(PillButtonStyle())
+            .sensoryFeedback(.selection, trigger: open)
+            .accessibilityLabel("\(words)\(state == .error ? ", one failed" : "")")
+            .accessibilityValue(open ? "Open" : "Folded")
+            if open {
+                VStack(alignment: .leading, spacing: -PillButtonStyle.reach) {
+                    ForEach(rows) { row in
+                        WorkLine(row: row, sessionId: sessionId, checkpointAfter: checkpointAfter)
+                    }
+                }
+                .padding(.leading, 16)
+                .transition(.opacity)
+            }
+        }
     }
 }
 
@@ -195,38 +288,20 @@ struct FoldedWork: View {
                 holdPlace()
                 withAnimation(Motion.animation(reduceMotion)) { open.toggle() }
             } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Image(systemName: "checklist.checked")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Palette.ink3)
-                        .glyphColumn(20)
-                    Text(Self.summary(rows))
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(Palette.ink2)
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Palette.ink3)
-                        .rotationEffect(.degrees(open ? 90 : 0))
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 4)
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
+                StepHead(title: Self.summary(rows), done: true, open: open)
             }
-            .buttonStyle(LineButtonStyle())
+            .buttonStyle(.plain)
             .sensoryFeedback(.selection, trigger: open)
             .accessibilityLabel(Self.summary(rows))
             .accessibilityValue(open ? "Open" : "Folded")
             if open {
+                // Under the step's words, as Manus sets a step's work under its title.
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach(TranscriptLayout.items(rows, settled: false)) { item in
                         TranscriptItemView(item: item, sessionId: sessionId, checkpointAfter: checkpointAfter)
                     }
                 }
-                .padding(.leading, 12)
-                .overlay(alignment: .leading) {
-                    Capsule().fill(Palette.mark).frame(width: 2)
-                }
+                .padding(.leading, StepHead.indent)
                 .transition(.opacity)
             }
         }
@@ -245,26 +320,57 @@ struct FoldedWork: View {
 }
 
 /// What a running turn is doing at the transcript's foot — thinking, or writing the words above it —
-/// as the one live line, in the present tense, that rests after a few sweeps.
+/// as Manus says it: a small dot of the accent beside the word, which shimmers a few times and rests.
 struct LiveLine: View {
     /// What the turn is doing, in the present tense: "Thinking", "Writing".
     let word: String
+    @ScaledMetric(relativeTo: .subheadline) private var dot: CGFloat = 9
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "progress.indicator")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(Palette.accentInk)
+            Circle()
+                .fill(Palette.accent)
+                .frame(width: dot, height: dot)
                 .restingPulse(when: true)
-                .glyphColumn(20)
+                .accessibilityHidden(true)
             Text(word)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(Palette.ink2)
                 .shimmer(when: true)
         }
-        .padding(.horizontal, 4)
         .frame(minHeight: 32)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// A step's head, as Manus draws one: a round check when it is done (an empty ring while it is not),
+/// its words in the strong weight, and the chevron that says it opens.
+struct StepHead: View {
+    let title: String
+    let done: Bool
+    let open: Bool
+
+    /// How far a step's work sits in: under its words, past the check.
+    static let indent: CGFloat = 28
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: done ? "checkmark.circle.fill" : "circle")
+                .font(.subheadline)
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(Palette.ink3)
+                .glyphColumn(20, relativeTo: .subheadline)
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Palette.ink)
+                .multilineTextAlignment(.leading)
+            Image(systemName: open ? "chevron.up" : "chevron.down")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Palette.ink3)
+            Spacer(minLength: 0)
+        }
+        .frame(minHeight: 44)
+        .contentShape(Rectangle())
     }
 }
 
@@ -284,8 +390,116 @@ enum ToolWords {
         if planTools.contains(tool) {
             return Line(verb: running ? "Updating the plan" : "Updated the plan", object: nil)
         }
+        if let called = connectorTool(tool) {
+            return Line(verb: called, object: acted)
+        }
         return Line(verb: running ? "Calling \(tool)" : "Called \(tool)", object: acted)
     }
+
+    /// A connector's tool as the desktop says it: the tool's own name in words, without the servers it
+    /// came through. `mcp__realm__realm-agent__agent_start` is "Agent start", `mcp__linear__save_issue`
+    /// is "Save issue"; nil for a tool that came through no connector.
+    static func connectorTool(_ tool: String) -> String? {
+        guard let range = tool.range(of: "__", options: .backwards) else { return nil }
+        let words = tool[range.upperBound...].replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ").trimmingCharacters(in: .whitespaces)
+        guard let first = words.first else { return nil }
+        return first.uppercased() + words.dropFirst()
+    }
+
+    /// What kind of work a tool does, the same for every agent: its glyph at rest, and which calls in
+    /// a row gather under one line.
+    enum Kind: Equatable {
+        case run, read, edit, write, search, list, fetch, web, delegate, plan, browser, simulator, computer, connector, other
+
+        /// The glyph a settled line leads with, so a column of them is read by shape, never thirty
+        /// identical ticks (desktop: `toolGlyph`).
+        var glyph: String {
+            switch self {
+            case .run: "terminal"
+            case .read: "doc.text"
+            case .edit, .write: "pencil"
+            case .search: "magnifyingglass"
+            case .list: "folder"
+            case .fetch, .web: "globe"
+            case .delegate: "person.2"
+            case .plan: "checklist"
+            case .browser: "safari"
+            case .simulator: "iphone"
+            case .computer: "macbook"
+            case .connector: "puzzlepiece.extension"
+            case .other: "wrench.and.screwdriver"
+            }
+        }
+
+        /// Whether its object is a file, which its line names by the file's own name.
+        var actsOnFile: Bool { self == .read || self == .edit || self == .write }
+
+        /// Whether its object is code, a path or a pattern, set in mono; a sub-agent's task, a search's
+        /// words or a connector's argument is prose, and reads in the system's face.
+        var objectIsCode: Bool {
+            switch self {
+            case .run, .read, .edit, .write, .search, .list, .fetch: true
+            default: false
+            }
+        }
+    }
+
+    static func kind(_ tool: String) -> Kind {
+        if let kind = kinds[tool] { return kind }
+        if planTools.contains(tool) { return .plan }
+        guard tool.contains("__") else { return .other }
+        // Realm's own servers come through its gateway under their own names: `mcp__realm__realm-browser__…`.
+        let parts = tool.components(separatedBy: "__")
+        switch parts.count >= 2 ? parts[parts.count - 2] : "" {
+        case "realm-browser": return .browser
+        case "realm-simulator": return .simulator
+        case "realm-computer": return .computer
+        case "realm-agent": return .delegate
+        default: return .connector
+        }
+    }
+
+    /// What a line shows of what a tool acted on: a file by its own name — the folders it is in are
+    /// the line's accessible name, and its detail — anything else as the Mac summarised it.
+    static func shown(_ object: String, kind: Kind) -> String {
+        guard kind.actsOnFile, object.contains("/"), !object.hasSuffix("/") else { return object }
+        return ChangesWords.name(object)
+    }
+
+    /// A run of calls of one kind, said once: "Read 4 files", "Running 3 commands". Nil for a kind
+    /// whose calls each say something of their own — a sub-agent, a connector, a step in the Simulator.
+    static func group(_ kind: Kind, count: Int, running: Bool) -> String? {
+        let (present, past, one, many): (String, String, String, String)
+        switch kind {
+        case .run: (present, past, one, many) = ("Running", "Ran", "command", "commands")
+        case .read: (present, past, one, many) = ("Reading", "Read", "file", "files")
+        case .edit: (present, past, one, many) = ("Editing", "Edited", "file", "files")
+        case .write: (present, past, one, many) = ("Writing", "Wrote", "file", "files")
+        case .search: (present, past, one, many) = ("Searching", "Searched", "time", "times")
+        case .list: (present, past, one, many) = ("Listing", "Listed", "folder", "folders")
+        case .fetch: (present, past, one, many) = ("Fetching", "Fetched", "page", "pages")
+        default: return nil
+        }
+        return "\(running ? present : past) \(count) \(count == 1 ? one : many)"
+    }
+
+    private static let kinds: [String: Kind] = {
+        var table: [String: Kind] = [:]
+        let groups: [([String], Kind)] = [
+            (["Bash", "Shell", "shell", "exec_command", "local_shell", "run_command"], .run),
+            (["Read", "read_file", "view", "ReadFile", "view_image"], .read),
+            (["Edit", "MultiEdit", "NotebookEdit", "str_replace", "str_replace_based_edit_tool", "apply_patch", "edit_file"], .edit),
+            (["Write", "write_file", "create_file"], .write),
+            (["Grep", "Glob", "grep", "glob", "find", "search", "codebase_search", "file_search"], .search),
+            (["LS", "ls", "list_dir"], .list),
+            (["WebFetch", "fetch", "web_fetch"], .fetch),
+            (["WebSearch", "web_search"], .web),
+            (["Task", "Agent", "spawn_agent"], .delegate),
+        ]
+        for (tools, kind) in groups { for tool in tools { table[tool] = kind } }
+        return table
+    }()
 
     private static let planTools: Set<String> = ["TodoWrite", "update_plan", "todo_write"]
 
@@ -322,11 +536,48 @@ enum Edits {
     }
 }
 
-/// A line of the work that opens: the press is a fill, arriving at once, never a size.
-private struct LineButtonStyle: ButtonStyle {
+/// A pill of the work that opens: the press is a deeper fill, arriving at once, never a size. Its touch
+/// reaches past the pill above and below, to 44 points.
+struct PillButtonStyle: ButtonStyle {
+    /// How far the touch reaches past the pill, top and bottom.
+    static let reach: CGFloat = 6
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .background(configuration.isPressed ? Palette.hover : .clear, in: RoundedRectangle(cornerRadius: Radius.well, style: .continuous))
+            .environment(\.pillPressed, configuration.isPressed)
+            .padding(.vertical, Self.reach)
+            .contentShape(Rectangle())
+    }
+}
+
+extension EnvironmentValues {
+    @Entry var pillPressed = false
+}
+
+/// One step of the work as Manus draws it: a grey pill, as wide as its words, with the glyph of its
+/// kind, the verb in the medium weight and what it acted on quieter beside it. A long one is cut in
+/// the middle of what it acted on, never past the screen.
+struct WorkPill<Glyph: View, Label: View>: View {
+    var running = false
+    @ViewBuilder let glyph: Glyph
+    @ViewBuilder let label: Label
+    @Environment(\.pillPressed) private var pressed
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            glyph
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                label
+            }
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(Palette.ink2)
+            .lineLimit(1)
+            .shimmer(when: running)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(pressed ? Palette.hover2 : Fill.pill, in: RoundedRectangle(cornerRadius: Radius.well + 2, style: .continuous))
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -348,40 +599,29 @@ private struct ToolLine: View {
 
     var body: some View {
         let words = ToolWords.line(tool: name, summary: summary, running: state == .running)
-        VStack(alignment: .leading, spacing: 6) {
+        let kind = ToolWords.kind(name)
+        VStack(alignment: .leading, spacing: 0) {
             Button {
                 holdPlace()
                 withAnimation(Motion.animation(reduceMotion)) { open.toggle() }
             } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    ToolStateGlyph(state: state)
-                        .glyphColumn(20)
+                WorkPill(running: state == .running) {
+                    ToolStateGlyph(state: state, kind: kind)
+                } label: {
+                    // The verb is whole before the object gets any room, but it can still be cut:
+                    // set at its own width, a long name pushed every row of the transcript off screen.
                     Text(words.verb)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(Palette.ink2)
-                        .fixedSize()
-                        .shimmer(when: state == .running)
+                        .layoutPriority(1)
                     if let object = words.object {
-                        Text(object)
-                            .mono(.footnote)
-                            .foregroundStyle(Palette.ink2)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
+                        ToolObject(text: ToolWords.shown(object, kind: kind), code: kind.objectIsCode)
                     }
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Palette.ink3)
-                        .rotationEffect(.degrees(open ? 90 : 0))
-                    Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 4)
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(LineButtonStyle())
+            .buttonStyle(PillButtonStyle())
             .sensoryFeedback(.selection, trigger: open)
             .accessibilityLabel("\([words.verb, words.object].compactMap { $0 }.joined(separator: " "))\(state == .error ? ", failed" : "")")
             .accessibilityValue(open ? "Open" : "Folded")
+            .accessibilityHint(checkpointId == nil ? "Shows what it printed" : "Shows the change")
             if open {
                 Group {
                     if let checkpointId {
@@ -390,8 +630,8 @@ private struct ToolLine: View {
                         output
                     }
                 }
-                .padding(.leading, 32)
-                .padding(.bottom, 6)
+                .padding(.leading, 16)
+                .padding(.vertical, 6)
                 .transition(.opacity)
             }
         }
@@ -424,20 +664,42 @@ private struct ToolLine: View {
     }
 }
 
-/// A tool's state by the shape of its glyph: a run's indicator, a check, a cross.
-private struct ToolStateGlyph: View {
-    let state: ToolState
+/// What a tool acted on, quiet beside its verb, cut in the middle when it does not fit, since a path's
+/// end and a command's start are both what tell one from another.
+private struct ToolObject: View {
+    let text: String
+    let code: Bool
 
     var body: some View {
-        let (symbol, tone): (String, Tone) = switch state {
-        case .running: ("progress.indicator", .working)
-        case .done: ("checkmark", .quiet)
-        case .error: ("xmark.circle.fill", .failed)
+        Group {
+            if code {
+                Text(text).mono(.footnote)
+            } else {
+                Text(text).font(.subheadline.weight(.regular))
+            }
+        }
+        .foregroundStyle(Palette.ink3)
+        .lineLimit(1)
+        .truncationMode(.middle)
+    }
+}
+
+/// A tool's state by the shape of its glyph: a run's indicator while it works, a cross when it failed,
+/// and at rest the glyph of its kind, in the quiet ink.
+private struct ToolStateGlyph: View {
+    let state: ToolState
+    let kind: ToolWords.Kind
+
+    var body: some View {
+        let (symbol, color): (String, Color) = switch state {
+        case .running: ("progress.indicator", Tone.working.color)
+        case .done: (kind.glyph, Palette.ink3)
+        case .error: ("xmark.circle.fill", Tone.failed.color)
         }
         Image(systemName: symbol)
             .font(.footnote.weight(.semibold))
             .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(tone.color)
+            .foregroundStyle(color)
             .restingPulse(when: state == .running)
             .contentTransition(.symbolEffect(.replace))
             .accessibilityHidden(true)
@@ -466,8 +728,8 @@ private struct OutputSheet: View {
             .navigationSubtitle(summary)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Close", systemImage: "xmark") { dismiss() }
                 }
             }
         }
@@ -482,30 +744,20 @@ private struct ThinkingLine: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 0) {
             Button {
                 holdPlace()
                 withAnimation(Motion.animation(reduceMotion)) { open.toggle() }
             } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Image(systemName: "ellipsis")
+                WorkPill {
+                    Image(systemName: "brain")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(Palette.ink3)
-                        .glyphColumn(20)
+                } label: {
                     Text("Thinking")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(Palette.ink2)
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Palette.ink3)
-                        .rotationEffect(.degrees(open ? 90 : 0))
-                    Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 4)
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(LineButtonStyle())
+            .buttonStyle(PillButtonStyle())
             .sensoryFeedback(.selection, trigger: open)
             .accessibilityLabel("Thinking")
             .accessibilityValue(open ? "Open" : "Folded")
@@ -516,8 +768,8 @@ private struct ThinkingLine: View {
                     .foregroundStyle(Palette.ink2)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.leading, 32)
-                    .padding(.bottom, 8)
+                    .padding(.leading, 16)
+                    .padding(.vertical, 6)
             }
         }
     }
