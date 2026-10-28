@@ -1123,6 +1123,8 @@ export class SessionService {
     this.d.browserAgents?.release(id);
     // And its carried handoff context, plus any retry still on a timer.
     this.d.failover?.release(id);
+    // And the memory block its starts were frozen to.
+    this.d.memory.forgetSession(id);
     // Nothing left to send into. No broadcast: the session's own row is going away with it.
     this.queued.delete(id);
     clearTimeout(this.queueHolds.get(id)?.timer);
@@ -1622,7 +1624,8 @@ export class SessionService {
     // injection above is active on a Claude session — the CLAUDE.md content that `settingSources: []`
     // would otherwise silently drop. `skills !== undefined` is the same fact the adapter keys the
     // isolation on, so the re-injection can never disagree with it.
-    const baseContext = this.d.memory.systemContextFor({ spaceId: s.spaceId, kind: s.agentKind, cwd: s.cwd, skillsInjected: skills !== undefined });
+    // Frozen per session (`contextForSession`): a restart gets the bytes the first start did.
+    const baseContext = this.d.memory.contextForSession(id, { spaceId: s.spaceId, kind: s.agentKind, cwd: s.cwd, skillsInjected: skills !== undefined });
     // A delegated browser-agent child (W5) additionally carries its browsing-policy preamble —
     // appended AFTER the space's memory so the policy is the last (most binding) thing the agent
     // reads. Undefined for every ordinary session, leaving `systemContext` byte-identical to before.

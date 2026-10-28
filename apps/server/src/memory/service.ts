@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -235,6 +236,41 @@ export class MemoryService {
     if (repos.length > 0) parts.push(repoBlock(repos));
     if (spaceDoc) parts.push(`# Space memory\n\nThe user keeps this context for every session in this workspace (managed in Realm):\n\n${spaceDoc}`);
     return parts.length > 0 ? parts.join("\n\n") : undefined;
+  }
+
+  /**
+   * `systemContextFor`, frozen per session. The block a session's first start composed is handed to
+   * every later start of that session in this server run — a restart after a crash, an idle reap, a
+   * mode the agent takes only at launch — so the prompt's prefix stays the same bytes and the
+   * provider's prompt cache keeps hitting. An agent's save to memory does not change it: the index it
+   * shows is the one the session started with, and `memory_index` or `memory_search` reads the latest.
+   *
+   * What the USER changes does: their space or profile document, whether this space inherits the
+   * profile's, which memory repos the space uses (one attached, detached or switched off here — the
+   * tools the block names come and go with them), the CLAUDE.md files a skills-isolated Claude session
+   * re-reads, and the session's agent, folder or isolation. Those make up the key; the indexes' content
+   * is not in it, and neither is a space folder's index appearing, since an agent's save is what makes one.
+   */
+  contextForSession(sessionId: string, o: { spaceId: string; kind: AgentKind; cwd: string; skillsInjected: boolean }): string | undefined {
+    const key = this.freezeKey(o);
+    const held = this.frozen.get(sessionId);
+    if (held?.key === key) return held.context;
+    const context = this.systemContextFor(o);
+    this.frozen.set(sessionId, { key, context });
+    return context;
+  }
+
+  /** A deleted session's frozen block goes with it. */
+  forgetSession(sessionId: string): void { this.frozen.delete(sessionId); }
+
+  private readonly frozen = new Map<string, { key: string; context: string | undefined }>();
+
+  private freezeKey(o: { spaceId: string; kind: AgentKind; cwd: string; skillsInjected: boolean }): string {
+    const eff = this.effective(o.spaceId);
+    const repos = (this.d.repos?.indexesFor(o.spaceId) ?? []).filter((r) => r.kind !== "spaceFolder").map((r) => `${r.scope}:${r.path}`);
+    const claude = o.kind === "claude" && o.skillsInjected ? claudeMemoryFiles(o.cwd, this.claudeDir).map((f) => [f.path, f.content ?? null]) : [];
+    const profileDoc = eff.profile !== null && eff.profile.enabledHere ? eff.profile.doc : null;
+    return createHash("sha256").update(JSON.stringify([o.kind, o.cwd, o.skillsInjected, eff.spaceDoc, profileDoc, repos, claude])).digest("hex");
   }
 
   /**
