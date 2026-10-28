@@ -30,7 +30,7 @@ import { labelAppProcesses, type AppProcessLabel } from "./app-metrics";
 import { refuseCapture } from "./capture-guard";
 import { viewNavigationAllowed } from "./app-views";
 import { BlockedDownloads, DownloadGovernor, SavedDownloads, retryBlockedDownload } from "./downloads";
-import { nextZoomFactor, searchUrl, type ViewRect } from "./browser-host";
+import { nextZoomFactor, retainedBudget, searchUrl, type ViewRect } from "./browser-host";
 import { clearBrowsingData, saveBrowserScreenshot } from "./browser-controls";
 import { BrowserAgentHost } from "./browser-agent-host";
 import { AppDriveHost } from "./app-drive";
@@ -381,7 +381,7 @@ const paneFor = (browserId: string, sender?: WebContents): BrowserPane | null =>
  * panes follows it. Until the first tick, the defaults.
  */
 let browserPolicy = { keepHidden: BROWSER_KEEP_HIDDEN_DEFAULT, never: false };
-const retainedLimit = (): number | null => (browserPolicy.never ? null : browserPolicy.keepHidden);
+const retainedLimit = (): number | null => retainedBudget(browserPolicy);
 
 async function sweepBrowsers(params: unknown): Promise<{ discarded: string[]; kept: { id: string; reason: string }[] }> {
   const p = (params ?? {}) as { hiddenMs?: unknown; keepHidden?: unknown; policy?: unknown };

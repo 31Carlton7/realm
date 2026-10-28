@@ -560,6 +560,17 @@ export type ViewFactory = (id: string, hooks: ViewHooks, partition: string) => V
  */
 export const RETAINED_VIEW_LIMIT = 3;
 
+/**
+ * The off-screen budget for unmounted panes, from Settings ▸ RAM: none at all when hidden panes are
+ * never discarded, else as many as it keeps loaded — but never fewer than `RETAINED_VIEW_LIMIT`. This
+ * budget takes no window: a pane over it goes the moment its space is left, so "keep 1 loaded" would
+ * throw away the page the person just switched away from, which the idle sweep would have kept for
+ * its whole window.
+ */
+export function retainedBudget(policy: { keepHidden: number; never: boolean }): number | null {
+  return policy.never ? null : Math.max(policy.keepHidden, RETAINED_VIEW_LIMIT);
+}
+
 /** However long a sweep's window, an agent's view is spared this long after its last op. */
 export const AGENT_GRACE_MS = 5 * 60_000;
 

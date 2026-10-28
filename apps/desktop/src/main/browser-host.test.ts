@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { FAVICON_MAX_BYTES, isFaviconDataUrl, type BrowserLoadError } from "@realm/contracts";
 import {
-  AGENT_GRACE_MS, BrowserPaneHost, DEVICE_PRESETS, PageLoad, FAVICON_TRIES, POPUP_LIMIT, RETAINED_VIEW_LIMIT, ZOOM_FACTORS, browserUserAgent, createFaviconResolver, dataUrlBytes, deviceFit, faviconDataUrl,
+  AGENT_GRACE_MS, BrowserPaneHost, DEVICE_PRESETS, PageLoad, FAVICON_TRIES, POPUP_LIMIT, RETAINED_VIEW_LIMIT, ZOOM_FACTORS, browserUserAgent, createFaviconResolver, dataUrlBytes, deviceFit, faviconDataUrl, retainedBudget,
   isFindShortcut, nextZoomFactor, normalizeAddress, originAllowed, popupBounds, popupTitle, rankFavicons, readCapped, shownPage, sniffImage, toViewBounds, windowOpenAction, zoomPercent,
   type DeviceMetrics,
   type BrowserViewState, type FindResult, type ViewHandle, type KeepReason, type ViewHooks,
@@ -534,6 +534,16 @@ describe("BrowserPaneHost retention", () => {
     for (const id of ["q0", "q1", "q2", "q3", "q4", "q5", "q6"]) { host.create(id, `https://${id}.example`, null, P); host.retain(id); }
     await host.settled();
     expect(["q0", "q1", "q2", "q3", "q4", "q5", "q6"].filter((id) => host.isDiscarded(id))).toEqual([]);
+  });
+
+  it("takes its number from Settings ▸ RAM, never below three, and none at Never", () => {
+    // THE MUTANT: "kept loaded" alone. At 1 or 0, every page left behind by a space switch would go at
+    // once, with no window at all — sooner than the idle sweep would ever have taken it.
+    expect(retainedBudget({ keepHidden: 5, never: false })).toBe(5);
+    expect(retainedBudget({ keepHidden: 1, never: false })).toBe(RETAINED_VIEW_LIMIT);
+    expect(retainedBudget({ keepHidden: 0, never: false })).toBe(RETAINED_VIEW_LIMIT);
+    expect(retainedBudget({ keepHidden: 5, never: true })).toBeNull();
+    expect(RETAINED_VIEW_LIMIT).toBe(3);
   });
 
   it("retain on an unknown id is refused, not thrown", () => {
