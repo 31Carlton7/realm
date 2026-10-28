@@ -123,6 +123,10 @@ const realish = (p: string): string => {
   return join(realpathSync(head), ...tail);
 };
 
+/** The refusal of a save into a repo with uncommitted changes in its way. */
+const dirtyRepo = (repo: string, dirty: readonly string[]): RpcError => new RpcError("MEMORY_REPO_DIRTY",
+  `the memory repo at ${repo} has uncommitted changes, so nothing was saved (the spec's rule: clean before writing). Tell the user these need committing or removing first: ${dirty.slice(0, 10).join(", ")}${dirty.length > 10 ? ` and ${dirty.length - 10} more` : ""}`);
+
 /** Remove `rel` and each folder above it that is left empty, up to — never including — the repo itself. */
 function pruneEmpty(repo: string, rel: string): void {
   for (let at = rel; at !== "." && at !== ""; at = dirname(at)) {
@@ -654,14 +658,18 @@ export class MemoryRepoService {
       if (why) throw new RpcError("MEMORY_REPO_INVALID", `${repo} is not a memory repo: ${why}`);
       // Nothing to write is nothing to do: a file Claude is still writing waits for its own turn's
       // commit, and someone's changes in the repo are no refusal to report.
-      if (this.changesIn(repo, plan(repo)).size === 0) return { changed: false, file: "", line: null, sha: null, diff: "" };
-      // What Claude left in a profile's space folders goes in first, and the plan is made again on top
-      // of it — that commit can link a folder from the root index, which a plan made before would undo.
-      if (owner.scope === "profile") await this.commitUnder(repo, SPACES_DIR, CLAUDE_LEFT);
+      const asked = this.changesIn(repo, plan(repo));
+      if (asked.size === 0) return { changed: false, file: "", line: null, sha: null, diff: "" };
+      // Then the repo is made ready — what Claude left committed, checked clean, and, where it syncs,
+      // what other machines saved pulled in — and only then are the writes worked out again, on top of
+      // all of it. A plan made before the pull would write another machine's save away, and push that.
+      await this.ensureWritable(owner, repo, cfg, [...asked.keys()]);
       const writes = this.changesIn(repo, plan(repo));
       const first = writes.keys().next().value ?? "";
       if (writes.size === 0) return { changed: false, file: first, line: null, sha: null, diff: "" };
-      await this.ensureWritable(owner, repo, cfg, [...writes.keys()]);
+      // A file that had to stay out of a commit is written over by nobody, whatever the pull changed.
+      const held = (await this.uncommitted(repo)).filter((p) => writes.has(p));
+      if (held.length > 0) throw dirtyRepo(repo, held);
       const done = await this.commitFiles(repo, writes, typeof message === "function" ? message() : message, author);
       return { changed: true, file: first, line: null, ...done };
     });
@@ -1080,10 +1088,7 @@ export class MemoryRepoService {
     // a save that would write over it.
     if (owner.scope === "profile") await this.commitUnder(repo, SPACES_DIR, CLAUDE_LEFT);
     const dirty = (await this.uncommitted(repo)).filter((p) => owner.scope !== "profile" || !inSpaces(p) || touching.includes(p));
-    if (dirty.length > 0) {
-      throw new RpcError("MEMORY_REPO_DIRTY",
-        `the memory repo at ${repo} has uncommitted changes, so nothing was saved (the spec's rule: clean before writing). Tell the user these need committing or removing first: ${dirty.slice(0, 10).join(", ")}${dirty.length > 10 ? ` and ${dirty.length - 10} more` : ""}`);
-    }
+    if (dirty.length > 0) throw dirtyRepo(repo, dirty);
     if (!cfg?.push) return;
     const pulled = await this.pull(cfg, Math.min(SAVE_FETCH_TIMEOUT_MS, this.d.syncTimeoutMs ?? SYNC_TIMEOUT_MS));
     if (pulled === "diverged" || (pulled === "offline" && (await this.standing(cfg)).sync === "diverged")) {
