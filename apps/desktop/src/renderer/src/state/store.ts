@@ -246,6 +246,8 @@ export type Api = TeamApi & LabApi & {
   openDocumentPath(spaceId: string, path: string, environmentId?: string, base?: string): Promise<{ documentsId: string; itemId: string; environmentId: string; path: string; line?: number | null }>;
   readGuideProgress(documentsId: string, path: string): Promise<GuideProgress>;
   recordGuideAttempt(documentsId: string, path: string, topic: string, correct: number, total: number): Promise<GuideProgress>;
+  /** Keep a guide's own `localStorage` in its sidecar, so it outlives the app. */
+  writeGuideStorage(documentsId: string, path: string, storage: Record<string, string>): Promise<unknown>;
   startLecture(spaceId: string, title: string): Promise<StartLectureResult>;
   listLectures(spaceId: string): Promise<Lecture[]>;
   plynnList(): Promise<{ available: boolean; folder: string; meetings: PlynnMeeting[] }>;
@@ -2568,6 +2570,8 @@ export type AppState = TeamSlice & LabSlice & {
   previewInfo(): Promise<{ port: number; token: string }>;
   readGuideProgress(documentsId: string, path: string): Promise<GuideProgress>;
   recordGuideAttempt(documentsId: string, path: string, topic: string, correct: number, total: number): Promise<GuideProgress>;
+  /** Keep a guide's own `localStorage` in its sidecar, so it outlives the app. */
+  writeGuideStorage(documentsId: string, path: string, storage: Record<string, string>): Promise<unknown>;
   plynnList(): Promise<{ available: boolean; folder: string; meetings: PlynnMeeting[] }>;
   /** Import into `spaceId`, else the current space; the server opens the first imported file, so
    *  the pane follows. */
@@ -7363,6 +7367,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       previewInfo: () => api.previewInfo(),
       readGuideProgress: (documentsId, path) => api.readGuideProgress(documentsId, path),
       recordGuideAttempt: (documentsId, path, topic, correct, total) => api.recordGuideAttempt(documentsId, path, topic, correct, total),
+      writeGuideStorage: (documentsId, path, storage) => api.writeGuideStorage(documentsId, path, storage),
       plynnList: () => api.plynnList(),
       async plynnImport(files, spaceId = null) {
         const sid = spaceFor(spaceId); if (!sid) throw new Error("no space to import into");

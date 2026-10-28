@@ -810,9 +810,16 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const prev = data.guideProgress[key] ?? { version: 1 as const, topics: {} };
       const t = prev.topics[topic] ?? { attempts: [], best: 0, last: 0 };
       const score = correct / total;
-      const next: GuideProgress = { version: 1, topics: { ...prev.topics, [topic]: { attempts: [...t.attempts, { at: 1, correct, total }], best: Math.max(t.best, score), last: score } } };
+      const next: GuideProgress = { ...prev, version: 1, topics: { ...prev.topics, [topic]: { attempts: [...t.attempts, { at: 1, correct, total }], best: Math.max(t.best, score), last: score } } };
       data.guideProgress[key] = next;
       return next;
+    },
+    writeGuideStorage: async (documentsId, path, storage) => {
+      calls.push(`writeGuideStorage:${documentsId}:${path}:${JSON.stringify(storage)}`);
+      const key = `${documentsId}:${path}`;
+      const { storage: _was, ...prev } = data.guideProgress[key] ?? { version: 1 as const, topics: {} };
+      data.guideProgress[key] = Object.keys(storage).length ? { ...prev, storage } : prev;
+      return { ok: true };
     },
     startLecture: async (spaceId, title) => {
       calls.push(`startLecture:${spaceId}:${title}`);

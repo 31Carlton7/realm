@@ -62,6 +62,7 @@ export const liveApi = (): Api => ({
   openDocumentPath: (spaceId, path, environmentId, base) => rpc().call("documents.openPath", { spaceId, path, ...(environmentId ? { environmentId } : {}), ...(base ? { base } : {}) }),
   readGuideProgress: (documentsId, path) => rpc().call("documents.progressRead", { documentsId, path }),
   recordGuideAttempt: (documentsId, path, topic, correct, total) => rpc().call("documents.progressRecord", { documentsId, path, topic, correct, total }),
+  writeGuideStorage: (documentsId, path, storage) => rpc().call("documents.progressStorage", { documentsId, path, storage }),
   startLecture: (spaceId, title) => rpc().call("lectures.start", { spaceId, title }),
   listLectures: async (spaceId) => (await rpc().call("lectures.list", { spaceId })).lectures,
   plynnList: () => rpc().call("plynn.list", {}),

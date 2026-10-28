@@ -197,6 +197,40 @@ describe("documents.progressRead / progressRecord", () => {
     c.close();
   });
 
+  it("keeps a guide's own storage beside its attempts, and an attempt and a storage write never drop each other", async () => {
+    const { c, documentsId, root } = await setup();
+    await mkdir(join(root, "guides"), { recursive: true });
+    await writeFile(join(root, "guides", "g.html"), "<p>g</p>");
+    const sidecar = join(root, progressSidecarPath("guides/g.html"));
+    // Nothing kept, nothing attempted: no sidecar is made just to say so.
+    expect((await c.call("documents.progressStorage", { documentsId, path: "guides/g.html", storage: {} })).result).toEqual({ ok: true });
+    await expect(readFile(sidecar, "utf8")).rejects.toThrow();
+
+    /* Fired together. Each reads the sidecar and writes it back; unqueued, whichever wrote second
+       would put back the sidecar as it read it, without the other's change.
+       THE MUTANT: run `rewriteSidecar`'s body without the per-sidecar chain. */
+    await Promise.all([
+      c.call("documents.progressRecord", { documentsId, path: "guides/g.html", topic: "t", correct: 1, total: 2 }),
+      c.call("documents.progressStorage", { documentsId, path: "guides/g.html", storage: { course: "{\"done\":3}" } }),
+      c.call("documents.progressRecord", { documentsId, path: "guides/g.html", topic: "u", correct: 2, total: 2 }),
+    ]);
+    const read = (await c.call("documents.progressRead", { documentsId, path: "guides/g.html" })).result;
+    expect(Object.keys(read.topics).sort()).toEqual(["t", "u"]);
+    expect(read.storage).toEqual({ course: "{\"done\":3}" });
+    expect(JSON.parse(await readFile(sidecar, "utf8"))).toEqual(read);
+
+    // An attempt keeps the storage; clearing the storage keeps the attempts.
+    await c.call("documents.progressRecord", { documentsId, path: "guides/g.html", topic: "t", correct: 2, total: 2 });
+    expect((await c.call("documents.progressRead", { documentsId, path: "guides/g.html" })).result.storage).toEqual({ course: "{\"done\":3}" });
+    await c.call("documents.progressStorage", { documentsId, path: "guides/g.html", storage: {} });
+    const cleared = JSON.parse(await readFile(sidecar, "utf8"));
+    expect(cleared.storage).toBeUndefined();
+    expect(cleared.topics.t.attempts).toHaveLength(2);
+    // Past a guide's allowance the write is refused rather than trimmed.
+    expect((await c.call("documents.progressStorage", { documentsId, path: "guides/g.html", storage: { big: "x".repeat(1_000_001) } })).error?.code).toBe("INVALID_PARAMS");
+    c.close();
+  });
+
   it("the sidecar write is Realm's own and does not echo as an external change", async () => {
     const { c, documentsId, root } = await setup();
     await writeFile(join(root, "g.html"), "<p>g</p>");

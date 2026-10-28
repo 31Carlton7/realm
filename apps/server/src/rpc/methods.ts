@@ -914,6 +914,7 @@ export function registerMethods(d: Deps): void {
   reg("documents.openPath", (p) => d.documents.openPath(p));
   reg("documents.progressRead", (p) => d.documents.progressRead(p.documentsId, p.path));
   reg("documents.progressRecord", (p) => d.documents.progressRecord(p));
+  reg("documents.progressStorage", (p) => d.documents.progressStorage(p));
   reg("lectures.start", (p) => d.lectures.start(p));
   reg("lectures.list", async (p) => ({ lectures: await d.lectures.list(p.spaceId) }));
   reg("plynn.list", () => d.plynn.list());
