@@ -6,7 +6,7 @@ import { dirname, extname, join, resolve, sep } from "node:path";
 import { DOCUMENT_MAX_BYTES, isPreviewKind } from "@realm/contracts";
 import { RpcError } from "../store/rows";
 import { resolveInRoot } from "./paths";
-import { GUIDE_CSS, GUIDE_JS } from "./guide-runtime";
+import { GUIDE_BOOT, GUIDE_CSS, GUIDE_JS } from "./guide-runtime";
 import { QuickLookRenderer, type QuickLookDeps } from "./quicklook";
 
 /**
@@ -28,8 +28,9 @@ import { QuickLookRenderer, type QuickLookDeps } from "./quicklook";
  * the same `resolveInRoot` guard the RPC surface uses, so a URL can no more escape the checkout than
  * a tab can. Helper assets live under the reserved `_realm/` segment beside the workspaces.
  *
- * What is injected into an `.html` response: the guide stylesheet and runtime (always — both are
- * inert on a page that uses none of the markup), and KaTeX only when the document opts in with
+ * What is injected into an `.html` response: the runtime's boot, inline and first (`GUIDE_BOOT`), the
+ * guide stylesheet and runtime (always — all three are inert on a page that uses none of the markup
+ * and keeps nothing), and KaTeX only when the document opts in with
  * `<meta name="realm-helpers" content="katex">`. Nothing is injected into any other type.
  *
  * `.html` is additionally REWRITTEN to point any remote vis-network bundle at the vendored copy
@@ -290,8 +291,14 @@ export function localizeVisNetwork(html: string, base: string): string {
  * the opening `<head>` otherwise, and at the very top when the document has no head at all — every
  * shape a hand-written or agent-written guide can take still gets the runtime. All tags are `defer`
  * and in order, so `renderMathInElement` exists by the time the runtime's DOMContentLoaded init runs.
+ *
+ * The boot is the exception, and goes as early as the head allows: inline, right after `<head>`. It
+ * has to run before any script of the guide's own, which reads its storage as it starts — and a
+ * guide's scripts can sit in its head. Inline because a fetched script, even from this origin, is a
+ * round trip the parser would wait on in every guide.
  */
 export function injectHelpers(html: string, base: string, o: { katex: boolean }): string {
+  const boot = `<script>${GUIDE_BOOT}</script>`;
   const tags = [
     `<link rel="stylesheet" href="${base}/guide.css">`,
     ...(o.katex ? [
@@ -301,9 +308,13 @@ export function injectHelpers(html: string, base: string, o: { katex: boolean })
     ] : []),
     `<script defer src="${base}/guide.js"></script>`,
   ].join("\n");
-  const closeHead = /<\/head\s*>/i.exec(html);
-  if (closeHead) return `${html.slice(0, closeHead.index)}${tags}\n${html.slice(closeHead.index)}`;
   const openHead = /<head(\s[^>]*)?>/i.exec(html);
-  if (openHead) { const at = openHead.index + openHead[0].length; return `${html.slice(0, at)}\n${tags}${html.slice(at)}`; }
-  return `${tags}\n${html}`;
+  const closeHead = /<\/head\s*>/i.exec(html);
+  if (openHead && closeHead && closeHead.index > openHead.index) {
+    const at = openHead.index + openHead[0].length;
+    return `${html.slice(0, at)}\n${boot}${html.slice(at, closeHead.index)}${tags}\n${html.slice(closeHead.index)}`;
+  }
+  if (closeHead) return `${html.slice(0, closeHead.index)}${boot}\n${tags}\n${html.slice(closeHead.index)}`;
+  if (openHead) { const at = openHead.index + openHead[0].length; return `${html.slice(0, at)}\n${boot}\n${tags}${html.slice(at)}`; }
+  return `${boot}\n${tags}\n${html}`;
 }

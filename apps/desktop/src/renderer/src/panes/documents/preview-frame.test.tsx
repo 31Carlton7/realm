@@ -121,6 +121,89 @@ describe("DocumentsPane — html guides (Plan 22)", () => {
     expect(again.api.calls.length).toBeGreaterThan(0);
   });
 
+  /** A frame whose posts can be recorded, and a way to post from it as its runtime would. */
+  async function guideFrame(path: string) {
+    const frame = await screen.findByTitle(`Guide preview of ${path}`) as HTMLIFrameElement;
+    const posted: any[] = [];
+    Object.defineProperty(frame, "contentWindow", { value: { postMessage: (m: unknown) => posted.push(m) } });
+    const from = (data: unknown, source: unknown = frame.contentWindow) =>
+      act(() => { window.dispatchEvent(new MessageEvent("message", { data, source: source as Window })); });
+    return { frame, posted, from };
+  }
+  const envelopeOf = (frame: HTMLIFrameElement) => JSON.parse(frame.getAttribute("name") || "null");
+
+  it("keeps what the guide was in the middle of, and makes the next frame with it as its name", async () => {
+    /* A switch away unmounts the frame and a switch back makes a new one, with a guide that starts from
+       nothing unless it is handed its state before its own scripts run — which the frame's name is.
+       THE MUTANT: drop `name={info?.name}` from the iframe. The state is kept, nothing reaches the
+       guide, and it comes back blank. */
+    const { unmount } = renderPane({ "g.html": "<p>hi</p>" }, ["g.html"], "g.html");
+    const first = await guideFrame("g.html");
+    expect(envelopeOf(first.frame)).toBeNull();
+    const state = { v: 1, hash: "#u-2", widgets: { "q0:abc": { a: [[1]], k: 0 }, "c1:def": 1 }, local: { course: "{\"done\":3}" } };
+    first.from({ type: "realm-guide:state", doc: "docs1/g.html", state });
+    first.from({ type: "realm-guide:scroll", top: 700 });
+    unmount();
+
+    renderPane({ "g.html": "<p>hi</p>" }, ["g.html"], "g.html");
+    const again = await guideFrame("g.html");
+    expect(envelopeOf(again.frame)).toEqual({ k: "realm-guide-state", doc: "docs1/g.html", state: { ...state, top: 700 } });
+  });
+
+  it("keeps a guide's state under its own path, and not a page the frame was navigated to", async () => {
+    const { unmount } = renderPane({ "g.html": "<p>hi</p>", "h.html": "<p>h</p>" }, ["g.html", "h.html"], "g.html");
+    const g = await guideFrame("g.html");
+    // A link inside g.html took the frame to h.html: its state is h's, and this tab is g's.
+    g.from({ type: "realm-guide:state", doc: "docs1/h.html", state: { v: 1, widgets: { "d0:x": 1 } } });
+    // Not a state at all: the frame is a page an agent wrote, and is not trusted with the shape.
+    g.from({ type: "realm-guide:state", doc: "docs1/g.html", state: { v: 1, local: { n: 5 } } });
+    unmount();
+    renderPane({ "g.html": "<p>hi</p>", "h.html": "<p>h</p>" }, ["g.html", "h.html"], "g.html");
+    expect(envelopeOf((await guideFrame("g.html")).frame)).toBeNull();
+  });
+
+  it("answers a ready that came up without its state with the pane's copy, once; a seeded one with progress only", async () => {
+    const { unmount } = renderPane({ "g.html": "<p>hi</p>" }, ["g.html"], "g.html");
+    const state = { v: 1, widgets: { "s0:abc": 2 } };
+    (await guideFrame("g.html")).from({ type: "realm-guide:state", doc: "docs1/g.html", state });
+    unmount();
+
+    renderPane({ "g.html": "<p>hi</p>" }, ["g.html"], "g.html");
+    const f = await guideFrame("g.html");
+    f.from({ type: "realm-guide:ready", doc: "docs1/g.html", seeded: true });
+    await waitFor(() => expect(f.posted.map((m) => m.type)).toEqual(["realm-guide:progress"]));
+    // The frame's guide lost its name (a link away and back): the copy goes once, and only once — a
+    // guide that keeps losing it is not reloaded with it forever.
+    f.from({ type: "realm-guide:ready", doc: "docs1/g.html", seeded: false });
+    f.from({ type: "realm-guide:ready", doc: "docs1/g.html", seeded: false });
+    await waitFor(() => expect(f.posted.filter((m) => m.type === "realm-guide:progress")).toHaveLength(3));
+    expect(f.posted.filter((m) => m.type === "realm-guide:restore")).toEqual([{ type: "realm-guide:restore", state }]);
+    // A ready from a page the frame navigated to is not answered with this guide's state.
+    f.from({ type: "realm-guide:ready", doc: "docs1/other.html", seeded: false });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(f.posted.filter((m) => m.type === "realm-guide:restore")).toHaveLength(1);
+  });
+
+  it("seeds a guide this run has not shown from its sidecar, and writes the guide's storage back to it", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { api } = renderPane({ "g.html": "<p>hi</p>" }, ["g.html"], "g.html", {
+      guideProgress: { "docs1:g.html": { version: 1, topics: {}, storage: { course: "{\"done\":7}" } } },
+    });
+    const f = await guideFrame("g.html");
+    expect(envelopeOf(f.frame)).toEqual({ k: "realm-guide-state", doc: "docs1/g.html", state: { v: 1, local: { course: "{\"done\":7}" } } });
+    // What goes to the frame as progress is the topics, not the storage.
+    f.from({ type: "realm-guide:ready", doc: "docs1/g.html", seeded: true });
+    await waitFor(() => expect(f.posted).toEqual([{ type: "realm-guide:progress", progress: { version: 1, topics: {} } }]));
+
+    // A state that leaves storage as the sidecar has it writes nothing; one that changes it writes,
+    // once, after the burst settles.
+    f.from({ type: "realm-guide:state", doc: "docs1/g.html", state: { v: 1, local: { course: "{\"done\":7}" }, widgets: { "d0:x": 1 } } });
+    f.from({ type: "realm-guide:state", doc: "docs1/g.html", state: { v: 1, local: { course: "{\"done\":8}" } } });
+    f.from({ type: "realm-guide:state", doc: "docs1/g.html", state: { v: 1, local: { course: "{\"done\":9}" } } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(600); });
+    expect(api.calls.filter((c) => c.startsWith("writeGuideStorage:"))).toEqual(["writeGuideStorage:docs1:g.html:{\"course\":\"{\\\"done\\\":9}\"}"]);
+  });
+
   it("offers Guide among the new-document kinds, and creating one needs no name up front", async () => {
     const { api } = renderPane({});
     fireEvent.click(await screen.findByRole("button", { name: "New" }));
