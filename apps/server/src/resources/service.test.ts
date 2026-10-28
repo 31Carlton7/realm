@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MachineMemory, MemoryPressure } from "@realm/contracts";
 import { APP_METRICS_TIMEOUT_MS, OTHERS_TTL_MS, PRESSURE_EVERY_MS, ResourceService, SNAPSHOT_TTL_MS } from "./service";
 import { RESOURCES_ADAPTIVE_KEY } from "@realm/contracts";
-import type { MachineProbe, ProcRow } from "./machine";
+import { realMachineProbe, type MachineProbe, type ProcRow } from "./machine";
 import type { Owners } from "./attribute";
 
 const MB = 1024 ** 2;
@@ -130,6 +130,34 @@ describe("pressure", () => {
     level = "normal";
     await s.machine();
     expect(heard).toEqual(["normal", "warn", "normal"]);
+  });
+});
+
+describe("the swap-out rate", () => {
+  it("is measured over half a minute or more, however often the machine is read", async () => {
+    // THE MUTANT: every read becoming the next one's baseline. The Memory page asks 100 ms after the
+    // timer, in the middle of a 10 MB burst — 100 MB a second, "critical", and the engines go.
+    let t = 1_000_000, swapouts = 0;
+    const probe = realMachineProbe({
+      platform: "darwin", now: () => t,
+      run: async (file) => file.endsWith("sysctl")
+        ? "hw.memsize: 100\nkern.memorystatus_vm_pressure_level: 1\nkern.memorystatus_level: 60\nvm.swapusage: total = 2048.00M  used = 1024.00M  free = 1024.00M"
+        : `Mach Virtual Memory Statistics: (page size of 1024 bytes)\nPages occupied by compressor: 2.\nSwapouts: ${swapouts}.\n`,
+    });
+    const s = new ResourceService({ probe, owners, app: async () => null, now: () => t });
+    expect((await s.machine()).swapOutPerSecond).toBeNull();
+    // A read a moment later has nothing old enough to measure from.
+    t += 5_000; swapouts += 1024;
+    expect((await s.machine()).swapOutPerSecond).toBeNull();
+    t += 25_000; swapouts += 29 * 1024; // 30 MB in 30 s
+    expect(await s.machine()).toMatchObject({ swapOutPerSecond: 1024 ** 2, pressure: "warn" });
+    // `machine_status` reads, and then the page, a moment apart, in the middle of the burst.
+    t += 50; swapouts += 1024;
+    await s.machine();
+    t += 50; swapouts += 10 * 1024;
+    const burst = await s.machine();
+    expect(burst.swapOutPerSecond!).toBeLessThan(2 * 1024 ** 2);
+    expect(burst.pressure).toBe("warn");
   });
 });
 

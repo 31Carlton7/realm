@@ -10,6 +10,10 @@ export const SNAPSHOT_TTL_MS = 5_000;
 export const OTHERS_TTL_MS = 60_000;
 /** How often pressure is read while Realm runs — one `sysctl` and one `vm_stat`, a few milliseconds. */
 export const PRESSURE_EVERY_MS = 30_000;
+/** The shortest span a swap-out rate is measured over. The Memory page reads every ten seconds and
+ *  `machine_status` whenever it is called: two readings a moment apart turn a small burst into what
+ *  reads as a flood, and a flood is "critical". */
+export const RATE_SPAN_MS = 30_000;
 /** How long the app may take to list its processes before a report goes out without them. */
 export const APP_METRICS_TIMEOUT_MS = 3_000;
 /** A Claude Code Bash call, as its shell runs it. */
@@ -30,6 +34,8 @@ export class ResourceService {
   private inflight: Promise<ResourceReport> | null = null;
   private othersCache: { at: number; map: Map<number, number> | null } | null = null;
   private reading: { memory: MachineMemory; counters: MachineCounters } | null = null;
+  /** The readings a rate is measured from, oldest first, each `RATE_SPAN_MS` or more after the last. */
+  private baselines: MachineCounters[] = [];
   private timer: NodeJS.Timeout | null = null;
   private readonly listeners = new Set<(pressure: MemoryPressure) => void>();
   private closed = false;
@@ -106,7 +112,12 @@ export class ResourceService {
   /** Read the machine now: memory, pressure, swap, load. */
   async machine(): Promise<MachineMemory> {
     const before = this.reading?.memory.pressure ?? "unknown";
-    const next = await this.d.probe.memory(this.reading?.counters ?? null);
+    // Measured from the newest baseline old enough, else the one before it — which is older still.
+    const now = this.now();
+    const latest = this.baselines.at(-1) ?? null;
+    const base = latest && now - latest.at >= RATE_SPAN_MS ? latest : this.baselines.length > 1 ? this.baselines[0]! : null;
+    const next = await this.d.probe.memory(base);
+    if (!latest || next.counters.at - latest.at >= RATE_SPAN_MS) this.baselines = [...this.baselines.slice(-1), next.counters];
     // A rate needs two readings; until there are, the level is macOS's alone.
     this.reading = next;
     if (next.memory.pressure !== before) for (const fn of this.listeners) { try { fn(next.memory.pressure); } catch { /* a listener's problem */ } }
