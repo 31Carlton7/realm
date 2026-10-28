@@ -70,14 +70,15 @@ async function boot(simulators?: boolean) {
   const codex = new RecordingAdapter("codex");
   const cursor = new RecordingAdapter("acp:cursor");
   const gemini = new RecordingAdapter("acp:gemini");
+  const fake = new RecordingAdapter("fake");
   app = await createApp({
-    home, port: 0, adapters: { claude, codex, "acp:cursor": cursor, "acp:gemini": gemini }, claudeDir: join(home, "claude-home"),
+    home, port: 0, adapters: { claude, codex, "acp:cursor": cursor, "acp:gemini": gemini, fake }, claudeDir: join(home, "claude-home"),
     ...(simulators === undefined ? {} : { simulatorToolchain: async () => simulators }),
   });
   const c = await client(app.port);
   const p = (await c.call("profiles.create", { name: "W" })).result;
   const space = (await c.call("spaces.create", { profileId: p.id, name: "A" })).result;
-  return { c, space, claude, codex, cursor, gemini };
+  return { c, space, claude, codex, cursor, gemini, fake };
 }
 
 /** What the session's `realm` gateway says about itself when its agent connects. */
@@ -162,38 +163,40 @@ describe("the capabilities preamble reaches an ordinary session", () => {
     c.close();
   });
 
-  it("keeps the preamble out of Cursor's context, which rides in its first prompt — the gateway says it instead", async () => {
+  it("gives Cursor the preamble in its context, which rides at the top of its first prompt, even with no memory", async () => {
     const { c, space, cursor } = await boot();
     await startSession(c, space.id, "acp:cursor");
     await waitFor(() => cursor.starts.length === 1);
-    // THE MUTANT: compose the preamble for every kind with a channel. Cursor would read it twice — at
-    // the top of its first prompt and in the gateway's instructions — and carry it in the user's turn.
-    // With no memory here, the context is nothing at all.
-    expect(cursor.starts[0]!.systemContext).toBeUndefined();
+    // THE MUTANT: route the ACP agents through the gateway's instructions again. Whether those reach the
+    // model is the MCP client's choice; the first prompt is read by every one of them.
+    expect(cursor.starts[0]!.systemContext).toContain("This session runs in Realm");
+    expect(cursor.starts[0]!.systemContext).toContain("browser_open");
     c.close();
   });
 
-  it("reaches every kind of agent exactly once: Claude and Codex in their context, the ACP agents through the gateway", async () => {
-    const { c, space, claude, codex, cursor, gemini } = await boot();
-    // Memory on, so the ACP agents have a context of their own — and the preamble is still not in it.
+  it("reaches every kind of agent exactly once: each with a channel in its context, the one with none through the gateway", async () => {
+    const { c, space, claude, codex, cursor, gemini, fake } = await boot();
+    // Memory on, so the order of the two in the context can be read.
     await c.call("memory.set", { spaceId: space.id, doc: "SPACE_DOC_2291" });
-    for (const kind of ["claude", "codex", "acp:cursor", "acp:gemini"]) await startSession(c, space.id, kind);
-    await waitFor(() => [claude, codex, cursor, gemini].every((a) => a.starts.length === 1));
-    for (const a of [claude, codex]) {
-      expect(a.starts[0]!.systemContext).toContain("This session runs in Realm");
-      // Never twice: Claude Code reads a server's instructions too, and would read the preamble again.
-      expect(await gatewayInstructions(a.starts[0]!)).toBeUndefined();
+    for (const kind of ["claude", "codex", "acp:cursor", "acp:gemini", "fake"]) await startSession(c, space.id, kind);
+    await waitFor(() => [claude, codex, cursor, gemini, fake].every((a) => a.starts.length === 1));
+    for (const a of [claude, codex, cursor, gemini]) {
+      const ctx = a.starts[0]!.systemContext!;
+      expect(ctx, a.kind).toContain("This session runs in Realm");
+      // The same order for every engine: what Realm's tools are for, then the user's memory, which
+      // can overrule it.
+      expect(ctx.indexOf("This session runs in Realm"), a.kind).toBeLessThan(ctx.indexOf("SPACE_DOC_2291"));
+      // Never twice: Claude Code reads a server's instructions too, and an ACP client may.
+      // THE MUTANT: keep registering the ACP sessions with the preamble as the gateway's instructions.
+      expect(await gatewayInstructions(a.starts[0]!), a.kind).toBeUndefined();
     }
-    for (const a of [cursor, gemini]) {
-      expect(a.starts[0]!.systemContext).toContain("SPACE_DOC_2291");
-      expect(a.starts[0]!.systemContext).not.toContain("This session runs in Realm");
-      // THE MUTANT: pass no instructions to `register`. The ACP agents — which take no system prompt —
-      // go back to knowing nothing of Realm's tools but a tool list.
-      const said = await gatewayInstructions(a.starts[0]!);
-      expect(said).toContain("This session runs in Realm");
-      expect(said).toContain("browser_open");
-      expect(said).toContain("## Finishing without the user");
-    }
+    // An agent with no channel at all learns it from the one thing it connects to.
+    // THE MUTANT: pass no instructions to `register` — that agent knows Realm's tools only as a list.
+    expect(fake.starts[0]!.systemContext ?? "").not.toContain("This session runs in Realm");
+    const said = await gatewayInstructions(fake.starts[0]!);
+    expect(said).toContain("This session runs in Realm");
+    expect(said).toContain("browser_open");
+    expect(said).toContain("## Finishing without the user");
     c.close();
   });
 });

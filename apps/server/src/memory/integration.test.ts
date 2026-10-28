@@ -241,13 +241,12 @@ describe("memory over rpc", () => {
     const settings = new SettingsStore(app.db);
     const before = new MemoryService({ home, claudeDir, settings, environments: new EnvironmentsStore(app.db), scopes: { profileIdOf: () => spA.profileId } });
     const preamble = capabilitiesContext(app.gateway.realmProvidersFor(cl.id, spA.id).filter((n) => n !== MEMORY_PROVIDER_NAME));
-    for (const [kind, start] of [["claude", claude.starts[0]!], ["codex", codex.starts[0]!]] as const) {
+    // Cursor's is the block at the top of its first prompt, made the same way.
+    for (const [kind, start] of [["claude", claude.starts[0]!], ["codex", codex.starts[0]!], ["acp:cursor", cursor.starts[0]!]] as const) {
       expect(start.systemContext).not.toContain("# Memory repo");
       expect(start.systemContext).not.toContain("memory_save");
       expect(start.systemContext).toBe(`${preamble}\n\n${before.systemContextFor({ spaceId: spA.id, kind, cwd: start.cwd, skillsInjected: false })}`);
     }
-    // Cursor's first prompt carries the documents alone: the preamble reaches it through the gateway.
-    expect(cursor.starts[0]!.systemContext).toBe(before.systemContextFor({ spaceId: spA.id, kind: "acp:cursor", cwd: cursor.starts[0]!.cwd, skillsInjected: false }));
     const tools = (await (await gatewayClient(cursor.starts[0]!)).listTools()).tools.map((t) => t.name);
     expect(tools.some((n) => n.startsWith(`${MEMORY_PROVIDER_NAME}__`))).toBe(false);
     c.close();
@@ -265,7 +264,6 @@ describe("memory over rpc", () => {
     const cu = await startSession(c, spA.id, "acp:cursor");
     await waitFor(() => cursor.starts.length === 1);
     expect(cursor.starts[0]!.systemContext).toContain(`# Memory repo\n\nAgents keep what they learn about the user in a memory repo at ${made.path}`);
-    expect(cursor.starts[0]!.systemContext).not.toContain("This session runs in Realm");
     const client = await gatewayClient(cursor.starts[0]!);
     const names = (await client.listTools()).tools.map((t) => t.name).filter((n) => n.startsWith(`${MEMORY_PROVIDER_NAME}__`));
     expect(names).toEqual(["memory_index", "memory_read", "memory_search", "memory_save", "memory_remove", "memory_write_file"].map((t) => `${MEMORY_PROVIDER_NAME}__${t}`));

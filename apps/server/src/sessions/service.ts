@@ -1641,20 +1641,20 @@ export class SessionService {
     // Skipped for a session that already carries `agentContext` — a delegated child, a reviewer, an
     // unattended worker. Each of those was spawned with a brief written for one job, and generic advice
     // about spawning MORE agents beside a brief that just told it how deep it may go is noise at best.
-    // An agent with no system prompt to put it in — the ACP agents, whose session/new takes no
-    // per-session context — is told the same thing by the one thing it does connect to: the gateway's
-    // own `initialize` answer, as the server's instructions. Never both, so Claude does not read it
-    // twice. And for an ACP agent the context below rides in its first prompt (`firstPrompt`), so the
-    // preamble stays out of that too: the memory there, the preamble on the gateway, each once.
+    // Every agent with a context channel gets it in `systemContext`, in this one order: Claude in its
+    // system prompt, Codex in its developer instructions, and the ACP agents at the top of the first
+    // prompt each agent process is sent (`firstPrompt`) — a route every one of them reads, where an MCP
+    // server's `instructions` reach the model only if the client chooses to pass them on. Only an agent
+    // with no channel at all is told through the gateway's own `initialize` answer instead. Never both,
+    // so no agent reads it twice.
     const preamble = agentContext ? undefined : capabilitiesContext(this.d.gateway.realmProvidersFor(id, s.spaceId));
-    const channel = AGENT_MEMORY_CHANNEL[s.agentKind];
-    const noSystemPrompt = channel === "none" || channel === "firstPrompt";
-    const capabilities = noSystemPrompt ? undefined : preamble;
+    const noChannel = AGENT_MEMORY_CHANNEL[s.agentKind] === "none";
+    const capabilities = noChannel ? undefined : preamble;
     // The ONLY MCP config any agent ever receives (W3): one `realm` gateway entry, minted fresh per
     // session start by `gateway.register`. Third-party server endpoints, API keys and OAuth tokens never
     // leave realm-server — an agent reaches them only by proxy, through the Bearer token below, which
     // `onLog` (like every other log line here) never sees.
-    const mcpServers = [this.d.gateway.register(id, s.spaceId, noSystemPrompt ? preamble : undefined)];
+    const mcpServers = [this.d.gateway.register(id, s.spaceId, noChannel ? preamble : undefined)];
     const joined = [capabilities, baseContext, agentContext, handoffContext].filter((p): p is string => Boolean(p)).join("\n\n");
     const systemContext = joined.length > 0 ? joined : undefined;
     // The fork a checkpoint restore armed, if one is still waiting. Read off the ROW and not from

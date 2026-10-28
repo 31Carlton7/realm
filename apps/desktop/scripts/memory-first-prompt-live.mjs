@@ -177,7 +177,8 @@ async function main() {
   check("each prompt ends with exactly what was typed, a block of its own",
     wire.every((p, i) => JSON.stringify(p.at(-1)) === JSON.stringify({ type: "text", text: TYPED[i] })), wire.map((p) => p.at(-1)));
   check("the restarted process is sent the same bytes the first one was", JSON.stringify(wire[0][0]) === JSON.stringify(wire[2][0]));
-  check("the capabilities preamble is not in the block (it reaches ACP agents through the gateway)", !wire[0][0].text.includes("This session runs in Realm"));
+  const tools = wire[0][0].text.indexOf("This session runs in Realm");
+  check("the block says what Realm's tools are for, ahead of the memory — Claude's and Codex's order", tools > 0 && tools < wire[0][0].text.indexOf(MEMORY), { tools, memory: wire[0][0].text.indexOf(MEMORY) });
   console.log(`WIRE prompt 1, block 0 (first 400 chars):\n${wire[0][0].text.slice(0, 400)}\n…`);
 
   // ── What Realm stored and drew ──

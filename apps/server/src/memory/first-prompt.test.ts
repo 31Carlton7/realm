@@ -9,10 +9,11 @@ import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
 
 /**
- * Realm's memory reaching an ACP agent, end to end: a real `AcpAdapter` driving the fake ACP agent the
- * adapter suite uses, through the ordinary create-then-send path. The agent writes every
- * `session/prompt` it receives to a file, so what crossed the wire is read here as the agent saw it —
- * and the stored transcript is read over RPC as the renderer reads it.
+ * Realm's context — what its tools are for, then the memory — reaching an ACP agent, end to end: a
+ * real `AcpAdapter` driving the fake ACP agent the adapter suite uses, through the ordinary
+ * create-then-send path. The agent writes every `session/prompt` it receives to a file, so what
+ * crossed the wire is read here as the agent saw it — and the stored transcript is read over RPC as
+ * the renderer reads it.
  */
 
 const FAKE_ACP = fileURLToPath(new URL("../../../../packages/adapters/src/acp/fixtures/fake-acp-agent.mjs", import.meta.url));
@@ -52,7 +53,7 @@ async function boot() {
   return { c, space, prompts };
 }
 
-describe("Realm's memory in an ACP agent's first prompt", () => {
+describe("Realm's context in an ACP agent's first prompt", () => {
   it("arrives once per agent process, ahead of the user's words, while the transcript keeps only what was typed", async () => {
     const { c, space, prompts } = await boot();
     await c.call("memory.set", { spaceId: space.id, doc: "SPACE_DOC_7731: deploys go out from main." });
@@ -76,9 +77,9 @@ describe("Realm's memory in an ACP agent's first prompt", () => {
     expect(wire.map((p) => p.filter((b) => b.text?.includes("SPACE_DOC_7731")).length)).toEqual([1, 0, 1, 0]);
     const context = wire[0]![0]!;
     expect(context.text).toMatch(/^<realm-context>\n/);
-    expect(context.text).toContain("# Space memory");
-    // The capabilities preamble reaches an ACP agent through the gateway's instructions, never here too.
-    expect(context.text).not.toContain("This session runs in Realm");
+    // What Realm's tools are for, then the memory — the order Claude and Codex get them in.
+    expect(context.text).toContain("This session runs in Realm");
+    expect(context.text!.indexOf("This session runs in Realm")).toBeLessThan(context.text!.indexOf("# Space memory"));
     // The user's words, a block of their own, exactly as typed.
     expect(wire.map((p) => p.at(-1))).toEqual(["first message", "second message", "third message", "fourth message"].map((text) => ({ type: "text", text })));
     // The restarted process is sent the same bytes the first one was.
@@ -94,12 +95,16 @@ describe("Realm's memory in an ACP agent's first prompt", () => {
     c.close();
   }, 30_000);
 
-  it("sends nothing extra where the space has no memory", async () => {
+  it("carries what Realm's tools are for even where the space has no memory, and only that", async () => {
     const { c, space, prompts } = await boot();
     const { session } = (await c.call("sessions.create", { spaceId: space.id, agentKind: "acp:gemini" })).result;
     await c.call("sessions.send", { id: session.id, text: "hello" });
     await waitFor(() => prompts().length === 1, { timeout: 10_000 });
-    expect(prompts()).toEqual([[{ type: "text", text: "hello" }]]);
+    const [first] = prompts();
+    expect(first).toHaveLength(2);
+    expect(first![0]!.text).toMatch(/^<realm-context>\n[\s\S]*This session runs in Realm[\s\S]*<\/realm-context>$/);
+    expect(first![0]!.text).not.toContain("# Space memory");
+    expect(first![1]).toEqual({ type: "text", text: "hello" });
     c.close();
   }, 30_000);
 });
