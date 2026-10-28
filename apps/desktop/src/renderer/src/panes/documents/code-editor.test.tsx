@@ -164,6 +164,16 @@ describe("CodeEditor", () => {
     expect(recallScroll("doc:d1:code:src/b.ts")).toMatchObject({ top: 900 });
   });
 
+  it("keeps the reader's place as CodeMirror's own snapshot, for the text it was taken in", () => {
+    /* An offset alone is put back before CodeMirror has measured a line, into its guess at their
+       heights, and lands further down the file (1200 came back as 1770, live). THE MUTANT: remember
+       only the offset. jsdom lays nothing out, so the landing itself is the live check's to prove. */
+    const text = Array.from({ length: 50 }, (_, i) => `const v${i} = ${i};`).join("\n");
+    const { container } = render(<CodeEditor path="src/d.ts" text={text} onChange={() => {}} scrollKey="doc:d1:code:src/d.ts" />);
+    fireEvent.scroll(container.querySelector(".cm-scroller")!);
+    expect(recallScroll("doc:d1:code:src/d.ts")?.snapshot).toMatchObject({ length: text.length });
+  });
+
   it("puts the caret back where the reader left it in a file — unless they were sent to a line", () => {
     /* THE MUTANT: build the state without `selection`. Scroll comes back, the caret is at the top of
        the file, and the next keystroke lands there. */

@@ -36,7 +36,13 @@ export const NEAR_END_PX = 80;
 export type ScrollMark = { top: number; atEnd: boolean;
   /** Where a long transcript's drawn window started (Transcript's `start`), so an offset is put back
    *  into the same column it was measured in. Absent for every other scroller. */
-  from?: number };
+  from?: number;
+  /** CodeMirror's own record of the place (`EditorView.scrollSnapshot()`): a line and the distance from
+   *  it, which it puts back once its lines are measured. An offset cannot be put back before then —
+   *  CodeMirror guesses a line's height until it has drawn one, and the real heights carry an offset
+   *  written into the guess down the file. Good only for the text it was taken in, which `length`
+   *  stands for. Absent for every other scroller. */
+  snapshot?: { effect: unknown; length: number } };
 
 /** How long a restore keeps trying to land before it gives up. A scroller can exist before its
  *  content does, and one assignment to an empty box is silently clamped to 0 — so the offset is
