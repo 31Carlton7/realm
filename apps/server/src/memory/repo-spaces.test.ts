@@ -200,9 +200,12 @@ describe("the index a session reads, by agent", () => {
 describe("a space moved to another profile", () => {
   const WORK = "01ARZ3NDEKTSV4RRFFQ69G5FPW";
   const SCHOOL = "01ARZ3NDEKTSV4RRFFQ69G5FPS";
+  const HOME = "01ARZ3NDEKTSV4RRFFQ69G5FPH";
   const WORK_GENERAL = "01ARZ3NDEKTSV4RRFFQ69G5FWG";
   const SCHOOL_GENERAL = "01ARZ3NDEKTSV4RRFFQ69G5FSG";
-  /** Two profiles with a repo each, and a space called General in both — the owner's own case. */
+  const SCHOOL_OTHER = "01ARZ3NDEKTSV4RRFFQ69G5FSO";
+  /** Three profiles with a repo each, and a space called General in Work and in School — the owner's
+   *  own case — plus a second School space of that name made later in a test. */
   async function twoProfiles() {
     const home = tempDir("realm-memmove-");
     const settings = new SettingsStore(openDatabase(join(home, "realm.db")));
@@ -218,7 +221,9 @@ describe("a space moved to another profile", () => {
     });
     const work = (await repos.create({ scope: "profile", id: WORK })).path;
     const school = (await repos.create({ scope: "profile", id: SCHOOL })).path;
-    return { settings, repos, work, school, moveToWork: () => { profileOf[SCHOOL_GENERAL] = WORK; } };
+    const homeRepo = (await repos.create({ scope: "profile", id: HOME })).path;
+    const move = (spaceId: string, profileId: string) => { profileOf[spaceId] = profileId; };
+    return { settings, repos, work, school, homeRepo, move, moveToWork: () => move(SCHOOL_GENERAL, WORK) };
   }
 
   it("takes a folder of its own in the new profile's repo, with its memory, and leaves the old repo as it was", async () => {
@@ -241,8 +246,9 @@ describe("a space moved to another profile", () => {
     expect(readdirSync(join(h.work, "spaces", "general")).sort()).toEqual(["MEMORY.md", "ports.md"]);
     expect(git(h.school, "rev-parse", "HEAD")).toBe(schoolHead);
     expect(git(h.school, "status", "--porcelain")).toBe("");
-    // Carried once: the record waits for nothing, and a second follow does nothing.
-    expect(h.settings.get(`memory.spaceFolder:${SCHOOL_GENERAL}`)).toEqual({ folder: "general-2", profileId: WORK });
+    // Carried once: the record waits for nothing — it keeps the folder the space had in School — and a
+    // second follow does nothing.
+    expect(h.settings.get(`memory.spaceFolder:${SCHOOL_GENERAL}`)).toEqual({ folder: "general-2", profileId: WORK, earlier: { [SCHOOL]: "general" } });
     expect(h.repos.carryPending(SCHOOL_GENERAL)).toBe(false);
     expect(await h.repos.followSpace(SCHOOL_GENERAL)).toBeNull();
   });
@@ -264,6 +270,15 @@ describe("a space moved to another profile", () => {
     expect(h.settings.get(`memory.spaceFolder:${WORK_GENERAL}`)).toEqual({ folder: "general-notes", profileId: WORK });
     expect(h.repos.hasSpaceFolder(WORK_GENERAL)).toBe(true);
     expect(h.repos.carryPending(WORK_GENERAL)).toBe(false);
+  });
+
+  it("reads a carry left waiting in the shape a record had when only one folder could wait", async () => {
+    const h = await twoProfiles();
+    await h.repos.saveSpaceMemory(SCHOOL_GENERAL, { name: "deadlines", description: "When the essays are due", type: "project", body: "" });
+    h.moveToWork();
+    h.settings.set(`memory.spaceFolder:${SCHOOL_GENERAL}`, { folder: "general", profileId: WORK, carryFrom: { folder: "general", profileId: SCHOOL } });
+    expect(h.repos.carryPending(SCHOOL_GENERAL)).toBe(true);
+    expect(await h.repos.followSpace(SCHOOL_GENERAL)).toMatchObject({ folder: "general", copied: ["deadlines.md"] });
   });
 
   it("lets the tidy pass see only a folder recorded in the space's own profile", async () => {
@@ -290,6 +305,55 @@ describe("a space moved to another profile", () => {
     expect(h.repos.carryPending(SCHOOL_GENERAL)).toBe(true);
     rmSync(join(h.work, "draft.md"));
     expect(await h.repos.followSpace(SCHOOL_GENERAL)).toMatchObject({ copied: ["deadlines.md"] });
+    expect(h.repos.carryPending(SCHOOL_GENERAL)).toBe(false);
+  });
+
+  it("comes back to its own folder when it moves away and back, and brings what it learned away", async () => {
+    const h = await twoProfiles();
+    await h.repos.saveSpaceMemory(WORK_GENERAL, { name: "ports", description: "The port map", type: "project", body: "" });
+    await h.repos.saveSpaceMemory(SCHOOL_GENERAL, { name: "deadlines", description: "When the essays are due", type: "project", body: "Fridays." });
+    h.move(SCHOOL_GENERAL, WORK);
+    await h.repos.followSpace(SCHOOL_GENERAL);
+    await h.repos.saveSpaceMemory(SCHOOL_GENERAL, { name: "essay-topics", description: "What the essays are about", type: "project", body: "" });
+    h.move(SCHOOL_GENERAL, SCHOOL);
+    // THE MUTANT: a fresh folder — spaces/general-2 beside the space's own spaces/general, its memory twice.
+    expect(h.repos.spaceFolderFor(SCHOOL_GENERAL)!.folder).toBe("general");
+    expect(await h.repos.followSpace(SCHOOL_GENERAL)).toMatchObject({ folder: "general", copied: ["essay-topics.md"], left: [] });
+    expect(readdirSync(join(h.school, "spaces"))).toEqual(["general"]);
+    expect(readdirSync(join(h.school, "spaces", "general")).sort()).toEqual(["MEMORY.md", "deadlines.md", "essay-topics.md"]);
+    expect(readFileSync(join(h.school, "spaces", "general", "MEMORY.md"), "utf8")).toBe(
+      "- [deadlines](deadlines.md) — When the essays are due\n- [essay-topics](essay-topics.md) — What the essays are about\n");
+    expect(readFileSync(join(h.school, "MEMORY.md"), "utf8").match(/spaces\/general\/MEMORY/g)).toHaveLength(1);
+    expect(git(h.school, "status", "--porcelain")).toBe("");
+    // And away again: Work's folder is its own there too.
+    h.move(SCHOOL_GENERAL, WORK);
+    expect(h.repos.spaceFolderFor(SCHOOL_GENERAL)!.folder).toBe("general-2");
+  });
+
+  it("takes a fresh folder where another space has taken its old name since", async () => {
+    const h = await twoProfiles();
+    expect(h.repos.spaceFolderFor(SCHOOL_GENERAL)!.folder).toBe("general");
+    h.move(SCHOOL_GENERAL, WORK);
+    await h.repos.followSpace(SCHOOL_GENERAL);
+    // A new School space called General takes the name nothing in School held any more.
+    h.move(SCHOOL_OTHER, SCHOOL);
+    expect(h.repos.spaceFolderFor(SCHOOL_OTHER)!.folder).toBe("general");
+    h.move(SCHOOL_GENERAL, SCHOOL);
+    // THE MUTANT: take the old name back whoever holds it — two spaces, one memory directory.
+    expect(h.repos.spaceFolderFor(SCHOOL_GENERAL)!.folder).toBe("general-2");
+    expect(h.repos.spaceFolderFor(SCHOOL_OTHER)!.folder).toBe("general");
+  });
+
+  it("still carries the first folder's memory when the space moves on before a refused carry lands", async () => {
+    const h = await twoProfiles();
+    await h.repos.saveSpaceMemory(SCHOOL_GENERAL, { name: "deadlines", description: "When the essays are due", type: "project", body: "Fridays." });
+    h.move(SCHOOL_GENERAL, WORK);
+    writeFileSync(join(h.work, "draft.md"), "the person's own");
+    await expect(h.repos.followSpace(SCHOOL_GENERAL)).rejects.toMatchObject({ code: "MEMORY_REPO_DIRTY" });
+    h.move(SCHOOL_GENERAL, HOME);
+    // THE MUTANT: the second move writes over what was waiting — School's folder never comes over.
+    expect(await h.repos.followSpace(SCHOOL_GENERAL)).toMatchObject({ folder: "general", copied: ["deadlines.md"] });
+    expect(readFileSync(join(h.homeRepo, "spaces", "general", "deadlines.md"), "utf8")).toBe(readFileSync(join(h.school, "spaces", "general", "deadlines.md"), "utf8"));
     expect(h.repos.carryPending(SCHOOL_GENERAL)).toBe(false);
   });
 });

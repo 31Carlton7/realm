@@ -44,20 +44,35 @@ export const SPACES_DIR = "spaces";
 /** What a recorded folder name may be — the shape `folderSlug` makes. Anything else was not Realm's. */
 const FOLDER_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
-/** A space's recorded folder: its name, the profile whose repo it is in, and — after the space moved
- *  to another profile, until its memory is carried over — the folder it left. */
-type FolderRecord = { folder: string; profileId: string | null; carryFrom: { folder: string; profileId: string } | null };
+/** A folder of one profile's repo. */
+type FolderAt = { folder: string; profileId: string };
 
-/** A space's record, in either shape it has been kept in: `{ folder, profileId }`, or the bare folder
+/**
+ * A space's recorded folder: its name, and the profile whose repo it is in. After the space moves to
+ * another profile, `carryFrom` holds every folder whose memory has not been carried over yet, oldest
+ * first, and `earlier` the folder it had in each repo it was in before, by profile — so a space that
+ * comes back takes its own folder again rather than a second one beside it.
+ */
+type FolderRecord = { folder: string; profileId: string | null; carryFrom: FolderAt[]; earlier: Record<string, string> };
+
+const folderAt = (v: unknown): FolderAt | null => {
+  const c = v as { folder?: unknown; profileId?: unknown } | null;
+  return c && typeof c.folder === "string" && FOLDER_NAME.test(c.folder) && typeof c.profileId === "string" ? { folder: c.folder, profileId: c.profileId } : null;
+};
+
+/** A space's record, in any shape it has been kept in: `{ folder, profileId, … }`, or the bare folder
  *  name of a record made before the profile was kept with it (`profileId` null). Null for none. */
 export function readSpaceFolder(v: unknown): FolderRecord | null {
-  if (typeof v === "string") return FOLDER_NAME.test(v) ? { folder: v, profileId: null, carryFrom: null } : null;
+  if (typeof v === "string") return FOLDER_NAME.test(v) ? { folder: v, profileId: null, carryFrom: [], earlier: {} } : null;
   if (!v || typeof v !== "object") return null;
-  const r = v as { folder?: unknown; profileId?: unknown; carryFrom?: { folder?: unknown; profileId?: unknown } | null };
+  const r = v as { folder?: unknown; profileId?: unknown; carryFrom?: unknown; earlier?: unknown };
   if (typeof r.folder !== "string" || !FOLDER_NAME.test(r.folder) || typeof r.profileId !== "string") return null;
-  const c = r.carryFrom;
-  const carryFrom = c && typeof c.folder === "string" && FOLDER_NAME.test(c.folder) && typeof c.profileId === "string" ? { folder: c.folder, profileId: c.profileId } : null;
-  return { folder: r.folder, profileId: r.profileId, carryFrom };
+  // One folder waiting, in the shape a record had before several could.
+  const carryFrom = (Array.isArray(r.carryFrom) ? r.carryFrom : r.carryFrom ? [r.carryFrom] : []).map(folderAt).filter((c): c is FolderAt => c !== null);
+  const earlier = r.earlier && typeof r.earlier === "object"
+    ? Object.fromEntries(Object.entries(r.earlier).filter((e): e is [string, string] => typeof e[1] === "string" && FOLDER_NAME.test(e[1])))
+    : {};
+  return { folder: r.folder, profileId: r.profileId, carryFrom, earlier };
 }
 
 /** What carrying a moved space's memory into its new folder did: the files copied, and the ones left
@@ -306,13 +321,22 @@ export class MemoryRepoService {
     if (rec && (rec.profileId === null || rec.profileId === repo.ownerId)) {
       folder = rec.folder;
       // A record from before the profile was kept with it is this profile's, and says so from now on.
-      if (rec.profileId === null) this.d.settings.set(spaceFolderKey(spaceId), { folder, profileId: repo.ownerId });
+      if (rec.profileId === null) this.recordFolder(spaceId, { ...rec, profileId: repo.ownerId });
     } else {
-      // New here, or moved here from another profile: the name it had may be another space's in this
-      // repo, so it takes one of its own — and remembers the folder it left, to carry its memory over.
-      folder = this.unusedFolder(spaceId, repo);
-      const carryFrom = rec?.profileId ? { folder: rec.folder, profileId: rec.profileId } : null;
-      this.d.settings.set(spaceFolderKey(spaceId), { folder, profileId: repo.ownerId, ...(carryFrom ? { carryFrom } : {}) });
+      // New here, or moved here from another profile. Back in a repo it had a folder in, it takes that
+      // one again, unless another space has taken the name since; otherwise one of its own, since the
+      // name it had elsewhere may be another space's here.
+      const earlier = { ...rec?.earlier };
+      if (rec?.profileId) earlier[rec.profileId] = rec.folder;
+      const own = earlier[repo.ownerId];
+      delete earlier[repo.ownerId];
+      folder = own !== undefined && !this.recordedHere(spaceId, repo).has(own) ? own : this.unusedFolder(spaceId, repo);
+      // Every folder whose memory has not come over waits for its carry — a move before the last carry
+      // landed keeps that one waiting too — except the one the space is now in.
+      const left = rec?.profileId ? [{ folder: rec.folder, profileId: rec.profileId }] : [];
+      const carryFrom = [...(rec?.carryFrom ?? []), ...left].filter((c, i, all) =>
+        !(c.profileId === repo.ownerId && c.folder === folder) && all.findIndex((d) => d.profileId === c.profileId && d.folder === c.folder) === i);
+      this.recordFolder(spaceId, { folder, profileId: repo.ownerId, carryFrom, earlier });
     }
     return { owner: { scope: "profile", id: repo.ownerId }, repoPath: repo.path, folder, dir: join(repo.path, SPACES_DIR, folder) };
   }
@@ -328,70 +352,92 @@ export class MemoryRepoService {
   carryPending(spaceId: string): boolean {
     const rec = readSpaceFolder(this.d.settings.get(spaceFolderKey(spaceId)));
     if (!rec) return false;
-    return rec.carryFrom !== null || (rec.profileId !== null && rec.profileId !== (this.d.scopes?.profileIdOf(spaceId) ?? null));
+    return rec.carryFrom.length > 0 || (rec.profileId !== null && rec.profileId !== (this.d.scopes?.profileIdOf(spaceId) ?? null));
+  }
+
+  /** A space's record, kept compact: what is empty is left out. */
+  private recordFolder(spaceId: string, r: FolderRecord): void {
+    this.d.settings.set(spaceFolderKey(spaceId), {
+      folder: r.folder, profileId: r.profileId,
+      ...(r.carryFrom.length > 0 ? { carryFrom: r.carryFrom } : {}),
+      ...(Object.keys(r.earlier).length > 0 ? { earlier: r.earlier } : {}),
+    });
   }
 
   /**
    * A space that moved to another profile takes its memory along: a folder of its own in that
-   * profile's repo (`spaceFolderFor`), and the files of the folder it had copied into it as one commit.
-   * The repo it left is not touched — its history keeps what the space learned there. A file shaped like
-   * a credential, too long, or not a plain file stays behind and is named in `left`; so is one whose
-   * name the new folder already holds, which keeps its own. Null where there is nothing to carry. A
-   * refusal (the repo has someone's changes in it) throws, and the carry waits for the next try.
+   * profile's repo (`spaceFolderFor`) — its own earlier one, when it comes back — and the files of every
+   * folder it left whose memory has not come over yet, copied into it as one commit. Where two of those
+   * hold a file of one name, the most recent comes. The repos it left are not touched — their history
+   * keeps what the space learned there. A file shaped like a credential, too long, or not a plain file
+   * stays behind and is named in `left`; so is one whose name the folder already holds, which keeps its
+   * own. Null where there is nothing to carry. A refusal (the repo has someone's changes in it) throws,
+   * and every folder keeps waiting for the next try.
    */
   async followSpace(spaceId: string): Promise<FolderCarry | null> {
     const at = this.spaceFolderFor(spaceId);
     const rec = readSpaceFolder(this.d.settings.get(spaceFolderKey(spaceId)));
-    if (!at || !rec?.carryFrom) return null;
-    const from = this.config({ scope: "profile", id: rec.carryFrom.profileId });
-    const dir = from ? join(from.path, SPACES_DIR, rec.carryFrom.folder) : null;
+    if (!at || !rec || rec.carryFrom.length === 0) return null;
+    // The most recent folder first, so its version of a file is the one that comes.
+    const dirs = [...rec.carryFrom].reverse()
+      .map((c) => { const cfg = this.config({ scope: "profile", id: c.profileId }); return cfg ? join(cfg.path, SPACES_DIR, c.folder) : null; })
+      .filter((d): d is string => d !== null && existsSync(d));
     const into = `${SPACES_DIR}/${at.folder}`;
     const indexRel = `${into}/${MEMORY_REPO_INDEX_FILE}`;
     const carried: FolderCarry = { folder: at.folder, copied: [], left: [], sha: null };
-    if (dir && existsSync(dir)) {
+    if (dirs.length > 0) {
       const out = await this.batch(at.owner, (repo) => {
         const writes = new Map<string, string | null>();
+        const now = (rel: string): string | null => (writes.has(rel) ? writes.get(rel)! : this.readOrNull(repo, rel));
         carried.copied = [];
         carried.left = [];
-        let index: string | null = null;
-        for (const e of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-          const file = join(dir, e.name);
-          if (!e.isFile()) { carried.left.push({ file, reason: "it is not a plain file" }); continue; }
-          const text = readFileSync(file, "utf8");
-          const secret = secretShapeIn(text);
-          if (secret) { carried.left.push({ file, reason: `it looks like it holds ${secret}, and memory never holds credentials` }); continue; }
-          if (text.length > MEMORY_DOC_MAX) { carried.left.push({ file, reason: `it is longer than ${MEMORY_DOC_MAX} characters` }); continue; }
-          if (e.name === MEMORY_REPO_INDEX_FILE) { index = text; continue; }
-          const here = this.readOrNull(repo, `${into}/${e.name}`);
-          if (here === null) { writes.set(`${into}/${e.name}`, text); carried.copied.push(e.name); }
-          else if (here !== text) carried.left.push({ file, reason: `the folder it moved to has its own ${e.name}` });
+        const indexes: string[] = [];
+        for (const dir of dirs) {
+          for (const e of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+            const file = join(dir, e.name);
+            if (!e.isFile()) { carried.left.push({ file, reason: "it is not a plain file" }); continue; }
+            const text = readFileSync(file, "utf8");
+            const secret = secretShapeIn(text);
+            if (secret) { carried.left.push({ file, reason: `it looks like it holds ${secret}, and memory never holds credentials` }); continue; }
+            if (text.length > MEMORY_DOC_MAX) { carried.left.push({ file, reason: `it is longer than ${MEMORY_DOC_MAX} characters` }); continue; }
+            if (e.name === MEMORY_REPO_INDEX_FILE) { indexes.push(text); continue; }
+            const here = now(`${into}/${e.name}`);
+            if (here === null) { writes.set(`${into}/${e.name}`, text); carried.copied.push(e.name); }
+            else if (here !== text) carried.left.push({ file, reason: `the folder it moved to has its own ${e.name}` });
+          }
         }
-        // Its index comes too, for the files that came: a line for one left behind would lead nowhere.
-        if (index !== null) {
-          const lines = index.split("\n").filter((l) => { const t = claudeIndexTarget(l); return t === null || carried.copied.includes(t) || existsSync(join(repo, into, t)); });
-          const merged = mergeClaudeIndex(this.readOrEmpty(repo, indexRel), lines.join("\n"));
-          if (merged !== this.readOrEmpty(repo, indexRel)) writes.set(indexRel, merged);
+        // The indexes come too, for the files the folder now holds: a line for one left behind would lead nowhere.
+        let index = this.readOrEmpty(repo, indexRel);
+        for (const text of indexes) {
+          index = mergeClaudeIndex(index, text.split("\n").filter((l) => { const t = claudeIndexTarget(l); return t === null || now(`${into}/${t}`) !== null; }).join("\n"));
         }
-        if (writes.has(indexRel) || existsSync(join(repo, indexRel))) writes.set(MEMORY_REPO_INDEX_FILE, withIndexLink(this.readOrEmpty(repo, MEMORY_REPO_INDEX_FILE), indexRel));
+        if (index !== this.readOrEmpty(repo, indexRel)) writes.set(indexRel, index);
+        if (now(indexRel) !== null) writes.set(MEMORY_REPO_INDEX_FILE, withIndexLink(this.readOrEmpty(repo, MEMORY_REPO_INDEX_FILE), indexRel));
         return writes;
       }, `Carry the memory of ${short(this.d.scopes?.spaceNameOf?.(spaceId) ?? "a space")} over from the profile it left`);
       carried.sha = out.sha;
     }
-    // Carried, or nothing left to carry: the record waits for nothing more.
-    this.d.settings.set(spaceFolderKey(spaceId), { folder: at.folder, profileId: at.owner.id });
+    // Carried, or nothing left to carry: the record waits for nothing more, and still knows its folders.
+    this.recordFolder(spaceId, { ...rec, folder: at.folder, profileId: at.owner.id, carryFrom: [] });
     for (const l of carried.left) console.error(`[memory] ${l.file} stays where it was: ${l.reason}`);
     return carried;
+  }
+
+  /** The folders other spaces of the profile have recorded in its repo — written yet or not. */
+  private recordedHere(spaceId: string, repo: ActiveRepo): Set<string> {
+    const out = new Set<string>();
+    for (const other of this.d.scopes?.spaceIdsOf?.(repo.ownerId) ?? []) {
+      const r = other === spaceId ? null : readSpaceFolder(this.d.settings.get(spaceFolderKey(other)));
+      if (r && (r.profileId === null || r.profileId === repo.ownerId)) out.add(r.folder);
+    }
+    return out;
   }
 
   /** The space's name as a folder, numbered past every folder already in the repo and every one
    *  another space of the profile has recorded in it but not written yet. */
   private unusedFolder(spaceId: string, repo: ActiveRepo): string {
-    const taken = new Set<string>();
+    const taken = this.recordedHere(spaceId, repo);
     try { for (const e of readdirSync(join(repo.path, SPACES_DIR))) taken.add(e.toLowerCase()); } catch { /* no folders yet */ }
-    for (const other of this.d.scopes?.spaceIdsOf?.(repo.ownerId) ?? []) {
-      const r = other === spaceId ? null : readSpaceFolder(this.d.settings.get(spaceFolderKey(other)));
-      if (r && (r.profileId === null || r.profileId === repo.ownerId)) taken.add(r.folder);
-    }
     const base = folderSlug(this.d.scopes?.spaceNameOf?.(spaceId) ?? "");
     let folder = base;
     for (let n = 2; taken.has(folder); n++) folder = `${base}-${n}`;
