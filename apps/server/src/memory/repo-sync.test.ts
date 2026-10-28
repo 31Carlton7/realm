@@ -293,6 +293,24 @@ describe("memory repo sync — a background save lands on top of another machine
     expect(git(h.repo, "log", "-1", "--format=%s").trim()).toBe("Other: MEMORY.md");
   });
 
+  it("never writes over a file that had to stay out of a commit, whatever the pull changed in a plan", async () => {
+    const h = await behind();
+    // Claude left a file no commit takes: shaped like a credential, it stays uncommitted, and is the person's.
+    const keys = join(h.repo, "spaces", "alpha", "keys.md");
+    mkdirSync(join(h.repo, "spaces", "alpha"), { recursive: true });
+    writeFileSync(keys, `The staging key is sk-${"a".repeat(30)}\n`);
+    // A plan that reaches for that file only once the pull has brought the other machine's entry.
+    const save = h.repos.writeBatch(P, (dir) => {
+      const root = readFileSync(join(dir, "MEMORY.md"), "utf8");
+      const writes = new Map([["MEMORY.md", `${root}- Written on this Mac\n`]]);
+      if (root.includes(FLY)) writes.set("spaces/alpha/keys.md", "rotated\n");
+      return writes;
+    }, "Reach for it");
+    // THE MUTANT: check only what the first plan touched — the second writes the person's file away.
+    await expect(save).rejects.toMatchObject({ code: "MEMORY_REPO_DIRTY" });
+    expect(readFileSync(keys, "utf8")).toBe(`The staging key is sk-${"a".repeat(30)}\n`);
+  });
+
   it("brings Claude's memory in on top of the other machine's entry", async () => {
     const h = await behind();
     const work = join(h.home, "code", "alpha");
