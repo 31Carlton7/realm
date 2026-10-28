@@ -47,6 +47,9 @@ const store = (extra: Record<string, string> = {}) => ({
   ...extra,
 });
 
+/** Old facts enough that the pass may delete more than one thing. */
+const olds = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`spaces/work/old-${i}.md`, fact(`old-${i}`, "project", `Old ${i}`, `Old fact ${i}.`)]));
+
 const draftOf = (dir: string, folders = ["work", "home"]) => new TidyDraft(readSnapshot(dir, folders), NOW, "2026-10-28");
 
 describe("factFields — Claude's own fact format", () => {
@@ -124,7 +127,7 @@ describe("the model's plan, applied to the draft", () => {
 
   it("deletes a stale fact, its index line and any root line linking it", () => {
     const linked = ROOT.replace("## Index", "- Ships Thursdays ([[spaces/work/deploy-day]])\n\n## Index");
-    const d = draftOf(repo(store({ "MEMORY.md": linked })));
+    const d = draftOf(repo(store({ "MEMORY.md": linked, ...olds(5) })));
     expect(d.apply({ op: "delete", path: "spaces/work/deploy-day.md", why: "moved to daily deploys" })).toBeNull();
     const c = d.changes();
     expect(c.get("spaces/work/deploy-day.md")).toBeNull();
@@ -179,9 +182,30 @@ describe("the model's plan, applied to the draft", () => {
     expect(busyIndex.changes().size).toBe(0);
   });
 
+  it("counts each root line that goes with a fact against the cap — one the person wrote included", () => {
+    // 9 facts and 2 root entries: a fifth of 11 is 2. Deleting deploy-day takes its file AND the line
+    // the person wrote about it, which is the whole of this pass's share.
+    const linked = ROOT.replace("## Index", "- Thursdays are for billing deploys, per Dana ([[spaces/work/deploy-day]])\n\n## Index");
+    const d = draftOf(repo(store({ "MEMORY.md": linked, ...olds(5) })));
+    expect(d.cap).toBe(2);
+    expect(d.apply({ op: "delete", path: "spaces/work/deploy-day.md" })).toBeNull();
+    expect(d.changes().get("MEMORY.md")).not.toContain("per Dana");
+    // THE MUTANT counted only the file: it would let one more deletion through.
+    expect(d.apply({ op: "delete", path: "spaces/work/old-0.md" })).toMatch(/past its 2 deletions/);
+    expect(d.changes().has("spaces/work/old-0.md")).toBe(false);
+  });
+
+  it("refuses a deletion whose root lines alone would pass the cap", () => {
+    const twice = ROOT.replace("## Index", "- Ships Thursdays ([[spaces/work/deploy-day]])\n- Deploy day, again ([[spaces/work/deploy-day]])\n\n## Index");
+    const d = draftOf(repo(store({ "MEMORY.md": twice, ...olds(5) })));
+    // 9 facts and 3 root entries: a fifth of 12 is 2, and this one would take three.
+    expect(d.cap).toBe(2);
+    expect(d.apply({ op: "delete", path: "spaces/work/deploy-day.md" })).toMatch(/past its 2 deletions/);
+    expect(d.changes().size).toBe(0);
+  });
+
   it("deletes no more than its share of the store in one pass", () => {
-    const many = Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`spaces/work/old-${i}.md`, fact(`old-${i}`, "project", `Old ${i}`, `Old fact ${i}.`)]));
-    const d = draftOf(repo(store(many)));
+    const d = draftOf(repo(store(olds(9))));
     // 13 facts and 1 root entry: a fifth of 14 is 2.
     expect(d.cap).toBe(2);
     const outcomes = Array.from({ length: 4 }, (_, i) => d.apply({ op: "delete", path: `spaces/work/old-${i}.md` }));

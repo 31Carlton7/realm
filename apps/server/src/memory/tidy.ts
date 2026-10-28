@@ -260,11 +260,13 @@ export class TidyDraft {
     if (rest.some((x) => x.folder !== first!.folder)) return "it merges facts from different spaces";
     const goes = op.op === "merge" ? rest : op.op === "delete" ? [first!] : [];
     const index = indexPathOf(first!.folder);
-    const rootLinks = goes.some((x) => (this.get(MEMORY_REPO_INDEX_FILE) ?? "").split("\n").some((l) => linksFact(l, x, "root")));
-    const touched = [...paths, index, ...(rootLinks ? [MEMORY_REPO_INDEX_FILE] : [])];
+    // Every root line linking a fact that goes, goes with it — one the person wrote included — and each
+    // is a deletion against the cap like the file is.
+    const rootLines = (this.get(MEMORY_REPO_INDEX_FILE) ?? "").split("\n").filter((l) => goes.some((x) => linksFact(l, x, "root"))).length;
+    const touched = [...paths, index, ...(rootLines > 0 ? [MEMORY_REPO_INDEX_FILE] : [])];
     if (touched.some((p) => this.recent(p))) return "a file it would change was changed in the last hour";
     if (op.op !== "delete" && secretShapeIn(`${op.description}\n${op.body}`)) return "it looks like it holds a secret";
-    if (this.deleted + goes.length > this.cap) return `it would take this pass past its ${this.cap} deletions`;
+    if (this.deleted + goes.length + rootLines > this.cap) return `it would take this pass past its ${this.cap} deletions`;
 
     if (op.op !== "delete") {
       this.content.set(first!.path, rewriteFact(this.get(first!.path)!, first!.name, op.description, op.body));
@@ -273,9 +275,9 @@ export class TidyDraft {
     for (const x of goes) {
       this.content.set(x.path, null);
       this.editLines(index, (l) => (linksFact(l, x, "index") ? null : l));
-      if (rootLinks) this.editLines(MEMORY_REPO_INDEX_FILE, (l) => (linksFact(l, x, "root") ? null : l));
+      if (rootLines > 0) this.editLines(MEMORY_REPO_INDEX_FILE, (l) => (linksFact(l, x, "root") ? null : l));
     }
-    this.deleted += goes.length;
+    this.deleted += goes.length + rootLines;
     return null;
   }
 
