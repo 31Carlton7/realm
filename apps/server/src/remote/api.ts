@@ -9,7 +9,7 @@ import {
 import { givenAttachmentName, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
 import {
   MobileCalls, RECENT_LIMIT, SEND_LIMITS, type Home, type MobileErrorCode, type MobileMethod, type MobileParams, type MobileResult, type QueuedMessage,
-  type ScheduledTask, type SessionOptions, type SessionRow, type Subagent,
+  type ScheduledTask, type Screen, type SessionOptions, type SessionRow, type Subagent,
 } from "@realm/remote";
 import {
   FALLBACK_AGENT, isLive, LAST_AGENT_SETTING, modelLabel, needsYou, nestChildren, QUICK_CHAT_SETTING, quickChatIdOf, subagentState, upcomingOrder, type NeedsYouState,
@@ -17,9 +17,10 @@ import {
 import { resolveDefaultPermissionMode } from "../sessions/service";
 import { diffPage } from "./changes";
 import { agentOptions, changesFor, ChoiceRefused, probeList, type InitFacts, type OptionsInput, type ProbeRow } from "./options";
-import { filePreview, PreviewRefused, type Downscale } from "./preview";
+import { filePreview, PreviewRefused, sipsDownscale, type Downscale } from "./preview";
 import { queuedMessage, SessionProjector } from "./rows";
 import { RpcCallError, type RpcPort } from "./rpc-port";
+import { frameSide, machineScreen, screenFrame, screenOrder, simulatorScreen } from "./screens";
 import { checkUploads, saveUploads, UploadRefused, type Upload } from "./uploads";
 import { everyPlan, monthStart, spend } from "./usage";
 import { isOpenReview, newestReviewFirst, reviewItem, reviewPictures, reviewSummary, scheduledTask } from "./work";
@@ -240,6 +241,8 @@ export class MobileApi {
         case "session.diff": return await this.diff(rpc, p.id as string, p.checkpointId as string, p.path as string, p.from as number);
         case "session.file": return await this.file(rpc, p.id as string, p.path as string);
         case "space.icon": return await this.spaceIcon(rpc, p.id as string);
+        case "session.screens": return { screens: (await this.screens(rpc, p.id as string)).sort(screenOrder) };
+        case "session.screen": return await this.screen(rpc, p as MobileParams<"session.screen">);
         case "debug.report": {
           if (!this.o.dev) throw new MobileError("FORBIDDEN", "debug.report is for development builds");
           mkdirSync(this.o.reportsDir, { recursive: true });
@@ -683,5 +686,39 @@ export class MobileApi {
     if (!picture) throw new MobileError("NOT_FOUND", "This space's picture is gone.");
     if (picture.data.length > ICON_MAX_BYTES) throw new MobileError("NOT_FOUND", "This space's picture is too large to send to a phone.");
     return { mime: picture.mime, data: picture.data.toString("base64") };
+  }
+
+  /** Every simulator and machine in the session's space, each named as its pane is: by its sidebar
+   *  row's title, which a rename changes, else by its own name. */
+  private async screens(rpc: RpcPort, id: string): Promise<Screen[]> {
+    const { spaceId } = await rpc.call("sessions.get", { id });
+    const [sims, machines, items] = await Promise.all([
+      rpc.call("simulators.list", { spaceId }), rpc.call("machines.list", { spaceId }), rpc.call("items.list", { spaceId }),
+    ]);
+    const titles = new Map(items.filter((it) => it.kind === "simulator" || it.kind === "machine").map((it) => [it.refId, it.title]));
+    return [
+      ...sims.simulators.map((s) => simulatorScreen(s, sims.states.find((st) => st.simulatorId === s.id), titles.get(s.id) || s.name)),
+      ...machines.machines.map((m) => machineScreen(m, machines.states.find((st) => st.machineId === m.id), titles.get(m.id) || m.name)),
+    ];
+  }
+
+  /** A picture of one of the session's screens as it is now, made small: only one `session.screens`
+   *  lists for that session, and only while it is live. One of another space is not found, as one
+   *  that never was. */
+  private async screen(rpc: RpcPort, p: MobileParams<"session.screen">): Promise<MobileResult<"session.screen">> {
+    const screen = (await this.screens(rpc, p.id)).find((s) => s.kind === p.kind && s.id === p.screenId);
+    if (!screen) throw new MobileError("NOT_FOUND", "That screen is not open in this session's space.");
+    if (!screen.live) throw new MobileError("FORBIDDEN", `${screen.name} is not running on the Mac.`);
+    let shot: { data: string | null };
+    try {
+      shot = p.kind === "simulator" ? await rpc.call("simulators.capture", { simulatorId: p.screenId }) : await rpc.call("machines.capture", { machineId: p.screenId });
+    } catch (e) {
+      // It is there and live, so a capture refused is one refused just now — a device whose runner has
+      // stopped answering, an app with no window open — and the Mac's words say why.
+      throw new MobileError("FORBIDDEN", (e as Error).message);
+    }
+    const capturedAt = Date.now();
+    if (!shot.data) throw new MobileError("FORBIDDEN", `${screen.name} has nothing on screen to show.`);
+    return await screenFrame(Buffer.from(shot.data, "base64"), frameSide(p.maxSide), capturedAt, this.o.downscale ?? sipsDownscale);
   }
 }
