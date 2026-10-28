@@ -718,16 +718,17 @@ export class MobileApi {
     const screen = shown.find(named);
     if (!screen) throw new MobileError("NOT_FOUND", "That screen is not open in this session's space.");
     if (!screen.live) throw new MobileError("FORBIDDEN", `${screen.name} is not running on the Mac.`);
-    let shot: { data: string | null };
     try {
-      shot = p.kind === "simulator" ? await rpc.call("simulators.capture", { simulatorId: p.screenId }) : await rpc.call("machines.capture", { machineId: p.screenId });
+      const shot = p.kind === "simulator" ? await rpc.call("simulators.capture", { simulatorId: p.screenId }) : await rpc.call("machines.capture", { machineId: p.screenId });
+      const capturedAt = Date.now();
+      if (!shot.data) throw new Error(`${screen.name} had nothing on screen to show.`);
+      return await screenFrame(Buffer.from(shot.data, "base64"), frameSide(p.maxSide), capturedAt, this.o.downscale ?? sipsDownscale);
     } catch (e) {
-      // It is there and live, so a capture refused is one refused just now — a device whose runner has
-      // stopped answering, an app with no window open — and the Mac's words say why.
-      throw new MobileError("FORBIDDEN", (e as Error).message);
+      // It is there and live, so a picture that did not come is one that did not come just now — a
+      // device whose runner has stopped answering, a capture that is no picture — and the next call may
+      // bring one: INTERNAL, which a phone asks again after, in the Mac's words. FORBIDDEN is for a
+      // screen that is not live, which a phone stops asking for until its list changes.
+      throw new MobileError("INTERNAL", (e as Error).message);
     }
-    const capturedAt = Date.now();
-    if (!shot.data) throw new MobileError("FORBIDDEN", `${screen.name} has nothing on screen to show.`);
-    return await screenFrame(Buffer.from(shot.data, "base64"), frameSide(p.maxSide), capturedAt, this.o.downscale ?? sipsDownscale);
   }
 }

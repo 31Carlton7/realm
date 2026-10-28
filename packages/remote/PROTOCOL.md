@@ -776,8 +776,9 @@ Screen {
 - **Only its own space's**: a screen that is not one `session.screens` lists for that session, or is
   listed under the other kind, is `NOT_FOUND`, exactly as one that never existed; a Mac app in the
   session's own space is `FORBIDDEN`, as one that is not live. One that is not live is `FORBIDDEN`,
-  and so is a live one the Mac could not capture just then (a phone's runner not answering), each in
-  the Mac's words.
+  in the Mac's words: asking again will not change that until the list does. A live one the Mac could
+  not picture just then (a phone's runner not answering, a capture that was no picture) is `INTERNAL`,
+  in the Mac's words too: the next call may bring one.
 - **Polled**, about once a second or two while the phone's viewer is open. The Mac takes a picture for
   each call, through the same capture an agent's look takes, and keeps nothing of it: the capture is
   written to a folder of its own under the system's temporary folder for `sips` to read, and removed

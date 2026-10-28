@@ -1432,16 +1432,19 @@ describe("session.screens and session.screen", () => {
     expect(small.asked).toEqual([]);
   });
 
-  it("says why a live screen could not be captured just now, in the Mac's words", async () => {
+  it("says why a live screen could not be captured just now, in the Mac's words, as a failure worth asking again", async () => {
+    // THE MUTANT: FORBIDDEN, as a screen that is not live is refused — a phone takes that as gone for
+    // good, and stops watching a device whose runner missed one answer.
     const stalled = rig({ capture: () => { throw new RpcCallError("UNAVAILABLE", "the device's runner is not answering"); } });
     expect(await attempt(api(shrinking().downscale), stalled.rpc, "session.screen", { id: "in-s1", screenId: "sim-phone", kind: "simulator" }))
-      .toEqual({ ok: false, code: "FORBIDDEN", message: "the device's runner is not answering" });
+      .toEqual({ ok: false, code: "INTERNAL", message: "the device's runner is not answering" });
+    // Not even the Mac's NOT_FOUND for the capture: the screen is listed and live, so it is a capture that failed.
     const driverless = rig({ machineCapture: () => { throw new RpcCallError("NOT_FOUND", "that machine has nothing to capture"); } });
     expect(await attempt(api(shrinking().downscale), driverless.rpc, "session.screen", { id: "in-s1", screenId: "m-mini", kind: "machine" }))
-      .toEqual({ ok: false, code: "FORBIDDEN", message: "that machine has nothing to capture" });
+      .toEqual({ ok: false, code: "INTERNAL", message: "that machine has nothing to capture" });
     const empty = rig({ machineCapture: () => ({ data: null, mimeType: "image/jpeg", width: 0, height: 0 }) });
     expect(await attempt(api(shrinking().downscale), empty.rpc, "session.screen", { id: "in-s1", screenId: "m-mini", kind: "machine" }))
-      .toMatchObject({ ok: false, code: "FORBIDDEN" });
+      .toEqual({ ok: false, code: "INTERNAL", message: "Mac mini had nothing on screen to show." });
     // Bytes that are no picture are not handed to `sips`, and a frame that comes back no JPEG is not sent.
     const garbled = rig({ capture: () => ({ data: Buffer.from("not a picture").toString("base64"), mimeType: "image/png", width: 0, height: 0 }) });
     const untouched = shrinking();
