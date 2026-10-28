@@ -177,9 +177,13 @@ export function parseBundleId(out: string): string | null {
 
 type Run = (file: string, args: string[], timeoutMs: number) => Promise<string>;
 
-/** The command's output, whatever its exit: `sysctl` exits 1 for one unknown name and still prints the rest. */
-const run: Run = (file, args, timeoutMs) => new Promise((resolve) => {
-  execFile(file, args, { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, encoding: "utf8" }, (_err, stdout) => resolve(stdout ?? ""));
+/**
+ * The command's output, whatever its exit: `sysctl` exits 1 for one unknown name and still prints the
+ * rest. Always in the C locale: `ps -o lstart` follows LC_TIME ("Tue 27 Oct" in en_GB, "Di. 27 Okt." in
+ * de_DE), and a row `parsePs` cannot read is a process the report and the policies never see.
+ */
+export const run: Run = (file, args, timeoutMs) => new Promise((resolve) => {
+  execFile(file, args, { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, encoding: "utf8", env: { ...process.env, LC_ALL: "C" } }, (_err, stdout) => resolve(stdout ?? ""));
 });
 
 /** The commands a reading runs, as `ps` lists them — `(name)` while one is exiting. */
@@ -272,6 +276,8 @@ export function realMachineProbe(o: { platform?: string; run?: Run; readText?: (
  */
 export function quietMachineProbe(): MachineProbe {
   return {
+    // It reads nothing, and says so: an empty table here is not a `ps` that failed.
+    readsProcesses: false,
     processes: async () => [],
     footprints: async () => new Map(),
     allFootprints: async () => null,

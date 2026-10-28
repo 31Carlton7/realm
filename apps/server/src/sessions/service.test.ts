@@ -445,6 +445,25 @@ describe("SessionService over rpc", () => {
     c.close();
   });
 
+  it("stops nothing when the process table could not be read — unknown is not \"no background work\"", async () => {
+    // THE MUTANT: a failed `ps` read as an empty set, which stops the engine and the dev server under it.
+    const { c, sp } = await boot(new FakeAdapter({ script: [{ on: "hi", emit: [{ kind: "text", text: "hello" }] }] }));
+    let shells: (() => Promise<ReadonlySet<string> | null>) = async () => null;
+    (app.sessions as unknown as { d: { backgroundShells: () => Promise<ReadonlySet<string> | null> } }).d.backgroundShells = () => shells();
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    await c.call("sessions.send", { id: session.id, text: "hi" });
+    await waitFor(async () => (await c.call("sessions.get", { id: session.id })).result.status === "idle");
+    const later = Date.now() + 24 * 60 * 60_000;
+    expect(await app.sessions.reapIdle(later)).toEqual([]);
+    expect(await app.sessions.stopIdleNow()).toEqual([]);
+    shells = async () => { throw new Error("ps timed out"); };
+    expect(await app.sessions.reapIdle(later)).toEqual([]);
+    expect(await app.sessions.stopIdleNow()).toEqual([]);
+    shells = async () => new Set();
+    expect(await app.sessions.stopIdleNow()).toEqual([session.id]);
+    c.close();
+  });
+
   it("respondPermission routes broker-owned requestIds (bperm_) even with NO live handle (Plan 11 W3)", async () => {
     // The browser permission broker's prompts block an MCP call in the gateway, not the adapter — so
     // answering one must not require a live adapter. A bperm_ id on a handle-less session resolves ok

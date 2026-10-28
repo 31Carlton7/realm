@@ -165,6 +165,17 @@ describe("what the policies ask of it", () => {
       // An MCP server the engine runs for itself is not background work.
       { sessionId: "b", title: "B", kind: "claude", providerSessionId: "conv-b", startedAt: T, detail: null },
     ] }) });
-    expect([...await s.backgroundShells()]).toEqual(["a"]);
+    expect([...(await s.backgroundShells())!]).toEqual(["a"]);
+  });
+
+  it("says it does not know when the table could not be read, and \"none\" where no table is ever read", async () => {
+    const { probe } = fakeMachine({ table: [] });
+    const s = new ResourceService({ probe, serverPid: 50, app: async () => null, owners });
+    expect(await s.backgroundShells()).toBeNull();
+    const failing = new ResourceService({ probe: { ...probe, processes: async () => { throw new Error("ps timed out"); } }, serverPid: 50, app: async () => null, owners });
+    expect(await failing.backgroundShells()).toBeNull();
+    // Windows: the reaper goes on as it did before Realm read processes at all.
+    const windows = new ResourceService({ probe: { ...probe, readsProcesses: false }, serverPid: 50, app: async () => null, owners });
+    expect(await windows.backgroundShells()).toEqual(new Set());
   });
 });

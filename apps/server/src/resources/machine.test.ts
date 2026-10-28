@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyPressure, classifyPsi, parseBundleId, parseFootprint, parseFrontAsn, parseMeminfo, parsePs, parseSysctl, parseTop, parseVmStat, realMachineProbe, SWAP_OUT_WARN_BYTES_PER_SECOND } from "./machine";
+import { classifyPressure, classifyPsi, parseBundleId, parseFootprint, parseFrontAsn, parseMeminfo, parsePs, parseSysctl, parseTop, parseVmStat, realMachineProbe, run, SWAP_OUT_WARN_BYTES_PER_SECOND } from "./machine";
 
 /* Every fixture below is what the real command printed on this Mac (2026-10-28), trimmed. */
 
@@ -159,6 +159,18 @@ describe("the real probe", () => {
     ].join("\n") });
     // Somebody else's `ps`, and a binary that merely starts with "top", are not this reading.
     expect((await probe.processes()).map((r) => r.pid)).toEqual([me, 94, 95]);
+  });
+
+  it("runs every command in the C locale, so ps's start times parse whatever the Mac's language", async () => {
+    // en_GB prints "Tue 27 Oct", de_DE "Di. 27 Okt.": a row parsePs cannot read is a process nobody sees.
+    expect(parsePs("63714 63649 ttys001 3392 Di. 27 Okt. 02:08:07 2026 /bin/zsh -l")).toEqual([]);
+    const before = process.env.LC_ALL;
+    process.env.LC_ALL = "de_DE.UTF-8";
+    try {
+      expect((await run(process.execPath, ["-e", "console.log(process.env.LC_ALL)"], 5_000)).trim()).toBe("C");
+    } finally {
+      if (before === undefined) delete process.env.LC_ALL; else process.env.LC_ALL = before;
+    }
   });
 
   it("asks footprint(1) in batches, and only on a Mac", async () => {

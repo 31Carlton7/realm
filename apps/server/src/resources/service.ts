@@ -57,9 +57,15 @@ export class ResourceService {
    * every Bash call as `<shell> -c source …/shell-snapshots/snapshot-… && eval …`, so one of those still
    * alive under an engine whose turn has settled is a command left running on purpose — a dev server, a
    * watcher — and stopping the engine would stop it.
+   *
+   * Null when the table could not be read — `ps` failed or timed out — which is not "none": the caller
+   * stops nothing on it. Where no process is ever read (Windows) the answer is "none", as it was before
+   * Realm looked at all.
    */
-  async backgroundShells(): Promise<Set<string>> {
-    const table = await this.d.probe.processes();
+  async backgroundShells(): Promise<Set<string> | null> {
+    if (this.d.probe.readsProcesses === false) return new Set();
+    const table = await this.d.probe.processes().catch(() => []);
+    if (table.length === 0) return null;
     const owners: Owners = { ...this.d.owners(), serverPid: this.d.serverPid ?? process.pid, app: null };
     const { parts, members } = attribute({ table, owners, footprint: new Map(), allFootprint: null, footprintMeasured: false });
     const command = new Map(table.map((p) => [p.pid, p.command]));

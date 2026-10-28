@@ -297,7 +297,7 @@ export class SessionService {
     /** The sessions whose engine is still running a shell command its agent backgrounded — a dev
      *  server, a watcher — read off the process table (`resources/`). Asked only when an engine is
      *  about to be reaped; absent, no engine is assumed to hold one. */
-    backgroundShells?: () => Promise<ReadonlySet<string>>;
+    backgroundShells?: () => Promise<ReadonlySet<string> | null>;
     teamPolicy?: {
       decides(sessionId: string, spaceId: string, gatewayTool: string): Promise<boolean>;
       isRoleRun(sessionId: string): boolean;
@@ -1234,8 +1234,10 @@ export class SessionService {
     if (minutes === 0 || this.closing) return [];
     const due = [...this.live.keys()].filter((id) => now - (this.lastActive.get(id) ?? now) >= minutes * 60_000 && this.engineIdle(id));
     if (due.length === 0) return [];
-    // A command the agent backgrounded runs under its engine and dies with it. Read once, and only now.
-    const shells = await this.d.backgroundShells?.().catch(() => null) ?? new Set<string>();
+    // A command the agent backgrounded runs under its engine and dies with it. Read once, and only now;
+    // a table that could not be read stops nothing, since any of these may be running one.
+    const shells = this.d.backgroundShells ? await this.d.backgroundShells().catch(() => null) : new Set<string>();
+    if (shells === null) return [];
     const reaped: string[] = [];
     for (const id of due) {
       // Read again: the await above is a moment a message could arrive in.
@@ -1264,7 +1266,8 @@ export class SessionService {
     if (this.closing) return [];
     const idle = [...this.live.keys()].filter((id) => this.engineIdle(id));
     if (idle.length === 0) return [];
-    const shells = await this.d.backgroundShells?.().catch(() => null) ?? new Set<string>();
+    const shells = this.d.backgroundShells ? await this.d.backgroundShells().catch(() => null) : new Set<string>();
+    if (shells === null) return [];
     const stopped: string[] = [];
     for (const id of idle) {
       if (shells.has(id) || !this.live.has(id) || !this.engineIdle(id)) continue;
