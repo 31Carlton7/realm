@@ -21,6 +21,55 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-6-2",
+    title: "Realm v2.6.2",
+    date: "2026-10-28",
+    version: "v2.6.2",
+    area: "Release",
+    summary:
+      "Realm uses far less memory: Settings ▸ RAM shows what it holds and frees it, Laya, simulators and hidden browser panes let go when nobody is using them, terminals start when you open them, and agents can check the Mac before heavy work.",
+    body: [
+      { kind: "h", text: "Realm uses less memory" },
+      { kind: "ul", items: [
+        "**Settings ▸ RAM shows what Realm holds.** It lists Realm's own memory by part (agents, terminals, browser panes, simulators, Laya) beside the Mac's memory pressure and swap, with buttons to free it now.",
+        "**Laya loads only when a step needs it,** and lets go after ten idle minutes. It used to hold about 2.4 GB all day.",
+        "**Simulators Realm booted shut down when nobody is using them,** after 30 idle minutes, or sooner when memory is short. Realm never shuts down a simulator it didn't boot, one on screen, one an agent, Xcode or a debugger is using, or one used in the last five minutes.",
+        "**Hidden browser panes give their memory back** after 20 minutes, and come back to the same page and scroll when shown. Realm never does this to a pane an agent is using, one you typed into, or one playing media.",
+        "**Terminals start their shell when you first open them,** not all at once when Realm starts.",
+        "**Idle agents and MCP servers stop sooner when memory is short.** Never one mid-turn, waiting on you, or holding background work such as a dev server or a loop. Browser and device MCP servers keep running unless you choose otherwise.",
+      ] },
+      { kind: "h", text: "For agents" },
+      { kind: "ul", items: [
+        "**`machine_status`** gives an agent the Mac's memory pressure, swap and load before a build, a full test suite or a simulator boot, with advice on how many test workers to use.",
+      ] },
+      { kind: "h", text: "Fixes" },
+      { kind: "ul", items: [
+        "**Checking which models an agent can run no longer leaves its helpers running** afterwards.",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-6-1",
+    title: "Realm v2.6.1",
+    date: "2026-10-28",
+    version: "v2.6.1",
+    area: "Release",
+    summary:
+      "Watch a session's simulators and machines live from your iPhone, read a session on the phone like a chat, and the Memory page names more of Claude's projects.",
+    body: [
+      { kind: "h", text: "Realm on your iPhone" },
+      { kind: "p", text: "The Mac side of these is in this release; the iPhone side arrives in the next TestFlight build." },
+      { kind: "ul", items: [
+        "**Watch a session's screens from your phone.** A Screens button in the session shows the simulators and machines its space has open, live at about a frame a second, with Pause and Share. A Mac app's own windows aren't shown on the phone yet. On a Mac older than 2.6.1, the button stays hidden.",
+        "**Reading a session on the phone is calmer.** Rows stay inside the screen, even next to a long tool name. A tool's row shows a glyph for its kind. Reads of several files group into one row, and files go by their names, not full paths. A live line at the foot replaces the floating \"Working\" pill.",
+      ] },
+      { kind: "h", text: "Fixes" },
+      { kind: "ul", items: [
+        "**The Memory page names more of Claude's projects.** A Claude project whose folder has an underscore, a dot or a space in its path now shows that folder, not Claude's encoded name.",
+      ] },
+    ],
+  },
+  {
     slug: "v2-6-0",
     title: "Realm v2.6.0",
     date: "2026-10-28",
