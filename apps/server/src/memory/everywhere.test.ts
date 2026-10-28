@@ -209,6 +209,10 @@ describe("Claude's memory from outside Realm, through the Memory page's row", ()
     // The page was handed keys.md as left out; the next check leaves it off until it changes.
     expect(r.skipped.map((s: { file: string }) => s.file)).toEqual([join(memory, "keys.md")]);
     expect((await c.call("memory.repo.claudeBackfill", { profileId: personal.id, run: true })).skipped).toEqual([]);
+    // A new version of it is listed by the next check — and, once that answer is read, not by the one after.
+    writeFileSync(join(memory, "keys.md"), `The key is sk-${"b".repeat(30)}\n`);
+    expect((await c.call("memory.repo.claudeBackfill", { profileId: personal.id, run: true })).skipped).toHaveLength(1);
+    expect((await c.call("memory.repo.claudeBackfill", { profileId: personal.id, run: true })).skipped).toEqual([]);
     c.close();
   });
 });
