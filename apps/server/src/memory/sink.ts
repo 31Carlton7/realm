@@ -27,15 +27,3 @@ export interface MemorySink {
  *  `memory.spaceFolder:<spaceId>`). The tidy pass reads it to find the folders that exist without
  *  asking `spaceFolderFor`, which would allocate one for every space it was asked about. */
 export const spaceFolderSettingKey = (spaceId: string): string => `memory.spaceFolder:${spaceId}`;
-
-/**
- * The memory repo service as a sink, or null while it lacks the folder helpers — which leaves
- * learning and tidying off rather than half-working. The helpers belong to the store itself (the
- * profile repo's space folders); once `MemoryRepoService` has them with these signatures it satisfies
- * `MemorySink` as it is, this returns it, and the probe can give way to passing the service directly.
- */
-export function memorySinkFrom(repos: MemoryRepoService): MemorySink | null {
-  const r = repos as MemoryRepoService & Partial<Omit<MemorySink, "edit">>;
-  if (typeof r.spaceFolderFor !== "function" || typeof r.writeBatch !== "function" || typeof r.saveSpaceMemory !== "function") return null;
-  return r as MemorySink;
-}

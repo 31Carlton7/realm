@@ -113,7 +113,7 @@ import { AgentMemoryFolders } from "./memory/claude-redirect";
 import { MemoryRepoService, type RepoOwner } from "./memory/repo";
 import { SessionLearner } from "./memory/extract";
 import { LearnedCursors } from "./memory/extract-cursor";
-import { memorySinkFrom, spaceFolderSettingKey, type MemorySink } from "./memory/sink";
+import { spaceFolderSettingKey, type MemorySink } from "./memory/sink";
 import { MemoryTidier } from "./memory/tidy";
 import { MEMORY_PROVIDER_NAME, createMemoryAgentProvider } from "./memory/agent-tools";
 import { NotificationsStore } from "./store/notifications";
@@ -1300,11 +1300,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const agentContextOf = (id: string): string | undefined =>
     browserAgents?.extraSystemContext(id) ?? agentRuns?.extraSystemContext(id) ?? reviews?.extraSystemContext(id) ?? forks?.extraSystemContext(id) ?? runs?.extraSystemContext(id) ?? codeReview?.extraSystemContext(id);
   /* Realm learns from quiet sessions for memory (memory/extract.ts), whichever engine ran them, and
-     writes only through the profile repo's own helpers. `memorySinkFrom` is the one seam to those: it
-     answers null while MemoryRepoService lacks the space-folder helpers, and null — like a build that
-     may make no billed call — leaves learning off. */
-  const learningSink = opts.memoryLearning?.sink ?? memorySinkFrom(memoryRepos);
-  const memoryLearner = opts.memoryLearning?.extract && learningSink
+     writes only through the profile repo's own helpers — `MemoryRepoService` is the sink, typed as one
+     so the compiler holds the two to the same signatures. */
+  const learningSink: MemorySink = opts.memoryLearning?.sink ?? memoryRepos;
+  const memoryLearner = opts.memoryLearning?.extract
     ? new SessionLearner({
         sessions: sessionsStore, events: sessionEvents, cursors: new LearnedCursors(db), sink: learningSink, settings,
         profileIdOf: scopeSeam.profileIdOf,
@@ -1319,7 +1318,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     : null;
   /* …and keeps each profile's repo tidy, about weekly (memory/tidy.ts), on the same terms. It finds a
      space's folder only where the store has recorded one, so it never allocates one itself. */
-  const memoryTidier = opts.memoryLearning?.tidy && learningSink
+  const memoryTidier = opts.memoryLearning?.tidy
     ? new MemoryTidier({
         profileIds: () => profiles.list().map((p) => p.id),
         spaceIdsOf: (profileId) => spaces.list(profileId).map((sp) => sp.id),
