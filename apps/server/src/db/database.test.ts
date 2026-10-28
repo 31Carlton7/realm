@@ -2142,3 +2142,79 @@ describe("the remote_devices relay column — where each paired phone dials (PRO
     db.close();
   });
 });
+
+/**
+ * The shape the memory-learning cursor lands beside, hand-written for every fixture's reason: a session
+ * with events, and the settings row a profile's learning switch lives in. Stamped one short of the
+ * migration that makes `memory_learned`, found by what it says.
+ */
+const BEFORE_MEMORY_LEARNED = `
+CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
+CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT NOT NULL);
+CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL);
+CREATE INDEX session_events_session ON session_events(session_id, seq);
+`;
+const MEMORY_LEARNED_AT = migrations.findIndex((m) => m.includes("CREATE TABLE IF NOT EXISTS memory_learned"));
+
+describe("the memory_learned migration — how far Realm has read each session for memory", () => {
+  const migrated = () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    const db = new DatabaseSync(p);
+    db.exec("PRAGMA foreign_keys = ON;");
+    db.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+    db.exec(BEFORE_MEMORY_LEARNED);
+    for (let v = 1; v <= MEMORY_LEARNED_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, Date.now());
+    db.prepare("INSERT INTO settings (key, value_json) VALUES ('memory.learning:p1', 'false')").run();
+    db.prepare("INSERT INTO sessions (id, title) VALUES ('sess1', 'Billing'), ('sess2', 'Docs')").run();
+    db.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES ('sess1', 10, 'user_message', '{\"text\":\"Dana owns billing\",\"attachments\":[]}')").run();
+    db.close();
+    return { p, db: openDatabase(p) };
+  };
+  const read = (db: DatabaseSync, id: string, seq: number) =>
+    db.prepare("INSERT INTO memory_learned (session_id, through_seq, agent_saved, learned_at) VALUES (?, ?, 0, 5)").run(id, seq);
+
+  it("is appended after the phones' relay column, and a home one short of it reaches the end of the chain", () => {
+    expect(MEMORY_LEARNED_AT).toBeGreaterThan(REMOTE_RELAY_AT);
+    const { db } = migrated();
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    const cols = (db.prepare("PRAGMA table_info(memory_learned)").all() as { name: string; notnull: number; pk: number }[])
+      .map((c) => `${c.name}${c.pk ? " pk" : ""}${c.notnull ? " not null" : ""}`);
+    expect(cols).toEqual(["session_id pk", "through_seq not null", "agent_saved not null", "learned_at not null"]);
+    db.close();
+  });
+
+  it("reads nothing on the way in, and leaves the sessions, their events and the settings as they were", () => {
+    /* The mutant: a backfill that marks every existing session as read — the first quiet spell after
+       the upgrade would then learn nothing from a session already under way. */
+    const { db } = migrated();
+    expect(db.prepare("SELECT COUNT(*) AS n FROM memory_learned").get()).toEqual({ n: 0 });
+    expect(db.prepare("SELECT id, title FROM sessions ORDER BY id").all()).toEqual([{ id: "sess1", title: "Billing" }, { id: "sess2", title: "Docs" }]);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM session_events").get()).toEqual({ n: 1 });
+    expect(db.prepare("SELECT value_json FROM settings WHERE key = 'memory.learning:p1'").get()).toEqual({ value_json: "false" });
+    db.close();
+  });
+
+  it("holds one cursor per session, and a cursor goes with its session", () => {
+    const { db } = migrated();
+    read(db, "sess1", 1);
+    expect(() => read(db, "sess1", 2)).toThrow(/UNIQUE|PRIMARY KEY/);
+    expect(() => read(db, "no-such-session", 1)).toThrow(/FOREIGN KEY/);
+    read(db, "sess2", 0);
+    db.prepare("DELETE FROM sessions WHERE id = 'sess1'").run();
+    expect(db.prepare("SELECT session_id FROM memory_learned").all()).toEqual([{ session_id: "sess2" }]);
+    db.close();
+  });
+
+  it("is idempotent: reopening re-runs nothing, and the statement can meet a home that already has it", () => {
+    const { p, db } = migrated();
+    read(db, "sess1", 1);
+    db.close();
+    expect(() => openDatabase(p).close()).not.toThrow();
+    const again = openDatabase(p);
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    expect(() => again.exec(migrations[MEMORY_LEARNED_AT]!)).not.toThrow();
+    expect(again.prepare("SELECT session_id, through_seq FROM memory_learned").all()).toEqual([{ session_id: "sess1", through_seq: 1 }]);
+    again.close();
+  });
+});

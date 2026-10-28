@@ -9,6 +9,8 @@ export { generateSessionTitle } from "./claude/generate-session-title";
 export { cleanSummary, SUMMARY_MAX } from "./claude/generate-session-summary";
 export { cleanHint, HINT_MAX } from "./claude/generate-prompt-hint";
 export { generateSessionRecap, splitRecap, type Recap, type RecapInput } from "./claude/generate-session-recap";
+export { BACKGROUND_MODEL } from "./claude/background-model";
+export { generateMemoryExtraction, generateMemoryTidyPlan, type KnownIndex, type MemoryExtractionInput, type MemoryTidyInput, type TidyFile } from "./claude/generate-memory";
 export { StdioJsonRpc, JsonRpcCallError, type JsonRpcId } from "./jsonrpc/stdio";
 export { CodexConnection, type ThreadListener } from "./codex/connection";
 export { createCodexMapper, codexRateLimitsReading } from "./codex/map-codex";

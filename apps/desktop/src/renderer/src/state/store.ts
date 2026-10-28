@@ -3,6 +3,7 @@ import { CARET_DEFAULT, CARET_KEY, parseCaretPrefs, type CaretPrefs, type CaretS
 import { destinationTarget, pageHidesSidebar } from "./page-item";
 import { MAC_SKILL_ID, keepLiveRefs, mentionRefLabel, type AppViewRef, type InstalledApp, type MentionRef, type UnlabelledRef } from "@realm/contracts";
 import type { SavedTurn } from "@realm/contracts";
+import { memoryLearningKey, memoryLearningOn } from "@realm/contracts";
 import { attachmentDisposition } from "@realm/contracts";
 import { VIEWER_SLOT, ownerOf, type Marking, type OpenViewerInput, type ViewerFile, type ViewerState } from "./viewer";
 import type { PickedElement } from "@realm/contracts";
@@ -1701,6 +1702,8 @@ export type AppState = TeamSlice & LabSlice & {
   /** Profile memory docs at their defining scope, by profile id (W4: the Library page's
    *  "Edit in profile" editor). Absent = never fetched. */
   profileMemory: Record<string, ProfileMemoryDoc>;
+  /** Each profile's Learn from sessions switch, by profile id. Absent = never fetched. */
+  memoryLearning: Record<string, boolean>;
   /** The profile's memory repo by profile id: null = none attached, absent = never fetched. */
   profileMemoryRepo: Record<string, MemoryRepoState | null>;
   /** The memory repos a space's sessions use, by space id (each with `inheritedHere`). */
@@ -2963,6 +2966,10 @@ export type AppState = TeamSlice & LabSlice & {
   saveProfileMemoryDoc(profileId: string, doc: string): Promise<void>;
   /** THIS space's inheritance override for the profile doc — never a write to the doc itself. */
   setProfileDocEnabled(spaceId: string, enabled: boolean): Promise<void>;
+  /** Fetch a profile's Learn from sessions switch into `memoryLearning`. */
+  refreshMemoryLearning(profileId: string): Promise<void>;
+  /** Turn Realm's learning from sessions (and its tidying) on or off for every space of the profile. */
+  setMemoryLearning(profileId: string, on: boolean): Promise<void>;
   /** Fetch a profile's memory repo into `profileMemoryRepo`. */
   refreshProfileMemoryRepo(profileId: string): Promise<void>;
   /** Fetch the memory repos a space's sessions use into `spaceMemoryRepos`. */
@@ -4435,7 +4442,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null, viewer: null,
       machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
-      profileMemory: {}, profileMemoryRepo: {}, spaceMemoryRepos: {}, memoryRepoLog: {},
+      profileMemory: {}, memoryLearning: {}, profileMemoryRepo: {}, spaceMemoryRepos: {}, memoryRepoLog: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
       notifications: [], notificationsUnread: 0, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalColors: TERMINALS_COLORS_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, linksOpenIn: LINKS_OPEN_IN_DEFAULT, openFilesIn: null, editors: [], caret: CARET_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, paneHistory: {}, windowTrail: EMPTY_TRAIL, keyboardFor: null, iphoneNotifications: true, remote: null, remoteError: null, pairRequest: null,
 
@@ -6919,6 +6926,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // row's toggle writing the defining scope's state).
         const state = await api.setProfileDocEnabled(spaceId, enabled);
         set({ spaceMemory: { ...get().spaceMemory, [spaceId]: state } });
+      },
+      async refreshMemoryLearning(profileId) {
+        const on = memoryLearningOn(await api.getSetting(memoryLearningKey(profileId)));
+        set({ memoryLearning: { ...get().memoryLearning, [profileId]: on } });
+      },
+      async setMemoryLearning(profileId, on) {
+        // The server reads this row before every pass, so the switch is in force once it is written.
+        await api.setSetting(memoryLearningKey(profileId), on);
+        set({ memoryLearning: { ...get().memoryLearning, [profileId]: on } });
       },
       async refreshProfileMemoryRepo(profileId) {
         const [repo] = await api.getMemoryRepos({ profileId });

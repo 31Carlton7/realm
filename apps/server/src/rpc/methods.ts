@@ -124,6 +124,8 @@ export type Deps = {
   presence: Presence;
   /** Where clients on other machines reach this server (`realm serve --listen`), once it listens. */
   access?: () => { url: string } | null;
+  /** Realm's own memory learning, where it is on: archiving a session is the moment it is read. */
+  memoryLearning?: { sessionArchived(sessionId: string): void } | null;
 };
 
 export function registerMethods(d: Deps): void {
@@ -758,7 +760,13 @@ export function registerMethods(d: Deps): void {
   reg("items.list", (p) => d.items.list(p.spaceId));
   reg("items.listAll", () => d.items.listAll());
   reg("items.create", (p) => { const r = d.items.create(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });
-  reg("items.update", (p) => { const r = d.items.update(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });
+  reg("items.update", (p) => {
+    const r = d.items.update(p);
+    // A session put away is read for memory now, rather than after its quiet spell.
+    if (p.archived === true && r.kind === "session") d.memoryLearning?.sessionArchived(r.refId);
+    rpc.broadcast("items.changed", { spaceId: r.spaceId });
+    return r;
+  });
   reg("items.delete", async (p) => {
     const it = d.items.get(p.id);
     if (it?.kind === "terminal") { d.terminals.close(it.refId); return { ok: true as const }; } // closes pty + row + item, broadcasts
