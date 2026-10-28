@@ -477,6 +477,11 @@ describe("SessionService over rpc", () => {
     // that schedules nothing ending the hold — this one, which is not the loop's.
     await settle(loop.id, "plain");
     expect(await app.sessions.stopIdleNow()).toEqual([]);
+    // Nor does a turn failover sends again, which carries no message of its own.
+    const replies = c.eventTypes(loop.id).filter((t) => t === "assistant_text").length;
+    await app.sessions.resendTurn(loop.id, { text: "plain", attachments: [] });
+    await waitFor(async () => c.eventTypes(loop.id).filter((t) => t === "assistant_text").length > replies && (await c.call("sessions.get", { id: loop.id })).result.status === "idle");
+    expect(await app.sessions.stopIdleNow()).toEqual([]);
     // The wakeup fires: a turn the engine starts on its own, with no message from Realm. One that
     // schedules again keeps the hold; one that does not ends the loop.
     const fire = (events: SessionEvent[]) => { for (const ev of events) (app.sessions as unknown as { onEvent(id: string, ev: SessionEvent): void }).onEvent(loop.id, ev); };
