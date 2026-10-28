@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, RestartRequiredError } from "@realm/adapters";
 import { createApp, type App } from "../app";
-import { DEFAULT_PERMISSION_MODE_KEY, adaptIdleMinutes } from "@realm/contracts";
+import { DEFAULT_PERMISSION_MODE_KEY, adaptIdleMinutes, sessionEvent, type SessionEvent } from "@realm/contracts";
 import { AGENT_PROBE_TTL_MS, ENGINE_IDLE_MINUTES_KEY, PROBE_CRASH_BACKOFF_MS, titleFromMessage, TITLE_MAX } from "./service";
 import { waitFor } from "../test-utils";
 
@@ -473,8 +473,16 @@ describe("SessionService over rpc", () => {
     await settle(loop.id, "wake");
     expect(await app.sessions.reapIdle(later)).toEqual([]);
     expect(await app.sessions.stopIdleNow()).toEqual([]);
-    // A turn that schedules nothing more ends the loop.
+    // The person's message between two firings leaves the next firing pending. THE MUTANT: any turn
+    // that schedules nothing ending the hold — this one, which is not the loop's.
     await settle(loop.id, "plain");
+    expect(await app.sessions.stopIdleNow()).toEqual([]);
+    // The wakeup fires: a turn the engine starts on its own, with no message from Realm. One that
+    // schedules again keeps the hold; one that does not ends the loop.
+    const fire = (events: SessionEvent[]) => { for (const ev of events) (app.sessions as unknown as { onEvent(id: string, ev: SessionEvent): void }).onEvent(loop.id, ev); };
+    fire([sessionEvent("tool_call", { toolUseId: "w2", name: "ScheduleWakeup", input: { delaySeconds: 1200 }, parentToolUseId: null }), sessionEvent("status", { status: "idle" })]);
+    expect(await app.sessions.stopIdleNow()).toEqual([]);
+    fire([sessionEvent("assistant_text", { text: "nothing new", messageId: "w-reply" }), sessionEvent("status", { status: "idle" })]);
     expect(await app.sessions.stopIdleNow()).toEqual([loop.id]);
     c.close();
   });

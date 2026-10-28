@@ -151,6 +151,9 @@ export class SessionService {
   private wakeups = new Set<string>();
   /** Sessions whose turn in flight has scheduled a wakeup; read when the turn settles. */
   private wakingTurn = new Set<string>();
+  /** Sessions whose turn in flight Realm sent — the person's, a peer's, a retry — rather than one the
+   *  engine started on its own, which is what a wakeup firing is. */
+  private realmTurn = new Set<string>();
   private reapTimer: ReturnType<typeof setInterval> | null = null;
   /**
    * Messages waiting for the current turn to end, oldest first, per session.
@@ -784,6 +787,7 @@ export class SessionService {
     await this.ensurePorts(id);
     await this.reaping.get(id);
     const handle = this.ensureLive(id);
+    this.noteRealmTurn(id);
     await handle.send(this.resolveMentions(id, msg));
   }
 
@@ -1298,16 +1302,27 @@ export class SessionService {
     return !(this.d.keepEngine?.(id) ?? false);
   }
 
-  /** A call to one of the engine's own schedulers (`crons`), or a turn settling (`wakeups`). */
+  /**
+   * A call to one of the engine's own schedulers (`crons`), or a turn settling (`wakeups`). A loop's
+   * hold ends only with a turn the engine started itself — the wakeup firing — that schedules no other:
+   * a message the person sends between two firings leaves the next one pending, and the hold with it.
+   */
   private noteScheduling(id: string, ev: SessionEvent): void {
-    if (ev.type === "tool_call") {
+    if (ev.type === "user_message") this.realmTurn.add(id);
+    else if (ev.type === "tool_call") {
       if (ev.payload.name === "CronCreate") this.crons.set(id, (this.crons.get(id) ?? 0) + 1);
       else if (ev.payload.name === "CronDelete") { const n = (this.crons.get(id) ?? 0) - 1; if (n > 0) this.crons.set(id, n); else this.crons.delete(id); }
       else if (ev.payload.name === "ScheduleWakeup") this.wakingTurn.add(id);
     } else if (ev.type === "status" && ev.payload.status === "idle") {
-      if (this.wakingTurn.delete(id)) this.wakeups.add(id); else this.wakeups.delete(id);
+      const scheduled = this.wakingTurn.delete(id);
+      const sent = this.realmTurn.delete(id);
+      if (scheduled) this.wakeups.add(id);
+      else if (!sent) this.wakeups.delete(id);
     }
   }
+
+  /** Realm sent this turn without a `user_message` of its own: a retry or a handoff's re-send. */
+  private noteRealmTurn(id: string): void { this.realmTurn.add(id); }
 
   /** The engine is gone, and everything it was holding went with it. */
   private forgetHeld(id: string): void {
@@ -1315,6 +1330,7 @@ export class SessionService {
     this.crons.delete(id);
     this.wakeups.delete(id);
     this.wakingTurn.delete(id);
+    this.realmTurn.delete(id);
   }
 
   private noteBackground(id: string, toolUseId: string, status: "running" | "stopped"): void {
