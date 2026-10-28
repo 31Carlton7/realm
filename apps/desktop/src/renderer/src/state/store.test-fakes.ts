@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack, type UnlockPolicy, unlockPolicyRank } from "@realm/contracts";
-import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpSignInOptions, McpTool, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
+import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpSignInOptions, McpTool, MemoryClaudeBackfill, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, BranchList, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
 import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, Schedule, SearchResults, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
@@ -416,6 +416,9 @@ export type FakeData = {
   memoryRemoteChecks?: Record<string, MemoryRemoteCheck>;
   /** What `memory.repo.importClaude` would add, by owner key; absent = nothing to import. */
   claudeImports?: Record<string, MemoryClaudeImport>;
+  /** What `memory.repo.claudeBackfill` answers, by profile id: `last` before "Check now", `next` after
+   *  it. Absent = it has not run yet. */
+  claudeBackfills?: Record<string, { last: MemoryClaudeBackfill; next?: MemoryClaudeBackfill }>;
   /** The notifications feed `notifications.list` pages over (W5). Unordered on the way in — the fake
    *  sorts (createdAt DESC, id DESC) and pages like the real store, so tests just append. */
   notifications?: Notification[];
@@ -670,6 +673,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     spaceOwnMemoryRepos: overrides.spaceOwnMemoryRepos ?? {},
     memoryRemoteChecks: overrides.memoryRemoteChecks ?? {},
     claudeImports: overrides.claudeImports ?? {},
+    claudeBackfills: overrides.claudeBackfills ?? {},
     documentWorkspaces: overrides.documentWorkspaces ?? {},
     documentFiles: overrides.documentFiles ?? {},
     notifications: overrides.notifications ?? [],
@@ -1401,6 +1405,13 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       if (dryRun || plan.entries === 0) return { ...plan, sha: null };
       data.claudeImports[ownerKey(o)] = { projects: 0, files: 0, entries: 0, skipped: [], sha: null };
       return { ...plan, sha: "f00dfeed" };
+    },
+    claudeBackfill: async (profileId, run) => {
+      calls.push(`claudeBackfill:${profileId}:${run}`);
+      const b = data.claudeBackfills[profileId];
+      if (!b) return { imported: 0, updated: 0, total: 0, unmatched: [], skipped: [], error: null, sha: null, at: null };
+      if (run && b.next) b.last = b.next;
+      return b.last;
     },
     memorySources: async (sessionId) => {
       calls.push(`memorySources:${sessionId}`);

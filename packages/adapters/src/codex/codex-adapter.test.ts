@@ -1283,6 +1283,16 @@ describe("a team role's run", () => {
     expect(Object.keys(config.mcp_servers as object)).toEqual(["realm"]);
   });
 
+  it("turns Codex's own memories off for the thread where Realm keeps the session's memory, and only there", async () => {
+    const kept = await booted({ model: "reflect", mcpServers: [gateway], memoryDirectory: "/realm/memory/repos/profile-p/spaces/realm" });
+    const config = reflected(kept.evs).config as Record<string, unknown>;
+    expect(config).toMatchObject({ features: { memories: false }, memories: { generate_memories: false, use_memories: false } });
+    expect(Object.keys(config.mcp_servers as object)).toEqual(["realm"]);
+    const own = await booted({ model: "reflect", mcpServers: [gateway] });
+    expect("features" in (reflected(own.evs).config as object)).toBe(false);
+    expect("memories" in (reflected(own.evs).config as object)).toBe(false);
+  });
+
   it("reads the user's server names from the config's table headers", () => {
     expect(codexUserMcpServers('[mcp_servers.a]\n[mcp_servers.a.env]\n[mcp_servers."b c"]\n  [ mcp_servers.d-e ]\n[other]\nmcp_servers = 1\n')).toEqual(["a", "b c", "d-e"]);
     expect(codexUserMcpServers("")).toEqual([]);

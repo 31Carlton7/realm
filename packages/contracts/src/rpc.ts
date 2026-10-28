@@ -20,7 +20,7 @@ import {
 import { CatalogFontSchema, InstalledFontSchema, StoredThemeSchema } from "./theme-seed";
 import { McpCallSchema, McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, McpOauthStatusSchema, McpSignInOptionsSchema } from "./mcp";
 import { AppViewSchema } from "./mcp-apps";
-import { MEMORY_DOC_MAX, MemoryClaudeImportSchema, MemoryRemoteCheckSchema, MemoryRepoCommitSchema, MemoryRepoScopeSchema, MemoryRepoStateSchema, MemorySourcesSchema, MemoryStateSchema } from "./memory";
+import { MEMORY_DOC_MAX, MemoryClaudeBackfillSchema, MemoryClaudeImportSchema, MemoryRemoteCheckSchema, MemoryRepoCommitSchema, MemoryRepoScopeSchema, MemoryRepoStateSchema, MemorySourcesSchema, MemoryStateSchema } from "./memory";
 import { NotificationSchema } from "./notifications";
 import { RunAttemptSchema, RunConstraintsSchema, RunSchema, RunStateSchema } from "./runs";
 import { ReviewResultSchema } from "./review";
@@ -1463,6 +1463,12 @@ export const Methods = {
    * repo is never added twice, so a second run adds nothing.
    */
   "memory.repo.importClaude": { params: z.object({ scope: MemoryRepoScopeSchema, ownerId: IdSchema, dryRun: z.boolean().default(false) }), result: MemoryClaudeImportSchema },
+  /**
+   * Claude's own memory (`~/.claude/projects/<project>/memory`, read only), copied into the folders of the
+   * profile's spaces. It runs by itself at boot and every few minutes; this answers what the last run
+   * did, and `run` runs it now first — the row's "Check now".
+   */
+  "memory.repo.claudeBackfill": { params: z.object({ profileId: IdSchema, run: z.boolean().default(false) }), result: MemoryClaudeBackfillSchema },
 
   /** `machineName` is the Mac's user-facing ComputerName ("Carlton's M4 MacBook Pro"), falling back to
    *  the hostname stripped of `.local`. Display-only (the prompter's under-strip machine label, Plan 12

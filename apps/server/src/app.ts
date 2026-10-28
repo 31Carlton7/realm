@@ -108,6 +108,8 @@ import { McpGateway } from "./mcp/gateway";
 import { McpOauth } from "./mcp/oauth";
 import type { AgentKind, McpServerStatus } from "@realm/contracts";
 import { MemoryService } from "./memory/service";
+import { CLAUDE_BACKFILL_EVERY_MS, ClaudeMemoryBackfill } from "./memory/claude-backfill";
+import { AgentMemoryFolders } from "./memory/claude-redirect";
 import { MemoryRepoService, type RepoOwner } from "./memory/repo";
 import { MEMORY_PROVIDER_NAME, createMemoryAgentProvider } from "./memory/agent-tools";
 import { NotificationsStore } from "./store/notifications";
@@ -739,6 +741,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /** Where a memory repo goes when Realm's home is inside a space's folder. Unset, it is the app's
    *  Application Support folder under `userHome` — and nowhere at all when no `userHome` is named. */
   memoryFallbackRoot?: string;
+  /** Memory on by default: every profile that has never had a memory repo gets one, at boot and when
+   *  it is made. Only `main.ts` turns it on; a test or a script starts every profile with none. */
+  memoryRepoByDefault?: boolean;
+  /** Where the Claude memory brought into space folders is passed over as a test run's. A test names
+   *  its own; the app takes this Mac's temporary folders. */
+  claudeTemporaryRoots?: readonly string[];
   /** Teams Phase 3 test knobs: the platform every channel acts on, and main's answer about a press.
    *  Production passes neither — the platform is the fake only under REALM_FAKE_ACT_ADAPTER=1 (live
    *  checks), not connected otherwise, and a press is asked of Electron main over the bridge. */
@@ -959,6 +967,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     profileIdOf: (spaceId: string): string | null => spaces.get(spaceId)?.profileId ?? null,
     spaceIdsOf: (profileId: string): string[] => spaces.list(profileId).map((sp) => sp.id),
     allSpaceIds: (): string[] => spaces.listAll().map((sp) => sp.id),
+    spaceNameOf: (spaceId: string): string | null => spaces.get(spaceId)?.name ?? null,
   };
   // Repo-shipped skills reach the user's library here, once each, before any session can be started.
   const skills = new SkillsService({
@@ -1153,12 +1162,26 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     gh: ghRunner(opts.codeReview?.gh ?? "gh"),
     // A pull or push settles in the background, after the save that started it has answered.
     onSynced: (o) => memoryRepoChanged(o),
+    autoCreate: opts.memoryRepoByDefault === true,
   });
   /** Every space that shows a repo is told it changed: all of a profile's spaces, or the one space. */
   const memoryRepoChanged = (o: RepoOwner): void => {
     for (const spaceId of o.scope === "space" ? [o.id] : spaces.list(o.id).map((sp) => sp.id)) rpc.broadcast("memory.changed", { spaceId });
   };
   const memory = new MemoryService({ home: opts.home, settings, environments, claudeDir: opts.claudeDir, scopes: scopeSeam, repos: memoryRepos });
+  // Claude's own memory goes to the space's folder of the profile repo, and is committed as it lands.
+  const agentMemory = new AgentMemoryFolders({ repos: memoryRepos, onChanged: (o) => memoryRepoChanged(o) });
+  /* …and what Claude keeps outside Realm (`~/.claude/projects/<project>/memory`, read only) is copied
+     into the folder of the space that works in each project. Only a caller that names a Claude folder,
+     or the machine's home, has one to read: a test that names neither never reads the real one. */
+  const claudeConfigDir = opts.claudeDir ?? (opts.userHome ? process.env.CLAUDE_CONFIG_DIR || join(opts.userHome, ".claude") : null);
+  const claudeBackfill = claudeConfigDir === null ? null : new ClaudeMemoryBackfill({
+    claudeDir: claudeConfigDir, repos: memoryRepos, settings,
+    spaces: () => spaces.listAll().map((sp) => ({ id: sp.id, profileId: sp.profileId, name: sp.name, paths: [sp.folderPath, ...environments.list(sp.id).map((e) => e.path)] })),
+    profileIds: () => profiles.list().map((p) => p.id),
+    temporaryRoots: opts.claudeTemporaryRoots,
+    onChanged: (o) => memoryRepoChanged(o),
+  });
   // The browser agent surface (Plan 11 W3): the main↔server op bridge, the permission broker, and the
   // `realm-browser` provider on the gateway. The broker's callbacks are late-bound to `sessionService`
   // (the checkpoints knot again): nothing in it runs before a session exists to run it for.
@@ -1290,7 +1313,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // A team role's goal run settles when its goal stops, not after its first turn.
     onChanged: (sessionId, goal) => handoffs?.goalChanged(sessionId, goal),
   });
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, planLimits, documents, goals, views: appViews,
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, agentMemory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, planLimits, documents, goals, views: appViews,
     // What the idle reaper must leave running between turns. Read at sweep time, long after every
     // service named here exists.
     keepEngine: (sessionId) => goals.get(sessionId)?.status === "active"
@@ -1684,7 +1707,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     ...(opts.lab?.now ? { now: opts.lab.now } : {}),
   });
   /* `realm-memory`: the memory repo's tools, on by default and listed only where the space's profile
-     has a repo — attaching one is the opt-in. The only memory that reaches Cursor and the other ACP
+     has a repo — which every profile has unless its repo was detached. The only memory that reaches Cursor and the other ACP
      agents, which take no per-session context. A save repaints every open memory row of the profile. */
   mcpGateway.registerProvider(createMemoryAgentProvider({ repos: memoryRepos, mcp, onChanged: memoryRepoChanged }));
   // The durable ship log (Plan 14 W1): GitWriteService stays a pure git service — the recorder is the
@@ -1764,7 +1787,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   let access: Access | null = null;
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
-    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, handoffs, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
+    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, claudeBackfill, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, handoffs, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns, teammates,
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, agentSignIn,
     libraryFiles, remote, presence,
@@ -1812,6 +1835,20 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // boots (SearchService.runBackfill's doc comment states the design). Fire-and-forget — search over
   // the not-yet-covered range is merely incomplete while it runs, and a failure only pauses it.
   void search.runBackfill();
+  /* Memory is on by default: a profile that has never had a repo gets one before the first session can
+     start, so that session's memory already has somewhere to go. A detached one stays detached. */
+  for (const p of profiles.list()) {
+    const made = await memoryRepos.ensureProfileRepo(p.id);
+    if (made) console.log(`[memory] made ${p.name}'s memory repo at ${made.path}`);
+  }
+  // …and what Claude wrote in a space folder that no settled turn committed is committed now. Then the
+  // memory Claude kept outside Realm is brought in, and again every few minutes, so a Claude run in a
+  // terminal reaches the repo too.
+  void agentMemory.sweep(profiles.list().map((p) => p.id)).then(async () => {
+    if (!opts.memoryRepoByDefault || !claudeBackfill) return;
+    await claudeBackfill.run();
+    claudeBackfill.start(CLAUDE_BACKFILL_EVERY_MS);
+  });
   /* Saves made while the network was down are pushed now, and what other machines pushed is pulled:
      every synced repo, in the background, never holding up the boot. */
   for (const p of profiles.list()) void memoryRepos.queueSync({ scope: "profile", id: p.id });
@@ -1874,6 +1911,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    */
   const closeApp = async (): Promise<void> => {
     search.stop(); // before db.close: the backfill loop must not start a chunk on a closing handle
+    claudeBackfill?.stop(); // likewise for Claude's memory: no run starts on a closing handle
     payloadCompactor.stop(); // likewise its batches
     team?.close();
     handoffs?.close();

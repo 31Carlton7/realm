@@ -327,7 +327,7 @@ describe("scoping (W2) — the inherited profile memory doc", () => {
     const memory = new MemoryService({
       home: h.home, settings: h.settings, claudeDir: h.claudeDir, scopes: seam({ [SPACE_A]: "PA" }),
       environments: envs({ [SPACE_A]: { path: h.folderOf(SPACE_A), kind: "primary" } }),
-      repos: { indexesFor: (sid) => (sid === SPACE_A ? [{ scope: "profile", path: "/mem", index, truncated: true }] : []) },
+      repos: { indexesFor: (sid) => (sid === SPACE_A ? [{ scope: "profile", kind: "root", path: "/mem", index, truncated: true }] : []) },
     });
     memory.setProfile("PA", "p".repeat(MEMORY_DOC_MAX));
     memory.set(SPACE_A, "s".repeat(MEMORY_DOC_MAX));
@@ -352,7 +352,7 @@ describe("scoping (W2) — the inherited profile memory doc", () => {
     const memory = new MemoryService({
       home: h.home, settings: h.settings, claudeDir: h.claudeDir, scopes: seam({ [SPACE_A]: "PA" }),
       environments: envs({ [SPACE_A]: { path: h.folderOf(SPACE_A), kind: "primary" } }),
-      repos: { indexesFor: () => [{ scope: "space", path: "/team", index: team, truncated: false }, { scope: "profile", path: "/mine", index: prof, truncated: false }] },
+      repos: { indexesFor: () => [{ scope: "space", kind: "root", path: "/team", index: team, truncated: false }, { scope: "profile", kind: "root", path: "/mine", index: prof, truncated: false }] },
     });
     memory.setProfile("PA", "p".repeat(MEMORY_DOC_MAX));
     memory.set(SPACE_A, "s".repeat(MEMORY_DOC_MAX));

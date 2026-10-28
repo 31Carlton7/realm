@@ -82,6 +82,9 @@ try {
     // Where a memory repo goes when this home is inside a space's folder. Unset in production (the
     // app's own Application Support folder); live checks point it at their scratch.
     memoryFallbackRoot: process.env.REALM_MEMORY_FALLBACK_DIR || undefined,
+    // Every profile gets a memory repo unless it detached one. Only here, so a test's profiles start
+    // with none.
+    memoryRepoByDefault: true,
     // The real server asks whether this Mac can run a simulator, once at boot and then as its answer
     // ages. Only here: every other `createApp` is a test or a script, and gets no probe unless it
     // passes one (see the option's own comment).
