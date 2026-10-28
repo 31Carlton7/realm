@@ -5,7 +5,7 @@ import Image from "@tiptap/extension-image";
 import { Icon } from "@realm/ui";
 import { RawBlock, TABLE_EXTENSIONS, parseMarkdown, serializeMarkdown } from "./markdown-model";
 import { UiCodeBlock } from "./UiBlockNode";
-import { useScrollMemory } from "../scroll-memory";
+import { recallCaret, rememberCaret, useScrollMemory } from "../scroll-memory";
 
 /**
  * The WYSIWYG half of the docs editor (Plan 17 W2). Markdown in, markdown out; the file on disk stays
@@ -32,6 +32,8 @@ export function RichTextEditor({ text, onChange, scrollKey = null, readOnly = fa
   const applying = useRef(false);
   /** The last markdown this editor produced, to recognise its own value coming back down as a prop. */
   const lastEmitted = useRef<string | null>(null);
+  /** The caret is put back once, when the document first arrives; afterwards it is the reader's. */
+  const caretBack = useRef(false);
 
   const editor = useEditor({
     editable: !readOnly,
@@ -39,6 +41,9 @@ export function RichTextEditor({ text, onChange, scrollKey = null, readOnly = fa
     // agent writes — a chart, a diagram, a comparison — rather than showing their source.
     extensions: [StarterKit.configure({ codeBlock: false }), UiCodeBlock, Image.configure({ inline: true }), ...TABLE_EXTENSIONS, RawBlock],
     editorProps: { attributes: { class: "documents-rich-surface", "aria-label": "Rich text editor" } },
+    onSelectionUpdate: ({ editor: ed }) => {
+      if (scrollKey && !applying.current) rememberCaret(scrollKey, { anchor: ed.state.selection.anchor, head: ed.state.selection.head });
+    },
     onUpdate: ({ editor: ed }) => {
       if (applying.current) return;
       const md = serializeMarkdown(ed.state.doc);
@@ -69,7 +74,12 @@ export function RichTextEditor({ text, onChange, scrollKey = null, readOnly = fa
     } finally {
       applying.current = false;
     }
-  }, [editor, text]);
+    // Where the caret was when the reader left this document (scroll-memory.ts). Without focus, and
+    // clamped by the command to the document it lands in.
+    const kept = scrollKey && !caretBack.current ? recallCaret(scrollKey) : null;
+    caretBack.current = true;
+    if (kept) editor.commands.setTextSelection({ from: kept.anchor, to: kept.head });
+  }, [editor, text, scrollKey]);
 
   if (!editor) return <div className="documents-rich" />;
   return (

@@ -31,7 +31,7 @@ import {
 import { AddTeammateSchema, DelegableModelSchema, DelegatedChildSchema, DelegatedRunSchema, DelegationOutcomeSchema, SubagentIdSchema } from "./delegation";
 import { SEARCH_GROUP_LIMIT, SEARCH_GROUP_LIMIT_MAX, SEARCH_QUERY_MAX, SearchResultsSchema } from "./search";
 import { ImportResultSchema, ImportScanSchema } from "./import";
-import { GuideProgressSchema } from "./documents";
+import { GuideProgressSchema, GuideStorageSchema } from "./documents";
 import { UsageBucketSchema, UsageBudgetSchema, UsageDaySchema, UsageRecordsSchema, UsageSummarySchema } from "./usage";
 import { PlanLimitsSchema } from "./plan-limits";
 import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./schedules";
@@ -996,6 +996,9 @@ export const Methods = {
   "documents.progressRead": { params: z.object({ documentsId: IdSchema, path: z.string() }), result: GuideProgressSchema },
   /** Fold one quiz attempt into the sidecar and return the updated history. */
   "documents.progressRecord": { params: z.object({ documentsId: IdSchema, path: z.string(), topic: z.string().min(1).max(200), correct: z.number().int().nonnegative(), total: z.number().int().positive() }), result: GuideProgressSchema },
+  /** Keep what a guide holds in its `localStorage` in its sidecar, so it outlives the app; an empty
+   *  record removes it. */
+  "documents.progressStorage": { params: z.object({ documentsId: IdSchema, path: z.string(), storage: GuideStorageSchema }), result: z.object({ ok: z.literal(true) }) },
   /** Create today's lecture file from the template (a numbered suffix if it exists), open it in the
    *  documents pane, and answer with everything the store needs to arrange the panes. */
   "lectures.start": { params: z.object({ spaceId: IdSchema, title: z.string().default("") }), result: StartLectureResultSchema },

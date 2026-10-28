@@ -14,7 +14,7 @@ renders math through KaTeX. You write markup; you never write the runtime.
 
 - `guides/<topic>.html` — the guide. One topic per file, lowercase-hyphen names (`guides/cache-coherence.html`).
 - `lectures/YYYY-MM-DD-<topic>.md` — the lecture notes (and transcripts) you build from.
-- `guides/.<name>.html.progress.json` — the quiz sidecar Realm writes. Never edit it; read it with `docs_progress`.
+- `guides/.<name>.html.progress.json` — the quiz sidecar Realm writes, with the guide's `localStorage`. Never edit it; read it with `docs_progress`.
 
 Before writing, run `docs_search` over `lectures/` and `guides/` for the topic: extend an existing
 guide rather than starting a second one on the same subject, and cite the lectures you used.
@@ -102,6 +102,10 @@ Math inside `<code>` or `<pre>` is left alone.
 
 **Custom interactivity** — inline `<script>` is allowed (it runs sandboxed, no network). For your own
 exercises, report a result with `window.Realm.attempt(topic, correct, total)` so it is recorded like a quiz.
+Keep a script's own progress in `localStorage`, as on any page: Realm stands it in for the sandbox, keeps it
+in the guide's sidecar across relaunches, and has it back before your script runs. `sessionStorage` lasts
+until Realm quits. Answers, steps, flips and open `<details>` in the markup above are kept for the reader
+without any script.
 
 ## Writing the guide
 

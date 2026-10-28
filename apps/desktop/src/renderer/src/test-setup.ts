@@ -3,6 +3,8 @@ import { afterEach } from "vitest";
 import { cleanup } from "@testing-library/react";
 import { forgetAllScroll } from "./panes/scroll-memory";
 import { forgetPdfPlaces } from "./panes/documents/pdf-layout";
+import { forgetAllGuideStates } from "./panes/documents/guide-state";
+import { forgetDocumentViews } from "./panes/documents/view-memory";
 afterEach(cleanup);
 
 // The scroll marks are module-level by design — they have to outlive the unmount a space switch
@@ -10,6 +12,8 @@ afterEach(cleanup);
 // test's reading position can never decide the next one's first paint.
 afterEach(forgetAllScroll);
 afterEach(forgetPdfPlaces);
+afterEach(forgetAllGuideStates);
+afterEach(forgetDocumentViews);
 
 // jsdom has no ResizeObserver, and every anchored surface (`useAnchoredPopover`) now constructs one
 // to re-place itself when its content changes height. An inert default: jsdom reports no layout, so

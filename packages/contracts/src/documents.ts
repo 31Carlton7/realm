@@ -262,13 +262,50 @@ export const GuideTopicProgressSchema = z.object({
 });
 export type GuideTopicProgress = z.infer<typeof GuideTopicProgressSchema>;
 
+/** How much a guide may keep in its `localStorage` (and, separately, its `sessionStorage`), counted in
+ *  characters of keys and values. A browser gives an origin about five million; a guide is one page,
+ *  and what it keeps is written into a sidecar beside it, so a fifth of that. */
+export const GUIDE_STORAGE_MAX_CHARS = 1_000_000;
+
+/** A guide's own `localStorage`, as it last left it. */
+export const GuideStorageSchema = z.record(z.string(), z.string())
+  .refine((s) => Object.entries(s).reduce((n, [k, v]) => n + k.length + v.length, 0) <= GUIDE_STORAGE_MAX_CHARS, "a guide's storage is limited to a million characters");
+
 export const GuideProgressSchema = z.object({
   version: z.literal(1),
   topics: z.record(z.string(), GuideTopicProgressSchema),
+  /** What the guide kept in `localStorage` — the frame's origin is opaque and has none of its own, so
+   *  the runtime stands one in and the pane writes it here, where it outlives the app as a browser's
+   *  would. Absent until a guide keeps something. */
+  storage: GuideStorageSchema.optional(),
 });
 export type GuideProgress = z.infer<typeof GuideProgressSchema>;
 
 export const emptyGuideProgress = (): GuideProgress => ({ version: 1, topics: {} });
+
+/**
+ * What a guide was in the middle of, as its runtime reports it (`guide-runtime.ts`): the answers
+ * picked and typed, quizzes checked, step-throughs, flipped cards and open sections (`widgets`, each
+ * keyed by a signature of the markup it was taken from, so a rewritten widget is never restored
+ * onto), the guide's own route (`hash`) and reading position (`top`), and the storage the runtime
+ * stands in for the one the opaque frame lacks. The pane keeps it per guide and hands it back.
+ */
+export type GuideState = {
+  v: 1;
+  hash?: string;
+  top?: number;
+  local?: Record<string, string>;
+  session?: Record<string, string>;
+  widgets?: Record<string, unknown>;
+};
+
+/** The tag on the envelope a guide's frame is created with (its `name`), so the runtime knows the
+ *  window name it reads is Realm's hand-off and not a name the guide gave itself. */
+export const GUIDE_STATE_MARK = "realm-guide-state";
+
+/** The most a guide's whole state may come to, serialized: both storages at their limit, and room for
+ *  the widgets. Anything larger is not a state Realm will hold for it. */
+export const GUIDE_STATE_MAX_CHARS = 2 * GUIDE_STORAGE_MAX_CHARS + 200_000;
 
 /** `guides/cache.html` → `guides/.cache.html.progress.json`. Hidden (dot-prefixed) so the file
  *  picker never lists it and a directory of guides reads as a directory of guides. */
@@ -285,7 +322,8 @@ export function recordGuideAttempt(p: GuideProgress, topic: string, attempt: Gui
   const prev = p.topics[topic] ?? { attempts: [], best: 0, last: 0 };
   const attempts = [...prev.attempts, attempt].slice(-GUIDE_PROGRESS_MAX_ATTEMPTS);
   const score = attempt.correct / attempt.total;
-  return { version: 1, topics: { ...p.topics, [topic]: { attempts, best: Math.max(prev.best, score), last: score } } };
+  // Spread, so what else the sidecar holds — the guide's own storage — rides through an attempt.
+  return { ...p, version: 1, topics: { ...p.topics, [topic]: { attempts, best: Math.max(prev.best, score), last: score } } };
 }
 
 /** Topics whose LAST attempt scored under `threshold` — what "review what you got wrong" reads. */

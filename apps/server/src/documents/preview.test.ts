@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { DocumentPreviewServer, GUIDE_CSP, defaultKatexDir, defaultVisNetworkDir, injectHelpers, localizeVisNetwork, wantsKatex } from "./preview";
+import { GUIDE_BOOT } from "./guide-runtime";
 import { makePdf } from "./test-pdf";
 
 const servers: DocumentPreviewServer[] = [];
@@ -209,8 +210,21 @@ describe("localizeVisNetwork", () => {
 describe("injectHelpers / wantsKatex", () => {
   it("injects after <head>, or at the top when there is no head", () => {
     expect(injectHelpers("<html><head><title>x</title><body>b</body></html>", "/b", { katex: false }))
-      .toMatch(/<head>\n<link[^]*guide\.js"><\/script><title>x<\/title>/);
-    expect(injectHelpers("<p>bare</p>", "/b", { katex: false }).startsWith('<link rel="stylesheet" href="/b/guide.css">')).toBe(true);
+      .toMatch(/<head>\n<script>[^]*<\/script>\n<link[^]*guide\.js"><\/script><title>x<\/title>/);
+    expect(injectHelpers("<p>bare</p>", "/b", { katex: false })).toMatch(/^<script>\(function \(\) \{[^]*<\/script>\n<link rel="stylesheet" href="\/b\/guide\.css">/);
+  });
+  it("puts the boot first in the head, ahead of the guide's own scripts, and the rest where they always went", () => {
+    /* A guide's script reads its storage as it runs; the boot that stands storage in has to run first.
+       THE MUTANT: inject the boot with the other tags, before </head>. The head's own script runs
+       first, finds no storage, and starts the guide from nothing. */
+    const html = '<!doctype html><html><head><meta charset="utf-8"><script>var S = localStorage.getItem("k");</script><title>t</title></head><body></body></html>';
+    const out = injectHelpers(html, "/b", { katex: false });
+    const boot = out.indexOf(GUIDE_BOOT), own = out.indexOf("var S = localStorage");
+    expect(boot).toBeGreaterThan(out.indexOf("<head>"));
+    expect(boot).toBeLessThan(own);
+    expect(out.indexOf("guide.js")).toBeGreaterThan(out.indexOf("<title>t</title>"));
+    expect(out.indexOf("guide.js")).toBeLessThan(out.indexOf("</head>"));
+    expect(out.startsWith("<!doctype html>")).toBe(true);
   });
   it("reads the meta regardless of attribute order and case", () => {
     expect(wantsKatex('<META content="mermaid katex" NAME="realm-helpers">')).toBe(true);

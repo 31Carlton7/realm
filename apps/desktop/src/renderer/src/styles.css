@@ -9545,6 +9545,14 @@ span.documents-name:hover { background: none; }
 
 /* ---- Plan 22: previews, lecture sheets ---------------------------------------------------- */
 .documents-frame { width: 100%; height: 100%; border: 0; background: var(--rl-panel); display: block; }
+/* The guides kept alive behind the other tabs (DocumentsPane). The one shown takes the editor's place
+   in the pane's column; the others are stacked in the same cell, out of sight. With none shown the
+   layer leaves the column and lies over the pane, still laid out: a frame given no size, or hidden by
+   display, can come back with its page re-laid and its reader somewhere else. */
+.documents-guides { flex: 1 1 auto; min-height: 0; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); }
+.documents-guides:not([data-shown]) { position: absolute; inset: 0; visibility: hidden; pointer-events: none; }
+.documents-guide { grid-area: 1 / 1; min-height: 0; }
+.documents-guide:not([data-shown]) { visibility: hidden; pointer-events: none; }
 
 /* ── PDFs (PdfView.tsx) ──────────────────────────────────────────────────
    Pages are white paper on the PANE's own ground — what every other document stands on — not on the

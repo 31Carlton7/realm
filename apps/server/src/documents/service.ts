@@ -27,6 +27,9 @@ import { DocumentWatcher } from "./watcher";
  */
 export class DocumentService {
   private readonly watcher: DocumentWatcher;
+  /** Sidecar path → the write in flight on it. An attempt and the guide's storage both rewrite the
+   *  one file from what they read of it, so two at once would each drop what the other added. */
+  private readonly sidecarWrites = new Map<string, Promise<unknown>>();
   /** workspace id → the absolute paths it currently has watched. */
   private readonly byWorkspace = new Map<string, Set<string>>();
   /** absolute path → the workspace ids watching it (the refcount that decides when to stop). */
@@ -130,14 +133,39 @@ export class DocumentService {
   /** Fold one attempt in and rewrite the sidecar. Last-writer-wins on the sidecar is fine: it is
    *  derived data with one producer (the pane), never hand-edited. */
   async progressRecord(p: { documentsId: string; path: string; topic: string; correct: number; total: number }): Promise<GuideProgress> {
-    const ws = this.get(p.documentsId);
-    const abs = resolveInRoot(this.rootOf(ws), progressSidecarPath(p.path));
-    const prev = await this.progressRead(p.documentsId, p.path);
-    const next = recordGuideAttempt(prev, p.topic, { at: Date.now(), correct: Math.min(p.correct, p.total), total: p.total });
-    const text = `${JSON.stringify(next, null, 2)}\n`;
-    await writeAtomic(abs, text);
-    this.watcher.noteWrite(abs, hashText(text));
-    return next;
+    return this.rewriteSidecar(p.documentsId, p.path, (prev) =>
+      recordGuideAttempt(prev, p.topic, { at: Date.now(), correct: Math.min(p.correct, p.total), total: p.total }));
+  }
+
+  /** Keep what the guide holds in its `localStorage`, or drop it when the guide has cleared it. A guide
+   *  that has never been attempted and keeps nothing gets no sidecar made for it. */
+  async progressStorage(p: { documentsId: string; path: string; storage: Record<string, string> }): Promise<{ ok: true }> {
+    const keeps = Object.keys(p.storage).length > 0;
+    await this.rewriteSidecar(p.documentsId, p.path, (prev) => {
+      const { storage: _was, ...rest } = prev;
+      return keeps ? { ...rest, storage: p.storage } : rest;
+    }, (prev, next) => JSON.stringify(prev.storage ?? {}) === JSON.stringify(next.storage ?? {}));
+    return { ok: true };
+  }
+
+  /** Read the sidecar, change it, write it back — one at a time per sidecar. `unchanged` skips a
+   *  write that would put back what is already there. */
+  private async rewriteSidecar(documentsId: string, path: string, change: (prev: GuideProgress) => GuideProgress,
+    unchanged?: (prev: GuideProgress, next: GuideProgress) => boolean): Promise<GuideProgress> {
+    const ws = this.get(documentsId);
+    const abs = resolveInRoot(this.rootOf(ws), progressSidecarPath(path));
+    const before = this.sidecarWrites.get(abs) ?? Promise.resolve();
+    const run = before.catch(() => {}).then(async () => {
+      const prev = await this.progressRead(documentsId, path);
+      const next = change(prev);
+      if (unchanged?.(prev, next)) return next;
+      const text = `${JSON.stringify(next, null, 2)}\n`;
+      await writeAtomic(abs, text);
+      this.watcher.noteWrite(abs, hashText(text));
+      return next;
+    });
+    this.sidecarWrites.set(abs, run);
+    try { return await run; } finally { if (this.sidecarWrites.get(abs) === run) this.sidecarWrites.delete(abs); }
   }
 
   // ---------------------------------------------------------------- lifecycle

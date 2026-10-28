@@ -20,10 +20,16 @@ import { PreviewFrame } from "./PreviewFrame";
 import { canReveal, publishShownFile, revealPath, showInLabel } from "./shown-file";
 import { QuickLookView } from "./QuickLookView";
 import { VideoView } from "./VideoView";
+import { recallDocumentsView, rememberDocumentsView } from "./view-memory";
 
 /** How long the editor stays quiet before autosaving. Long enough not to write on every keystroke,
  *  short enough that an agent asked to read the file right after you stop typing sees your text. */
 const AUTOSAVE_MS = 700;
+
+/** How many guides stay alive behind the other tabs. Each is a page with scripts and timers of its
+ *  own, so the few a reader moves between — a guide and the lecture beside it — and not every guide
+ *  ever opened. */
+const GUIDES_KEPT = 3;
 
 /** Files the pane opens WITHOUT reading their bytes: a PDF, everything Quick Look renders for us,
  *  and a video. The first two are fetched from the preview server — the PDF's bytes by pdf.js, the
@@ -103,18 +109,25 @@ export function DocumentsPane({ item }: PaneProps) {
   const [unshown, setUnshown] = useState<Record<string, { says: string; gone: boolean }>>({});
   // "rich" for prose, "source" for the markdown behind it. Per-pane, not per-file: switching
   // documents keeps the mode the user chose.
-  const [mode, setMode] = useState<"rich" | "source">("rich");
+  const [mode, setMode] = useState<"rich" | "source">(() => recallDocumentsView(documentsId)?.mode ?? "rich");
   /** The home is showing while files are open — its tab was picked, or ⌘P asked for its search. With
    *  nothing open there is nothing else to show, so the home needs no flag for that. In the pane and
    *  not on the strip's row: the server keeps an open file active, and the home is a view of the pane,
    *  not a tab that outlives it. */
-  const [home, setHome] = useState(false);
+  const [home, setHome] = useState(() => recallDocumentsView(documentsId)?.home ?? false);
+  // Kept as it changes, for the pane that comes back after a switch away (view-memory.ts).
+  useEffect(() => { rememberDocumentsView(documentsId, { mode, home }); }, [documentsId, mode, home]);
   /** Bumped by ⌘P for the home to take the keyboard into its search. */
   const [searchAsk, setSearchAsk] = useState(0);
   /** A line asked for from outside (`openDocumentPath(…, { line })`), for the code editor to go to. */
   const [reveal, setReveal] = useState<{ path: string; line: number } | null>(null);
   /** The head row's slot for a viewer's own controls (a PDF's page and zoom), filled through a portal. */
   const [headSlot, setHeadSlot] = useState<HTMLElement | null>(null);
+  /** The guides whose frames stay mounted behind the other tabs, in the order they were first shown.
+   *  Never reordered: React moves a keyed node to reorder it, and moving a frame reloads its page. */
+  const [keptGuides, setKeptGuides] = useState<string[]>([]);
+  /** When each kept guide was last on screen, to know which one to let go. */
+  const guideSeen = useRef(new Map<string, number>());
   /* The session this pane serves: the one whose tab of the side panel it is. A documents pane of its
      own serves nobody — its home lists no session and offers nothing to add a file to. */
   const sessionId = useApp((s) => {
@@ -243,6 +256,7 @@ export function DocumentsPane({ item }: PaneProps) {
   }, [ask, ws, takeDocumentsAsk, openPath, run]);
 
   const closeTab = useCallback((path: string) => {
+    setKeptGuides((prev) => prev.filter((p) => p !== path));
     setBuffers((prev) => { const { [path]: _gone, ...rest } = prev; return rest; });
     setUnshown((prev) => { const { [path]: _gone, ...rest } = prev; return rest; });
     const remaining = Object.keys(buffersRef.current).filter((p) => p !== path);
@@ -331,6 +345,43 @@ export function DocumentsPane({ item }: PaneProps) {
   }), [run, renameDocumentFile, documentsId]);
 
   const showingHome = home || !buf;
+
+  /* A file left with typing not yet written is written as it is left — for another tab, the home, or
+     the pane going (a session or space switch unmounts it). The autosave's timer belonged to the file
+     on screen and went with it: the text waited in a buffer for the file's next turn on screen, or
+     vanished with the pane. */
+  const saveRef = useRef(save);
+  saveRef.current = save;
+  const onScreen = showingHome ? null : active;
+  const leftBehind = useRef<string | null>(onScreen);
+  useEffect(() => {
+    const was = leftBehind.current;
+    leftBehind.current = onScreen;
+    if (was && was !== onScreen) void saveRef.current(was);
+  }, [onScreen]);
+  useEffect(() => () => { for (const p of Object.keys(buffersRef.current)) void saveRef.current(p); }, []);
+
+  /* A guide stays alive behind the other tabs, so going to the lecture beside it and back is a glance,
+     not a reload — and keeps what no snapshot can see, like a course's typed answer or a timer still
+     running. The snapshot (guide-state.ts) is still what brings one back after the pane itself goes. */
+  const shownGuide = buf && !showingHome && !unshown[buf.path] && kind === "html" && mode === "rich" ? buf.path : null;
+  const seen = useRef(0);
+  useEffect(() => {
+    if (!shownGuide) return;
+    guideSeen.current.set(shownGuide, ++seen.current);
+    setKeptGuides((prev) => {
+      if (prev.includes(shownGuide)) return prev;
+      let next = [...prev, shownGuide];
+      while (next.length > GUIDES_KEPT) {
+        const last = (p: string) => guideSeen.current.get(p) ?? 0;
+        const oldest = next.filter((p) => p !== shownGuide).sort((a, b) => last(a) - last(b))[0]!;
+        next = next.filter((p) => p !== oldest);
+      }
+      return next;
+    });
+  }, [shownGuide]);
+  const guides = keptGuides.filter((p) => buffers[p] && !unshown[p]);
+  if (shownGuide && !guides.includes(shownGuide)) guides.push(shownGuide);
   /* The file on screen, for the head's Show in Finder and the pane's menu (Reveal in Finder, and a
      PDF's Open in Preview and Share) — which is drawn by the pane's bar, outside this component. */
   // An outside tab is its own absolute path; one inside the space is relative to the space's folder.
@@ -393,7 +444,7 @@ export function DocumentsPane({ item }: PaneProps) {
               <span>{isOutsideTab(buf.path) ? "This file was deleted on disk." : "This file was deleted on disk. Saving will re-create it."}</span>
             </div>
           )}
-          {unshown[buf.path] ? <Unshown path={buf.path} reason={unshown[buf.path]!} /> : (
+          {unshown[buf.path] ? <Unshown path={buf.path} reason={unshown[buf.path]!} /> : shownGuide ? null : (
             <Editor
               buffer={buf} kind={kind} mode={mode} documentsId={documentsId}
               reveal={reveal?.path === buf.path ? reveal : null} headSlot={headSlot} filePath={shownPath}
@@ -403,6 +454,23 @@ export function DocumentsPane({ item }: PaneProps) {
             />
           )}
         </>
+      )}
+
+      {/* The guides, in a layer of their own rather than in the editor: the editor is not drawn while
+          the home is up, and a frame that went with it would reload. The one shown takes the editor's
+          place; the rest stay laid out, out of sight and out of the keyboard's way. Each frame reloads
+          on its DISK hash: while the user edits the source, the preview keeps showing the last saved
+          version, and the autosave tick (or an agent's write) refreshes it. */}
+      {guides.length > 0 && (
+        <div className="documents-guides" data-shown={shownGuide ? true : undefined}>
+          {guides.map((p) => (
+            <div key={p} className="documents-guide" data-shown={p === shownGuide || undefined}
+              inert={p !== shownGuide || undefined} aria-hidden={p !== shownGuide || undefined}>
+              <PreviewFrame documentsId={documentsId} path={p} version={buffers[p]?.baseHash ?? null}
+                scrollKey={`doc:${documentsId}:preview:${p}`} />
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -636,16 +704,15 @@ function Editor({ buffer, kind, mode, documentsId, reveal, headSlot, filePath, r
               scrollKey={`doc:${documentsId}:pdf:${buffer.path}`} head={headSlot} filePath={filePath} />
           </Suspense>
         ) : showStructured && structured === "preview" ? (
-          // The frame reloads on the DISK hash: while the user edits the source, the preview keeps
-          // showing the last saved version, and the autosave tick (or an agent's write) refreshes it.
-          <PreviewFrame key={buffer.path} documentsId={documentsId} path={buffer.path}
-            version={buffer.baseHash} scrollKey={`doc:${documentsId}:preview:${buffer.path}`} />
+          // Drawn by the pane's guide layer instead (DocumentsPane), so the frame outlives this editor.
+          null
         ) : showStructured ? (
           <Suspense fallback={<div className="pane-placeholder muted">Loading editor…</div>}>
             {/* Keyed by path so switching documents remounts the editor rather than diffing one
                 document's editor state onto another's. */}
             {structured === "grid"
-              ? <SheetEditor key={buffer.path} path={buffer.path} text={buffer.text} onChange={onChange} />
+              ? <SheetEditor key={buffer.path} path={buffer.path} text={buffer.text} onChange={onChange}
+                  scrollKey={`doc:${documentsId}:grid:${buffer.path}`} />
               : <RichTextEditor key={buffer.path} text={buffer.text} onChange={onChange} readOnly={readOnly}
                   scrollKey={`doc:${documentsId}:rich:${buffer.path}`} />}
           </Suspense>
