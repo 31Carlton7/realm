@@ -83,11 +83,10 @@ extension ComposerAction.Kind {
     }
 }
 
-/// The composer, floating over the transcript's foot in the glass the system's bars wear. At rest it is
-/// one capsule — `+`, the field, the button. Composing — the field focused, or something typed or
-/// attached — it is a card: the files over the field, and under it a toolbar of `+`, the model and mode
-/// chips, and the one button, which is Send, Stop, Queue or Steer as the moment asks. A message shows
-/// as Sending… in the log until the Mac has it.
+/// The composer, floating over the transcript's foot as Manus's does: a solid card with a soft lift —
+/// the files over the field, and under it a toolbar of `+`, the model and mode chips, and the one
+/// button, which is Send, Stop, Queue or Steer as the moment asks. A message shows as Sending… in the
+/// log until the Mac has it.
 struct ComposerView: View {
     let sessionId: String
     var focused: FocusState<Bool>.Binding
@@ -109,11 +108,12 @@ struct ComposerView: View {
         let preparing = model.preparingAttachments[sessionId] ?? 0
         let options = model.sessionOptions[sessionId]
         let presenting = settingsShown || picking != nil || previewing != nil
-        let composing = focused.wrappedValue || !text.isEmpty || !attachments.isEmpty || preparing > 0 || presenting
         let action = ComposerAction(working: status == .running || status == .waiting,
                                     hasContent: ComposerAction.hasContent(text: text, attachments: attachments),
                                     midTurn: options?.midTurn, canSteer: options != nil)
-        ComposerLayout(card: composing) {
+        // Always the card, as Manus's composer is: the field, and under it the toolbar of `+`, the
+        // model and mode, and the one button — so the model a message goes to is never a tap away.
+        ComposerLayout(card: true) {
             if !attachments.isEmpty || preparing > 0 {
                 AttachmentStrip(attachments: attachments, preparing: preparing, files: model.store.files,
                                 open: { attachment in
@@ -142,14 +142,11 @@ struct ComposerView: View {
                 }
                 .layoutValue(key: ComposerPart.self, value: .add)
             }
-            if composing {
-                ComposerChips(sessionId: sessionId) {
-                    refocus = focused.wrappedValue
-                    settingsShown = true
-                }
-                .layoutValue(key: ComposerPart.self, value: .chips)
-                .transition(.opacity.animation(.easeOut(duration: 0.2)))
+            ComposerChips(sessionId: sessionId) {
+                refocus = focused.wrappedValue
+                settingsShown = true
             }
+            .layoutValue(key: ComposerPart.self, value: .chips)
             PrimaryButton(action: action, steerNote: options?.agent.steerNote ?? "", connected: model.isConnected) { kind in
                 if let delivery = ComposerAction.delivery(kind) {
                     model.sendDraft(sessionId, delivery: delivery)
@@ -159,9 +156,10 @@ struct ComposerView: View {
             }
             .layoutValue(key: ComposerPart.self, value: .primary)
         }
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous))
-        // Under Reduce Motion the card does not grow into place: it is there, and its new parts fade in.
-        .animation(reduceMotion ? nil : Motion.morph, value: composing)
+        // A solid card with Manus's soft lift: the composer is a thing to write on, not chrome.
+        .background(Fill.card, in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous))
+        .floatingLift()
+        // Under Reduce Motion the strip does not grow into place: it is there.
         .animation(reduceMotion ? nil : Motion.morph, value: attachments.count + preparing)
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
@@ -338,9 +336,12 @@ struct AddMenu: View {
             item("Choose files", "folder", .files, full: full)
         } label: {
             // A bar's button keeps its size at every text size, as the system's do; a long press shows it large.
+            // In a ring, as Manus draws its `+`.
             Image(systemName: "plus")
-                .font(.system(size: 19, weight: .medium))
+                .font(.system(size: 17, weight: .medium))
                 .foregroundStyle(Palette.ink)
+                .frame(width: 32, height: 32)
+                .overlay(Circle().strokeBorder(Palette.divider, lineWidth: 1))
                 .frame(width: ComposerLayout.button, height: ComposerLayout.button)
                 .contentShape(Rectangle())
         }
@@ -423,10 +424,10 @@ struct PrimaryGlyph: View {
     let enabled: Bool
 
     var body: some View {
+        // Ink, not the accent, as Manus's send and stop are: black on the light face, white on the dark.
         let (fill, ink): (Color, Color) = switch kind {
-        case .stop: (Palette.ink, Ground.transcript)
         case .send where !enabled: (Palette.mark, Palette.ink3)
-        case .send, .queue, .steer: (Palette.accentFill, .white)
+        case .stop, .send, .queue, .steer: (Fill.primary, Fill.onPrimary)
         }
         Image(systemName: kind.symbol)
             .font(.system(size: kind == .stop ? 12 : 15, weight: .bold))

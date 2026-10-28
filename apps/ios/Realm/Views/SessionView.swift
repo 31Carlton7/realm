@@ -67,16 +67,22 @@ struct SessionView: View {
                 if transcript.rows.isEmpty && outgoing.isEmpty {
                     EmptyTranscript(isLoaded: transcript.session != nil)
                 }
+                let replies = TranscriptLayout.replyStarts(Array(drawn))
                 ForEach(drawn) { item in
-                    TranscriptItemView(item: item, sessionId: sessionId)
-                        .keepsToOfferedWidth()
-                        .freshEntrance(born: item.firstKey.flatMap { model.rowBirths[$0] })
-                        .id(item.id)
+                    VStack(alignment: .leading, spacing: 10) {
+                        if replies.contains(item.id), let row {
+                            SpeakerLabel(session: row)
+                        }
+                        TranscriptItemView(item: item, sessionId: sessionId)
+                    }
+                    .keepsToOfferedWidth()
+                    .freshEntrance(born: item.firstKey.flatMap { model.rowBirths[$0] })
+                    .id(item.id)
                 }
-                // What the turn is doing is said at the foot, where its next words will come, whenever
-                // no row on screen says it already.
-                if transcript.isLive, status == .running, let activity = LiveActivity.of(transcript.rows) {
-                    LiveLine(word: activity == .thinking ? "Thinking" : "Working", since: model.workingSince[sessionId])
+                // Thinking is said where the next words will come, as Manus says it; what the turn is
+                // doing otherwise, and for how long, is the current step's card over the composer.
+                if transcript.isLive, status == .running, LiveActivity.of(transcript.rows) == .thinking {
+                    LiveLine(word: "Thinking")
                 }
                 ForEach(outgoing) { item in
                     OutgoingMessageView(item: item)
@@ -149,10 +155,6 @@ struct SessionView: View {
         .navigationSubtitle(subtitle(transcript))
         .toolbar {
             if let row {
-                // The space's simulators and machines, beside the menu in the bar's one glass.
-                if !(model.sessionScreens[sessionId] ?? []).isEmpty {
-                    ToolbarItem(placement: .topBarTrailing) { ScreensButton(sessionId: sessionId) }
-                }
                 ToolbarItem(placement: .topBarTrailing) { SessionMenu(row: row) }
             }
         }
@@ -230,7 +232,7 @@ extension EnvironmentValues {
 }
 
 /// What a running turn is doing where no row on screen says so already: a tool that runs and text
-/// that streams say it themselves. Anything else is the foot's live line to say.
+/// that streams say it themselves. Thinking is the foot's live line to say; working, the current step's.
 enum LiveActivity: Equatable {
     case thinking, working
 
@@ -246,10 +248,10 @@ enum LiveActivity: Equatable {
     }
 }
 
-/// The glass pill at the top of the session's foot: the link's trouble, with a press to try again, and
-/// beside it the way back to the newest row, which slides out of the same glass. A turn's work is not
-/// its to say: that is the live line at the transcript's foot, so nothing floats over the reading
-/// while the Mac is there.
+/// The glass at the top of the session's foot: the link's trouble in the middle, with a press to try
+/// again, and the way back to the newest row at the trailing edge, as Manus keeps its own. A turn's
+/// work is not its to say: that is the current step's card, so nothing floats over the reading while
+/// the Mac is there.
 private struct SessionPill: View {
     let showsLatest: Bool
     let toLatest: () -> Void
@@ -262,7 +264,7 @@ private struct SessionPill: View {
         let shown = model.shownLinkStatus
         let shownLink: LinkStatus.Kind? = shown.isConnected ? nil : shown.kind
         GlassEffectContainer(spacing: 10) {
-            HStack(spacing: 10) {
+            ZStack(alignment: .trailing) {
                 if let away = shownLink {
                     Button {
                         Task {
@@ -295,6 +297,9 @@ private struct SessionPill: View {
                     .glassEffectID("pill", in: glass)
                     .disabled(trying || away == .connecting)
                     .accessibilityHint("Tries to reach your Mac again")
+                    .frame(maxWidth: .infinity)
+                    // Clear of the way to the newest row beside it.
+                    .padding(.horizontal, 56)
                 }
                 if showsLatest {
                     Button(action: toLatest) {
@@ -309,8 +314,10 @@ private struct SessionPill: View {
                     .accessibilityLabel("Latest")
                     .accessibilityHint("Scrolls to the newest message")
                     .accessibilityShowsLargeContentViewer()
+                    .padding(.trailing, 16)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .animation(Motion.animation(reduceMotion), value: showsLatest)
         .animation(Motion.animation(reduceMotion), value: shownLink)
@@ -382,6 +389,8 @@ private struct SessionFoot: View {
                         composing.wrappedValue = true
                     }
                 }
+                CurrentStepCard(sessionId: sessionId)
+                    .padding(.horizontal, 12)
                 QueueStrip(sessionId: sessionId)
                     .padding(.horizontal, 12)
                 ComposerView(sessionId: sessionId, focused: composing)
@@ -537,6 +546,12 @@ enum TranscriptItem: Identifiable, Equatable {
         }
     }
 
+    /// Something the person said.
+    var isSaid: Bool {
+        if case .row(let row) = self, case .user = row.content { return true }
+        return false
+    }
+
     /// The key of the row it starts with, which says how long ago it arrived.
     var firstKey: String? {
         switch self {
@@ -590,6 +605,16 @@ enum TranscriptLayout {
             close()
         }
         return items
+    }
+
+    /// The items a reply opens with — the first after something the person said — which Manus heads
+    /// with who is answering.
+    static func replyStarts(_ items: [TranscriptItem]) -> Set<String> {
+        var starts: Set<String> = []
+        for (previous, item) in zip(items, items.dropFirst()) where previous.isSaid && !item.isSaid {
+            starts.insert(item.id)
+        }
+        return starts
     }
 
     /// The transcript's turns: each runs from something the person said to the next.
