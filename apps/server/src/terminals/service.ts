@@ -51,6 +51,15 @@ export class TerminalService {
    *  `close`, which is the caller saying it has read the answer. In memory only: after a restart the
    *  only terminals worth reporting are the ones running again. */
   private readonly status = new Map<string, TerminalStatus>();
+  /**
+   * Terminals restored at boot whose shell has not been started yet — everything needed to start it.
+   * A restored terminal is an interactive shell whatever it was started as, so until somebody looks at
+   * it or types into it, a running shell does nothing for anyone; measured on the owner's Mac, booting
+   * started 29 login shells (17 of them sessions' terminals, 5 of those for sessions archived weeks
+   * ago), and each powerlevel10k prompt forked three more processes onto its tty: 116 processes from
+   * boot to quit for panes nobody opened. Started by `wake` on first use.
+   */
+  private readonly dormant = new Map<string, { spaceId: string; cwd: string; shell: string; cols: number; rows: number }>();
   private closed = false;
   constructor(private d: {
     db: Db; rpc: RpcServer; spaces: SpacesStore; items: ItemsStore; terminals: TerminalsStore;
@@ -144,8 +153,10 @@ export class TerminalService {
     this.flushed.clear();
   }
 
-  /** What this client is missing, plus the screen that came before it. See `Scrollback.read`. */
+  /** What this client is missing, plus the screen that came before it. See `Scrollback.read`. A pane
+   *  reading a terminal is somebody looking at it: a terminal restored but not yet started starts now. */
   read(terminalId: string, cursor: ScrollbackCursor | null): ScrollbackRead {
+    this.wake(terminalId);
     const r = this.scrollback.read(terminalId, cursor);
     if (r) return r;
     // A terminal this service knows nothing about — closed, or never restored. Answering rather than
@@ -153,7 +164,32 @@ export class TerminalService {
     return { runId: "", seq: 0, live: "", truncated: false, running: false, history: null };
   }
 
-  has(terminalId: string): boolean { return this.manager.has(terminalId); }
+  /** The terminal exists and can be used: running, or restored and started on first use. */
+  has(terminalId: string): boolean { return this.manager.has(terminalId) || this.dormant.has(terminalId); }
+
+  /** How many restored terminals are waiting to be opened before their shell starts. */
+  dormantCount(): number { return this.dormant.size; }
+
+  /**
+   * Start a restored terminal's shell, if it has not been started: the first read, keystroke, resize or
+   * screen asked of it. Failing to start reads as a terminal that is not running — as a restore that
+   * failed at boot always has — and a sandbox refusal leaves the row for the next try.
+   */
+  private wake(terminalId: string): void {
+    const d = this.dormant.get(terminalId);
+    if (!d || this.closed) return;
+    this.dormant.delete(terminalId);
+    try {
+      this.manager.create({ id: terminalId, cwd: d.cwd, shell: d.shell, cols: d.cols, rows: d.rows, env: this.envFor(d.spaceId, d.cwd), wrap: this.wrapFor(d.spaceId) });
+      this.foreground.watch(terminalId);
+    } catch (e) {
+      console.error(`[terminals] could not start ${terminalId}: ${e instanceof Error ? e.message : String(e)}`);
+      this.scrollback.endRun(terminalId);
+      const st = this.status.get(terminalId);
+      if (st) this.status.set(terminalId, { ...st, running: false, exitedAt: Date.now() });
+      if (!isSandboxRefusal(e)) this.d.terminals.delete(terminalId);
+    }
+  }
 
   /** Every running terminal's shell, named as its pane is (`resources/attribute.ts`). */
   processes(): { terminalId: string; title: string; pid: number; tty: string | null }[] {
@@ -178,6 +214,7 @@ export class TerminalService {
    * it parses on demand rather than on the way in, is in `screen.ts`.
    */
   async screen(terminalId: string, scrollback = 0): Promise<TerminalScreen | null> {
+    this.wake(terminalId);
     const read = this.scrollback.read(terminalId, null);
     const size = this.scrollback.size(terminalId);
     if (!read || !size) return null;
@@ -186,6 +223,7 @@ export class TerminalService {
 
   /** Resolve once this terminal has been quiet for `quietMs`; false if its pty died first. */
   quiet(terminalId: string, quietMs?: number, timeoutMs?: number): Promise<boolean> {
+    this.wake(terminalId);
     return this.manager.quietFor(terminalId, quietMs, timeoutMs);
   }
 
@@ -214,26 +252,26 @@ export class TerminalService {
     return sandboxWrapFor(this.d.sandbox, { spaceId });
   }
 
-  /** Boot: respawn a pty for every persisted terminal row. Rows whose cwd vanished or whose spawn fails
-   *  are deleted (the item stays, so the UI can show the pane as not running). Returns ids restored. */
+  /** Boot: bring back every persisted terminal row — its scrollback now, its shell when somebody first
+   *  uses it (`wake`). Rows whose cwd vanished are deleted (the item stays, so the UI can show the pane
+   *  as not running). Returns ids restored. */
   restoreAll(): string[] {
     const restored: string[] = [];
     for (const row of this.d.terminals.listAll()) {
-      if (this.manager.has(row.id)) continue;
+      if (this.manager.has(row.id) || this.dormant.has(row.id)) continue;
       try {
         if (!existsSync(row.cwd)) throw new Error(`cwd missing: ${row.cwd}`);
         const kept = this.d.history?.get(row.id) ?? null;
         // The size the output was PRINTED at, not a default. A replayed 120-column screen above a
         // fresh 80-column shell is a ragged seam nobody would blame on the pty's default width.
         const cols = kept?.cols ?? 80, rows = kept?.rows ?? 24;
-        // Before `create`, always: a shell can print its prompt before that call returns, and a chunk
-        // appended to no ring is a chunk that never happened.
+        // Before the shell starts, always: a shell can print its prompt before `create` returns, and a
+        // chunk appended to no ring is a chunk that never happened.
         this.scrollback.newRun(row.id, newId(), { cols, rows }, kept ? { data: kept.data, cols: kept.cols, rows: kept.rows } : null);
-        this.manager.create({ id: row.id, cwd: row.cwd, shell: row.shell, cols, rows, env: this.envFor(row.spaceId, row.cwd), wrap: this.wrapFor(row.spaceId) });
+        this.dormant.set(row.id, { spaceId: row.spaceId, cwd: row.cwd, shell: row.shell, cols, rows });
         // A restored row is an interactive shell whatever it was started as: the command it ran is not
         // stored, and re-running an agent's command because the server restarted would do its work twice.
         this.status.set(row.id, { terminalId: row.id, spaceId: row.spaceId, cwd: row.cwd, command: null, running: true, exitCode: null, signal: null, startedAt: Date.now(), exitedAt: null });
-        this.foreground.watch(row.id);
         restored.push(row.id);
       } catch (e) {
         console.error(`[terminals] not restoring ${row.id}: ${e instanceof Error ? e.message : String(e)}`);
@@ -287,10 +325,14 @@ export class TerminalService {
     return { terminalId, itemId };
   }
 
-  write(terminalId: string, data: string): void { this.manager.write(terminalId, data); }
+  write(terminalId: string, data: string): void { this.wake(terminalId); this.manager.write(terminalId, data); }
   /** Type `command` into the terminal once its shell settles. No trailing newline — the user presses Return. */
-  prefill(terminalId: string, command: string): Promise<void> { return this.manager.writeWhenQuiet(terminalId, command); }
+  prefill(terminalId: string, command: string): Promise<void> { this.wake(terminalId); return this.manager.writeWhenQuiet(terminalId, command); }
   resize(terminalId: string, cols: number, rows: number): void {
+    // Not started yet: it starts at this size, rather than at the one it last printed at and resized.
+    const d = this.dormant.get(terminalId);
+    if (d) { d.cols = cols; d.rows = rows; }
+    this.wake(terminalId);
     this.manager.resize(terminalId, cols, rows);
     this.scrollback.resize(terminalId, cols, rows);
   }
@@ -300,7 +342,8 @@ export class TerminalService {
     const row = this.d.terminals.get(terminalId);
     const item = this.d.items.findByRefId(terminalId);
     const alive = this.manager.has(terminalId);
-    if (!row && !item && !alive) throw new NotFoundError("terminal", terminalId);
+    const waiting = this.dormant.delete(terminalId);
+    if (!row && !item && !alive && !waiting) throw new NotFoundError("terminal", terminalId);
     if (alive) this.manager.close(terminalId);
     this.status.delete(terminalId);
     this.scrollback.forget(terminalId);
@@ -320,6 +363,8 @@ export class TerminalService {
    *  shell was spawned at is unchanged. The item half is moved by the caller, inside its transaction. */
   moveToSpace(terminalId: string, spaceId: string): void {
     this.d.terminals.moveToSpace(terminalId, spaceId);
+    const d = this.dormant.get(terminalId);
+    if (d) d.spaceId = spaceId;
   }
 
   /** Close every terminal whose row or item belongs to the space (used before space deletion). */
@@ -341,6 +386,7 @@ export class TerminalService {
     this.closed = true;
     if (this.flushTimer) { clearInterval(this.flushTimer); this.flushTimer = null; }
     this.foreground.stop();
+    this.dormant.clear();
     this.manager.closeAll();
   }
 }
