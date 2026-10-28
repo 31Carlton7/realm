@@ -548,13 +548,14 @@ export class MemoryRepoService {
    * Every path is checked to stay inside the repo and out of `.git`, every content for secret shapes
    * and size, before anything is written; then the same rules as every other write — the lock, a
    * clean repo, staged and committed by path. Files already as asked are left out of the commit.
+   *
+   * The writes may be a function of the repo's folder, called inside the lock: a read-modify-write
+   * (an index line, a merge) worked out there never overwrites a save that landed in between.
    */
-  async writeBatch(owner: RepoOwner, writes: Map<string, string | null>, message: string, author?: string): Promise<MemoryEditOutcome> {
-    return this.batch(owner, () => writes, message, author);
+  async writeBatch(owner: RepoOwner, writes: Map<string, string | null> | ((repo: string) => Map<string, string | null>), message: string, author?: string): Promise<MemoryEditOutcome> {
+    return this.batch(owner, typeof writes === "function" ? writes : () => writes, message, author);
   }
 
-  /** `writeBatch` with the writes worked out inside the lock, from the files as they are then — what a
-   *  read-modify-write (an index line, a link) needs so two saves never overwrite each other's. */
   private async batch(owner: RepoOwner, plan: (repo: string) => Map<string, string | null>, message: string, author?: string): Promise<MemoryEditOutcome> {
     const cfg = this.mustConfig(owner);
     const repo = cfg.path;

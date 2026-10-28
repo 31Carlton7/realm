@@ -273,6 +273,7 @@ export const liveApi = (): Api => ({
   setMemoryRepoSync: (o, enabled, confirmPrivate) => rpc().call("memory.repo.setSync", { scope: o.scope, ownerId: o.id, enabled, confirmPrivate }),
   syncMemoryRepo: (o) => rpc().call("memory.repo.sync", { scope: o.scope, ownerId: o.id }),
   importClaudeMemory: (o, dryRun) => rpc().call("memory.repo.importClaude", { scope: o.scope, ownerId: o.id, dryRun }),
+  claudeBackfill: (profileId, run) => rpc().call("memory.repo.claudeBackfill", { profileId, run }),
   mcpToolsList: (id) => rpc().call("mcp.tools.list", { id }),
   setMcpAllowedTools: async (spaceId, id, tools) => { await rpc().call("mcp.setAllowedTools", { spaceId, id, tools }); },
   startMcpOauth: (id) => rpc().call("mcp.oauth.start", { id }),

@@ -256,6 +256,32 @@ export const MemoryClaudeImportSchema = z.object({
 export type MemoryClaudeImport = z.infer<typeof MemoryClaudeImportSchema>;
 
 /**
+ * Claude's own memory, brought in from `~/.claude/projects/<project>/memory` (read, never written)
+ * to the folder of the space that works in that project, as it was there and in the same format. It
+ * runs by itself — at boot and every few minutes — so memory Claude keeps outside Realm flows in;
+ * this is what the last run did for one profile's repo.
+ */
+export const MemoryClaudeBackfillSchema = z.object({
+  /** Files copied into a space's folder for the first time. */
+  imported: z.number(),
+  /** Copies brought up to date because the file changed only in Claude's folder. */
+  updated: z.number(),
+  /** Every file of Claude's memory this profile's space folders hold a copy of. */
+  total: z.number(),
+  /** Claude projects no space claims, or more than one does, with why — never guessed at. */
+  unmatched: z.array(z.object({ project: z.string(), reason: z.string() })),
+  /** What stays where it is, and why: a credential, a file changed in the repo since its copy was
+   *  made, a temporary folder. */
+  skipped: z.array(z.object({ file: z.string(), reason: z.string() })),
+  /** Why nothing could be written on the last run, or null. */
+  error: z.string().nullable(),
+  sha: z.string().nullable(),
+  /** When it last ran; null before its first run. */
+  at: z.number().nullable(),
+});
+export type MemoryClaudeBackfill = z.infer<typeof MemoryClaudeBackfillSchema>;
+
+/**
  * The GitHub repository a remote URL names, or null for any other host. Covers the three spellings
  * git accepts for GitHub — `https://github.com/o/r(.git)`, `git@github.com:o/r(.git)` and
  * `ssh://git@github.com/o/r(.git)` — and nothing looser: a URL this does not recognize is checked by

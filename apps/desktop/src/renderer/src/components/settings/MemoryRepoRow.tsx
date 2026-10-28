@@ -1,4 +1,4 @@
-import type { MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoState } from "@realm/contracts";
+import type { MemoryClaudeBackfill, MemoryRemoteCheck, MemoryRepoState } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useState, type FormEvent } from "react";
 import { memoryRepoKey, useApp, type MemoryRepoOwner } from "../../state/store";
@@ -103,7 +103,7 @@ export function MemoryRepoRow({ owner }: { owner: MemoryRepoOwner }) {
           onClick={() => run(() => detachMemoryRepo(owner))}>Detach</button>
       </div>
       {repo.valid && <SyncRows owner={owner} repo={repo} />}
-      {repo.valid && <ClaudeImportRow owner={owner} head={repo.head} />}
+      {repo.valid && scope === "profile" && <ClaudeMemoryRows profileId={id} head={repo.head} />}
       {log && log.length > 0 && (
         <details className="settings-row settings-disclosure">
           <summary>
@@ -259,58 +259,64 @@ function SyncRows({ owner, repo }: { owner: MemoryRepoOwner; repo: MemoryRepoSta
 /** A path as one shell word: bare when it is safe, single-quoted otherwise. */
 const shellQuote = (p: string): string => (/^[\w@%+=:,./-]+$/.test(p) ? p : `'${p.replace(/'/g, "'\\''")}'`);
 
-/**
- * The Claude CLI memory Realm already imported, offered to this repo. Counted before anything is
- * written — the preview IS the button's label — and absent when there is nothing to add, so a user
- * with no Claude memory never sees it. Running it twice adds nothing.
- */
-function ClaudeImportRow({ owner, head }: { owner: MemoryRepoOwner; head: string | null }) {
-  const importClaudeMemory = useApp((s) => s.importClaudeMemory);
-  const run = useApp((s) => s.run);
-  const [preview, setPreview] = useState<MemoryClaudeImport | null>(null);
-  const [confirming, setConfirming] = useState(false);
-  const [added, setAdded] = useState<number | null>(null);
-  const { scope, id } = owner;
-  useEffect(() => { run(async () => setPreview(await importClaudeMemory({ scope, id }, true))); }, [scope, id, head, importClaudeMemory, run]);
+/** The last two parts of a path: enough to find a file in Claude's folder, short enough for a row. */
+const tail = (path: string): string => path.split("/").filter(Boolean).slice(-2).join("/");
 
-  if (added !== null && (preview === null || preview.entries === 0)) {
-    return (
-      <div className="settings-row">
+/**
+ * Claude's own memory, kept outside Realm (`~/.claude/projects`), as this repo holds it. It is brought
+ * in by itself — at boot and every few minutes — into the folder of the space that works in each
+ * project, so the row says what is in, and lists, folded, what stays out and why: a project no space
+ * works in is named, never guessed at. "Check now" runs it at once.
+ */
+function ClaudeMemoryRows({ profileId, head }: { profileId: string; head: string | null }) {
+  const claudeBackfill = useApp((s) => s.claudeBackfill);
+  const run = useApp((s) => s.run);
+  const [last, setLast] = useState<MemoryClaudeBackfill | null>(null);
+  useEffect(() => { run(async () => setLast(await claudeBackfill(profileId, false))); }, [profileId, head, claudeBackfill, run]);
+  if (last === null) return null;
+  const brought = last.imported + last.updated > 0
+    ? ` The last check brought in ${plural(last.imported, "new file", "new files")}${last.updated > 0 ? ` and updated ${plural(last.updated, "copy", "copies")}` : ""}.`
+    : "";
+  const text = last.error !== null ? `Nothing came in on the last check: ${last.error}.`
+    : last.at === null ? "Not checked yet."
+    : last.total > 0 ? `${plural(last.total, "file", "files")} of Claude's own memory ${last.total === 1 ? "is" : "are"} in this repo, each in the folder of the space it was kept for.${brought}`
+    : "None of this profile's spaces has memory Claude kept outside Realm.";
+  const out = [
+    ...last.unmatched.map((u) => ({ key: u.project, name: u.project, title: u.project, reason: u.reason })),
+    ...last.skipped.map((f) => ({ key: f.file, name: tail(f.file), title: f.file, reason: f.reason })),
+  ];
+  return (
+    <>
+      <div className="settings-row memory-import-row">
         <div className="settings-row-main">
           <span className="settings-row-name">Claude memory</span>
-          <span className="settings-row-desc">Imported {plural(added, "memory", "memories")}. Each entry names the file it came from.</span>
+          <span className="settings-row-desc memory-repo-status" data-tone={last.error !== null ? "warning" : undefined}>{text}</span>
         </div>
+        <button type="button" className="btn" title="Look in Claude's own memory folders for anything new now"
+          onClick={() => run(async () => setLast(await claudeBackfill(profileId, true)))}>Check now</button>
       </div>
-    );
-  }
-  if (preview === null || preview.entries === 0) return null;
-  const left = preview.skipped.length > 0 ? ` ${plural(preview.skipped.length, "file stays", "files stay")} out: ${preview.skipped[0]!.reason}.` : "";
-  return (
-    <div className="settings-row memory-import-row">
-      <div className="settings-row-main">
-        <span className="settings-row-name">Claude memory</span>
-        <span className="settings-row-desc">
-          {confirming
-            ? `Add ${plural(preview.entries, "memory", "memories")} and ${plural(preview.files, "file", "files")} to this repo as one commit? Each entry names the file it came from.${left}`
-            : `${plural(preview.entries, "memory", "memories")} from ${plural(preview.projects, "project", "projects")} you imported from Claude ${preview.entries === 1 ? "is" : "are"} not in this repo yet.`}
-        </span>
-      </div>
-      <span className="memory-repo-actions">
-        {confirming ? (
-          <>
-            <button type="button" className="btn" onClick={() => setConfirming(false)}>Cancel</button>
-            <button type="button" className="btn primary" onClick={() => run(async () => {
-              const r = await importClaudeMemory(owner, false);
-              setAdded(r.entries);
-              setConfirming(false);
-              setPreview(await importClaudeMemory(owner, true));
-            })}>Import {preview.entries}</button>
-          </>
-        ) : (
-          <button type="button" className="btn" onClick={() => setConfirming(true)}>Import…</button>
-        )}
-      </span>
-    </div>
+      {out.length > 0 && (
+        <details className="settings-row settings-disclosure">
+          <summary>
+            <div className="settings-row-main">
+              <span className="settings-row-name">Not brought in</span>
+              <span className="settings-row-desc">
+                {last.unmatched.length > 0 ? `${plural(last.unmatched.length, "Claude project matches", "Claude projects match")} no single space, so ${last.unmatched.length === 1 ? "it stays" : "they stay"} in Claude's folder.` : "Left where they are in Claude's folder."}
+              </span>
+            </div>
+            <Icon name="chevronRight" size={14} className="settings-disclosure-caret" />
+          </summary>
+          <ul className="settings-disclosure-body memory-repo-log memory-left-out">
+            {out.map((o) => (
+              <li key={o.key} title={o.title}>
+                <span className="memory-repo-log-subject">{o.name}</span>
+                <span className="memory-repo-log-when">{o.reason}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </>
   );
 }
 

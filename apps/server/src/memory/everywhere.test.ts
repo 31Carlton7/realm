@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { AsyncQueue, type AgentAdapter, type AgentHandle, type StartOptions } from "@realm/adapters";
 import { sessionEvent, type AgentKind, type SessionEvent } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
+import { claudeProjectName } from "./claude-backfill";
 
 let app: App | null = null;
 afterEach(async () => { await app?.close(); app = null; vi.unstubAllEnvs(); });
@@ -65,7 +66,8 @@ async function boot(home: string, o: { memoryRepoByDefault?: boolean } = {}) {
   vi.stubEnv("REALM_BUNDLED_SKILLS", join(home, "no-bundle"));
   const claude = new EngineThatRemembers("claude");
   const codex = new EngineThatRemembers("codex");
-  app = await createApp({ home, port: 0, claudeDir: join(home, "claude-home"), memoryRepoByDefault: o.memoryRepoByDefault ?? true, adapters: { claude, codex } });
+  // The suite's homes are under the temporary folder, which the app passes over; this one names its own.
+  app = await createApp({ home, port: 0, claudeDir: join(home, "claude-home"), memoryRepoByDefault: o.memoryRepoByDefault ?? true, adapters: { claude, codex }, claudeTemporaryRoots: [join(home, "scratch")] });
   return { ...(await client(app.port)), claude, codex };
 }
 
@@ -158,5 +160,29 @@ describe("the engines' own memory, kept in the profile's repo", () => {
     expect(existsSync(join(dir, "late.md"))).toBe(true);
     expect(git(repo, "status", "--porcelain")).toBe("");
     again.close();
+  });
+});
+
+describe("Claude's memory from outside Realm, through the Memory page's row", () => {
+  it("lands in the folder of the space that works in the project, and the row says what came in", async () => {
+    const home = tempDir("realm-membackfill-app-");
+    const c = await boot(home);
+    const [personal] = await c.call("profiles.list", {});
+    const sp = await c.call("spaces.create", { profileId: personal.id, name: "Stora" });
+    // It runs by itself at boot; that run is over before Claude keeps anything here.
+    await waitFor(async () => (await c.call("memory.repo.claudeBackfill", { profileId: personal.id })).at !== null);
+    // A Claude run in a terminal, in the space's folder, kept this.
+    const memory = join(home, "claude-home", "projects", claudeProjectName(realpathSync(sp.folderPath)), "memory");
+    mkdirSync(memory, { recursive: true });
+    writeFileSync(join(memory, "deploys.md"), "Deploys on Fridays.\n");
+    writeFileSync(join(memory, "MEMORY.md"), "- [deploys](deploys.md) — Fridays\n");
+    const lost = join(home, "claude-home", "projects", "-nowhere-at-all", "memory");
+    mkdirSync(lost, { recursive: true });
+    writeFileSync(join(lost, "x.md"), "x\n");
+    const r = await c.call("memory.repo.claudeBackfill", { profileId: personal.id, run: true });
+    expect(r).toMatchObject({ imported: 1, total: 1, unmatched: [{ project: "-nowhere-at-all", reason: "no space works in that folder" }], error: null });
+    const [repo] = (await c.call("memory.repo.get", { profileId: personal.id })).repos;
+    expect(readFileSync(join(repo.path, "spaces", "stora", "deploys.md"), "utf8")).toBe("Deploys on Fridays.\n");
+    c.close();
   });
 });
