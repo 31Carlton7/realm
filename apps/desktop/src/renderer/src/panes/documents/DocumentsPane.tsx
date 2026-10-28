@@ -458,7 +458,9 @@ export function DocumentsPane({ item }: PaneProps) {
 
       {/* The guides, in a layer of their own rather than in the editor: the editor is not drawn while
           the home is up, and a frame that went with it would reload. The one shown takes the editor's
-          place; the rest stay laid out, out of sight and out of the keyboard's way. */}
+          place; the rest stay laid out, out of sight and out of the keyboard's way. Each frame reloads
+          on its DISK hash: while the user edits the source, the preview keeps showing the last saved
+          version, and the autosave tick (or an agent's write) refreshes it. */}
       {guides.length > 0 && (
         <div className="documents-guides" data-shown={shownGuide ? true : undefined}>
           {guides.map((p) => (
