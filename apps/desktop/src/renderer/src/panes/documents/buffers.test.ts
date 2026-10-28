@@ -39,6 +39,13 @@ describe("externalChange — a dirty buffer", () => {
     expect(b.conflict).toEqual({ theirs: "the agent's rewrite", theirHash: H("agent") });
   });
 
+  it("is no conflict when disk now holds exactly the reader's text — a late echo of their own write", () => {
+    /* THE MUTANT: drop the rule. A write that landed while the pane was away comes back as a conflict
+       bar over two identical texts. */
+    const b = externalChange(edited(base(), "mine"), "mine", H("mine"));
+    expect(b).toMatchObject({ text: "mine", baseHash: H("mine"), dirty: false, conflict: null });
+  });
+
   it("blocks saving until the conflict is resolved", () => {
     const b = externalChange(edited(base(), "mine"), "theirs", H("theirs"));
     expect(canSave(b)).toBe(false);
@@ -147,6 +154,13 @@ describe("resolving a conflict", () => {
 });
 
 describe("a save the server refused", () => {
+  it("over a disk that already holds the reader's text, is a save", () => {
+    /* THE MUTANT: drop the rule in writeRejected. A second write of typing the first already put there
+       (a pane that came back before its own write did) asks the reader to choose between twins. */
+    const b = writeRejected(edited(base(), "mine"), "mine", H("mine"));
+    expect(b).toMatchObject({ text: "mine", baseHash: H("mine"), dirty: false, conflict: null });
+  });
+
   it("lands in the same conflict state as an observed change", () => {
     const mine = edited(base(), "mine");
     const b = writeRejected(mine, "theirs", H("theirs"));

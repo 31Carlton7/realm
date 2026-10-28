@@ -72,6 +72,9 @@ export function externalChange(b: Buffer, text: string | null, hash: string | nu
   // Leaving `missing` set alongside a conflict would render two contradictory states at once.
   if (hash === b.baseHash) return b.missing ? { ...b, missing: false } : b; // nothing we did not already know
   if (!b.dirty) return { ...b, text, baseHash: hash, dirty: false, conflict: null, missing: false };
+  // Disk now holds exactly what the reader typed — their own write landing late, or someone writing the
+  // same words. There is nothing to decide, and a conflict bar over two identical texts asks anyway.
+  if (text === b.text) return saved(b, hash);
   return { ...b, conflict: { theirs: text, theirHash: hash }, missing: false };
 }
 
@@ -84,8 +87,10 @@ export function binaryChanged(b: Buffer, hash: string): Buffer {
   return { ...b, baseHash: hash, dirty: false, conflict: null, missing: false };
 }
 
-/** The server refused a save because disk had moved — same state as an observed external change. */
+/** The server refused a save because disk had moved — same state as an observed external change,
+ *  including that a disk already holding the reader's text is not a conflict. */
 export function writeRejected(b: Buffer, currentText: string, currentHash: string): Buffer {
+  if (currentText === b.text) return saved(b, currentHash);
   return { ...b, conflict: { theirs: currentText, theirHash: currentHash }, dirty: true };
 }
 

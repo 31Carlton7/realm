@@ -22,6 +22,7 @@ import { canReveal, publishShownFile, revealPath, showInLabel } from "./shown-fi
 import { QuickLookView } from "./QuickLookView";
 import { VideoView } from "./VideoView";
 import { recallDocumentsView, rememberDocumentsView } from "./view-memory";
+import { forgetKeptTyping, keepTyping, keptTyping } from "./kept-typing";
 
 /** How long the editor stays quiet before autosaving. Long enough not to write on every keystroke,
  *  short enough that an agent asked to read the file right after you stop typing sees your text. */
@@ -154,15 +155,24 @@ export function DocumentsPane({ item }: PaneProps) {
         if (cancelled) return;
         setWs(row);
         setActive(row.activePath);
-        for (const path of row.openPaths) {
+        /* What the reader typed and the pane had not got onto disk when it last went (kept-typing.ts)
+           comes back over what disk holds now, reconciled as any change on disk is — no event reached a
+           pane that was not there. A file kept that is no longer on the strip comes back as a tab: it is
+           the reader's typing, and nothing else would show it to them. */
+        const held = keptTyping(documentsId);
+        const paths = [...row.openPaths, ...[...held.keys()].filter((p) => !row.openPaths.includes(p))];
+        for (const path of paths) {
+          const mine = held.get(path);
           try {
             if (isBinaryKind(path)) { setBuffers((prev) => ({ ...prev, [path]: opened(path, "", "") })); continue; }
             const { text, hash } = await readDocument(documentsId, path);
             if (cancelled) return;
-            setBuffers((prev) => ({ ...prev, [path]: opened(path, text, hash) }));
+            setBuffers((prev) => ({ ...prev, [path]: mine ? externalChange(mine, text, hash) : opened(path, text, hash) }));
           } catch {
             // A tab whose file has since been deleted or grown too large: drop it rather than
-            // failing the whole pane. The next setTabs prunes it from the strip for good.
+            // failing the whole pane. The next setTabs prunes it from the strip for good — unless the
+            // reader typed into it, and then it stays, as a file deleted under their typing.
+            if (mine && !cancelled) setBuffers((prev) => ({ ...prev, [path]: externalChange(mine, null, null) }));
           }
         }
       } catch (e) { if (!cancelled) setError(String(e)); }
@@ -248,6 +258,8 @@ export function DocumentsPane({ item }: PaneProps) {
   }, [ask, ws, takeDocumentsAsk, openPath, run]);
 
   const closeTab = useCallback((path: string) => {
+    // Closing the tab is the reader letting its typing go, if any was kept from a switch.
+    forgetKeptTyping(documentsId, path);
     setKeptGuides((prev) => prev.filter((p) => p !== path));
     setBuffers((prev) => { const { [path]: _gone, ...rest } = prev; return rest; });
     setUnshown((prev) => { const { [path]: _gone, ...rest } = prev; return rest; });
@@ -255,7 +267,7 @@ export function DocumentsPane({ item }: PaneProps) {
     const nextActive = activeRef.current === path ? (remaining[0] ?? null) : activeRef.current;
     setActive(nextActive);
     persistTabs(remaining, nextActive);
-  }, [persistTabs]);
+  }, [persistTabs, documentsId]);
 
   // ---- autosave ----------------------------------------------------------------------------------
   /** Write what the reader typed. `recreate` is their Keep mine on a file that was deleted under it;
@@ -341,11 +353,9 @@ export function DocumentsPane({ item }: PaneProps) {
 
   const showingHome = home || !buf;
 
-  /* A file left with typing not yet written is written as it is left — for another tab, the home, or
-     the pane going (a session or space switch unmounts it). The autosave's timer belonged to the file
-     on screen and went with it: the text waited in a buffer for the file's next turn on screen, or
-     vanished with the pane. Typing only, by `save`'s own rule: every open tab passes through here, so a
-     file that was deleted or rebuilt behind one is exactly what this must leave alone. */
+  /* A file left with typing not yet written is written as it is left for another tab or the home. The
+     autosave's timer belonged to the file on screen and went with it, and the text waited in a buffer
+     for the file's next turn on screen. Typing only, by `save`'s own rule (`mayWrite`). */
   const saveRef = useRef(save);
   saveRef.current = save;
   const onScreen = showingHome ? null : active;
@@ -355,7 +365,21 @@ export function DocumentsPane({ item }: PaneProps) {
     leftBehind.current = onScreen;
     if (was && was !== onScreen) void saveRef.current(was);
   }, [onScreen]);
-  useEffect(() => () => { for (const p of Object.keys(buffersRef.current)) void saveRef.current(p); }, []);
+  /* The pane going — a session or space switch unmounts it — takes its buffers with it, so what the
+     reader typed that is not on disk is kept for the run first (kept-typing.ts). A conflict, or a file
+     deleted under the typing, waits there for their decision and is never written from here; other
+     typing is written as the pane goes, by the same rule as every save, and its copy is forgotten once
+     the write lands. A refused write leaves the copy kept, and the pane's return finds the conflict
+     against what disk holds. Every open tab passes through here, so a file deleted or rebuilt behind one
+     is exactly what this must leave alone. */
+  useEffect(() => () => {
+    for (const b of Object.values(buffersRef.current)) {
+      keepTyping(documentsId, b);
+      if (isOutsideTab(b.path) || !mayWrite(b)) continue;
+      void writeDocument(documentsId, b.path, b.text, b.baseHash)
+        .then((res) => { if (res.ok) forgetKeptTyping(documentsId, b.path, b); }, () => {});
+    }
+  }, [documentsId, writeDocument]);
 
   /* A guide stays alive behind the other tabs, so going to the lecture beside it and back is a glance,
      not a reload — and keeps what no snapshot can see, like a course's typed answer or a timer still

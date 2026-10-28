@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { Item } from "@realm/contracts";
 
 /** The pane hears files change through the rpc singleton; mocked so a test can say what disk did. */
@@ -161,21 +161,24 @@ describe("typing not yet written is written as the file is left", () => {
   });
 });
 
-describe("a file that changed on disk while it sat in a tab is left as disk has it", () => {
-  /** What an agent's shell did to a file, as the watcher reports it: gone, or there with new bytes. */
-  function disk(api: ReturnType<typeof makeStore>["api"]) {
-    const files = api.data.documentFiles.docs1!;
-    const fire = (path: string, hash: string | null) => {
-      act(() => { for (const cb of [...listeners]) cb({ environmentId: "env-s1", path, hash }); });
-    };
-    return {
-      remove(path: string) { delete files[path]; fire(path, null); },
-      put(path: string, text: string) { files[path] = text; fire(path, `h:${text.length}:${text}`); },
-    };
-  }
-  const settle = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
-  const writesTo = (api: ReturnType<typeof makeStore>["api"], path: string) => api.calls.filter((c) => c === `writeDocument:docs1:${path}`);
+type Api = ReturnType<typeof makeStore>["api"];
+/** What an agent's shell did to a file, as the watcher reports it: gone, or there with new bytes — or,
+ *  with `quietly`, done while no pane was there to hear it. */
+function disk(api: Api) {
+  const files = api.data.documentFiles.docs1!;
+  const fire = (path: string, hash: string | null) => {
+    act(() => { for (const cb of [...listeners]) cb({ environmentId: "env-s1", path, hash }); });
+  };
+  return {
+    remove(path: string) { delete files[path]; fire(path, null); },
+    put(path: string, text: string) { files[path] = text; fire(path, `h:${text.length}:${text}`); },
+    quietly: { remove(path: string) { delete files[path]; }, put(path: string, text: string) { files[path] = text; } },
+  };
+}
+const settle = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+const writesTo = (api: Api, path: string) => api.calls.filter((c) => c === `writeDocument:docs1:${path}`);
 
+describe("a file that changed on disk while it sat in a tab is left as disk has it", () => {
   it("a PDF an agent deletes and rebuilds behind its tab keeps the rebuild through a session or space switch", async () => {
     /* The reported loss, end to end: `rm -f handout.pdf` then a rebuild while the PDF sat in a background
        tab, then a switch. The flush wrote the PDF's empty buffer over the rebuild, on a hash that matched:
@@ -303,6 +306,175 @@ describe("a file that changed on disk while it sat in a tab is left as disk has 
     await settle(50);
     expect(writesTo(api, "a.tex")).toEqual([]);
     expect(api.data.documentFiles.docs1?.["a.tex"]).toBeUndefined();
+  });
+});
+
+describe("typing the pane could not write comes back after a switch, as it was left", () => {
+  /** A pane mounted on `store`, settled: a session or space switch is this unmount and a later mount. */
+  async function mount(store: ReturnType<typeof makeStore>["store"]) {
+    const r = render(pane(store));
+    await settle(50);
+    return r;
+  }
+  const typeInto = (name: string, text: string) => fireEvent.change(screen.getByLabelText(`Edit ${name}`), { target: { value: text } });
+
+  it("a conflict comes back across a session switch — the reader's text, the agent's, both choices — and is never written on its own", async () => {
+    /* THE MUTANT: keep nothing as the pane goes. The pane comes back on the agent's version, and the
+       paragraph the reader typed is gone without a word. */
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    const { api, store } = makeStore({ "a.tex": "x" }, ["a.tex"], "a.tex");
+    const first = await mount(store);
+    typeInto("a.tex", "x and my paragraph");
+    disk(api).put("a.tex", "x as the agent has it");
+    await settle(10);
+    expect(screen.getByRole("alert")).toHaveTextContent("This file changed on disk while you were editing.");
+    first.unmount();
+    await settle(800);
+
+    await mount(store);
+    expect(screen.getByRole("alert")).toHaveTextContent("This file changed on disk while you were editing.");
+    expect(screen.getByLabelText("Edit a.tex")).toHaveValue("x and my paragraph");
+    expect(screen.getByLabelText("Needs attention")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Keep mine" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Take theirs" })).toBeTruthy();
+    await settle(800);
+    // Neither the pane going nor the autosave after it answered the question for the reader.
+    expect(writesTo(api, "a.tex")).toEqual([]);
+    expect(api.data.documentFiles.docs1?.["a.tex"]).toBe("x as the agent has it");
+
+    /* Answered, it is not kept again. THE MUTANT: a pane going forgets nothing for a tab it holds clean.
+       The settled conflict comes back from the copy of the switch before. */
+    fireEvent.click(screen.getByRole("button", { name: "Take theirs" }));
+    await settle(10);
+    expect(screen.getByLabelText("Edit a.tex")).toHaveValue("x as the agent has it");
+    cleanup();
+    await mount(store);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByLabelText("Edit a.tex")).toHaveValue("x as the agent has it");
+  });
+
+  it("a conflict comes back against what disk holds now, if the agent wrote again while the pane was away", async () => {
+    /* THE MUTANT: lay the kept buffer back as it was, without hearing disk. Take theirs then adopts a
+       version the agent has since replaced. */
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    const { api, store } = makeStore({ "a.tex": "x" }, ["a.tex"], "a.tex");
+    const first = await mount(store);
+    typeInto("a.tex", "mine");
+    disk(api).put("a.tex", "the agent's first pass");
+    await settle(10);
+    first.unmount();
+    disk(api).quietly.put("a.tex", "the agent's second pass");
+    await mount(store);
+    expect(screen.getByLabelText("Edit a.tex")).toHaveValue("mine");
+    fireEvent.click(screen.getByRole("button", { name: "Take theirs" }));
+    await settle(10);
+    expect(screen.getByLabelText("Edit a.tex")).toHaveValue("the agent's second pass");
+  });
+
+  it("typing in a file deleted under it comes back across a space switch, and the file only on Keep mine", async () => {
+    /* THE MUTANT: write as the pane goes with `recreate`, i.e. answer the bar for the reader. The
+       deleted file is back on disk before the reader has been asked. */
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    const { api, store } = makeStore({ "a.tex": "x" }, ["a.tex"], "a.tex");
+    const first = await mount(store);
+    typeInto("a.tex", "x and my paragraph");
+    disk(api).remove("a.tex");
+    first.unmount();
+    await settle(800);
+    expect(api.data.documentFiles.docs1?.["a.tex"]).toBeUndefined();
+
+    /* THE MUTANT: drop a kept file whose read fails on the way back, as any vanished tab is dropped. */
+    await mount(store);
+    expect(screen.getByRole("alert")).toHaveTextContent("This file was deleted on disk while you were editing.");
+    expect(screen.getByLabelText("Edit a.tex")).toHaveValue("x and my paragraph");
+    expect(screen.getByLabelText("Needs attention")).toBeTruthy();
+    await settle(800);
+    expect(writesTo(api, "a.tex")).toEqual([]);
+    expect(api.data.documentFiles.docs1?.["a.tex"]).toBeUndefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Keep mine" }));
+    await settle(10);
+    expect(api.data.documentFiles.docs1?.["a.tex"]).toBe("x and my paragraph");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("closing the file's tab lets the kept typing go", async () => {
+    /* THE MUTANT: closing a tab forgets nothing. The pane going does not touch a tab it no longer
+       holds, so the closed file comes back, typing and all, on the next switch. */
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    const { api, store } = makeStore({ "a.tex": "x", "b.tex": "y" }, ["a.tex", "b.tex"], "a.tex");
+    const first = await mount(store);
+    typeInto("a.tex", "mine");
+    disk(api).put("a.tex", "theirs");
+    await settle(10);
+    first.unmount();
+    const again = await mount(store);
+    expect(screen.getByRole("alert")).toHaveTextContent("changed on disk");
+    fireEvent.click(screen.getByLabelText("Close a.tex"));
+    await settle(10);
+    again.unmount();
+    await mount(store);
+    expect(screen.queryByTitle("a.tex")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("a kept file no longer on the strip comes back as a tab", async () => {
+    /* THE MUTANT: restore only the tabs the strip lists. The typing stays in memory where nothing shows it. */
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    const { api, store } = makeStore({ "a.tex": "x", "b.tex": "y" }, ["a.tex", "b.tex"], "a.tex");
+    const first = await mount(store);
+    typeInto("a.tex", "mine");
+    disk(api).put("a.tex", "theirs");
+    await settle(10);
+    first.unmount();
+    api.data.documentWorkspaces.docs1!.openPaths = ["b.tex"];
+    api.data.documentWorkspaces.docs1!.activePath = "b.tex";
+    await mount(store);
+    fireEvent.click(screen.getByTitle("a.tex"));
+    await settle(10);
+    expect(screen.getByLabelText("Edit a.tex")).toHaveValue("mine");
+    expect(screen.getByRole("alert")).toHaveTextContent("changed on disk");
+  });
+
+  it("typing whose write landed as the pane went is not kept, so a later change by an agent is no conflict", async () => {
+    /* THE MUTANT: never forget a copy once its write lands. The saved paragraph comes back as unsaved
+       typing, and the agent's later edit as a conflict nobody caused. */
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    const { api, store } = makeStore({ "a.tex": "x" }, ["a.tex"], "a.tex");
+    const first = await mount(store);
+    typeInto("a.tex", "x and my paragraph");
+    first.unmount();
+    await settle(10);
+    expect(api.data.documentFiles.docs1?.["a.tex"]).toBe("x and my paragraph");
+    disk(api).quietly.put("a.tex", "x and my paragraph, edited by an agent");
+    await mount(store);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByLabelText("Edit a.tex")).toHaveValue("x and my paragraph, edited by an agent");
+  });
+
+  it("typing whose write was refused as the pane went comes back as the conflict it is", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    const { api, store } = makeStore({ "a.tex": "x" }, ["a.tex"], "a.tex");
+    // The real server's check: a write lands only on the disk it was based on.
+    const files = api.data.documentFiles.docs1!;
+    const hashOf = (t: string) => `h:${t.length}:${t}`;
+    api.writeDocument = async (_id, path, text, baseHash) => {
+      api.calls.push(`writeDocument:docs1:${path}`);
+      const cur = files[path];
+      if (cur !== undefined && hashOf(cur) !== baseHash) return { ok: false as const, currentText: cur, currentHash: hashOf(cur) };
+      files[path] = text;
+      return { ok: true as const, hash: hashOf(text) };
+    };
+    const first = await mount(store);
+    typeInto("a.tex", "mine");
+    disk(api).quietly.put("a.tex", "the agent's, unheard"); // between the last event and the pane going
+    first.unmount();
+    await settle(10);
+    expect(writesTo(api, "a.tex")).toHaveLength(1);
+    expect(files["a.tex"]).toBe("the agent's, unheard");
+    await mount(store);
+    expect(screen.getByRole("alert")).toHaveTextContent("changed on disk");
+    expect(screen.getByLabelText("Edit a.tex")).toHaveValue("mine");
   });
 });
 
