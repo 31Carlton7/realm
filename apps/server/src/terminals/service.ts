@@ -35,6 +35,10 @@ export const isSandboxRefusal = (e: unknown): boolean => e instanceof RpcError &
  * Owns the terminal trio: DB row + sidebar item + pty. Nothing else should
  * touch the `terminals` table or spawn ptys directly.
  */
+/** A woken shell's first screen is read once it has been this quiet, or after `WOKEN_WAIT_MS` at most. */
+export const WOKEN_QUIET_MS = 300;
+export const WOKEN_WAIT_MS = 5_000;
+
 export class TerminalService {
   readonly manager: TerminalManager;
   /** Always on, and NOT what the `terminals.history` setting gates. It holds bytes that were
@@ -173,21 +177,24 @@ export class TerminalService {
   /**
    * Start a restored terminal's shell, if it has not been started: the first read, keystroke, resize or
    * screen asked of it. Failing to start reads as a terminal that is not running — as a restore that
-   * failed at boot always has — and a sandbox refusal leaves the row for the next try.
+   * failed at boot always has — and a sandbox refusal leaves the row for the next try. Answers whether
+   * it started one now.
    */
-  private wake(terminalId: string): void {
+  private wake(terminalId: string): boolean {
     const d = this.dormant.get(terminalId);
-    if (!d || this.closed) return;
+    if (!d || this.closed) return false;
     this.dormant.delete(terminalId);
     try {
       this.manager.create({ id: terminalId, cwd: d.cwd, shell: d.shell, cols: d.cols, rows: d.rows, env: this.envFor(d.spaceId, d.cwd), wrap: this.wrapFor(d.spaceId) });
       this.foreground.watch(terminalId);
+      return true;
     } catch (e) {
       console.error(`[terminals] could not start ${terminalId}: ${e instanceof Error ? e.message : String(e)}`);
       this.scrollback.endRun(terminalId);
       const st = this.status.get(terminalId);
       if (st) this.status.set(terminalId, { ...st, running: false, exitedAt: Date.now() });
       if (!isSandboxRefusal(e)) this.d.terminals.delete(terminalId);
+      return false;
     }
   }
 
@@ -214,7 +221,9 @@ export class TerminalService {
    * it parses on demand rather than on the way in, is in `screen.ts`.
    */
   async screen(terminalId: string, scrollback = 0): Promise<TerminalScreen | null> {
-    this.wake(terminalId);
+    // A shell started this moment has drawn nothing yet: what the screen shows is its first prompt,
+    // once it has gone quiet — not the blank before it.
+    if (this.wake(terminalId)) await this.manager.quietFor(terminalId, WOKEN_QUIET_MS, WOKEN_WAIT_MS);
     const read = this.scrollback.read(terminalId, null);
     const size = this.scrollback.size(terminalId);
     if (!read || !size) return null;

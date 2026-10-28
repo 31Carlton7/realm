@@ -3,6 +3,7 @@ import WebSocket from "ws";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { createApp, type App } from "../app";
+import { screenText } from "./screen";
 import { openDatabase, type Db } from "../db/database";
 import { RpcServer } from "../rpc/server";
 import { ExecutionSandboxService } from "../sandbox/service";
@@ -93,6 +94,24 @@ describe("TerminalService.restoreAll", () => {
     expect(app2.terminals.processes().map((p) => p.terminalId).sort()).toEqual([...ids].sort());
     expect(app2.terminals.dormantCount()).toBe(0);
     c2.close();
+  });
+
+  it("reads a woken terminal's screen once its new shell has drawn it, not the blank before", async () => {
+    // THE MUTANT: reading the instant the shell is spawned — an agent's first terminal_read, or the
+    // password check before terminal_write, then sees nothing at all on a terminal with a prompt.
+    const home = tempDir("realm-home-");
+    const app1 = await createApp({ home, port: 0 }); apps.push(app1);
+    const c1 = await client(app1.port);
+    const prof = (await c1.call("profiles.create", { name: "Work" })).result;
+    const space = (await c1.call("spaces.create", { profileId: prof.id, name: "Versed" })).result;
+    const { terminalId } = (await c1.call("terminals.create", { spaceId: space.id })).result;
+    c1.close();
+    await app1.close();
+    const app2 = await createApp({ home, port: 0 }); apps.push(app2);
+    expect(app2.terminals.dormantCount()).toBe(1);
+    const screen = await app2.terminals.screen(terminalId);
+    expect(screen).not.toBeNull();
+    expect(screenText(screen!).trim()).not.toBe("");
   });
 
   it("closes a restored terminal that never started without a shell to kill", async () => {
