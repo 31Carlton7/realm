@@ -80,11 +80,19 @@ describe("MemoryService systemContextFor", () => {
     expect(memory.systemContextFor({ spaceId: SPACE_A, kind: "claude", cwd: "/tmp", skillsInjected: false })).toBeUndefined();
   });
 
-  it("is undefined for agents with no channel, whatever the doc says", () => {
+  it("is undefined for an agent with no channel at all, whatever the doc says", () => {
     const { memory } = harness();
     memory.set(SPACE_A, "space A memory");
-    for (const kind of ["acp:cursor", "acp:gemini", "fake"] as const) {
-      expect(memory.systemContextFor({ spaceId: SPACE_A, kind, cwd: "/tmp", skillsInjected: false })).toBeUndefined();
+    expect(memory.systemContextFor({ spaceId: SPACE_A, kind: "fake", cwd: "/tmp", skillsInjected: false })).toBeUndefined();
+  });
+
+  it("gives the ACP agents the block Codex gets — it rides in their first prompt instead", () => {
+    const { memory } = harness();
+    memory.set(SPACE_A, "space A memory");
+    const codex = memory.systemContextFor({ spaceId: SPACE_A, kind: "codex", cwd: "/tmp", skillsInjected: false });
+    expect(codex).toContain("space A memory");
+    for (const kind of ["acp:cursor", "acp:gemini", "acp:hermes"] as const) {
+      expect(memory.systemContextFor({ spaceId: SPACE_A, kind, cwd: "/tmp", skillsInjected: false })).toBe(codex);
     }
   });
 
@@ -222,12 +230,15 @@ describe("MemoryService sourcesFor", () => {
     expect(empty).toMatchObject({ basis: "reported", sources: [] });
   });
 
-  it("cursor: a stated nothing — no channel, no sources, no realm memory, and a note naming the agent", () => {
+  it("cursor: Realm memory through its first prompt, no file report of its own, and a note naming the agent", () => {
     const { memory } = harness();
     memory.set(SPACE_A, "space A memory");
     const r = memory.sourcesFor({ kind: "acp:cursor", spaceId: SPACE_A, cwd: "/tmp", skillsInjected: false, reported: null });
-    expect(r).toMatchObject({ agent: "acp:cursor", channel: "none", basis: "none", realmMemoryInjected: false, sources: [] });
+    expect(r).toMatchObject({ agent: "acp:cursor", channel: "firstPrompt", basis: "none", realmMemoryInjected: true, sources: [] });
     expect(r.note).toContain("Cursor");
+    // The fake has no channel, and is never told the document travelled — it did not.
+    expect(memory.sourcesFor({ kind: "fake", spaceId: SPACE_A, cwd: "/tmp", skillsInjected: false, reported: null }))
+      .toMatchObject({ channel: "none", realmMemoryInjected: false });
   });
 
   it("realmMemoryInjected tracks the doc of THE space asked about", () => {
@@ -341,8 +352,9 @@ describe("scoping (W2) — the inherited profile memory doc", () => {
     expect(a).not.toContain("p".repeat(kept + 1));
     expect(a).toContain("`memory_read` MEMORY for the rest");
     expect(memory.sourcesFor({ kind: "codex", spaceId: SPACE_A, cwd: "/tmp", skillsInjected: false, reported: null }).repoIndexInjected).toBe(true);
-    // An agent with no channel is never told the index travelled — it did not.
-    expect(memory.sourcesFor({ kind: "acp:cursor", spaceId: SPACE_A, cwd: "/tmp", skillsInjected: false, reported: null }).repoIndexInjected).toBe(false);
+    // An agent with no channel is never told the index travelled — it did not. Cursor's first prompt did.
+    expect(memory.sourcesFor({ kind: "fake", spaceId: SPACE_A, cwd: "/tmp", skillsInjected: false, reported: null }).repoIndexInjected).toBe(false);
+    expect(memory.sourcesFor({ kind: "acp:cursor", spaceId: SPACE_A, cwd: "/tmp", skillsInjected: false, reported: null }).repoIndexInjected).toBe(true);
   });
 
   it("carries a space's own repo beside the profile's, both whole within the cap, general before specific", () => {

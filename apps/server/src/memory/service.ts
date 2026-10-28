@@ -186,7 +186,8 @@ export class MemoryService {
 
   /**
    * The per-session context for one agent start — `StartOptions.systemContext`, which the Claude
-   * adapter appends to its system prompt and the Codex adapter sends as `developerInstructions`.
+   * adapter appends to its system prompt, the Codex adapter sends as `developerInstructions`, and the
+   * ACP adapter puts at the top of the first prompt each agent process is sent.
    *
    * Two ingredients, in load order:
    *
@@ -200,9 +201,8 @@ export class MemoryService {
    * 2. **This space's Realm memory document** — and only this space's; `spaceId` comes from the session
    *    row the caller is starting.
    *
-   * Undefined for agents with no channel (`AGENT_MEMORY_CHANNEL` = "none"): Cursor's ACP session/new
-   * takes `{cwd, mcpServers}` and nothing else, and handing an adapter context it can only drop would
-   * make the memory pane a lie.
+   * Undefined for an agent with no channel at all (`AGENT_MEMORY_CHANNEL` = "none", the scripted fake):
+   * handing an adapter context it can only drop would make the memory pane a lie.
    */
   systemContextFor(o: { spaceId: string; kind: AgentKind; cwd: string; skillsInjected: boolean }): string | undefined {
     if (AGENT_MEMORY_CHANNEL[o.kind] === "none") return undefined;

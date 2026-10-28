@@ -1684,8 +1684,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     ...(opts.lab?.now ? { now: opts.lab.now } : {}),
   });
   /* `realm-memory`: the memory repo's tools, on by default and listed only where the space's profile
-     has a repo — attaching one is the opt-in. The only memory that reaches Cursor and the other ACP
-     agents, which take no per-session context. A save repaints every open memory row of the profile. */
+     has a repo — attaching one is the opt-in. Every engine saves and searches through them; the index
+     itself travels in each session's context. A save repaints every open memory row of the profile. */
   mcpGateway.registerProvider(createMemoryAgentProvider({ repos: memoryRepos, mcp, onChanged: memoryRepoChanged }));
   // The durable ship log (Plan 14 W1): GitWriteService stays a pure git service — the recorder is the
   // one seam through which a settled ship becomes a row, and the broadcast rides the same write so a

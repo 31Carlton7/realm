@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { SELECTABLE_AGENT_KINDS } from "./presets";
 import {
-  MEMORY_REPO_INITIAL_INDEX, amrRepoSourceLink, applyMemoryEdit, formatMemoryEntry, githubRepoOf, memoryEntryProblem, memorySupportNote,
+  AGENT_MEMORY_CHANNEL, MEMORY_REPO_INITIAL_INDEX, amrRepoSourceLink, applyMemoryEdit, formatMemoryEntry, githubRepoOf, memoryEntryProblem, memorySupportNote,
   parseMemoryEntry, wikiLinkFor, wikiLinkTarget, withIndexLink,
 } from "./memory";
 
@@ -11,10 +12,20 @@ describe("memorySupportNote", () => {
     expect(memorySupportNote("acp:cursor")).toContain("Cursor");
   });
 
-  it("states the Cursor reality outright rather than hedging", () => {
-    expect(memorySupportNote("acp:cursor")).toMatch(/no per-session context/);
-    // ...and where its memory DOES come from, once a repo is attached.
-    expect(memorySupportNote("acp:cursor")).toMatch(/memory tools/);
+  it("states the Cursor reality outright rather than hedging: no parameter, so the first message", () => {
+    expect(memorySupportNote("acp:cursor")).toMatch(/no per-session context parameter/);
+    expect(memorySupportNote("acp:cursor")).toMatch(/top of the first message each Cursor process is sent/);
+    expect(memorySupportNote("acp:cursor")).toMatch(/the transcript shows only what you typed/);
+    // An agent with no channel at all says so, and where its memory DOES come from.
+    expect(memorySupportNote("fake")).toMatch(/neither Realm's memory documents nor any managed file reaches it/);
+    expect(memorySupportNote("fake")).toMatch(/memory tools/);
+  });
+
+  it("gives every agent a user can pick a channel, so a line that says every session gets the memory is true", () => {
+    // THE MUTANT: an ACP kind left on `none`. Its sessions would get nothing while the Memory page
+    // tells the user every new session starts with their memory.
+    for (const kind of SELECTABLE_AGENT_KINDS) expect(AGENT_MEMORY_CHANNEL[kind], kind).not.toBe("none");
+    for (const kind of SELECTABLE_AGENT_KINDS.filter((k) => k.startsWith("acp:"))) expect(AGENT_MEMORY_CHANNEL[kind], kind).toBe("firstPrompt");
   });
 });
 

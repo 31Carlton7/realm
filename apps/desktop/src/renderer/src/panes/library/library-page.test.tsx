@@ -116,7 +116,7 @@ describe("the Library page (Plan 12 W4)", () => {
 
   it("leads with who the memory reaches, from the channel table", async () => {
     await memoryTab();
-    expect(screen.getByText("Every new Claude and Codex session starts with Work's memory, then its own space's.")).toBeInTheDocument();
+    expect(screen.getByText("Every new session starts with Work's memory, then its own space's.")).toBeInTheDocument();
   });
 
   it("shuts a space to a line that says what its document is about", async () => {

@@ -162,18 +162,21 @@ describe("the capabilities preamble reaches an ordinary session", () => {
     c.close();
   });
 
-  it("hands Cursor nothing, because Cursor takes no per-session context at all", async () => {
+  it("keeps the preamble out of Cursor's context, which rides in its first prompt — the gateway says it instead", async () => {
     const { c, space, cursor } = await boot();
     await startSession(c, space.id, "acp:cursor");
     await waitFor(() => cursor.starts.length === 1);
-    // THE MUTANT: compose the preamble for every kind. It would be silently dropped by the adapter,
-    // and Realm's memory pane — which reports Cursor as receiving nothing — would become a lie.
+    // THE MUTANT: compose the preamble for every kind with a channel. Cursor would read it twice — at
+    // the top of its first prompt and in the gateway's instructions — and carry it in the user's turn.
+    // With no memory here, the context is nothing at all.
     expect(cursor.starts[0]!.systemContext).toBeUndefined();
     c.close();
   });
 
   it("reaches every kind of agent exactly once: Claude and Codex in their context, the ACP agents through the gateway", async () => {
     const { c, space, claude, codex, cursor, gemini } = await boot();
+    // Memory on, so the ACP agents have a context of their own — and the preamble is still not in it.
+    await c.call("memory.set", { spaceId: space.id, doc: "SPACE_DOC_2291" });
     for (const kind of ["claude", "codex", "acp:cursor", "acp:gemini"]) await startSession(c, space.id, kind);
     await waitFor(() => [claude, codex, cursor, gemini].every((a) => a.starts.length === 1));
     for (const a of [claude, codex]) {
@@ -182,8 +185,10 @@ describe("the capabilities preamble reaches an ordinary session", () => {
       expect(await gatewayInstructions(a.starts[0]!)).toBeUndefined();
     }
     for (const a of [cursor, gemini]) {
-      // THE MUTANT: pass no instructions to `register`. The ACP agents — which take no per-session
-      // context at all — go back to knowing nothing of Realm but a tool list.
+      expect(a.starts[0]!.systemContext).toContain("SPACE_DOC_2291");
+      expect(a.starts[0]!.systemContext).not.toContain("This session runs in Realm");
+      // THE MUTANT: pass no instructions to `register`. The ACP agents — which take no system prompt —
+      // go back to knowing nothing of Realm's tools but a tool list.
       const said = await gatewayInstructions(a.starts[0]!);
       expect(said).toContain("This session runs in Realm");
       expect(said).toContain("browser_open");

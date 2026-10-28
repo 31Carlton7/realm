@@ -6,7 +6,8 @@ import { AgentKindSchema, type AgentKind } from "./entities";
  * W3's ground rule: Realm READS the files each agent loads and never writes them. The one permitted
  * write is the opt-in `AGENTS.md` in a space folder Realm itself created (`AgentsFileState`), and even
  * that is refused anywhere else. Everything else reaches a session through a per-session parameter —
- * `systemPrompt.append` for Claude, `thread/start` `developerInstructions` for Codex — or not at all.
+ * `systemPrompt.append` for Claude, `thread/start` `developerInstructions` for Codex — or, for the ACP
+ * agents, which take no such parameter, at the top of the first prompt each agent process is sent.
  */
 
 /** Hard cap on ONE Realm memory document (space or profile). It travels inside every session's system
@@ -93,26 +94,30 @@ export type MemoryState = z.infer<typeof MemoryStateSchema>;
  *
  * - `systemPrompt` — Claude: `systemPrompt: { type: "preset", preset: "claude_code", append }`.
  * - `developerInstructions` — Codex: a `thread/start` parameter.
- * - `none` — ACP `session/new` is `{cwd, mcpServers}`: there is no parameter to put context in, so
- *   nothing Realm manages reaches these agents. Stated, not faked: no adapter fallback pretends otherwise.
+ * - `firstPrompt` — the ACP agents. `session/new` is `{cwd, mcpServers}`, with no parameter to put
+ *   context in, so the ACP adapter sends it as a block of its own, tagged as Realm's, at the top of the
+ *   first `session/prompt` each agent process receives — once per process, again after a restart, never
+ *   on a later turn. The user's own blocks follow it untouched, and neither Realm's transcript nor the
+ *   stored message ever carries it.
+ * - `none` — no channel at all: the scripted fake reads no context, and nothing pretends it does.
  */
-export type MemoryChannel = "systemPrompt" | "developerInstructions" | "none";
+export type MemoryChannel = "systemPrompt" | "developerInstructions" | "firstPrompt" | "none";
 export const AGENT_MEMORY_CHANNEL = {
   claude: "systemPrompt",
   codex: "developerInstructions",
-  "acp:cursor": "none",
-  "acp:gemini": "none",
-  "acp:opencode": "none",
-  "acp:copilot": "none",
-  "acp:goose": "none",
-  "acp:qwen": "none",
-  "acp:grok": "none",
-  "acp:fx": "none",
-  "acp:deepseek": "none",
-  "acp:openhands": "none",
-  // Hermes carries a great deal of durable context of its own — memory, skills, a user model — and
-  // none of it is Realm's, which is exactly what this table means by `none`.
-  "acp:hermes": "none",
+  "acp:cursor": "firstPrompt",
+  "acp:gemini": "firstPrompt",
+  "acp:opencode": "firstPrompt",
+  "acp:copilot": "firstPrompt",
+  "acp:goose": "firstPrompt",
+  "acp:qwen": "firstPrompt",
+  "acp:grok": "firstPrompt",
+  "acp:fx": "firstPrompt",
+  "acp:deepseek": "firstPrompt",
+  "acp:openhands": "firstPrompt",
+  // Hermes carries a great deal of durable context of its own — memory, skills, a user model — none
+  // of it Realm's. Realm's reaches it the way it reaches every ACP agent, beside that, not instead.
+  "acp:hermes": "firstPrompt",
   fake: "none",
 } as const satisfies Record<AgentKind, MemoryChannel>;
 
@@ -122,19 +127,20 @@ export const AGENT_MEMORY_CHANNEL = {
  *
  * `basis` names the authority so the UI can say it: `modeled` — Realm read the same paths the CLI
  * reads (Claude); `reported` — the agent itself named the files it loaded (Codex `instructionSources`);
- * `none` — either the agent takes no durable context at all (Cursor) or it has not started yet and so
- * has reported nothing (a Codex session before its first message).
+ * `none` — either no agent reports or models the files (Cursor and the other ACP agents read their own
+ * and say nothing of them) or it has not started yet and so has reported nothing (a Codex session before
+ * its first message).
  */
 export const MemorySourcesSchema = z.object({
   agent: AgentKindSchema,
-  channel: z.enum(["systemPrompt", "developerInstructions", "none"]),
+  channel: z.enum(["systemPrompt", "developerInstructions", "firstPrompt", "none"]),
   basis: z.enum(["modeled", "reported", "none"]),
   /** One sentence naming the agent and its reality, so a note rendered for the wrong session is visibly wrong. */
   note: z.string(),
   /** Whether this space's Realm memory document is non-empty and travels to this agent's sessions. */
   realmMemoryInjected: z.boolean(),
   /** Whether the memory repo's `MEMORY.md` travels into this agent's sessions. False for an agent with
-   *  no context channel even where the space has a repo: those reach it through the memory tools. */
+   *  no context channel at all even where the space has a repo. */
   repoIndexInjected: z.boolean(),
   sources: z.array(MemorySourceSchema),
 });
@@ -148,6 +154,8 @@ export function memorySupportNote(kind: AgentKind): string {
       return `${label} sessions receive this space's Realm memory per session; the files below are the ones the CLI reads, modeled by Realm from the same paths.`;
     case "developerInstructions":
       return `${label} sessions receive this space's Realm memory per session, and ${label} itself reports the exact instruction files it loaded once the session starts.`;
+    case "firstPrompt":
+      return `${label} takes no per-session context parameter, so Realm puts this space's memory at the top of the first message each ${label} process is sent; the transcript shows only what you typed.`;
     default:
       return `${label} takes no per-session context parameter, so neither Realm's memory documents nor any managed file reaches it; a memory repo, where one is attached, reaches it through Realm's memory tools.`;
   }
