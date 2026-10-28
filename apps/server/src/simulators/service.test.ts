@@ -539,10 +539,11 @@ describe("shutting down a simulator Realm booted once nothing uses it", () => {
   const T0 = 1_800_000_000_000;
   const launchd = (startedAt: number, udid = "D94F0FDE-7C84-42F1-A328-97EF12A91866") => ({ pid: 700, ppid: 1, tty: null, residentBytes: 1, startedAt, command: `launchd_sim /U/Library/Developer/CoreSimulator/Devices/${udid}/data/var/run/launchd_bootstrap.plist` });
 
-  async function booted(o: { booted?: boolean; table?: (t: number) => import("../resources/machine").ProcRow[]; minutes?: number; front?: () => string | null } = {}) {
+  async function booted(o: { booted?: boolean; table?: (t: number) => import("../resources/machine").ProcRow[]; minutes?: number; front?: () => string | null; adopt?: ServeSimStream } = {}) {
     let t = T0;
     const kept = new Map<string, unknown>(o.minutes === undefined ? [] : [[SIMULATOR_IDLE_SHUTDOWN_KEY, o.minutes]]);
-    const env = bring({ simctl: { boot: async () => ({ ok: true, detail: "", booted: o.booted ?? true }) } });
+    // `adopt`: a serve-sim somebody else started is already streaming the device, and the pane takes it.
+    const env = bring({ simctl: { boot: async () => ({ ok: true, detail: "", booted: o.booted ?? true }) }, ...(o.adopt ? { serveSim: { find: async () => o.adopt! } } : {}) });
     Object.assign((env.service as unknown as { d: object }).d, {
       settings: { get: (k: string) => kept.get(k), set: (k: string, v: unknown) => { kept.set(k, v); } },
       now: () => t,
@@ -683,6 +684,23 @@ describe("shutting down a simulator Realm booted once nothing uses it", () => {
     const agents = await booted({ table: (t0) => [launchd(t0), serveSim(99), serveSim(4242)] });
     agents.at(40);
     expect(await agents.service.sweepIdle()).toEqual([]);
+  });
+
+  it("never takes a stream a pane adopted for Realm's own, nor a saved pid some later process now has", async () => {
+    // THE MUTANT: every stream a pane holds counted as Realm's. One an agent started and the pane found
+    // already running is the agent using the device.
+    const serveSim = (pid: number, startedAt: number) => ({ pid, ppid: 1, tty: null, residentBytes: 1, startedAt, command: "node /Users/u/.npm/_npx/9/node_modules/.bin/serve-sim D94F0FDE-7C84-42F1-A328-97EF12A91866" });
+    const adopted = await booted({ adopt: { ...STREAM, device: "D94F0FDE-7C84-42F1-A328-97EF12A91866", pid: 77 }, table: (t0) => [launchd(t0), serveSim(77, t0)] });
+    adopted.at(40);
+    expect(await adopted.service.sweepIdle()).toEqual([]);
+    // The pid Realm saved, held now by a serve-sim that started an hour after Realm's: not Realm's.
+    const reused = await booted({ table: (t0) => [launchd(t0), serveSim(99, t0 + 60 * MIN)] });
+    reused.at(100);
+    expect(await reused.service.sweepIdle()).toEqual([]);
+    // …or by something that is no serve-sim at all, a minute after Realm's stream went.
+    const recording = await booted({ table: (t0) => [launchd(t0), { pid: 99, ppid: 1, tty: null, residentBytes: 1, startedAt: t0 + MIN, command: "/usr/bin/xcrun simctl io D94F0FDE-7C84-42F1-A328-97EF12A91866 recordVideo demo.mov" }] });
+    recording.at(100);
+    expect(await recording.service.sweepIdle()).toEqual([]);
   });
 
   it("never counts, shuts down or forgets a simulator another home booted — a copy of the database is not that Realm", async () => {

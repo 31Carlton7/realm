@@ -123,7 +123,7 @@ export function usedElsewhere(udid: string, table: readonly ProcRow[], ownStream
  *  started for it. A device that was already running when a pane pointed at it — somebody's Xcode
  *  session — is never written here. */
 export const REALM_BOOTED_KEY = "simulators.realmBooted";
-type RealmBoot = { name: string; at: number; home: string | null; streamPid: number | null };
+type RealmBoot = { name: string; at: number; home: string | null; streamPid: number | null; streamAt: number | null };
 
 /** How long to wait for the framebuffer to have a size. serve-sim answers `{"width":0}` until the
  *  capture engine has a frame, and a freshly booted device can take a few seconds to produce one. */
@@ -270,7 +270,7 @@ export class SimulatorService {
         if (now - (this.shownAt.get(b.udid) ?? 0) < SHOWN_FRESH_MS) continue;
         if (now - this.lastUse(b) < window) continue;
         if ([...this.state.values()].some((st) => st.udid === b.udid && (st.status === "booting" || st.status === "serving"))) continue;
-        if (usedElsewhere(b.udid, table, this.ownStreams(b))) continue;
+        if (usedElsewhere(b.udid, table, this.ownStreams(b, table))) continue;
         if (await this.shutDown(b.udid, minutes)) done.push(b.udid);
       }
       return done;
@@ -313,14 +313,17 @@ export class SimulatorService {
     for (const [udid, v] of Object.entries(raw as Record<string, unknown>)) {
       const b = v as Partial<RealmBoot> | null;
       if (b && typeof b.name === "string" && typeof b.at === "number") {
-        out[udid] = { name: b.name, at: b.at, home: typeof b.home === "string" ? b.home : null, streamPid: typeof b.streamPid === "number" ? b.streamPid : null };
+        out[udid] = {
+          name: b.name, at: b.at, home: typeof b.home === "string" ? b.home : null,
+          streamPid: typeof b.streamPid === "number" ? b.streamPid : null, streamAt: typeof b.streamAt === "number" ? b.streamAt : null,
+        };
       }
     }
     return out;
   }
 
   private noteBoot(udid: string, name: string): void {
-    this.d.settings?.set(REALM_BOOTED_KEY, { ...this.records(), [udid]: { name, at: this.d.now?.() ?? Date.now(), home: this.d.home ?? null, streamPid: null } });
+    this.d.settings?.set(REALM_BOOTED_KEY, { ...this.records(), [udid]: { name, at: this.d.now?.() ?? Date.now(), home: this.d.home ?? null, streamPid: null, streamAt: null } });
   }
 
   /** Remember the stream Realm started for a device it booted: that daemon is not "something else". */
@@ -328,17 +331,19 @@ export class SimulatorService {
     const all = this.records();
     const b = all[udid];
     if (!b || !this.mine(b) || pid === null) return;
-    this.d.settings?.set(REALM_BOOTED_KEY, { ...all, [udid]: { ...b, streamPid: pid } });
+    this.d.settings?.set(REALM_BOOTED_KEY, { ...all, [udid]: { ...b, streamPid: pid, streamAt: this.now() } });
   }
 
-  /** The serve-sim daemons streaming this device that Realm started: what a pane shows now, and what
-   *  it started before a restart. */
-  private ownStreams(b: { udid: string }): Set<number> {
-    const pids = new Set<number>();
-    for (const st of this.served.values()) if (st.device?.toUpperCase() === b.udid.toUpperCase() && st.pid !== null) pids.add(st.pid);
-    const recorded = this.records()[b.udid]?.streamPid;
-    if (recorded) pids.add(recorded);
-    return pids;
+  /**
+   * The serve-sim daemon Realm started for this device, if it is still the one running: only a stream
+   * Realm started — never one a pane adopted from an agent or the person — and only while the process
+   * under the saved pid is a serve-sim that started when Realm started its own. A pid is reused.
+   */
+  private ownStreams(b: { udid: string }, table: readonly ProcRow[]): Set<number> {
+    const rec = this.records()[b.udid];
+    if (!rec?.streamPid || rec.streamAt === null) return new Set();
+    const p = table.find((row) => row.pid === rec.streamPid);
+    return p && /serve-sim/.test(p.command) && sameBoot(rec.streamAt, p.startedAt) ? new Set([p.pid]) : new Set();
   }
 
   /** Forget a boot: the device was shut down, by Realm or by anybody. Never another home's. */
