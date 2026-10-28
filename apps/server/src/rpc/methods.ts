@@ -495,6 +495,12 @@ export function registerMethods(d: Deps): void {
     rpc.broadcast("mcp.changed", {});
     return { ok: true as const };
   });
+  // A stdio server's "Stop when idle". The hub asks on its next sweep; nothing running is touched now.
+  reg("mcp.setStopWhenIdle", (p) => {
+    d.mcp.setStopsWhenIdle(p.id, p.stop);
+    rpc.broadcast("mcp.changed", {});
+    return { ok: true as const };
+  });
   // Promote is effective-set neutral and demote strips siblings (`McpService.promote`/`demote` doc
   // comments), but visibility moves for every space of the profile either way — and a pre-scoping row
   // leaves other profiles' lists on promote — so every space re-lists and every session is nudged.

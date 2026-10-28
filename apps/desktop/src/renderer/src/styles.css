@@ -7491,7 +7491,7 @@ select { appearance: none; padding-right: 22px;
 .mcp-row > .mcp-circuit, .mcp-row > .mcp-form, .mcp-row > .mcp-tools, .mcp-row > .mcp-views { grid-column: 1 / -1; }
 /* A server's views switch (MCP Apps), under its name like the tools list — the server's own setting,
    kept off the actions column, where Enabled is the space's. */
-.mcp-views { display: flex; align-items: center; padding: 2px 0 0 15px; }
+.mcp-views { display: flex; align-items: center; gap: 14px; padding: 2px 0 0 15px; }
 .mcp-enable { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--rl-text-dim); }
 /* What a provider cannot do on this Mac, where its switch would be. It is the one item on the row that
    runs long, so it is the one that yields: it wraps inside a measure of its own rather than taking the

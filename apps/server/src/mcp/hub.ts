@@ -173,6 +173,8 @@ export class McpHub {
     elicit?: HubElicit;
     /** Test seam for `CALL_TIMEOUT_MS`. */
     callTimeoutMs?: number;
+    /** Whether `sleepIdle` may stop this server (`McpService.stopsWhenIdle`); absent, any may go. */
+    stopsWhenIdle?: (id: string) => boolean;
   }) {}
 
   /**
@@ -344,6 +346,8 @@ export class McpHub {
     for (const [id, e] of this.entries) {
       if (!e.client || e.connecting || !e.tools) continue;
       if (typeof (e.transport as { pid?: unknown } | null)?.pid !== "number") continue;
+      // One holding a browser or a device keeps it, unless someone chose otherwise.
+      if (this.d.stopsWhenIdle?.(id) === false) continue;
       if ([...this.open].some((c) => c.serverId === id)) continue;
       if (now - e.usedAt < idleMs) continue;
       const client = e.client;

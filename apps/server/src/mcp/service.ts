@@ -39,6 +39,20 @@ const providersEnabledKey = (spaceId: string): string => `mcp.providersEnabled:$
 /** The servers whose views Realm does NOT draw (MCP Apps) — global, like the server rows themselves,
  *  and inverted because views default on: a server that ships them did so to be seen. */
 const VIEWS_HIDDEN_KEY = "mcp.viewsHidden";
+/** The "Stop when idle" choices someone has made, by server id. A server nobody has chosen for takes
+ *  `holdsSession`'s default. */
+const IDLE_STOP_KEY = "mcp.idleStop";
+
+/**
+ * What marks a stdio server as holding a session that stopping it would lose: a browser it drives, a
+ * phone or simulator it is attached to. Matched against its name, command and arguments.
+ */
+const SESSION_HOLDING = /playwright|puppeteer|chrome-devtools|(?:^|[^a-z0-9])browser|mobile-mcp|appium/i;
+
+/** Whether a stdio server holds a session, so that its "Stop when idle" starts off. */
+export function holdsSession(s: { name: string; command: string; args: readonly string[] }): boolean {
+  return [s.name, s.command, ...s.args].some((x) => SESSION_HOLDING.test(x));
+}
 
 /**
  * Providers that are OFF until a space turns them on, inverting the default the others get.
@@ -112,7 +126,7 @@ export class McpService {
     const effective = new Set(this.effectiveServerIds(spaceId));
     return {
       servers: this.d.servers.list().filter((r) => this.appliesTo(r.scope, spaceId))
-        .map((r) => toContract(r, effective.has(r.id), this.allowedTools(spaceId, r.id), this.statusOf(r.id), this.showsViews(r.id))),
+        .map((r) => toContract(r, effective.has(r.id), this.allowedTools(spaceId, r.id), this.statusOf(r.id), this.showsViews(r.id), this.stopsWhenIdle(r.id))),
       secretNote: MCP_SECRET_STORAGE_NOTE,
     };
   }
@@ -134,6 +148,31 @@ export class McpService {
    */
   setAllowedTools(spaceId: string, id: string, tools: string[] | null): void {
     this.d.settings.set(allowedToolsKey(spaceId, id), tools);
+  }
+
+  /**
+   * Whether Realm stops this stdio server once it has gone the idle window without a call
+   * (`McpHub.sleepIdle`). The choice someone made, else on — unless the server holds a browser or
+   * device session, which stopping it would lose. Never for a remote server: Realm holds no process.
+   */
+  stopsWhenIdle(id: string): boolean {
+    const row = this.d.servers.get(id);
+    if (!row || row.transport !== "stdio") return false;
+    return this.idleStopChoices()[id] ?? !holdsSession(row);
+  }
+
+  /** Choose for one stdio server, in every space at once. */
+  setStopsWhenIdle(id: string, stop: boolean): void {
+    const row = this.d.servers.get(id);
+    if (!row) throw new RpcError("NOT_FOUND", `mcp server ${id} not found`);
+    if (row.transport !== "stdio") throw new RpcError("INVALID_ARGUMENT", "only a stdio server runs as a process Realm could stop");
+    this.d.settings.set(IDLE_STOP_KEY, { ...this.idleStopChoices(), [id]: stop });
+  }
+
+  private idleStopChoices(): Record<string, boolean> {
+    const v = this.d.settings.get(IDLE_STOP_KEY);
+    if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+    return Object.fromEntries(Object.entries(v).filter((e): e is [string, boolean] => typeof e[1] === "boolean"));
   }
 
   /** Whether Realm draws this server's views — on unless someone switched them off. */
@@ -185,7 +224,7 @@ export class McpService {
     const scope: ItemScope = profileId ? { kind: "profile", profileId } : { kind: "space", spaceId };
     const row = this.d.servers.create(input, scope);
     if (spaceId && !profileId) this.setEnabled(spaceId, row.id, true);
-    return toContract(row, profileId !== null || spaceId !== null, spaceId ? this.allowedTools(spaceId, row.id) : null, this.statusOf(row.id), true);
+    return toContract(row, profileId !== null || spaceId !== null, spaceId ? this.allowedTools(spaceId, row.id) : null, this.statusOf(row.id), true, this.stopsWhenIdle(row.id));
   }
 
   /**
@@ -213,6 +252,8 @@ export class McpService {
   remove(id: string, spaceIds: readonly string[]): void {
     this.d.servers.delete(id);
     if (!this.showsViews(id)) this.d.settings.set(VIEWS_HIDDEN_KEY, this.d.settings.getIds(VIEWS_HIDDEN_KEY).filter((x) => x !== id));
+    const choices = this.idleStopChoices();
+    if (id in choices) { delete choices[id]; this.d.settings.set(IDLE_STOP_KEY, choices); }
     for (const spaceId of spaceIds) {
       for (const key of [enabledKey(spaceId), profileDisabledKey(spaceId)]) {
         const ids = this.d.settings.getIds(key);
@@ -232,7 +273,7 @@ export class McpService {
   get(id: string, spaceId: string | null): McpServer | null {
     const row = this.d.servers.get(id);
     if (!row) return null;
-    return toContract(row, spaceId !== null && this.isEnabled(spaceId, id), spaceId ? this.allowedTools(spaceId, id) : null, this.statusOf(id), this.showsViews(id));
+    return toContract(row, spaceId !== null && this.isEnabled(spaceId, id), spaceId ? this.allowedTools(spaceId, id) : null, this.statusOf(id), this.showsViews(id), this.stopsWhenIdle(id));
   }
 
   /**
@@ -407,7 +448,7 @@ function normalize(f: McpServerFields, transport: McpTransport, base: Omit<McpSe
  * still report `"oauth"` — which is what makes the settings UI show a Connect button (the thing that
  * fixes all three) instead of falling back to the API-key form.
  */
-function toContract(r: McpServerRow, enabled: boolean, allowedTools: string[] | null, status: McpServerStatus, showViews: boolean): McpServer {
+function toContract(r: McpServerRow, enabled: boolean, allowedTools: string[] | null, status: McpServerStatus, showViews: boolean, stopWhenIdle: boolean): McpServer {
   const keys = Object.keys(r.secrets).sort();
   return {
     id: r.id, name: r.name, transport: r.transport, scope: r.scope,
@@ -424,6 +465,7 @@ function toContract(r: McpServerRow, enabled: boolean, allowedTools: string[] | 
     tools: r.tools,
     allowedTools,
     enabled, showViews, createdAt: r.createdAt,
+    ...(r.transport === "stdio" ? { stopWhenIdle } : {}),
   };
 }
 

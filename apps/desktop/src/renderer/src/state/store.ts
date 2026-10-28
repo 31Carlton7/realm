@@ -628,6 +628,8 @@ export type Api = TeamApi & LabApi & {
   setMcpEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
   /** `mcp.setShowViews` — whether Realm draws a server's views, in every space. */
   setMcpShowViews(id: string, show: boolean): Promise<void>;
+  /** `mcp.setStopWhenIdle` — whether Realm stops a stdio server left idle, in every space. */
+  setMcpStopWhenIdle(id: string, stop: boolean): Promise<void>;
   /** `mcp.promote` / `mcp.demote` — move a server's defining scope (W2 RPCs, W4 UI). */
   promoteMcpServer(spaceId: string, id: string): Promise<void>;
   demoteMcpServer(spaceId: string, id: string): Promise<void>;
@@ -2969,6 +2971,8 @@ export type AppState = TeamSlice & LabSlice & {
   setMcpEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
   /** Show or stop showing a server's views (MCP Apps) — the server's switch, the same in every space. */
   setMcpShowViews(id: string, show: boolean): Promise<void>;
+  /** Whether Realm stops a stdio server once it has gone the idle window without a call. */
+  setMcpStopWhenIdle(id: string, stop: boolean): Promise<void>;
   /** Move a server's defining scope into `spaceId`'s profile, then re-read (guarded like any refresh). */
   promoteMcpServer(spaceId: string, id: string): Promise<void>;
   /** Pin a profile-scoped server to `spaceId` alone, then re-read. */
@@ -8344,6 +8348,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async setMcpShowViews(id, show) {
         await api.setMcpShowViews(id, show);
         set({ mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, showViews: show } : x)) });
+      },
+      async setMcpStopWhenIdle(id, stop) {
+        await api.setMcpStopWhenIdle(id, stop);
+        set({ mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, stopWhenIdle: stop } : x)) });
       },
       // Promote/demote re-read rather than patch: the scope AND the enabled flag can both change
       // shape server-side (demotion retires overrides), and the refresh guard already protects a

@@ -1277,6 +1277,9 @@ export const Methods = {
   /** Whether Realm draws the views a server ships (MCP Apps) — the server's own switch, in every space
    *  at once. Off, its calls carry text only, and its views already in transcripts stop showing. */
   "mcp.setShowViews": { params: z.object({ id: IdSchema, show: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
+  /** Whether Realm stops a stdio server that has gone the idle window without a call — the server's
+   *  own choice, in every space at once (`McpServer.stopWhenIdle`). */
+  "mcp.setStopWhenIdle": { params: z.object({ id: IdSchema, stop: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
   /**
    * Move a server's defining scope from space level to `spaceId`'s profile (W2). Effective-set neutral
    * at the moment it runs: every space of the profile where the server was not enabled gets a per-space

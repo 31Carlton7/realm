@@ -642,11 +642,11 @@ describe("MCP Apps: what a server says about its views", () => {
 
 describe("stopping a stdio server nobody has called", () => {
   /** The in-memory wire, wearing the pid a stdio transport has — only a process Realm started is stopped. */
-  function sleepyHub(stub: StubServer, o: { pid?: number | null } = {}) {
+  function sleepyHub(stub: StubServer, o: { pid?: number | null; stopsWhenIdle?: (id: string) => boolean } = {}) {
     const connects = { n: 0 };
     const statuses: string[] = [];
     const hub = new McpHub({
-      servers, onStatus: (_id, s) => statuses.push(s), authHeaders: noAuth,
+      servers, onStatus: (_id, s) => statuses.push(s), authHeaders: noAuth, stopsWhenIdle: o.stopsWhenIdle,
       makeTransport: async (): Promise<Transport> => { connects.n += 1; return Object.assign(await stub.connectInMemory(), { pid: o.pid === undefined ? 4242 : o.pid }); },
     });
     return { hub, connects, statuses };
@@ -696,6 +696,21 @@ describe("stopping a stdio server nobody has called", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("never stops one whose Stop when idle is off — a browser or device session it holds survives", async () => {
+    const kept = newRow();
+    const other = newRow();
+    // One stub per server: the fixture's single SDK server cannot hold two connections at once.
+    const stubs = new Map([[kept.id, makeStubServer()], [other.id, makeStubServer()]]);
+    const hub = new McpHub({
+      servers, onStatus: () => {}, authHeaders: noAuth, stopsWhenIdle: (id) => id !== kept.id,
+      makeTransport: async (row): Promise<Transport> => Object.assign(await stubs.get(row.id)!.connectInMemory(), { pid: 4242 }),
+    });
+    await hub.tools(kept.id);
+    await hub.tools(other.id);
+    expect(hub.sleepIdle(30 * 60_000, Date.now() + 99 * 60_000)).toEqual([other.id]);
+    expect(hub.processes().map((p) => p.serverId)).toEqual([kept.id]);
   });
 
   it("never stops a remote server, which holds no process here", async () => {

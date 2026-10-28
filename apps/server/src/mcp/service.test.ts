@@ -414,6 +414,56 @@ describe("a server's views (MCP Apps)", () => {
   });
 });
 
+describe("a stdio server's Stop when idle", () => {
+  const add = (servers: McpServersStore, name: string, command: string, args: string[] = [], transport: "stdio" | "http" = "stdio") =>
+    servers.create({ name, transport, command: transport === "stdio" ? command : "", args, url: transport === "http" ? "https://mcp.example" : "", secrets: {} });
+
+  it("starts off for a server that holds a browser or a device, by its name, command or arguments, and on for the rest", () => {
+    const { svc, servers } = setupViews();
+    const off = [
+      add(servers, "playwright", "npx", ["@playwright/mcp@latest"]),
+      add(servers, "pw", "npx", ["-y", "@playwright/mcp"]),
+      add(servers, "puppeteer", "node", ["/x/server.js"]),
+      add(servers, "devtools", "npx", ["chrome-devtools-mcp@latest"]),
+      add(servers, "browsermcp", "npx", ["@browsermcp/mcp@latest"]),
+      add(servers, "browser-use", "uvx", ["browser-use", "--mcp"]),
+      add(servers, "phone", "npx", ["-y", "@mobilenext/mobile-mcp@latest"]),
+      add(servers, "appium", "appium-mcp", []),
+    ];
+    const on = [add(servers, "airtable", "npx", ["-y", "airtable-mcp-server"]), add(servers, "github", "/usr/local/bin/github-mcp-server", ["stdio"])];
+    for (const r of off) expect(svc.stopsWhenIdle(r.id), r.name).toBe(false);
+    for (const r of on) expect(svc.stopsWhenIdle(r.id), r.name).toBe(true);
+    // "browser*" is a word's start, not anywhere in one.
+    expect(svc.stopsWhenIdle(add(servers, "nobrowsers", "node", ["/x/s.js"]).id)).toBe(true);
+    expect(svc.list("S1").servers.find((s) => s.name === "playwright")?.stopWhenIdle).toBe(false);
+    expect(svc.list("S1").servers.find((s) => s.name === "airtable")?.stopWhenIdle).toBe(true);
+    // A server just added says so too.
+    expect(svc.add({ name: "pw2", transport: "stdio", command: "npx", args: ["@playwright/mcp"] }, "S1").stopWhenIdle).toBe(false);
+  });
+
+  it("keeps the choice someone made, in every space, and a removed server takes it with it", () => {
+    const { svc, servers, settings } = setupViews();
+    const pw = add(servers, "playwright", "npx", ["@playwright/mcp"]);
+    const air = add(servers, "airtable", "npx", ["airtable-mcp-server"]);
+    svc.setStopsWhenIdle(pw.id, true);
+    svc.setStopsWhenIdle(air.id, false);
+    expect(svc.stopsWhenIdle(pw.id)).toBe(true);
+    expect(svc.stopsWhenIdle(air.id)).toBe(false);
+    expect(svc.list("S2").servers.find((s) => s.id === air.id)?.stopWhenIdle).toBe(false);
+    svc.remove(pw.id, ["S1"]);
+    expect(settings.get("mcp.idleStop")).toEqual({ [air.id]: false });
+    expect(() => svc.setStopsWhenIdle("01ARZ3NDEKTSV4RRFFQ69G5FAV", false)).toThrow(/not found/);
+  });
+
+  it("is never offered for a remote server, which holds no process here", () => {
+    const { svc, servers } = setupViews();
+    const remote = add(servers, "vercel", "", [], "http");
+    expect(svc.stopsWhenIdle(remote.id)).toBe(false);
+    expect(svc.list("S1").servers.find((s) => s.id === remote.id)).not.toHaveProperty("stopWhenIdle");
+    expect(() => svc.setStopsWhenIdle(remote.id, true)).toThrow(/stdio/);
+  });
+});
+
 function setupViews() {
   const db = openDatabase(join(tempDir("realm-mcp-views-"), "realm.db"));
   const servers = new McpServersStore(db);

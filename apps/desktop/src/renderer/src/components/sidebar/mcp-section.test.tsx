@@ -66,6 +66,21 @@ describe("McpSection", () => {
     expect(within(other).queryByRole("switch", { name: /views/ })).toBeNull();
   });
 
+  it("offers a stdio server's Stop when idle as the server's own switch, and none for a remote one", async () => {
+    const browser = mcpServer("m1", { name: "playwright", enabled: true, tools: [mcpTool("browser_navigate")], stopWhenIdle: false });
+    const remote = mcpServer("m2", { name: "vercel", transport: "http", command: "", url: "https://mcp.vercel.com", enabled: true, tools: [mcpTool("deploy")] });
+    const { api } = await mount({ mcpServers: [browser, remote] });
+    const row = (await screen.findByText("playwright")).closest(".mcp-row") as HTMLElement;
+    const stop = within(row).getByRole("switch", { name: "Stop playwright when idle" });
+    // Off as the server reported it: it holds a browser session.
+    expect(stop).not.toBeChecked();
+    fireEvent.click(stop);
+    await waitFor(() => expect(api.calls).toContain("setMcpStopWhenIdle:m1=true"));
+    await waitFor(() => expect(within(row).getByRole("switch", { name: "Stop playwright when idle" })).toBeChecked());
+    const other = screen.getByText("vercel").closest(".mcp-row") as HTMLElement;
+    expect(within(other).queryByRole("switch", { name: /when idle/ })).toBeNull();
+  });
+
   it("toggling a tool checkbox sends the explicit allowlist; re-checking everything restores null", async () => {
     const srv = mcpServer("m1", { name: "srv1", enabled: true, tools: [mcpTool("a"), mcpTool("b")] });
     const { api } = await mount({ mcpServers: [srv] });

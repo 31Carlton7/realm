@@ -1066,6 +1066,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   let hubElicit: HubElicit | null = null;
   const mcpHub = new McpHub({
     servers: mcpServersStore,
+    stopsWhenIdle: (id) => mcp.stopsWhenIdle(id),
     elicit: (r) => (hubElicit ? hubElicit(r) : Promise.resolve({ action: "decline" as const })),
     // The OAuth seam. `McpOauth` sanitizes its own errors — the hub cannot redact a token that only ever
     // existed inside an error thrown in here (see the seam's own doc comment in `hub.ts`).

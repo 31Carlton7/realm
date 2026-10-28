@@ -59,7 +59,7 @@ const WINDOWS: WindowRow[] = [
   { id: "ram-engine-idle", key: "sessions.engineIdleMinutes", label: "Stop an idle engine after", value: (p) => p.engineIdleMinutes, effective: (p) => p.effective.engines, choices: [5, 10, 15, 30, 60, 120, 0],
     title: "An engine is idle when its turn has settled, nothing is queued for it, it is not waiting on you, and no goal, run, sub-agent or backgrounded command depends on it. Its next message starts it again on the same conversation." },
   { id: "ram-mcp-idle", key: "mcp.idleStopMinutes", label: "Stop an idle MCP server after", value: (p) => p.mcpIdleMinutes, effective: (p) => p.effective.mcp, choices: [5, 10, 15, 30, 60, 120, 0],
-    title: "Only servers Realm runs as a process on this Mac, and never one with a call open. Sessions keep seeing its tools; the next call starts it again." },
+    title: "Only servers Realm runs as a process here whose Stop when idle is on (off by default for one holding a browser or a device), and never one with a call open. Sessions keep seeing its tools; the next call starts it again." },
   { id: "ram-laya-idle", key: "laya.idleStopMinutes", label: "Stop Laya after", value: (p) => p.layaIdleMinutes, effective: (p) => p.effective.laya, choices: [2, 5, 10, 30, 60, 0],
     title: "In Shadow, Laya starts when a step asks it and stops after this long with none. Steps that arrive while it starts are asked once it is up. Assist keeps it loaded.",
     available: () => capabilities().laya },
