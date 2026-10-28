@@ -1,18 +1,19 @@
-import { AGENT_MEMORY_CHANNEL, AGENT_META, SELECTABLE_AGENT_KINDS, memorySupportNote, type AgentKind, type MemorySource } from "@realm/contracts";
+import { AGENT_MEMORY_CHANNEL, AGENT_META, SELECTABLE_AGENT_KINDS, memorySupportNote, type AgentKind, type MemoryChannel, type MemorySource } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useState, type RefObject } from "react";
 import { useApp } from "../../state/store";
 import { MemoryDoc } from "./MemoryDoc";
 import { InheritedMemoryRepoRow, MemoryRepoRow } from "./MemoryRepoRow";
 
-/** The agents a space's memory reaches, and the ones it cannot: the channel table decides, never a
- *  list kept here. */
-export const MEMORY_READERS: readonly AgentKind[] = SELECTABLE_AGENT_KINDS.filter((k) => AGENT_MEMORY_CHANNEL[k] !== "none");
-const MEMORY_NON_READERS: readonly AgentKind[] = SELECTABLE_AGENT_KINDS.filter((k) => AGENT_MEMORY_CHANNEL[k] === "none");
-const names = (ks: readonly AgentKind[]): string => ks.map((k) => AGENT_META[k].label).join(", ");
-/** "Claude and Codex", for the line that says who reads it. */
-export const memoryReaderNames = (): string => {
-  const ls = MEMORY_READERS.map((k) => AGENT_META[k].label);
+/** The agents a space's memory reaches by each route, and the ones it cannot reach: the channel table
+ *  decides, never a list kept here. */
+const readersOn = (...channels: MemoryChannel[]): readonly AgentKind[] => SELECTABLE_AGENT_KINDS.filter((k) => channels.includes(AGENT_MEMORY_CHANNEL[k]));
+const INSTRUCTION_READERS = readersOn("systemPrompt", "developerInstructions");
+const FIRST_PROMPT_READERS = readersOn("firstPrompt");
+const MEMORY_NON_READERS = readersOn("none");
+/** "Claude and Codex". */
+const names = (ks: readonly AgentKind[]): string => {
+  const ls = ks.map((k) => AGENT_META[k].label);
   return ls.length <= 1 ? (ls[0] ?? "") : `${ls.slice(0, -1).join(", ")} and ${ls.at(-1)}`;
 };
 
@@ -79,19 +80,18 @@ export function MemoryReach({ spaceId }: { spaceId: string }) {
     <>
       <h3 className="settings-head">How agents get it</h3>
       <div className="settings-group memory-reach">
-        <div className="settings-row" title={`${names(MEMORY_NON_READERS)} take no per-session context, so nothing Realm manages reaches them.`}>
+        {/* Every agent a user can pick reads it now, so the row says how in words: a mark for each of
+            thirteen agents would only say "all of them" at length. */}
+        <div className="settings-row">
           <div className="settings-row-main">
             <span className="settings-row-name">Read by</span>
             <span className="settings-row-desc">
-              Every new session of these agents, never written into their own config. Other agents take no per-session context
-              {repoHere ? "; they reach the memory repo through Realm's memory tools." : "."}
+              Every new session, never written into an agent's own config. {names(INSTRUCTION_READERS)} take it as instructions
+              {FIRST_PROMPT_READERS.length > 0 ? "; the other agents find it at the top of their first message, which the transcript leaves out." : "."}
+              {MEMORY_NON_READERS.length > 0 ? ` ${names(MEMORY_NON_READERS)} take no per-session context.` : ""}
+              {repoHere ? " Agents reach the rest of the memory repo through Realm's memory tools." : ""}
             </span>
           </div>
-          <span className="memory-readers">
-            {MEMORY_READERS.map((k) => (
-              <span key={k} className="memory-reader"><Icon name={AGENT_META[k].icon} size={14} colored />{AGENT_META[k].label}</span>
-            ))}
-          </span>
         </div>
         <InheritedMemoryRepoRow spaceId={spaceId} profileName={profileName} />
         {af.writable || af.enabled ? (

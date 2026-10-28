@@ -94,7 +94,7 @@ import { EnvironmentsStore } from "./store/environments";
 import { SessionService, resolveDefaultPermissionMode } from "./sessions/service";
 import { RECAP_DEBOUNCE_MS, SessionSummaryService } from "./sessions/summary";
 import { PlanLimitsService } from "./limits/service";
-import type { ProbeResult } from "@realm/adapters";
+import type { MemoryExtractionInput, MemoryTidyInput, ProbeResult } from "@realm/adapters";
 import { SkillsService } from "./skills/service";
 import { UserCommandsService } from "./commands/service";
 import { ScriptService } from "./scripts/service";
@@ -108,7 +108,13 @@ import { McpGateway } from "./mcp/gateway";
 import { McpOauth } from "./mcp/oauth";
 import type { AgentKind, McpServerStatus } from "@realm/contracts";
 import { MemoryService } from "./memory/service";
+import { CLAUDE_BACKFILL_EVERY_MS, ClaudeMemoryBackfill } from "./memory/claude-backfill";
+import { AgentMemoryFolders } from "./memory/claude-redirect";
 import { MemoryRepoService, type RepoOwner } from "./memory/repo";
+import { SessionLearner } from "./memory/extract";
+import { LearnedCursors } from "./memory/extract-cursor";
+import type { MemorySink } from "./memory/sink";
+import { MemoryTidier } from "./memory/tidy";
 import { MEMORY_PROVIDER_NAME, createMemoryAgentProvider } from "./memory/agent-tools";
 import { NotificationsStore } from "./store/notifications";
 import { ShipsStore } from "./store/ships";
@@ -739,6 +745,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /** Where a memory repo goes when Realm's home is inside a space's folder. Unset, it is the app's
    *  Application Support folder under `userHome` — and nowhere at all when no `userHome` is named. */
   memoryFallbackRoot?: string;
+  /** Memory on by default: every profile that has never had a memory repo gets one, at boot and when
+   *  it is made. Only `main.ts` turns it on; a test or a script starts every profile with none. */
+  memoryRepoByDefault?: boolean;
+  /** Where the Claude memory brought into space folders is passed over as a test run's. A test names
+   *  its own; the app takes this Mac's temporary folders. */
+  claudeTemporaryRoots?: readonly string[];
   /** Teams Phase 3 test knobs: the platform every channel acts on, and main's answer about a press.
    *  Production passes neither — the platform is the fake only under REALM_FAKE_ACT_ADAPTER=1 (live
    *  checks), not connected otherwise, and a press is asked of Electron main over the bridge. */
@@ -804,6 +816,13 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  derived line and the prompter keeps its deterministic ladder. */
   summaryGenerator?: (input: { asked: string; transcript: string; facts: string })
     => Promise<{ summary: string; hint: string | null }>;
+  /** Realm learning from quiet sessions for memory, and tidying what it keeps. `extract` and `tidy` are
+   *  the billed calls, omitted for `titleGenerator`'s reason: only `main.ts` passes them, and not in a
+   *  harness. `sink` stands in for the memory repo's helpers and `idleMs` for the quiet spell, for a test. */
+  memoryLearning?: {
+    extract?: (input: MemoryExtractionInput) => Promise<string>; tidy?: (input: MemoryTidyInput) => Promise<string>;
+    sink?: MemorySink; idleMs?: number;
+  };
   /** Plan 22: where Plynn's meeting exports are read from. Tests point this at a fixture; production
    *  leaves it unset for `~/Library/Application Support/Plynn/Meetings`. */
   plynnMeetingsDir?: string;
@@ -959,6 +978,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     profileIdOf: (spaceId: string): string | null => spaces.get(spaceId)?.profileId ?? null,
     spaceIdsOf: (profileId: string): string[] => spaces.list(profileId).map((sp) => sp.id),
     allSpaceIds: (): string[] => spaces.listAll().map((sp) => sp.id),
+    spaceNameOf: (spaceId: string): string | null => spaces.get(spaceId)?.name ?? null,
   };
   // Repo-shipped skills reach the user's library here, once each, before any session can be started.
   const skills = new SkillsService({
@@ -1153,12 +1173,26 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     gh: ghRunner(opts.codeReview?.gh ?? "gh"),
     // A pull or push settles in the background, after the save that started it has answered.
     onSynced: (o) => memoryRepoChanged(o),
+    autoCreate: opts.memoryRepoByDefault === true,
   });
   /** Every space that shows a repo is told it changed: all of a profile's spaces, or the one space. */
   const memoryRepoChanged = (o: RepoOwner): void => {
     for (const spaceId of o.scope === "space" ? [o.id] : spaces.list(o.id).map((sp) => sp.id)) rpc.broadcast("memory.changed", { spaceId });
   };
   const memory = new MemoryService({ home: opts.home, settings, environments, claudeDir: opts.claudeDir, scopes: scopeSeam, repos: memoryRepos });
+  // Claude's own memory goes to the space's folder of the profile repo, and is committed as it lands.
+  const agentMemory = new AgentMemoryFolders({ repos: memoryRepos, onChanged: (o) => memoryRepoChanged(o) });
+  /* …and what Claude keeps outside Realm (`~/.claude/projects/<project>/memory`, read only) is copied
+     into the folder of the space that works in each project. Only a caller that names a Claude folder,
+     or the machine's home, has one to read: a test that names neither never reads the real one. */
+  const claudeConfigDir = opts.claudeDir ?? (opts.userHome ? process.env.CLAUDE_CONFIG_DIR || join(opts.userHome, ".claude") : null);
+  const claudeBackfill = claudeConfigDir === null ? null : new ClaudeMemoryBackfill({
+    claudeDir: claudeConfigDir, repos: memoryRepos, settings,
+    spaces: () => spaces.listAll().map((sp) => ({ id: sp.id, profileId: sp.profileId, name: sp.name, paths: [sp.folderPath, ...environments.list(sp.id).map((e) => e.path)] })),
+    profileIds: () => profiles.list().map((p) => p.id),
+    temporaryRoots: opts.claudeTemporaryRoots,
+    onChanged: (o) => memoryRepoChanged(o),
+  });
   // The browser agent surface (Plan 11 W3): the main↔server op bridge, the permission broker, and the
   // `realm-browser` provider on the gateway. The broker's callbacks are late-bound to `sessionService`
   // (the checkpoints knot again): nothing in it runs before a session exists to run it for.
@@ -1232,6 +1266,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // against the SAME registry the session service starts agents from — two registries would let a
   // chain accept an agent the sessions could not run.
   const adapterRegistry = opts.adapters ?? defaultAdapters();
+  // "Is the model installed on this machine" — asked of the same cached probe the prompter uses, so it
+  // costs nothing extra, and asked BEFORE a billed call so a machine with no Claude CLI never pays for a
+  // refusal. `loggedIn === false` is a real no; null is "the CLI did not say", which is not grounds for
+  // withholding the feature.
+  const claudeCanAnswer = async (): Promise<boolean> => (await sessions.probe()).some((p: ProbeResult) => p.kind === "claude" && p.available && p.loggedIn !== false);
   /* The session summary writer (one cheap model for every harness, once per settled turn).
      Built BEFORE the service it is handed to, and reaching back into it through closures: the
      service needs the summarizer on construction, and the summarizer needs the service's probe and
@@ -1247,11 +1286,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
         lastSummary: (id) => sessionEvents.lastOfType(id, "summary"),
         publish: (id, ev) => sessions.publishServerEvent(id, ev),
         generate: opts.summaryGenerator,
-        // "Is the model installed on this machine" — asked of the same cached probe the prompter
-        // uses, so it costs nothing extra, and asked BEFORE the call so a machine with no Claude CLI
-        // never pays for a refusal. `loggedIn === false` is a real no; null is "the CLI did not say",
-        // which is not grounds for withholding the feature.
-        available: async (): Promise<boolean> => (await sessions.probe()).some((p: ProbeResult) => p.kind === "claude" && p.available && p.loggedIn !== false),
+        available: claudeCanAnswer,
         onError: (line) => console.error(line),
         // Wait for the session to actually go quiet. A rapid exchange otherwise pays for a recap per
         // turn, each superseded by the next before anybody reads it.
@@ -1259,6 +1294,42 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
         isIdle: (id) => sessionsStore.get(id)?.status === "idle",
       })
     : undefined;
+  /** The brief a session was started with — a delegated child's, a reviewer's, a fork's carried
+   *  context, an unattended worker's — or undefined for a session the person started. A session is a
+   *  child of at most one registry. */
+  const agentContextOf = (id: string): string | undefined =>
+    browserAgents?.extraSystemContext(id) ?? agentRuns?.extraSystemContext(id) ?? reviews?.extraSystemContext(id) ?? forks?.extraSystemContext(id) ?? runs?.extraSystemContext(id) ?? codeReview?.extraSystemContext(id);
+  /* Realm learns from quiet sessions for memory (memory/extract.ts), whichever engine ran them, and
+     writes only through the profile repo's own helpers — `MemoryRepoService` is the sink, typed as one
+     so the compiler holds the two to the same signatures. */
+  const learningSink: MemorySink = opts.memoryLearning?.sink ?? memoryRepos;
+  const memoryLearner = opts.memoryLearning?.extract
+    ? new SessionLearner({
+        sessions: sessionsStore, events: sessionEvents, cursors: new LearnedCursors(db), sink: learningSink, settings,
+        profileIdOf: scopeSeam.profileIdOf,
+        carriesAgentContext: (id) => agentContextOf(id) !== undefined,
+        generate: opts.memoryLearning.extract,
+        available: claudeCanAnswer,
+        idleMs: opts.memoryLearning.idleMs,
+        // A save can push the indexes past the size that brings the tidy pass forward.
+        onLearned: ({ owner }) => { memoryRepoChanged(owner); memoryTidier?.check(owner.id); },
+        onError: (line) => console.error(line),
+      })
+    : null;
+  /* …and keeps each profile's repo tidy, about weekly (memory/tidy.ts), on the same terms. It finds a
+     space's folder only where the store has recorded one, so it never allocates one itself. */
+  const memoryTidier = opts.memoryLearning?.tidy
+    ? new MemoryTidier({
+        profileIds: () => profiles.list().map((p) => p.id),
+        spaceIdsOf: (profileId) => spaces.list(profileId).map((sp) => sp.id),
+        folderRecorded: (spaceId) => memoryRepos.hasSpaceFolder(spaceId),
+        sink: learningSink, settings,
+        generate: opts.memoryLearning.tidy,
+        available: claudeCanAnswer,
+        onTidied: (owner) => memoryRepoChanged(owner),
+        onError: (line) => console.error(line),
+      })
+    : null;
   /* The friend packs. Restored at boot from the words this Realm was given — the packs themselves
      ship sealed, so a Realm nobody has told a word to has nothing to show. */
   const eggs = new EggService({ settings });
@@ -1290,7 +1361,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // A team role's goal run settles when its goal stops, not after its first turn.
     onChanged: (sessionId, goal) => handoffs?.goalChanged(sessionId, goal),
   });
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, planLimits, documents, goals, views: appViews,
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, agentMemory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, planLimits, documents, goals, views: appViews,
     // What the idle reaper must leave running between turns. Read at sweep time, long after every
     // service named here exists.
     keepEngine: (sessionId) => goals.get(sessionId)?.status === "active"
@@ -1312,6 +1383,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     notifications: {
       handleSessionEvent: (session, ev) => {
         notifications.handleSessionEvent(session, ev); runs?.handleSessionEvent(session, ev); team?.handleSessionEvent(session, ev); handoffs?.handleSessionEvent(session, ev);
+        memoryLearner?.handleSessionEvent(session, ev);
         // The usage hook reads the month's spend back from the saved events, and this runs BEFORE the
         // event is saved — in the same call, so a microtask later it is there.
         if (ev.type === "usage") queueMicrotask(() => usage?.handleSessionEvent(session, ev));
@@ -1332,7 +1404,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     browserAgents: {
       parentInterrupted: (id) => browserAgents?.parentInterrupted(id),
       release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); runs?.release(id); codeReview?.release(id); teammates?.release(id); },
-      extraSystemContext: (id) => browserAgents?.extraSystemContext(id) ?? agentRuns?.extraSystemContext(id) ?? reviews?.extraSystemContext(id) ?? forks?.extraSystemContext(id) ?? runs?.extraSystemContext(id) ?? codeReview?.extraSystemContext(id),
+      extraSystemContext: agentContextOf,
       skillsFilter: (id) => agentRuns?.skillsFilter(id) ?? runs?.skillsFilter(id) ?? null,
       modeSet: async (id, mode) => { await agentRuns?.cascadeMode(id, mode); },
     } });
@@ -1684,8 +1756,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     ...(opts.lab?.now ? { now: opts.lab.now } : {}),
   });
   /* `realm-memory`: the memory repo's tools, on by default and listed only where the space's profile
-     has a repo — attaching one is the opt-in. The only memory that reaches Cursor and the other ACP
-     agents, which take no per-session context. A save repaints every open memory row of the profile. */
+     has a repo — which every profile has unless its repo was detached. Every engine saves and searches
+     through them; the index itself travels in each session's context. A save repaints every open memory
+     row of the profile. */
   mcpGateway.registerProvider(createMemoryAgentProvider({ repos: memoryRepos, mcp, onChanged: memoryRepoChanged }));
   // The durable ship log (Plan 14 W1): GitWriteService stays a pure git service — the recorder is the
   // one seam through which a settled ship becomes a row, and the broadcast rides the same write so a
@@ -1764,13 +1837,14 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   let access: Access | null = null;
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
-    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, handoffs, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
+    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, claudeBackfill, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, handoffs, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns, teammates,
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, agentSignIn,
     libraryFiles, remote, presence,
     access: () => (access ? { url: access.url } : null),
     appViews: new AppViewService({ views: appViews, hub: mcpHub, mcp, servers: mcpServersStore, sessions: sessionsStore, server: appViewServer, gateway: mcpGateway, log: (line) => console.log(line) }),
     codeReview,
+    memoryLearning: memoryLearner,
     /* A drain was accepted: watch for quiescence and close once it holds. The watcher owns the clock
        and the close; `methods.ts` owns the refusals that make quiescence reachable at all. Unref'd —
        a daemon with nothing to do must not be held open by its own timer. */
@@ -1799,6 +1873,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // …and only then does the clock start. A schedule that came due while the app was closed fires on
   // this first tick, and it must not race the recovery that decides which runs are still alive.
   schedules.start();
+  memoryTidier?.start();
   team.start();
   // A folder of records that no type claims — a team made from "any" roles that a person later gave
   // creators/ files — is adopted here, once: what migration v51 could not see from SQL.
@@ -1812,6 +1887,24 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // boots (SearchService.runBackfill's doc comment states the design). Fire-and-forget — search over
   // the not-yet-covered range is merely incomplete while it runs, and a failure only pauses it.
   void search.runBackfill();
+  /* Memory is on by default: a profile that has never had a repo gets one before the first session can
+     start, so that session's memory already has somewhere to go. A detached one stays detached. */
+  for (const p of profiles.list()) {
+    const made = await memoryRepos.ensureProfileRepo(p.id);
+    if (made) console.log(`[memory] made ${p.name}'s memory repo at ${made.path}`);
+  }
+  // A space moved to another profile whose memory could not be carried over then is carried now.
+  for (const sp of spaces.listAll()) {
+    if (memoryRepos.carryPending(sp.id)) void memoryRepos.followSpace(sp.id).catch((e) => console.error(`[memory] the memory of ${sp.name} not carried over yet: ${e instanceof Error ? e.message : String(e)}`));
+  }
+  // …and what Claude wrote in a space folder that no settled turn committed is committed now. Then the
+  // memory Claude kept outside Realm is brought in, and again every few minutes, so a Claude run in a
+  // terminal reaches the repo too.
+  void agentMemory.sweep(profiles.list().map((p) => p.id)).then(async () => {
+    if (!opts.memoryRepoByDefault || !claudeBackfill) return;
+    await claudeBackfill.run();
+    claudeBackfill.start(CLAUDE_BACKFILL_EVERY_MS);
+  });
   /* Saves made while the network was down are pushed now, and what other machines pushed is pulled:
      every synced repo, in the background, never holding up the boot. */
   for (const p of profiles.list()) void memoryRepos.queueSync({ scope: "profile", id: p.id });
@@ -1874,6 +1967,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    */
   const closeApp = async (): Promise<void> => {
     search.stop(); // before db.close: the backfill loop must not start a chunk on a closing handle
+    claudeBackfill?.stop(); // likewise for Claude's memory: no run starts on a closing handle
     payloadCompactor.stop(); // likewise its batches
     team?.close();
     handoffs?.close();
@@ -1883,6 +1977,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     runs?.close(); // likewise: an in-flight dispatch must not write to a closing handle
     codeReview?.close(); // and a reviewer settling now must not write its findings to one
     summaries?.close(); // a debounced recap must not fire onto a closing handle, or outlive the process
+    memoryLearner?.close(); // likewise a session's quiet timer
+    memoryTidier?.close(); // and the tidy pass's clock
     terminals.closeAll();
     cliInstaller.disposeAll();
     // While the socket is still open, so a window that outlives this daemon hears the sign-in end.

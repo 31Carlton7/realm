@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import type { GhRun } from "../code-review/gh";
 import { openDatabase } from "../db/database";
 import { SettingsStore } from "../store/settings";
 import { gitCapture, type GitRun } from "../workspace/git-exec";
-import { MemoryRepoService, SAVE_FETCH_TIMEOUT_MS } from "./repo";
+import { ClaudeMemoryBackfill, claudeProjectName } from "./claude-backfill";
+import { MemoryRepoService, SAVE_FETCH_TIMEOUT_MS, type MemoryRepoDeps } from "./repo";
 
 /*
  * Sync against a real remote: a bare repository on disk, cloned again elsewhere to stand in for the
@@ -21,7 +22,7 @@ const P = { scope: "profile", id: PROFILE } as const;
 const git = (cwd: string, ...args: string[]): string => execFileSync("git", args, { cwd, encoding: "utf8" });
 const headOf = (repo: string, ref = "HEAD"): string => git(repo, "rev-parse", ref).trim();
 
-async function synced(o: { gh?: GhRun; stall?: { on: boolean; fetchWaits: number[]; hold?: (timeoutMs: number) => Promise<never> | null } } = {}) {
+async function synced(o: { gh?: GhRun; stall?: { on: boolean; fetchWaits: number[]; hold?: (timeoutMs: number) => Promise<never> | null }; scopes?: MemoryRepoDeps["scopes"] } = {}) {
   const home = tempDir("realm-memsync-");
   const calls: string[][] = [];
   const recording: GitRun = (cwd, args, opts) => {
@@ -35,7 +36,7 @@ async function synced(o: { gh?: GhRun; stall?: { on: boolean; fetchWaits: number
   };
   const synced: string[] = [];
   const repos = new MemoryRepoService({
-    home, settings: new SettingsStore(openDatabase(join(home, "realm.db"))), git: recording, gh: o.gh,
+    home, settings: new SettingsStore(openDatabase(join(home, "realm.db"))), git: recording, gh: o.gh, scopes: o.scopes,
     committerName: async () => "Tester", today: () => "2026-10-08", onSynced: (owner) => synced.push(owner.id),
   });
   const repo = (await repos.create(P)).path;
@@ -238,3 +239,97 @@ describe("memory repo sync — saving", () => {
     expect(headOf(bare, `refs/heads/${branch}`)).toBe(headOf(repo));
   });
 });
+
+describe("memory repo sync — a background save lands on top of another machine's, never over it", () => {
+  const SPACE = "01ARZ3NDEKTSV4RRFFQ69G5FS1";
+  const FLY = "- Pays for Fly from the company card [source: realm:session/01ARZ3NDEKTSV4RRFFQ69G5FOT; added: 2026-10-27]";
+  /** Sync on, and the other machine has just pushed a root entry this Mac has not pulled yet. */
+  async function behind() {
+    const h = await synced({ scopes: { profileIdOf: (s) => (s === SPACE ? PROFILE : null), spaceIdsOf: () => [SPACE], spaceNameOf: () => "Alpha" } });
+    await h.repos.setRemote(P, h.bare);
+    await h.repos.setSync(P, true, true);
+    await h.repos.whenSynced(P);
+    const branch = git(h.repo, "symbolic-ref", "--short", "HEAD").trim();
+    otherMachine(h.home, h.bare, branch).save("MEMORY.md", `# Memory\n\n${FLY}\n\n## Index\n`);
+    expect(readFileSync(join(h.repo, "MEMORY.md"), "utf8")).not.toContain(FLY);
+    return { ...h, branch };
+  }
+  /** The root index here and on the remote, once the save's push has gone. */
+  const roots = async (h: Awaited<ReturnType<typeof behind>>) => {
+    await h.repos.whenSynced(P);
+    return [readFileSync(join(h.repo, "MEMORY.md"), "utf8"), git(h.bare, "show", `${h.branch}:MEMORY.md`)];
+  };
+
+  it("saves a space's memory on top of the other machine's entry", async () => {
+    const h = await behind();
+    await h.repos.saveSpaceMemory(SPACE, { name: "deploys", description: "Deploys go out on Fridays", type: "project", body: "" });
+    // THE MUTANT: the writes worked out before the pull — the entry is written away, and the loss pushed.
+    for (const root of await roots(h)) {
+      expect(root).toContain(FLY);
+      expect(root).toContain("- [[spaces/alpha/MEMORY]]");
+    }
+    expect(git(h.repo, "log", "--format=%s", "-2").split("\n").filter(Boolean)).toEqual(["Remember deploys", "Other: MEMORY.md"]);
+  });
+
+  it("works out a function's writes from the files the pull brought", async () => {
+    const h = await behind();
+    await h.repos.writeBatch(P, (dir) => new Map([["MEMORY.md", `${readFileSync(join(dir, "MEMORY.md"), "utf8")}- Written on this Mac\n`]]), "Append a line");
+    for (const root of await roots(h)) {
+      expect(root).toContain(FLY);
+      expect(root).toContain("- Written on this Mac");
+    }
+  });
+
+  it("lets a plan that checks for drift see the pulled file, and stop", async () => {
+    const h = await behind();
+    // The tidy pass's shape: a plan made from the files as it read them, refused if they have moved on.
+    const read = readFileSync(join(h.repo, "MEMORY.md"), "utf8");
+    const tidy = h.repos.writeBatch(P, (dir) => {
+      if (readFileSync(join(dir, "MEMORY.md"), "utf8") !== read) throw new Error("memory moved on");
+      return new Map([["MEMORY.md", "# Memory\n\n## Index\n- [[tidied]]\n"]]);
+    }, "Tidy");
+    await expect(tidy).rejects.toThrow("memory moved on");
+    expect(readFileSync(join(h.repo, "MEMORY.md"), "utf8")).toContain(FLY);
+    expect(git(h.repo, "log", "-1", "--format=%s").trim()).toBe("Other: MEMORY.md");
+  });
+
+  it("never writes over a file that had to stay out of a commit, whatever the pull changed in a plan", async () => {
+    const h = await behind();
+    // Claude left a file no commit takes: shaped like a credential, it stays uncommitted, and is the person's.
+    const keys = join(h.repo, "spaces", "alpha", "keys.md");
+    mkdirSync(join(h.repo, "spaces", "alpha"), { recursive: true });
+    writeFileSync(keys, `The staging key is sk-${"a".repeat(30)}\n`);
+    // A plan that reaches for that file only once the pull has brought the other machine's entry.
+    const save = h.repos.writeBatch(P, (dir) => {
+      const root = readFileSync(join(dir, "MEMORY.md"), "utf8");
+      const writes = new Map([["MEMORY.md", `${root}- Written on this Mac\n`]]);
+      if (root.includes(FLY)) writes.set("spaces/alpha/keys.md", "rotated\n");
+      return writes;
+    }, "Reach for it");
+    // THE MUTANT: check only what the first plan touched — the second writes the person's file away.
+    await expect(save).rejects.toMatchObject({ code: "MEMORY_REPO_DIRTY" });
+    expect(readFileSync(keys, "utf8")).toBe(`The staging key is sk-${"a".repeat(30)}\n`);
+  });
+
+  it("brings Claude's memory in on top of the other machine's entry", async () => {
+    const h = await behind();
+    const work = join(h.home, "code", "alpha");
+    mkdirSync(work, { recursive: true });
+    const memory = join(h.home, "claude", "projects", claudeProjectName(realpathSync(work)), "memory");
+    mkdirSync(memory, { recursive: true });
+    writeFileSync(join(memory, "ports.md"), "Ports from 8790.\n");
+    writeFileSync(join(memory, "MEMORY.md"), "- [ports](ports.md) — the port map\n");
+    const settings = new SettingsStore(openDatabase(join(h.home, "backfill.db")));
+    const backfill = new ClaudeMemoryBackfill({
+      claudeDir: join(h.home, "claude"), repos: h.repos, settings, temporaryRoots: [],
+      spaces: () => [{ id: SPACE, profileId: PROFILE, name: "Alpha", paths: [work] }], profileIds: () => [PROFILE],
+    });
+    await backfill.run();
+    expect(backfill.result(PROFILE)).toMatchObject({ imported: 1, error: null });
+    for (const root of await roots(h)) {
+      expect(root).toContain(FLY);
+      expect(root).toContain("- [[spaces/alpha/MEMORY]]");
+    }
+  });
+});
+

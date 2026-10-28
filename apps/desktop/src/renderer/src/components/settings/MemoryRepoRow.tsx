@@ -1,4 +1,4 @@
-import type { MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoState } from "@realm/contracts";
+import { CLAUDE_PROJECT_LEFT_OUT, type MemoryClaudeBackfill, type MemoryRemoteCheck, type MemoryRepoState } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useState, type FormEvent } from "react";
 import { memoryRepoKey, useApp, type MemoryRepoOwner } from "../../state/store";
@@ -24,15 +24,24 @@ export function repoStatus(r: MemoryRepoState, now = Date.now()): { name: string
     const why = r.reason ?? "uncommitted changes";
     return { name: "Saving paused", text: `${cap(why)}.`, sentence: `Saving paused: ${why}.`, tone: "warning" };
   }
+  // Saving goes on; a file an agent wrote that cannot be memory (a credential, say) was left out.
+  if (r.reason) return { name: "File left out", text: `${cap(r.reason)}.`, sentence: `File left out: ${r.reason}.`, tone: "warning" };
   if (r.lastCommitAt === null) return { name: "No commits yet", text: "", sentence: "No commits yet.", tone: null };
   const when = ago(r.lastCommitAt, now);
   return { name: "Last saved", text: `${cap(when)}: ${r.lastCommitSubject ?? ""}`, sentence: `Last saved ${when}: ${r.lastCommitSubject ?? ""}`, tone: null };
 }
 
-/** What a row says when its owner has no repo yet. */
+/** What a row says when its owner has no repo. A profile gets one made by default, so a profile
+ *  without one is a profile whose repo was detached (or could not be made). */
 const EMPTY = {
-  profile: { name: "No memory repo", desc: "Agents save what they learn about you to a git repo of Markdown files, and every engine reads it back in later sessions." },
+  profile: { name: "No memory repo", desc: "Memory is off for this profile, so its agents keep nothing between sessions. Create a repo to turn it on, or attach one you already keep." },
   space: { name: "No repo of its own", desc: "Give this space a memory repo beside your own — one a team shares, so everyone's agents read and save the same facts." },
+} as const;
+
+/** What Detach does, said before it is pressed: a profile's repo is not made again by itself. */
+const DETACH = {
+  profile: "Turn memory off for this profile: agents in its spaces stop saving to it and reading it, and Realm does not make another. The folder and its history stay where they are.",
+  space: "Stop using this repo. The folder and its history stay where they are.",
 } as const;
 
 /** One owner's repo: create or attach, then the repo with its folder, sync, Claude import and history. */
@@ -90,11 +99,11 @@ export function MemoryRepoRow({ owner }: { owner: MemoryRepoOwner }) {
           <code className="env-path settings-row-desc">{repo.path}</code>
         </div>
         {reveal && <button type="button" className="btn-quiet" onClick={() => { void reveal(repo.path); }}>Show in Finder</button>}
-        <button type="button" className="btn-quiet" title="Stop using this repo. The folder and its history stay where they are."
+        <button type="button" className="btn-quiet" title={DETACH[scope]}
           onClick={() => run(() => detachMemoryRepo(owner))}>Detach</button>
       </div>
       {repo.valid && <SyncRows owner={owner} repo={repo} />}
-      {repo.valid && <ClaudeImportRow owner={owner} head={repo.head} />}
+      {repo.valid && scope === "profile" && <ClaudeMemoryRows profileId={id} head={repo.head} />}
       {log && log.length > 0 && (
         <details className="settings-row settings-disclosure">
           <summary>
@@ -250,58 +259,96 @@ function SyncRows({ owner, repo }: { owner: MemoryRepoOwner; repo: MemoryRepoSta
 /** A path as one shell word: bare when it is safe, single-quoted otherwise. */
 const shellQuote = (p: string): string => (/^[\w@%+=:,./-]+$/.test(p) ? p : `'${p.replace(/'/g, "'\\''")}'`);
 
-/**
- * The Claude CLI memory Realm already imported, offered to this repo. Counted before anything is
- * written — the preview IS the button's label — and absent when there is nothing to add, so a user
- * with no Claude memory never sees it. Running it twice adds nothing.
- */
-function ClaudeImportRow({ owner, head }: { owner: MemoryRepoOwner; head: string | null }) {
-  const importClaudeMemory = useApp((s) => s.importClaudeMemory);
-  const run = useApp((s) => s.run);
-  const [preview, setPreview] = useState<MemoryClaudeImport | null>(null);
-  const [confirming, setConfirming] = useState(false);
-  const [added, setAdded] = useState<number | null>(null);
-  const { scope, id } = owner;
-  useEffect(() => { run(async () => setPreview(await importClaudeMemory({ scope, id }, true))); }, [scope, id, head, importClaudeMemory, run]);
+/** The last two parts of a path: enough to find a file in Claude's folder, short enough for a row. */
+const tail = (path: string): string => path.split("/").filter(Boolean).slice(-2).join("/");
 
-  if (added !== null && (preview === null || preview.entries === 0)) {
-    return (
-      <div className="settings-row">
+/**
+ * Claude's own memory, kept outside Realm (`~/.claude/projects`), as this repo holds it. It is brought
+ * in by itself — at boot and every few minutes — into the folder of the space that works in each
+ * project, so the row says what is in, and "Check now" looks again at once.
+ *
+ * A project no single space works in waits in Claude's folder until someone places it. The folded list
+ * gives each one a select — a space of this profile, or left out — with its size beside it and the
+ * biggest first, and a choice is honoured at once; a project already placed keeps its select, so a
+ * choice can be changed. Files left where they are follow, each once per version of it.
+ */
+function ClaudeMemoryRows({ profileId, head }: { profileId: string; head: string | null }) {
+  const claudeBackfill = useApp((s) => s.claudeBackfill);
+  const setClaudeProject = useApp((s) => s.setClaudeProject);
+  const allSpaces = useApp((s) => s.spaces);
+  const run = useApp((s) => s.run);
+  const [last, setLast] = useState<MemoryClaudeBackfill | null>(null);
+  useEffect(() => { run(async () => setLast(await claudeBackfill(profileId, false))); }, [profileId, head, claudeBackfill, run]);
+  if (last === null) return null;
+  const spaces = allSpaces.filter((sp) => sp.profileId === profileId);
+  const brought = last.imported + last.updated > 0
+    ? ` The last check brought in ${plural(last.imported, "new file", "new files")}${last.updated > 0 ? ` and updated ${plural(last.updated, "copy", "copies")}` : ""}.`
+    : "";
+  // A project placed somewhere else by hand, or left out, takes its copies with it.
+  const took = last.removed > 0 ? ` It took ${plural(last.removed, "copy", "copies")} out of a space ${last.removed === 1 ? "it no longer goes" : "they no longer go"} in.` : "";
+  const text = last.error !== null ? `Nothing came in on the last check: ${last.error}.`
+    : last.at === null ? "Not checked yet."
+    : last.total > 0 ? `${plural(last.total, "file", "files")} of Claude's own memory ${last.total === 1 ? "is in this repo, in the folder of the space it was" : "are in this repo, each in the folder of the space it was"} kept for.${brought}${took}`
+    : `None of this profile's spaces has memory Claude kept outside Realm.${took}`;
+  const projects = [
+    ...last.unmatched.map((p) => ({ ...p, into: "", why: p.reason })),
+    ...last.chosen.map((p) => ({ ...p, into: p.spaceId ?? CLAUDE_PROJECT_LEFT_OUT, why: null })),
+  ];
+  const waiting = last.unmatched.length;
+  const about = [
+    waiting > 0 ? `${plural(waiting, "Claude project matches", "Claude projects match")} no single space: choose where ${waiting === 1 ? "its" : "each one's"} memory goes.` : "",
+    last.skipped.length > 0 ? `${plural(last.skipped.length, "file stays", "files stay")} in Claude's folder.` : "",
+  ].filter(Boolean).join(" ") || "Placed by hand.";
+  const place = (project: string, into: string) => run(async () => setLast(await setClaudeProject(profileId, project, into)));
+  return (
+    <>
+      <div className="settings-row memory-import-row">
         <div className="settings-row-main">
           <span className="settings-row-name">Claude memory</span>
-          <span className="settings-row-desc">Imported {plural(added, "memory", "memories")}. Each entry names the file it came from.</span>
+          <span className="settings-row-desc memory-repo-status" data-tone={last.error !== null ? "warning" : undefined}>{text}</span>
         </div>
+        <button type="button" className="btn" title="Look in Claude's own memory folders for anything new now"
+          onClick={() => run(async () => setLast(await claudeBackfill(profileId, true)))}>Check now</button>
       </div>
-    );
-  }
-  if (preview === null || preview.entries === 0) return null;
-  const left = preview.skipped.length > 0 ? ` ${plural(preview.skipped.length, "file stays", "files stay")} out: ${preview.skipped[0]!.reason}.` : "";
-  return (
-    <div className="settings-row memory-import-row">
-      <div className="settings-row-main">
-        <span className="settings-row-name">Claude memory</span>
-        <span className="settings-row-desc">
-          {confirming
-            ? `Add ${plural(preview.entries, "memory", "memories")} and ${plural(preview.files, "file", "files")} to this repo as one commit? Each entry names the file it came from.${left}`
-            : `${plural(preview.entries, "memory", "memories")} from ${plural(preview.projects, "project", "projects")} you imported from Claude ${preview.entries === 1 ? "is" : "are"} not in this repo yet.`}
-        </span>
-      </div>
-      <span className="memory-repo-actions">
-        {confirming ? (
-          <>
-            <button type="button" className="btn" onClick={() => setConfirming(false)}>Cancel</button>
-            <button type="button" className="btn primary" onClick={() => run(async () => {
-              const r = await importClaudeMemory(owner, false);
-              setAdded(r.entries);
-              setConfirming(false);
-              setPreview(await importClaudeMemory(owner, true));
-            })}>Import {preview.entries}</button>
-          </>
-        ) : (
-          <button type="button" className="btn" onClick={() => setConfirming(true)}>Import…</button>
-        )}
-      </span>
-    </div>
+      {projects.length + last.skipped.length > 0 && (
+        <details className="settings-row settings-disclosure">
+          <summary>
+            <div className="settings-row-main">
+              <span className="settings-row-name">Claude projects</span>
+              <span className="settings-row-desc">{about}</span>
+            </div>
+            <Icon name="chevronRight" size={14} className="settings-disclosure-caret" />
+          </summary>
+          <ul className="settings-disclosure-body memory-repo-log memory-left-out">
+            {projects.map((p) => {
+              const name = p.path ? tail(p.path) : p.project;
+              return (
+                <li key={p.project} className="memory-claude-project">
+                  <span className="memory-claude-project-main" title={p.path ?? p.project}>
+                    <span className="memory-repo-log-subject">{name}</span>
+                    {p.why && <span className="memory-repo-log-when">{p.why}</span>}
+                  </span>
+                  <span className="memory-repo-log-when memory-claude-project-files">{plural(p.files, "file", "files")}</span>
+                  <select aria-label={`Where the memory of ${name} goes`} value={p.into} onChange={(e) => place(p.project, e.target.value)}>
+                    {p.into === "" && <option value="" disabled>Choose a space…</option>}
+                    <optgroup label="Bring into">
+                      {spaces.map((sp) => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
+                    </optgroup>
+                    <option value={CLAUDE_PROJECT_LEFT_OUT}>Leave out</option>
+                  </select>
+                </li>
+              );
+            })}
+            {last.skipped.map((f) => (
+              <li key={f.file} title={f.file}>
+                <span className="memory-repo-log-subject">{tail(f.file)}</span>
+                <span className="memory-repo-log-when">{f.reason}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </>
   );
 }
 

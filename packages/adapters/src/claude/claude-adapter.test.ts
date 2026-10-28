@@ -726,6 +726,23 @@ describe("ClaudeAdapter", () => {
       expect(flagSettings).toEqual([{ fastMode: true }, { fastMode: false }]);
     });
 
+    it("points Claude's auto-memory at Realm's folder in the same flag layer, beside fast mode", async () => {
+      const captureOptions: Record<string, unknown>[] = [];
+      const a = new ClaudeAdapter({ query: fakeQuery({ hang: true, captureOptions }) as never });
+      for (const fastMode of [true, false]) {
+        const h = a.start({ cwd: "/tmp", mcpServers: [], fastMode, memoryDirectory: "/realm/memory/repos/profile-p/spaces/realm" });
+        const c = collectUntil(h.events, () => false);
+        await h.send({ text: "hi", attachments: [] });
+        await h.dispose(); await c;
+      }
+      // THE MUTANT: two spreads of `settings` — the second replaces the first, and either fast mode
+      // or the memory folder silently goes missing.
+      expect(captureOptions.map((o) => o.settings)).toEqual([
+        { fastMode: true, autoMemoryDirectory: "/realm/memory/repos/profile-p/spaces/realm" },
+        { autoMemoryDirectory: "/realm/memory/repos/profile-p/spaces/realm" },
+      ]);
+    });
+
     describe("reasoning effort", () => {
       it("hands the SDK a level it has a word for, and never one from another harness", async () => {
         for (const [effort, sent] of [["max", "max"], ["minimal", undefined], [null, undefined]] as const) {

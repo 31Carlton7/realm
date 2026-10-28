@@ -217,6 +217,11 @@ describe("ProfilePage · Memory repo", () => {
     act(() => store.setState({ profileMemoryRepo: { p1: fakeMemoryRepo({ valid: false, reason: "the folder is gone" }) } }));
     expect(screen.getByText("Not a memory repo")).toHaveAttribute("data-tone", "danger");
     expect(screen.getByText("The folder is gone.")).toBeInTheDocument();
+    // Saving goes on past a file Claude wrote that cannot be memory, and the row names it.
+    const held = "spaces/realm/keys.md stays uncommitted: it looks like it holds an API key, and memory never holds credentials. Edit or delete it";
+    act(() => store.setState({ profileMemoryRepo: { p1: fakeMemoryRepo({ clean: true, uncommitted: ["spaces/realm/keys.md"], reason: held }) } }));
+    expect(screen.getByText("File left out")).toHaveAttribute("data-tone", "warning");
+    expect(screen.getByText(`${held.charAt(0).toUpperCase()}${held.slice(1)}.`)).toBeInTheDocument();
   });
 
   it("detaches this profile's repo and leaves the folder to the user", async () => {
@@ -224,9 +229,12 @@ describe("ProfilePage · Memory repo", () => {
     openMemory();
     const detach = await screen.findByRole("button", { name: "Detach" });
     expect(detach).toHaveAttribute("title", expect.stringContaining("The folder and its history stay where they are"));
+    // A profile's repo is made by default, so the consequence said before the click is that it is not made again.
+    expect(detach).toHaveAttribute("title", expect.stringContaining("Realm does not make another"));
     fireEvent.click(detach);
     await waitFor(() => expect(api.calls).toContain("detachMemoryRepo:profile:p1"));
     expect(await screen.findByText("No memory repo")).toBeInTheDocument();
+    expect(screen.getByText(/^Memory is off for this profile/)).toBeInTheDocument();
   });
 });
 
@@ -312,31 +320,90 @@ describe("ProfilePage · Memory repo sync", () => {
   });
 });
 
-describe("ProfilePage · Claude memory import", () => {
+describe("ProfilePage · Claude memory", () => {
   const openMemory = () => fireEvent.click(screen.getByRole("radio", { name: "Memory" }));
+  const ran = { imported: 0, updated: 0, removed: 0, total: 0, unmatched: [], chosen: [], skipped: [], error: null, sha: null, at: Date.now() - 60_000 };
+  const spaces = [space("s1", "p1", "Versed"), space("s3", "p1", "Side project"), space("s2", "p2", "Homework")];
+  const big = { project: "-Users-me-code-stora-platform", path: "/Users/me/code/stora-platform", files: 80, reason: "no space works in that folder" };
+  const small = { project: "-Users-me-code-clubology", path: null, files: 1, reason: "Versed and Side project both work there" };
 
-  it("counts what it would add, asks, then imports — and is gone when there is nothing left", async () => {
+  it("says what of Claude's own memory is in the repo, lists what stays out, and checks again on asking", async () => {
     const { api } = await mount({
       memoryRepos: { p1: fakeMemoryRepo() },
-      claudeImports: { "profile:p1": { projects: 2, files: 5, entries: 6, skipped: [{ file: "/x/key.md", reason: "it looks like it holds a GitHub token" }], sha: null } },
+      claudeBackfills: { p1: {
+        last: { ...ran, total: 12, skipped: [{ file: "/Users/me/.claude/projects/-Users-me-code-realm/memory/keys.md", reason: "it looks like it holds an API key, and memory never holds credentials" }] },
+        next: { ...ran, total: 13, imported: 1, sha: "f00dfeed", at: Date.now() },
+      } },
     });
     openMemory();
-    expect(await screen.findByText("6 memories from 2 projects you imported from Claude are not in this repo yet.")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Import…" }));
-    // THE MUTANT: import on the first click — nothing is written before the user has seen the count.
-    expect(api.calls.filter((c) => c === "importClaudeMemory:profile:p1:false")).toEqual([]);
-    expect(screen.getByText(/^Add 6 memories and 5 files to this repo as one commit\? .* 1 file stays out: it looks like it holds a GitHub token\.$/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Import 6" }));
-    await waitFor(() => expect(api.calls).toContain("importClaudeMemory:profile:p1:false"));
-    expect(await screen.findByText("Imported 6 memories. Each entry names the file it came from.")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Import/ })).toBeNull();
+    expect(await screen.findByText("12 files of Claude's own memory are in this repo, each in the folder of the space it was kept for.")).toBeInTheDocument();
+    expect(screen.getByText("1 file stays in Claude's folder.")).toBeInTheDocument();
+    expect(screen.getByText("memory/keys.md")).toBeInTheDocument();
+    // Read on its own; it runs only when asked here (or by itself on the server).
+    expect(api.calls).not.toContain("claudeBackfill:p1:true");
+    fireEvent.click(screen.getByRole("button", { name: "Check now" }));
+    await waitFor(() => expect(api.calls).toContain("claudeBackfill:p1:true"));
+    expect(await screen.findByText("13 files of Claude's own memory are in this repo, each in the folder of the space it was kept for. The last check brought in 1 new file.")).toBeInTheDocument();
+    // Nothing waits and nothing new stays out: no list at all.
+    expect(screen.queryByText("Claude projects")).toBeNull();
   });
 
-  it("shows no import row for a profile with no Claude memory", async () => {
+  it("gives each project no single space claims a select of this profile's spaces, biggest first with its size", async () => {
+    const { api, container } = await mount({
+      spaces, memoryRepos: { p1: fakeMemoryRepo() },
+      claudeBackfills: { p1: {
+        last: { ...ran, total: 3, unmatched: [big, small] },
+        placed: { ...ran, total: 83, imported: 80, sha: "f00dfeed", at: Date.now(), unmatched: [small], chosen: [{ project: big.project, path: big.path, files: 80, spaceId: "s3" }] },
+      } },
+    });
+    openMemory();
+    expect(await screen.findByText("2 Claude projects match no single space: choose where each one's memory goes.")).toBeInTheDocument();
+    const rows = [...container.querySelectorAll(".memory-claude-project")];
+    // The folder a project names, by its last two parts; Claude's own name where the folder is gone.
+    expect(rows.map((r) => r.querySelector(".memory-repo-log-subject")!.textContent)).toEqual(["code/stora-platform", "-Users-me-code-clubology"]);
+    expect(rows.map((r) => r.querySelector(".memory-claude-project-files")!.textContent)).toEqual(["80 files", "1 file"]);
+    expect(within(rows[1] as HTMLElement).getByText("Versed and Side project both work there")).toBeInTheDocument();
+    const select = screen.getByRole("combobox", { name: "Where the memory of code/stora-platform goes" }) as HTMLSelectElement;
+    // Nothing is chosen for the person: the select starts on the question.
+    expect(select.value).toBe("");
+    // Only this profile's spaces, then the way out.
+    expect([...select.options].map((o) => o.textContent)).toEqual(["Choose a space…", "Versed", "Side project", "Leave out"]);
+    fireEvent.change(select, { target: { value: "s3" } });
+    await waitFor(() => expect(api.calls).toContain("setClaudeProject:p1:-Users-me-code-stora-platform:s3"));
+    expect(await screen.findByText("83 files of Claude's own memory are in this repo, each in the folder of the space it was kept for. The last check brought in 80 new files.")).toBeInTheDocument();
+    expect(screen.getByText("1 Claude project matches no single space: choose where its memory goes.")).toBeInTheDocument();
+    // The placed project keeps its select, on the space chosen, so the choice can be changed.
+    expect((screen.getByRole("combobox", { name: "Where the memory of code/stora-platform goes" }) as HTMLSelectElement).value).toBe("s3");
+  });
+
+  it("leaves a project out on asking, says so on its select, and says what came out of the space it was in", async () => {
+    const { api } = await mount({
+      spaces, memoryRepos: { p1: fakeMemoryRepo() },
+      claudeBackfills: { p1: {
+        last: { ...ran, total: 1, chosen: [{ project: small.project, path: null, files: 1, spaceId: "s1" }] },
+        placed: { ...ran, removed: 1, sha: "f00dfeed", chosen: [{ project: small.project, path: null, files: 1, spaceId: null }] },
+      } },
+    });
+    openMemory();
+    fireEvent.change(await screen.findByRole("combobox", { name: "Where the memory of -Users-me-code-clubology goes" }), { target: { value: "skip" } });
+    await waitFor(() => expect(api.calls).toContain("setClaudeProject:p1:-Users-me-code-clubology:skip"));
+    expect(await screen.findByText("None of this profile's spaces has memory Claude kept outside Realm. It took 1 copy out of a space it no longer goes in.")).toBeInTheDocument();
+    expect(screen.getByText("Placed by hand.")).toBeInTheDocument();
+    expect((screen.getByRole("combobox", { name: "Where the memory of -Users-me-code-clubology goes" }) as HTMLSelectElement).value).toBe("skip");
+  });
+
+  it("says why nothing came in when the repo would not take it", async () => {
+    await mount({ memoryRepos: { p1: fakeMemoryRepo() }, claudeBackfills: { p1: { last: { ...ran, error: "the memory repo has uncommitted changes" } } } });
+    openMemory();
+    expect(await screen.findByText("Nothing came in on the last check: the memory repo has uncommitted changes.")).toHaveAttribute("data-tone", "warning");
+  });
+
+  it("is a profile's row only: a space's own repo holds no Claude memory", async () => {
     const { api } = await mount({ memoryRepos: { p1: fakeMemoryRepo() } });
     openMemory();
-    await waitFor(() => expect(api.calls).toContain("importClaudeMemory:profile:p1:true"));
-    expect(screen.queryByText("Claude memory")).toBeNull();
+    await waitFor(() => expect(api.calls).toContain("claudeBackfill:p1:false"));
+    expect(await screen.findByText("Not checked yet.")).toBeInTheDocument();
+    expect(api.calls.some((c) => c.startsWith("importClaudeMemory"))).toBe(false);
   });
 });
 

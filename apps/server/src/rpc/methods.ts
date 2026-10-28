@@ -39,6 +39,7 @@ import { oauthSecretBox, type McpOauth } from "../mcp/oauth";
 import { spaceDownloadDir, spaceScreenshotDir } from "../browsers/agent-tools";
 import type { McpCallLogStore } from "../store/mcp";
 import type { MemoryService } from "../memory/service";
+import { NEVER_RUN, type ClaudeMemoryBackfill } from "../memory/claude-backfill";
 import type { MemoryRepoService, RepoOwner } from "../memory/repo";
 import type { TerminalService } from "../terminals/service";
 import type { BrowserService } from "../browsers/service";
@@ -98,7 +99,7 @@ export type Deps = {
   /** Called once when `daemon.drain` is accepted. `createApp` starts the quiescence watcher here —
    *  the watcher owns the clock and the close, this owns the refusals. */
   onDrain?: () => void;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; memoryRepos: MemoryRepoService; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; mentionFiles: MentionFiles; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; team: TeamService; handoffs?: HandoffService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; memoryRepos: MemoryRepoService; claudeBackfill: ClaudeMemoryBackfill | null; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; mentionFiles: MentionFiles; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; team: TeamService; handoffs?: HandoffService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService; avatar: AvatarStore;
   planLimits: PlanLimitsService;
   delegation: DelegationEngine;
@@ -123,6 +124,8 @@ export type Deps = {
   presence: Presence;
   /** Where clients on other machines reach this server (`realm serve --listen`), once it listens. */
   access?: () => { url: string } | null;
+  /** Realm's own memory learning, where it is on: archiving a session is the moment it is read. */
+  memoryLearning?: { sessionArchived(sessionId: string): void } | null;
 };
 
 export function registerMethods(d: Deps): void {
@@ -222,7 +225,8 @@ export function registerMethods(d: Deps): void {
   });
 
   reg("profiles.list", () => d.profiles.list());
-  reg("profiles.create", (p) => { const r = d.profiles.create(p); rpc.broadcast("profiles.changed", {}); return r; });
+  // Its memory repo is made before the profile is handed back, so its Memory page opens on one.
+  reg("profiles.create", async (p) => { const r = d.profiles.create(p); await d.memoryRepos.ensureProfileRepo(r.id); rpc.broadcast("profiles.changed", {}); return r; });
   reg("profiles.update", (p) => { const r = d.profiles.update(p); rpc.broadcast("profiles.changed", {}); return r; });
   reg("profiles.delete", async (p) => {
     // Refused up front for the last profile, before anything below is stopped: a delete that fails
@@ -244,7 +248,20 @@ export function registerMethods(d: Deps): void {
   reg("spaces.list", () => d.spaces.listAll());
   reg("spaces.create", (p) => { const r = d.spaces.create(p); rpc.broadcast("spaces.changed", {}); return r; });
   reg("spaces.folderFor", (p) => ({ path: d.spaces.folderFor(p.profileId, p.name) }));
-  reg("spaces.update", (p) => { const r = d.spaces.update(p); rpc.broadcast("spaces.changed", {}); return r; });
+  reg("spaces.update", async (p) => {
+    const before = d.spaces.get(p.id);
+    const r = d.spaces.update(p);
+    rpc.broadcast("spaces.changed", {});
+    // A space moved to another profile takes its memory along: a folder of its own in that profile's
+    // repo, with what it had. A carry that cannot land now waits for the next boot, never the move.
+    if (before && before.profileId !== r.profileId) {
+      try {
+        const carried = await d.memoryRepos.followSpace(r.id);
+        if (carried?.sha) for (const sp of d.spaces.list(r.profileId)) rpc.broadcast("memory.changed", { spaceId: sp.id });
+      } catch (e) { console.error(`[memory] the memory of ${r.name} not carried over yet: ${e instanceof Error ? e.message : String(e)}`); }
+    }
+    return r;
+  });
   reg("spaces.reorder", (p) => { d.spaces.reorder(p.ids); rpc.broadcast("spaces.changed", {}); return { ok: true as const }; });
   reg("spaces.setLayout", (p) => { const r = d.spaces.setLayout(p.id, p.layout); rpc.broadcast("spaces.changed", {}); return r; });
   reg("spaces.setGroups", (p) => { const r = d.spaces.setGroups(p.id, p.groups, p.activeItemId); rpc.broadcast("spaces.changed", {}); return r; });
@@ -673,6 +690,20 @@ export function registerMethods(d: Deps): void {
     if (r.sha !== null) repoChanged(o);
     return r;
   });
+  // What the page is handed counts as shown: a file it lists as left out is listed again only once it changes.
+  reg("memory.repo.claudeBackfill", async (p) => {
+    ownerOf({ scope: "profile", ownerId: p.profileId });
+    if (!d.claudeBackfill) return { ...NEVER_RUN, error: "this Realm reads no Claude folder" };
+    if (p.run) await d.claudeBackfill.runAgain();
+    return d.claudeBackfill.seen(p.profileId);
+  });
+  reg("memory.repo.setClaudeProject", async (p) => {
+    const o = ownerOf({ scope: "profile", ownerId: p.profileId });
+    if (!d.claudeBackfill) throw new RpcError("MEMORY_NO_CLAUDE", "this Realm reads no Claude folder");
+    const r = await d.claudeBackfill.choose(p.profileId, p.project, p.into);
+    if (r.sha !== null) repoChanged(o);
+    return r;
+  });
 
   reg("projects.list", (p) => d.projects.list(p.spaceId));
   reg("projects.create", (p) => { const r = d.projects.create(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });
@@ -750,7 +781,13 @@ export function registerMethods(d: Deps): void {
   reg("items.list", (p) => d.items.list(p.spaceId));
   reg("items.listAll", () => d.items.listAll());
   reg("items.create", (p) => { const r = d.items.create(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });
-  reg("items.update", (p) => { const r = d.items.update(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });
+  reg("items.update", (p) => {
+    const r = d.items.update(p);
+    // A session put away is read for memory now, rather than after its quiet spell.
+    if (p.archived === true && r.kind === "session") d.memoryLearning?.sessionArchived(r.refId);
+    rpc.broadcast("items.changed", { spaceId: r.spaceId });
+    return r;
+  });
   reg("items.delete", async (p) => {
     const it = d.items.get(p.id);
     if (it?.kind === "terminal") { d.terminals.close(it.refId); return { ok: true as const }; } // closes pty + row + item, broadcasts
@@ -914,6 +951,7 @@ export function registerMethods(d: Deps): void {
   reg("documents.openPath", (p) => d.documents.openPath(p));
   reg("documents.progressRead", (p) => d.documents.progressRead(p.documentsId, p.path));
   reg("documents.progressRecord", (p) => d.documents.progressRecord(p));
+  reg("documents.progressStorage", (p) => d.documents.progressStorage(p));
   reg("lectures.start", (p) => d.lectures.start(p));
   reg("lectures.list", async (p) => ({ lectures: await d.lectures.list(p.spaceId) }));
   reg("plynn.list", () => d.plynn.list());

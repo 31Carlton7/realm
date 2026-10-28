@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { Item } from "@realm/contracts";
 
 /** The pane subscribes to `documents.fileChanged` through the rpc singleton, which needs a real
@@ -109,3 +109,63 @@ describe("a document's scroll position across a space switch", () => {
   });
 
 });
+
+describe("the rest of a document's place, across the same round trip", () => {
+  it("puts a sheet back where it was scrolled", async () => {
+    /* The grid scrolls in the library's own element, not one the pane renders. THE MUTANT: drop the
+       effect that attaches the scroll memory to `.dsg-container`. The sheet comes back at row one. */
+    const staged = stageSource({ cls: "dsg-container" });
+    const store = makeStore({ "q3.csv": "A,B\n1,2\n" }, ["q3.csv"], "q3.csv");
+    const { unmount } = render(pane(store));
+    await waitFor(() => expect(document.querySelector(".dsg-container")).not.toBeNull(), { timeout: 4000 });
+    staged.readerScrollsTo(document.querySelector(".dsg-container") as HTMLElement, 640);
+
+    unmount();
+    render(pane(store));
+    await waitFor(() => expect(document.querySelector(".dsg-container")).not.toBeNull(), { timeout: 4000 });
+    await waitFor(() => expect(staged.topOf(document.querySelector(".dsg-container") as HTMLElement)).toBe(640));
+  }, 10_000);
+
+  it("puts the caret back in a rich document", async () => {
+    /* THE MUTANT: drop the `setTextSelection` after the first document lands. The column comes back
+       scrolled, with the caret at the top. */
+    const store = makeStore({ "a.md": "# Title\n\nA paragraph of notes.\n" }, ["a.md"], "a.md");
+    type Ed = { state: { selection: { from: number; to: number }; doc: { textContent: string } }; commands: { setTextSelection: (r: { from: number; to: number }) => boolean } };
+    const editorOf = async () => {
+      const el = await waitFor(() => {
+        const pm = document.querySelector(".ProseMirror") as (HTMLElement & { editor?: Ed }) | null;
+        if (!pm?.editor || !pm.editor.state.doc.textContent.includes("paragraph")) throw new Error("not yet");
+        return pm;
+      }, { timeout: 4000 });
+      return el.editor!;
+    };
+    const { unmount } = render(pane(store));
+    const ed = await editorOf();
+    act(() => { ed.commands.setTextSelection({ from: 12, to: 21 }); });
+    unmount();
+    render(pane(store));
+    const again = await editorOf();
+    expect([again.state.selection.from, again.state.selection.to]).toEqual([12, 21]);
+  }, 10_000);
+
+  it("puts the caret back in a source view, and the scroll as well", async () => {
+    /* THE MUTANT: skip the selection in `useScrollMemory`'s textarea branch. The offset comes back and
+       the caret sits at the top of the file, where the next keystroke lands. */
+    const staged = stageSource();
+    const store = makeStore({ "a.tex": "\\section{One}\nsome text\n" }, ["a.tex"], "a.tex");
+    const { unmount } = render(pane(store));
+    const ta = await screen.findByLabelText("Edit a.tex") as HTMLTextAreaElement;
+    ta.setSelectionRange(15, 19);
+    fireEvent.keyUp(ta, { key: "ArrowRight" });
+    staged.readerScrollsTo(ta, 220);
+
+    unmount();
+    render(pane(store));
+    const again = await screen.findByLabelText("Edit a.tex") as HTMLTextAreaElement;
+    expect([again.selectionStart, again.selectionEnd]).toEqual([15, 19]);
+    expect(staged.topOf(again)).toBe(220);
+    // Not focused: the keyboard stays where the switch back left it.
+    expect(document.activeElement).not.toBe(again);
+  });
+});
+

@@ -1,8 +1,11 @@
 import "@testing-library/jest-dom/vitest";
-import { afterEach } from "vitest";
+import { afterEach, beforeEach } from "vitest";
 import { cleanup } from "@testing-library/react";
 import { forgetAllScroll } from "./panes/scroll-memory";
 import { forgetPdfPlaces } from "./panes/documents/pdf-layout";
+import { forgetAllGuideStates } from "./panes/documents/guide-state";
+import { forgetDocumentViews } from "./panes/documents/view-memory";
+import { forgetAllKeptTyping } from "./panes/documents/kept-typing";
 afterEach(cleanup);
 
 // The scroll marks are module-level by design — they have to outlive the unmount a space switch
@@ -10,6 +13,12 @@ afterEach(cleanup);
 // test's reading position can never decide the next one's first paint.
 afterEach(forgetAllScroll);
 afterEach(forgetPdfPlaces);
+afterEach(forgetAllGuideStates);
+afterEach(forgetDocumentViews);
+// Before each test, not after: the documents pane writes this one AS IT UNMOUNTS, and the unmount is
+// `cleanup` above, which runs after the resets here (after-hooks run in reverse). Reset afterwards, a
+// pane's typing from one test is waiting for the next pane on the same workspace id.
+beforeEach(forgetAllKeptTyping);
 
 // jsdom has no ResizeObserver, and every anchored surface (`useAnchoredPopover`) now constructs one
 // to re-place itself when its content changes height. An inert default: jsdom reports no layout, so

@@ -20,7 +20,7 @@ import {
 import { CatalogFontSchema, InstalledFontSchema, StoredThemeSchema } from "./theme-seed";
 import { McpCallSchema, McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, McpOauthStatusSchema, McpSignInOptionsSchema } from "./mcp";
 import { AppViewSchema } from "./mcp-apps";
-import { MEMORY_DOC_MAX, MemoryClaudeImportSchema, MemoryRemoteCheckSchema, MemoryRepoCommitSchema, MemoryRepoScopeSchema, MemoryRepoStateSchema, MemorySourcesSchema, MemoryStateSchema } from "./memory";
+import { CLAUDE_PROJECT_LEFT_OUT, MEMORY_DOC_MAX, MemoryClaudeBackfillSchema, MemoryClaudeImportSchema, MemoryRemoteCheckSchema, MemoryRepoCommitSchema, MemoryRepoScopeSchema, MemoryRepoStateSchema, MemorySourcesSchema, MemoryStateSchema } from "./memory";
 import { NotificationSchema } from "./notifications";
 import { RunAttemptSchema, RunConstraintsSchema, RunSchema, RunStateSchema } from "./runs";
 import { ReviewResultSchema } from "./review";
@@ -31,7 +31,7 @@ import {
 import { AddTeammateSchema, DelegableModelSchema, DelegatedChildSchema, DelegatedRunSchema, DelegationOutcomeSchema, SubagentIdSchema } from "./delegation";
 import { SEARCH_GROUP_LIMIT, SEARCH_GROUP_LIMIT_MAX, SEARCH_QUERY_MAX, SearchResultsSchema } from "./search";
 import { ImportResultSchema, ImportScanSchema } from "./import";
-import { GuideProgressSchema } from "./documents";
+import { GuideProgressSchema, GuideStorageSchema } from "./documents";
 import { UsageBucketSchema, UsageBudgetSchema, UsageDaySchema, UsageRecordsSchema, UsageSummarySchema } from "./usage";
 import { PlanLimitsSchema } from "./plan-limits";
 import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./schedules";
@@ -996,6 +996,9 @@ export const Methods = {
   "documents.progressRead": { params: z.object({ documentsId: IdSchema, path: z.string() }), result: GuideProgressSchema },
   /** Fold one quiz attempt into the sidecar and return the updated history. */
   "documents.progressRecord": { params: z.object({ documentsId: IdSchema, path: z.string(), topic: z.string().min(1).max(200), correct: z.number().int().nonnegative(), total: z.number().int().positive() }), result: GuideProgressSchema },
+  /** Keep what a guide holds in its `localStorage` in its sidecar, so it outlives the app; an empty
+   *  record removes it. */
+  "documents.progressStorage": { params: z.object({ documentsId: IdSchema, path: z.string(), storage: GuideStorageSchema }), result: z.object({ ok: z.literal(true) }) },
   /** Create today's lecture file from the template (a numbered suffix if it exists), open it in the
    *  documents pane, and answer with everything the store needs to arrange the panes. */
   "lectures.start": { params: z.object({ spaceId: IdSchema, title: z.string().default("") }), result: StartLectureResultSchema },
@@ -1463,6 +1466,18 @@ export const Methods = {
    * repo is never added twice, so a second run adds nothing.
    */
   "memory.repo.importClaude": { params: z.object({ scope: MemoryRepoScopeSchema, ownerId: IdSchema, dryRun: z.boolean().default(false) }), result: MemoryClaudeImportSchema },
+  /**
+   * Claude's own memory (`~/.claude/projects/<project>/memory`, read only), copied into the folders of the
+   * profile's spaces. It runs by itself at boot and every few minutes; this answers what the last run
+   * did, and `run` runs it now first — the row's "Check now".
+   */
+  "memory.repo.claudeBackfill": { params: z.object({ profileId: IdSchema, run: z.boolean().default(false) }), result: MemoryClaudeBackfillSchema },
+  /**
+   * Place one Claude project by hand: bring its memory into a space of this profile, or leave it in
+   * Claude's folder (`into: "skip"`). The choice wins over matching, ties included, and is honoured at
+   * once — this runs the backfill and answers what it did. A space since deleted is reported again.
+   */
+  "memory.repo.setClaudeProject": { params: z.object({ profileId: IdSchema, project: z.string().regex(/^[A-Za-z0-9-]{1,255}$/), into: z.union([IdSchema, z.literal(CLAUDE_PROJECT_LEFT_OUT)]) }), result: MemoryClaudeBackfillSchema },
 
   /** `machineName` is the Mac's user-facing ComputerName ("Carlton's M4 MacBook Pro"), falling back to
    *  the hostname stripped of `.local`. Display-only (the prompter's under-strip machine label, Plan 12

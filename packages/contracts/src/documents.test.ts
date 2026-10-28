@@ -162,6 +162,12 @@ describe("guide progress", () => {
     expect(p.topics.caches!.attempts).toHaveLength(3);
     expect(GuideProgressSchema.safeParse(p).success).toBe(true);
   });
+  it("carries the guide's own storage through an attempt, and parses a sidecar that has one", () => {
+    const p = recordGuideAttempt({ ...emptyGuideProgress(), storage: { course: "{\"done\":3}" } }, "t", { at: 1, correct: 1, total: 1 });
+    expect(p.storage).toEqual({ course: "{\"done\":3}" });
+    expect(GuideProgressSchema.parse(JSON.parse(JSON.stringify(p))).storage).toEqual({ course: "{\"done\":3}" });
+    expect(GuideProgressSchema.safeParse({ ...p, storage: { big: "x".repeat(1_000_001) } }).success).toBe(false);
+  });
   it("is pure — the input is not mutated", () => {
     const p = emptyGuideProgress();
     recordGuideAttempt(p, "t", { at: 1, correct: 1, total: 1 });

@@ -6,7 +6,8 @@ import { AgentKindSchema, type AgentKind } from "./entities";
  * W3's ground rule: Realm READS the files each agent loads and never writes them. The one permitted
  * write is the opt-in `AGENTS.md` in a space folder Realm itself created (`AgentsFileState`), and even
  * that is refused anywhere else. Everything else reaches a session through a per-session parameter —
- * `systemPrompt.append` for Claude, `thread/start` `developerInstructions` for Codex — or not at all.
+ * `systemPrompt.append` for Claude, `thread/start` `developerInstructions` for Codex — or, for the ACP
+ * agents, which take no such parameter, at the top of the first prompt each agent process is sent.
  */
 
 /** Hard cap on ONE Realm memory document (space or profile). It travels inside every session's system
@@ -93,26 +94,30 @@ export type MemoryState = z.infer<typeof MemoryStateSchema>;
  *
  * - `systemPrompt` — Claude: `systemPrompt: { type: "preset", preset: "claude_code", append }`.
  * - `developerInstructions` — Codex: a `thread/start` parameter.
- * - `none` — ACP `session/new` is `{cwd, mcpServers}`: there is no parameter to put context in, so
- *   nothing Realm manages reaches these agents. Stated, not faked: no adapter fallback pretends otherwise.
+ * - `firstPrompt` — the ACP agents. `session/new` is `{cwd, mcpServers}`, with no parameter to put
+ *   context in, so the ACP adapter sends it as a block of its own, tagged as Realm's, at the top of the
+ *   first `session/prompt` each agent process receives — once per process, again after a restart, never
+ *   on a later turn. The user's own blocks follow it untouched, and neither Realm's transcript nor the
+ *   stored message ever carries it.
+ * - `none` — no channel at all: the scripted fake reads no context, and nothing pretends it does.
  */
-export type MemoryChannel = "systemPrompt" | "developerInstructions" | "none";
+export type MemoryChannel = "systemPrompt" | "developerInstructions" | "firstPrompt" | "none";
 export const AGENT_MEMORY_CHANNEL = {
   claude: "systemPrompt",
   codex: "developerInstructions",
-  "acp:cursor": "none",
-  "acp:gemini": "none",
-  "acp:opencode": "none",
-  "acp:copilot": "none",
-  "acp:goose": "none",
-  "acp:qwen": "none",
-  "acp:grok": "none",
-  "acp:fx": "none",
-  "acp:deepseek": "none",
-  "acp:openhands": "none",
-  // Hermes carries a great deal of durable context of its own — memory, skills, a user model — and
-  // none of it is Realm's, which is exactly what this table means by `none`.
-  "acp:hermes": "none",
+  "acp:cursor": "firstPrompt",
+  "acp:gemini": "firstPrompt",
+  "acp:opencode": "firstPrompt",
+  "acp:copilot": "firstPrompt",
+  "acp:goose": "firstPrompt",
+  "acp:qwen": "firstPrompt",
+  "acp:grok": "firstPrompt",
+  "acp:fx": "firstPrompt",
+  "acp:deepseek": "firstPrompt",
+  "acp:openhands": "firstPrompt",
+  // Hermes carries a great deal of durable context of its own — memory, skills, a user model — none
+  // of it Realm's. Realm's reaches it the way it reaches every ACP agent, beside that, not instead.
+  "acp:hermes": "firstPrompt",
   fake: "none",
 } as const satisfies Record<AgentKind, MemoryChannel>;
 
@@ -122,19 +127,20 @@ export const AGENT_MEMORY_CHANNEL = {
  *
  * `basis` names the authority so the UI can say it: `modeled` — Realm read the same paths the CLI
  * reads (Claude); `reported` — the agent itself named the files it loaded (Codex `instructionSources`);
- * `none` — either the agent takes no durable context at all (Cursor) or it has not started yet and so
- * has reported nothing (a Codex session before its first message).
+ * `none` — either no agent reports or models the files (Cursor and the other ACP agents read their own
+ * and say nothing of them) or it has not started yet and so has reported nothing (a Codex session before
+ * its first message).
  */
 export const MemorySourcesSchema = z.object({
   agent: AgentKindSchema,
-  channel: z.enum(["systemPrompt", "developerInstructions", "none"]),
+  channel: z.enum(["systemPrompt", "developerInstructions", "firstPrompt", "none"]),
   basis: z.enum(["modeled", "reported", "none"]),
   /** One sentence naming the agent and its reality, so a note rendered for the wrong session is visibly wrong. */
   note: z.string(),
   /** Whether this space's Realm memory document is non-empty and travels to this agent's sessions. */
   realmMemoryInjected: z.boolean(),
   /** Whether the memory repo's `MEMORY.md` travels into this agent's sessions. False for an agent with
-   *  no context channel even where the space has a repo: those reach it through the memory tools. */
+   *  no context channel at all even where the space has a repo. */
   repoIndexInjected: z.boolean(),
   sources: z.array(MemorySourceSchema),
 });
@@ -148,6 +154,8 @@ export function memorySupportNote(kind: AgentKind): string {
       return `${label} sessions receive this space's Realm memory per session; the files below are the ones the CLI reads, modeled by Realm from the same paths.`;
     case "developerInstructions":
       return `${label} sessions receive this space's Realm memory per session, and ${label} itself reports the exact instruction files it loaded once the session starts.`;
+    case "firstPrompt":
+      return `${label} takes no per-session context parameter, so Realm puts this space's memory at the top of the first message each ${label} process is sent; the transcript shows only what you typed.`;
     default:
       return `${label} takes no per-session context parameter, so neither Realm's memory documents nor any managed file reaches it; a memory repo, where one is attached, reaches it through Realm's memory tools.`;
   }
@@ -254,6 +262,47 @@ export const MemoryClaudeImportSchema = z.object({
   sha: z.string().nullable(),
 });
 export type MemoryClaudeImport = z.infer<typeof MemoryClaudeImportSchema>;
+
+/** One project of Claude's (`~/.claude/projects/<project>`): its folder name, the folder it names
+ *  where that still exists, and how many memory files it keeps. */
+const ClaudeProjectSchema = z.object({ project: z.string(), path: z.string().nullable(), files: z.number() });
+
+/** What a Claude project's memory is brought into: a space's id, or this — leave it in Claude's folder. */
+export const CLAUDE_PROJECT_LEFT_OUT = "skip";
+
+/**
+ * Claude's own memory, brought in from `~/.claude/projects/<project>/memory` (read, never written)
+ * to the folder of the space that works in that project, as it was there and in the same format. It
+ * runs by itself — at boot and every few minutes — so memory Claude keeps outside Realm flows in;
+ * this is what the last run did for one profile's repo.
+ */
+export const MemoryClaudeBackfillSchema = z.object({
+  /** Files copied into a space's folder for the first time. */
+  imported: z.number(),
+  /** Copies brought up to date because the file changed only in Claude's folder. */
+  updated: z.number(),
+  /** Copies taken out of a folder their project no longer goes to: it was placed somewhere else by
+   *  hand, or left out. Only copies nobody changed since they were copied; a changed one is in `skipped`. */
+  removed: z.number(),
+  /** Every file of Claude's memory this profile's space folders hold a copy of. */
+  total: z.number(),
+  /** Claude projects no space claims, or more than one does, and nobody has placed — with why, never
+   *  guessed at, biggest first. Their memory waits in Claude's folder until someone chooses. */
+  unmatched: z.array(ClaudeProjectSchema.extend({ reason: z.string() })),
+  /** Claude projects placed by hand (`memory.repo.setClaudeProject`): brought into one of this
+   *  profile's spaces (`spaceId`), or left out (null). A choice wins over matching, ties included. */
+  chosen: z.array(ClaudeProjectSchema.extend({ spaceId: z.string().nullable() })),
+  /** What stays where it is, and why: a credential, a file changed in the repo since its copy was
+   *  made, a temporary folder. Each is listed once per version of it: once the Memory page has shown
+   *  it, a later run lists it again only after it changes. */
+  skipped: z.array(z.object({ file: z.string(), reason: z.string() })),
+  /** Why nothing could be written on the last run, or null. */
+  error: z.string().nullable(),
+  sha: z.string().nullable(),
+  /** When it last ran; null before its first run. */
+  at: z.number().nullable(),
+});
+export type MemoryClaudeBackfill = z.infer<typeof MemoryClaudeBackfillSchema>;
 
 /**
  * The GitHub repository a remote URL names, or null for any other host. Covers the three spellings

@@ -3,6 +3,7 @@ import { CARET_DEFAULT, CARET_KEY, parseCaretPrefs, type CaretPrefs, type CaretS
 import { destinationTarget, pageHidesSidebar } from "./page-item";
 import { MAC_SKILL_ID, keepLiveRefs, mentionRefLabel, type AppViewRef, type InstalledApp, type MentionRef, type UnlabelledRef } from "@realm/contracts";
 import type { SavedTurn } from "@realm/contracts";
+import { memoryLearningKey, memoryLearningOn } from "@realm/contracts";
 import { attachmentDisposition } from "@realm/contracts";
 import { VIEWER_SLOT, ownerOf, type Marking, type OpenViewerInput, type ViewerFile, type ViewerState } from "./viewer";
 import type { PickedElement } from "@realm/contracts";
@@ -20,7 +21,7 @@ import {
   AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, LINKS_OPEN_IN_KEY, type LinksOpenIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
-  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpSignInOptions, type McpServerStatus, type McpTransport, type MemoryClaudeImport, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
+  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpSignInOptions, type McpServerStatus, type McpTransport, type MemoryClaudeBackfill, type MemoryClaudeImport, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves, type Rect } from "./no-overlay";
@@ -246,6 +247,8 @@ export type Api = TeamApi & LabApi & {
   openDocumentPath(spaceId: string, path: string, environmentId?: string, base?: string): Promise<{ documentsId: string; itemId: string; environmentId: string; path: string; line?: number | null }>;
   readGuideProgress(documentsId: string, path: string): Promise<GuideProgress>;
   recordGuideAttempt(documentsId: string, path: string, topic: string, correct: number, total: number): Promise<GuideProgress>;
+  /** Keep a guide's own `localStorage` in its sidecar, so it outlives the app. */
+  writeGuideStorage(documentsId: string, path: string, storage: Record<string, string>): Promise<unknown>;
   startLecture(spaceId: string, title: string): Promise<StartLectureResult>;
   listLectures(spaceId: string): Promise<Lecture[]>;
   plynnList(): Promise<{ available: boolean; folder: string; meetings: PlynnMeeting[] }>;
@@ -656,6 +659,10 @@ export type Api = TeamApi & LabApi & {
   syncMemoryRepo(owner: MemoryRepoOwner): Promise<MemoryRepoState>;
   /** `memory.repo.importClaude` — the imported Claude memory as entries; `dryRun` only counts. */
   importClaudeMemory(owner: MemoryRepoOwner, dryRun: boolean): Promise<MemoryClaudeImport>;
+  /** `memory.repo.claudeBackfill` — what bringing in Claude's own memory last did; `run` runs it now. */
+  claudeBackfill(profileId: string, run: boolean): Promise<MemoryClaudeBackfill>;
+  /** `memory.repo.setClaudeProject` — a Claude project placed by hand (a space's id, or "skip"), then a run. */
+  setClaudeProject(profileId: string, project: string, into: string): Promise<MemoryClaudeBackfill>;
   /** `mcp.tools.list` — triggers a lazy connect. A connect failure comes back as `error`, not a throw:
    *  the list is still a renderable result. */
   mcpToolsList(id: string): Promise<{ tools: McpServer["tools"]; error: string | null }>;
@@ -1699,6 +1706,8 @@ export type AppState = TeamSlice & LabSlice & {
   /** Profile memory docs at their defining scope, by profile id (W4: the Library page's
    *  "Edit in profile" editor). Absent = never fetched. */
   profileMemory: Record<string, ProfileMemoryDoc>;
+  /** Each profile's Learn from sessions switch, by profile id. Absent = never fetched. */
+  memoryLearning: Record<string, boolean>;
   /** The profile's memory repo by profile id: null = none attached, absent = never fetched. */
   profileMemoryRepo: Record<string, MemoryRepoState | null>;
   /** The memory repos a space's sessions use, by space id (each with `inheritedHere`). */
@@ -2568,6 +2577,8 @@ export type AppState = TeamSlice & LabSlice & {
   previewInfo(): Promise<{ port: number; token: string }>;
   readGuideProgress(documentsId: string, path: string): Promise<GuideProgress>;
   recordGuideAttempt(documentsId: string, path: string, topic: string, correct: number, total: number): Promise<GuideProgress>;
+  /** Keep a guide's own `localStorage` in its sidecar, so it outlives the app. */
+  writeGuideStorage(documentsId: string, path: string, storage: Record<string, string>): Promise<unknown>;
   plynnList(): Promise<{ available: boolean; folder: string; meetings: PlynnMeeting[] }>;
   /** Import into `spaceId`, else the current space; the server opens the first imported file, so
    *  the pane follows. */
@@ -2961,6 +2972,10 @@ export type AppState = TeamSlice & LabSlice & {
   saveProfileMemoryDoc(profileId: string, doc: string): Promise<void>;
   /** THIS space's inheritance override for the profile doc — never a write to the doc itself. */
   setProfileDocEnabled(spaceId: string, enabled: boolean): Promise<void>;
+  /** Fetch a profile's Learn from sessions switch into `memoryLearning`. */
+  refreshMemoryLearning(profileId: string): Promise<void>;
+  /** Turn Realm's learning from sessions (and its tidying) on or off for every space of the profile. */
+  setMemoryLearning(profileId: string, on: boolean): Promise<void>;
   /** Fetch a profile's memory repo into `profileMemoryRepo`. */
   refreshProfileMemoryRepo(profileId: string): Promise<void>;
   /** Fetch the memory repos a space's sessions use into `spaceMemoryRepos`. */
@@ -2987,6 +3002,10 @@ export type AppState = TeamSlice & LabSlice & {
   syncMemoryRepo(owner: MemoryRepoOwner): Promise<void>;
   /** Import the Claude memory Realm copied — `dryRun` for the preview count — answering what it adds. */
   importClaudeMemory(owner: MemoryRepoOwner, dryRun: boolean): Promise<MemoryClaudeImport>;
+  /** What bringing in Claude's own memory last did for a profile's repo — or, with `run`, does now. */
+  claudeBackfill(profileId: string, run: boolean): Promise<MemoryClaudeBackfill>;
+  /** Bring a Claude project's memory into a space of the profile, or leave it out ("skip"), at once. */
+  setClaudeProject(profileId: string, project: string, into: string): Promise<MemoryClaudeBackfill>;
   /** Narrow (or, with `null`, reset) this space's allowlist for one server. */
   setMcpAllowedTools(spaceId: string, id: string, tools: string[] | null): Promise<void>;
   /** Refresh one server's cached tools. Never throws for a connect failure — that lands in
@@ -4431,7 +4450,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null, viewer: null,
       machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
-      profileMemory: {}, profileMemoryRepo: {}, spaceMemoryRepos: {}, memoryRepoLog: {},
+      profileMemory: {}, memoryLearning: {}, profileMemoryRepo: {}, spaceMemoryRepos: {}, memoryRepoLog: {},
       mcpCalls: [], mcpCallsFilter: {}, mcpCallsHasMore: false,
       notifications: [], notificationsUnread: 0, desktopNotifications: true, terminalHistory: TERMINALS_HISTORY_DEFAULT, terminalCursorBlink: TERMINALS_CURSOR_BLINK_DEFAULT, terminalCursorStyle: TERMINALS_CURSOR_STYLE_DEFAULT, terminalColors: TERMINALS_COLORS_DEFAULT, terminalDock: TERMINALS_DOCK_DEFAULT, preventSleep: POWER_PREVENT_SLEEP_DEFAULT, linksOpenIn: LINKS_OPEN_IN_DEFAULT, openFilesIn: null, editors: [], caret: CARET_DEFAULT, soundCues: true, notificationRelay: { imessage: "", slackWebhook: "" }, soundVolume: DEFAULT_NOTIFICATION_SOUND_VOLUME, paneHistory: {}, windowTrail: EMPTY_TRAIL, keyboardFor: null, iphoneNotifications: true, remote: null, remoteError: null, pairRequest: null,
 
@@ -6916,6 +6935,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const state = await api.setProfileDocEnabled(spaceId, enabled);
         set({ spaceMemory: { ...get().spaceMemory, [spaceId]: state } });
       },
+      async refreshMemoryLearning(profileId) {
+        const on = memoryLearningOn(await api.getSetting(memoryLearningKey(profileId)));
+        set({ memoryLearning: { ...get().memoryLearning, [profileId]: on } });
+      },
+      async setMemoryLearning(profileId, on) {
+        // The server reads this row before every pass, so the switch is in force once it is written.
+        await api.setSetting(memoryLearningKey(profileId), on);
+        set({ memoryLearning: { ...get().memoryLearning, [profileId]: on } });
+      },
       async refreshProfileMemoryRepo(profileId) {
         const [repo] = await api.getMemoryRepos({ profileId });
         set({ profileMemoryRepo: { ...get().profileMemoryRepo, [profileId]: repo ?? null } });
@@ -6955,6 +6983,18 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async importClaudeMemory(owner, dryRun) {
         const r = await api.importClaudeMemory(owner, dryRun);
         if (!dryRun && r.sha !== null) await Promise.all([get().refreshMemoryRepoLog(owner), get().refreshMemoryRepoOf(owner)]);
+        return r;
+      },
+      async claudeBackfill(profileId, run) {
+        const r = await api.claudeBackfill(profileId, run);
+        const owner = { scope: "profile" as const, id: profileId };
+        if (run && r.sha !== null) await Promise.all([get().refreshMemoryRepoLog(owner), get().refreshMemoryRepoOf(owner)]);
+        return r;
+      },
+      async setClaudeProject(profileId, project, into) {
+        const r = await api.setClaudeProject(profileId, project, into);
+        const owner = { scope: "profile" as const, id: profileId };
+        if (r.sha !== null) await Promise.all([get().refreshMemoryRepoLog(owner), get().refreshMemoryRepoOf(owner)]);
         return r;
       },
       async refreshMemoryRepoOf(owner) {
@@ -7363,6 +7403,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       previewInfo: () => api.previewInfo(),
       readGuideProgress: (documentsId, path) => api.readGuideProgress(documentsId, path),
       recordGuideAttempt: (documentsId, path, topic, correct, total) => api.recordGuideAttempt(documentsId, path, topic, correct, total),
+      writeGuideStorage: (documentsId, path, storage) => api.writeGuideStorage(documentsId, path, storage),
       plynnList: () => api.plynnList(),
       async plynnImport(files, spaceId = null) {
         const sid = spaceFor(spaceId); if (!sid) throw new Error("no space to import into");

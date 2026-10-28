@@ -82,6 +82,24 @@ export function pickAcpOption(decision: PermissionDecision, options: readonly un
  */
 
 /**
+ * The block Realm's per-session context rides in, at the top of the first prompt an ACP agent process
+ * is sent (`AGENT_MEMORY_CHANNEL` "firstPrompt").
+ *
+ * ACP `session/new` is `{cwd, mcpServers}` and nothing else, so there is no system prompt to put
+ * `StartOptions.systemContext` in. The first `session/prompt` is the one place every ACP agent reads
+ * before it acts. The block is a text block of its own, ahead of the user's blocks and never merged into
+ * them, and it is tagged and introduced so the model reads it as context the app supplied rather than as
+ * something the user said. What the user typed travels in the blocks after it exactly as before.
+ */
+export function acpContextBlock(context: string): Bag {
+  return { type: "text", text: `<realm-context>\n${ACP_CONTEXT_PREFACE}\n\n${context}\n</realm-context>` };
+}
+const ACP_CONTEXT_PREFACE =
+  "Realm, the app this session runs in, adds this block at the start of the session because this agent takes no system prompt from it. " +
+  "It is standing context for the whole session, as a system prompt would carry it, and not part of the user's message, which follows it: " +
+  "answer that message, and do not reply to this block on its own.";
+
+/**
  * `McpServer[]` for `session/new` / `session/load` (§2.3).
  *
  * Two shapes, and the difference between them is not cosmetic:
@@ -279,6 +297,10 @@ export class AcpAdapter implements AgentAdapter {
      *  allowed as it arrives and never becomes a card. Nothing in Realm offers an ACP session this
      *  mode (`AGENT_SUPPORTS_PERMISSION_MODES`); a scheduled task's or a team role's run is what gets it. */
     let fullAccess = opts.permissionMode === "bypassPermissions";
+    /** Whether the next prompt carries `systemContext` (see `acpContextBlock`). Armed once per handle —
+     *  one handle is one agent process — so the first prompt of a process carries it, a restart's new
+     *  process carries it again, and no later turn does. */
+    let contextOwed = Boolean(opts.systemContext);
     /** True only for the duration of `session/load`, whose replay Realm has already persisted. */
     let replaying = false;
     let disposed = false;
@@ -615,7 +637,11 @@ export class AcpAdapter implements AgentAdapter {
       send: async (m: UserMessage) => {
         await boot; // boot reports its own failures; it never rejects
         if (disposed || !rpc || !sessionId) { events.push(sessionEvent("error", { message: "session ended" })); return; }
-        const prompt = await promptFor(m);
+        const blocks = await promptFor(m);
+        // Disarmed before the request goes out, so a second send racing this one cannot carry it too.
+        const carried = contextOwed && opts.systemContext ? opts.systemContext : null;
+        contextOwed = false;
+        const prompt = carried === null ? blocks : [acpContextBlock(carried), ...blocks];
         events.push(sessionEvent("status", { status: "running" }));
         // NOT awaited: session/prompt stays pending for the entire turn, and SessionService.send() — and the
         // WebSocket call behind it — awaits this function. The turn is settled in the background instead.
@@ -633,6 +659,9 @@ export class AcpAdapter implements AgentAdapter {
           },
           (e) => {
             if (disposed) return; // the exit handler already reported why the turn died
+            // Refused outright, so there is no telling the agent kept any of it: the next prompt carries
+            // the context again rather than leaving the rest of the process without it.
+            if (carried !== null) contextOwed = true;
             for (const e of mapper.flush()) events.push(e);
             for (const c of mapper.closeOpenCalls(message(e))) events.push(c);
             events.push(sessionEvent("error", { message: message(e) }));

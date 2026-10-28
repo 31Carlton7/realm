@@ -3,7 +3,6 @@ import { PageScroll, useDissolve } from "../../components/ScrollFades";
 import { Icon } from "@realm/ui";
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../../state/store";
-import { memoryReaderNames } from "../../components/settings/MemoryPanel";
 import { MemoryDoc } from "../../components/settings/MemoryDoc";
 import { MemoryRepoRow } from "../../components/settings/MemoryRepoRow";
 import { SpaceIcon } from "../../components/SpaceIcon";
@@ -195,9 +194,10 @@ function LibraryMemoryTab({ spaceId }: { spaceId: string }) {
   const own = profileId ? profileMemory[profileId] : undefined;
   return (
     <div className="form settings-panel memory-page">
-      {/* Who reads it, from the channel table — the one sentence the page needs before anything. */}
+      {/* Who reads it — every agent a user can pick has a channel (contracts' memory.test.ts holds the
+          table to that) — the one sentence the page needs before anything. */}
       <p className="page-lede">
-        Every new {memoryReaderNames()} session starts with {profile ? `${profile.name}'s` : "its profile's"} memory, then its own space's.
+        Every new session starts with {profile ? `${profile.name}'s` : "its profile's"} memory, then its own space's.
       </p>
       {profile && (
         <>

@@ -7679,9 +7679,6 @@ select { appearance: none; padding-right: 22px;
 .memory-fact-label { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13.5px; color: var(--rl-text-bright); }
 .memory-fact-sub { font-size: 12.5px; line-height: 1.45; color: var(--rl-text-dim); }
 .memory-fact .env-path { color: var(--rl-text-dim); word-break: normal; overflow-wrap: anywhere; }
-/* Who reads it: each agent's mark and name, inline — identities, not pills. */
-.memory-readers { flex: none; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px 16px; }
-.memory-reader { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--rl-text-bright); }
 .memory-path-row .env-path { word-break: normal; overflow-wrap: anywhere; }
 /* The memory repo's rows. Its state is words, toned only where a save would be refused. */
 .memory-repo-actions { flex: none; display: flex; align-items: center; gap: 8px; }
@@ -7692,6 +7689,15 @@ select { appearance: none; padding-right: 22px;
 .memory-repo-log li { display: flex; align-items: baseline; gap: 12px; font-size: 13px; line-height: 18px; }
 .memory-repo-log-subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-bright); }
 .memory-repo-log-when { flex: none; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+/* What Claude memory stays out: a long project name over its reason, which wraps rather than pushes. */
+.memory-left-out li { flex-direction: column; align-items: stretch; gap: 0; }
+.memory-left-out .memory-repo-log-when { white-space: normal; }
+/* A Claude project to place: its folder over why it waits, its size — so the big ones stand out — and
+   the one select that says where its memory goes. The name yields first; the size and select keep theirs. */
+.memory-left-out li.memory-claude-project { flex-direction: row; align-items: center; gap: 12px; }
+.memory-claude-project-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.memory-left-out .memory-claude-project-files { white-space: nowrap; }
+.memory-claude-project select { flex: none; max-width: 180px; }
 /* Sync: the remote's URL typed in place, the privacy question asked in place, and the one command
    that resolves a diverged repo — copyable, never run by Realm. */
 .memory-repo .env-path { word-break: normal; overflow-wrap: anywhere; }
@@ -9545,6 +9551,14 @@ span.documents-name:hover { background: none; }
 
 /* ---- Plan 22: previews, lecture sheets ---------------------------------------------------- */
 .documents-frame { width: 100%; height: 100%; border: 0; background: var(--rl-panel); display: block; }
+/* The guides kept alive behind the other tabs (DocumentsPane). The one shown takes the editor's place
+   in the pane's column; the others are stacked in the same cell, out of sight. With none shown the
+   layer leaves the column and lies over the pane, still laid out: a frame given no size, or hidden by
+   display, can come back with its page re-laid and its reader somewhere else. */
+.documents-guides { flex: 1 1 auto; min-height: 0; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); }
+.documents-guides:not([data-shown]) { position: absolute; inset: 0; visibility: hidden; pointer-events: none; }
+.documents-guide { grid-area: 1 / 1; min-height: 0; }
+.documents-guide:not([data-shown]) { visibility: hidden; pointer-events: none; }
 
 /* ── PDFs (PdfView.tsx) ──────────────────────────────────────────────────
    Pages are white paper on the PANE's own ground — what every other document stands on — not on the

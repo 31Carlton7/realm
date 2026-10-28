@@ -128,9 +128,19 @@ const codexSources: MemorySources = {
   ],
 };
 const cursorSources: MemorySources = {
-  agent: "acp:cursor", channel: "none", basis: "none",
-  note: memorySupportNote("acp:cursor"), realmMemoryInjected: false, repoIndexInjected: false, sources: [],
+  agent: "acp:cursor", channel: "firstPrompt", basis: "none",
+  note: memorySupportNote("acp:cursor"), realmMemoryInjected: true, repoIndexInjected: false, sources: [],
 };
+
+describe("who reads it", () => {
+  it("says, in words, how each kind of agent gets it — the ACP agents too, outside the transcript", async () => {
+    await mount();
+    // THE MUTANT: the row still built from `channel !== "none"` as a list of marks — every agent, thirteen
+    // icons long — or still telling the user the ACP agents get nothing.
+    expect(screen.getByText(/Claude and Codex take it as instructions; the other agents find it at the top of their first message, which the transcript leaves out\./)).toBeInTheDocument();
+    expect(screen.queryByText(/take no per-session context/)).toBeNull();
+  });
+});
 
 describe("what each agent actually loads", () => {
   it("shows a Codex session's reported files, on the reported basis", async () => {
@@ -166,7 +176,8 @@ describe("what each agent actually loads", () => {
     await screen.findByText(/reports the exact instruction files/);
     fireEvent.change(screen.getByRole("combobox", { name: "Session" }), { target: { value: "se2" } });
     await waitFor(() => expect(api.calls).toContain("memorySources:se2"));
-    expect(await screen.findByText(/Cursor takes no per-session context/)).toBeInTheDocument();
+    expect(await screen.findByText(/Cursor takes no per-session context parameter, so Realm puts this space's memory at the top of the first message/)).toBeInTheDocument();
+    expect(screen.getByText(/This space's Realm memory travels into this session/)).toBeInTheDocument();
   });
 });
 
@@ -175,7 +186,7 @@ describe("the inherited memory repo", () => {
     const { api } = await mount();
     await waitFor(() => expect(api.calls).toContain("getMemoryRepos:space:s1"));
     expect(screen.queryByRole("switch", { name: /memory repo/ })).toBeNull();
-    expect(screen.queryByText(/reach the memory repo through/)).toBeNull();
+    expect(screen.queryByText(/reach the rest of the memory repo through/)).toBeNull();
   });
 
   it("turns the profile's repo off for THIS space only, and never touches the repo", async () => {
@@ -183,8 +194,8 @@ describe("the inherited memory repo", () => {
     const { api } = await mount({ memoryRepos: { p1: repo } });
     const sw = await screen.findByRole("switch", { name: "Use Work's memory repo in this space" });
     expect(sw).toBeChecked();
-    // Cursor and the rest take no context, and the reach line says how memory gets to them anyway.
-    expect(screen.getByText(/reach the memory repo through Realm's memory tools/)).toBeInTheDocument();
+    // The index travels with every session; the reach line says how agents get at the rest.
+    expect(screen.getByText(/reach the rest of the memory repo through Realm's memory tools/)).toBeInTheDocument();
     fireEvent.click(sw);
     // THE MUTANT: the switch detaches the profile's repo — every space of the profile loses it.
     await waitFor(() => expect(api.calls).toContain("setMemoryRepoInherited:s1=false"));

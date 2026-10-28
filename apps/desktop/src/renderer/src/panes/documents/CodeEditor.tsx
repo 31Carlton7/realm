@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { bracketMatching, indentOnInput, indentUnit } from "@codemirror/language";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
-import { Compartment, EditorState, Transaction, type Extension } from "@codemirror/state";
+import { Compartment, EditorState, Transaction, type Extension, type StateEffect } from "@codemirror/state";
 import {
   EditorView, drawSelection, dropCursor, highlightActiveLine, highlightActiveLineGutter,
   highlightSpecialChars, keymap, lineNumbers, rectangularSelection,
@@ -13,7 +13,7 @@ import type { CaretSpot } from "../../caret-geometry";
 import { codeLanguageFor, type CodeLanguage } from "./code-languages";
 import { loadCodeMode } from "./code-modes";
 import { realmCodeTheme } from "./code-theme";
-import { forgetScroll, useScrollMemory } from "../scroll-memory";
+import { forgetScroll, markOf, recallCaret, recallScroll, rememberCaret, rememberScroll } from "../scroll-memory";
 
 /**
  * Where CodeMirror's primary caret is: the head of the main selection, from CodeMirror's own layout,
@@ -85,8 +85,7 @@ export function CodeEditor({ path, text, onChange, onSave, reveal = null, scroll
   const handlers = useRef({ onChange, onSave });
   handlers.current = { onChange, onSave };
   /** The line asked for as the view is BUILT: a remembered scroll position must not be restored over
-   *  it — the restore keeps re-applying itself while the content settles — so the mark is forgotten
-   *  before the scroller is attached. */
+   *  it, so the mark is forgotten before it is read. */
   const revealAtBuild = useRef(reveal);
   revealAtBuild.current = reveal;
   /** The last document this editor produced, to recognise its own value arriving back as a prop. */
@@ -99,16 +98,20 @@ export function CodeEditor({ path, text, onChange, onSave, reveal = null, scroll
   /** The grammar and wrapping this file resolved to. Held outside the view so a rebuilt view is not
    *  left with no grammar until the path happens to change again. */
   const perFileConfig = useRef<Extension>([]);
-  const attachScroll = useScrollMemory(scrollKey);
   const readOnlyAtBuild = useRef(readOnly);
 
   useEffect(() => {
     const parent = host.current;
     if (!parent) return;
+    // Where the caret was when the reader left this file — unless they were sent to a line, which is
+    // where it goes instead. Clamped: the file may be shorter now.
+    const kept = scrollKey && revealAtBuild.current === null ? recallCaret(scrollKey) : null;
+    const end = currentText.current.length;
     const v = new EditorView({
       parent,
       state: EditorState.create({
         doc: currentText.current,
+        ...(kept ? { selection: { anchor: Math.min(kept.anchor, end), head: Math.min(kept.head, end) } } : {}),
         extensions: [
           lineNumbers(),
           highlightActiveLineGutter(),
@@ -157,6 +160,11 @@ export function CodeEditor({ path, text, onChange, onSave, reveal = null, scroll
           // The app's caret stands where CodeMirror says its own is, so it is told whenever that moves.
           EditorView.updateListener.of((u) => { if (u.selectionSet || u.docChanged || u.geometryChanged) caretMoved(); }),
           EditorView.updateListener.of((u) => {
+            if (!scrollKey || !(u.selectionSet || u.docChanged)) return;
+            const { anchor, head } = u.state.selection.main;
+            rememberCaret(scrollKey, { anchor, head });
+          }),
+          EditorView.updateListener.of((u) => {
             if (!u.docChanged) return;
             const next = u.state.doc.toString();
             lastEmitted.current = next;
@@ -169,20 +177,29 @@ export function CodeEditor({ path, text, onChange, onSave, reveal = null, scroll
     /* CodeMirror lays out its own lines, so it says where its caret is rather than being mirrored, and
        its own primary cursor steps aside while the app's is drawn there (`.cm-editor[data-rl-caret]`). */
     const offCaret = registerCaretSource(v.contentDOM, { host: v.dom, measure: () => codeMirrorCaret(v) });
-    /* The scroller is CodeMirror's own element, not one React rendered, so the hook cannot be
-       attached as a ref and is called by hand. Its ref-callback cleanup is real (it removes the
-       scroll listener and the settle loop) and is simply not in the hook's `void` return type. */
+    /* Where the reader was in this file (scroll-memory.ts), kept as CodeMirror's own snapshot of the
+       place rather than through the hook's offset. Until CodeMirror has measured its lines it guesses
+       14px a line where Realm's are about 21, so an offset written at mount lands in the guess and the
+       real heights carry the reader down the file — 1200px came back as 1770 in the live check. Its
+       snapshot is a line and the distance from it, put back after it measures. A file that has changed
+       since falls back to the offset, written once the lines are measured. A line asked for wins. */
     if (revealAtBuild.current !== null && scrollKey) forgetScroll(scrollKey);
-    const detach = (attachScroll as (el: HTMLElement | null) => (() => void) | void)(v.scrollDOM);
+    const mark = scrollKey ? recallScroll(scrollKey) : null;
+    if (mark?.snapshot && mark.snapshot.length === v.state.doc.length) v.dispatch({ effects: mark.snapshot.effect as StateEffect<unknown> });
+    else if (mark && mark.top > 0) v.requestMeasure({ read: () => null, write: () => { v.scrollDOM.scrollTop = mark.top; } });
+    const onScroll = () => {
+      if (!scrollKey) return;
+      rememberScroll(scrollKey, { ...markOf(v.scrollDOM), snapshot: { effect: v.scrollSnapshot(), length: v.state.doc.length } });
+    };
+    v.scrollDOM.addEventListener("scroll", onScroll, { passive: true });
     return () => {
-      // `void` in the hook's return type, a real cleanup at runtime — checked rather than cast twice.
-      if (typeof detach === "function") detach();
+      v.scrollDOM.removeEventListener("scroll", onScroll);
       offCaret();
       v.destroy();
       view.current = null;
       lastEmitted.current = null;
     };
-  }, [attachScroll]);
+  }, [scrollKey]);
 
   // ---- the grammar, fetched for this file only -----------------------------------------------------
   useEffect(() => {

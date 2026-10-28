@@ -189,7 +189,7 @@ describe("memory over rpc", () => {
     c.close();
   });
 
-  it("memory.sources for claude models the hierarchy; for cursor it is a stated nothing", async () => {
+  it("memory.sources for claude models the hierarchy; for cursor it names the first-prompt channel and no files", async () => {
     const { c, spA, claudeDir } = await boot();
     mkdirSync(claudeDir, { recursive: true });
     writeFileSync(join(claudeDir, "CLAUDE.md"), "user memory");
@@ -199,7 +199,7 @@ describe("memory over rpc", () => {
     expect(srcCl).toMatchObject({ agent: "claude", channel: "systemPrompt", basis: "modeled" });
     expect(srcCl.sources.find((s: Any) => s.path === join(claudeDir, "CLAUDE.md"))).toMatchObject({ origin: "user", exists: true, via: "cli" });
     const srcCu = (await c.call("memory.sources", { sessionId: cu.id })).result;
-    expect(srcCu).toMatchObject({ agent: "acp:cursor", channel: "none", basis: "none", sources: [] });
+    expect(srcCu).toMatchObject({ agent: "acp:cursor", channel: "firstPrompt", basis: "none", sources: [] });
     c.close();
   });
 
@@ -241,18 +241,18 @@ describe("memory over rpc", () => {
     const settings = new SettingsStore(app.db);
     const before = new MemoryService({ home, claudeDir, settings, environments: new EnvironmentsStore(app.db), scopes: { profileIdOf: () => spA.profileId } });
     const preamble = capabilitiesContext(app.gateway.realmProvidersFor(cl.id, spA.id).filter((n) => n !== MEMORY_PROVIDER_NAME));
-    for (const [kind, start] of [["claude", claude.starts[0]!], ["codex", codex.starts[0]!]] as const) {
+    // Cursor's is the block at the top of its first prompt, made the same way.
+    for (const [kind, start] of [["claude", claude.starts[0]!], ["codex", codex.starts[0]!], ["acp:cursor", cursor.starts[0]!]] as const) {
       expect(start.systemContext).not.toContain("# Memory repo");
       expect(start.systemContext).not.toContain("memory_save");
       expect(start.systemContext).toBe(`${preamble}\n\n${before.systemContextFor({ spaceId: spA.id, kind, cwd: start.cwd, skillsInjected: false })}`);
     }
-    expect(cursor.starts[0]!.systemContext).toBeUndefined();
     const tools = (await (await gatewayClient(cursor.starts[0]!)).listTools()).tools.map((t) => t.name);
     expect(tools.some((n) => n.startsWith(`${MEMORY_PROVIDER_NAME}__`))).toBe(false);
     c.close();
   });
 
-  it("with a repo: Claude and Codex starts carry MEMORY.md between the two documents; Cursor gets the tools", async () => {
+  it("with a repo: every start carries MEMORY.md between the two documents; Cursor's first prompt does, and it gets the tools", async () => {
     const { c, spA, spB, claude, codex, cursor } = await boot();
     await c.call("memory.setProfile", { profileId: spA.profileId, doc: "PROFILE_DOC" });
     await c.call("memory.set", { spaceId: spA.id, doc: "SPACE_DOC" });
@@ -260,10 +260,10 @@ describe("memory over rpc", () => {
     expect(made).toMatchObject({ valid: true, clean: true, scope: "profile" });
     await waitFor(() => [spA.id, spB.id].every((sid) => c.events.some((e: Any) => e.event === "memory.changed" && e.payload.spaceId === sid)));
 
-    // Cursor has no context channel; it learns and saves through the gateway, the only thing it receives.
+    // Cursor reads the index at the top of its first prompt, and saves through the gateway.
     const cu = await startSession(c, spA.id, "acp:cursor");
     await waitFor(() => cursor.starts.length === 1);
-    expect(cursor.starts[0]!.systemContext).toBeUndefined();
+    expect(cursor.starts[0]!.systemContext).toContain(`# Memory repo\n\nAgents keep what they learn about the user in a memory repo at ${made.path}`);
     const client = await gatewayClient(cursor.starts[0]!);
     const names = (await client.listTools()).tools.map((t) => t.name).filter((n) => n.startsWith(`${MEMORY_PROVIDER_NAME}__`));
     expect(names).toEqual(["memory_index", "memory_read", "memory_search", "memory_save", "memory_remove", "memory_write_file"].map((t) => `${MEMORY_PROVIDER_NAME}__${t}`));
@@ -284,7 +284,7 @@ describe("memory over rpc", () => {
     }
     const srcCl = (await c.call("memory.sources", { sessionId: (await startSession(c, spA.id, "claude")).id })).result;
     expect(srcCl.repoIndexInjected).toBe(true);
-    expect((await c.call("memory.sources", { sessionId: cu.id })).result.repoIndexInjected).toBe(false);
+    expect((await c.call("memory.sources", { sessionId: cu.id })).result.repoIndexInjected).toBe(true);
     c.close();
   });
 

@@ -294,6 +294,10 @@ export class SessionService {
     /** Teammates the person added (`delegation/teammates.ts`): what this session's agent is told about
      *  them on its next message, spent by asking. Optional — without it nothing is ever added. */
     teammates?: { joinedNote(sessionId: string): string };
+    /** Where a session's engine keeps its own memory (`memory/claude-redirect.ts`): the space's folder
+     *  of the user's memory repo, and what is committed when a Claude turn settles. Optional — without
+     *  it every engine keeps its memory where it always has. */
+    agentMemory?: { dirFor(spaceId: string): string | null; turnSettled(s: { id: string; spaceId: string; title: string }): Promise<void> };
   }) {
     // Unref'd: a sweep with nothing to do must not be what keeps a finished process alive.
     this.reapTimer = setInterval(() => { void this.reapIdle().catch(() => {}); }, REAP_SWEEP_MS);
@@ -1046,6 +1050,8 @@ export class SessionService {
       if (term && keepTerminal) { this.d.items.moveToSpace(term.id, spaceId); this.d.terminals.moveToSpace(term.refId, spaceId); }
       this.d.db.exec("COMMIT");
     } catch (e) { this.d.db.exec("ROLLBACK"); throw e; }
+    // The memory its starts were frozen to was the origin space's: the next start composes the destination's.
+    this.d.memory.forgetSession(id);
     // The origin space drops the item and the destination picks it up, the same two-broadcast shape
     // `delete`/`create` each use for their own single side of this.
     this.d.rpc.broadcast("items.changed", { spaceId: s.spaceId });
@@ -1123,6 +1129,8 @@ export class SessionService {
     this.d.browserAgents?.release(id);
     // And its carried handoff context, plus any retry still on a timer.
     this.d.failover?.release(id);
+    // And the memory block its starts were frozen to.
+    this.d.memory.forgetSession(id);
     // Nothing left to send into. No broadcast: the session's own row is going away with it.
     this.queued.delete(id);
     clearTimeout(this.queueHolds.get(id)?.timer);
@@ -1580,9 +1588,10 @@ export class SessionService {
    *
    *  `extraWritableRoots: [s.cwd]` because the session's own checkout must be writable even when it is
    *  not one of the space's registered environments — a session pointed at a folder Realm has not
-   *  catalogued would otherwise be confined out of the very directory it was opened on. */
-  private wrapFor(s: Session): SpawnWrap | undefined {
-    return sandboxWrapFor(this.d.sandbox, { spaceId: s.spaceId, extraWritableRoots: [s.cwd] });
+   *  catalogued would otherwise be confined out of the very directory it was opened on. The folder
+   *  its engine keeps memory in is writable for the same reason. */
+  private wrapFor(s: Session, memoryDir: string | null = null): SpawnWrap | undefined {
+    return sandboxWrapFor(this.d.sandbox, { spaceId: s.spaceId, extraWritableRoots: memoryDir ? [s.cwd, memoryDir] : [s.cwd] });
   }
 
   private ensureLive(id: string): AgentHandle {
@@ -1594,11 +1603,14 @@ export class SessionService {
     const s = this.get(id);
     const adapter = this.d.adapters[s.agentKind];
     if (!adapter) throw new RpcError("AGENT_UNAVAILABLE", `${s.agentKind} is not registered`);
+    // Realm keeps this space's memory in the user's repo: Claude's own auto-memory goes to the space's
+    // folder of it, and Codex's own memories are off for the thread, so no engine keeps a second store.
+    const memoryDir = this.d.agentMemory?.dirFor(s.spaceId) ?? null;
     // The space's Seatbelt policy, resolved before anything else is allocated so a refusal costs
     // nothing to unwind. `undefined` for a space on `off`, which is what this release ships: no
     // wrapper is installed at all, and every adapter below spawns exactly the argv it always did.
     // See `TerminalService.wrapFor` for the same reasoning at the other spawn site.
-    const wrap = this.wrapFor(s);
+    const wrap = this.wrapFor(s, memoryDir);
     // Codex, and only Codex, refuses rather than running unconfined. `CodexAdapter.start` throws on
     // a `wrap` it cannot honour, and this is the same refusal one step earlier — before a gateway
     // token has been minted for a session that will not exist, and as an `RpcError` whose code the
@@ -1622,7 +1634,8 @@ export class SessionService {
     // injection above is active on a Claude session — the CLAUDE.md content that `settingSources: []`
     // would otherwise silently drop. `skills !== undefined` is the same fact the adapter keys the
     // isolation on, so the re-injection can never disagree with it.
-    const baseContext = this.d.memory.systemContextFor({ spaceId: s.spaceId, kind: s.agentKind, cwd: s.cwd, skillsInjected: skills !== undefined });
+    // Frozen per session (`contextForSession`): a restart gets the bytes the first start did.
+    const baseContext = this.d.memory.contextForSession(id, { spaceId: s.spaceId, kind: s.agentKind, cwd: s.cwd, skillsInjected: skills !== undefined });
     // A delegated browser-agent child (W5) additionally carries its browsing-policy preamble —
     // appended AFTER the space's memory so the policy is the last (most binding) thing the agent
     // reads. Undefined for every ordinary session, leaving `systemContext` byte-identical to before.
@@ -1638,9 +1651,12 @@ export class SessionService {
     // Skipped for a session that already carries `agentContext` — a delegated child, a reviewer, an
     // unattended worker. Each of those was spawned with a brief written for one job, and generic advice
     // about spawning MORE agents beside a brief that just told it how deep it may go is noise at best.
-    // An agent with no context channel at all — Cursor's ACP session/new takes no per-session context —
-    // is told the same thing by the one thing it does connect to: the gateway's own `initialize`
-    // answer, as the server's instructions. Never both, so Claude does not read it twice.
+    // Every agent with a context channel gets it in `systemContext`, in this one order: Claude in its
+    // system prompt, Codex in its developer instructions, and the ACP agents at the top of the first
+    // prompt each agent process is sent (`firstPrompt`) — a route every one of them reads, where an MCP
+    // server's `instructions` reach the model only if the client chooses to pass them on. Only an agent
+    // with no channel at all is told through the gateway's own `initialize` answer instead. Never both,
+    // so no agent reads it twice.
     const preamble = agentContext ? undefined : capabilitiesContext(this.d.gateway.realmProvidersFor(id, s.spaceId));
     const noChannel = AGENT_MEMORY_CHANNEL[s.agentKind] === "none";
     const capabilities = noChannel ? undefined : preamble;
@@ -1666,6 +1682,7 @@ export class SessionService {
       cwd: s.cwd, model: s.model, effort: s.effort, permissionMode: s.permissionMode, fastMode: s.fastMode, mcpServers, resume: s.providerSessionId,
       skills,
       systemContext,
+      ...(memoryDir ? { memoryDirectory: memoryDir } : {}),
       // The port block, plus `REALM_SANDBOX*` — a statement of the posture this process was started
       // under, for a log line or a bug report to read. Nothing reads them back.
       env: { ...(env ? portEnv(env) : {}), ...this.d.sandbox?.env(s.spaceId) },
@@ -1955,6 +1972,9 @@ export class SessionService {
       // A turn ending is the conversation moving even when it said nothing (a tool-only turn, an
       // error): the row comes up to say it is done.
       if (settled) this.d.sessions.touchActivity(id, ev.ts);
+      // What Claude remembered this turn is committed as the turn ends, however it ended, in a commit
+      // that names the session.
+      if (settled && before.agentKind === "claude") void this.d.agentMemory?.turnSettled(before);
       // A SETTLE, not any status: the transition out of a live state is the moment the transcript
       // stops moving, and it is the only one worth summarizing. Fired after the events of the turn
       // are persisted below on their own passes — the summary reads the log, so it must not run

@@ -56,6 +56,13 @@ export type StartOptions = {
    *  engine with no such concept is silence, which the prompter reads as "no switch to offer". */
   fastMode?: boolean;
   systemContext?: string;
+  /**
+   * Realm keeps this session's memory, in this folder of the user's memory repo. Claude writes its
+   * own auto-memory here instead of under `~/.claude/projects` (the `autoMemoryDirectory` setting,
+   * per invocation); Codex turns its own memories off for the thread, so it keeps no second store.
+   * Absent, every engine keeps its memory where it always has.
+   */
+  memoryDirectory?: string;
   /** Since Plan 9 W3, `apps/server` always sends exactly ONE entry: the gateway's own `http` endpoint —
    *  enablement or not, `fake` included (its adapter simply never reads it). Only tests pass `[]`. */
   mcpServers: McpServerConfig[];

@@ -4,6 +4,7 @@ import type { Operation } from "react-datasheet-grid/dist/types";
 import "react-datasheet-grid/dist/style.css";
 import { columnCount, columnName, delimiterFor, parseSheet, serializeSheet, type Sheet } from "./csv-model";
 import { evaluateSheet, isFormula } from "./formulas";
+import { useScrollMemory } from "../scroll-memory";
 
 /**
  * The spreadsheet editor (Plan 17 W3): a DOM grid over the CSV model, formulas computed at display
@@ -17,8 +18,10 @@ import { evaluateSheet, isFormula } from "./formulas";
  * the repo's marked@18) + a carousel. Under the 2 MiB document ceiling the DOM grid's virtualization
  * is ample, and being DOM keeps it drivable by jsdom tests and the live check alike.
  */
-export function SheetEditor({ path, text, onChange }: {
+export function SheetEditor({ path, text, onChange, scrollKey = null }: {
   path: string; text: string; onChange: (text: string) => void;
+  /** Where the reader was in this sheet, across the unmount a switch away causes (scroll-memory.ts). */
+  scrollKey?: string | null;
 }) {
   const delimiter = delimiterFor(path);
   /** The last text this editor emitted — its own value coming back down must not re-parse (same
@@ -107,6 +110,17 @@ export function SheetEditor({ path, text, onChange }: {
     setGridHeight(Math.max(120, el.clientHeight));
     return () => ro.disconnect();
   }, []);
+
+  /* The grid's scroller is the library's own element, not one rendered here, so the memory is attached
+     by hand once it exists — as the code editor attaches it to CodeMirror's. */
+  const attachScroll = useScrollMemory(scrollKey);
+  useEffect(() => {
+    const scroller = gridWrap.current?.querySelector<HTMLElement>(".dsg-container") ?? null;
+    if (!scroller) return;
+    // `void` in the hook's return type, a real cleanup at runtime.
+    const detach = (attachScroll as (el: HTMLElement | null) => (() => void) | void)(scroller);
+    return () => { if (typeof detach === "function") detach(); };
+  }, [attachScroll]);
 
   const activeRaw = active ? sheet.rows[active.row]?.[active.col] ?? "" : "";
   return (

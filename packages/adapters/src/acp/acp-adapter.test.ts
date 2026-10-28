@@ -5,7 +5,7 @@ import { mkdir, readFile, realpath, symlink, truncate, writeFile } from "node:fs
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import type { SessionEvent, SessionEventOf, SessionEventType } from "@realm/contracts";
-import { AcpAdapter, acpBootFailureMessage, acpMcpServers, MAX_FS_READ_BYTES, pickAcpOption, sliceLines, type AcpAgentSpec } from "./acp-adapter";
+import { AcpAdapter, acpBootFailureMessage, acpContextBlock, acpMcpServers, MAX_FS_READ_BYTES, pickAcpOption, sliceLines, type AcpAgentSpec } from "./acp-adapter";
 import { JsonRpcCallError } from "../jsonrpc/stdio";
 import type { AgentHandle, StartOptions } from "../types";
 
@@ -469,6 +469,70 @@ describe("AcpAdapter", () => {
     await turn(handle, evs, "hi");
     expect(texts(evs)).toEqual(["Hello"]);
     await handle.dispose();
+  });
+
+  describe("Realm's context at the top of the first prompt (AGENT_MEMORY_CHANNEL firstPrompt)", () => {
+    const CONTEXT = "# Space memory\n\nMEMORY_MARKER_4417: the user deploys from main.";
+    /** The `prompt` array the agent received, as its ECHO turn sends it back. */
+    const echoed = (evs: SessionEvent[], n: number) => JSON.parse(texts(evs)[n]!) as { type: string; text?: string }[];
+    const carries = (blocks: { text?: string }[]) => blocks.filter((b) => b.text?.includes("MEMORY_MARKER_4417")).length;
+
+    it("rides once, as its own tagged block ahead of the user's words, and never on a later turn", async () => {
+      const { handle, evs } = await booted({ systemContext: CONTEXT });
+      await turn(handle, evs, "ECHO first");
+      await turn(handle, evs, "ECHO second");
+      const [first, second] = [echoed(evs, 0), echoed(evs, 1)];
+      expect(first).toHaveLength(2);
+      expect(first[0]).toEqual(acpContextBlock(CONTEXT));
+      expect(first[0]!.text).toMatch(/^<realm-context>\n[^\n]*not part of the user's message[^\n]*\n\n# Space memory\n\nMEMORY_MARKER_4417[^\n]*\n<\/realm-context>$/);
+      // The user's own words: a block of their own, byte for byte what was typed.
+      expect(first[1]).toEqual({ type: "text", text: "ECHO first" });
+      // THE MUTANT: never disarm. Every turn re-sends the whole block and the conversation fills with it.
+      expect(second).toEqual([{ type: "text", text: "ECHO second" }]);
+      await handle.dispose();
+    });
+
+    it("rides again in a restarted process — a new handle resuming the same conversation", async () => {
+      const a = await booted({ systemContext: CONTEXT });
+      await turn(a.handle, a.evs, "ECHO before");
+      await a.handle.dispose();
+      const b = await booted({ systemContext: CONTEXT, resume: "sess_prev" });
+      expect(of(b.evs, "init")[0]!.payload.resumeOutcome).toBe("continued");
+      await turn(b.handle, b.evs, "ECHO after");
+      await turn(b.handle, b.evs, "ECHO later");
+      expect(carries(echoed(a.evs, 0))).toBe(1);
+      expect(carries(echoed(b.evs, 0))).toBe(1);
+      expect(carries(echoed(b.evs, 1))).toBe(0);
+      await b.handle.dispose();
+    });
+
+    it("sends nothing extra when there is no context", async () => {
+      for (const systemContext of [undefined, ""]) {
+        const { handle, evs } = await booted(systemContext === undefined ? {} : { systemContext });
+        await turn(handle, evs, "ECHO plain");
+        expect(echoed(evs, 0)).toEqual([{ type: "text", text: "ECHO plain" }]);
+        await handle.dispose();
+      }
+    });
+
+    it("stays owed when the agent refuses the first prompt outright", async () => {
+      const { handle, evs } = await booted({ systemContext: CONTEXT });
+      await turn(handle, evs, "FAIL");
+      expect(errors(evs)).toEqual(["prompt exploded"]);
+      await turn(handle, evs, "ECHO retry");
+      await turn(handle, evs, "ECHO again");
+      expect(carries(echoed(evs, 0))).toBe(1);
+      expect(carries(echoed(evs, 1))).toBe(0);
+      await handle.dispose();
+    });
+
+    it("leads an attachment-only first message too, with the attachments still the whole of what the user sent", async () => {
+      const { handle, evs } = await booted({ systemContext: CONTEXT });
+      await handle.send({ text: "", attachments: [{ path: "/tmp/notes.txt", mime: "text/plain" }] });
+      await waitFor(() => expect(texts(evs)).toHaveLength(1));
+      expect(echoed(evs, 0)).toEqual([acpContextBlock(CONTEXT), { type: "resource_link", uri: "file:///tmp/notes.txt", name: "notes.txt", mimeType: "text/plain" }]);
+      await handle.dispose();
+    });
   });
 
   it("surfaces an auth failure with the agent label, its auth methods and the login hint", async () => {

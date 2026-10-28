@@ -93,6 +93,24 @@ describe("realm-memory provider", () => {
     expect(text(await provider.call(ctx, "memory_save", { entry: "x", force: true }))).toMatch(/invalid arguments/);
   });
 
+  it("lifts the calling space's own folder above the same fact in another space's", async () => {
+    const { repos, provider } = harness();
+    await repos.create(P);
+    const OTHER = "01ARZ3NDEKTSV4RRFFQ69G5FS2";
+    const fact = { name: "deploy-day", description: "Deploys go out on Fridays", type: "project", body: "Deploys go out on Fridays." } as const;
+    await repos.saveSpaceMemory(SPACE, fact);
+    await repos.saveSpaceMemory(OTHER, fact);
+    const mine = repos.spaceFolderFor(SPACE)!.folder;
+    const theirs = repos.spaceFolderFor(OTHER)!.folder;
+    expect(mine).not.toBe(theirs);
+    // THE MUTANT: pass no preference — the two folders tie and either may lead.
+    const here = text(await provider.call(ctx, "memory_search", { query: "deploys fridays" })).split("\n");
+    expect(here[0]).toMatch(new RegExp(`^spaces/${mine}/`));
+    expect(here.some((l) => l.startsWith(`spaces/${theirs}/`))).toBe(true);
+    const there = text(await provider.call({ ...ctx, spaceId: OTHER }, "memory_search", { query: "deploys fridays" })).split("\n");
+    expect(there[0]).toMatch(new RegExp(`^spaces/${theirs}/`));
+  });
+
   it("with a space repo beside the profile's: writes go to the space's unless told, reads find either", async () => {
     const { repos, provider, changed } = harness();
     const prof = (await repos.create(P)).path;
@@ -109,6 +127,13 @@ describe("realm-memory provider", () => {
     // A link from the profile's index resolves without naming the repo: the space's is tried first.
     expect(text(await provider.call(ctx, "memory_read", { path: "[[prefs]]" }))).toContain("Prefers tabs");
     expect(text(await provider.call(ctx, "memory_search", { query: "tabs" }))).toMatch(/^\[profile\] prefs\.md:3: - Prefers tabs/);
+    // One ranking across both repos: the better hit leads whichever repo it is in — here the
+    // profile's, though the space's repo is searched first. THE MUTANT: concatenate per repo.
+    await provider.call(ctx, "memory_save", { entry: "The release train leaves on Mondays" });
+    const ranked = text(await provider.call(ctx, "memory_search", { query: "prefers tabs release" })).split("\n");
+    expect(ranked[0]).toMatch(/^\[profile\] prefs\.md:3: - Prefers tabs/);
+    expect(ranked.filter((l) => /^\[space\] MEMORY\.md:\d+: - .*release train/.test(l))).toHaveLength(2);
+    expect(text(await provider.call(ctx, "memory_search", { query: "release", repo: "space" }))).not.toContain("[profile]");
     const both = text(await provider.call(ctx, "memory_index", {}));
     expect(both).toContain(`The space memory repo at ${team}`);
     expect(both).toContain(`The profile memory repo at ${prof}`);
