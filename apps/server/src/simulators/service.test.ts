@@ -8,7 +8,8 @@ import { ItemsStore } from "../store/items";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
 import { SimulatorsStore } from "../store/simulators";
-import { SimulatorService, toolchainAvailable } from "./service";
+import { SimulatorService, toolchainAvailable, usedElsewhere } from "./service";
+import { SIMULATOR_IDLE_SHUTDOWN_ERROR, SIMULATOR_IDLE_SHUTDOWN_KEY } from "@realm/contracts";
 import type { Simctl } from "./simctl";
 import type { ServeSim, ServeSimStream } from "./serve-sim";
 import { iosSteps, type InputChannel, type InputStep } from "./device-input";
@@ -50,6 +51,7 @@ function bring(over: { simctl?: Partial<Simctl>; serveSim?: Partial<ServeSim>; i
     addMedia: async (udid, paths) => { calls.push(`addMedia:${udid}:${paths.join(",")}`); return { ok: true, detail: "" }; },
     pasteTo: async (udid, text) => { calls.push(`pasteTo:${udid}:${text}`); return { ok: true, detail: "" }; },
     copyFrom: async (udid) => { calls.push(`copyFrom:${udid}`); return { ok: true, text: "from the device", detail: "" }; },
+    shutdown: async (udid) => { calls.push(`shutdown:${udid}`); return { ok: true, detail: "" }; },
     ...over.simctl,
   };
   const stream: ServeSim = {
@@ -529,5 +531,150 @@ describe("the simulators Realm booted", () => {
     await settle(() => events.some((e) => e.status === "running"));
     service.forgetBoot("UDID-1");
     expect(service.realmBooted()).toEqual([]);
+  });
+});
+
+describe("shutting down a simulator Realm booted once nothing uses it", () => {
+  const MIN = 60_000;
+  const T0 = 1_800_000_000_000;
+  const launchd = (startedAt: number, udid = "D94F0FDE-7C84-42F1-A328-97EF12A91866") => ({ pid: 700, ppid: 1, tty: null, residentBytes: 1, startedAt, command: `launchd_sim /U/Library/Developer/CoreSimulator/Devices/${udid}/data/var/run/launchd_bootstrap.plist` });
+
+  async function booted(o: { booted?: boolean; table?: (t: number) => import("../resources/machine").ProcRow[]; minutes?: number } = {}) {
+    let t = T0;
+    const kept = new Map<string, unknown>(o.minutes === undefined ? [] : [[SIMULATOR_IDLE_SHUTDOWN_KEY, o.minutes]]);
+    const env = bring({ simctl: { boot: async () => ({ ok: true, detail: "", booted: o.booted ?? true }) } });
+    Object.assign((env.service as unknown as { d: object }).d, {
+      settings: { get: (k: string) => kept.get(k), set: (k: string, v: unknown) => { kept.set(k, v); } },
+      now: () => t,
+      processes: async () => (o.table ?? ((at: number) => [launchd(at)]))(T0),
+    });
+    const { simulatorId } = env.service.create({ spaceId: env.spaceId, name: "iPhone 17 Pro" });
+    env.service.start(simulatorId, "D94F0FDE-7C84-42F1-A328-97EF12A91866");
+    await settle(() => env.events.some((e) => e.status === "running"));
+    return { ...env, simulatorId, at: (minutes: number) => { t = T0 + minutes * MIN; } };
+  }
+
+  it("shuts it down after thirty minutes unseen and untouched, its stream first, and says why on its pane", async () => {
+    const { service, calls, events, simulatorId, at } = await booted();
+    at(29);
+    expect(await service.sweepIdle()).toEqual([]);
+    at(31);
+    expect(await service.sweepIdle()).toEqual(["D94F0FDE-7C84-42F1-A328-97EF12A91866"]);
+    expect(calls.filter((c) => c.startsWith("kill:") || c.startsWith("shutdown:"))).toEqual(["kill:D94F0FDE-7C84-42F1-A328-97EF12A91866", "shutdown:D94F0FDE-7C84-42F1-A328-97EF12A91866"]);
+    expect(events.at(-1)).toMatchObject({ simulatorId, status: "off", error: SIMULATOR_IDLE_SHUTDOWN_ERROR, detail: "30" });
+    // Gone, so no longer Realm's to count.
+    expect(service.realmBooted()).toEqual([]);
+  });
+
+  it("leaves one a pane is showing, however long since it booted", async () => {
+    const { service, calls, simulatorId, at } = await booted();
+    at(100);
+    service.seen(simulatorId);
+    at(101);
+    expect(await service.sweepIdle()).toEqual([]);
+    // …and the window starts again from the last time it was seen.
+    at(125);
+    expect(await service.sweepIdle()).toEqual([]);
+    at(131);
+    expect(await service.sweepIdle()).toEqual(["D94F0FDE-7C84-42F1-A328-97EF12A91866"]);
+    expect(calls.filter((c) => c.startsWith("shutdown:"))).toHaveLength(1);
+  });
+
+  it("leaves one a tool or a pane acted on within the window", async () => {
+    // An agent's simulator_tap is `input`, its read is `ax`. THE MUTANT: counting only what panes show,
+    // which would shut a simulator down under an agent driving it with no pane open.
+    const { service, simulatorId, at } = await booted();
+    at(20);
+    await service.ax(simulatorId);
+    at(45);
+    expect(await service.sweepIdle()).toEqual([]);
+    at(51);
+    expect(await service.sweepIdle()).toEqual(["D94F0FDE-7C84-42F1-A328-97EF12A91866"]);
+  });
+
+  it("never shuts down one Realm did not boot", async () => {
+    // Somebody's Xcode simulator, shown in a pane: `simctl boot` answered "already Booted".
+    const { service, calls, at } = await booted({ booted: false });
+    at(10_000);
+    expect(await service.sweepIdle()).toEqual([]);
+    expect(await service.sweepIdle({ minutes: 0 })).toEqual([]);
+    expect(calls.some((c) => c.startsWith("shutdown:"))).toBe(false);
+  });
+
+  it("never shuts down a later boot of a device Realm once booted, and forgets the old one", async () => {
+    // Shut down from Xcode and booted again an hour later: the device is somebody else's now.
+    const { service, calls, at } = await booted({ table: (t0) => [launchd(t0 + 60 * MIN)] });
+    at(100);
+    expect(await service.sweepIdle()).toEqual([]);
+    expect(calls.some((c) => c.startsWith("shutdown:"))).toBe(false);
+    expect(service.realmBooted()).toEqual([]);
+  });
+
+  it("forgets a boot whose device has gone", async () => {
+    const { service, at } = await booted({ table: () => [] });
+    at(100);
+    expect(await service.sweepIdle()).toEqual([]);
+    expect(service.realmBooted()).toEqual([]);
+  });
+
+  it("never shuts down one something else on the Mac is using", async () => {
+    // An xcodebuild an agent ran from its own shell never touches Realm's tools.
+    for (const other of [
+      "/usr/bin/xcodebuild test -scheme App -destination id=D94F0FDE-7C84-42F1-A328-97EF12A91866",
+      "/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild build -scheme App",
+      "/usr/bin/xcrun simctl io D94F0FDE-7C84-42F1-A328-97EF12A91866 recordVideo out.mov",
+    ]) {
+      const { service, at } = await booted({ table: (t0) => [launchd(t0), { pid: 800, ppid: 1, tty: null, residentBytes: 1, startedAt: t0, command: other }] });
+      at(100);
+      expect(await service.sweepIdle(), other).toEqual([]);
+    }
+  });
+
+  it("never shuts down one a pane is still bringing up", async () => {
+    const { service, simulatorId, events, at } = await booted();
+    at(100);
+    // A second start, still walking: booting, then serving.
+    (service as unknown as { set(s: object): void }).set({ ...events.at(-1)!, simulatorId, status: "serving" });
+    expect(await service.sweepIdle()).toEqual([]);
+  });
+
+  it("does nothing with the window at 0, and the Memory page's button takes an idle one now", async () => {
+    const { service, simulatorId, at } = await booted({ minutes: 0 });
+    at(10_000);
+    expect(await service.sweepIdle()).toEqual([]);
+    at(10_001);
+    expect(await service.sweepIdle({ minutes: 0 })).toEqual(["D94F0FDE-7C84-42F1-A328-97EF12A91866"]);
+    void simulatorId;
+  });
+
+  it("never lets the Memory page's button take one a pane is showing", async () => {
+    const { service, simulatorId, at } = await booted();
+    at(5);
+    service.seen(simulatorId);
+    at(6);
+    expect(await service.sweepIdle({ minutes: 0 })).toEqual([]);
+  });
+
+  it("shuts nothing down where it cannot read the Mac's processes", async () => {
+    const { service, at } = await booted();
+    (service as unknown as { d: { processes?: unknown } }).d.processes = undefined;
+    at(100);
+    expect(await service.sweepIdle()).toEqual([]);
+  });
+});
+
+describe("what counts as using a simulator besides Realm", () => {
+  const p = (pid: number, ppid: number, command: string) => ({ pid, ppid, tty: null, residentBytes: 0, startedAt: 0, command });
+  it("is not the device's own processes, whose paths carry its udid, nor its stream", () => {
+    expect(usedElsewhere("D94F0FDE-7C84-42F1-A328-97EF12A91866", [
+      p(1, 0, "launchd_sim /U/Devices/D94F0FDE-7C84-42F1-A328-97EF12A91866/data/var/run/launchd_bootstrap.plist"),
+      p(2, 1, "/U/Devices/D94F0FDE-7C84-42F1-A328-97EF12A91866/data/Containers/Bundle/Application/X/App.app/App"),
+      p(3, 99, "node /x/serve-sim D94F0FDE-7C84-42F1-A328-97EF12A91866 --port 3100"),
+    ])).toBe(false);
+  });
+  it("is anything else naming it, and any xcodebuild", () => {
+    expect(usedElsewhere("d94f0fde-7c84-42f1-a328-97ef12a91866", [p(4, 1, "/usr/bin/xcrun simctl io D94F0FDE-7C84-42F1-A328-97EF12A91866 screenshot a.png")])).toBe(true);
+    expect(usedElsewhere("D94F0FDE-7C84-42F1-A328-97EF12A91866", [p(5, 1, "/usr/bin/xcodebuild -list")])).toBe(true);
+    expect(usedElsewhere("D94F0FDE-7C84-42F1-A328-97EF12A91866", [p(6, 1, "/usr/bin/xcodebuildx")])).toBe(false);
   });
 });

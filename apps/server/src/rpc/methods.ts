@@ -844,6 +844,7 @@ export function registerMethods(d: Deps): void {
   reg("simulators.start", (p) => ({ state: d.simulators.start(p.simulatorId, p.udid, p.platform, p.physical) }));
   reg("simulators.stop", async (p) => ({ state: await d.simulators.stop(p.simulatorId) }));
   reg("simulators.close", (p) => { d.simulators.close(p.simulatorId); return { ok: true as const }; });
+  reg("simulators.seen", (p) => { d.simulators.seen(p.simulatorId); return { ok: true as const }; });
   reg("simulators.ui", async (p) => ({ ui: await d.simulators.ui(p.simulatorId) }));
   reg("simulators.setUi", (p) => d.simulators.setUi(p.simulatorId, p.option, p.value));
   reg("simulators.poke", (p) => d.simulators.poke(p.simulatorId, p.poke));

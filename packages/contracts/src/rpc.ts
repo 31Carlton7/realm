@@ -790,6 +790,9 @@ export const Methods = {
   /** Kills the STREAM. The device stays booted: it is usually somebody's Xcode session. */
   "simulators.stop": { params: z.object({ simulatorId: IdSchema }), result: z.object({ state: SimulatorStateSchema }) },
   "simulators.close": { params: z.object({ simulatorId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /** The pane is showing this device right now — sent while it is on screen, about once a minute. What
+   *  keeps a simulator Realm booted from being shut down as idle (`SIMULATOR_IDLE_SHUTDOWN_KEY`). */
+  "simulators.seen": { params: z.object({ simulatorId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /** The device's own settings, read fresh: appearance, text size, the accessibility switches. */
   "simulators.ui": { params: z.object({ simulatorId: IdSchema }), result: z.object({ ui: SimulatorUiStateSchema }) },
   /** Set one, and answer with what the device reports afterwards — never with the value that was

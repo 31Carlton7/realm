@@ -69,6 +69,17 @@ export type SimulatorDevice = z.infer<typeof SimulatorDeviceSchema>;
  *   - `failed`   — with a reason the pane can put in a sentence.
  */
 export const SimulatorStatusSchema = z.enum(["off", "booting", "serving", "running", "failed"]);
+
+/**
+ * Minutes a simulator REALM booted may go unseen and untouched before Realm shuts it down (0: never).
+ * Unseen is no pane showing it; untouched is no tool or pane acting on it. A simulator that was already
+ * running when a pane pointed at it — somebody's Xcode — is never shut down, whatever this says, and
+ * neither is one an `xcodebuild` or anything else on the Mac is using.
+ */
+export const SIMULATOR_IDLE_SHUTDOWN_KEY = "simulators.idleShutdownMinutes";
+export const SIMULATOR_IDLE_SHUTDOWN_DEFAULT = 30;
+/** The `error` word on a pane whose device Realm shut down for that reason; the pane says the rest. */
+export const SIMULATOR_IDLE_SHUTDOWN_ERROR = "idle_shutdown";
 export type SimulatorStatus = z.infer<typeof SimulatorStatusSchema>;
 
 /** The screen's own geometry, from serve-sim's `/config`. Pixels, not points — the stream is the

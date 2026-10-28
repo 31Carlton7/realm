@@ -307,6 +307,27 @@ describe("the live device", () => {
     expect(container.querySelector("img.sim-picture")).not.toBeNull();
   });
 
+  it("tells the server it is showing its device while it is on screen, and not while it is not", async () => {
+    // What keeps a simulator Realm booted from being shut down as idle under the person looking at it.
+    getState = RUNNING;
+    const store = createAppStore(fakeApi());
+    await store.getState().boot();
+    act(() => store.getState().applySimulatorState(RUNNING));
+    const seen = () => calls.filter((c) => c.method === "simulators.seen").length;
+    const before = seen();
+    const { rerender } = render(<StoreContext.Provider value={store}><SimulatorPane item={paneItem} visible={false} /></StoreContext.Provider>);
+    expect(seen()).toBe(before);
+    rerender(<StoreContext.Provider value={store}><SimulatorPane item={paneItem} visible /></StoreContext.Provider>);
+    await waitFor(() => expect(seen()).toBe(before + 1));
+    expect(calls.filter((c) => c.method === "simulators.seen").at(-1)!.params).toEqual({ simulatorId: "sim-1" });
+  });
+
+  it("says Realm shut its device down for nothing using it, and offers it again", async () => {
+    await mount({ ...off("sim-1"), udid: "UDID-1", error: "idle_shutdown", detail: "30" });
+    expect(await screen.findByText(/Realm shut this simulator down after 30 minutes with nothing using it/)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /iPhone 17 Pro/ })).toBeInTheDocument();
+  });
+
   it("a click on the screen is a touch on the device, in its own coordinates", async () => {
     const { container } = await mount(RUNNING);
     const surface = container.querySelector(".sim-screen") as HTMLElement;

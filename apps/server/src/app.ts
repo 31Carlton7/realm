@@ -970,7 +970,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     (udid, error) => simulatorsLate?.runnerStopped(udid, error),
     (udid, stills) => simulatorsLate?.pictureChanged(udid, stills),
   ) ?? opts.simulator?.physical;
-  const simulators = new SimulatorService({ rpc, spaces, items, simulators: simulatorsStore, settings, ...opts.simulator, physical: physicalDevices });
+  /* This Mac's processes and memory (`resources/machine.ts`): the resource report reads them, and so does
+     the simulator sweep before it shuts anything down. A quiet, empty machine unless `main.ts` passed
+     the real one. */
+  const machineProbe = opts.resources?.probe ?? quietMachineProbe();
+  const simulators = new SimulatorService({ rpc, spaces, items, simulators: simulatorsStore, settings, processes: () => machineProbe.processes(), ...opts.simulator, physical: physicalDevices });
   simulatorsLate = simulators;
   // Plan 22: the preview listener guides and PDFs are framed from. Its root lookup is late-bound to
   // the service below (a workspace id → its checkout), which is the only thing it needs to know.
@@ -1842,7 +1846,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /* What Realm costs this Mac in memory, by part (`resources/`): each service says what it owns, the
      app says which of its processes is which, and the service sizes them all itself. */
   const resources = new ResourceService({
-    probe: opts.resources?.probe ?? quietMachineProbe(),
+    probe: machineProbe,
     owners: () => ({
       engines: sessions.engines().map((e) => ({ sessionId: e.sessionId, title: e.title, kind: e.kind, providerSessionId: e.providerSessionId, startedAt: e.startedAt, detail: engineDetail(e, Date.now()) })),
       terminals: terminals.processes(),
@@ -1943,6 +1947,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   laya.boot();
   // Memory pressure, read every half minute from here on.
   resources.start();
+  // …and the simulators Realm booted, looked over once a minute for one nobody is using.
+  simulators.startIdleSweep();
   // Starts nothing, and clears every recorded ws port: a port held against last run's listener is a
   // lie, and the UNIQUE index would refuse to reissue it to the machine it belonged to.
   machines.restoreAll();

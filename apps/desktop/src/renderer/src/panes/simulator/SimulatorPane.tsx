@@ -1,6 +1,6 @@
 import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { gestureFrame, keystrokeFrames, type Simulator, type SimulatorAxElement, type SimulatorAxTree, type SimulatorDevice, type SimulatorState, type SimulatorPlatform } from "@realm/contracts";
+import { SIMULATOR_IDLE_SHUTDOWN_ERROR, gestureFrame, keystrokeFrames, type Simulator, type SimulatorAxElement, type SimulatorAxTree, type SimulatorDevice, type SimulatorState, type SimulatorPlatform } from "@realm/contracts";
 import type { PaneProps } from "../registry";
 import { useApp, useAppStore, type PickedAttachment } from "../../state/store";
 import { deliver, groundRgb, painted } from "../../app-pick/AppPicker";
@@ -101,7 +101,18 @@ export function SimulatorPane({ item, visible }: PaneProps) {
           ? <Failed state={state} onRetry={() => void start(null)} onPick={(d, p, real) => void start(d, p, real)} />
           : state.status === "booting" || state.status === "serving"
             ? <Starting state={state} name={row?.name ?? null} />
-            : <DevicePicker chosen={udid} onPick={(d, p, real) => void start(d, p, real)} />}
+            : (
+              <>
+                {/* What happened to a device that was on screen last time: Realm shut it down because
+                    nothing used it, which is otherwise indistinguishable from a crash. */}
+                {state.error === SIMULATOR_IDLE_SHUTDOWN_ERROR && (
+                  <p className="sim-reason">
+                    Realm shut this simulator down after {state.detail === "0" ? "you asked it to free memory" : `${state.detail} minutes with nothing using it`}, to give back its memory. Choose it to boot it again.
+                  </p>
+                )}
+                <DevicePicker chosen={udid} onPick={(d, p, real) => void start(d, p, real)} />
+              </>
+            )}
       </div>
       {/* A recording outlives the stream it reads — a phone that locked, a stream stopped — and the
           control that ends it stays where it was started until it is ended. */}
@@ -242,6 +253,9 @@ function Failed({ state, onRetry, onPick }: { state: SimulatorState; onRetry: ()
   );
 }
 
+/** How often an on-screen pane tells the server it is showing its device — inside the server's 90 s. */
+const SEEN_EVERY_MS = 60_000;
+
 /**
  * The live device: the picture, and everything that can be done to it.
  *
@@ -259,6 +273,15 @@ function Screen({ state, visible, simulatorId, itemId, platform }: {
   const above = useRef<HTMLDivElement>(null);
   const below = useRef<HTMLDivElement>(null);
   const elements = useApp((s) => s.simulatorElements[simulatorId] ?? false);
+  /* A simulator Realm booted is shut down once no pane has shown it for a while: this pane says it is
+     showing it, as long as it is on screen. */
+  useEffect(() => {
+    if (!visible) return;
+    const say = () => { void rpc().call("simulators.seen", { simulatorId }).catch(() => {}); };
+    say();
+    const t = setInterval(say, SEEN_EVERY_MS);
+    return () => clearInterval(t);
+  }, [visible, simulatorId]);
   const toggleElements = useApp((s) => s.toggleSimulatorElements);
   const store = useAppStore();
   /* Whose prompter a pick lands in, named on the overlay before anyone clicks: with two sessions open

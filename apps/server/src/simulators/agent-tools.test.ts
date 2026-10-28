@@ -95,6 +95,7 @@ function fakeClis(over: { simctl?: Partial<Simctl>; serveSim?: Partial<ServeSim>
     addMedia: async () => ({ ok: true, detail: "" }),
     pasteTo: async () => ({ ok: true, detail: "" }),
     copyFrom: async () => ({ ok: true, text: "", detail: "" }),
+    shutdown: async (udid) => { cli.push(`shutdown:${udid}`); return { ok: true, detail: "" }; },
     ...over.simctl,
   };
   const serveSim: ServeSim = {

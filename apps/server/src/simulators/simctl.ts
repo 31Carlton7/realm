@@ -135,6 +135,8 @@ export type Simctl = {
   /** The device's pasteboard, both ways. */
   pasteTo(udid: string, text: string): Promise<{ ok: boolean; detail: string }>;
   copyFrom(udid: string): Promise<{ ok: boolean; text: string; detail: string }>;
+  /** Shut the device down — only ever one Realm booted (`SimulatorService.sweepIdle`). */
+  shutdown(udid: string): Promise<{ ok: boolean; detail: string }>;
 };
 
 export function simctl(env: NodeJS.ProcessEnv = process.env): Simctl {
@@ -191,6 +193,12 @@ export function simctl(env: NodeJS.ProcessEnv = process.env): Simctl {
     async copyFrom(udid) {
       const r = await run(bin, ["simctl", "pbpaste", udid], 15_000);
       return { ...said(r), text: r.code === 0 ? r.stdout : "" };
+    },
+    async shutdown(udid) {
+      const r = await run(bin, ["simctl", "shutdown", udid], 60_000);
+      // Already off is the outcome asked for, arriving late.
+      if (/current state: Shutdown/i.test(`${r.stdout}${r.stderr}`)) return { ok: true, detail: "" };
+      return said(r);
     },
   };
 }
