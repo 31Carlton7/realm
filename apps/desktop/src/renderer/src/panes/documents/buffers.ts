@@ -88,10 +88,12 @@ export function binaryChanged(b: Buffer, hash: string): Buffer {
 }
 
 /** The server refused a save because disk had moved — same state as an observed external change,
- *  including that a disk already holding the reader's text is not a conflict. */
+ *  including that a disk already holding the reader's text is not a conflict. A refusal carries the
+ *  text on disk, so the file is there: Keep mine on a file deleted under the typing, finding it back
+ *  with other contents, has a conflict to settle and no longer a deletion. */
 export function writeRejected(b: Buffer, currentText: string, currentHash: string): Buffer {
   if (currentText === b.text) return saved(b, currentHash);
-  return { ...b, conflict: { theirs: currentText, theirHash: currentHash }, dirty: true };
+  return { ...b, conflict: { theirs: currentText, theirHash: currentHash }, dirty: true, missing: false };
 }
 
 /**
