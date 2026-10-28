@@ -279,7 +279,7 @@ function ClaudeMemoryRows({ profileId, head }: { profileId: string; head: string
     : "";
   const text = last.error !== null ? `Nothing came in on the last check: ${last.error}.`
     : last.at === null ? "Not checked yet."
-    : last.total > 0 ? `${plural(last.total, "file", "files")} of Claude's own memory ${last.total === 1 ? "is" : "are"} in this repo, each in the folder of the space it was kept for.${brought}`
+    : last.total > 0 ? `${plural(last.total, "file", "files")} of Claude's own memory ${last.total === 1 ? "is in this repo, in the folder of the space it was" : "are in this repo, each in the folder of the space it was"} kept for.${brought}`
     : "None of this profile's spaces has memory Claude kept outside Realm.";
   const out = [
     ...last.unmatched.map((u) => ({ key: u.project, name: u.project, title: u.project, reason: u.reason })),
