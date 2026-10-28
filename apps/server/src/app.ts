@@ -94,7 +94,7 @@ import { EnvironmentsStore } from "./store/environments";
 import { SessionService, resolveDefaultPermissionMode } from "./sessions/service";
 import { RECAP_DEBOUNCE_MS, SessionSummaryService } from "./sessions/summary";
 import { PlanLimitsService } from "./limits/service";
-import type { ProbeResult } from "@realm/adapters";
+import type { MemoryExtractionInput, ProbeResult } from "@realm/adapters";
 import { SkillsService } from "./skills/service";
 import { UserCommandsService } from "./commands/service";
 import { ScriptService } from "./scripts/service";
@@ -109,6 +109,9 @@ import { McpOauth } from "./mcp/oauth";
 import type { AgentKind, McpServerStatus } from "@realm/contracts";
 import { MemoryService } from "./memory/service";
 import { MemoryRepoService, type RepoOwner } from "./memory/repo";
+import { SessionLearner } from "./memory/extract";
+import { LearnedCursors } from "./memory/extract-cursor";
+import { memorySinkFrom, type MemorySink } from "./memory/sink";
 import { MEMORY_PROVIDER_NAME, createMemoryAgentProvider } from "./memory/agent-tools";
 import { NotificationsStore } from "./store/notifications";
 import { ShipsStore } from "./store/ships";
@@ -804,6 +807,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  derived line and the prompter keeps its deterministic ladder. */
   summaryGenerator?: (input: { asked: string; transcript: string; facts: string })
     => Promise<{ summary: string; hint: string | null }>;
+  /** Realm learning from quiet sessions for memory. `extract` is the billed call, omitted for
+   *  `titleGenerator`'s reason: only `main.ts` passes it, and not in a harness. `sink` stands in for the
+   *  memory repo's helpers and `idleMs` for the quiet spell, for a test. */
+  memoryLearning?: { extract?: (input: MemoryExtractionInput) => Promise<string>; sink?: MemorySink; idleMs?: number };
   /** Plan 22: where Plynn's meeting exports are read from. Tests point this at a fixture; production
    *  leaves it unset for `~/Library/Application Support/Plynn/Meetings`. */
   plynnMeetingsDir?: string;
@@ -1232,6 +1239,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // against the SAME registry the session service starts agents from — two registries would let a
   // chain accept an agent the sessions could not run.
   const adapterRegistry = opts.adapters ?? defaultAdapters();
+  // "Is the model installed on this machine" — asked of the same cached probe the prompter uses, so it
+  // costs nothing extra, and asked BEFORE a billed call so a machine with no Claude CLI never pays for a
+  // refusal. `loggedIn === false` is a real no; null is "the CLI did not say", which is not grounds for
+  // withholding the feature.
+  const claudeCanAnswer = async (): Promise<boolean> => (await sessions.probe()).some((p: ProbeResult) => p.kind === "claude" && p.available && p.loggedIn !== false);
   /* The session summary writer (one cheap model for every harness, once per settled turn).
      Built BEFORE the service it is handed to, and reaching back into it through closures: the
      service needs the summarizer on construction, and the summarizer needs the service's probe and
@@ -1247,11 +1259,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
         lastSummary: (id) => sessionEvents.lastOfType(id, "summary"),
         publish: (id, ev) => sessions.publishServerEvent(id, ev),
         generate: opts.summaryGenerator,
-        // "Is the model installed on this machine" — asked of the same cached probe the prompter
-        // uses, so it costs nothing extra, and asked BEFORE the call so a machine with no Claude CLI
-        // never pays for a refusal. `loggedIn === false` is a real no; null is "the CLI did not say",
-        // which is not grounds for withholding the feature.
-        available: async (): Promise<boolean> => (await sessions.probe()).some((p: ProbeResult) => p.kind === "claude" && p.available && p.loggedIn !== false),
+        available: claudeCanAnswer,
         onError: (line) => console.error(line),
         // Wait for the session to actually go quiet. A rapid exchange otherwise pays for a recap per
         // turn, each superseded by the next before anybody reads it.
@@ -1259,6 +1267,28 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
         isIdle: (id) => sessionsStore.get(id)?.status === "idle",
       })
     : undefined;
+  /** The brief a session was started with — a delegated child's, a reviewer's, a fork's carried
+   *  context, an unattended worker's — or undefined for a session the person started. A session is a
+   *  child of at most one registry. */
+  const agentContextOf = (id: string): string | undefined =>
+    browserAgents?.extraSystemContext(id) ?? agentRuns?.extraSystemContext(id) ?? reviews?.extraSystemContext(id) ?? forks?.extraSystemContext(id) ?? runs?.extraSystemContext(id) ?? codeReview?.extraSystemContext(id);
+  /* Realm learns from quiet sessions for memory (memory/extract.ts), whichever engine ran them, and
+     writes only through the profile repo's own helpers. `memorySinkFrom` is the one seam to those: it
+     answers null while MemoryRepoService lacks the space-folder helpers, and null — like a build that
+     may make no billed call — leaves learning off. */
+  const learningSink = opts.memoryLearning?.sink ?? memorySinkFrom(memoryRepos);
+  const memoryLearner = opts.memoryLearning?.extract && learningSink
+    ? new SessionLearner({
+        sessions: sessionsStore, events: sessionEvents, cursors: new LearnedCursors(db), sink: learningSink, settings,
+        profileIdOf: scopeSeam.profileIdOf,
+        carriesAgentContext: (id) => agentContextOf(id) !== undefined,
+        generate: opts.memoryLearning.extract,
+        available: claudeCanAnswer,
+        idleMs: opts.memoryLearning.idleMs,
+        onLearned: ({ owner }) => memoryRepoChanged(owner),
+        onError: (line) => console.error(line),
+      })
+    : null;
   /* The friend packs. Restored at boot from the words this Realm was given — the packs themselves
      ship sealed, so a Realm nobody has told a word to has nothing to show. */
   const eggs = new EggService({ settings });
@@ -1312,6 +1342,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     notifications: {
       handleSessionEvent: (session, ev) => {
         notifications.handleSessionEvent(session, ev); runs?.handleSessionEvent(session, ev); team?.handleSessionEvent(session, ev); handoffs?.handleSessionEvent(session, ev);
+        memoryLearner?.handleSessionEvent(session, ev);
         // The usage hook reads the month's spend back from the saved events, and this runs BEFORE the
         // event is saved — in the same call, so a microtask later it is there.
         if (ev.type === "usage") queueMicrotask(() => usage?.handleSessionEvent(session, ev));
@@ -1332,7 +1363,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     browserAgents: {
       parentInterrupted: (id) => browserAgents?.parentInterrupted(id),
       release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); runs?.release(id); codeReview?.release(id); teammates?.release(id); },
-      extraSystemContext: (id) => browserAgents?.extraSystemContext(id) ?? agentRuns?.extraSystemContext(id) ?? reviews?.extraSystemContext(id) ?? forks?.extraSystemContext(id) ?? runs?.extraSystemContext(id) ?? codeReview?.extraSystemContext(id),
+      extraSystemContext: agentContextOf,
       skillsFilter: (id) => agentRuns?.skillsFilter(id) ?? runs?.skillsFilter(id) ?? null,
       modeSet: async (id, mode) => { await agentRuns?.cascadeMode(id, mode); },
     } });
@@ -1771,6 +1802,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     access: () => (access ? { url: access.url } : null),
     appViews: new AppViewService({ views: appViews, hub: mcpHub, mcp, servers: mcpServersStore, sessions: sessionsStore, server: appViewServer, gateway: mcpGateway, log: (line) => console.log(line) }),
     codeReview,
+    memoryLearning: memoryLearner,
     /* A drain was accepted: watch for quiescence and close once it holds. The watcher owns the clock
        and the close; `methods.ts` owns the refusals that make quiescence reachable at all. Unref'd —
        a daemon with nothing to do must not be held open by its own timer. */
@@ -1883,6 +1915,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     runs?.close(); // likewise: an in-flight dispatch must not write to a closing handle
     codeReview?.close(); // and a reviewer settling now must not write its findings to one
     summaries?.close(); // a debounced recap must not fire onto a closing handle, or outlive the process
+    memoryLearner?.close(); // likewise a session's quiet timer
     terminals.closeAll();
     cliInstaller.disposeAll();
     // While the socket is still open, so a window that outlives this daemon hears the sign-in end.

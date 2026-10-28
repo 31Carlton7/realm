@@ -1230,4 +1230,17 @@ export const migrations: string[] = [
   // RemoteService takes those to be on the relay the Mac dialled then, the only one they can have been
   // paired on, and writes it in as it starts.
   `ALTER TABLE remote_devices ADD COLUMN relay TEXT;`,
+  // How far Realm has read each session for memory, found by its text (memory/extract.ts). One row per
+  // session Realm has learned from: `through_seq` is the last event the extraction read, so the next
+  // one starts after it and nothing is read twice; `agent_saved` is whether the session's own agent
+  // saved memory at any point, kept because the tool calls that said so are behind the cursor now.
+  // It goes with its session by the cascade. Nothing to backfill — no session has been read yet — and
+  // `IF NOT EXISTS`, so the statement is safe to meet twice.
+  `
+  CREATE TABLE IF NOT EXISTS memory_learned (
+    session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+    through_seq INTEGER NOT NULL,
+    agent_saved INTEGER NOT NULL DEFAULT 0,
+    learned_at INTEGER NOT NULL);
+  `,
 ];
