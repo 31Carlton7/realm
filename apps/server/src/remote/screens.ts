@@ -12,13 +12,14 @@ import type { Downscale } from "./preview";
  * own space and seen it live.
  *
  * A frame is polled every second or two while the phone's viewer is open, so it is bounded on every
- * side: a JPEG at most the side asked for (a simulator's home screen at 1000 px is about 50 KB), made
- * from a capture that is written only to a folder of its own under the system's temporary folder and
- * gone again before the answer is; one capture of a screen at a time, however many calls come for it,
- * and none waited on past SCREEN_DEADLINE_MS.
+ * side: a JPEG at most the side asked for (a simulator's home screen at 1000 px is about 50 KB) and at
+ * most FRAME_MAX_BYTES, made from a capture that is written only to a folder of its own under the
+ * system's temporary folder and gone again before the answer is; one capture of a screen at a time,
+ * however many calls come for it, and none waited on past SCREEN_DEADLINE_MS.
  */
 
-/** The JPEG quality a frame is made at, and the most one may weigh before it is made once more, smaller. */
+/** The JPEG quality a frame is made at, and the most one may weigh: a heavier one is made again,
+ *  smaller and plainer, twice, and one heavier still is not sent. */
 export const FRAME_QUALITY = 65;
 export const FRAME_MAX_BYTES = 320 * 1024;
 
@@ -92,6 +93,8 @@ export async function screenFrame(capture: Buffer, side: number, capturedAt: num
     await writeFile(path, capture);
     let jpeg = await downscale(path, side, FRAME_QUALITY);
     if (jpeg.length > FRAME_MAX_BYTES) jpeg = await downscale(path, Math.round(side * 0.7), 50);
+    if (jpeg.length > FRAME_MAX_BYTES) jpeg = await downscale(path, Math.round(side * 0.5), 40);
+    if (jpeg.length > FRAME_MAX_BYTES) throw new Error("That screen is too detailed to send to a phone, even made small.");
     const size = jpegSize(jpeg);
     if (!size) throw new Error("The frame made of that screen is not a JPEG.");
     return { mime: "image/jpeg", data: jpeg.toString("base64"), width: size.width, height: size.height, capturedAt };

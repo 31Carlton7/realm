@@ -770,9 +770,10 @@ Screen {
   answers an empty list.
 - **`session.screen`** is a picture of one of them as it is now, for a phone watching it: a JPEG no
   longer than `maxSide` on its longer side, and never enlarged. `maxSide` is brought inside 320 to 1280
-  (`SCREEN_SIDE`), not refused, and is 1000 when none is given. A frame heavier than 320 KB is made once
-  more at seven tenths of the side; a phone's screen at 1000 is usually well under that. `width` and
-  `height` are the JPEG's own; `capturedAt` is when the Mac took it.
+  (`SCREEN_SIDE`), not refused, and is 1000 when none is given. A frame is never heavier than 320 KB:
+  a heavier one is made again at seven tenths of the side, then at half of it, plainer each time, and
+  one heavier still is not sent (`INTERNAL`). A phone's screen at 1000 is usually well under it.
+  `width` and `height` are the JPEG's own; `capturedAt` is when the Mac took it.
 - **Only its own space's**: a screen that is not one `session.screens` lists for that session, or is
   listed under the other kind, is `NOT_FOUND`, exactly as one that never existed; a Mac app in the
   session's own space is `FORBIDDEN`, as one that is not live. One that is not live is `FORBIDDEN`,

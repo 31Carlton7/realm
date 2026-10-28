@@ -1395,7 +1395,7 @@ describe("session.screens and session.screen", () => {
     expect(mac.asked[0]!.path.endsWith(".jpg")).toBe(true);
   });
 
-  it("brings the side asked for inside SCREEN_SIDE, and makes a heavy frame once more, smaller", async () => {
+  it("brings the side asked for inside SCREEN_SIDE, and makes a heavy frame again, smaller, at most twice", async () => {
     const sides = async (maxSide?: number) => {
       const small = shrinking();
       await attempt(api(small.downscale), rig().rpc, "session.screen", { id: "in-s1", screenId: "sim-pro", kind: "simulator", ...(maxSide === undefined ? {} : { maxSide }) });
@@ -1411,6 +1411,18 @@ describe("session.screens and session.screen", () => {
     expect(await attempt(api(heavy.downscale), rig().rpc, "session.screen", { id: "in-s1", screenId: "sim-pro", kind: "simulator" }))
       .toMatchObject({ ok: true, result: { width: 322, height: 700 } });
     expect(heavy.asked.map(({ side, quality }) => [side, quality])).toEqual([[1000, 65], [700, 50]]);
+
+    // Heavy still at seven tenths: once more at half, plainer.
+    const heavier = shrinking((side) => side > 500 ? Buffer.concat([jpegHeader(Math.round(side * 0.46), side), Buffer.alloc(FRAME_MAX_BYTES)]) : jpegHeader(230, 500));
+    expect(await attempt(api(heavier.downscale), rig().rpc, "session.screen", { id: "in-s1", screenId: "sim-pro", kind: "simulator" }))
+      .toMatchObject({ ok: true, result: { width: 230, height: 500 } });
+    expect(heavier.asked.map(({ side, quality }) => [side, quality])).toEqual([[1000, 65], [700, 50], [500, 40]]);
+    // Heavier than FRAME_MAX_BYTES even then, it is not sent. THE MUTANT: send the last encode whatever it
+    // weighs — "bounded on every side" would then be bounded on all but one.
+    const noisy = shrinking((side) => Buffer.concat([jpegHeader(Math.round(side * 0.46), side), Buffer.alloc(FRAME_MAX_BYTES)]));
+    expect(await attempt(api(noisy.downscale), rig().rpc, "session.screen", { id: "in-s1", screenId: "sim-pro", kind: "simulator" }))
+      .toEqual({ ok: false, code: "INTERNAL", message: "That screen is too detailed to send to a phone, even made small." });
+    expect(noisy.asked).toHaveLength(3);
   });
 
   it("refuses a screen of another space as one it does not have, and one that is not live in words, capturing neither", async () => {
