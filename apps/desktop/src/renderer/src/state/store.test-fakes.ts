@@ -438,8 +438,8 @@ export type FakeData = {
   /** What `memory.repo.importClaude` would add, by owner key; absent = nothing to import. */
   claudeImports?: Record<string, MemoryClaudeImport>;
   /** What `memory.repo.claudeBackfill` answers, by profile id: `last` before "Check now", `next` after
-   *  it. Absent = it has not run yet. */
-  claudeBackfills?: Record<string, { last: MemoryClaudeBackfill; next?: MemoryClaudeBackfill }>;
+   *  it, `placed` after `memory.repo.setClaudeProject`. Absent = it has not run yet. */
+  claudeBackfills?: Record<string, { last: MemoryClaudeBackfill; next?: MemoryClaudeBackfill; placed?: MemoryClaudeBackfill }>;
   /** The notifications feed `notifications.list` pages over (W5). Unordered on the way in — the fake
    *  sorts (createdAt DESC, id DESC) and pages like the real store, so tests just append. */
   notifications?: Notification[];
@@ -1439,8 +1439,14 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     claudeBackfill: async (profileId, run) => {
       calls.push(`claudeBackfill:${profileId}:${run}`);
       const b = data.claudeBackfills[profileId];
-      if (!b) return { imported: 0, updated: 0, total: 0, unmatched: [], skipped: [], error: null, sha: null, at: null };
+      if (!b) return { imported: 0, updated: 0, removed: 0, total: 0, unmatched: [], chosen: [], skipped: [], error: null, sha: null, at: null };
       if (run && b.next) b.last = b.next;
+      return b.last;
+    },
+    setClaudeProject: async (profileId, project, into) => {
+      calls.push(`setClaudeProject:${profileId}:${project}:${into}`);
+      const b = data.claudeBackfills[profileId]!;
+      if (b.placed) b.last = b.placed;
       return b.last;
     },
     memorySources: async (sessionId) => {

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { AsyncQueue, type AgentAdapter, type AgentHandle, type StartOptions } from "@realm/adapters";
@@ -185,4 +185,91 @@ describe("Claude's memory from outside Realm, through the Memory page's row", ()
     expect(readFileSync(join(repo.path, "spaces", "stora", "deploys.md"), "utf8")).toBe("Deploys on Fridays.\n");
     c.close();
   });
+
+  it("brings a project no space works in into the space chosen for it over RPC, at once; and lists what stays out once", async () => {
+    const home = tempDir("realm-membackfill-app-");
+    const c = await boot(home);
+    const [personal] = await c.call("profiles.list", {});
+    const sp = await c.call("spaces.create", { profileId: personal.id, name: "Stora" });
+    await waitFor(async () => (await c.call("memory.repo.claudeBackfill", { profileId: personal.id })).at !== null);
+    const memory = join(home, "claude-home", "projects", "-Users-me-code-stora-platform", "memory");
+    mkdirSync(memory, { recursive: true });
+    writeFileSync(join(memory, "deploys.md"), "Deploys on Fridays.\n");
+    writeFileSync(join(memory, "keys.md"), `The key is sk-${"a".repeat(30)}\n`);
+    const before = await c.call("memory.repo.claudeBackfill", { profileId: personal.id, run: true });
+    expect(before.unmatched).toEqual([{ project: "-Users-me-code-stora-platform", path: null, files: 2, reason: "no space works in that folder" }]);
+    // A space of another profile is refused, and nothing is recorded.
+    const other = await c.call("profiles.create", { name: "School" });
+    const homework = await c.call("spaces.create", { profileId: other.id, name: "Homework" });
+    await expect(c.call("memory.repo.setClaudeProject", { profileId: personal.id, project: "-Users-me-code-stora-platform", into: homework.id })).rejects.toThrow(/not one of this profile's/);
+    const r = await c.call("memory.repo.setClaudeProject", { profileId: personal.id, project: "-Users-me-code-stora-platform", into: sp.id });
+    expect(r).toMatchObject({ imported: 1, unmatched: [], chosen: [{ project: "-Users-me-code-stora-platform", files: 2, spaceId: sp.id }] });
+    const [repo] = (await c.call("memory.repo.get", { profileId: personal.id })).repos;
+    expect(readFileSync(join(repo.path, "spaces", "stora", "deploys.md"), "utf8")).toBe("Deploys on Fridays.\n");
+    // The page was handed keys.md as left out; the next check leaves it off until it changes.
+    expect(r.skipped.map((s: { file: string }) => s.file)).toEqual([join(memory, "keys.md")]);
+    expect((await c.call("memory.repo.claudeBackfill", { profileId: personal.id, run: true })).skipped).toEqual([]);
+    // A new version of it is listed by the next check — and, once that answer is read, not by the one after.
+    writeFileSync(join(memory, "keys.md"), `The key is sk-${"b".repeat(30)}\n`);
+    expect((await c.call("memory.repo.claudeBackfill", { profileId: personal.id, run: true })).skipped).toHaveLength(1);
+    expect((await c.call("memory.repo.claudeBackfill", { profileId: personal.id, run: true })).skipped).toEqual([]);
+    c.close();
+  });
 });
+
+describe("a space moved to another profile, over RPC", () => {
+  it("takes its memory along to a folder of its own in the new profile's repo, before the move answers", async () => {
+    const c = await boot(tempDir("realm-memmove-app-"));
+    const [work] = await c.call("profiles.list", {});
+    const school = await c.call("profiles.create", { name: "School" });
+    const workGeneral = await c.call("spaces.create", { profileId: work.id, name: "General" });
+    const schoolGeneral = await c.call("spaces.create", { profileId: school.id, name: "General" });
+    const [workRepo] = (await c.call("memory.repo.get", { profileId: work.id })).repos;
+    const [schoolRepo] = (await c.call("memory.repo.get", { profileId: school.id })).repos;
+    // A Claude turn in each General keeps a memory in its own profile's repo.
+    for (const sp of [workGeneral, schoolGeneral]) {
+      const { session } = await c.call("sessions.create", { spaceId: sp.id, agentKind: "claude", title: "Learn" });
+      await c.call("sessions.send", { id: session.id, text: "go" });
+    }
+    await waitFor(() => [workRepo.path, schoolRepo.path].every((r) => git(r, "log", "-1", "--format=%s").startsWith("Save what Claude remembered")));
+    const schoolHead = git(schoolRepo.path, "rev-parse", "HEAD");
+    await c.call("spaces.update", { id: schoolGeneral.id, profileId: work.id });
+    expect(readFileSync(join(workRepo.path, "spaces", "general-2", "uses-pnpm.md"), "utf8")).toContain("FOLDER-FACT");
+    expect(git(workRepo.path, "log", "-1", "--format=%s").trim()).toBe("Carry the memory of General over from the profile it left");
+    expect(git(schoolRepo.path, "rev-parse", "HEAD")).toBe(schoolHead);
+    // The moved space's next Claude session keeps its memory in its own folder, not the other General's.
+    const { session } = await c.call("sessions.create", { spaceId: schoolGeneral.id, agentKind: "claude", title: "Again" });
+    await c.call("sessions.send", { id: session.id, text: "go" });
+    expect(c.claude.starts.at(-1)!.memoryDirectory).toBe(join(workRepo.path, "spaces", "general-2"));
+    c.close();
+  });
+
+  it("carries at the next boot what it could not carry at the move", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const home = tempDir("realm-memmove-app-");
+    const c = await boot(home);
+    const [work] = await c.call("profiles.list", {});
+    const school = await c.call("profiles.create", { name: "School" });
+    const general = await c.call("spaces.create", { profileId: school.id, name: "General" });
+    const [workRepo] = (await c.call("memory.repo.get", { profileId: work.id })).repos;
+    const [schoolRepo] = (await c.call("memory.repo.get", { profileId: school.id })).repos;
+    const { session } = await c.call("sessions.create", { spaceId: general.id, agentKind: "claude", title: "Learn" });
+    await c.call("sessions.send", { id: session.id, text: "go" });
+    await waitFor(() => git(schoolRepo.path, "log", "-1", "--format=%s").startsWith("Save what Claude remembered"));
+    // The person has a change of their own in Work's repo: the move goes through, the carry waits.
+    writeFileSync(join(workRepo.path, "draft.md"), "the person's own");
+    await c.call("spaces.update", { id: general.id, profileId: work.id });
+    expect(existsSync(join(workRepo.path, "spaces", "general", "uses-pnpm.md"))).toBe(false);
+    expect(log.mock.calls.flat().join(" ")).toMatch(/the memory of General not carried over yet/);
+    rmSync(join(workRepo.path, "draft.md"));
+    c.close();
+    await app!.close();
+    app = null;
+    // THE MUTANT: no pass at boot — a carry refused once is never tried again.
+    const again = await boot(home);
+    await waitFor(() => existsSync(join(workRepo.path, "spaces", "general", "uses-pnpm.md")));
+    again.close();
+    log.mockRestore();
+  });
+});
+

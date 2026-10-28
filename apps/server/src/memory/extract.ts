@@ -7,6 +7,7 @@ import {
 } from "@realm/contracts";
 import type { MemoryExtractionInput } from "@realm/adapters";
 import { RpcError } from "../store/rows";
+import { claudeFactFile } from "./claude-facts";
 import type { LearnedCursor } from "./extract-cursor";
 import type { RepoOwner } from "./repo";
 import { secretShapeIn } from "./secret-shapes";
@@ -119,6 +120,12 @@ export function savesMemory(ev: SessionEvent, dir: string): boolean {
   if (!edits) return false;
   const paths = [p.input.file_path, p.input.path, p.input.notebook_path, ...(p.paths ?? [])].filter((x): x is string => typeof x === "string" && x !== "");
   return paths.some((x) => within(resolve(x), resolve(dir)));
+}
+
+/** `name`, or the first of `name-2`, `name-3`, … that nothing is saved under yet. */
+function unused(name: string, taken: (name: string) => boolean): string {
+  if (!taken(name)) return name;
+  for (let i = 2; ; i++) if (!taken(`${name}-${i}`)) return `${name}-${i}`;
 }
 
 const readIndex = (path: string): string => {
@@ -268,18 +275,21 @@ export class SessionLearner {
    * One memory to where it belongs. A space's fact is a file in its folder; a fact about the person
    * is an entry in the root index every space reads — the entry IS the fact when it is one line, and
    * otherwise names it and links a body file written first, so the link never points at nothing.
-   * `replaces` updates in place: the space fact of that name, or the root entry with that text.
+   * `replaces` updates in place: the space fact of that name, or the root entry with that text. A file
+   * already under a name `replaces` does not give is somebody else's — the person's own, or one Claude
+   * or an import wrote — and is never written over: the new one is saved beside it, numbered.
    */
   private async save(s: Session, place: SpaceFolder, m: LearnedMemory): Promise<boolean> {
     if (secretShapeIn([m.name, m.description, m.body, m.replaces ?? ""].join("\n"))) return false;
     if (m.scope === "space") {
-      const name = m.replaces && SLUG.test(m.replaces) && existsSync(join(place.dir, `${m.replaces}.md`)) ? m.replaces : m.name;
+      const taken = (name: string) => existsSync(join(place.dir, claudeFactFile(name)));
+      const name = m.replaces && SLUG.test(m.replaces) && taken(m.replaces) ? m.replaces : unused(m.name, taken);
       const out = await this.d.sink.saveSpaceMemory(s.spaceId, { name, description: m.description, type: m.type, body: m.body, sessionId: s.id, author: LEARNED_AUTHOR });
       return out.changed;
     }
     let entry = m.body;
     if (m.body.includes("\n")) {
-      const rel = `learned/${m.name}.md`;
+      const rel = `learned/${unused(m.name, (name) => existsSync(join(place.repoPath, "learned", `${name}.md`)))}.md`;
       await this.d.sink.writeBatch(place.owner, new Map([[rel, `# ${m.description}\n\n${m.body}\n`]]),
         `Realm learned ${m.name} from session "${clip(s.title, 48)}" (${s.id})`, LEARNED_AUTHOR);
       entry = `${m.description} (${wikiLinkFor(rel)})`;

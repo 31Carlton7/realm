@@ -11,7 +11,8 @@ import type { PaneProps } from "../registry";
 import { useScrollMemory } from "../scroll-memory";
 import { capabilities } from "../../platform";
 import {
-  canSave, edited, externalChange, keepMine, opened, saved, takeTheirs, writeRejected, type Buffer,
+  binaryChanged, canRecreate, canSave, edited, externalChange, isBinaryKind, keepMine, mayWrite, opened, saved, takeTheirs,
+  writeRejected, type Buffer,
 } from "./buffers";
 import { DocumentsHome } from "./DocumentsHome";
 import { folderName, isOutsideTab, tildePath } from "./home-model";
@@ -21,6 +22,7 @@ import { canReveal, publishShownFile, revealPath, showInLabel } from "./shown-fi
 import { QuickLookView } from "./QuickLookView";
 import { VideoView } from "./VideoView";
 import { recallDocumentsView, rememberDocumentsView } from "./view-memory";
+import { forgetKeptTyping, keepTyping, keptTyping } from "./kept-typing";
 
 /** How long the editor stays quiet before autosaving. Long enough not to write on every keystroke,
  *  short enough that an agent asked to read the file right after you stop typing sees your text. */
@@ -30,15 +32,6 @@ const AUTOSAVE_MS = 700;
  *  own, so the few a reader moves between — a guide and the lecture beside it — and not every guide
  *  ever opened. */
 const GUIDES_KEPT = 3;
-
-/** Files the pane opens WITHOUT reading their bytes: a PDF, everything Quick Look renders for us,
- *  and a video. The first two are fetched from the preview server — the PDF's bytes by pdf.js, the
- *  rest as Quick Look's picture — and a video is streamed to the player by main, so pulling a `.docx`
- *  or an `.mp4` through `readDocument` would only produce mojibake and a failed open. */
-const isBinaryKind = (path: string): boolean => {
-  const k = documentKindFor(path);
-  return k === "pdf" || k === "preview" || k === "video";
-};
 
 const baseName = (p: string) => p.split("/").pop() ?? p;
 
@@ -162,15 +155,24 @@ export function DocumentsPane({ item }: PaneProps) {
         if (cancelled) return;
         setWs(row);
         setActive(row.activePath);
-        for (const path of row.openPaths) {
+        /* What the reader typed and the pane had not got onto disk when it last went (kept-typing.ts)
+           comes back over what disk holds now, reconciled as any change on disk is — no event reached a
+           pane that was not there. A file kept that is no longer on the strip comes back as a tab: it is
+           the reader's typing, and nothing else would show it to them. */
+        const held = keptTyping(documentsId);
+        const paths = [...row.openPaths, ...[...held.keys()].filter((p) => !row.openPaths.includes(p))];
+        for (const path of paths) {
+          const mine = held.get(path);
           try {
             if (isBinaryKind(path)) { setBuffers((prev) => ({ ...prev, [path]: opened(path, "", "") })); continue; }
             const { text, hash } = await readDocument(documentsId, path);
             if (cancelled) return;
-            setBuffers((prev) => ({ ...prev, [path]: opened(path, text, hash) }));
+            setBuffers((prev) => ({ ...prev, [path]: mine ? externalChange(mine, text, hash) : opened(path, text, hash) }));
           } catch {
             // A tab whose file has since been deleted or grown too large: drop it rather than
-            // failing the whole pane. The next setTabs prunes it from the strip for good.
+            // failing the whole pane. The next setTabs prunes it from the strip for good — unless the
+            // reader typed into it, and then it stays, as a file deleted under their typing.
+            if (mine && !cancelled) setBuffers((prev) => ({ ...prev, [path]: externalChange(mine, null, null) }));
           }
         }
       } catch (e) { if (!cancelled) setError(String(e)); }
@@ -195,7 +197,7 @@ export function DocumentsPane({ item }: PaneProps) {
          image below are keyed on `baseHash`, so an agent rewriting a PDF or a `.docx` in place
          re-renders it. Before this, a binary's hash stayed "" for the life of the tab and the view
          kept showing whatever it first loaded. */
-      if (isBinaryKind(path)) { setBuffer(path, (b) => ({ ...b, baseHash: hash })); return; }
+      if (isBinaryKind(path)) { setBuffer(path, (b) => binaryChanged(b, hash)); return; }
       // The event carries only a hash; the text is fetched so a clean buffer can adopt it and a
       // dirty one can show a real diff rather than "something changed".
       void readDocument(documentsId, path)
@@ -256,6 +258,8 @@ export function DocumentsPane({ item }: PaneProps) {
   }, [ask, ws, takeDocumentsAsk, openPath, run]);
 
   const closeTab = useCallback((path: string) => {
+    // Closing the tab is the reader letting its typing go, if any was kept from a switch.
+    forgetKeptTyping(documentsId, path);
     setKeptGuides((prev) => prev.filter((p) => p !== path));
     setBuffers((prev) => { const { [path]: _gone, ...rest } = prev; return rest; });
     setUnshown((prev) => { const { [path]: _gone, ...rest } = prev; return rest; });
@@ -263,13 +267,16 @@ export function DocumentsPane({ item }: PaneProps) {
     const nextActive = activeRef.current === path ? (remaining[0] ?? null) : activeRef.current;
     setActive(nextActive);
     persistTabs(remaining, nextActive);
-  }, [persistTabs]);
+  }, [persistTabs, documentsId]);
 
   // ---- autosave ----------------------------------------------------------------------------------
-  const save = useCallback(async (path: string) => {
+  /** Write what the reader typed. `recreate` is their Keep mine on a file that was deleted under it;
+   *  nothing else puts a deleted file back (`mayWrite`). */
+  const save = useCallback(async (path: string, recreate = false) => {
     const b = buffersRef.current[path];
-    // A file outside the space is read-only: nothing here writes it, whatever its buffer says.
-    if (!b || !canSave(b) || isOutsideTab(path)) return;
+    // A file outside the space is read-only: nothing here writes it, whatever its buffer says. Nor a
+    // PDF, a Quick Look render or a video — their buffer is empty — nor a deleted file not asked for.
+    if (!b || isOutsideTab(path) || !mayWrite(b, recreate)) return;
     const res = await writeDocument(documentsId, path, b.text, b.baseHash);
     if (res.ok) setBuffer(path, (cur) => (cur.text === b.text ? saved(cur, res.hash) : cur));
     else setBuffer(path, (cur) => writeRejected(cur, res.currentText, res.currentHash));
@@ -346,10 +353,9 @@ export function DocumentsPane({ item }: PaneProps) {
 
   const showingHome = home || !buf;
 
-  /* A file left with typing not yet written is written as it is left — for another tab, the home, or
-     the pane going (a session or space switch unmounts it). The autosave's timer belonged to the file
-     on screen and went with it: the text waited in a buffer for the file's next turn on screen, or
-     vanished with the pane. */
+  /* A file left with typing not yet written is written as it is left for another tab or the home. The
+     autosave's timer belonged to the file on screen and went with it, and the text waited in a buffer
+     for the file's next turn on screen. Typing only, by `save`'s own rule (`mayWrite`). */
   const saveRef = useRef(save);
   saveRef.current = save;
   const onScreen = showingHome ? null : active;
@@ -359,7 +365,21 @@ export function DocumentsPane({ item }: PaneProps) {
     leftBehind.current = onScreen;
     if (was && was !== onScreen) void saveRef.current(was);
   }, [onScreen]);
-  useEffect(() => () => { for (const p of Object.keys(buffersRef.current)) void saveRef.current(p); }, []);
+  /* The pane going — a session or space switch unmounts it — takes its buffers with it, so what the
+     reader typed that is not on disk is kept for the run first (kept-typing.ts). A conflict, or a file
+     deleted under the typing, waits there for their decision and is never written from here; other
+     typing is written as the pane goes, by the same rule as every save, and its copy is forgotten once
+     the write lands. A refused write leaves the copy kept, and the pane's return finds the conflict
+     against what disk holds. Every open tab passes through here, so a file deleted or rebuilt behind one
+     is exactly what this must leave alone. */
+  useEffect(() => () => {
+    for (const b of Object.values(buffersRef.current)) {
+      keepTyping(documentsId, b);
+      if (isOutsideTab(b.path) || !mayWrite(b)) continue;
+      void writeDocument(documentsId, b.path, b.text, b.baseHash)
+        .then((res) => { if (res.ok) forgetKeptTyping(documentsId, b.path, b); }, () => {});
+    }
+  }, [documentsId, writeDocument]);
 
   /* A guide stays alive behind the other tabs, so going to the lecture beside it and back is a glance,
      not a reload — and keeps what no snapshot can see, like a course's typed answer or a timer still
@@ -438,10 +458,17 @@ export function DocumentsPane({ item }: PaneProps) {
           )}
           {buf.missing && !buf.conflict && (
             // `alert`, not `status`: the head bar already carries the save state as this pane's one
-            // polite status, and a file vanishing under an open editor is not a polite update.
+            // polite status, and a file vanishing under an open editor is not a polite update. A file
+            // nobody typed into stays deleted; one with typing in it is the reader's to put back, as a
+            // conflict is theirs to settle — the pane never does either on its own.
             <div className="documents-bar warn" role="alert">
               <Icon name="alert" size={12} />
-              <span>{isOutsideTab(buf.path) ? "This file was deleted on disk." : "This file was deleted on disk. Saving will re-create it."}</span>
+              {canRecreate(buf) && !isOutsideTab(buf.path) ? (
+                <>
+                  <span>This file was deleted on disk while you were editing.</span>
+                  <button type="button" className="btn-quiet" onClick={() => { void save(buf.path, true); }}>Keep mine</button>
+                </>
+              ) : <span>This file was deleted on disk.</span>}
             </div>
           )}
           {unshown[buf.path] ? <Unshown path={buf.path} reason={unshown[buf.path]!} /> : shownGuide ? null : (
@@ -507,8 +534,9 @@ function TabStrip({ tabs, active, buffers, home, onHome, onSelect, onClose, menu
                   the extension is what chose the editor — so its tab keeps it. A document's is its name. */}
               <span>{documentKindFor(path) === "code" ? baseName(path) : documentStem(path)}</span>
               {/* One dot for "not yet on disk", so the tab strip answers "is my work saved?" at a
-                  glance. A conflicted tab is marked differently — it needs a decision, not a wait. */}
-              {b?.conflict ? <span className="documents-dot conflict" aria-label="Needs attention" />
+                  glance. A conflicted tab is marked differently — it needs a decision, not a wait — and
+                  so is one whose file was deleted under the reader's typing, which nothing will save. */}
+              {b?.conflict || (b && canRecreate(b)) ? <span className="documents-dot conflict" aria-label="Needs attention" />
                 : b?.dirty && !isOutsideTab(path) ? <span className="documents-dot" aria-label="Unsaved" /> : null}
             </button>
             <button className="documents-tab-close icon-btn" aria-label={`Close ${baseName(path)}`}

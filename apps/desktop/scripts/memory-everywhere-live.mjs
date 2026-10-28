@@ -6,7 +6,8 @@
  * afterwards. Claude memory kept outside Realm — in a stand-in for `~/.claude` (CLAUDE_CONFIG_DIR) —
  * lands in the folder of the space that works in that project, as it was there; a project no space
  * works in is reported and a temporary one passed over; the Claude folder is only read. The profile's
- * Memory page says so.
+ * Memory page says so — and its select brings a waiting project into the space chosen for it at once,
+ * or leaves one out.
  *
  * Nothing is billed: Claude and Codex are the scripted agent's stand-ins (REALM_FAKE_STANDS_IN), and
  * every session is switched to the fake before anything is sent. Ports: LIVE_SERVER_PORT /
@@ -273,6 +274,61 @@ async function main() {
     check(`the row says what is in (${mode})`, row.includes("1 file of Claude's own memory is in this repo, in the folder"), row);
     check(`…and what stayed out (${mode})`, row.includes("-Users-nobody-code-elsewhere") && row.includes("no space works in that folder"), row);
     await shot(c, `memory-everywhere-${mode}`, ".memory-page > .settings-head:last-of-type, .memory-repo");
+  }
+
+  // 4. A project no space works in waits for a choice, the biggest first: its select brings it into the
+  //    space chosen for it at once, and "Leave out" leaves another where it is.
+  const stora = await api.call("spaces.create", { profileId: profile.id, name: "Stora" });
+  const ravens = "-Users-nobody-code-stora-ravens";
+  const ravensFiles = {
+    "ravens-roster.md": "---\nname: ravens-roster\ndescription: Who is on the roster\nmetadata:\n  type: project\n---\n\nTwelve players; the captain rotates weekly.\n",
+    "ravens-deploy.md": "---\nname: ravens-deploy\ndescription: How the Ravens site ships\nmetadata:\n  type: project\n---\n\nPreview on every push; production from main.\n",
+    "ravens-api.md": "---\nname: ravens-api\ndescription: Where the Ravens API lives\nmetadata:\n  type: reference\n---\n\nThe API is the stora-platform service, under /ravens.\n",
+  };
+  for (const [f, t] of Object.entries(ravensFiles)) claudeKept(ravens, f, t);
+  claudeKept(ravens, "MEMORY.md", Object.keys(ravensFiles).map((f) => `- [${f.slice(0, -3)}](${f}) — the Ravens\n`).join(""));
+  const selectFor = (project) => `document.querySelector('select[aria-label="Where the memory of ${project} goes"]')`;
+  const choose = (project, value) => evalIn(c, `(() => { const s = ${selectFor(project)};
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(s, ${JSON.stringify(value)});
+    s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+  const openFolds = () => evalIn(c, `(() => { for (const d of document.querySelectorAll('.memory-repo details')) d.open = true; return true; })()`);
+  await setFace(c, "dark");
+  await openProfileMemory(c);
+  await evalIn(c, clickText(".memory-repo button", "Check now"));
+  await until(() => evalIn(c, `!!${selectFor(ravens)}`), 15_000, "the waiting project's select");
+  await openFolds();
+  await sleep(400);
+  const listed = () => evalIn(c, `[...document.querySelectorAll('.memory-claude-project')].map((li) => [li.querySelector('.memory-repo-log-subject').textContent, li.querySelector('.memory-claude-project-files').textContent, li.querySelector('select').value])`);
+  const waiting = await listed();
+  check("the waiting projects are listed biggest first, each with its size and a select on the question", JSON.stringify(waiting) === JSON.stringify([[ravens, "3 files", ""], ["-Users-nobody-code-elsewhere", "1 file", ""]]), waiting);
+  const options = await evalIn(c, `[...${selectFor(ravens)}.options].map((o) => o.textContent)`);
+  check("…offering this profile's spaces, then Leave out", JSON.stringify(options) === JSON.stringify(["Choose a space…", "Realm", "Stora", "Leave out"]), options);
+  await shot(c, "memory-claude-projects-waiting-dark", ".memory-repo");
+  const before = git(repo.path, "rev-list", "--count", "HEAD").trim();
+  await choose(ravens, stora.id);
+  await until(() => fs.existsSync(path.join(repo.path, "spaces", "stora", "ravens-roster.md")), 15_000, "the chosen project's files in Stora's folder");
+  check("choosing Stora brings the project's files into Stora's folder, as they were",
+    Object.entries(ravensFiles).every(([f, t]) => fs.readFileSync(path.join(repo.path, "spaces", "stora", f), "utf8") === t));
+  check("…with its index, linked from the root, as one commit, tree clean",
+    fs.readFileSync(path.join(repo.path, "MEMORY.md"), "utf8").includes("- [[spaces/stora/MEMORY]]")
+      && git(repo.path, "rev-list", "--count", "HEAD").trim() === String(Number(before) + 1) && git(repo.path, "status", "--porcelain") === "");
+  await until(async () => (await evalIn(c, textOf(".memory-repo"))).includes("The last check brought in 3 new files"), 10_000, "the row says what came in");
+  await choose("-Users-nobody-code-elsewhere", "skip");
+  await until(async () => (await api.call("memory.repo.claudeBackfill", { profileId: profile.id })).chosen.some((x) => x.project === "-Users-nobody-code-elsewhere" && x.spaceId === null), 15_000, "left out");
+  check("Leave out brings nothing in", git(repo.path, "ls-files").split("\n").every((f) => !f.endsWith("stray.md")));
+  const placed = await api.call("memory.repo.claudeBackfill", { profileId: profile.id });
+  console.log(`EVIDENCE memory.repo.claudeBackfill after the two choices → ${JSON.stringify({ imported: placed.imported, total: placed.total, unmatched: placed.unmatched, chosen: placed.chosen })}`);
+  console.log(`EVIDENCE settings → ${execFileSync("sqlite3", ["-readonly", path.join(home, "realm.db"), "select key || ' = ' || value_json from settings where key like 'memory.claudeProjectSpace:%' order by key"], { encoding: "utf8" }).trim()}`);
+  console.log(`EVIDENCE ${path.join(repo.path, "spaces", "stora")}: ${JSON.stringify(fs.readdirSync(path.join(repo.path, "spaces", "stora")))}`);
+  console.log(`EVIDENCE git log -1:\n${git(repo.path, "log", "-1", "--format=%h %s", "--name-only")}`);
+  check("the placed project keeps its select, on Stora; the left-out one on Leave out", JSON.stringify(await listed()) === JSON.stringify([[ravens, "3 files", stora.id], ["-Users-nobody-code-elsewhere", "1 file", "skip"]]), await listed());
+  for (const mode of ["dark", "light"]) {
+    await setFace(c, mode);
+    await openProfileMemory(c);
+    await until(() => evalIn(c, `!!${selectFor(ravens)}`), 10_000, "the placed project's select");
+    await openFolds();
+    await sleep(400);
+    await shot(c, `memory-claude-projects-placed-${mode}`, ".memory-repo");
   }
   c.close();
 }

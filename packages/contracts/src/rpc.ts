@@ -20,7 +20,7 @@ import {
 import { CatalogFontSchema, InstalledFontSchema, StoredThemeSchema } from "./theme-seed";
 import { McpCallSchema, McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, McpOauthStatusSchema, McpSignInOptionsSchema } from "./mcp";
 import { AppViewSchema } from "./mcp-apps";
-import { MEMORY_DOC_MAX, MemoryClaudeBackfillSchema, MemoryClaudeImportSchema, MemoryRemoteCheckSchema, MemoryRepoCommitSchema, MemoryRepoScopeSchema, MemoryRepoStateSchema, MemorySourcesSchema, MemoryStateSchema } from "./memory";
+import { CLAUDE_PROJECT_LEFT_OUT, MEMORY_DOC_MAX, MemoryClaudeBackfillSchema, MemoryClaudeImportSchema, MemoryRemoteCheckSchema, MemoryRepoCommitSchema, MemoryRepoScopeSchema, MemoryRepoStateSchema, MemorySourcesSchema, MemoryStateSchema } from "./memory";
 import { NotificationSchema } from "./notifications";
 import { RunAttemptSchema, RunConstraintsSchema, RunSchema, RunStateSchema } from "./runs";
 import { ReviewResultSchema } from "./review";
@@ -1476,6 +1476,12 @@ export const Methods = {
    * did, and `run` runs it now first — the row's "Check now".
    */
   "memory.repo.claudeBackfill": { params: z.object({ profileId: IdSchema, run: z.boolean().default(false) }), result: MemoryClaudeBackfillSchema },
+  /**
+   * Place one Claude project by hand: bring its memory into a space of this profile, or leave it in
+   * Claude's folder (`into: "skip"`). The choice wins over matching, ties included, and is honoured at
+   * once — this runs the backfill and answers what it did. A space since deleted is reported again.
+   */
+  "memory.repo.setClaudeProject": { params: z.object({ profileId: IdSchema, project: z.string().regex(/^[A-Za-z0-9-]{1,255}$/), into: z.union([IdSchema, z.literal(CLAUDE_PROJECT_LEFT_OUT)]) }), result: MemoryClaudeBackfillSchema },
 
   /** `machineName` is the Mac's user-facing ComputerName ("Carlton's M4 MacBook Pro"), falling back to
    *  the hostname stripped of `.local`. Display-only (the prompter's under-strip machine label, Plan 12

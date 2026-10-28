@@ -1,4 +1,4 @@
-import type { MemoryClaudeBackfill, MemoryRemoteCheck, MemoryRepoState } from "@realm/contracts";
+import { CLAUDE_PROJECT_LEFT_OUT, type MemoryClaudeBackfill, type MemoryRemoteCheck, type MemoryRepoState } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useState, type FormEvent } from "react";
 import { memoryRepoKey, useApp, type MemoryRepoOwner } from "../../state/store";
@@ -265,26 +265,41 @@ const tail = (path: string): string => path.split("/").filter(Boolean).slice(-2)
 /**
  * Claude's own memory, kept outside Realm (`~/.claude/projects`), as this repo holds it. It is brought
  * in by itself — at boot and every few minutes — into the folder of the space that works in each
- * project, so the row says what is in, and lists, folded, what stays out and why: a project no space
- * works in is named, never guessed at. "Check now" runs it at once.
+ * project, so the row says what is in, and "Check now" looks again at once.
+ *
+ * A project no single space works in waits in Claude's folder until someone places it. The folded list
+ * gives each one a select — a space of this profile, or left out — with its size beside it and the
+ * biggest first, and a choice is honoured at once; a project already placed keeps its select, so a
+ * choice can be changed. Files left where they are follow, each once per version of it.
  */
 function ClaudeMemoryRows({ profileId, head }: { profileId: string; head: string | null }) {
   const claudeBackfill = useApp((s) => s.claudeBackfill);
+  const setClaudeProject = useApp((s) => s.setClaudeProject);
+  const allSpaces = useApp((s) => s.spaces);
   const run = useApp((s) => s.run);
   const [last, setLast] = useState<MemoryClaudeBackfill | null>(null);
   useEffect(() => { run(async () => setLast(await claudeBackfill(profileId, false))); }, [profileId, head, claudeBackfill, run]);
   if (last === null) return null;
+  const spaces = allSpaces.filter((sp) => sp.profileId === profileId);
   const brought = last.imported + last.updated > 0
     ? ` The last check brought in ${plural(last.imported, "new file", "new files")}${last.updated > 0 ? ` and updated ${plural(last.updated, "copy", "copies")}` : ""}.`
     : "";
+  // A project placed somewhere else by hand, or left out, takes its copies with it.
+  const took = last.removed > 0 ? ` It took ${plural(last.removed, "copy", "copies")} out of a space ${last.removed === 1 ? "it no longer goes" : "they no longer go"} in.` : "";
   const text = last.error !== null ? `Nothing came in on the last check: ${last.error}.`
     : last.at === null ? "Not checked yet."
-    : last.total > 0 ? `${plural(last.total, "file", "files")} of Claude's own memory ${last.total === 1 ? "is in this repo, in the folder of the space it was" : "are in this repo, each in the folder of the space it was"} kept for.${brought}`
-    : "None of this profile's spaces has memory Claude kept outside Realm.";
-  const out = [
-    ...last.unmatched.map((u) => ({ key: u.project, name: u.project, title: u.project, reason: u.reason })),
-    ...last.skipped.map((f) => ({ key: f.file, name: tail(f.file), title: f.file, reason: f.reason })),
+    : last.total > 0 ? `${plural(last.total, "file", "files")} of Claude's own memory ${last.total === 1 ? "is in this repo, in the folder of the space it was" : "are in this repo, each in the folder of the space it was"} kept for.${brought}${took}`
+    : `None of this profile's spaces has memory Claude kept outside Realm.${took}`;
+  const projects = [
+    ...last.unmatched.map((p) => ({ ...p, into: "", why: p.reason })),
+    ...last.chosen.map((p) => ({ ...p, into: p.spaceId ?? CLAUDE_PROJECT_LEFT_OUT, why: null })),
   ];
+  const waiting = last.unmatched.length;
+  const about = [
+    waiting > 0 ? `${plural(waiting, "Claude project matches", "Claude projects match")} no single space: choose where ${waiting === 1 ? "its" : "each one's"} memory goes.` : "",
+    last.skipped.length > 0 ? `${plural(last.skipped.length, "file stays", "files stay")} in Claude's folder.` : "",
+  ].filter(Boolean).join(" ") || "Placed by hand.";
+  const place = (project: string, into: string) => run(async () => setLast(await setClaudeProject(profileId, project, into)));
   return (
     <>
       <div className="settings-row memory-import-row">
@@ -295,22 +310,39 @@ function ClaudeMemoryRows({ profileId, head }: { profileId: string; head: string
         <button type="button" className="btn" title="Look in Claude's own memory folders for anything new now"
           onClick={() => run(async () => setLast(await claudeBackfill(profileId, true)))}>Check now</button>
       </div>
-      {out.length > 0 && (
+      {projects.length + last.skipped.length > 0 && (
         <details className="settings-row settings-disclosure">
           <summary>
             <div className="settings-row-main">
-              <span className="settings-row-name">Not brought in</span>
-              <span className="settings-row-desc">
-                {last.unmatched.length > 0 ? `${plural(last.unmatched.length, "Claude project matches", "Claude projects match")} no single space, so ${last.unmatched.length === 1 ? "it stays" : "they stay"} in Claude's folder.` : "Left where they are in Claude's folder."}
-              </span>
+              <span className="settings-row-name">Claude projects</span>
+              <span className="settings-row-desc">{about}</span>
             </div>
             <Icon name="chevronRight" size={14} className="settings-disclosure-caret" />
           </summary>
           <ul className="settings-disclosure-body memory-repo-log memory-left-out">
-            {out.map((o) => (
-              <li key={o.key} title={o.title}>
-                <span className="memory-repo-log-subject">{o.name}</span>
-                <span className="memory-repo-log-when">{o.reason}</span>
+            {projects.map((p) => {
+              const name = p.path ? tail(p.path) : p.project;
+              return (
+                <li key={p.project} className="memory-claude-project">
+                  <span className="memory-claude-project-main" title={p.path ?? p.project}>
+                    <span className="memory-repo-log-subject">{name}</span>
+                    {p.why && <span className="memory-repo-log-when">{p.why}</span>}
+                  </span>
+                  <span className="memory-repo-log-when memory-claude-project-files">{plural(p.files, "file", "files")}</span>
+                  <select aria-label={`Where the memory of ${name} goes`} value={p.into} onChange={(e) => place(p.project, e.target.value)}>
+                    {p.into === "" && <option value="" disabled>Choose a space…</option>}
+                    <optgroup label="Bring into">
+                      {spaces.map((sp) => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
+                    </optgroup>
+                    <option value={CLAUDE_PROJECT_LEFT_OUT}>Leave out</option>
+                  </select>
+                </li>
+              );
+            })}
+            {last.skipped.map((f) => (
+              <li key={f.file} title={f.file}>
+                <span className="memory-repo-log-subject">{tail(f.file)}</span>
+                <span className="memory-repo-log-when">{f.reason}</span>
               </li>
             ))}
           </ul>
