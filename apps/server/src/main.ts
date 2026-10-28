@@ -13,6 +13,7 @@ import { PhysicalDevices } from "./simulators/physical";
 import { phoneVideo } from "./simulators/phone-video";
 import { simctl } from "./simulators/simctl";
 import { realLayaRuntime } from "./laya/runtime";
+import { realMachineProbe } from "./resources/machine";
 import { DAEMON_PROTOCOL } from "@realm/contracts";
 import { relayBase } from "@realm/remote";
 import { realmHome } from "./paths";
@@ -99,6 +100,9 @@ try {
     // entry with the fake agent, and must never download two gigabytes into its scratch home.
     laya: realLayaRuntime({ home }),
     layaAutoInstall: process.env.REALM_ENABLE_FAKE_AGENT !== "1",
+    // The resource report reads this machine — `ps`, `footprint`, `sysctl` — only here, for the probe's
+    // reason: every other `createApp` is a test or a script, and must not measure the Mac it runs on.
+    resources: { probe: realMachineProbe() },
     // Real iPhones and iPads, through devicectl and Realm's test runner. Only here, for the probe's
     // reason. `REALM_RUNNER_SIMULATOR` names simulators to reach the phone's way instead — the
     // rehearsal a live check runs before anything is done to a real phone. Their picture is live video

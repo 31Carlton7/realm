@@ -2,9 +2,10 @@ import { WebContentsView, app, screen, session, type BrowserWindow, type Handler
 import { FAVICON_MAX_BYTES, type BrowserLoadError } from "@realm/contracts";
 import {
   BrowserPaneHost, FAVICON_FETCH_MS, PageLoad, browserUserAgent, createFaviconResolver, isFindShortcut, normalizeAddress, popupBounds, popupTitle, readCapped,
-  shownPage, windowOpenAction, type FaviconFetch, type ViewFactory,
+  shownPage, windowOpenAction, type FaviconFetch, type KeepReason, type ViewFactory,
 } from "./browser-host";
 import { attachTextContextMenu } from "./text-context-menu";
+import { PAGE_BUSY, TypedSince } from "./page-busy";
 import { refuseCapture } from "./capture-guard";
 import type { CdpBinding } from "./browser-agent-host";
 import { asDownloadItem, type DownloadDecision, type DownloadItemLike } from "./downloads";
@@ -300,6 +301,28 @@ export function electronViewFactory(
       // The system dialog, attached to the window. A failure or a cancel is the dialog's to report.
       print: () => wc.print({}, () => {}),
       popups: () => [...popups].filter((popup) => !popup.isDestroyed()).map((popup) => popup.webContents.getURL()),
+      readScroll: async () => {
+        if (wc.isDestroyed()) return null;
+        const at = await wc.executeJavaScript("[window.scrollX, window.scrollY]", false).catch(() => null) as unknown;
+        return Array.isArray(at) && typeof at[0] === "number" && typeof at[1] === "number" ? { x: at[0], y: at[1] } : null;
+      },
+      scrollAfterLoad: (x, y) => {
+        // A page that builds its height as it loads can clamp the first scroll short; one more try.
+        const go = () => wc.executeJavaScript(`window.scrollTo(${Math.round(x)}, ${Math.round(y)}); window.scrollY`, false).catch(() => null);
+        // The passkey install's own `about:blank` finishes loading first; the page's load is the next
+        // one, and a load that fails ends the wait rather than scrolling whatever is opened after it.
+        const done = () => { wc.off("did-finish-load", loaded); wc.off("did-fail-load", failed); };
+        const loaded = () => {
+          if (wc.isDestroyed() || wc.getURL() === "about:blank") return;
+          done();
+          void go().then((landed) => {
+            if (typeof landed === "number" && landed < y - 2) setTimeout(() => { if (!wc.isDestroyed()) void go(); }, 600);
+          });
+        };
+        const failed = (_e: unknown, _code: number, _desc: string, url: string, isMainFrame: boolean) => { if (isMainFrame && url !== "about:blank") done(); };
+        wc.on("did-finish-load", loaded);
+        wc.on("did-fail-load", failed);
+      },
       destroy: () => {
         for (const popup of popups) if (!popup.isDestroyed()) popup.destroy();
         onView?.(id, null);
@@ -348,17 +371,48 @@ export type BrowserPane = {
   /** Where the view's page sits in the window, in window points, and how many of those a CSS pixel is
    *  — what places a menu under a field in the page (password-autofill.ts). */
   viewFrame(id: string): { x: number; y: number; zoom: number } | null;
+  /** Each live view's renderer process, its page's title and how long it has been off screen, for the
+   *  resource report (app-metrics.ts). */
+  viewProcesses(): { browserId: string; pid: number; title: string; hiddenSince: number | null }[];
+  /** An agent typed into this view's page: kept from a discard until its next navigation. */
+  markTyped(id: string): void;
 };
 
-export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: PasskeyInstaller): BrowserPane {
+export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: PasskeyInstaller, o: { retainedLimit?: () => number | null } = {}): BrowserPane {
   const views = new Map<string, WebContents>();
+  const typedSince = new TypedSince();
   const viewBoxes = new Map<string, WebContentsView>();
   const destroyedCbs: ((id: string) => void)[] = [];
   const send = (channel: string, payload: unknown) => { if (!win.isDestroyed()) win.webContents.send(channel, payload); };
+  /** The discard guard (`BrowserPaneHost.sweep`): what the process says, then what the page says. */
+  const guard = async (id: string): Promise<KeepReason | null> => {
+    const wc = views.get(id);
+    if (!wc || wc.isDestroyed()) return null;
+    if (wc.isDevToolsOpened()) return "devtools";
+    if (typedSince.has(id)) return "form";
+    if (wc.isCurrentlyAudible()) return "media";
+    if (wc.isLoading()) return "loading";
+    if (host.popupsOf(id).length > 0) return "popup";
+    for (const frame of wc.mainFrame.framesInSubtree) {
+      // A frame that will not answer in a second is not one to throw away on a guess.
+      const said = await Promise.race([
+        frame.executeJavaScript(PAGE_BUSY).catch(() => null),
+        new Promise((resolve) => setTimeout(() => resolve("loading"), 1_000).unref?.()),
+      ]);
+      if (said === "media" || said === "form" || said === "session" || said === "loading") return said;
+    }
+    return null;
+  };
   const host = new BrowserPaneHost({
+    guard,
+    ...(o.retainedLimit ? { retainedLimit: o.retainedLimit } : {}),
     createView: electronViewFactory(win, (id, wc, view) => {
-      if (wc) { views.set(id, wc); if (view) viewBoxes.set(id, view); }
-      else { views.delete(id); viewBoxes.delete(id); for (const cb of destroyedCbs) cb(id); }
+      if (wc) {
+        views.set(id, wc); if (view) viewBoxes.set(id, view);
+        typedSince.forget(id);
+        wc.on("before-input-event", (_e, input) => typedSince.input(id, input));
+        wc.on("did-navigate", () => typedSince.navigated(id));
+      } else { views.delete(id); viewBoxes.delete(id); typedSince.forget(id); for (const cb of destroyedCbs) cb(id); }
     }, installPasskeysFor),
     sendState: (s) => send("realm:browser-state", s),
     scaleFactor: () => screen.getDisplayMatching(win.getBounds()).scaleFactor,
@@ -384,16 +438,21 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
   win.on("closed", () => host.destroyAll());
   return {
     host,
-    hasView: (id) => { const wc = views.get(id); return !!wc && !wc.isDestroyed(); },
+    // A discarded view counts: it comes back the moment anything needs its page.
+    hasView: (id) => { const wc = views.get(id); return (!!wc && !wc.isDestroyed()) || host.isDiscarded(id); },
     pageState: (id) => {
       const wc = views.get(id);
-      return wc && !wc.isDestroyed() ? { url: wc.getURL(), title: wc.getTitle(), loading: wc.isLoading(), error: host.loadErrorOf(id), popups: host.popupsOf(id) } : null;
+      if (wc && !wc.isDestroyed()) return { url: wc.getURL(), title: wc.getTitle(), loading: wc.isLoading(), error: host.loadErrorOf(id), popups: host.popupsOf(id) };
+      // Asked about, not used: answered from what was kept, without bringing it back.
+      const kept = host.discardedPage(id);
+      return kept ? { url: kept.url, title: "", loading: false, error: null, popups: [] } : null;
     },
     browserIdForWebContents: (webContentsId) => {
       for (const [id, wc] of views) if (!wc.isDestroyed() && wc.id === webContentsId) return id;
       return null;
     },
     downloadURL: (id, url) => {
+      host.live(id);
       const wc = views.get(id);
       if (wc && !wc.isDestroyed()) wc.downloadURL(url);
     },
@@ -405,7 +464,11 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
       const b = view.getBounds();
       return { x: b.x, y: b.y, zoom: wc.getZoomFactor() };
     },
+    markTyped: (id) => { if (views.has(id)) typedSince.mark(id); },
+    viewProcesses: () => [...views].filter(([, wc]) => !wc.isDestroyed())
+      .map(([browserId, wc]) => ({ browserId, pid: wc.getOSProcessId(), title: wc.getTitle(), hiddenSince: host.visibilityOf(browserId)?.hiddenSince ?? null })),
     capture: async (id) => {
+      host.live(id);
       const wc = views.get(id);
       if (!wc || wc.isDestroyed()) return null;
       // At a device preset the view's own capture is the emulated SURFACE — for a desktop width scaled
@@ -419,6 +482,7 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
       return image.isEmpty() ? null : new Uint8Array(image.toPNG());
     },
     attachCdp: (id) => {
+      host.live(id);
       const wc = views.get(id);
       if (!wc || wc.isDestroyed()) return null;
       try { if (!wc.debugger.isAttached()) wc.debugger.attach("1.3"); } catch { return null; }

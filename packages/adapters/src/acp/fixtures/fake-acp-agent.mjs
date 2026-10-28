@@ -47,9 +47,17 @@
  * `authMethods`, and FAKE_ACP_EXIT_MARKER=<path> writes that file when our stdin closes.
  * FAKE_ACP_PROMPT_LOG=<path> appends every `session/prompt`'s `prompt` array to that file, one JSON line per
  * prompt, as it came over the wire — the capture a live check reads without the reply echoing it.
+ * FAKE_ACP_CHILD_PID=<path> starts a child of the agent's own at boot, as Hermes starts its configured MCP
+ * servers, which lives until killed and writes its pid to that file.
  */
 
+import { spawn } from "node:child_process";
 import { appendFileSync, writeFileSync } from "node:fs";
+
+if (process.env.FAKE_ACP_CHILD_PID) {
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+  writeFileSync(process.env.FAKE_ACP_CHILD_PID, String(child.pid));
+}
 
 let nextSessionN = 0;
 let nextCallN = 0;

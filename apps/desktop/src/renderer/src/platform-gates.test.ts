@@ -33,6 +33,10 @@ describe("what Linux and Windows are not offered", () => {
     // Search never lands on a page that is not drawn, or on Laya's rows.
     expect(searchSettings("computer use").filter((e) => e.tab === "computer-use")).toEqual([]);
     expect(searchSettings("laya")).toEqual([]);
+    // Settings ▸ RAM stays — its idle windows apply on every OS — without the simulators' rows.
+    expect(tabAvailable("ram")).toBe(true);
+    expect(searchSettings("simulator").filter((e) => e.tab === "ram")).toEqual([]);
+    expect(searchSettings("idle engine").map((e) => e.id)).toContain("ram-engine-idle");
     expect(searchSettings("app icon").map((e) => e.id)).not.toContain("app-icon");
     expect(sideToolOffered("simulator")).toBe(false);
     expect(sideToolOffered("terminal")).toBe(true);

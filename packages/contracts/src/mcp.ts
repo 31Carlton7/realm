@@ -153,6 +153,10 @@ export const McpServerSchema = z.object({
   /** Whether Realm draws the views this server ships (MCP Apps). The server's own switch, on unless
    *  someone turned it off; it is the same in every space, as the server's tools are. */
   showViews: z.boolean().default(true),
+  /** stdio only: whether Realm stops this server after Settings ▸ RAM's idle window without a call,
+   *  and starts it again on the next. Off by default for a server holding a browser or device session,
+   *  which stopping it would lose; on for the rest. Absent for a remote server: no process here. */
+  stopWhenIdle: z.boolean().optional(),
   createdAt: z.number().int(),
 });
 export type McpServer = z.infer<typeof McpServerSchema>;

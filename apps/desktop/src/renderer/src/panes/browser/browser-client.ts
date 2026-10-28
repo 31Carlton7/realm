@@ -59,7 +59,8 @@ export type BrowserHostBridge = {
   /** The trail as an OS menu — see main's handler for why it cannot be a popover in this pane. */
   historyMenu(id: string, dir: "back" | "forward", at: { x: number; y: number }): Promise<void>;
   setAllowlist(id: string, allowlist: string[] | null): Promise<void>;
-  setBounds(id: string, rect: { x: number; y: number; width: number; height: number }, dpr: number, visible: boolean): void;
+  /** `shown`: the pane is the one showing, whatever covers it for the moment (main's idle clock). */
+  setBounds(id: string, rect: { x: number; y: number; width: number; height: number }, dpr: number, visible: boolean, shown?: boolean): void;
   onState(cb: (s: BrowserViewState) => void): () => void;
   /** Arms the picker; resolves when the user clicks an element, or null if the pick did not happen.
    *  Stays pending for as long as the user takes to aim. `accent` is the theme colour the page-side

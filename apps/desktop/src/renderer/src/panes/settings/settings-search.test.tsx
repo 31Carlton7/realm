@@ -45,7 +45,7 @@ describe("the rail is grouped", () => {
       .getAllByRole("radio").map((r) => r.closest("label")!.textContent)]);
     expect(seen).toEqual([
       ["You", ["General", "Appearance", "Keys", "Notifications", "Devices"]],
-      ["Engines", ["Engines", "Usage"]],
+      ["Engines", ["Engines", "Usage", "RAM"]],
       ["Browser", ["Passwords"]],
       ["Computer", ["Permissions", "Computer use", "Lab"]],
       ["Data", ["Import", "Archived"]],

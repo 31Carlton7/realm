@@ -113,7 +113,10 @@ export function parseApps(stdout: string): SimulatorApp[] {
 
 export type Simctl = {
   devices(): Promise<SimulatorDevice[]>;
-  boot(udid: string): Promise<{ ok: boolean; detail: string }>;
+  /** `booted` is true only when THIS call started the device: one already running (somebody's Xcode,
+   *  another pane) answers ok without it — the difference between a simulator Realm booted and one it
+   *  only showed. */
+  boot(udid: string): Promise<{ ok: boolean; detail: string; booted?: boolean }>;
   available(): Promise<boolean>;
   /** Everything installed on the device, the user's own apps among Apple's. */
   apps(udid: string): Promise<SimulatorApp[]>;
@@ -132,6 +135,8 @@ export type Simctl = {
   /** The device's pasteboard, both ways. */
   pasteTo(udid: string, text: string): Promise<{ ok: boolean; detail: string }>;
   copyFrom(udid: string): Promise<{ ok: boolean; text: string; detail: string }>;
+  /** Shut the device down — only ever one Realm booted (`SimulatorService.sweepIdle`). */
+  shutdown(udid: string): Promise<{ ok: boolean; detail: string }>;
 };
 
 export function simctl(env: NodeJS.ProcessEnv = process.env): Simctl {
@@ -146,7 +151,8 @@ export function simctl(env: NodeJS.ProcessEnv = process.env): Simctl {
       // "Unable to boot device in current state: Booted" is the happy path arriving late — two panes
       // pointed at one device, or a simulator the user already had open in Xcode.
       const text = `${r.stdout}${r.stderr}`.trim();
-      if (r.code === 0 || /current state: Booted/i.test(text)) return { ok: true, detail: text };
+      if (r.code === 0) return { ok: true, detail: text, booted: true };
+      if (/current state: Booted/i.test(text)) return { ok: true, detail: text, booted: false };
       return { ok: false, detail: text || `xcrun exited ${r.code}` };
     },
     async available() {
@@ -187,6 +193,12 @@ export function simctl(env: NodeJS.ProcessEnv = process.env): Simctl {
     async copyFrom(udid) {
       const r = await run(bin, ["simctl", "pbpaste", udid], 15_000);
       return { ...said(r), text: r.code === 0 ? r.stdout : "" };
+    },
+    async shutdown(udid) {
+      const r = await run(bin, ["simctl", "shutdown", udid], 60_000);
+      // Already off is the outcome asked for, arriving late.
+      if (/current state: Shutdown/i.test(`${r.stdout}${r.stderr}`)) return { ok: true, detail: "" };
+      return said(r);
     },
   };
 }

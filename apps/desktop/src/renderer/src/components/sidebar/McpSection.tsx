@@ -170,6 +170,7 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
   const run = useApp((s) => s.run);
   const setMcpEnabled = useApp((s) => s.setMcpEnabled);
   const setMcpShowViews = useApp((s) => s.setMcpShowViews);
+  const setMcpStopWhenIdle = useApp((s) => s.setMcpStopWhenIdle);
   const removeMcpServer = useApp((s) => s.removeMcpServer);
   const retryMcpServer = useApp((s) => s.retryMcpServer);
   const testMcpServer = useApp((s) => s.testMcpServer);
@@ -267,16 +268,25 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
           onCancel={() => setConfirmMove(false)}
           onConfirm={() => { setConfirmMove(false); run(() => (inherited ? demoteMcpServer : promoteMcpServer)(spaceId, server.id)); }} />
       )}
-      {/* The server's own switch, not this space's — a view is the vendor's drawing, and whether to see
-          it is a choice about the vendor — so it sits on a line of its own, apart from Enabled, whose
-          scope is the space. On until someone turns it off. */}
-      {hasViews && (
+      {/* The server's own switches, not this space's — a view is the vendor's drawing, and whether to
+          see it is a choice about the vendor; whether its process may stop is a choice about the
+          process — so they sit on a line of their own, apart from Enabled, whose scope is the space. */}
+      {(hasViews || server.stopWhenIdle !== undefined) && (
         <div className="mcp-views">
-          <label className="mcp-enable" title={`Whether Realm shows ${server.name}'s views, in every space. Off, its tools answer in text only.`}>
-            <input type="checkbox" role="switch" className="switch" aria-label={`Show ${server.name}'s views`} checked={server.showViews}
-              onChange={(e) => run(() => setMcpShowViews(server.id, e.target.checked))} />
-            Show views
-          </label>
+          {hasViews && (
+            <label className="mcp-enable" title={`Whether Realm shows ${server.name}'s views, in every space. Off, its tools answer in text only.`}>
+              <input type="checkbox" role="switch" className="switch" aria-label={`Show ${server.name}'s views`} checked={server.showViews}
+                onChange={(e) => run(() => setMcpShowViews(server.id, e.target.checked))} />
+              Show views
+            </label>
+          )}
+          {server.stopWhenIdle !== undefined && (
+            <label className="mcp-enable" title={`Whether Realm stops ${server.name} after Settings ▸ RAM's idle window without a call, and starts it again on the next. Off by default for a server that holds a browser or a device, which stopping would lose.`}>
+              <input type="checkbox" role="switch" className="switch" aria-label={`Stop ${server.name} when idle`} checked={server.stopWhenIdle}
+                onChange={(e) => run(() => setMcpStopWhenIdle(server.id, e.target.checked))} />
+              Stop when idle
+            </label>
+          )}
         </div>
       )}
       {server.status === "circuit_open" && (

@@ -111,6 +111,13 @@ type Entry = {
    *  deleted in between. Overwritten (not accumulated) on every attempt; a fresh `Entry` after
    *  `invalidate()`/`retry()` starts empty. */
   redact: string[];
+  /** The transport the live client speaks over — for a stdio row, the process Realm started. */
+  transport: Transport | null;
+  /** When this server was last connected to or called; what the resource report and the idle sweep read. */
+  usedAt: number;
+  /** A stdio server stopped for having nothing to do (`sleepIdle`): its last tool list is still served,
+   *  and the next call starts it again. */
+  asleep: boolean;
 };
 
 /**
@@ -166,6 +173,8 @@ export class McpHub {
     elicit?: HubElicit;
     /** Test seam for `CALL_TIMEOUT_MS`. */
     callTimeoutMs?: number;
+    /** Whether `sleepIdle` may stop this server (`McpService.stopsWhenIdle`); absent, any may go. */
+    stopsWhenIdle?: (id: string) => boolean;
   }) {}
 
   /**
@@ -180,6 +189,10 @@ export class McpHub {
    * now" without erroring the whole `tools/list` response.
    */
   async tools(id: string): Promise<McpLiveTool[]> {
+    // Asleep is not gone: its tools are the ones it listed before it was stopped, and a list is no
+    // reason to start it again — every session start asks for one.
+    const resting = this.entries.get(id);
+    if (resting?.asleep && resting.tools && !resting.client) return [...resting.tools.values()];
     const { client, entry } = await this.ensureClient(id);
     try {
       const { tools } = await client.listTools();
@@ -204,6 +217,7 @@ export class McpHub {
    *  session making it: what a question the server asks mid-call is routed to. */
   async call(id: string, tool: string, args: unknown, caller?: { sessionId: string }): Promise<CallToolResult> {
     const { client, entry } = await this.ensureClient(id);
+    entry.usedAt = Date.now();
     const ms = this.d.callTimeoutMs ?? CALL_TIMEOUT_MS;
     const abort = new AbortController();
     const clock = new CallClock(ms, () => abort.abort(new Error(`the server did not answer ${tool} within ${Math.round(ms / 1000)}s`)));
@@ -225,6 +239,8 @@ export class McpHub {
     } finally {
       clock.stop();
       this.open.delete(open);
+      // The idle window runs from the end of the last call: a call of twenty minutes is twenty minutes of use.
+      entry.usedAt = Date.now();
     }
   }
 
@@ -306,6 +322,45 @@ export class McpHub {
     finally { for (const c of calls) c.clock.resume(); }
   }
 
+  /**
+   * Every stdio server running right now: the process Realm started for it, and when it was last
+   * called (`resources/attribute.ts`). A remote server is a socket, not a process on this Mac, and is
+   * not listed.
+   */
+  processes(): { serverId: string; pid: number; usedAt: number }[] {
+    const out: { serverId: string; pid: number; usedAt: number }[] = [];
+    for (const [id, e] of this.entries) {
+      const pid = e.client ? (e.transport as { pid?: unknown } | null)?.pid : null;
+      if (typeof pid === "number" && pid > 0) out.push({ serverId: id, pid, usedAt: e.usedAt });
+    }
+    return out;
+  }
+
+  /**
+   * Stop every stdio server that has gone `idleMs` without a call, and say which. Its process goes;
+   * its tool list stays (`tools` answers from it), and the next call starts it again — a few seconds a
+   * session waits once, against a process held all day for nothing (mobile-mcp had been up 17 hours).
+   * Never one with a call open, a connect under way, or a question to the user out; never a remote
+   * server, which is a socket and holds no memory here.
+   */
+  sleepIdle(idleMs: number, now = Date.now()): string[] {
+    const stopped: string[] = [];
+    for (const [id, e] of this.entries) {
+      if (!e.client || e.connecting || !e.tools) continue;
+      if (typeof (e.transport as { pid?: unknown } | null)?.pid !== "number") continue;
+      // One holding a browser or a device keeps it, unless someone chose otherwise.
+      if (this.d.stopsWhenIdle?.(id) === false) continue;
+      if ([...this.open].some((c) => c.serverId === id)) continue;
+      if (now - e.usedAt < idleMs) continue;
+      const client = e.client;
+      e.client = null;
+      e.asleep = true;
+      void client.close().catch(() => {});
+      stopped.push(id);
+    }
+    return stopped;
+  }
+
   /** Closes the circuit and drops the client; the next `tools()`/`call()` reconnects from scratch. */
   async retry(id: string): Promise<void> {
     const entry = this.entries.get(id);
@@ -346,7 +401,7 @@ export class McpHub {
 
   private entry(id: string): Entry {
     let e = this.entries.get(id);
-    if (!e) { e = { status: "idle", client: null, connecting: null, failures: 0, tools: null, resources: new Map(), redact: [] }; this.entries.set(id, e); }
+    if (!e) { e = { status: "idle", client: null, connecting: null, failures: 0, tools: null, resources: new Map(), redact: [], transport: null, usedAt: Date.now(), asleep: false }; this.entries.set(id, e); }
     return e;
   }
 
@@ -435,6 +490,8 @@ export class McpHub {
       }
       entry.client = client;
       entry.connecting = null;
+      entry.usedAt = Date.now();
+      entry.asleep = false;
       // A server that exits (a crash, a stdio server quitting when idle) leaves a client that can only
       // answer "Not connected": let go of it, so the next call connects again.
       client.onclose = () => { if (entry.client === client) entry.client = null; };
@@ -455,7 +512,9 @@ export class McpHub {
       // Captured before `makeTransport`/`StdioClientTransport` run, so a failure in either still has
       // something to redact against in `connect()`'s catch — see `Entry.redact`'s doc comment.
       entry.redact = credentialValues(Object.values(row.secrets));
-      return (await this.d.makeTransport?.(row, {})) ?? new StdioClientTransport({ command: row.command, args: row.args, env: row.secrets });
+      const transport = (await this.d.makeTransport?.(row, {})) ?? new StdioClientTransport({ command: row.command, args: row.args, env: row.secrets });
+      entry.transport = transport;
+      return transport;
     }
     // Captured from `row.secrets` alone BEFORE `authHeaders` runs, same reasoning as the stdio branch
     // above: `authHeaders` (the OAuth seam) can itself reject — a network error hitting the token

@@ -64,7 +64,7 @@ function StateRow({ laya }: { laya: LayaStatus }) {
   const r = laya.runtime;
   const name = {
     unavailable: "Not available", "needs-python": "Needs Python", "not-installed": "Not installed", installing: "Installing",
-    off: "Installed, not running", starting: "Starting", ready: "Running",
+    off: "Installed, not running", standby: "Starts when a step needs it", starting: "Starting", ready: "Running",
     failed: r.state === "failed" && r.during === "install" ? "Install failed" : "Stopped after failing to start",
   }[r.state];
   return (
@@ -100,6 +100,11 @@ function StateRow({ laya }: { laya: LayaStatus }) {
               </div>
             )}
           </>
+        )}
+        {r.state === "standby" && (
+          <span className="settings-row-desc">
+            Stopped after {r.idleMinutes} {r.idleMinutes === 1 ? "minute" : "minutes"} with no step, to give back its memory. The next step loads it again.
+          </span>
         )}
         {r.state === "starting" && <span className="settings-row-desc">Loading the checkpoint.</span>}
         {laya.auto && <span className="settings-row-desc laya-auto">{autoLine(laya.auto)}</span>}

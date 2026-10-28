@@ -530,7 +530,9 @@ export function BrowserPane({ item, visible, focused }: PaneProps) {
       el.toggleAttribute("data-yielded", bounds.height < r.height);
       host.setBounds(browserId, bounds, window.devicePixelRatio,
         shouldShowView({ paneVisible: visibleRef.current, pageOverlay: overlayRef.current,
-          dragging: flags.dragging, settled: flags.settled, hasUrl: flags.hasUrl, ready: flags.ready, failed: flags.failed }));
+          dragging: flags.dragging, settled: flags.settled, hasUrl: flags.hasUrl, ready: flags.ready, failed: flags.failed }),
+        // The pane itself, whatever covers it for the moment: what main's idle discard counts from.
+        visibleRef.current);
       // W2's no-overlay registration: the rect the native view paints (or will paint — transient
       // hides like drags and the mount settle KEEP the rect registered, because the view returns to
       // exactly this rect and a surface placed "over" it during the blink would be covered the

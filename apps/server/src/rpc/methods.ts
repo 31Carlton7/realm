@@ -85,6 +85,7 @@ import type { ShipsStore } from "../store/ships";
 import type { PortAllocator } from "../workspace/ports";
 import type { ExecutionSandboxService } from "../sandbox/service";
 import type { LayaService } from "../laya/service";
+import type { ResourceControls } from "../resources/controls";
 import type { AppViewService } from "../apps/service";
 import type { RemoteService } from "../remote/service";
 import type { Presence } from "../remote/presence";
@@ -111,6 +112,8 @@ export type Deps = {
    *  methods without the delegation stack. */
   teammates?: Teammates;
   laya: LayaService;
+  /** What Realm costs this Mac in memory, and the Memory page's controls (`resources/controls.ts`). */
+  resources: ResourceControls;
   agentSignIn: AgentSignInService;
   /** The views MCP servers draw for tool calls (MCP Apps). */
   appViews: AppViewService;
@@ -493,6 +496,12 @@ export function registerMethods(d: Deps): void {
     rpc.broadcast("mcp.changed", {});
     return { ok: true as const };
   });
+  // A stdio server's "Stop when idle". The hub asks on its next sweep; nothing running is touched now.
+  reg("mcp.setStopWhenIdle", (p) => {
+    d.mcp.setStopsWhenIdle(p.id, p.stop);
+    rpc.broadcast("mcp.changed", {});
+    return { ok: true as const };
+  });
   // Promote is effective-set neutral and demote strips siblings (`McpService.promote`/`demote` doc
   // comments), but visibility moves for every space of the profile either way — and a pre-scoping row
   // leaves other profiles' lists on promote — so every space re-lists and every session is nudged.
@@ -863,6 +872,7 @@ export function registerMethods(d: Deps): void {
   reg("simulators.start", (p) => ({ state: d.simulators.start(p.simulatorId, p.udid, p.platform, p.physical) }));
   reg("simulators.stop", async (p) => ({ state: await d.simulators.stop(p.simulatorId) }));
   reg("simulators.close", (p) => { d.simulators.close(p.simulatorId); return { ok: true as const }; });
+  reg("simulators.seen", (p) => { d.simulators.seen(p.simulatorId); return { ok: true as const }; });
   reg("simulators.ui", async (p) => ({ ui: await d.simulators.ui(p.simulatorId) }));
   reg("simulators.setUi", (p) => d.simulators.setUi(p.simulatorId, p.option, p.value));
   reg("simulators.poke", (p) => d.simulators.poke(p.simulatorId, p.poke));
@@ -1240,6 +1250,10 @@ export function registerMethods(d: Deps): void {
   reg("laya.record", (p) => d.laya.record(p.simulatorId, p.apps));
   reg("laya.stopRecording", () => d.laya.stopRecording());
   reg("laya.deleteRecordings", () => d.laya.deleteRecordings());
+  reg("resources.snapshot", (p) => d.resources.snapshot({ fresh: p.fresh }));
+  reg("resources.policies", () => d.resources.policies());
+  reg("resources.setPolicy", (p) => d.resources.setPolicy(p.key, p.value));
+  reg("resources.free", (p) => d.resources.free(p.action));
 
   reg("failover.get", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);

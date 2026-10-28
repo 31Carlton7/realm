@@ -1191,6 +1191,9 @@ describe("read-only gateway allowedTools (Plan 11 W4)", () => {
       "mcp__realm__realm-workspace__space_list",
       "mcp__realm__realm-workspace__settings_get",
       "mcp__realm__realm-workspace__realm_capabilities",
+      // Sizes and names of what is using the Mac's memory, and advice; it changes nothing. A prompt
+      // in front of it would only teach an agent to skip the check before a build.
+      "mcp__realm__realm-workspace__machine_status",
       "mcp__realm__realm-agent__agent_peers",
       "mcp__realm__realm-agent__agent_status",
       "mcp__realm__realm-schedule__schedule_list",

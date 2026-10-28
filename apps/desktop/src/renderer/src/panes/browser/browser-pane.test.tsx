@@ -462,6 +462,18 @@ describe("BrowserPane", () => {
       expect(store.getState().browserRects).toEqual([]);
     });
 
+    it("tells main the pane is still the one showing, so a page over it does not start the idle discard", async () => {
+      // THE MUTANT: main's idle clock read off the show flag. Settings ▸ RAM is a page overlay, and its
+      // "Discard hidden browser panes" would take every page that was on screen behind it.
+      const sent: { show: boolean; shown: boolean | undefined }[] = [];
+      const f = fakeBridges({ url: "https://example.com" });
+      f.bridges.host.setBounds = (_id, _rect, _dpr, show, shown) => { sent.push({ show, shown }); };
+      const { store } = mountWithStore(f);
+      await settle();
+      await act(async () => { store.setState({ pageOverlay: { kind: "settings-page", refId: "settings", spaceId: "s1" } }); await settle(); });
+      expect(sent.at(-1)).toEqual({ show: false, shown: true });
+    });
+
     it("shows it again when the page closes", async () => {
       const shows: boolean[] = [];
       const f = fakeBridges({ url: "https://example.com" });

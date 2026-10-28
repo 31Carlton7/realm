@@ -330,7 +330,7 @@ interface Window {
       answerPasswordOffer?(id: string, offerId: string, answer: import("@realm/contracts").PasswordSaveAnswer): Promise<boolean>;
       setAllowlist(id: string, allowlist: string[] | null): Promise<void>;
       /** Per-frame, fire-and-forget: placeholder rect (CSS px) + devicePixelRatio + visibility. */
-      setBounds(id: string, rect: { x: number; y: number; width: number; height: number }, dpr: number, visible: boolean): void;
+      setBounds(id: string, rect: { x: number; y: number; width: number; height: number }, dpr: number, visible: boolean, shown?: boolean): void;
       onState(cb: (s: BrowserViewState) => void): () => void;
       /** Plan 26 W7b — the ⋯ menu's facts, and its rows. */
       menuState(id: string): Promise<import("@realm/contracts").BrowserMenuState>;

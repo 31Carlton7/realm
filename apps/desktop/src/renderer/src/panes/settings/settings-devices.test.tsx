@@ -200,7 +200,8 @@ describe("pairing", () => {
       expect(code.getAttribute("viewBox")).toBe("0 0 85 85");
       expect(code.getAttribute("width")).toBe("255");
       fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      // The sheet animates out; a loaded CI Mac has taken past testing-library's one-second default.
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull(), { timeout: 4000 });
     }
     delete document.documentElement.dataset.mode;
   });

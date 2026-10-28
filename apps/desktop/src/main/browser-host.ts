@@ -523,6 +523,10 @@ export type ViewHandle = {
   /** The addresses of the popup windows this view's page has open (`windowOpenAction`), its popups'
    *  own included. Read off each window's webContents, never from what a page says. */
   popups(): string[];
+  /** Where the page is scrolled to, read from the page; null when it cannot be read. */
+  readScroll(): Promise<{ x: number; y: number } | null>;
+  /** Scroll the page to here once the load that is about to start (or is under way) has finished. */
+  scrollAfterLoad(x: number, y: number): void;
   /** Closes the view's popups with it. */
   destroy(): void;
 };
@@ -557,6 +561,42 @@ export type ViewFactory = (id: string, hooks: ViewHooks, partition: string) => V
 export const RETAINED_VIEW_LIMIT = 3;
 
 /**
+ * The off-screen budget for unmounted panes, from Settings ▸ RAM: none at all when hidden panes are
+ * never discarded, else as many as it keeps loaded — but never fewer than `RETAINED_VIEW_LIMIT`. This
+ * budget takes no window: a pane over it goes the moment its space is left, so "keep 1 loaded" would
+ * throw away the page the person just switched away from, which the idle sweep would have kept for
+ * its whole window.
+ */
+export function retainedBudget(policy: { keepHidden: number; never: boolean }): number | null {
+  return policy.never ? null : Math.max(policy.keepHidden, RETAINED_VIEW_LIMIT);
+}
+
+/** However long a sweep's window, an agent's view is spared this long after its last op. */
+export const AGENT_GRACE_MS = 5 * 60_000;
+
+/**
+ * A view given up to free its memory, and everything needed to bring it back: its page and where it was
+ * scrolled to, its jar, its fence, its device preset, its place. Its renderer process is gone.
+ *
+ * What does NOT come back is its back/forward history. Measured on Electron 45: the one way to rebuild
+ * history, `navigationHistory.restore`, refuses a webContents that has loaded anything — and every
+ * pane's view loads `about:blank` first, for the passkey install that has to precede its first page.
+ * Nor does the entry's own `pageState` carry the scroll of the page on screen: it is committed when the
+ * page is navigated away from. So the scroll is read off the page as it is discarded.
+ */
+type Discarded = {
+  url: string; scroll: { x: number; y: number } | null;
+  allowlist: string[] | null; partition: string; device: DevicePreset | null; host: ViewRect | null;
+};
+
+/** Why a hidden view is kept rather than discarded: its page says so, an agent drove it within the
+ *  window, or it is one of the most recently hidden. */
+export type KeepReason = "media" | "form" | "session" | "loading" | "popup" | "devtools" | "agent" | "recent";
+
+/** How long an agent's first step waits for a page brought back from a discard to load. */
+export const REVIVE_WAIT_MS = 15_000;
+
+/**
  * One `WebContentsView` per open browser item, keyed by browser id. Owns lifecycle (create is
  * idempotent; destroy is final; destroyAll on window teardown — a view never outlives its window),
  * the navigation guards, and the state channel back to the renderer.
@@ -575,10 +615,26 @@ export class BrowserPaneHost {
     device: DevicePreset | null; host: ViewRect | null;
     /** The metrics last sent, so a resize that changes nothing sends nothing. */
     emulated: string | null;
+    /** Whether the view is on screen, as the pane last said — a page overlay, a drag or the mount
+     *  settle hide it for a moment over a pane that is still the one showing. */
+    visible: boolean;
+    /** Whether the PANE is the one showing, overlays aside, and since when it has not been: the clock
+     *  the idle discard runs on. A page open over the workspace hides every view, and must not make
+     *  every page in the window hidden. */
+    shown: boolean; hiddenSince: number | null;
+    /** When an agent's op last reached it (`touch`). */
+    agentAt: number;
+    /** Brought back from a discard and not yet painted: kept hidden until its page is ready, so the
+     *  pane never shows a blank white view where the page was. */
+    reviving: boolean;
   }>();
   /** Retained ids in least-recently-used order — `Set` iterates by insertion, so re-adding after a
    *  delete moves an id to the back. Views with a mounted pane are absent, never evictable. */
   private retained = new Set<string>();
+  /** Views given up for memory (`discard`), by browser id, until a pane, an op or an agent wants them. */
+  private discarded = new Map<string, Discarded>();
+  /** The off-screen budget being enforced, while a guard's answers are awaited. */
+  private budget: Promise<void> = Promise.resolve();
 
   constructor(private opts: {
     createView: ViewFactory;
@@ -592,9 +648,55 @@ export class BrowserPaneHost {
     /** Emulate a device on this view's page, or (null) stop. Over CDP, so best-effort: a view with
      *  DevTools already attached simply shows the page at the narrowed width instead. */
     emulate?: (id: string, metrics: DeviceMetrics | null) => void;
+    /** Why this view's page must not be discarded right now — media playing, input not yet sent, a
+     *  load or a popup under way, DevTools open — or null when it may be. Absent, nothing is spared. */
+    guard?: (id: string) => Promise<KeepReason | null>;
+    /** How many unmounted views stay loaded (Settings ▸ RAM's "kept loaded"), or null for no limit (its
+     *  window set to Never). Absent, `RETAINED_VIEW_LIMIT`. */
+    retainedLimit?: () => number | null;
+    now?: () => number;
   }) {}
 
-  has(id: string): boolean { return this.views.has(id); }
+  private now(): number { return this.opts.now?.() ?? Date.now(); }
+
+  /** A view for this browser exists — live, or discarded and ready to come back. */
+  has(id: string): boolean { return this.views.has(id) || this.discarded.has(id); }
+
+  /** Whether the view is given up for memory and waiting to come back. */
+  isDiscarded(id: string): boolean { return this.discarded.has(id); }
+
+  /** Visibility as the pane last reported it, for the resource report: null when there is no live view. */
+  visibilityOf(id: string): { visible: boolean; hiddenSince: number | null } | null {
+    const v = this.views.get(id);
+    return v ? { visible: v.shown, hiddenSince: v.hiddenSince } : null;
+  }
+
+  /** The URL a discarded view will come back on, for whoever asks about its page before it does. */
+  discardedPage(id: string): { url: string } | null {
+    const d = this.discarded.get(id);
+    return d ? { url: d.url } : null;
+  }
+
+  /** The live view for this id, bringing a discarded one back first. Every op that needs a page goes
+   *  through here, so a discard is never what a click or an agent's step runs into. */
+  live(id: string): boolean {
+    if (this.views.has(id)) return true;
+    return this.revive(id);
+  }
+
+  /**
+   * For an agent's step: the live view, brought back from a discard first, with the page it comes back
+   * on loaded — or failed, or as far along as `REVIVE_WAIT_MS` gets it. A step taken at once would read
+   * the `about:blank` a revived view boots on.
+   */
+  async revivedPage(id: string, o: { timeoutMs?: number; pollMs?: number } = {}): Promise<void> {
+    if (!this.live(id)) return;
+    const v = this.views.get(id)!;
+    const deadline = Date.now() + (o.timeoutMs ?? REVIVE_WAIT_MS);
+    while (v.reviving && this.views.get(id) === v && !v.handle.isReady() && v.handle.getLoadError() === null && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, o.pollMs ?? 50));
+    }
+  }
 
   /**
    * Idempotent: React StrictMode double-mounts, and a remount must not reload the page. It is also
@@ -608,27 +710,96 @@ export class BrowserPaneHost {
    */
   create(id: string, url: string, allowlist: string[] | null, partition: string): void {
     this.retained.delete(id); // a pane is showing it again: no longer evictable
+    // Discarded while its pane was away: back in the jar it was made in, on the page it was on.
+    const gone = this.discarded.get(id);
+    if (gone && gone.partition === partition) { gone.allowlist = allowlist; this.revive(id); return; }
+    if (gone) this.discarded.delete(id);
     const existing = this.views.get(id);
     if (existing && existing.partition === partition) { this.emitState(id); return; }
     if (existing) this.destroy(id);
-    const handle = this.opts.createView(id, {
+    const handle = this.opts.createView(id, this.hooks(id), partition);
+    this.views.set(id, { handle, allowlist, partition, device: null, host: null, emulated: null, visible: false, shown: false, hiddenSince: this.now(), agentAt: 0, reviving: false });
+    const normalized = normalizeAddress(url);
+    if (normalized && originAllowed(normalized, allowlist)) handle.loadURL(normalized);
+    this.emitState(id);
+  }
+
+  private hooks(id: string): ViewHooks {
+    return {
       emitState: () => this.emitState(id),
       allowNavigate: (target) => originAllowed(target, this.views.get(id)?.allowlist ?? null),
       openInPlace: (target) => this.navigate(id, target),
       found: (result) => this.opts.sendFound?.({ id, ...result }),
       findShortcut: () => this.opts.requestFind?.(id),
-    }, partition);
-    this.views.set(id, { handle, allowlist, partition, device: null, host: null, emulated: null });
-    const normalized = normalizeAddress(url);
-    if (normalized && originAllowed(normalized, allowlist)) handle.loadURL(normalized);
+    };
+  }
+
+  /**
+   * Give a hidden view's renderer up to free its memory, remembering what brings it back. Its page's
+   * scroll is read first; a view that came back on screen while that was read is left alone.
+   */
+  async discard(id: string): Promise<boolean> {
+    const v = this.views.get(id);
+    if (!v || v.visible || v.shown) return false;
+    const scroll = await v.handle.readScroll().catch(() => null);
+    if (this.views.get(id) !== v || v.visible || v.shown) return false;
+    this.discarded.set(id, { url: v.handle.getURL(), scroll, allowlist: v.allowlist, partition: v.partition, device: v.device, host: v.host });
+    this.views.delete(id);
+    this.retained.delete(id);
+    // No state is sent: the pane keeps showing what it showed, and asking to show it again is what
+    // brings it back (`setBounds`). A state saying "not ready" would stop it from ever asking.
+    try { v.handle.destroy(); } catch { /* already gone with its window */ }
+    return true;
+  }
+
+  /** A discarded view, made again: its page reloaded behind the passkey install, scrolled back to
+   *  where it was, kept hidden until it has painted. */
+  private revive(id: string): boolean {
+    const d = this.discarded.get(id);
+    if (!d) return false;
+    this.discarded.delete(id);
+    const handle = this.opts.createView(id, this.hooks(id), d.partition);
+    const url = normalizeAddress(d.url);
+    const loads = Boolean(url && originAllowed(url, d.allowlist));
+    // Hidden until painted only when there is a page coming to paint.
+    this.views.set(id, { handle, allowlist: d.allowlist, partition: d.partition, device: d.device, host: d.host, emulated: null, visible: false, shown: false, hiddenSince: this.now(), agentAt: 0, reviving: loads });
+    if (loads) {
+      if (d.scroll && (d.scroll.x !== 0 || d.scroll.y !== 0)) handle.scrollAfterLoad(d.scroll.x, d.scroll.y);
+      handle.loadURL(url!);
+    }
+    this.place(id);
     this.emitState(id);
+    return true;
+  }
+
+  /**
+   * Discard every view that has been hidden for `hiddenMs`, except the `keepHidden` most recently
+   * hidden and any its guard or an agent spares. `hiddenMs: 0, keepHidden: 0` is the Memory page's
+   * button: everything hidden that may go, now. Answers what went and what stayed, and why.
+   */
+  async sweep(o: { hiddenMs: number; keepHidden: number }): Promise<{ discarded: string[]; kept: { id: string; reason: KeepReason }[] }> {
+    const now = this.now();
+    const hidden = [...this.views].filter(([, v]) => !v.shown && !v.visible && v.hiddenSince !== null)
+      .sort((a, b) => b[1].hiddenSince! - a[1].hiddenSince!);
+    const out: { discarded: string[]; kept: { id: string; reason: KeepReason }[] } = { discarded: [], kept: [] };
+    for (const [i, [id, v]] of hidden.entries()) {
+      if (i < o.keepHidden) { out.kept.push({ id, reason: "recent" }); continue; }
+      if (now - v.hiddenSince! < o.hiddenMs) continue;
+      // An agent that drove it within the window may come back for it mid-task.
+      if (now - v.agentAt < Math.max(o.hiddenMs, AGENT_GRACE_MS)) { out.kept.push({ id, reason: "agent" }); continue; }
+      const reason = await this.opts.guard?.(id) ?? null;
+      if (reason) { out.kept.push({ id, reason }); continue; }
+      if (await this.discard(id)) out.discarded.push(id);
+    }
+    return out;
   }
 
   /** Every host-initiated navigation (address bar, window.open funnel) passes the same allowlist the
    *  page's own navigations do — `loadURL` does not fire `will-navigate`, so checking here is what
    *  keeps the two paths equally fenced. Returns the normalized URL, or null when refused/no-op. */
   navigate(id: string, input: string): string | null {
-    const v = this.views.get(id); if (!v) return null;
+    if (!this.live(id)) return null;
+    const v = this.views.get(id)!;
     const url = normalizeAddress(input);
     if (!url || !originAllowed(url, v.allowlist)) return null;
     v.handle.loadURL(url);
@@ -643,7 +814,8 @@ export class BrowserPaneHost {
    * to the URL: a page that never set one would otherwise be a blank row in the menu.
    */
   historyTrail(id: string, dir: "back" | "forward"): { index: number; label: string }[] {
-    const v = this.views.get(id); if (!v) return [];
+    if (!this.live(id)) return [];
+    const v = this.views.get(id)!;
     const { entries, activeIndex } = v.handle.history();
     const range = dir === "back"
       ? entries.map((e, i) => ({ e, i })).slice(0, Math.max(0, activeIndex)).reverse()
@@ -652,7 +824,8 @@ export class BrowserPaneHost {
   }
 
   goToIndex(id: string, index: number): void {
-    const v = this.views.get(id); if (!v) return;
+    if (!this.live(id)) return;
+    const v = this.views.get(id)!;
     v.handle.goToIndex(index);
   }
 
@@ -666,7 +839,8 @@ export class BrowserPaneHost {
    * Next button never moves.
    */
   find(id: string, query: string, step: "start" | "next" | "previous"): void {
-    const v = this.views.get(id); if (!v) return;
+    if (!this.live(id)) return;
+    const v = this.views.get(id)!;
     if (query === "") { v.handle.stopFindInPage(); return; }
     v.handle.findInPage(query, { forward: step !== "previous", findNext: step === "start" });
   }
@@ -685,17 +859,19 @@ export class BrowserPaneHost {
    * Chrome tab on that host does. The level is in memory only; nothing here persists it.
    */
   zoom(id: string, step: "in" | "out" | "reset" | null): number {
+    if (step !== null && !this.live(id)) return 1;
     const v = this.views.get(id); if (!v) return 1;
     if (step !== null) v.handle.setZoomFactor(nextZoomFactor(v.handle.getZoomFactor(), step));
     return v.handle.getZoomFactor();
   }
 
   print(id: string): void {
-    this.views.get(id)?.handle.print();
+    if (this.live(id)) this.views.get(id)!.handle.print();
   }
 
   navAction(id: string, action: "back" | "forward" | "reload" | "stop"): void {
-    const v = this.views.get(id); if (!v) return;
+    if (!this.live(id)) return;
+    const v = this.views.get(id)!;
     if (action === "back") v.handle.goBack();
     else if (action === "forward") v.handle.goForward();
     else if (action === "reload") v.handle.reload();
@@ -705,16 +881,29 @@ export class BrowserPaneHost {
   /** Per-frame renderer→main sync: placeholder rect + the renderer's devicePixelRatio, plus the
    *  renderer's visibility verdict (it hides the view during pane drags and layout settles — the
    *  research's bounds-lag mitigation lives on the renderer side, where the drag is known). */
-  setBounds(id: string, rect: ViewRect, dpr: number, visible: boolean): void {
-    const v = this.views.get(id); if (!v) return;
+  setBounds(id: string, rect: ViewRect, dpr: number, visible: boolean, shown = visible): void {
+    if (!this.views.has(id)) {
+      const gone = this.discarded.get(id);
+      if (!gone) return;
+      gone.host = toViewBounds(rect, dpr, this.opts.scaleFactor());
+      // Asked to show it: it comes back. Asked to keep it hidden: it stays given up.
+      if (!visible || !this.revive(id)) return;
+    }
+    const v = this.views.get(id)!;
     v.host = toViewBounds(rect, dpr, this.opts.scaleFactor());
     this.place(id);
-    v.handle.setVisible(visible);
+    if (v.reviving && v.handle.isReady()) v.reviving = false;
+    v.handle.setVisible(visible && !v.reviving);
+    v.visible = visible;
+    // The idle clock follows the pane, not the view (`shown`).
+    if (shown) { v.shown = true; v.hiddenSince = null; }
+    else if (v.shown || v.hiddenSince === null) { v.shown = false; v.hiddenSince = this.now(); }
   }
 
   /** Show the page at a device preset's width, or (null) fit the pane again. In memory, per view. */
   setDevice(id: string, preset: DevicePresetId | null): void {
-    const v = this.views.get(id); if (!v) return;
+    if (!this.live(id)) return;
+    const v = this.views.get(id)!;
     v.device = devicePreset(preset);
     this.place(id);
     this.emitState(id);
@@ -738,6 +927,7 @@ export class BrowserPaneHost {
 
   setAllowlist(id: string, allowlist: string[] | null): void {
     const v = this.views.get(id); if (v) v.allowlist = allowlist;
+    const d = this.discarded.get(id); if (d) d.allowlist = allowlist;
   }
 
   /**
@@ -753,21 +943,37 @@ export class BrowserPaneHost {
   retain(id: string): void {
     const v = this.views.get(id); if (!v) return;
     v.handle.setVisible(false);
+    v.visible = false;
+    if (v.shown || v.hiddenSince === null) { v.shown = false; v.hiddenSince = this.now(); }
     this.retained.delete(id);
     this.retained.add(id); // to the back: most recently retained
-    while (this.retained.size > RETAINED_VIEW_LIMIT) {
-      const oldest = this.retained.values().next().value;
-      if (oldest === undefined) break;
-      // Dropped here rather than left to `destroy`, so the loop terminates on its own terms and not
-      // on the invariant that every retained id still has a view behind it.
-      this.retained.delete(oldest);
-      this.destroy(oldest);
+    // Never a rejected chain: one guard that failed must not stop every budget after it.
+    this.budget = this.budget.then(() => this.enforceBudget()).catch(() => {});
+  }
+
+  /** Every off-screen budget enforcement asked for so far, settled. */
+  settled(): Promise<void> { return this.budget; }
+
+  /**
+   * Past the off-screen budget, the least recently retained views are DISCARDED — their page and
+   * scroll kept, to come back when their pane does — oldest first, sparing any its guard spares. So a
+   * page with media or input the budget would have taken keeps the budget over by one instead.
+   */
+  private async enforceBudget(): Promise<void> {
+    const limit = this.opts.retainedLimit ? this.opts.retainedLimit() : RETAINED_VIEW_LIMIT;
+    if (limit === null) return;
+    for (const id of [...this.retained]) {
+      if (this.retained.size <= limit) return;
+      if (await this.opts.guard?.(id)) continue;
+      if (this.retained.has(id)) await this.discard(id);
     }
   }
 
-  /** Mark a retained view as recently used, so eviction does not take one an agent is driving in the
-   *  background out from under it. A no-op for views with a mounted pane — those cannot be evicted. */
+  /** An agent's op reached this view: recently used, so eviction does not take one an agent is driving
+   *  in the background out from under it, and the idle sweep spares it. */
   touch(id: string): void {
+    const v = this.views.get(id);
+    if (v) v.agentAt = this.now();
     if (!this.retained.delete(id)) return;
     this.retained.add(id);
   }
@@ -775,6 +981,7 @@ export class BrowserPaneHost {
   /** Final: the user closed the pane or deleted the item. Only these destroy a view — a pane merely
    *  unmounting `retain`s instead, or a space switch would throw the page away. */
   destroy(id: string): void {
+    this.discarded.delete(id);
     const v = this.views.get(id); if (!v) return;
     this.views.delete(id);
     this.retained.delete(id);
@@ -785,10 +992,10 @@ export class BrowserPaneHost {
   }
 
   /** Window teardown: the views must never outlive the window they composite into. */
-  destroyAll(): void { for (const id of [...this.views.keys()]) this.destroy(id); }
+  destroyAll(): void { this.discarded.clear(); for (const id of [...this.views.keys()]) this.destroy(id); }
 
   /** Which cookie jar this view lives in — its profile's — or null when there is no view. */
-  partitionOf(id: string): string | null { return this.views.get(id)?.partition ?? null; }
+  partitionOf(id: string): string | null { return this.views.get(id)?.partition ?? this.discarded.get(id)?.partition ?? null; }
 
   /** Why the page this view is on did not load, or null when it did (or there is no view). */
   loadErrorOf(id: string): BrowserLoadError | null { return this.views.get(id)?.handle.getLoadError() ?? null; }
@@ -800,6 +1007,7 @@ export class BrowserPaneHost {
    *  running signed in to anything. */
   destroyPartition(partition: string): void {
     for (const [id, v] of [...this.views]) if (v.partition === partition) this.destroy(id);
+    for (const [id, d] of [...this.discarded]) if (d.partition === partition) this.discarded.delete(id);
   }
 
   private emitState(id: string): void {

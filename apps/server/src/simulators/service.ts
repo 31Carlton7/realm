@@ -1,4 +1,4 @@
-import { newId, type Simulator, type SimulatorPlatform, type SimulatorAct, type SimulatorApp, type SimulatorAxTree, type SimulatorDevice, type SimulatorEvent, type SimulatorState, type SimulatorUiState } from "@realm/contracts";
+import { SIMULATOR_IDLE_SHUTDOWN_DEFAULT, SIMULATOR_IDLE_SHUTDOWN_ERROR, SIMULATOR_IDLE_SHUTDOWN_KEY, newId, type Simulator, type SimulatorPlatform, type SimulatorAct, type SimulatorApp, type SimulatorAxTree, type SimulatorDevice, type SimulatorEvent, type SimulatorState, type SimulatorUiState } from "@realm/contracts";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -16,6 +16,8 @@ import type { PhysicalDevices } from "./physical";
 import type { VideoStop } from "./phone-video";
 import { RunnerError } from "./device-runner";
 import { RunnerUnreachable } from "./runner-client";
+import { sameBoot, simulatorLaunchd } from "../resources/attribute";
+import type { ProcRow } from "../resources/machine";
 
 /** A row's name, as a filename. Spaces and punctuation out, so a screenshot of "Carlton's iPhone"
  *  is a file anyone can type at a shell. */
@@ -58,7 +60,71 @@ export type SimulatorServiceDeps = {
    * gets unless it hands in a scripted phone, and what a Mac with no Xcode gets anyway.
    */
   physical?: Pick<PhysicalDevices, "devices" | "start" | "ax" | "capture" | "apps" | "app" | "act" | "input" | "stop" | "stopAll" | "streamedOn" | "rehearses">;
+  /** Where the simulators Realm booted are remembered (`REALM_BOOTED_KEY`), so a restart of the server
+   *  still knows which of the booted devices are Realm's to count and to shut down. */
+  settings?: { get(key: string): unknown; set(key: string, value: unknown): void };
+  now?: () => number;
+  /** This Mac's processes (`resources/machine.ts`), read before a shutdown: to know the device is still
+   *  the boot Realm made, and that nothing else — an `xcodebuild` an agent ran from its own shell — is
+   *  using it. Absent, the idle sweep shuts nothing down: it cannot tell. */
+  processes?: () => Promise<ProcRow[]>;
+  /** The idle window as memory pressure leaves it (`adaptIdleMinutes`): shorter when memory is short. */
+  adaptIdle?: (minutes: number) => number;
+  /** The bundle id of the app in front (`MachineProbe.frontApp`), read on each sweep while Realm has a
+   *  simulator booted. Absent, Simulator.app's and Xcode's windows are not looked at. */
+  frontApp?: () => Promise<string | null>;
+  /** This Realm's home. Each boot record carries it, so a copy of the database — a preview build, a
+   *  live check on a copy of the home — never takes the real Realm's simulators for its own. */
+  home?: string;
 };
+
+/** How often the simulators Realm booted are looked over for one gone idle. */
+export const IDLE_SWEEP_MS = 60_000;
+/** A pane says it is showing a device about once a minute (`simulators.seen`); past this it is not. */
+export const SHOWN_FRESH_MS = 90_000;
+/** Simulator.app and Xcode: either in front is somebody using a simulator by hand — running, debugging,
+ *  looking at one. */
+export const SIMULATOR_APP_BUNDLE_ID = "com.apple.iphonesimulator";
+export const XCODE_BUNDLE_ID = "com.apple.dt.Xcode";
+/** Xcode's debugger, which attaches to an app on a simulator without naming the device. */
+const DEBUGSERVER = /(^|\/)debugserver(\s|$)/;
+/**
+ * How long Simulator.app or Xcode in front, or a debugger running, keeps every simulator Realm booted
+ * in use, whatever the idle window. Which device was meant cannot be read without Accessibility or
+ * Screen Recording, so one counts for all of them. Read once a sweep, so a visit shorter than a minute
+ * between two sweeps can go unseen.
+ */
+export const BY_HAND_HOLD_MS = 30 * 60_000;
+/** However short the window — the Memory page's button asks for none — a simulator a pane or a tool
+ *  used, or Realm booted, this recently is still in use. */
+export const RECENT_USE_FLOOR_MS = 5 * 60_000;
+
+/**
+ * Whether anything on the Mac other than the device itself and Realm's own stream of it is using it: a
+ * process naming its udid — `xcodebuild -destination id=…`, `simctl io … recordVideo`, an agent's own
+ * serve-sim mirroring it — or any `xcodebuild` at all, which may name it some other way. The device's own
+ * processes (its launchd and everything under it, whose paths carry the udid) and the serve-sim daemons
+ * Realm started (`ownStreams`, with everything under them) are not "something else".
+ */
+export function usedElsewhere(udid: string, table: readonly ProcRow[], ownStreams: ReadonlySet<number> = new Set()): boolean {
+  const id = udid.toUpperCase();
+  const own = new Set<number>();
+  const children = new Map<number, number[]>();
+  for (const p of table) { const l = children.get(p.ppid); if (l) l.push(p.pid); else children.set(p.ppid, [p.pid]); }
+  for (const p of table) {
+    if (simulatorLaunchd(p.command)?.toUpperCase() !== id && !ownStreams.has(p.pid)) continue;
+    const queue = [p.pid];
+    while (queue.length) { const pid = queue.shift()!; if (own.has(pid)) continue; own.add(pid); queue.push(...(children.get(pid) ?? [])); }
+  }
+  return table.some((p) => !own.has(p.pid)
+    && (p.command.toUpperCase().includes(id) || /(^|\/)xcodebuild(\s|$)/.test(p.command)));
+}
+
+/** The simulators Realm booted itself: udid → its name, when, from which home, and the stream Realm
+ *  started for it. A device that was already running when a pane pointed at it — somebody's Xcode
+ *  session — is never written here. */
+export const REALM_BOOTED_KEY = "simulators.realmBooted";
+type RealmBoot = { name: string; at: number; home: string | null; streamPid: number | null; streamAt: number | null };
 
 /** How long to wait for the framebuffer to have a size. serve-sim answers `{"width":0}` until the
  *  capture engine has a frame, and a freshly booted device can take a few seconds to produce one. */
@@ -102,6 +168,17 @@ export class SimulatorService {
   /** The adb serial each running Android row is on. Separate from the row's `udid`, which is the
    *  AVD's name: a serial is a port handed out at boot and belongs with the in-memory state. */
   private readonly serials = new Map<string, string>();
+  /** When a pane last said it was showing each device, and when anything last acted on it, by udid —
+   *  what the idle sweep reads. In memory: after a restart the window starts again from the boot. */
+  private readonly shownAt = new Map<string, number>();
+  private readonly usedAt = new Map<string, number>();
+  private sweepTimer: NodeJS.Timeout | null = null;
+  private sweeping = false;
+  /** When a sweep last found Simulator.app or Xcode in front, or a debugger running; 0 for never. */
+  private byHandAt = 0;
+  /** When the sweep started. Every clock above is in memory, so after a restart a window counts from
+   *  here rather than from a boot made in Realm's last run. */
+  private startedAt = 0;
 
   constructor(private readonly d: SimulatorServiceDeps) {
     this.cli = d.simctl ?? simctl();
@@ -109,6 +186,173 @@ export class SimulatorService {
     this.droid = d.android ?? android();
     this.droidStream = d.androidStream ?? new AndroidStream(this.droid, (serial) => this.droid.size(serial));
     this.sendInput = d.inputChannel ?? sendSteps;
+  }
+
+  /** A pane is showing this device right now. */
+  seen(simulatorId: string): void {
+    const udid = this.d.simulators.get(simulatorId)?.udid;
+    if (udid) this.shownAt.set(udid, this.now());
+  }
+
+  /** Something acted on this row's device: a pane's press, an agent's tool, a recording's read. */
+  private used(simulatorId: string): void {
+    const udid = this.d.simulators.get(simulatorId)?.udid;
+    if (udid) this.usedAt.set(udid, this.now());
+  }
+
+  private now(): number { return this.d.now?.() ?? Date.now(); }
+
+  /** Minutes a simulator Realm booted may sit unseen and untouched; 0 never shuts one down. */
+  idleMinutes(): number {
+    const raw = this.d.settings?.get(SIMULATOR_IDLE_SHUTDOWN_KEY);
+    const m = typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : SIMULATOR_IDLE_SHUTDOWN_DEFAULT;
+    return this.d.adaptIdle?.(m) ?? m;
+  }
+
+  /** The simulators Realm booted that no pane is showing — what the Memory page's button would look at.
+   *  The button's own sweep still checks each is the same boot and that nothing else is using it. */
+  idleCandidates(): string[] {
+    const now = this.now();
+    if (this.usedByHand(now)) return [];
+    return this.realmBooted().filter((b) => now - (this.shownAt.get(b.udid) ?? 0) >= SHOWN_FRESH_MS && now - this.lastUse(b) >= RECENT_USE_FLOOR_MS).map((b) => b.udid);
+  }
+
+  /** Whether somebody was at Simulator.app or Xcode, or debugging, within `BY_HAND_HOLD_MS`, as the
+   *  last sweep found it. */
+  private usedByHand(now: number): boolean {
+    return this.byHandAt > 0 && now - this.byHandAt < BY_HAND_HOLD_MS;
+  }
+
+  /** The last time anything used a simulator Realm booted, counting this run's start as a use. */
+  private lastUse(b: { udid: string; bootedAt: number }): number {
+    return Math.max(b.bootedAt, this.startedAt, this.shownAt.get(b.udid) ?? 0, this.usedAt.get(b.udid) ?? 0);
+  }
+
+  /** Look over the simulators Realm booted once a minute. Unref'd: it never keeps the server up. */
+  startIdleSweep(): void {
+    if (this.sweepTimer) return;
+    this.startedAt = this.now();
+    this.sweepTimer = setInterval(() => { void this.sweepIdle().catch(() => {}); }, IDLE_SWEEP_MS);
+    this.sweepTimer.unref?.();
+  }
+
+  /**
+   * Shut down every simulator Realm booted that has gone unseen and untouched for the idle window —
+   * `minutes` stands in for the setting, for a caller that wants it sooner (the Memory page's button
+   * passes 0). Returns the udids shut down.
+   *
+   * Never one Realm did not boot: only the boots it recorded are looked at, and only while the device's
+   * launchd is still the one that boot started — a device shut down and booted again from Xcode is
+   * somebody else's now. Never one in use: a pane showing it, anything acting on it within the window,
+   * a pane still bringing it up, any other process on the Mac using it, or — for every one of them —
+   * Simulator.app or Xcode in front, or a debugger running, within `BY_HAND_HOLD_MS`. However short the
+   * window, nothing used within `RECENT_USE_FLOOR_MS` goes; and with no process table, nothing does.
+   */
+  async sweepIdle(o: { minutes?: number } = {}): Promise<string[]> {
+    const minutes = o.minutes ?? this.idleMinutes();
+    const boots = this.realmBooted();
+    if ((o.minutes === undefined && minutes === 0) || boots.length === 0 || this.sweeping || !this.d.processes) return [];
+    this.sweeping = true;
+    try {
+      const [table, front] = await Promise.all([this.d.processes().catch(() => null), this.d.frontApp?.().catch(() => null) ?? null]);
+      // No table — `ps` failed or timed out — is not "nothing is running": nothing is shut down, and
+      // no boot is forgotten for want of its launchd.
+      if (!table || table.length === 0) return [];
+      const now = this.now();
+      if (front === SIMULATOR_APP_BUNDLE_ID || front === XCODE_BUNDLE_ID || table.some((p) => DEBUGSERVER.test(p.command))) this.byHandAt = now;
+      // Somebody at Simulator.app or Xcode: every simulator Realm booted may be the one they mean.
+      if (this.usedByHand(now)) return [];
+      const window = Math.max(minutes * 60_000, RECENT_USE_FLOOR_MS);
+      const done: string[] = [];
+      for (const b of boots) {
+        const launchd = table.find((p) => simulatorLaunchd(p.command)?.toUpperCase() === b.udid.toUpperCase());
+        // Gone, or booted again by somebody else: no longer Realm's to count or to shut down.
+        if (!launchd || !sameBoot(b.bootedAt, launchd.startedAt)) { this.forgetBoot(b.udid); continue; }
+        if (now - (this.shownAt.get(b.udid) ?? 0) < SHOWN_FRESH_MS) continue;
+        if (now - this.lastUse(b) < window) continue;
+        if ([...this.state.values()].some((st) => st.udid === b.udid && (st.status === "booting" || st.status === "serving"))) continue;
+        if (usedElsewhere(b.udid, table, this.ownStreams(b, table))) continue;
+        if (await this.shutDown(b.udid, minutes)) done.push(b.udid);
+      }
+      return done;
+    } finally {
+      this.sweeping = false;
+    }
+  }
+
+  /** Every pane on the device says why it went dark; its stream goes; then the device. */
+  private async shutDown(udid: string, minutes: number): Promise<boolean> {
+    for (const [simulatorId, st] of this.state) {
+      if (st.udid !== udid) continue;
+      // A walk in flight must not publish `running` over this.
+      this.token.set(simulatorId, (this.token.get(simulatorId) ?? 0) + 1);
+      this.served.delete(simulatorId);
+      this.set({ ...OFF(simulatorId, udid), error: SIMULATOR_IDLE_SHUTDOWN_ERROR, detail: String(minutes) });
+    }
+    await this.stream.kill(udid).catch(() => {});
+    const r = await this.cli.shutdown(udid).catch((e: unknown) => ({ ok: false, detail: String(e) }));
+    if (r.ok) { this.forgetBoot(udid); this.shownAt.delete(udid); this.usedAt.delete(udid); }
+    return r.ok;
+  }
+
+  /** Every simulator this Realm booted that it has not seen go away, with when it booted it. */
+  realmBooted(): { udid: string; name: string; bootedAt: number }[] {
+    return Object.entries(this.records()).filter(([, b]) => this.mine(b)).map(([udid, b]) => ({ udid, name: b.name, bootedAt: b.at }));
+  }
+
+  /** Whether a record is this home's: another home's — the real Realm's, read from a copy of its
+   *  database — is never counted, shut down or forgotten here. */
+  private mine(b: RealmBoot): boolean {
+    return b.home === (this.d.home ?? null);
+  }
+
+  /** Every well-formed record, whichever home wrote it. */
+  private records(): Record<string, RealmBoot> {
+    const raw = this.d.settings?.get(REALM_BOOTED_KEY);
+    if (!raw || typeof raw !== "object") return {};
+    const out: Record<string, RealmBoot> = {};
+    for (const [udid, v] of Object.entries(raw as Record<string, unknown>)) {
+      const b = v as Partial<RealmBoot> | null;
+      if (b && typeof b.name === "string" && typeof b.at === "number") {
+        out[udid] = {
+          name: b.name, at: b.at, home: typeof b.home === "string" ? b.home : null,
+          streamPid: typeof b.streamPid === "number" ? b.streamPid : null, streamAt: typeof b.streamAt === "number" ? b.streamAt : null,
+        };
+      }
+    }
+    return out;
+  }
+
+  private noteBoot(udid: string, name: string): void {
+    this.d.settings?.set(REALM_BOOTED_KEY, { ...this.records(), [udid]: { name, at: this.d.now?.() ?? Date.now(), home: this.d.home ?? null, streamPid: null, streamAt: null } });
+  }
+
+  /** Remember the stream Realm started for a device it booted: that daemon is not "something else". */
+  private noteStream(udid: string, pid: number | null): void {
+    const all = this.records();
+    const b = all[udid];
+    if (!b || !this.mine(b) || pid === null) return;
+    this.d.settings?.set(REALM_BOOTED_KEY, { ...all, [udid]: { ...b, streamPid: pid, streamAt: this.now() } });
+  }
+
+  /**
+   * The serve-sim daemon Realm started for this device, if it is still the one running: only a stream
+   * Realm started — never one a pane adopted from an agent or the person — and only while the process
+   * under the saved pid is a serve-sim that started when Realm started its own. A pid is reused.
+   */
+  private ownStreams(b: { udid: string }, table: readonly ProcRow[]): Set<number> {
+    const rec = this.records()[b.udid];
+    if (!rec?.streamPid || rec.streamAt === null) return new Set();
+    const p = table.find((row) => row.pid === rec.streamPid);
+    return p && /serve-sim/.test(p.command) && sameBoot(rec.streamAt, p.startedAt) ? new Set([p.pid]) : new Set();
+  }
+
+  /** Forget a boot: the device was shut down, by Realm or by anybody. Never another home's. */
+  forgetBoot(udid: string): void {
+    const all = this.records();
+    if (!all[udid] || !this.mine(all[udid]!)) return;
+    delete all[udid];
+    this.d.settings?.set(REALM_BOOTED_KEY, all);
   }
 
   /** Which toolchain a row is reached with. Read from the row rather than guessed from the udid. */
@@ -203,6 +447,7 @@ export class SimulatorService {
     const kind: SimulatorPlatform = platform ?? (device === row.udid ? row.platform : "ios");
     const real = kind === "ios" && (physical ?? (device === row.udid ? row.physical : false));
     if (device !== row.udid || kind !== row.platform || real !== row.physical) this.d.simulators.update(simulatorId, { udid: device, platform: kind, physical: real });
+    this.usedAt.set(device, this.now());
     const mine = (this.token.get(simulatorId) ?? 0) + 1;
     this.token.set(simulatorId, mine);
     void (kind === "android" ? this.walkAndroid(simulatorId, device, mine) : real ? this.walkPhysical(simulatorId, device, mine) : this.walk(simulatorId, device, mine));
@@ -217,6 +462,7 @@ export class SimulatorService {
    * copy Realm took when the pane opened would be a menu that lies about the phone in front of you.
    */
   async ui(simulatorId: string): Promise<SimulatorUiState> {
+    this.used(simulatorId);
     if (this.platformOf(simulatorId) === "android") this.refuseOnAndroid("Appearance and text size");
     if (this.get(simulatorId).physical) this.refuseOnPhysical("Appearance and text size");
     const row = this.get(simulatorId);
@@ -232,6 +478,7 @@ export class SimulatorService {
    * a runtime does not support) would otherwise leave the menu showing a state the phone is not in.
    */
   async setUi(simulatorId: string, option: string, value: string): Promise<{ ok: boolean; ui: SimulatorUiState; detail: string }> {
+    this.used(simulatorId);
     if (this.platformOf(simulatorId) === "android") this.refuseOnAndroid("Appearance and text size");
     if (this.get(simulatorId).physical) this.refuseOnPhysical("Appearance and text size");
     const row = this.get(simulatorId);
@@ -243,6 +490,7 @@ export class SimulatorService {
   /** A memory warning, or a CoreAnimation debug overlay. One method because they are one kind of
    *  thing from the pane's side: a fire-and-forget poke at the device that answers yes or no. */
   async poke(simulatorId: string, poke: { kind: "memory-warning" } | { kind: "ca-debug"; option: string; on: boolean }): Promise<{ ok: boolean; detail: string }> {
+    this.used(simulatorId);
     if (this.platformOf(simulatorId) === "android") this.refuseOnAndroid("The CoreAnimation overlays");
     if (this.get(simulatorId).physical) this.refuseOnPhysical("The CoreAnimation overlays");
     const row = this.get(simulatorId);
@@ -264,6 +512,7 @@ export class SimulatorService {
    * what a recording wants; a simulator's read is quick either way.
    */
   async ax(simulatorId: string, o: { patient?: boolean } = {}): Promise<SimulatorAxTree> {
+    this.used(simulatorId);
     const row = this.get(simulatorId);
     if (row.physical) {
       const tree = await this.onDevice(() => this.real().ax(this.udidOf(simulatorId), o));
@@ -288,6 +537,7 @@ export class SimulatorService {
 
   /** Everything installed on the device. Asked fresh: an app can be installed while a pane watches. */
   async apps(simulatorId: string): Promise<SimulatorApp[]> {
+    this.used(simulatorId);
     // `async` so that a row with no device chosen REJECTS rather than throwing synchronously — every
     // caller here is `await`ing or `.catch`ing, and a sync throw out of a promise-shaped method
     // escapes both.
@@ -315,6 +565,7 @@ export class SimulatorService {
    * is a feature that makes a mess of somebody's project.
    */
   async screenshot(simulatorId: string): Promise<{ path: string; absolute: string }> {
+    this.used(simulatorId);
     const row = this.get(simulatorId);
     const udid = this.udidOf(simulatorId);
     const space = this.d.spaces.get(row.spaceId);
@@ -352,6 +603,7 @@ export class SimulatorService {
    * for this call alone: an agent and a phone may capture one device in the same millisecond.
    */
   async capture(simulatorId: string): Promise<Buffer> {
+    this.used(simulatorId);
     const row = this.get(simulatorId);
     if (row.physical) return this.onDevice(() => this.real().capture(this.udidOf(simulatorId)));
     if (row.platform === "android") {
@@ -392,6 +644,7 @@ export class SimulatorService {
 
   /** Everything else a device can be told to do that is one command and one answer. */
   async act(simulatorId: string, act: SimulatorAct): Promise<{ ok: boolean; detail: string; text?: string }> {
+    this.used(simulatorId);
     if (this.get(simulatorId).physical) return this.onDevice(() => this.real().act(this.udidOf(simulatorId), act));
     if (this.platformOf(simulatorId) === "android") return this.actAndroid(this.serialOf(simulatorId), act);
     const udid = this.udidOf(simulatorId);
@@ -449,6 +702,7 @@ export class SimulatorService {
    * through a gesture.
    */
   async input(simulatorId: string, input: DeviceInput): Promise<{ ok: boolean; detail: string }> {
+    this.used(simulatorId);
     const row = this.get(simulatorId);
     const refused = inputRefusal(input, row.platform, row.physical);
     if (refused) return { ok: false, detail: refused };
@@ -466,6 +720,7 @@ export class SimulatorService {
    * is no stream to watch. The caller closes it.
    */
   motion(simulatorId: string): ScreenMotion | null {
+    this.used(simulatorId);
     // A real phone's picture is the runner's screenshots, a few a second — nothing to judge motion
     // by. A walk there reads the tree until two reads agree, which the runner answers in a tenth of a
     // second.
@@ -603,6 +858,8 @@ export class SimulatorService {
 
   /** Realm is going: every runner comes off every phone. Simulators' streams stay — they are shared. */
   async closeAll(): Promise<void> {
+    if (this.sweepTimer) clearInterval(this.sweepTimer);
+    this.sweepTimer = null;
     await this.d.physical?.stopAll().catch(() => {});
   }
 
@@ -701,6 +958,8 @@ export class SimulatorService {
     const fail = (error: string, detail: string) => { if (current()) this.set({ ...OFF(simulatorId, udid), status: "failed", error, detail: detail || null }); };
     try {
       const booted = await this.cli.boot(udid);
+      // Remembered before anything else can go wrong: the device is up whether or not its stream comes.
+      if (booted.ok && booted.booted) this.noteBoot(udid, this.d.simulators.get(simulatorId)?.name ?? udid);
       if (!current()) return;
       if (!booted.ok) return fail("boot_failed", booted.detail);
 
@@ -712,6 +971,7 @@ export class SimulatorService {
         if (!current()) return;
         if (!started.stream.streamUrl) return fail("serve_failed", started.detail);
         stream = started.stream;
+        this.noteStream(udid, stream.pid);
       }
 
       const deadline = Date.now() + SCREEN_TIMEOUT_MS;

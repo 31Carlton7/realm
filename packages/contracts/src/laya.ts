@@ -39,6 +39,9 @@ export const LayaRuntimeStateSchema = z.discriminatedUnion("state", [
     fraction: z.number().min(0).max(1).nullable(),
   }),
   z.object({ state: z.literal("off") }),
+  /** On, installed, and not running: in Shadow, `laya-serve` loads when a step asks it and stops after
+   *  `idleMinutes` with none (`LAYA_IDLE_STOP_KEY`), so its 2.4 GB is not held all day for nothing. */
+  z.object({ state: z.literal("standby"), idleMinutes: z.number().int().positive() }),
   z.object({ state: z.literal("starting") }),
   z.object({
     state: z.literal("ready"),
@@ -56,6 +59,16 @@ export type LayaRuntimeState = z.infer<typeof LayaRuntimeStateSchema>;
 
 /** The held-out accuracy a checkpoint needs on `target` before Assist may act on its picks. */
 export const LAYA_ASSIST_MIN_ACCURACY = 0.95;
+
+/**
+ * Minutes `laya-serve` may sit with no step asking it before it is stopped, in Shadow (0: kept loaded,
+ * as it was before this existed). It loads again on the next step, in about eleven seconds from a warm
+ * disk, and the steps that arrive meanwhile are asked once it is up — Shadow is off every step's path,
+ * so waiting costs the agent nothing. Assist is never stopped this way: its pick is on the step's path,
+ * and whether it is running decides what the simulator tools list.
+ */
+export const LAYA_IDLE_STOP_KEY = "laya.idleStopMinutes";
+export const LAYA_IDLE_STOP_DEFAULT = 10;
 
 /**
  * A checkpoint's evaluation, written beside it as `eval.json` by the eval harness (the shared

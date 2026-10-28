@@ -50,6 +50,7 @@ import { GoalSchema, GoalStatusSchema } from "./goal";
 import { UnlockedEggPackSchema } from "./egg-pack";
 import { FailoverPolicySchema } from "./failover";
 import { LayaModeSchema, LayaStatusSchema } from "./laya";
+import { FreeActionSchema, ResourcePoliciesSchema, ResourcePolicyKeySchema, ResourceReportSchema } from "./resources";
 import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
 import { ExecutionSandboxPolicySchema, ExecutionSandboxPrefsSchema } from "./execution-sandbox";
 import { AskAnswersSchema } from "./ui-ask";
@@ -789,6 +790,9 @@ export const Methods = {
   /** Kills the STREAM. The device stays booted: it is usually somebody's Xcode session. */
   "simulators.stop": { params: z.object({ simulatorId: IdSchema }), result: z.object({ state: SimulatorStateSchema }) },
   "simulators.close": { params: z.object({ simulatorId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /** The pane is showing this device right now — sent while it is on screen, about once a minute. What
+   *  keeps a simulator Realm booted from being shut down as idle (`SIMULATOR_IDLE_SHUTDOWN_KEY`). */
+  "simulators.seen": { params: z.object({ simulatorId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /** The device's own settings, read fresh: appearance, text size, the accessibility switches. */
   "simulators.ui": { params: z.object({ simulatorId: IdSchema }), result: z.object({ ui: SimulatorUiStateSchema }) },
   /** Set one, and answer with what the device reports afterwards — never with the value that was
@@ -1276,6 +1280,9 @@ export const Methods = {
   /** Whether Realm draws the views a server ships (MCP Apps) — the server's own switch, in every space
    *  at once. Off, its calls carry text only, and its views already in transcripts stop showing. */
   "mcp.setShowViews": { params: z.object({ id: IdSchema, show: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
+  /** Whether Realm stops a stdio server that has gone the idle window without a call — the server's
+   *  own choice, in every space at once (`McpServer.stopWhenIdle`). */
+  "mcp.setStopWhenIdle": { params: z.object({ id: IdSchema, stop: z.boolean() }), result: z.object({ ok: z.literal(true) }) },
   /**
    * Move a server's defining scope from space level to `spaceId`'s profile (W2). Effective-set neutral
    * at the moment it runs: every space of the profile where the server was not enabled gets a per-space
@@ -2059,6 +2066,25 @@ export const Methods = {
   "laya.stopRecording": { params: z.object({}), result: LayaStatusSchema },
   /** Every recording and every screen it kept, gone. */
   "laya.deleteRecordings": { params: z.object({}), result: LayaStatusSchema },
+  /**
+   * What Realm costs this Mac in memory right now, by part — each session's engine, each MCP server,
+   * each terminal, Laya, the simulators Realm booted, the windows and their browser panes — beside the
+   * Mac's pressure, swap and load, and the other apps' sizes by name (`apps/server/src/resources`).
+   * Read at most every few seconds however often it is asked: `fresh` skips that, for a page that
+   * has just changed something.
+   */
+  "resources.snapshot": { params: z.object({ fresh: z.boolean().default(false) }), result: ResourceReportSchema },
+  /** The idle windows the Memory page sets, as set and as memory pressure leaves them. */
+  "resources.policies": { params: z.object({}), result: ResourcePoliciesSchema },
+  /** Write one: a whole number of minutes (0 never), the count of hidden panes kept, or the adaptive
+   *  switch. Answers every window as it now stands. */
+  "resources.setPolicy": { params: z.object({ key: ResourcePolicyKeySchema, value: z.union([z.number().int().min(0).max(24 * 60), z.boolean()]) }), result: ResourcePoliciesSchema },
+  /**
+   * Free memory now: stop the engines that are idle, shut down the simulators Realm booted that nobody
+   * is using, discard the hidden browser panes, or stop Laya between steps. The same "never interrupt"
+   * rules as the policies; only the wait is skipped. Answers how many went.
+   */
+  "resources.free": { params: z.object({ action: FreeActionSchema }), result: z.object({ freed: z.number().int().nonnegative() }) },
   "agents.probe": { params: z.object({ force: z.boolean().default(false) }), result: z.array(AgentProbeRowSchema) },
   /**
    * One agent's probe, fresh, for a screen that leads with one or two agents and must not wait on

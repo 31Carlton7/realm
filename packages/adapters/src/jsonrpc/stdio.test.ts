@@ -191,6 +191,38 @@ describe("StdioJsonRpc and the sandbox wrap", () => {
     expect(spawnFn).not.toHaveBeenCalled();
   });
 
+  it("with ownGroup, leads a process group of its own and ends the group once the child has gone", async () => {
+    // A throwaway's children — an MCP server Hermes starts from its own config — serve nothing after it.
+    const child = Object.assign(new EventEmitter(), { pid: 4321, stdout: null, stderr: null, stdin: { end: vi.fn(), on: vi.fn() }, kill: vi.fn() });
+    const spawnFn = vi.fn(() => child);
+    const killed: [number, string][] = [];
+    const rpc = new StdioJsonRpc({ command: "hermes", args: ["acp"], cwd: process.cwd(), ownGroup: true, onNotification: () => {}, onServerRequest: () => {}, onExit: () => {} },
+      { spawn: spawnFn as unknown as typeof nodeSpawn, platform: "darwin", killGroup: (pgid, signal) => { killed.push([pgid, signal]); } });
+    expect((spawnFn.mock.calls[0] as unknown as [string, string[], { detached?: boolean }])[2].detached).toBe(true);
+    const disposed = rpc.dispose();
+    // Not before the child itself is gone: its own exit is the graceful path, and the group goes after.
+    await new Promise((r) => setTimeout(r, 10));
+    expect(killed).toEqual([]);
+    child.emit("exit", 0, null);
+    await disposed;
+    expect(killed).toEqual([[4321, "SIGKILL"]]);
+  });
+
+  it("without ownGroup, or on Windows, keeps the child in Realm's group and ends only the child", async () => {
+    for (const o of [{ ownGroup: false, platform: "darwin" }, { ownGroup: true, platform: "win32" }]) {
+      const child = Object.assign(new EventEmitter(), { pid: 4321, stdout: null, stderr: null, stdin: { end: vi.fn(), on: vi.fn() }, kill: vi.fn() });
+      const spawnFn = vi.fn(() => child);
+      const killed: number[] = [];
+      const rpc = new StdioJsonRpc({ command: "codex", args: ["app-server"], cwd: process.cwd(), ownGroup: o.ownGroup, onNotification: () => {}, onServerRequest: () => {}, onExit: () => {} },
+        { spawn: spawnFn as unknown as typeof nodeSpawn, platform: o.platform, killGroup: (pgid) => { killed.push(pgid); } });
+      expect((spawnFn.mock.calls[0] as unknown as [string, string[], { detached?: boolean }])[2].detached, JSON.stringify(o)).toBeUndefined();
+      const disposed = rpc.dispose();
+      child.emit("exit", 0, null);
+      await disposed;
+      expect(killed, JSON.stringify(o)).toEqual([]);
+    }
+  });
+
   it("starts an npm .cmd shim through cmd.exe on Windows", () => {
     // MUTANT: spawn `o.command` as given — Node refuses a bare `.cmd` on Windows, and libuv never
     // finds `codex.cmd` for a spawn of `codex` in the first place.

@@ -3,7 +3,7 @@ import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SI
 import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpSignInOptions, McpTool, MemoryClaudeBackfill, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, BranchList, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
-import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, Schedule, SearchResults, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
+import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, ResourcePolicies, ResourceReport, Schedule, SearchResults, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
 import type { SavedTurn } from "@realm/contracts";
 import { PRODUCTION_REMOTE_RELAY, type PairRequest, type PairedPhone, type RemoteStatus } from "@realm/contracts";
 import { RpcError } from "../rpc/client";
@@ -17,6 +17,24 @@ export const usageTotals = (extra: Partial<UsageTotals> = {}): UsageTotals =>
 
 /** A summary with nothing in it — the "no agent has run yet" answer, which is what a fresh home
  *  really returns and therefore what the panel's empty state must be tested against. */
+/** A Mac with nothing of Realm's on it yet: what Settings ▸ Memory draws before any reading. */
+export function emptyResourceReport(): ResourceReport {
+  return {
+    at: 0, measure: "footprint", parts: [], categories: [], others: [],
+    machine: { totalBytes: 24 * 1024 ** 3, availablePercent: 47, pressure: "normal", pressureWhy: null, swap: { usedBytes: 0, totalBytes: 0 }, compressedBytes: null, swapOutPerSecond: null, load: [1, 1, 1], cpus: 8 },
+    realm: { processes: 0, residentBytes: 0, footprintBytes: 0 },
+    freeable: { engines: { count: 0, bytes: 0 }, simulators: { count: 0, bytes: 0 }, browsers: { count: 0, bytes: 0 }, laya: { count: 0, bytes: 0 } },
+  };
+}
+
+/** The windows as Realm ships them. */
+export function defaultResourcePolicies(): ResourcePolicies {
+  return {
+    engineIdleMinutes: 30, mcpIdleMinutes: 30, layaIdleMinutes: 10, simulatorIdleMinutes: 30, browserHiddenMinutes: 20, browserKeepHidden: 3, adaptive: true,
+    effective: { engines: 30, mcp: 30, laya: 10, simulators: 30, browsers: 20 },
+  };
+}
+
 export const emptyUsageSummary = (extra: Partial<UsageSummary> = {}): UsageSummary => ({
   from: 0, to: 0, bucket: "day", buckets: [], totals: usageTotals(), series: [],
   breakdowns: { agent: [], model: [], space: [], environment: [] },
@@ -203,6 +221,9 @@ export type FakeData = {
   importScan?: ImportScan; importResult?: ImportResult;
   usageSummary?: UsageSummary;
   usageActiveDays?: UsageDay[];
+  /** Settings ▸ Memory's report and windows. */
+  resourceReport?: ResourceReport;
+  resourcePolicies?: ResourcePolicies;
   usageRecords?: UsageRecords;
   /** The server's copy of the picture on the page about you, or null for none. `setAvatar` writes
    *  a new path here as the server would; `clearAvatar` empties it. */
@@ -606,6 +627,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     guideProgress: overrides.guideProgress ?? {},
     usageSummary: overrides.usageSummary ?? emptyUsageSummary(),
     usageActiveDays: overrides.usageActiveDays ?? [],
+    resourceReport: overrides.resourceReport ?? emptyResourceReport(),
+    resourcePolicies: overrides.resourcePolicies ?? defaultResourcePolicies(),
     usageRecords: overrides.usageRecords ?? emptyUsageRecords(),
     avatarPath: overrides.avatarPath ?? null,
     schedules: overrides.schedules ?? [],
@@ -2004,6 +2027,18 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       data.schedules = next;
       return next.find((r) => r.id === id)!;
     },
+    resourcesSnapshot: async (fresh) => { calls.push(`resourcesSnapshot:${fresh}`); return data.resourceReport; },
+    resourcesPolicies: async () => { calls.push("resourcesPolicies"); return data.resourcePolicies; },
+    resourcesSetPolicy: async (key, value) => {
+      calls.push(`resourcesSetPolicy:${key}:${value}`);
+      const field: Record<string, keyof ResourcePolicies> = {
+        "sessions.engineIdleMinutes": "engineIdleMinutes", "mcp.idleStopMinutes": "mcpIdleMinutes", "laya.idleStopMinutes": "layaIdleMinutes",
+        "simulators.idleShutdownMinutes": "simulatorIdleMinutes", "browser.discardHiddenMinutes": "browserHiddenMinutes", "browser.keepHidden": "browserKeepHidden", "resources.adaptive": "adaptive",
+      };
+      data.resourcePolicies = { ...data.resourcePolicies, [field[key]!]: value };
+      return data.resourcePolicies;
+    },
+    resourcesFree: async (action) => { calls.push(`resourcesFree:${action}`); return { freed: data.resourceReport.freeable?.[action].count ?? 0 }; },
     usageSummary: async (p) => {
       calls.push(`usageSummary:${p.bucket}:${p.spaceId ?? "*"}`);
       await wait("usageSummary");
@@ -2216,6 +2251,11 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       calls.push(`setMcpShowViews:${id}=${show}`);
       const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
       data.mcpServers[i] = { ...data.mcpServers[i]!, showViews: show };
+    },
+    setMcpStopWhenIdle: async (id, stop) => {
+      calls.push(`setMcpStopWhenIdle:${id}=${stop}`);
+      const i = data.mcpServers.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no mcp server ${id}`);
+      data.mcpServers[i] = { ...data.mcpServers[i]!, stopWhenIdle: stop };
     },
     promoteMcpServer: async (spaceId, id) => {
       calls.push(`promoteMcpServer:${spaceId}:${id}`);

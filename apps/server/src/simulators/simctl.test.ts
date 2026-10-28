@@ -154,3 +154,20 @@ describe("launching an app, as simctl is actually run", () => {
     ]);
   });
 });
+
+describe("booting, as simctl is actually run", () => {
+  it("says it booted the device only when this call started it", async () => {
+    // What tells a simulator Realm booted from one it only showed (`REALM_BOOTED_KEY`). THE MUTANT:
+    // `booted: true` on the already-booted answer — Realm would then count, and later shut down, a
+    // simulator somebody had open in Xcode.
+    const dir = tempDir("realm-simctl-");
+    const fresh = join(dir, "fresh"), already = join(dir, "already"), broken = join(dir, "broken");
+    writeFileSync(fresh, "#!/bin/sh\nexit 0\n");
+    writeFileSync(already, "#!/bin/sh\necho 'An error was encountered processing the command (domain=com.apple.CoreSimulator.SimError, code=405):\nUnable to boot device in current state: Booted' >&2\nexit 149\n");
+    writeFileSync(broken, "#!/bin/sh\necho 'Unable to boot device: runtime unavailable' >&2\nexit 1\n");
+    for (const f of [fresh, already, broken]) chmodSync(f, 0o755);
+    expect(await simctl({ REALM_XCRUN_BIN: fresh }).boot("U")).toMatchObject({ ok: true, booted: true });
+    expect(await simctl({ REALM_XCRUN_BIN: already }).boot("U")).toMatchObject({ ok: true, booted: false });
+    expect(await simctl({ REALM_XCRUN_BIN: broken }).boot("U")).toMatchObject({ ok: false });
+  });
+});

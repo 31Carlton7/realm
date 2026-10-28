@@ -7,6 +7,7 @@ import type { LayaStatus } from "@realm/contracts";
 import type { LayaEvalReport } from "@realm/contracts";
 import { DecisionLog } from "./log";
 import { LAYA_CHECKPOINT_KEY, LAYA_MODE_KEY, LayaService, evaluationOf, p50Of, type LayaTiming } from "./service";
+import { LAYA_IDLE_STOP_KEY } from "@realm/contracts";
 import type { TrainProgress, TrainResult } from "./training";
 import { LayaStepError } from "./runtime";
 import { fakeRuntime, until, type FakeRuntime } from "./test-fakes";
@@ -354,23 +355,156 @@ describe("running in Shadow", () => {
   });
 });
 
+describe("on demand, in Shadow", () => {
+  /* The 02:15 reading: `laya.serve` held a 2.4 GB footprint all day while nothing asked it anything.
+     A "minute" here is 20 ms, so the default ten-minute window is 200 ms. */
+  const MIN = 20;
+  const demand = (o: { server?: Parameters<typeof fakeRuntime>[0]["server"]; serve?: boolean; idle?: number } = {}) => {
+    const runtime = fakeRuntime({ dir: tempDir("realm-laya-svc-"), installed: true, ...(o.server ? { server: o.server } : {}), ...(o.serve === false ? { serve: false } : {}) });
+    const env = setup({ runtime, mode: "shadow", timing: { minuteMs: MIN } });
+    if (o.idle !== undefined) env.settings.set(LAYA_IDLE_STOP_KEY, o.idle);
+    env.service.boot();
+    return { ...env, runtime };
+  };
+  const alive = async (port: number) => fetch(`http://127.0.0.1:${port}/health`).then(() => true, () => false);
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  it("starts on the first step, answers it once warm, and stops again after the window with nothing asked", async () => {
+    const { service, runtime } = demand();
+    expect(runtime.starts).toEqual([]);
+    const client = await service.acquire();
+    expect(client).not.toBeNull();
+    expect(runtime.starts).toHaveLength(1);
+    const { port } = runtime.starts[0]!;
+    expect(await alive(port)).toBe(true);
+    await until(async () => (await state(service)).state === "standby", 2_000);
+    expect(await alive(port)).toBe(false);
+    expect(service.client()).toBeNull();
+    // …and the next step starts it again, with a key of its own.
+    expect(await service.acquire()).not.toBeNull();
+    expect(runtime.starts).toHaveLength(2);
+    expect(runtime.starts[1]!.apiKey).not.toBe(runtime.starts[0]!.apiKey);
+  });
+
+  it("never stops with a question in flight, however long the question takes", async () => {
+    // THE MUTANT: the idle check reading the clock alone. A question that outlasts the window would
+    // have its process killed under it.
+    const { service, runtime } = demand({ server: { delay: (state) => (state.startsWith("Goal: slow") ? 15 * MIN : 0) } });
+    const client = (await service.acquire())!;
+    const slow = client.ask("Goal: slow.", { q: { type: "noul", instructions: "?" } }, 60 * MIN);
+    await sleep(12 * MIN);
+    expect(await alive(runtime.starts[0]!.port)).toBe(true);
+    await slow;
+    // The window runs from the ANSWER: still up three quarters of a window later, gone a window after.
+    await sleep(7.5 * MIN);
+    expect(service.client()).not.toBeNull();
+    await until(async () => (await state(service)).state === "standby", 2_000);
+  });
+
+  it("measures the window from the last question, not from the start", async () => {
+    const { service } = demand();
+    const client = (await service.acquire())!;
+    await sleep(7 * MIN);
+    await client.ask("Goal: x.", { q: { type: "noul", instructions: "?" } }, 500);
+    await sleep(6 * MIN);
+    // 13 "minutes" after the start, 6 after the question: a window from the start would have stopped it.
+    expect(service.client()).not.toBeNull();
+  });
+
+  it("answers every step waiting on one start from that start", async () => {
+    const { service, runtime } = demand();
+    const clients = await Promise.all([service.acquire(), service.acquire(), service.acquire()]);
+    expect(clients.every((c) => c !== null)).toBe(true);
+    expect(runtime.starts).toHaveLength(1);
+  });
+
+  it("answers the waiting steps with nothing when the start fails, and starts no more until asked to try again", async () => {
+    const { service, runtime } = demand({ serve: false });
+    expect(await service.acquire()).toBeNull();
+    expect((await state(service)).state).toBe("failed");
+    const starts = runtime.starts.length;
+    expect(await service.acquire()).toBeNull();
+    expect(runtime.starts).toHaveLength(starts);
+  });
+
+  it("keeps Laya loaded with an idle window of 0, as it was before", async () => {
+    const { service } = demand({ idle: 0 });
+    await until(() => service.client() !== null);
+    await sleep(15 * MIN);
+    expect(service.client()).not.toBeNull();
+    expect(await service.stopIdle()).toBe(false);
+  });
+
+  it("stops at once when asked to give its memory back, and only at rest", async () => {
+    const { service, runtime } = demand({ server: { delay: (state) => (state.startsWith("Goal: slow") ? 5 * MIN : 0) } });
+    expect(await service.stopIdle()).toBe(false); // nothing running
+    const client = (await service.acquire())!;
+    const slow = client.ask("Goal: slow.", { q: { type: "noul", instructions: "?" } }, 60 * MIN);
+    await sleep(MIN);
+    expect(await service.stopIdle()).toBe(false); // a question out
+    await slow;
+    expect(await service.stopIdle()).toBe(true);
+    expect(await alive(runtime.starts[0]!.port)).toBe(false);
+    expect(await state(service)).toEqual({ state: "standby", idleMinutes: 10 });
+  });
+
+  it("stops a Laya idle past a window made shorter in Settings, without waiting for the old one", async () => {
+    const { service, settings } = demand({ idle: 100 });
+    await service.acquire();
+    await sleep(3 * MIN);
+    settings.set(LAYA_IDLE_STOP_KEY, 1);
+    service.idleChanged();
+    await until(async () => (await state(service)).state === "standby", 1_000);
+  });
+
+  it("loads at once when its window is turned to Never while it sits stopped, rather than saying Starting forever", async () => {
+    const { service, settings, runtime } = demand();
+    expect(await state(service)).toEqual({ state: "standby", idleMinutes: 10 });
+    settings.set(LAYA_IDLE_STOP_KEY, 0);
+    service.idleChanged();
+    await until(() => service.client() !== null, 2_000);
+    expect(runtime.starts).toHaveLength(1);
+    expect((await state(service)).state).toBe("ready");
+  });
+
+  it("is never stopped in Assist, whose pick is on the step's path", async () => {
+    const runtime = fakeRuntime({ dir: tempDir("realm-laya-svc-"), installed: true });
+    const { service } = setup({ runtime, mode: "assist", timing: { minuteMs: MIN } });
+    service.boot();
+    await until(() => service.client() !== null);
+    await sleep(15 * MIN);
+    expect(service.client()).not.toBeNull();
+    expect(await service.stopIdle()).toBe(false);
+  });
+});
+
 describe("boot and quit", () => {
-  it("boot brings the server back only when it was left on and is installed", async () => {
+  it("boot brings the server back only when it was left on, is installed, and is kept loaded", async () => {
     const off = setup({ runtime: fakeRuntime({ dir: tempDir("realm-laya-svc-"), installed: true }), mode: "off" });
     off.service.boot();
     const bare = setup({ runtime: fakeRuntime({ dir: tempDir("realm-laya-svc-"), installed: false }), mode: "shadow" });
     bare.service.boot();
-    const on = setup({ runtime: fakeRuntime({ dir: tempDir("realm-laya-svc-"), installed: true }), mode: "shadow" });
-    on.service.boot();
-    await until(() => on.service.client() !== null);
+    // Shadow with no idle window is Laya as it always was: loaded from boot.
+    const kept = setup({ runtime: fakeRuntime({ dir: tempDir("realm-laya-svc-"), installed: true }), mode: "shadow" });
+    kept.settings.set(LAYA_IDLE_STOP_KEY, 0);
+    kept.service.boot();
+    await until(() => kept.service.client() !== null);
+    // On demand — the default — it waits for its first step.
+    const demand = setup({ runtime: fakeRuntime({ dir: tempDir("realm-laya-svc-"), installed: true }), mode: "shadow" });
+    demand.service.boot();
+    // Long enough for a start to have asked for its port and spawned.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await state(demand.service)).toEqual({ state: "standby", idleMinutes: 10 });
     expect(off.runtime!.starts).toEqual([]);
     expect(bare.runtime!.starts).toEqual([]);
+    expect(demand.runtime!.starts).toEqual([]);
   });
 
   it("close stops laya-serve", async () => {
     const runtime = fakeRuntime({ dir: tempDir("realm-laya-svc-"), installed: true });
     const { service } = setup({ runtime, mode: "shadow" });
     service.boot();
+    await service.acquire();
     await until(() => service.client() !== null);
     const { port } = runtime.starts[0]!;
     await service.close();
@@ -750,11 +884,12 @@ describe("on by default", () => {
     expect(untouched.get("laya.mode")).toBeNull();
   });
 
-  it("an upgraded home that installed Laya and never touched the switch runs it at boot", async () => {
+  it("an upgraded home that installed Laya and never touched the switch runs it from its first step", async () => {
     const runtime = fakeRuntime({ dir: tempDir("realm-laya-svc-"), installed: true });
     const s = service22(settings22({}), runtime);
     s.boot();
-    await until(() => s.client() !== null);
+    expect((await s.status()).runtime).toEqual({ state: "standby", idleMinutes: 10 });
+    expect(await s.acquire()).not.toBeNull();
     expect(runtime.starts).toHaveLength(1);
     // The base checkpoint: nothing names one trained on this Mac.
     expect(runtime.starts[0]!.checkpoint).toBeUndefined();

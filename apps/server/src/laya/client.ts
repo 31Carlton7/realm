@@ -41,6 +41,9 @@ export class LayaClient {
     fetchImpl?: typeof fetch;
     /** Each question's round trip, for the p50 Settings shows. */
     onLatency?: (ms: number) => void;
+    /** A question going out (`true`) and coming back, answered or not (`false`) — what tells the
+     *  service a question is in flight, so nothing stops the process under it. */
+    onAsking?: (asking: boolean) => void;
   }) {}
 
   async health(timeoutMs: number): Promise<LayaHealth> {
@@ -55,15 +58,20 @@ export class LayaClient {
    */
   async ask(state: string, questions: Record<string, LayaQuestion>, timeoutMs: number, record = true): Promise<{ answers: Record<string, LayaChoiceAnswer | LayaNoulAnswer>; ms: number }> {
     const t0 = performance.now();
-    const res = await this.fetch("/v1/systemone", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.d.apiKey}` },
-      body: JSON.stringify({ state, questions, model: LAYA_CHECKPOINT }),
-    }, timeoutMs);
-    const { answers } = AnswersSchema.parse(await res.json());
-    const ms = performance.now() - t0;
-    if (record) this.d.onLatency?.(ms);
-    return { answers, ms };
+    this.d.onAsking?.(true);
+    try {
+      const res = await this.fetch("/v1/systemone", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.d.apiKey}` },
+        body: JSON.stringify({ state, questions, model: LAYA_CHECKPOINT }),
+      }, timeoutMs);
+      const { answers } = AnswersSchema.parse(await res.json());
+      const ms = performance.now() - t0;
+      if (record) this.d.onLatency?.(ms);
+      return { answers, ms };
+    } finally {
+      this.d.onAsking?.(false);
+    }
   }
 
   private async fetch(path: string, init: RequestInit, timeoutMs: number): Promise<Response> {

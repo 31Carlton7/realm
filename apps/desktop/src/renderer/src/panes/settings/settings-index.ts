@@ -8,7 +8,7 @@ import { capabilities } from "../../platform";
 /** One page of Settings, as the rail lists it. */
 export type SettingsTab =
   | "general" | "appearance" | "keys" | "notifications" | "devices"
-  | "engines" | "usage"
+  | "engines" | "usage" | "ram"
   | "signins"
   | "permissions" | "computer-use" | "lab"
   | "import" | "archived";
@@ -28,7 +28,7 @@ export const SETTINGS_GROUPS: readonly { label: string; tabs: readonly { id: Set
     // The pack's smartphone, which the set holds under the device pane's name.
     { id: "devices", label: "Devices", icon: "simulator" },
   ] },
-  { label: "Engines", tabs: [{ id: "engines", label: "Engines", icon: "cpu" }, { id: "usage", label: "Usage", icon: "gauge" }] },
+  { label: "Engines", tabs: [{ id: "engines", label: "Engines", icon: "cpu" }, { id: "usage", label: "Usage", icon: "gauge" }, { id: "ram", label: "RAM", icon: "ram" }] },
   { label: "Browser", tabs: [{ id: "signins", label: "Passwords", icon: "key" }] },
   { label: "Computer", tabs: [{ id: "permissions", label: "Permissions", icon: "shield" }, { id: "computer-use", label: "Computer use", icon: "pointer" }, { id: "lab", label: "Lab", icon: "serverStack" }] },
   { label: "Data", tabs: [{ id: "import", label: "Import", icon: "inboxDownload" }, { id: "archived", label: "Archived", icon: "archive" }] },
@@ -180,6 +180,24 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "usage-plan", tab: "usage", label: "Plan limits", terms: "quota left remaining reset 5-hour weekly rate limit subscription claude codex pace" },
   { id: "usage-sessions", tab: "usage", label: "Heaviest sessions", terms: "most expensive cost tokens open" },
   { id: "usage-budget", tab: "usage", label: "Monthly budget", terms: "spend limit threshold cost" },
+
+  // RAM
+  { id: "ram", tab: "ram", label: "What Realm holds in memory", terms: "memory swap pressure footprint processes heavy slow", page: true },
+  { id: "ram-free-engines", tab: "ram", section: "Free memory now", label: "Stop idle engines", terms: "memory claude codex agents processes" },
+  { id: "ram-free-simulators", tab: "ram", section: "Free memory now", label: "Shut down simulators Realm booted", terms: "memory ios iphone simulator xcode",
+    available: () => capabilities().simulators },
+  { id: "ram-free-browsers", tab: "ram", section: "Free memory now", label: "Discard hidden browser panes", terms: "memory tabs pages renderer" },
+  { id: "ram-free-laya", tab: "ram", section: "Free memory now", label: "Stop Laya", terms: "memory local model python",
+    available: () => capabilities().laya },
+  { id: "ram-engine-idle", tab: "ram", section: "Let go of idle work", label: "Stop an idle engine after", terms: "memory reap timeout claude codex agents" },
+  { id: "ram-mcp-idle", tab: "ram", section: "Let go of idle work", label: "Stop an idle MCP server after", terms: "memory stdio timeout" },
+  { id: "ram-laya-idle", tab: "ram", section: "Let go of idle work", label: "Stop Laya after", terms: "memory local model python timeout",
+    available: () => capabilities().laya },
+  { id: "ram-simulator-idle", tab: "ram", section: "Let go of idle work", label: "Shut down a simulator Realm booted after", terms: "memory ios iphone timeout",
+    available: () => capabilities().simulators },
+  { id: "ram-browser-idle", tab: "ram", section: "Let go of idle work", label: "Discard a hidden browser pane after", terms: "memory tabs timeout" },
+  { id: "ram-browser-keep", tab: "ram", section: "Let go of idle work", label: "Hidden browser panes kept loaded", terms: "memory tabs recent" },
+  { id: "ram-adaptive", tab: "ram", section: "Let go of idle work", label: "Sooner when memory is short", terms: "memory pressure swap adaptive" },
 
   // Sign-ins
   { id: "signins-profile", tab: "signins", label: "Sign-ins for this profile", terms: "profile share copy cookies isolate separate" },

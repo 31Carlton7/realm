@@ -21,7 +21,7 @@ import {
   AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, LINKS_OPEN_IN_KEY, type LinksOpenIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
-  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpSignInOptions, type McpServerStatus, type McpTransport, type MemoryClaudeBackfill, type MemoryClaudeImport, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary,
+  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpSignInOptions, type McpServerStatus, type McpTransport, type MemoryClaudeBackfill, type MemoryClaudeImport, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary, type ResourceReport, type ResourcePolicies, type ResourcePolicyKey, type FreeAction,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves, type Rect } from "./no-overlay";
@@ -478,6 +478,11 @@ export type Api = TeamApi & LabApi & {
   usageSummary(p: { from: number; to: number; bucket: UsageBucketKind; spaceId: string | null; profileId: string | null }): Promise<UsageSummary>;
   /** Days Realm was used, for the activity calendar. Unscoped by design — see `usage.activeDays`. */
   usageActiveDays(p: { from: number; to: number }): Promise<UsageDay[]>;
+  /** Settings ▸ Memory (`resources.*`): the report, the idle windows, and the free-memory buttons. */
+  resourcesSnapshot(fresh: boolean): Promise<ResourceReport>;
+  resourcesPolicies(): Promise<ResourcePolicies>;
+  resourcesSetPolicy(key: ResourcePolicyKey, value: number | boolean): Promise<ResourcePolicies>;
+  resourcesFree(action: FreeAction): Promise<{ freed: number }>;
   /** `usage.setBudget`. Answers the STORED budget (thresholds normalized), which is what the panel
    *  then renders — so a threshold the server dropped never lingers on screen as if it had stuck. */
   setUsageBudget(budget: UsageBudget): Promise<UsageBudget>;
@@ -623,6 +628,8 @@ export type Api = TeamApi & LabApi & {
   setMcpEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
   /** `mcp.setShowViews` — whether Realm draws a server's views, in every space. */
   setMcpShowViews(id: string, show: boolean): Promise<void>;
+  /** `mcp.setStopWhenIdle` — whether Realm stops a stdio server left idle, in every space. */
+  setMcpStopWhenIdle(id: string, stop: boolean): Promise<void>;
   /** `mcp.promote` / `mcp.demote` — move a server's defining scope (W2 RPCs, W4 UI). */
   promoteMcpServer(spaceId: string, id: string): Promise<void>;
   demoteMcpServer(spaceId: string, id: string): Promise<void>;
@@ -2291,6 +2298,12 @@ export type AppState = TeamSlice & LabSlice & {
   usageSummary(p: { from: number; to: number; bucket: UsageBucketKind; spaceId: string | null; profileId: string | null }): Promise<UsageSummary>;
   /** Days Realm was used, for the activity calendar. Unscoped by design — see `usage.activeDays`. */
   usageActiveDays(p: { from: number; to: number }): Promise<UsageDay[]>;
+  /** Settings ▸ Memory's reads and writes. Returned rather than stored, like `usageSummary`: one page
+   *  looks at them, and only while it is open. */
+  resourcesSnapshot(fresh: boolean): Promise<ResourceReport>;
+  resourcesPolicies(): Promise<ResourcePolicies>;
+  resourcesSetPolicy(key: ResourcePolicyKey, value: number | boolean): Promise<ResourcePolicies>;
+  resourcesFree(action: FreeAction): Promise<{ freed: number }>;
   setUsageBudget(budget: UsageBudget): Promise<UsageBudget>;
   /** The page about you's one read. Returns rather than stores, like `usageSummary`: one page looks
    *  at it, and only while it is open. */
@@ -2958,6 +2971,8 @@ export type AppState = TeamSlice & LabSlice & {
   setMcpEnabled(spaceId: string, id: string, enabled: boolean): Promise<void>;
   /** Show or stop showing a server's views (MCP Apps) — the server's switch, the same in every space. */
   setMcpShowViews(id: string, show: boolean): Promise<void>;
+  /** Whether Realm stops a stdio server once it has gone the idle window without a call. */
+  setMcpStopWhenIdle(id: string, stop: boolean): Promise<void>;
   /** Move a server's defining scope into `spaceId`'s profile, then re-read (guarded like any refresh). */
   promoteMcpServer(spaceId: string, id: string): Promise<void>;
   /** Pin a profile-scoped server to `spaceId` alone, then re-read. */
@@ -6585,6 +6600,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       usageSummary(p) { return api.usageSummary(p); },
       usageActiveDays(p) { return api.usageActiveDays(p); },
+      resourcesSnapshot(fresh) { return api.resourcesSnapshot(fresh); },
+      resourcesPolicies() { return api.resourcesPolicies(); },
+      resourcesSetPolicy(key, value) { return api.resourcesSetPolicy(key, value); },
+      resourcesFree(action) { return api.resourcesFree(action); },
       setUsageBudget(budget) { return api.setUsageBudget(budget); },
       usageRecords() { return api.usageRecords(); },
       async chooseAvatar() {
@@ -8329,6 +8348,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async setMcpShowViews(id, show) {
         await api.setMcpShowViews(id, show);
         set({ mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, showViews: show } : x)) });
+      },
+      async setMcpStopWhenIdle(id, stop) {
+        await api.setMcpStopWhenIdle(id, stop);
+        set({ mcpServers: get().mcpServers.map((x) => (x.id === id ? { ...x, stopWhenIdle: stop } : x)) });
       },
       // Promote/demote re-read rather than patch: the scope AND the enabled flag can both change
       // shape server-side (demotion retires overrides), and the refresh guard already protects a

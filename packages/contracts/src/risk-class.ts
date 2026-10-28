@@ -65,6 +65,8 @@ const SHOWS_ELSEWHERE = "it shows what is outside this space";
  *   - `settings_get` — the five settings an agent may change (theme and the like), none of them secret;
  *   - `realm_capabilities` — Realm's tools, connections, skills and panes by name and state, as the
  *     Connections and Settings pages show them; never a value;
+ *   - `machine_status` — the Mac's memory, swap and load, Realm's processes by size and owner, and other
+ *     apps by name and size, as Settings ▸ RAM shows them; no process's arguments or environment;
  *   - `agent_peers` — the other sessions in this space and whether each can be asked;
  *   - `agent_status` — this session's own delegated runs, without collecting them;
  *   - `schedule_list` — the space's schedules;
@@ -94,6 +96,7 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   "realm-workspace__space_list": read,
   "realm-workspace__settings_get": read,
   "realm-workspace__realm_capabilities": read,
+  "realm-workspace__machine_status": read,
   "realm-agent__agent_peers": read,
   "realm-agent__agent_status": read,
   "realm-schedule__schedule_list": read,

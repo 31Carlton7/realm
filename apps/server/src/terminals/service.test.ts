@@ -3,6 +3,7 @@ import WebSocket from "ws";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { createApp, type App } from "../app";
+import { screenText } from "./screen";
 import { openDatabase, type Db } from "../db/database";
 import { RpcServer } from "../rpc/server";
 import { ExecutionSandboxService } from "../sandbox/service";
@@ -57,6 +58,79 @@ describe("TerminalService.restoreAll", () => {
     const w = await c2.call("terminals.write", { terminalId, data: "echo REALM_RESTORED\n" });
     expect(w.ok).toBe(true);
     await waitFor(() => c2.events.some((e) => e.event === "terminal.data" && e.payload.terminalId === terminalId && String(e.payload.data).includes("REALM_RESTORED")));
+    c2.close();
+  });
+
+  it("starts no shell at boot: a restored terminal's shell starts when it is first read, typed into or resized", async () => {
+    // Every persisted terminal used to get a login shell at boot — 29 on the owner's Mac, five of them
+    // for sessions archived weeks ago, each forking powerlevel10k's helpers onto its tty. THE MUTANT:
+    // spawning in restoreAll, which brings all 116 processes back.
+    const home = tempDir("realm-home-");
+    const app1 = await createApp({ home, port: 0 }); apps.push(app1);
+    const c1 = await client(app1.port);
+    const prof = (await c1.call("profiles.create", { name: "Work" })).result;
+    const space = (await c1.call("spaces.create", { profileId: prof.id, name: "Versed" })).result;
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i++) ids.push((await c1.call("terminals.create", { spaceId: space.id })).result.terminalId);
+    c1.close();
+    await app1.close();
+
+    const app2 = await createApp({ home, port: 0 }); apps.push(app2);
+    expect(app2.terminals.processes()).toEqual([]);
+    expect(app2.terminals.dormantCount()).toBe(3);
+    // It exists all the same: a session's own terminal is not torn down and made again for being asleep.
+    for (const id of ids) expect(app2.terminals.has(id)).toBe(true);
+    const c2 = await client(app2.port);
+    // Listing is not looking.
+    expect((await c2.call("terminals.list", { spaceId: space.id })).result.map((t: any) => t.running)).toEqual([true, true, true]);
+    expect(app2.terminals.processes()).toEqual([]);
+    // A pane reading it starts it; the others stay asleep.
+    const read = (await c2.call("terminals.read", { terminalId: ids[0], cursor: null })).result;
+    expect(read.running).toBe(true);
+    expect(app2.terminals.processes().map((p) => p.terminalId)).toEqual([ids[0]]);
+    await c2.call("terminals.resize", { terminalId: ids[1], cols: 100, rows: 30 });
+    await c2.call("terminals.write", { terminalId: ids[2], data: "echo WOKE_BY_TYPING\n" });
+    await waitFor(() => c2.events.some((e) => e.event === "terminal.data" && e.payload.terminalId === ids[2] && String(e.payload.data).includes("WOKE_BY_TYPING")));
+    expect(app2.terminals.processes().map((p) => p.terminalId).sort()).toEqual([...ids].sort());
+    expect(app2.terminals.dormantCount()).toBe(0);
+    c2.close();
+  });
+
+  it("reads a woken terminal's screen once its new shell has drawn it, not the blank before", async () => {
+    // THE MUTANT: reading the instant the shell is spawned — an agent's first terminal_read, or the
+    // password check before terminal_write, then sees nothing at all on a terminal with a prompt.
+    const home = tempDir("realm-home-");
+    const app1 = await createApp({ home, port: 0 }); apps.push(app1);
+    const c1 = await client(app1.port);
+    const prof = (await c1.call("profiles.create", { name: "Work" })).result;
+    const space = (await c1.call("spaces.create", { profileId: prof.id, name: "Versed" })).result;
+    const { terminalId } = (await c1.call("terminals.create", { spaceId: space.id })).result;
+    c1.close();
+    await app1.close();
+    const app2 = await createApp({ home, port: 0 }); apps.push(app2);
+    expect(app2.terminals.dormantCount()).toBe(1);
+    const screen = await app2.terminals.screen(terminalId);
+    expect(screen).not.toBeNull();
+    expect(screenText(screen!).trim()).not.toBe("");
+  });
+
+  it("closes a restored terminal that never started without a shell to kill", async () => {
+    const home = tempDir("realm-home-");
+    const app1 = await createApp({ home, port: 0 }); apps.push(app1);
+    const c1 = await client(app1.port);
+    const prof = (await c1.call("profiles.create", { name: "Work" })).result;
+    const space = (await c1.call("spaces.create", { profileId: prof.id, name: "Versed" })).result;
+    const { terminalId } = (await c1.call("terminals.create", { spaceId: space.id })).result;
+    c1.close();
+    await app1.close();
+    const app2 = await createApp({ home, port: 0 }); apps.push(app2);
+    const c2 = await client(app2.port);
+    expect((await c2.call("terminals.close", { terminalId })).ok).toBe(true);
+    expect(app2.terminals.has(terminalId)).toBe(false);
+    expect(new TerminalsStore(app2.db).get(terminalId)).toBeNull();
+    // …and nothing reading it afterwards brings a shell back.
+    await c2.call("terminals.read", { terminalId, cursor: null });
+    expect(app2.terminals.processes()).toEqual([]);
     c2.close();
   });
 });
@@ -265,8 +339,10 @@ describe("restoreAll and a refusing sandbox", () => {
 
   it("keeps the row and leaves it un-restored when the sandbox refuses the spawn", () => {
     const h = harness(refusingSandbox);
-    expect(h.svc.restoreAll()).toEqual([]);
-    // MUTANT: drop the `isSandboxRefusal` guard from restoreAll's catch and this row — and every
+    // Restored at boot without a shell; the shell is started — and refused — when the pane reads it.
+    expect(h.svc.restoreAll()).toEqual(["t_keepme"]);
+    h.svc.read("t_keepme", null);
+    // MUTANT: drop the `isSandboxRefusal` guard from the start's catch and this row — and every
     // other terminal the user had open — is gone after one boot with no sandbox on the machine.
     expect(h.terminals.get("t_keepme")).not.toBeNull();
     expect(h.svc.has("t_keepme")).toBe(false);

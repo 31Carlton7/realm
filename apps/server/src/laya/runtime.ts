@@ -87,6 +87,8 @@ export class LayaStepError extends Error {
 const PINNED_BASE_REVISION = "55cf4c4ebb4ebe31b2550e8bdf3bd21b99753851";
 
 export type LayaProcess = {
+  /** The `laya-serve` process, for the resource report; null when it never started. */
+  pid: number | null;
   /** Settles once, when the process has gone, with the tail of what it printed. */
   exited: Promise<{ code: number | null; signal: string | null; output: string }>;
   stop(): Promise<void>;
@@ -250,7 +252,7 @@ export function realLayaRuntime(o: RealLayaRuntimeOptions): LayaRuntime {
         // A venv the dev seam points at can hold an interpreter this CPU cannot run, and spawn throws
         // for that rather than emitting — so it arrives as an exit, like every other way this dies.
         const output = e instanceof Error ? e.message : String(e);
-        return { exited: Promise.resolve({ code: null, signal: null, output }), stop: async () => {} };
+        return { pid: null, exited: Promise.resolve({ code: null, signal: null, output }), stop: async () => {} };
       }
       return supervise(child, o.stopGraceMs ?? 5_000);
     },
@@ -303,6 +305,7 @@ function supervise(child: ChildProcess, graceMs: number): LayaProcess {
     child.once("close", (code, signal) => resolve({ code, signal, output: tail.text() }));
   });
   return {
+    pid: child.pid ?? null,
     exited,
     async stop() {
       if (child.exitCode !== null || child.signalCode !== null) return;

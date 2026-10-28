@@ -176,6 +176,8 @@ export function fakeRuntime(o: {
         void fakeLayaServer({ ...o.server, port, apiKey }).then((s) => { run.server = s; });
       }
       return {
+        // A pid nothing else has: the resource report's fake process table names it.
+        pid: 90_000 + rt.starts.length,
         exited,
         async stop() {
           await run.server?.close();

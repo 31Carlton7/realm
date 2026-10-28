@@ -1,6 +1,6 @@
 import { realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
+import { ENGINE_IDLE_MINUTES_DEFAULT, ENGINE_IDLE_MINUTES_KEY, AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, RestartRequiredError, type AdapterRegistry, type AgentAdapter, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -113,13 +113,13 @@ export const QUEUE_HOLD_TTL_MS = 10 * 60_000;
 export const AGENT_PROBE_TTL_MS = 15 * 60_000;
 /** How long a CLI that crashed or hung on a probe is left alone by unforced probes. */
 export const PROBE_CRASH_BACKOFF_MS = 60 * 60_000;
-/** Minutes an engine may sit idle before its process is stopped (`reapIdle`). 0 keeps engines forever. */
-export const ENGINE_IDLE_MINUTES_KEY = "sessions.engineIdleMinutes";
-export const ENGINE_IDLE_MINUTES_DEFAULT = 30;
+/** Minutes an engine may sit idle before its process is stopped (`reapIdle`). 0 keeps engines forever.
+ *  In contracts, because the Memory page sets it. */
+export { ENGINE_IDLE_MINUTES_DEFAULT, ENGINE_IDLE_MINUTES_KEY };
 /** How often live engines are looked over for one that has sat idle long enough. */
 const REAP_SWEEP_MS = 60_000;
 
-type Live = { handle: AgentHandle; pump: Promise<void>; skillsInjected: boolean };
+type Live = { handle: AgentHandle; pump: Promise<void>; skillsInjected: boolean; startedAt: number };
 
 /**
  * Owns the session trio: DB row + sidebar item + live adapter handle. Adapter handles are started lazily on the
@@ -137,6 +137,23 @@ export class SessionService {
   /** Handles stopped for being idle. Their teardown (an `ended` status, a "session ended" error) is
    *  not news: the session is as idle as it was, and resumes on its next send. */
   private reapedHandles = new WeakSet<AgentHandle>();
+  /** Background sub-agents still working inside each session's engine after its turn settled — the
+   *  `background_task` events' launching calls, until each says it stopped. An engine holding one is
+   *  never idle: stopping it would stop them. */
+  private background = new Map<string, Set<string>>();
+  /**
+   * Claude Code's own scheduling, which runs inside the engine and dies with it: `/loop`, `CronCreate`
+   * and `ScheduleWakeup`. No event says when one is due or done, so it is read off the calls: a cron
+   * created and not deleted holds the engine for the engine's life, and a wakeup holds it while the
+   * last turn to settle scheduled one (a loop schedules the next in every turn it wakes for).
+   */
+  private crons = new Map<string, number>();
+  private wakeups = new Set<string>();
+  /** Sessions whose turn in flight has scheduled a wakeup; read when the turn settles. */
+  private wakingTurn = new Set<string>();
+  /** Sessions whose turn in flight Realm sent — the person's, a peer's, a retry — rather than one the
+   *  engine started on its own, which is what a wakeup firing is. */
+  private realmTurn = new Set<string>();
   private reapTimer: ReturnType<typeof setInterval> | null = null;
   /**
    * Messages waiting for the current turn to end, oldest first, per session.
@@ -287,6 +304,13 @@ export class SessionService {
      *  active goal, a durable run (schedule, team role), a delegation either end of it. The idle
      *  reaper never stops an engine this answers true for. */
     keepEngine?: (sessionId: string) => boolean;
+    /** The idle window as memory pressure leaves it (`adaptIdleMinutes`): shorter when the Mac is
+     *  short of memory. Only the window — what counts as idle is this service's alone. */
+    adaptIdle?: (minutes: number) => number;
+    /** The sessions whose engine is still running a shell command its agent backgrounded — a dev
+     *  server, a watcher — read off the process table (`resources/`). Asked only when an engine is
+     *  about to be reaped; absent, no engine is assumed to hold one. */
+    backgroundShells?: () => Promise<ReadonlySet<string> | null>;
     teamPolicy?: {
       decides(sessionId: string, spaceId: string, gatewayTool: string): Promise<boolean>;
       isRoleRun(sessionId: string): boolean;
@@ -763,6 +787,7 @@ export class SessionService {
     await this.ensurePorts(id);
     await this.reaping.get(id);
     const handle = this.ensureLive(id);
+    this.noteRealmTurn(id);
     await handle.send(this.resolveMentions(id, msg));
   }
 
@@ -1187,6 +1212,20 @@ export class SessionService {
   liveCount(): number {
     return this.live.size;
   }
+  /**
+   * Every live engine: whose it is, what it runs and since when, and what it is doing — what the
+   * resource report matches running processes against (`resources/attribute.ts`). `lastActiveAt` is
+   * the engine's last event, the clock `reapIdle` reads.
+   */
+  engines(): { sessionId: string; title: string; kind: AgentKind; providerSessionId: string | null; startedAt: number; lastActiveAt: number; status: Session["status"] }[] {
+    const out = [];
+    for (const [id, l] of this.live) {
+      const row = this.d.sessions.get(id);
+      if (!row) continue;
+      out.push({ sessionId: id, title: row.title, kind: row.agentKind, providerSessionId: row.providerSessionId, startedAt: l.startedAt, lastActiveAt: this.lastActive.get(id) ?? l.startedAt, status: row.status });
+    }
+    return out;
+  }
   /** Stop every live adapter handle, leaving the service up: the tray's *Stop all agents*. Rows and
    *  items stay exactly as they are, so each session resumes on its next send. */
   async stopAll(): Promise<number> {
@@ -1205,17 +1244,51 @@ export class SessionService {
    * counting on it (`keepEngine`: a goal, a durable run, a delegation). Returns the sessions stopped.
    */
   async reapIdle(now = Date.now()): Promise<string[]> {
-    const raw = this.d.settings.get(ENGINE_IDLE_MINUTES_KEY);
-    const minutes = typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? raw : ENGINE_IDLE_MINUTES_DEFAULT;
+    const minutes = this.idleMinutes();
     if (minutes === 0 || this.closing) return [];
+    const due = [...this.live.keys()].filter((id) => now - (this.lastActive.get(id) ?? now) >= minutes * 60_000 && this.engineIdle(id));
+    if (due.length === 0) return [];
+    // A command the agent backgrounded runs under its engine and dies with it. Read once, and only now;
+    // a table that could not be read stops nothing, since any of these may be running one.
+    const shells = this.d.backgroundShells ? await this.d.backgroundShells().catch(() => null) : new Set<string>();
+    if (shells === null) return [];
     const reaped: string[] = [];
-    for (const id of [...this.live.keys()]) {
-      if (now - (this.lastActive.get(id) ?? now) < minutes * 60_000) continue;
-      if (!this.engineIdle(id)) continue;
+    for (const id of due) {
+      // Read again: the await above is a moment a message could arrive in.
+      if (shells.has(id) || !this.live.has(id) || !this.engineIdle(id)) continue;
       reaped.push(id);
       await this.reap(id);
     }
     return reaped;
+  }
+
+  /** The engine idle window in force: the setting, shortened while memory is short. */
+  idleMinutes(): number {
+    const raw = this.d.settings.get(ENGINE_IDLE_MINUTES_KEY);
+    const base = typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? raw : ENGINE_IDLE_MINUTES_DEFAULT;
+    return this.d.adaptIdle?.(base) ?? base;
+  }
+
+  /** The engines that are idle now — nothing mid-turn, waiting, queued or counting on them. */
+  idleEngines(): string[] {
+    return [...this.live.keys()].filter((id) => this.engineIdle(id));
+  }
+
+  /** Every engine that is idle now and could be stopped without interrupting anything, and the ones
+   *  that could not — what the Memory page's "Stop idle engines" counts and does. */
+  async stopIdleNow(): Promise<string[]> {
+    if (this.closing) return [];
+    const idle = [...this.live.keys()].filter((id) => this.engineIdle(id));
+    if (idle.length === 0) return [];
+    const shells = this.d.backgroundShells ? await this.d.backgroundShells().catch(() => null) : new Set<string>();
+    if (shells === null) return [];
+    const stopped: string[] = [];
+    for (const id of idle) {
+      if (shells.has(id) || !this.live.has(id) || !this.engineIdle(id)) continue;
+      stopped.push(id);
+      await this.reap(id);
+    }
+    return stopped;
   }
 
   private engineIdle(id: string): boolean {
@@ -1224,7 +1297,46 @@ export class SessionService {
     if ((this.queued.get(id)?.length ?? 0) > 0 || this.queueHolds.has(id) || this.drainOwed.has(id)) return false;
     if (this.turnStarted.has(id) || this.measuring.has(id) || this.forkInFlight.has(id) || this.rewindTurns.has(id)) return false;
     for (const a of this.asked.values()) if (a.sessionId === id) return false;
+    if ((this.background.get(id)?.size ?? 0) > 0) return false;
+    if ((this.crons.get(id) ?? 0) > 0 || this.wakeups.has(id)) return false;
     return !(this.d.keepEngine?.(id) ?? false);
+  }
+
+  /**
+   * A call to one of the engine's own schedulers (`crons`), or a turn settling (`wakeups`). A loop's
+   * hold ends only with a turn the engine started itself — the wakeup firing — that schedules no other:
+   * a message the person sends between two firings leaves the next one pending, and the hold with it.
+   */
+  private noteScheduling(id: string, ev: SessionEvent): void {
+    if (ev.type === "user_message") this.realmTurn.add(id);
+    else if (ev.type === "tool_call") {
+      if (ev.payload.name === "CronCreate") this.crons.set(id, (this.crons.get(id) ?? 0) + 1);
+      else if (ev.payload.name === "CronDelete") { const n = (this.crons.get(id) ?? 0) - 1; if (n > 0) this.crons.set(id, n); else this.crons.delete(id); }
+      else if (ev.payload.name === "ScheduleWakeup") this.wakingTurn.add(id);
+    } else if (ev.type === "status" && ev.payload.status === "idle") {
+      const scheduled = this.wakingTurn.delete(id);
+      const sent = this.realmTurn.delete(id);
+      if (scheduled) this.wakeups.add(id);
+      else if (!sent) this.wakeups.delete(id);
+    }
+  }
+
+  /** Realm sent this turn without a `user_message` of its own: a retry or a handoff's re-send. */
+  private noteRealmTurn(id: string): void { this.realmTurn.add(id); }
+
+  /** The engine is gone, and everything it was holding went with it. */
+  private forgetHeld(id: string): void {
+    this.background.delete(id);
+    this.crons.delete(id);
+    this.wakeups.delete(id);
+    this.wakingTurn.delete(id);
+    this.realmTurn.delete(id);
+  }
+
+  private noteBackground(id: string, toolUseId: string, status: "running" | "stopped"): void {
+    const set = this.background.get(id) ?? new Set<string>();
+    if (status === "running") set.add(toolUseId); else set.delete(toolUseId);
+    if (set.size > 0) this.background.set(id, set); else this.background.delete(id);
   }
 
   private reap(id: string): Promise<void> {
@@ -1234,6 +1346,7 @@ export class SessionService {
     // `reaping` and then starts a fresh engine that resumes the conversation.
     this.live.delete(id);
     this.lastActive.delete(id);
+    this.forgetHeld(id);
     this.reapedHandles.add(l.handle);
     this.d.gateway.release(id);
     const done: Promise<void> = (async () => {
@@ -1722,9 +1835,9 @@ export class SessionService {
         }
       }
       catch (e) { console.error(`[sessions] pump failed for ${id}: ${e instanceof Error ? e.message : String(e)}`); }
-      finally { if (this.live.get(id)?.handle === handle) { this.live.delete(id); this.d.gateway.release(id); } }
+      finally { if (this.live.get(id)?.handle === handle) { this.live.delete(id); this.forgetHeld(id); this.d.gateway.release(id); } }
     })();
-    this.live.set(id, { handle, pump, skillsInjected: skills !== undefined });
+    this.live.set(id, { handle, pump, skillsInjected: skills !== undefined, startedAt: Date.now() });
     this.lastActive.set(id, Date.now());
     return handle;
   }
@@ -1914,6 +2027,8 @@ export class SessionService {
     const ev = this.withView(id, this.secrets.scrub(id, raw));
     if (ev.type === "permission_request" && ev.payload.ask) this.asked.set(ev.payload.requestId, { sessionId: id, card: ev.payload.ask });
     else if (ev.type === "permission_response") this.asked.delete(ev.payload.requestId);
+    else if (ev.type === "background_task") this.noteBackground(id, ev.payload.toolUseId, ev.payload.status);
+    this.noteScheduling(id, ev);
     // BEFORE the status update below, so the hook sees the row's PREVIOUS status — a settle is a
     // transition, and only this side of the update still knows both ends of it.
     this.d.notifications?.handleSessionEvent(before, ev);

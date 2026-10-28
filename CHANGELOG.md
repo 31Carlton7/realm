@@ -1,5 +1,33 @@
 # Changelog
 
+## v2.6.2 — 2026-10-28
+
+### Realm uses less memory
+
+- **Settings ▸ RAM shows what Realm holds.** It lists Realm's own memory by part (agents, terminals, browser
+  panes, simulators, Laya) beside the Mac's memory pressure and swap, with buttons to free it now.
+- **Laya loads only when a step needs it,** and lets go after ten idle minutes. It used to hold about 2.4 GB
+  all day.
+- **Simulators Realm booted shut down when nobody is using them,** after 30 idle minutes, or sooner when
+  memory is short. Realm never shuts down a simulator it didn't boot, one on screen, one an agent, Xcode
+  or a debugger is using, or one used in the last five minutes.
+- **Hidden browser panes give their memory back** after 20 minutes, and come back to the same page and
+  scroll when shown. Realm never does this to a pane an agent is using, one you typed into, or one playing
+  media.
+- **Terminals start their shell when you first open them,** not all at once when Realm starts.
+- **Idle agents and MCP servers stop sooner when memory is short.** Never one mid-turn, waiting on you, or
+  holding background work such as a dev server or a loop. Browser and device MCP servers keep running
+  unless you choose otherwise.
+
+### For agents
+
+- **`machine_status`** gives an agent the Mac's memory pressure, swap and load before a build, a full
+  test suite or a simulator boot, with advice on how many test workers to use.
+
+### Fixes
+
+- **Checking which models an agent can run no longer leaves its helpers running** afterwards.
+
 ## v2.6.1 — 2026-10-28
 
 ### Realm on your iPhone

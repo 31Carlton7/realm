@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { FAVICON_MAX_BYTES, isFaviconDataUrl, type BrowserLoadError } from "@realm/contracts";
 import {
-  BrowserPaneHost, DEVICE_PRESETS, PageLoad, FAVICON_TRIES, POPUP_LIMIT, RETAINED_VIEW_LIMIT, ZOOM_FACTORS, browserUserAgent, createFaviconResolver, dataUrlBytes, deviceFit, faviconDataUrl,
+  AGENT_GRACE_MS, BrowserPaneHost, DEVICE_PRESETS, PageLoad, FAVICON_TRIES, POPUP_LIMIT, RETAINED_VIEW_LIMIT, ZOOM_FACTORS, browserUserAgent, createFaviconResolver, dataUrlBytes, deviceFit, faviconDataUrl, retainedBudget,
   isFindShortcut, nextZoomFactor, normalizeAddress, originAllowed, popupBounds, popupTitle, rankFavicons, readCapped, shownPage, sniffImage, toViewBounds, windowOpenAction, zoomPercent,
   type DeviceMetrics,
-  type BrowserViewState, type FindResult, type ViewHandle, type ViewHooks,
+  type BrowserViewState, type FindResult, type ViewHandle, type KeepReason, type ViewHooks,
 } from "./browser-host";
 
 describe("normalizeAddress", () => {
@@ -183,7 +183,7 @@ const P = "persist:browser";
 function fakeView() {
   const nav = { url: "", title: "", loading: false, back: false, forward: false,
     entries: [] as { url: string; title: string }[], activeIndex: 0, zoom: 1, favicon: null as string | null,
-    error: null as BrowserLoadError | null, ready: false, popups: [] as string[] };
+    error: null as BrowserLoadError | null, ready: false, popups: [] as string[], scroll: { x: 0, y: 0 } as { x: number; y: number } | null };
   const calls: string[] = [];
   let hooks: ViewHooks | null = null;
   const handle: ViewHandle = {
@@ -203,12 +203,14 @@ function fakeView() {
     setZoomFactor: (f) => { calls.push(`zoom:${f}`); nav.zoom = f; },
     print: () => calls.push("print"),
     popups: () => nav.popups,
+    readScroll: async () => { calls.push("readScroll"); return nav.scroll; },
+    scrollAfterLoad: (x, y) => calls.push(`scrollAfterLoad:${x},${y}`),
     destroy: () => calls.push("destroy"),
   };
   return { handle, calls, nav, setHooks: (h: ViewHooks) => { hooks = h; }, getHooks: () => hooks! };
 }
 
-function makeHost(scaleFactor = 2) {
+function makeHost(scaleFactor = 2, o: { guard?: (id: string) => Promise<KeepReason | null>; now?: () => number } = {}) {
   const views = new Map<string, ReturnType<typeof fakeView>>();
   const states: BrowserViewState[] = [];
   const found: (FindResult & { id: string })[] = [];
@@ -221,6 +223,7 @@ function makeHost(scaleFactor = 2) {
     createView: factory, sendState: (s) => states.push(s), scaleFactor: () => scaleFactor,
     sendFound: (m) => found.push(m), requestFind: (id) => findRequests.push(id),
     emulate: (id, metrics) => emulations.push({ id, metrics }),
+    ...(o.guard ? { guard: o.guard } : {}), ...(o.now ? { now: o.now } : {}),
   });
   return { host, views, states, factory, found, findRequests, emulations };
 }
@@ -463,40 +466,84 @@ describe("BrowserPaneHost retention", () => {
     expect(views.get("b1")!.calls.filter((c) => c.startsWith("load:"))).toHaveLength(1);
   });
 
-  it("a re-adopted view leaves the off-screen budget", () => {
+  it("a re-adopted view leaves the off-screen budget", async () => {
     const { host, views } = makeHost();
     const ids = overBudget(host);
     host.retain(ids[0]!);
     host.create(ids[0]!, "example.com", null, P); // the user came back to its space
     for (const id of ids.slice(1)) host.retain(id); // exactly the budget, so nothing is evicted
+    await host.settled();
     for (const id of ids) expect(alive(views.get(id)!)).toBe(true);
   });
 
-  it("past the off-screen budget the LEAST recently retained view is destroyed", () => {
+  it("past the off-screen budget the LEAST recently retained view is discarded: its renderer goes, its page waits", async () => {
     const { host, views } = makeHost();
     const ids = overBudget(host);
     for (const id of ids) host.retain(id);
+    await host.settled();
     expect(alive(views.get(ids[0]!)!)).toBe(false); // oldest off-screen page pays
-    expect(host.has(ids[0]!)).toBe(false);
+    // …but comes back with its pane, rather than being forgotten as it used to be.
+    expect(host.has(ids[0]!)).toBe(true);
+    expect(host.isDiscarded(ids[0]!)).toBe(true);
     for (const id of ids.slice(1)) expect(alive(views.get(id)!)).toBe(true);
   });
 
-  it("touch spares a background view an agent is still driving", () => {
+  it("touch spares a background view an agent is still driving", async () => {
     const { host, views } = makeHost();
     const ids = overBudget(host);
     for (const id of ids.slice(0, RETAINED_VIEW_LIMIT)) host.retain(id);
     host.touch(ids[0]!); // an agent op reached it while its space was off screen
     host.retain(ids[RETAINED_VIEW_LIMIT]!);
+    await host.settled();
     expect(alive(views.get(ids[0]!)!)).toBe(true);
     expect(alive(views.get(ids[1]!)!)).toBe(false); // the next-oldest pays instead
   });
 
-  it("touch never makes an on-screen view evictable", () => {
+  it("touch never makes an on-screen view evictable", async () => {
     const { host, views } = makeHost();
     const ids = overBudget(host);
     host.touch(ids[0]!); // still mounted, never retained
     for (const id of ids.slice(1)) host.retain(id); // exactly the budget
+    await host.settled();
     for (const id of ids) expect(alive(views.get(id)!)).toBe(true);
+  });
+
+  it("a page its guard spares keeps the budget over rather than going", async () => {
+    // Media playing, or a form half filled in: the budget never takes it, as the idle sweep never does.
+    const { host, views } = makeHost(2, { guard: async (id) => (id === "v0" ? "media" : null) });
+    const ids = overBudget(host);
+    for (const id of ids) host.retain(id);
+    await host.settled();
+    expect(alive(views.get("v0")!)).toBe(true);
+    expect(alive(views.get(ids[1]!)!)).toBe(false);
+  });
+
+  it("keeps to Settings ▸ RAM: as many unmounted views as it says stay loaded, and none discarded at Never", async () => {
+    // THE MUTANT: the old fixed budget of three, which discards a fourth page the person said to keep.
+    let limit: number | null = 5;
+    const views = new Map<string, ReturnType<typeof fakeView>>();
+    const host = new BrowserPaneHost({
+      createView: (id, hooks) => { const v = fakeView(); v.setHooks(hooks); views.set(id, v); return v.handle; },
+      sendState: () => {}, scaleFactor: () => 2, retainedLimit: () => limit,
+    });
+    const ids = Array.from({ length: 6 }, (_, i) => `p${i}`);
+    for (const id of ids) { host.create(id, `https://${id}.example`, null, P); host.retain(id); }
+    await host.settled();
+    expect(ids.filter((id) => host.isDiscarded(id))).toEqual(["p0"]);
+    limit = null;
+    for (const id of ["q0", "q1", "q2", "q3", "q4", "q5", "q6"]) { host.create(id, `https://${id}.example`, null, P); host.retain(id); }
+    await host.settled();
+    expect(["q0", "q1", "q2", "q3", "q4", "q5", "q6"].filter((id) => host.isDiscarded(id))).toEqual([]);
+  });
+
+  it("takes its number from Settings ▸ RAM, never below three, and none at Never", () => {
+    // THE MUTANT: "kept loaded" alone. At 1 or 0, every page left behind by a space switch would go at
+    // once, with no window at all — sooner than the idle sweep would ever have taken it.
+    expect(retainedBudget({ keepHidden: 5, never: false })).toBe(5);
+    expect(retainedBudget({ keepHidden: 1, never: false })).toBe(RETAINED_VIEW_LIMIT);
+    expect(retainedBudget({ keepHidden: 0, never: false })).toBe(RETAINED_VIEW_LIMIT);
+    expect(retainedBudget({ keepHidden: 5, never: true })).toBeNull();
+    expect(RETAINED_VIEW_LIMIT).toBe(3);
   });
 
   it("retain on an unknown id is refused, not thrown", () => {
@@ -512,6 +559,221 @@ describe("BrowserPaneHost retention", () => {
     host.destroyAll();
     expect(alive(views.get("b1")!)).toBe(false);
     expect(host.has("b1")).toBe(false);
+  });
+});
+
+/**
+ * Discarding a hidden view to free its renderer's memory (the resource manager's browser policy): it
+ * keeps its page and scroll and comes back when shown. What must die: a view discarded while on screen,
+ * while an agent drives it, while its page plays media or holds input; one that never comes back, comes
+ * back in the wrong jar or the wrong place, or flashes white on the way.
+ */
+describe("BrowserPaneHost — discarding hidden views", () => {
+  const MIN = 60_000;
+  const R = { x: 10, y: 20, width: 400, height: 300 };
+  function clocked(guard?: (id: string) => Promise<KeepReason | null>) {
+    let t = 1_000_000;
+    const env = makeHost(2, { now: () => t, ...(guard ? { guard } : {}) });
+    const page = (id: string, url: string) => {
+      env.host.create(id, url, null, P);
+      const v = env.views.get(id)!;
+      v.nav.url = normalizeAddress(url)!; v.nav.ready = true; v.nav.loading = false;
+      env.host.setBounds(id, R, 2, true);
+      return v;
+    };
+    const hide = (id: string) => env.host.setBounds(id, R, 2, false);
+    return { ...env, page, hide, at: (m: number) => { t = 1_000_000 + m * MIN; } };
+  }
+
+  it("discards a view hidden past the window, keeping the most recently hidden ones", async () => {
+    const { host, views, page, hide, at } = clocked();
+    for (const id of ["a", "b", "c", "d"]) page(id, `https://${id}.example`);
+    at(0); hide("a"); at(1); hide("b"); at(2); hide("c"); at(3); hide("d");
+    at(25);
+    const r = await host.sweep({ hiddenMs: 20 * MIN, keepHidden: 2 });
+    // d and c are the two most recently hidden; a and b have been hidden over twenty minutes.
+    expect(r.discarded.sort()).toEqual(["a", "b"]);
+    expect(r.kept).toEqual([{ id: "d", reason: "recent" }, { id: "c", reason: "recent" }]);
+    expect(alive(views.get("a")!)).toBe(false);
+    expect(host.has("a")).toBe(true);
+  });
+
+  it("does not count a pane behind a page overlay as hidden — Settings over the window hides every view", async () => {
+    // THE MUTANT: the idle clock read off the view's own show flag, which a page overlay, a drag and
+    // the mount settle all turn off. Settings ▸ RAM is such an overlay: its button would discard
+    // every page that was on screen behind it.
+    const { host, views, page, at } = clocked();
+    page("behind", "https://behind.example");
+    page("other-tab", "https://other.example");
+    at(0);
+    host.setBounds("behind", R, 2, false, true); // covered, still the pane showing
+    host.setBounds("other-tab", R, 2, false, false); // its tab switched away
+    expect(views.get("behind")!.calls.at(-1)).toBe("visible:false");
+    expect(host.visibilityOf("behind")).toEqual({ visible: true, hiddenSince: null });
+    at(60);
+    expect((await host.sweep({ hiddenMs: 0, keepHidden: 0 })).discarded).toEqual(["other-tab"]);
+    expect(host.isDiscarded("behind")).toBe(false);
+    expect(await host.discard("behind")).toBe(false);
+  });
+
+  it("never discards a view on screen, or one hidden for less than the window", async () => {
+    const { host, page, hide, at } = clocked();
+    page("on", "https://on.example");
+    page("brief", "https://brief.example");
+    at(0); hide("brief");
+    at(19);
+    expect((await host.sweep({ hiddenMs: 20 * MIN, keepHidden: 0 })).discarded).toEqual([]);
+    // The button takes everything hidden — and still nothing on screen.
+    expect((await host.sweep({ hiddenMs: 0, keepHidden: 0 })).discarded).toEqual(["brief"]);
+    expect(host.isDiscarded("on")).toBe(false);
+  });
+
+  it("never discards one an agent drove within the window, however long it has been hidden", async () => {
+    // THE MUTANT: reading only how long the pane has been hidden. An agent working in a background
+    // browser has no pane on screen at all.
+    const { host, page, hide, at } = clocked();
+    page("b", "https://b.example");
+    at(0); hide("b");
+    at(30); host.touch("b");
+    at(45);
+    expect(await host.sweep({ hiddenMs: 20 * MIN, keepHidden: 0 })).toEqual({ discarded: [], kept: [{ id: "b", reason: "agent" }] });
+    // The button has no window, but an agent's last op still buys a few minutes' grace.
+    at(46); host.touch("b");
+    at(48);
+    expect(await host.sweep({ hiddenMs: 0, keepHidden: 0 })).toEqual({ discarded: [], kept: [{ id: "b", reason: "agent" }] });
+    at(46 + 21);
+    expect((await host.sweep({ hiddenMs: 20 * MIN, keepHidden: 0 })).discarded).toEqual(["b"]);
+    expect(AGENT_GRACE_MS).toBeLessThan(20 * MIN);
+  });
+
+  it("never discards one whose page plays media or holds input, and says which", async () => {
+    const reasons: Record<string, KeepReason> = { video: "media", draft: "form" };
+    const { host, page, hide, at } = clocked(async (id) => reasons[id] ?? null);
+    for (const id of ["video", "draft", "plain"]) { page(id, `https://${id}.example`); hide(id); }
+    at(60);
+    const r = await host.sweep({ hiddenMs: 20 * MIN, keepHidden: 0 });
+    expect(r.discarded).toEqual(["plain"]);
+    expect(r.kept).toEqual(expect.arrayContaining([{ id: "video", reason: "media" }, { id: "draft", reason: "form" }]));
+  });
+
+  it("lets an agent's step wait for a revived page to load rather than read the blank it boots on", async () => {
+    const { host, views, page, hide, at } = clocked();
+    page("b", "https://b.example/inbox");
+    hide("b");
+    at(60);
+    await host.sweep({ hiddenMs: 20 * MIN, keepHidden: 0 });
+    let settled = false;
+    const waiting = host.revivedPage("b", { pollMs: 5 }).then(() => { settled = true; });
+    await new Promise((r) => setTimeout(r, 30));
+    // Brought back, loading — and the step still waits.
+    expect(views.get("b")!.calls).toContain("load:https://b.example/inbox");
+    expect(settled).toBe(false);
+    views.get("b")!.nav.ready = true;
+    await waiting;
+    // A live page that never left, or one that will not load, waits no longer than it must.
+    page("c", "https://c.example");
+    await host.revivedPage("c");
+    hide("c");
+    at(200);
+    await host.sweep({ hiddenMs: 20 * MIN, keepHidden: 0 });
+    const failing = host.revivedPage("c", { pollMs: 5 });
+    await new Promise((r) => setTimeout(r, 15));
+    views.get("c")!.nav.error = { code: -105, name: "ERR_NAME_NOT_RESOLVED", url: "https://c.example/" };
+    await failing;
+  });
+
+  it("leaves a view that came back on screen while its scroll was being read", async () => {
+    const { host, views, page, hide, at } = clocked();
+    const v = page("b", "https://b.example");
+    hide("b");
+    at(60);
+    let release!: (s: { x: number; y: number }) => void;
+    v.handle.readScroll = () => new Promise((r) => { release = r; });
+    const sweeping = host.sweep({ hiddenMs: 20 * MIN, keepHidden: 0 });
+    await new Promise((r) => setTimeout(r, 0));
+    host.setBounds("b", R, 2, true); // the person switched back to its tab
+    release({ x: 0, y: 900 });
+    expect((await sweeping).discarded).toEqual([]);
+    expect(alive(views.get("b")!)).toBe(true);
+  });
+
+  it("comes back when shown: in its own jar, on its page, scrolled where it was, hidden until it has painted", async () => {
+    const { host, views, states, factory, page, hide, at } = clocked();
+    const first = page("b", "https://b.example/long");
+    first.nav.scroll = { x: 0, y: 1234 };
+    hide("b");
+    at(60);
+    await host.sweep({ hiddenMs: 20 * MIN, keepHidden: 0 });
+    const sent = states.length;
+    // Asked to stay hidden, it stays given up — and nothing was sent to the pane about it.
+    host.setBounds("b", R, 2, false);
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(states.length).toBe(sent);
+    host.setBounds("b", R, 2, true);
+    expect(factory).toHaveBeenCalledTimes(2);
+    expect(factory.mock.calls[1]![2]).toBe(P);
+    const back = views.get("b")!;
+    expect(back.calls).toContain("scrollAfterLoad:0,1234");
+    expect(back.calls).toContain("load:https://b.example/long");
+    // Not painted yet: the pane's own ground shows, never a blank white view.
+    expect(back.calls.filter((c) => c.startsWith("visible:"))).toEqual(["visible:false"]);
+    back.nav.ready = true;
+    host.setBounds("b", R, 2, true);
+    expect(back.calls.at(-1)).toBe("visible:true");
+  });
+
+  it("comes back when its pane remounts, on the page it was on rather than the row's", async () => {
+    const { host, views, page, hide, at } = clocked();
+    const v = page("b", "https://b.example/a");
+    v.nav.url = "https://b.example/later"; // navigated since the row was saved
+    hide("b");
+    host.retain("b");
+    at(60);
+    await host.sweep({ hiddenMs: 20 * MIN, keepHidden: 0 });
+    host.create("b", "https://b.example/a", null, P);
+    expect(views.get("b")!.calls).toContain("load:https://b.example/later");
+  });
+
+  it("comes back for anything that needs its page: a reload, a find, a navigation, an agent's attach", async () => {
+    for (const use of [
+      (h: BrowserPaneHost) => h.navAction("b", "reload"),
+      (h: BrowserPaneHost) => h.find("b", "word", "start"),
+      (h: BrowserPaneHost) => h.navigate("b", "https://b.example/next"),
+      (h: BrowserPaneHost) => h.live("b"),
+    ]) {
+      const { host, factory, page, hide, at } = clocked();
+      page("b", "https://b.example");
+      hide("b");
+      at(60);
+      await host.sweep({ hiddenMs: 20 * MIN, keepHidden: 0 });
+      use(host);
+      expect(factory).toHaveBeenCalledTimes(2);
+      expect(host.isDiscarded("b")).toBe(false);
+    }
+  });
+
+  it("does not bring a page back past a fence put up while it was away", async () => {
+    const { host, views, page, hide, at } = clocked();
+    page("b", "https://evil.example");
+    hide("b");
+    at(60);
+    await host.sweep({ hiddenMs: 20 * MIN, keepHidden: 0 });
+    host.setAllowlist("b", ["https://good.example"]);
+    host.setBounds("b", R, 2, true);
+    expect(views.get("b")!.calls.some((c) => c.startsWith("load:"))).toBe(false);
+  });
+
+  it("is forgotten when the browser is closed, or its profile's jar goes", async () => {
+    const { host, page, hide, at } = clocked();
+    page("b", "https://b.example");
+    page("w", "https://w.example");
+    hide("b"); hide("w");
+    at(60);
+    await host.sweep({ hiddenMs: 20 * MIN, keepHidden: 0 });
+    host.destroy("b");
+    expect(host.has("b")).toBe(false);
+    host.destroyPartition(P);
+    expect(host.has("w")).toBe(false);
   });
 });
 

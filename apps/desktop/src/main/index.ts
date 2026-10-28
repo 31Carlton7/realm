@@ -18,7 +18,7 @@ import { DaemonSupervisor, type DaemonUiState } from "./daemon-supervisor";
 import { SessionTray, type TraySession } from "./session-tray";
 import { trayIconPath } from "./tray-icon";
 import { confirmQuitCopy, decideQuit } from "./quit-policy";
-import { isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY, type LinksOpenIn } from "@realm/contracts";
+import { BROWSER_KEEP_HIDDEN_DEFAULT, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, NOTIFICATIONS_DESKTOP_KEY, POWER_PREVENT_SLEEP_KEY, type LinksOpenIn } from "@realm/contracts";
 import type { BridgeClient } from "./browser-agent-bridge";
 import { loginShellPath, mergePath } from "./login-shell-path";
 import { startScrollPhaseStream } from "./scroll-phase";
@@ -26,10 +26,11 @@ import { readTextFile } from "./read-text";
 import { compressIconIfNeeded, describeFiles, existingPath, fileThumbnail, openablePath, saveTempAttachment, statFile, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
 import { shareImage } from "./share-images";
 import { clearBrowserPartition, createBrowserPane, governBrowserDownloads, shareSiteCookies, type BrowserPane, type DownloadPolicy } from "./browser-pane";
+import { labelAppProcesses, type AppProcessLabel } from "./app-metrics";
 import { refuseCapture } from "./capture-guard";
 import { viewNavigationAllowed } from "./app-views";
 import { BlockedDownloads, DownloadGovernor, SavedDownloads, retryBlockedDownload } from "./downloads";
-import { nextZoomFactor, searchUrl, type ViewRect } from "./browser-host";
+import { nextZoomFactor, retainedBudget, searchUrl, type ViewRect } from "./browser-host";
 import { clearBrowsingData, saveBrowserScreenshot } from "./browser-controls";
 import { BrowserAgentHost } from "./browser-agent-host";
 import { AppDriveHost } from "./app-drive";
@@ -369,6 +370,43 @@ function holderOf(browserId: string, sender?: WebContents): { win: BrowserWindow
 }
 const paneFor = (browserId: string, sender?: WebContents): BrowserPane | null => holderOf(browserId, sender)?.pane ?? null;
 
+/**
+ * Discard the browser views hidden longer than `hiddenMs` in every window, keeping each window's
+ * `keepHidden` most recently hidden (`BrowserPaneHost.sweep`). realm-server's clock asks for this, with
+ * the window its setting and the Mac's memory pressure decide; the Memory page's button asks with 0, 0.
+ */
+/**
+ * Settings ▸ RAM's browser policy as the server's clock last sent it (`policy: true`): how many hidden
+ * panes stay loaded, and whether a hidden pane is ever discarded. The off-screen budget for unmounted
+ * panes follows it. Until the first tick, the defaults.
+ */
+let browserPolicy = { keepHidden: BROWSER_KEEP_HIDDEN_DEFAULT, never: false };
+const retainedLimit = (): number | null => retainedBudget(browserPolicy);
+
+async function sweepBrowsers(params: unknown): Promise<{ discarded: string[]; kept: { id: string; reason: string }[] }> {
+  const p = (params ?? {}) as { hiddenMs?: unknown; keepHidden?: unknown; policy?: unknown };
+  const hiddenMs = typeof p.hiddenMs === "number" && p.hiddenMs >= 0 ? p.hiddenMs : Number.POSITIVE_INFINITY;
+  const keepHidden = typeof p.keepHidden === "number" && p.keepHidden >= 0 ? Math.floor(p.keepHidden) : Number.POSITIVE_INFINITY;
+  // The clock's own sweep carries the policy; the Memory page's button (everything, now) does not.
+  if (p.policy === true) browserPolicy = { keepHidden: Number.isFinite(keepHidden) ? keepHidden : BROWSER_KEEP_HIDDEN_DEFAULT, never: p.hiddenMs === null };
+  const out: { discarded: string[]; kept: { id: string; reason: string }[] } = { discarded: [], kept: [] };
+  for (const { pane } of windowPanes.values()) {
+    const r = await pane.host.sweep({ hiddenMs, keepHidden });
+    out.discarded.push(...r.discarded);
+    out.kept.push(...r.kept);
+  }
+  return out;
+}
+
+/** Every Electron process, named (app-metrics.ts): realm-server's resource report sizes them itself. */
+function appProcesses(): AppProcessLabel[] {
+  const views = new Map<number, { browserId: string; title: string; hiddenSince: number | null }>();
+  for (const { pane } of windowPanes.values()) for (const v of pane.viewProcesses()) views.set(v.pid, { browserId: v.browserId, title: v.title, hiddenSince: v.hiddenSince });
+  const titles = new Map<number, string>();
+  for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) titles.set(win.webContents.getOSProcessId(), win.getTitle());
+  return labelAppProcesses({ metrics: app.getAppMetrics(), views, windows: titles });
+}
+
 /* The element picker over Realm's own window (app-pick.ts): a window says when its person is picking,
    and asks for the picture of a pick — always the window's OWN capture, and never inside a browser
    pane's view. Keyed by the window's webContents, which is the only sender it answers. */
@@ -569,7 +607,7 @@ async function createWindow(info: { port: number; home: string; token: string },
   const pane = createBrowserPane(win, async (paneId, cdp) => {
     await passkeys.install(paneId, cdp).catch(() => {});
     await autofill.install(paneId, cdp).catch(() => {});
-  }); // destroys its views on win "closed" itself
+  }, { retainedLimit }); // destroys its views on win "closed" itself
   windowPanes.set(win.id, { win, pane });
   pane.onViewDestroyed((id) => { agentHost.release(id); passkeys.release(id); autofill.release(id); });
   if (process.env.ELECTRON_RENDERER_URL) await win.loadURL(process.env.ELECTRON_RENDERER_URL);
@@ -719,6 +757,8 @@ ipcMain.handle("browser:password-offer", (e, browserId: unknown, offerId: unknow
  */
 const agentHost = new BrowserAgentHost({
   attach: (id) => paneFor(id)?.attachCdp(id) ?? null,
+  revived: async (id) => { await paneFor(id)?.host.revivedPage(id); },
+  typed: (id) => paneFor(id)?.markTyped(id),
   hasView: (id) => paneFor(id) !== null,
   touch: (id) => paneFor(id)?.host.touch(id),
   navigate: (id, url) => paneFor(id)?.host.navigate(id, url) ?? null,
@@ -863,7 +903,7 @@ ipcMain.handle("browser:history-menu", (e, id: string, dir: "back" | "forward", 
 });
 ipcMain.handle("browser:set-allowlist", (e, id: string, allowlist: string[] | null) => { paneFor(String(id), e.sender)?.host.setAllowlist(String(id), allowlist); });
 // Bounds are a fact about the SENDER's layout: only its own view is moved, never another window's.
-ipcMain.on("browser:set-bounds", (e, id: string, rect: ViewRect, dpr: number, visible: boolean) => { senderPane(e.sender)?.host.setBounds(String(id), rect, dpr, visible); });
+ipcMain.on("browser:set-bounds", (e, id: string, rect: ViewRect, dpr: number, visible: boolean, shown?: unknown) => { senderPane(e.sender)?.host.setBounds(String(id), rect, dpr, visible, typeof shown === "boolean" ? shown : visible); });
 
 
 /**
@@ -2251,6 +2291,9 @@ app.whenReady().then(async () => {
         // it stale before its `computer_act`; and the path is unfinished — the frame has no size, and
         // `vm_act`'s points take no account of where the app's window is.
         if (op.startsWith("computer")) return computerHost.handleOp(op, params);
+        // The resource report's question about the app's own processes: no window needed either.
+        if (op === "appMetrics") return Promise.resolve(appProcesses());
+        if (op === "browserSweep") return sweepBrowsers(params);
         // Realm's own window, which is a different target from any browser view — so these are
         // answered before the executor below, whose `host` is about panes and would refuse first
         // with a message about a pane.

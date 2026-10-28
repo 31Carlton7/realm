@@ -69,6 +69,13 @@ import { bundledLayaDir } from "./laya/benchmark";
 import { machineState, readEval, trainCheckpoint } from "./laya/training";
 import { LayaRecorder } from "./laya/recorder";
 import type { LayaRuntime } from "./laya/runtime";
+import { ResourceService } from "./resources/service";
+import { ResourcePolicies } from "./resources/policies";
+import { ResourceControls } from "./resources/controls";
+import { createMachineStatusTools } from "./resources/agent-tools";
+import { quietMachineProbe, type MachineProbe } from "./resources/machine";
+import type { AppProcess } from "./resources/attribute";
+import { durationWords, engineDetail } from "./resources/words";
 import { createTerminalAgentProvider } from "./terminals/agent-tools";
 import { SignInTickets } from "./browsers/signin";
 import { SignInFlow } from "./browsers/signin-flow";
@@ -845,6 +852,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /** A second listener, for clients on other machines (`realm serve --listen`). Absent, the server
    *  listens on loopback only, as it always has. */
   access?: AccessOptions;
+  /** How the resource report reads this machine. Only `main.ts` passes the real one
+   *  (`realMachineProbe`); left out, the machine reads as empty and says nothing about its memory, so a
+   *  suite never measures the Mac it runs on. A test that needs a machine hands in a fake table. */
+  resources?: { probe?: MachineProbe };
 }): Promise<App> {
   // A listener the rules refuse, or a certificate that cannot be read, stops the boot before anything
   // is opened: there is no half-started server to tidy up, and the person reads the reason first.
@@ -962,7 +973,15 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     (udid, error) => simulatorsLate?.runnerStopped(udid, error),
     (udid, stills) => simulatorsLate?.pictureChanged(udid, stills),
   ) ?? opts.simulator?.physical;
-  const simulators = new SimulatorService({ rpc, spaces, items, simulators: simulatorsStore, ...opts.simulator, physical: physicalDevices });
+  /* This Mac's processes and memory (`resources/machine.ts`): the resource report reads them, and so does
+     the simulator sweep before it shuts anything down. A quiet, empty machine unless `main.ts` passed
+     the real one. */
+  const machineProbe = opts.resources?.probe ?? quietMachineProbe();
+  /* The resource service, built further down once every service it asks exists; the idle windows read
+     its pressure through this, as late-bound as the other knots in this file. */
+  let resourcesLate: ResourceService | null = null;
+  const adaptIdle = (minutes: number): number => resourcesLate?.adapt(minutes) ?? minutes;
+  const simulators = new SimulatorService({ rpc, spaces, items, simulators: simulatorsStore, settings, processes: () => machineProbe.processes(), frontApp: async () => (await machineProbe.frontApp?.()) ?? null, home: opts.home, adaptIdle, ...opts.simulator, physical: physicalDevices });
   simulatorsLate = simulators;
   // Plan 22: the preview listener guides and PDFs are framed from. Its root lookup is late-bound to
   // the service below (a workspace id → its checkout), which is the only thing it needs to know.
@@ -1047,6 +1066,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   let hubElicit: HubElicit | null = null;
   const mcpHub = new McpHub({
     servers: mcpServersStore,
+    stopsWhenIdle: (id) => mcp.stopsWhenIdle(id),
     elicit: (r) => (hubElicit ? hubElicit(r) : Promise.resolve({ action: "decline" as const })),
     // The OAuth seam. `McpOauth` sanitizes its own errors — the hub cannot redact a token that only ever
     // existed inside an error thrown in here (see the seam's own doc comment in `hub.ts`).
@@ -1223,7 +1243,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     onChange: () => laya.recordingChanged(),
   });
   const laya = new LayaService({
-    runtime: layaRuntime, settings, log: layaLog, recorder: layaRecorder,
+    runtime: layaRuntime, settings, log: layaLog, recorder: layaRecorder, adaptIdle,
     publish: (status) => {
       rpc.broadcast("laya.changed", status);
       const listed = layaAssist?.gate().available ?? false;
@@ -1367,6 +1387,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     keepEngine: (sessionId) => goals.get(sessionId)?.status === "active"
       || (runs?.listLive().some((r) => r.sessionId === sessionId) ?? false)
       || delegationEngine.involves(sessionId),
+    // Sooner when memory is short; never for an engine holding a command its agent backgrounded.
+    adaptIdle,
+    backgroundShells: () => resourcesLate?.backgroundShells() ?? Promise.resolve(new Set<string>()),
     // A team's policy answers for its gateway's calls itself: the engine's own MCP card is answered
     // before it is drawn wherever the policy decides (team/policies/gate.ts `decides`).
     teamPolicy: {
@@ -1578,6 +1601,24 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     }),
     createSpacesTools({ spaces, settings, broker: browserBroker, rpc }),
     createSettingsTools({ settings, broker: browserBroker, rpc }),
+    // `machine_status`: the Mac's memory and what of Realm's is heavy, read before heavy work.
+    createMachineStatusTools({
+      report: async () => {
+        if (!resourcesLate) throw new Error("Realm is still starting; ask again in a moment.");
+        return resourcesLate.snapshot();
+      },
+      processes: () => machineProbe.processes(),
+      inSpace: (part, spaceId) => {
+        if (!part.ownerId) return false;
+        switch (part.category) {
+          case "engines": return sessionsStore.get(part.ownerId)?.spaceId === spaceId;
+          case "terminals": return terminals.list(spaceId).some((t) => t.terminalId === part.ownerId);
+          case "browsers": return browsersStore.get(part.ownerId)?.spaceId === spaceId;
+          case "simulators": return simulatorsStore.list(spaceId).some((s) => s.udid?.toUpperCase() === part.ownerId!.toUpperCase());
+          default: return false;
+        }
+      },
+    }),
     createCatalogTools({
       catalog: (sessionId, spaceId) => mcpGateway.catalogFor(sessionId, spaceId),
       connections: (spaceId) => mcp.list(spaceId).servers,
@@ -1831,6 +1872,48 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     needsYou: () => sessions.statusCounts().needsYou,
     titleOf: (id) => items.findByRefId(id)?.title ?? sessionsStore.get(id)?.title ?? null,
     log: (line) => console.error(line) });
+  /* What Realm costs this Mac in memory, by part (`resources/`): each service says what it owns, the
+     app says which of its processes is which, and the service sizes them all itself. */
+  const resources = new ResourceService({
+    probe: machineProbe, settings,
+    owners: () => ({
+      engines: sessions.engines().map((e) => ({ sessionId: e.sessionId, title: e.title, kind: e.kind, providerSessionId: e.providerSessionId, startedAt: e.startedAt, detail: engineDetail(e, Date.now()) })),
+      terminals: terminals.processes(),
+      mcp: mcpHub.processes().map((m) => ({ serverId: m.serverId, name: mcpServersStore.get(m.serverId)?.name ?? m.serverId, pid: m.pid, detail: null })),
+      laya: laya.process(),
+      simulators: simulators.realmBooted().map((b) => ({ udid: b.udid, name: b.name, bootedAt: b.bootedAt, detail: "Booted by Realm" })),
+    }),
+    app: async () => {
+      if (!browserBridge.connected) return null;
+      const now = Date.now();
+      return ((await browserBridge.call("appMetrics", {})) as AppProcess[]).map((a) => (a.kind === "browser"
+        ? { ...a, detail: a.hiddenSince ? `Hidden ${durationWords(now - a.hiddenSince)}` : "On screen" } : a));
+    },
+  });
+  /* The policies that act through the app on the server's clock: browser panes off screen past their
+     window are discarded, page and scroll kept (`resources/policies.ts`). */
+  resourcesLate = resources;
+  const resourcePolicies = new ResourcePolicies({
+    settings, mcp: mcpHub, adapt: adaptIdle,
+    app: () => (browserBridge.connected ? { call: (op, params) => browserBridge.call(op, params) } : null),
+  });
+  /* The Memory page's side: the report with what each "free memory now" button would let go of, the
+     windows as set and as pressure leaves them, and the buttons. */
+  const resourceControls = new ResourceControls({
+    settings, snapshot: (o) => resources.snapshot(o), adapt: adaptIdle,
+    engines: sessions, simulators, laya,
+    browsers: () => (browserBridge.connected ? { call: (op, params) => browserBridge.call(op, params) } : null),
+    browserPolicyChanged: () => { void resourcePolicies.tick(); },
+  });
+  /* Memory just got short: every idle window shrinks now, and what is already past the shorter one goes
+     at once rather than on each policy's next tick. */
+  resources.onPressure((pressure) => {
+    if (pressure !== "warn" && pressure !== "critical") return;
+    void sessions.reapIdle().catch(() => {});
+    void resourcePolicies.tick();
+    void simulators.sweepIdle().catch(() => {});
+    laya.idleChanged();
+  });
   // One searcher for ⌘P and the `@` list's Files, so the two read a checkout the same way.
   const projectSearch = new ProjectSearchService();
   /** The remote listener, once it is up (below, after the loopback socket). */
@@ -1839,7 +1922,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
     profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, claudeBackfill, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, handoffs, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns, teammates,
-    iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, agentSignIn,
+    iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, resources: resourceControls, agentSignIn,
     libraryFiles, remote, presence,
     access: () => (access ? { url: access.url } : null),
     appViews: new AppViewService({ views: appViews, hub: mcpHub, mcp, servers: mcpServersStore, sessions: sessionsStore, server: appViewServer, gateway: mcpGateway, log: (line) => console.log(line) }),
@@ -1924,6 +2007,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   terminals.restoreAll();
   // Brings laya-serve back only if the user left Laya on and an install is on disk.
   laya.boot();
+  // Memory pressure, read every half minute from here on.
+  resources.start();
+  // …and the simulators Realm booted, looked over once a minute for one nobody is using.
+  simulators.startIdleSweep();
+  // …and the browser panes that have been off screen long enough to give their memory back.
+  resourcePolicies.start();
   // Starts nothing, and clears every recorded ws port: a port held against last run's listener is a
   // lie, and the UNIQUE index would refuse to reissue it to the machine it belonged to.
   machines.restoreAll();
@@ -1979,6 +2068,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     summaries?.close(); // a debounced recap must not fire onto a closing handle, or outlive the process
     memoryLearner?.close(); // likewise a session's quiet timer
     memoryTidier?.close(); // and the tidy pass's clock
+    resources.close();
+    resourcePolicies.close();
     terminals.closeAll();
     cliInstaller.disposeAll();
     // While the socket is still open, so a window that outlives this daemon hears the sign-in end.
