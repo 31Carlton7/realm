@@ -123,7 +123,9 @@ describe("the rest of a document's place, across the same round trip", () => {
     unmount();
     render(pane(store));
     await waitFor(() => expect(document.querySelector(".dsg-container")).not.toBeNull(), { timeout: 4000 });
-    await waitFor(() => expect(staged.topOf(document.querySelector(".dsg-container") as HTMLElement)).toBe(640));
+    // The same allowance as the waits before it: under a full parallel run the grid's scroll lands
+    // well past testing-library's one-second default.
+    await waitFor(() => expect(staged.topOf(document.querySelector(".dsg-container") as HTMLElement)).toBe(640), { timeout: 4000 });
   }, 10_000);
 
   it("puts the caret back in a rich document", async () => {
