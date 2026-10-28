@@ -1,5 +1,25 @@
 # Changelog
 
+## v2.6.1 — 2026-10-28
+
+### Realm on your iPhone
+
+The Mac side of these is in this release; the iPhone side arrives in the next TestFlight build.
+
+- **Watch a session's screens from your phone.** A Screens button in the session shows the simulators and
+  machines its space has open, live at about a frame a second, with Pause and Share. A Mac app's own
+  windows aren't shown on the phone yet. On a Mac older than 2.6.1, the button stays hidden.
+- **Reading a session on the phone is calmer.**
+  - Rows stay inside the screen, even next to a long tool name.
+  - A tool's row shows a glyph for its kind.
+  - Reads of several files group into one row, and files go by their names, not full paths.
+  - A live line at the foot replaces the floating "Working" pill.
+
+### Fixes
+
+- **The Memory page names more of Claude's projects.** A Claude project whose folder has an underscore, a
+  dot or a space in its path now shows that folder, not Claude's encoded name.
+
 ## v2.6.0 — 2026-10-28
 
 ### Memory that doesn't depend on the model
