@@ -35,14 +35,6 @@ const REFUSALS = new Set<string>([
   "no_accessibility", "stale_snapshot", "no_element", "occluded", "not_frontmost", "forbidden_app", "secure_field",
 ]);
 
-/**
- * The ops this host answers: the server's `COMPUTER_HOST_OPS`. Main routes by this list rather than by
- * a prefix, because a `mac` machine's frame (`machineCaptureOnce`) is one of them and its name does not
- * start with "computer" — routed by the prefix, it went to the browser host, which refused it.
- */
-const COMPUTER_OPS: readonly string[] = ["computerListApps", "machineCaptureOnce", "computerSnapshot", "computerAct"];
-export const isComputerOp = (op: string): boolean => COMPUTER_OPS.includes(op);
-
 export class ComputerUseHost {
   constructor(private readonly d: ComputerUseHostDeps) {}
 
@@ -77,6 +69,9 @@ export class ComputerUseHost {
        * delegate on its own queue, a `didStopWithError` path for display reconfiguration and
        * mid-stream permission revocation, filter re-creation whenever the app's window set changes,
        * and a long-lived helper process with its own lifecycle here. None of that for a first ship.
+       *
+       * Main does not hand it here in 2.6.1 (`index.ts` says why), and the helper's snapshot carries
+       * no size, so the frame it makes is 0×0.
        */
       case "machineCaptureOnce": {
         this.requireHelper();

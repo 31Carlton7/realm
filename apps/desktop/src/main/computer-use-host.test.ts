@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { COMPUTER_SNAPSHOT_MAX, ComputerActionSchema, type ComputerElement } from "@realm/contracts";
-import { ComputerUseHost, actionToHelperParams, formatElementLine, isComputerOp, pageOfElements, renderElements } from "./computer-use-host";
+import { ComputerUseHost, actionToHelperParams, formatElementLine, pageOfElements, renderElements } from "./computer-use-host";
 
 const element = (over: Partial<ComputerElement> = {}): ComputerElement => ({
   index: 0, role: "AXButton", subrole: "", name: "", value: "",
@@ -232,30 +232,34 @@ describe("ComputerUseHost", () => {
     await expect(instance.handleOp("computerWhatever", {})).rejects.toThrow(/unknown computer host op/);
   });
 
-  it("answers a mac machine's frame with the helper's picture of the app's windows, at the windows' size", async () => {
-    const { instance, calls } = host({ snapshot: { snapshotId: "ax_1", elements: [], screenshot: "AAAA", bounds: { w: 800, h: 600 } } });
-    expect(await instance.handleOp("machineCaptureOnce", { bundleId: "com.apple.TextEdit" })).toEqual({ data: "AAAA", mimeType: "image/jpeg", width: 800, height: 600 });
+  it("answers a mac machine's frame with the helper's picture of the app's windows, and no size: the helper sends none", async () => {
+    // The helper's snapshot as AxHelper.swift answers it, with no `bounds` — the frame is 0×0.
+    const { instance, calls } = host({ snapshot: { snapshotId: "ax_1", pid: 42, bundleId: "com.apple.TextEdit", appName: "TextEdit", frontmost: true, truncated: false, elements: [], screenshot: "AAAA" } });
+    expect(await instance.handleOp("machineCaptureOnce", { bundleId: "com.apple.TextEdit" })).toEqual({ data: "AAAA", mimeType: "image/jpeg", width: 0, height: 0 });
     expect(calls).toEqual([{ method: "snapshot", params: { bundleId: "com.apple.TextEdit", screenshot: true } }]);
   });
 });
 
 describe("the ops main hands this host", () => {
-  // Read as text: the list is realm-server's, and importing main would start an Electron app.
+  // Read as text: the list is realm-server's, and importing main would start an Electron app. Main's
+  // routing is read without its comments, which say why a mac machine's frame is not handed here.
   const bridge = readFileSync(join(__dirname, "../../../server/src/browsers/host-bridge.ts"), "utf8");
   const ops = [...bridge.slice(bridge.indexOf("export const COMPUTER_HOST_OPS")).split("] as const")[0]!.matchAll(/^\s+"(\w+)",/gm)].map((m) => m[1]!);
+  const main = readFileSync(join(__dirname, "index.ts"), "utf8");
+  const routing = main.slice(main.indexOf("handleOp: (op, params) => {"), main.indexOf("return agentHost.handleOp(op, params);"))
+    .split("\n").filter((line) => !line.trim().startsWith("//")).join("\n");
 
-  it("are every computer-use op realm-server sends over the bridge, a mac machine's frame among them", async () => {
+  it("are the computer-use ops by their name, before the window check, as in 2.6.0: a mac machine's frame is held back", () => {
+    // THE MUTANT: hand `machineCaptureOnce` to this host as well, as the change held back from 2.6.1
+    // did — every frame of a Mac app a pane or a phone watches is then a whole snapshot on the helper,
+    // which keeps one per app, and an agent's own snapshot of that app goes stale before it acts.
+    expect(routing.split("\n").map((line) => line.trim()).filter((line) => line.includes("computerHost."))).toEqual([
+      'if (op.startsWith("computer")) return computerHost.handleOp(op, params);',
+    ]);
+    expect(routing.indexOf('op.startsWith("computer")')).toBeLessThan(routing.indexOf("windows.size === 0"));
+    expect(routing).not.toContain("machineCaptureOnce");
+    expect(ops.filter((op) => op.startsWith("computer"))).toEqual(["computerListApps", "computerSnapshot", "computerAct"]);
     expect(ops).toContain("machineCaptureOnce");
-    // THE MUTANT: routing by `op.startsWith("computer")`, which sent a mac machine's frame to the
-    // browser host, and the browser host refused it as an op it did not know.
-    expect(ops.filter((op) => !isComputerOp(op))).toEqual([]);
-    expect(readFileSync(join(__dirname, "index.ts"), "utf8")).toContain("if (isComputerOp(op)) return computerHost.handleOp(op, params);");
-    const { instance } = host({ listApps: { apps: [] }, snapshot: { elements: [], screenshot: "AAAA", bounds: { w: 1, h: 1 } } });
-    for (const op of ops) await expect(instance.handleOp(op, { bundleId: "x" }), op).resolves.toBeDefined();
-  });
-
-  it("are not the browser host's or the vault's", () => {
-    expect(["snapshot", "screenshot", "act", "vaultHttp", "appSnapshot"].filter(isComputerOp)).toEqual([]);
   });
 });
 

@@ -37,7 +37,7 @@ import { registerAppPick } from "./app-pick";
 import { startBrowserAgentBridge } from "./browser-agent-bridge";
 import { TCC_SETTINGS_URLS, isTccPermissionId, probeTcc, type TccRow } from "./tcc";
 import { ComputerUseHelper, axHelperPath, probeGrantsOnce } from "./computer-use-helper";
-import { ComputerUseHost, isComputerOp } from "./computer-use-host";
+import { ComputerUseHost } from "./computer-use-host";
 import { ComputerDrivingIndicator } from "./computer-driving";
 import { ComputerAccess, isComputerAccessId, type ComputerAccessStatus, type ComputerGrantHistory } from "./computer-access";
 import {
@@ -2244,9 +2244,13 @@ app.whenReady().then(async () => {
         if (op === "teamPolicyVerify") return Promise.resolve(policyPresses.verify((params as { items?: unknown }).items));
         if (op === "teamPolicyBump") return Promise.resolve(policyPresses.bump((params as { scope?: unknown }).scope));
         // Computer-use ops share this socket but not the browser executor: they need no window and
-        // no view, so they are answered before the window check below. A `mac` machine's frame is
-        // one, though its name does not say so.
-        if (isComputerOp(op)) return computerHost.handleOp(op, params);
+        // no view, so they are answered before the window check below. A `mac` machine's frame
+        // (`machineCaptureOnce`) is held back in 2.6.1 and goes on to the browser host, which refuses
+        // it, as in 2.6.0: each frame is a whole accessibility snapshot on the helper, which keeps one
+        // per app, so a pane or a phone watching an app would leave an agent's `computer_snapshot` of
+        // it stale before its `computer_act`; and the path is unfinished — the frame has no size, and
+        // `vm_act`'s points take no account of where the app's window is.
+        if (op.startsWith("computer")) return computerHost.handleOp(op, params);
         // Realm's own window, which is a different target from any browser view — so these are
         // answered before the executor below, whose `host` is about panes and would refuse first
         // with a message about a pane.
