@@ -94,7 +94,7 @@ import { EnvironmentsStore } from "./store/environments";
 import { SessionService, resolveDefaultPermissionMode } from "./sessions/service";
 import { RECAP_DEBOUNCE_MS, SessionSummaryService } from "./sessions/summary";
 import { PlanLimitsService } from "./limits/service";
-import type { MemoryExtractionInput, ProbeResult } from "@realm/adapters";
+import type { MemoryExtractionInput, MemoryTidyInput, ProbeResult } from "@realm/adapters";
 import { SkillsService } from "./skills/service";
 import { UserCommandsService } from "./commands/service";
 import { ScriptService } from "./scripts/service";
@@ -111,7 +111,8 @@ import { MemoryService } from "./memory/service";
 import { MemoryRepoService, type RepoOwner } from "./memory/repo";
 import { SessionLearner } from "./memory/extract";
 import { LearnedCursors } from "./memory/extract-cursor";
-import { memorySinkFrom, type MemorySink } from "./memory/sink";
+import { memorySinkFrom, spaceFolderSettingKey, type MemorySink } from "./memory/sink";
+import { MemoryTidier } from "./memory/tidy";
 import { MEMORY_PROVIDER_NAME, createMemoryAgentProvider } from "./memory/agent-tools";
 import { NotificationsStore } from "./store/notifications";
 import { ShipsStore } from "./store/ships";
@@ -807,10 +808,13 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  derived line and the prompter keeps its deterministic ladder. */
   summaryGenerator?: (input: { asked: string; transcript: string; facts: string })
     => Promise<{ summary: string; hint: string | null }>;
-  /** Realm learning from quiet sessions for memory. `extract` is the billed call, omitted for
-   *  `titleGenerator`'s reason: only `main.ts` passes it, and not in a harness. `sink` stands in for the
-   *  memory repo's helpers and `idleMs` for the quiet spell, for a test. */
-  memoryLearning?: { extract?: (input: MemoryExtractionInput) => Promise<string>; sink?: MemorySink; idleMs?: number };
+  /** Realm learning from quiet sessions for memory, and tidying what it keeps. `extract` and `tidy` are
+   *  the billed calls, omitted for `titleGenerator`'s reason: only `main.ts` passes them, and not in a
+   *  harness. `sink` stands in for the memory repo's helpers and `idleMs` for the quiet spell, for a test. */
+  memoryLearning?: {
+    extract?: (input: MemoryExtractionInput) => Promise<string>; tidy?: (input: MemoryTidyInput) => Promise<string>;
+    sink?: MemorySink; idleMs?: number;
+  };
   /** Plan 22: where Plynn's meeting exports are read from. Tests point this at a fixture; production
    *  leaves it unset for `~/Library/Application Support/Plynn/Meetings`. */
   plynnMeetingsDir?: string;
@@ -1285,7 +1289,22 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
         generate: opts.memoryLearning.extract,
         available: claudeCanAnswer,
         idleMs: opts.memoryLearning.idleMs,
-        onLearned: ({ owner }) => memoryRepoChanged(owner),
+        // A save can push the indexes past the size that brings the tidy pass forward.
+        onLearned: ({ owner }) => { memoryRepoChanged(owner); memoryTidier?.check(owner.id); },
+        onError: (line) => console.error(line),
+      })
+    : null;
+  /* …and keeps each profile's repo tidy, about weekly (memory/tidy.ts), on the same terms. It finds a
+     space's folder only where the store has recorded one, so it never allocates one itself. */
+  const memoryTidier = opts.memoryLearning?.tidy && learningSink
+    ? new MemoryTidier({
+        profileIds: () => profiles.list().map((p) => p.id),
+        spaceIdsOf: (profileId) => spaces.list(profileId).map((sp) => sp.id),
+        folderRecorded: (spaceId) => settings.get(spaceFolderSettingKey(spaceId)) !== null,
+        sink: learningSink, settings,
+        generate: opts.memoryLearning.tidy,
+        available: claudeCanAnswer,
+        onTidied: (owner) => memoryRepoChanged(owner),
         onError: (line) => console.error(line),
       })
     : null;
@@ -1831,6 +1850,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // …and only then does the clock start. A schedule that came due while the app was closed fires on
   // this first tick, and it must not race the recovery that decides which runs are still alive.
   schedules.start();
+  memoryTidier?.start();
   team.start();
   // A folder of records that no type claims — a team made from "any" roles that a person later gave
   // creators/ files — is adopted here, once: what migration v51 could not see from SQL.
@@ -1916,6 +1936,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     codeReview?.close(); // and a reviewer settling now must not write its findings to one
     summaries?.close(); // a debounced recap must not fire onto a closing handle, or outlive the process
     memoryLearner?.close(); // likewise a session's quiet timer
+    memoryTidier?.close(); // and the tidy pass's clock
     terminals.closeAll();
     cliInstaller.disposeAll();
     // While the socket is still open, so a window that outlives this daemon hears the sign-in end.

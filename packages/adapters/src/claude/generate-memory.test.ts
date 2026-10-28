@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BACKGROUND_MODEL } from "./background-model";
-import { generateMemoryExtraction } from "./generate-memory";
+import { generateMemoryExtraction, generateMemoryTidyPlan } from "./generate-memory";
 
 type Asked = { prompt: string; options: { model?: string; maxTurns?: number; allowedTools?: string[]; systemPrompt?: string } };
 
@@ -59,5 +59,41 @@ describe("generateMemoryExtraction", () => {
   it("throws when the call fails or comes back empty", async () => {
     await expect(generateMemoryExtraction(INPUT, { query: fakeQuery("", "error_max_turns").query })).rejects.toThrow(/error_max_turns/);
     await expect(generateMemoryExtraction(INPUT, { query: fakeQuery("  ").query })).rejects.toThrow(/returned nothing/);
+  });
+});
+
+const TIDY = {
+  indexes: [{ path: "MEMORY.md", text: "# Memory\n\n## Index\n- [[spaces/work/MEMORY]]\n" }, { path: "spaces/work/MEMORY.md", text: "- [Owner](owner.md) — Dana owns billing\n" }],
+  files: [{ path: "spaces/work/owner.md", text: "---\nname: owner\n---\n\nDana owns billing.\n" }],
+};
+
+describe("generateMemoryTidyPlan", () => {
+  it("shows every index and fact file by its path from the repo's root", async () => {
+    const f = fakeQuery('{"operations": []}');
+    await generateMemoryTidyPlan(TIDY, { query: f.query });
+    const prompt = f.asked[0]!.prompt;
+    expect(prompt).toContain("=== MEMORY.md\n# Memory");
+    expect(prompt).toContain("=== spaces/work/MEMORY.md\n- [Owner](owner.md)");
+    expect(prompt).toContain("=== spaces/work/owner.md\n---\nname: owner");
+  });
+
+  it("names the five operations and asks for JSON only", async () => {
+    const f = fakeQuery('{"operations": []}');
+    await generateMemoryTidyPlan(TIDY, { query: f.query });
+    const guidance = f.asked[0]!.options.systemPrompt!;
+    for (const said of ['"op": "merge"', '"op": "rewrite"', '"op": "delete"', '"op": "line"', '"op": "promote"', "at most 20", "nothing else"]) expect(guidance).toContain(said);
+  });
+});
+
+describe("the background model", () => {
+  /* THE MUTANT: either call quietly back on a cheaper model. The owner's rule is never downgrade, for
+     background work as for a session, and both calls must move together when the constant does. */
+  it("is the one model both background calls run on", async () => {
+    const extraction = fakeQuery('{"memories": []}');
+    const tidy = fakeQuery('{"operations": []}');
+    await generateMemoryExtraction(INPUT, { query: extraction.query });
+    await generateMemoryTidyPlan(TIDY, { query: tidy.query });
+    expect([extraction.asked[0]!.options.model, tidy.asked[0]!.options.model]).toEqual([BACKGROUND_MODEL, BACKGROUND_MODEL]);
+    expect(BACKGROUND_MODEL).toBe("claude-opus-5-5");
   });
 });

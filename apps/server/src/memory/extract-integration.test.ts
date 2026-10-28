@@ -61,13 +61,15 @@ async function boot() {
   const home = tempDir("realm-learn-int-");
   vi.stubEnv("REALM_BUNDLED_SKILLS", join(home, "no-bundle"));
   const repoPath = join(home, "profile-repo");
-  const place: SpaceFolder = { owner: { scope: "profile", id: "p" }, repoPath, folder: "work", dir: join(repoPath, "spaces", "work") };
-  mkdirSync(place.dir, { recursive: true });
+  // The profile's id is known only once it is made below; the sink reads it when it is asked.
+  let profileId = "";
+  const place = (): SpaceFolder => ({ owner: { scope: "profile", id: profileId }, repoPath, folder: "work", dir: join(repoPath, "spaces", "work") });
+  mkdirSync(place().dir, { recursive: true });
   writeFileSync(join(repoPath, "MEMORY.md"), "# Memory\n\n## Index\n");
   const saved: { spaceId: string; name: string; sessionId?: string; author?: string }[] = [];
   const ok = { changed: true, file: "x.md", line: null, sha: "abc", diff: "" };
   const sink: MemorySink = {
-    spaceFolderFor: () => place,
+    spaceFolderFor: () => place(),
     writeBatch: async () => ok,
     saveSpaceMemory: async (spaceId, m) => { saved.push({ spaceId, name: m.name, sessionId: m.sessionId, author: m.author }); return ok; },
     edit: async () => ok,
@@ -75,19 +77,21 @@ async function boot() {
   const extract = vi.fn(async (_input: MemoryExtractionInput) => JSON.stringify({ memories: [
     { scope: "space", type: "project", name: "billing-owner", description: "Who owns billing", body: "Dana owns billing." },
   ] }));
+  const tidy = vi.fn(async () => JSON.stringify({ operations: [] }));
   app = await createApp({
     home, port: 0, adapters: { claude: new AnsweringAdapter("claude"), fake: new AnsweringAdapter("fake") },
-    memoryLearning: { extract, sink, idleMs: 40 },
+    memoryLearning: { extract, tidy, sink, idleMs: 40 },
   });
   const c = await client(app.port);
   const profile = (await c.call("profiles.create", { name: "W" })).result;
+  profileId = profile.id;
   const space = (await c.call("spaces.create", { profileId: profile.id, name: "Work" })).result;
   const start = async (agentKind: AgentKind) => (await c.call("sessions.create", { spaceId: space.id, agentKind })).result as { session: { id: string }; itemId: string };
   const say = async (id: string, text: string) => {
     await c.call("sessions.send", { id, text });
     await waitFor(async () => (await c.call("sessions.get", { id })).result.status === "idle");
   };
-  return { c, space, start, say, extract, saved };
+  return { c, profile, space, start, say, extract, tidy, saved };
 }
 
 describe("memory learning, end to end with a fake model", () => {
@@ -104,6 +108,9 @@ describe("memory learning, end to end with a fake model", () => {
     expect(t.extract.mock.calls[0]![0].transcript).toBe("User: Dana owns billing\nAssistant: answer 1\nUser: and invoices go out on the 1st\nAssistant: answer 2");
     expect(t.extract.mock.calls[0]![0].known[0]!.index).toBe("# Memory\n\n## Index\n");
     expect(t.saved).toEqual([{ spaceId: t.space.id, name: "billing-owner", sessionId: session.id, author: "Realm" }]);
+    // The save reached the tidy pass, which — meeting this profile for the first time — only started its clock.
+    await waitFor(async () => typeof (await t.c.call("settings.get", { key: `memory.tidiedAt:${t.profile.id}` })).result.value === "number");
+    expect(t.tidy).not.toHaveBeenCalled();
   });
 
   it("reads a session the moment it is archived, even after a single turn", async () => {

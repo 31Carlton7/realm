@@ -23,6 +23,11 @@ export interface MemorySink {
   edit: MemoryRepoService["edit"];
 }
 
+/** Where the store records a space's folder once it has chosen one (the batch's design: settings
+ *  `memory.spaceFolder:<spaceId>`). The tidy pass reads it to find the folders that exist without
+ *  asking `spaceFolderFor`, which would allocate one for every space it was asked about. */
+export const spaceFolderSettingKey = (spaceId: string): string => `memory.spaceFolder:${spaceId}`;
+
 /**
  * The memory repo service as a sink, or null while it lacks the folder helpers — which leaves
  * learning and tidying off rather than half-working. The helpers belong to the store itself (the

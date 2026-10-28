@@ -71,6 +71,59 @@ export async function generateMemoryExtraction(input: MemoryExtractionInput, dep
   return oneShot(deps.query ?? sdkQuery, { prompt, model: BACKGROUND_MODEL, systemPrompt: EXTRACTION_GUIDANCE, what: "memory extraction" });
 }
 
+/** One file of the memory repo as the tidy pass is shown it: its path from the repo's root, and its text. */
+export type TidyFile = { path: string; text: string };
+
+export type MemoryTidyInput = {
+  /** The root `MEMORY.md` and each space folder's `MEMORY.md`. */
+  indexes: TidyFile[];
+  /** The space folders' fact files, each cut to a bounded length. Only these may be changed. */
+  files: TidyFile[];
+};
+
+const TIDY_GUIDANCE = [
+  "You keep one person's memory tidy. It is a git repository of Markdown files that every new session",
+  "of theirs reads, whichever assistant runs it. MEMORY.md at the top holds facts about the person, one",
+  "per line, and links. Each spaces/<folder>/ holds one project's facts, one fact per file (a short",
+  "header with name, description and type, then the fact), and its own MEMORY.md with one line per file.",
+  "",
+  "Propose a short plan that makes it easier to read without losing anything true:",
+  "- merge files that say the same thing into one;",
+  "- rewrite a fact that a newer fact contradicts, so it says what is true now;",
+  "- delete a fact that is stale: finished work, a plan that was superseded, something no longer true;",
+  "- shorten an index line that is longer than it needs to be, keeping its link;",
+  "- remove a line of the top MEMORY.md that repeats another or is no longer true;",
+  "- promote a space's fact that is about the person rather than the project — how they like to work,",
+  "  who they are — so every space sees it.",
+  "Never invent a fact, never merge facts that only look alike, keep the person's own words where you",
+  "can, and do not delete a fact for being old — only for being wrong or useless now. Most of the time",
+  "very little needs doing, and an empty plan is a good answer.",
+  "",
+  'Reply with exactly one JSON object and nothing else — no prose, no markdown fence: {"operations": [ ... ]}',
+  "with at most 20 operations. Paths and lines must be copied exactly as shown. The operations:",
+  '- {"op": "merge", "into": "<file>", "from": ["<file>", ...], "description": "<one line>", "body": "<the merged fact>"}',
+  "  — `into` keeps the merged fact and the `from` files are deleted; all in the same folder;",
+  '- {"op": "rewrite", "path": "<file>", "description": "<one line>", "body": "<the fact as it stands now>"};',
+  '- {"op": "delete", "path": "<file>", "why": "<one line>"};',
+  '- {"op": "line", "file": "<a MEMORY.md>", "line": "<an existing line>", "to": "<the new line>"} — or "to": null',
+  "  to remove a line of the top MEMORY.md;",
+  '- {"op": "promote", "path": "<file>", "line": "<the fact, in one line, for the top MEMORY.md>"}.',
+].join("\n");
+
+/**
+ * One call proposing how to tidy a profile's memory repo, as the model wrote it. The caller validates
+ * every operation against what is actually on disk and what it may touch, and applies the plan as one
+ * commit. Same one-shot shape and model as the extraction.
+ */
+export async function generateMemoryTidyPlan(input: MemoryTidyInput, deps: { query?: QueryFn } = {}): Promise<string> {
+  const show = (f: TidyFile) => `=== ${f.path}\n${f.text.trim()}`;
+  const prompt = [
+    `The indexes:\n\n${input.indexes.map(show).join("\n\n")}`,
+    input.files.length > 0 ? `The fact files:\n\n${input.files.map(show).join("\n\n")}` : "There are no fact files.",
+  ].join("\n\n");
+  return oneShot(deps.query ?? sdkQuery, { prompt, model: BACKGROUND_MODEL, systemPrompt: TIDY_GUIDANCE, what: "memory tidy" });
+}
+
 /** The text of a one-shot `query()`'s result. */
 async function oneShot(query: QueryFn, o: { prompt: string; model: string; systemPrompt: string; what: string }): Promise<string> {
   const q = query({ prompt: o.prompt, options: { maxTurns: 1, allowedTools: [], model: o.model, systemPrompt: o.systemPrompt } });
