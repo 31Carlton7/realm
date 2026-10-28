@@ -1608,6 +1608,16 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
         return resourcesLate.snapshot();
       },
       processes: () => machineProbe.processes(),
+      inSpace: (part, spaceId) => {
+        if (!part.ownerId) return false;
+        switch (part.category) {
+          case "engines": return sessionsStore.get(part.ownerId)?.spaceId === spaceId;
+          case "terminals": return terminals.list(spaceId).some((t) => t.terminalId === part.ownerId);
+          case "browsers": return browsersStore.get(part.ownerId)?.spaceId === spaceId;
+          case "simulators": return simulatorsStore.list(spaceId).some((s) => s.udid?.toUpperCase() === part.ownerId!.toUpperCase());
+          default: return false;
+        }
+      },
     }),
     createCatalogTools({
       catalog: (sessionId, spaceId) => mcpGateway.catalogFor(sessionId, spaceId),

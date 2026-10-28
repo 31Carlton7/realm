@@ -22,16 +22,47 @@ describe("machine_status", () => {
     const g = createMachineStatusTools({
       report: async () => report({ machine: machine({ pressure: "warn", pressureWhy: "Swapping out 12 MB a second", load: [30, 20, 10] }), others: [{ name: "Google Chrome", processes: 60, residentBytes: 3 * GB, footprintBytes: 12 * GB }] }),
       processes: async () => [proc(1, "node /repo/node_modules/.bin/vitest run"), proc(2, "node /repo/node_modules/vitest/dist/workers/forks.js"), proc(3, "/bin/zsh -l")],
+      inSpace: (p, spaceId) => spaceId === "s",
     });
     const out = text(await g.handlers.machine_status!({ sessionId: "me", spaceId: "s" }, {}));
     expect(out).toContain("Memory pressure: warn — Swapping out 12 MB a second");
     expect(out).toContain("- 9.0 GB — Simulators: Persona Onboarding — Booted by Realm");
     expect(out).toContain("- 400 MB — Engines: Fix the sidebar (this session) — Working");
     expect(out).toContain("- vitest: 2 processes");
-    expect(out).toContain("Google Chrome 12 GB");
+    expect(out).toContain("1 app, 12 GB in all");
     expect(out).toContain("at most 2 workers (vitest --maxWorkers=2");
     expect(out).toContain("Never run two full suites or builds at once");
     expect(out).toContain("oversubscribed (load 30.0 on 14 cores)");
+  });
+
+  it("names only this space's parts; another space's, and other apps, are counts and sizes", async () => {
+    // A no-prompt read: THE MUTANT is the whole report, which puts another space's session title and a
+    // title some web page wrote into this agent's context without anyone being asked.
+    const g = createMachineStatusTools({
+      report: async () => report({
+        parts: [
+          { id: "engines:me", category: "engines", ownerId: "me", label: "Fix the sidebar", detail: "Working", processes: 2, residentBytes: 300 * MB, footprintBytes: 400 * MB },
+          { id: "engines:x", category: "engines", ownerId: "x", label: "Draft the divorce filing", detail: "Idle 3 min", processes: 1, residentBytes: 200 * MB, footprintBytes: 300 * MB },
+          { id: "browsers:b", category: "browsers", ownerId: "b", label: "Chase — Account summary", detail: "Hidden 4 min", processes: 1, residentBytes: 100 * MB, footprintBytes: 150 * MB },
+          { id: "app:1", category: "app", ownerId: null, label: "Personal", detail: null, processes: 1, residentBytes: 100 * MB, footprintBytes: 200 * MB },
+        ],
+        others: [{ name: "Signal", processes: 3, residentBytes: GB, footprintBytes: GB }, { name: "Slack", processes: 9, residentBytes: GB, footprintBytes: 2 * GB }],
+      }),
+      processes: async () => [],
+      inSpace: (p, spaceId) => spaceId === "s" && p.ownerId === "me",
+    });
+    const out = text(await g.handlers.machine_status!({ sessionId: "me", spaceId: "s" }, {}));
+    expect(out).toContain("- 400 MB — Engines: Fix the sidebar (this session) — Working");
+    for (const secret of ["Draft the divorce filing", "Chase", "Personal", "Signal", "Slack"]) expect(out, secret).not.toContain(secret);
+    expect(out).toContain("- 300 MB — Engines: 1");
+    expect(out).toContain("- 200 MB — Realm's windows: 1");
+    expect(out).toContain("- 150 MB — Browser panes: 1");
+    expect(out).toContain("2 apps, 3.0 GB in all");
+    // Without a way to tell, nothing is named at all.
+    const blind = createMachineStatusTools({ report: async () => report(), processes: async () => [] });
+    const none = text(await blind.handlers.machine_status!({ sessionId: "me", spaceId: "s" }, {}));
+    expect(none).toContain("Nothing of this space's is running.");
+    expect(none).not.toContain("Persona Onboarding");
   });
 
   it("on a system whose processes Realm does not read, says so rather than that Realm holds nothing", async () => {

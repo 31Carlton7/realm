@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { RESOURCE_CATEGORY_LABEL, platformCapabilities, type MachineMemory, type ResourceReport } from "@realm/contracts";
+import { RESOURCE_CATEGORY_LABEL, platformCapabilities, type MachineMemory, type ResourceCategory, type ResourcePart, type ResourceReport } from "@realm/contracts";
 import { ok, parseArgs } from "../mcp/tool-result";
 import type { WorkspaceToolGroup } from "../workspace/agent-tools";
 import type { ProcRow } from "./machine";
@@ -11,8 +11,11 @@ import type { ProcRow } from "./machine";
  * which it otherwise answers by guessing. On this Mac, four agents each running a full suite at once
  * drove the load average to 157–482 with 20 GB in swap; every one of them would have been told to wait.
  *
- * Read-only and promptless: sizes and names, never a process's arguments, its environment or another
- * app's anything beyond its name and size.
+ * Read-only and promptless, so it names only what belongs to the calling session's own space — its
+ * sessions' engines, its terminals, its browser panes, its simulators. Everything else of Realm's, and
+ * every other app, is counts and sizes: a page title a site wrote, or another space's session title,
+ * never lands in this agent's context without anyone being asked. Never a process's arguments or its
+ * environment either.
  */
 
 /** Work that takes a machine's memory and cores while it runs, by the name an agent knows it by. */
@@ -91,6 +94,9 @@ export function createMachineStatusTools(d: {
   processes: () => Promise<ProcRow[]>;
   /** What the machine is called: "Mac", "computer" (`platformCapabilities`). */
   machine?: string;
+  /** Whether a part belongs to this space: a session's engine, a terminal, a browser pane or a
+   *  simulator of its own. Absent, nothing is named. */
+  inSpace?: (part: ResourcePart, spaceId: string) => boolean;
 }): WorkspaceToolGroup {
   const machine = d.machine ?? platformCapabilities(process.platform).machine;
   return {
@@ -113,15 +119,28 @@ export function createMachineStatusTools(d: {
           lines.push("", "Realm does not read this system's processes, so it cannot say what is heavy. Keep to targeted tests and one build at a time.");
         } else {
           lines.push(`Load: ${m.load.map((l) => l.toFixed(1)).join(" / ")} on ${m.cpus} cores`);
-          lines.push("", `## Realm's heaviest (${report.measure}; Realm in all: ${gb(size(report.realm))})`);
-          const parts = report.parts.slice(0, 10);
-          lines.push(...(parts.length > 0
-            ? parts.map((p) => `- ${gb(size(p))} — ${RESOURCE_CATEGORY_LABEL[p.category]}: ${p.label}${p.ownerId === ctx.sessionId ? " (this session)" : ""}${p.detail ? ` — ${p.detail}` : ""}`)
-            : ["Nothing measured."]));
+          lines.push("", `## Realm's heaviest in this space (${report.measure}; Realm in all: ${gb(size(report.realm))})`);
+          const own = report.parts.filter((p) => d.inSpace?.(p, ctx.spaceId) === true);
+          lines.push(...(own.length > 0
+            ? own.slice(0, 10).map((p) => `- ${gb(size(p))} — ${RESOURCE_CATEGORY_LABEL[p.category]}: ${p.label}${p.ownerId === ctx.sessionId ? " (this session)" : ""}${p.detail ? ` — ${p.detail}` : ""}`)
+            : ["Nothing of this space's is running."]));
+          // The rest, by kind only: other spaces' sessions and pages, and Realm's own processes.
+          const rest = new Map<ResourceCategory, { count: number; bytes: number }>();
+          for (const p of report.parts) {
+            if (own.includes(p)) continue;
+            const r = rest.get(p.category) ?? { count: 0, bytes: 0 };
+            rest.set(p.category, { count: r.count + 1, bytes: r.bytes + size(p) });
+          }
+          if (rest.size > 0) {
+            lines.push("", "## The rest of Realm (other spaces and Realm itself)",
+              ...[...rest].sort((a, b) => b[1].bytes - a[1].bytes).map(([c, r]) => `- ${gb(r.bytes)} — ${RESOURCE_CATEGORY_LABEL[c]}: ${r.count}`));
+          }
         }
         const heavy = heavyWork(table);
         if (heavy.length > 0) lines.push("", "## Heavy work running on this Mac (anyone's)", ...heavy.map((h) => `- ${h.name}: ${h.processes} process${h.processes === 1 ? "" : "es"}`));
-        if (report.others.length > 0) lines.push("", "## Other apps (not Realm's; never touch them)", report.others.slice(0, 6).map((o) => `${o.name} ${gb(size(o))}`).join(", "));
+        if (report.others.length > 0) {
+          lines.push("", "## Other apps (not Realm's; never touch them)", `${report.others.length} app${report.others.length === 1 ? "" : "s"}, ${gb(report.others.reduce((n, o) => n + size(o), 0))} in all`);
+        }
         lines.push("", "## Advice", ...advice({ machine: m, heavy, report }).map((a) => `- ${a}`));
         return ok(lines.join("\n"));
       },
