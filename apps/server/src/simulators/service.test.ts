@@ -612,10 +612,89 @@ describe("shutting down a simulator Realm booted once nothing uses it", () => {
   });
 
   it("forgets a boot whose device has gone", async () => {
-    const { service, at } = await booted({ table: () => [] });
+    const { service, at } = await booted({ table: () => [{ pid: 1, ppid: 0, tty: null, residentBytes: 1, startedAt: 0, command: "/sbin/launchd" }] });
     at(100);
     expect(await service.sweepIdle()).toEqual([]);
     expect(service.realmBooted()).toEqual([]);
+  });
+
+  it("shuts nothing down and forgets nothing when the process table could not be read", async () => {
+    // A `ps` that failed or timed out answers nothing. THE MUTANT: reading that as "the device has gone",
+    // which forgets every boot — so Realm never shuts those simulators down again.
+    for (const table of [async () => [], async () => { throw new Error("ps timed out"); }]) {
+      const { service, calls, at } = await booted();
+      (service as unknown as { d: { processes: unknown } }).d.processes = table;
+      at(100);
+      expect(await service.sweepIdle()).toEqual([]);
+      expect(await service.sweepIdle({ minutes: 0 })).toEqual([]);
+      expect(service.realmBooted()).toHaveLength(1);
+      expect(calls.some((c) => c.startsWith("shutdown:"))).toBe(false);
+    }
+  });
+
+  it("counts the window from Realm's own start after a restart, not from a boot in its last run", async () => {
+    // The seen, used and front clocks were in memory and went with the last run. THE MUTANT: counting
+    // from the boot, which shuts a simulator down in the first minute after Realm comes back.
+    const { service, at } = await booted();
+    at(100);
+    service.startIdleSweep();
+    try {
+      at(101);
+      expect(service.idleCandidates()).toEqual([]);
+      expect(await service.sweepIdle()).toEqual([]);
+      at(129);
+      expect(await service.sweepIdle()).toEqual([]);
+      at(131);
+      expect(await service.sweepIdle()).toEqual(["D94F0FDE-7C84-42F1-A328-97EF12A91866"]);
+    } finally {
+      await service.closeAll();
+    }
+  });
+
+  it("never lets the Memory page's button take one a tool or a pane used a moment ago", async () => {
+    const { service, simulatorId, at } = await booted();
+    at(60);
+    await service.ax(simulatorId);
+    at(63);
+    expect(service.idleCandidates()).toEqual([]);
+    expect(await service.sweepIdle({ minutes: 0 })).toEqual([]);
+    at(66);
+    expect(service.idleCandidates()).toEqual(["D94F0FDE-7C84-42F1-A328-97EF12A91866"]);
+    expect(await service.sweepIdle({ minutes: 0 })).toEqual(["D94F0FDE-7C84-42F1-A328-97EF12A91866"]);
+  });
+
+  it("counts Xcode in front, or a debugger running, as somebody using every simulator Realm booted", async () => {
+    // Run or debug from Xcode leaves no xcodebuild, and debugserver never names the device.
+    const { service, at } = await booted({ front: () => "com.apple.dt.Xcode" });
+    at(40);
+    expect(await service.sweepIdle()).toEqual([]);
+    const debugging = await booted({ table: (t0) => [launchd(t0), { pid: 900, ppid: 1, tty: null, residentBytes: 1, startedAt: t0, command: "/Applications/Xcode.app/Contents/SharedFrameworks/LLDB.framework/Versions/A/Resources/debugserver --native-regs --setsid --reverse-connect=127.0.0.1:50000" }] });
+    debugging.at(40);
+    expect(await debugging.service.sweepIdle()).toEqual([]);
+    expect(await debugging.service.sweepIdle({ minutes: 0 })).toEqual([]);
+  });
+
+  it("counts an agent's own serve-sim mirroring the device as use, and never Realm's own stream", async () => {
+    const serveSim = (pid: number) => ({ pid, ppid: 1, tty: null, residentBytes: 1, startedAt: T0, command: "node /Users/u/.npm/_npx/9/node_modules/.bin/serve-sim D94F0FDE-7C84-42F1-A328-97EF12A91866" });
+    // pid 99 is the stream Realm started when it booted the device (the fake serve-sim's `start`).
+    const realms = await booted({ table: (t0) => [launchd(t0), serveSim(99)] });
+    realms.at(40);
+    expect(await realms.service.sweepIdle()).toEqual(["D94F0FDE-7C84-42F1-A328-97EF12A91866"]);
+    const agents = await booted({ table: (t0) => [launchd(t0), serveSim(99), serveSim(4242)] });
+    agents.at(40);
+    expect(await agents.service.sweepIdle()).toEqual([]);
+  });
+
+  it("never counts, shuts down or forgets a simulator another home booted — a copy of the database is not that Realm", async () => {
+    const { service, calls, at } = await booted();
+    // The same records, read by a Realm running on a copy of the home.
+    (service as unknown as { d: { home?: string } }).d.home = "/Users/u/realm-scratch/home-copy";
+    at(100);
+    expect(service.realmBooted()).toEqual([]);
+    expect(await service.sweepIdle({ minutes: 0 })).toEqual([]);
+    expect(calls.some((c) => c.startsWith("shutdown:"))).toBe(false);
+    (service as unknown as { d: { home?: string } }).d.home = undefined;
+    expect(service.realmBooted()).toHaveLength(1);
   });
 
   it("never shuts down one something else on the Mac is using", async () => {
@@ -675,7 +754,7 @@ describe("shutting down a simulator Realm booted once nothing uses it", () => {
   });
 
   it("does not count another app in front, or a front it could not read", async () => {
-    for (const front of ["com.apple.dt.Xcode", null]) {
+    for (const front of ["com.google.Chrome", null]) {
       const { service, at } = await booted({ front: () => front });
       at(31);
       expect(await service.sweepIdle(), String(front)).toEqual(["D94F0FDE-7C84-42F1-A328-97EF12A91866"]);
@@ -692,12 +771,16 @@ describe("shutting down a simulator Realm booted once nothing uses it", () => {
 
 describe("what counts as using a simulator besides Realm", () => {
   const p = (pid: number, ppid: number, command: string) => ({ pid, ppid, tty: null, residentBytes: 0, startedAt: 0, command });
-  it("is not the device's own processes, whose paths carry its udid, nor its stream", () => {
-    expect(usedElsewhere("D94F0FDE-7C84-42F1-A328-97EF12A91866", [
+  it("is not the device's own processes, whose paths carry its udid, nor the stream Realm started", () => {
+    const table = [
       p(1, 0, "launchd_sim /U/Devices/D94F0FDE-7C84-42F1-A328-97EF12A91866/data/var/run/launchd_bootstrap.plist"),
       p(2, 1, "/U/Devices/D94F0FDE-7C84-42F1-A328-97EF12A91866/data/Containers/Bundle/Application/X/App.app/App"),
       p(3, 99, "node /x/serve-sim D94F0FDE-7C84-42F1-A328-97EF12A91866 --port 3100"),
-    ])).toBe(false);
+      p(4, 3, "/x/serve-sim-helper D94F0FDE-7C84-42F1-A328-97EF12A91866"),
+    ];
+    expect(usedElsewhere("D94F0FDE-7C84-42F1-A328-97EF12A91866", table, new Set([3]))).toBe(false);
+    // Anybody else's serve-sim of it — an agent mirroring it from its own shell — is use.
+    expect(usedElsewhere("D94F0FDE-7C84-42F1-A328-97EF12A91866", table)).toBe(true);
   });
   it("is anything else naming it, and any xcodebuild", () => {
     expect(usedElsewhere("d94f0fde-7c84-42f1-a328-97ef12a91866", [p(4, 1, "/usr/bin/xcrun simctl io D94F0FDE-7C84-42F1-A328-97EF12A91866 screenshot a.png")])).toBe(true);
