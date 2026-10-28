@@ -144,6 +144,6 @@ describe("Claude's uncommitted memory never wedges a save", () => {
     writeFileSync(join(teamRepo, "spaces", "notes.md"), "a teammate's, uncommitted");
     // A team repo is written only through the tools: nothing of anyone's is committed on their behalf.
     await expect(repos.edit(team, { op: "add", entry: "Ships Fridays", sessionId: SESSION })).rejects.toMatchObject({ code: "MEMORY_REPO_DIRTY" });
-    expect(settings.get(`memory.spaceFolder:${SPACE}`)).toBe("realm");
+    expect(settings.get(`memory.spaceFolder:${SPACE}`)).toEqual({ folder: "realm", profileId: PROFILE });
   });
 });

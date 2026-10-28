@@ -248,7 +248,20 @@ export function registerMethods(d: Deps): void {
   reg("spaces.list", () => d.spaces.listAll());
   reg("spaces.create", (p) => { const r = d.spaces.create(p); rpc.broadcast("spaces.changed", {}); return r; });
   reg("spaces.folderFor", (p) => ({ path: d.spaces.folderFor(p.profileId, p.name) }));
-  reg("spaces.update", (p) => { const r = d.spaces.update(p); rpc.broadcast("spaces.changed", {}); return r; });
+  reg("spaces.update", async (p) => {
+    const before = d.spaces.get(p.id);
+    const r = d.spaces.update(p);
+    rpc.broadcast("spaces.changed", {});
+    // A space moved to another profile takes its memory along: a folder of its own in that profile's
+    // repo, with what it had. A carry that cannot land now waits for the next boot, never the move.
+    if (before && before.profileId !== r.profileId) {
+      try {
+        const carried = await d.memoryRepos.followSpace(r.id);
+        if (carried?.sha) for (const sp of d.spaces.list(r.profileId)) rpc.broadcast("memory.changed", { spaceId: sp.id });
+      } catch (e) { console.error(`[memory] the memory of ${r.name} not carried over yet: ${e instanceof Error ? e.message : String(e)}`); }
+    }
+    return r;
+  });
   reg("spaces.reorder", (p) => { d.spaces.reorder(p.ids); rpc.broadcast("spaces.changed", {}); return { ok: true as const }; });
   reg("spaces.setLayout", (p) => { const r = d.spaces.setLayout(p.id, p.layout); rpc.broadcast("spaces.changed", {}); return r; });
   reg("spaces.setGroups", (p) => { const r = d.spaces.setGroups(p.id, p.groups, p.activeItemId); rpc.broadcast("spaces.changed", {}); return r; });

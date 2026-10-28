@@ -113,7 +113,7 @@ import { AgentMemoryFolders } from "./memory/claude-redirect";
 import { MemoryRepoService, type RepoOwner } from "./memory/repo";
 import { SessionLearner } from "./memory/extract";
 import { LearnedCursors } from "./memory/extract-cursor";
-import { spaceFolderSettingKey, type MemorySink } from "./memory/sink";
+import type { MemorySink } from "./memory/sink";
 import { MemoryTidier } from "./memory/tidy";
 import { MEMORY_PROVIDER_NAME, createMemoryAgentProvider } from "./memory/agent-tools";
 import { NotificationsStore } from "./store/notifications";
@@ -1322,7 +1322,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     ? new MemoryTidier({
         profileIds: () => profiles.list().map((p) => p.id),
         spaceIdsOf: (profileId) => spaces.list(profileId).map((sp) => sp.id),
-        folderRecorded: (spaceId) => settings.get(spaceFolderSettingKey(spaceId)) !== null,
+        folderRecorded: (spaceId) => memoryRepos.hasSpaceFolder(spaceId),
         sink: learningSink, settings,
         generate: opts.memoryLearning.tidy,
         available: claudeCanAnswer,
@@ -1892,6 +1892,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   for (const p of profiles.list()) {
     const made = await memoryRepos.ensureProfileRepo(p.id);
     if (made) console.log(`[memory] made ${p.name}'s memory repo at ${made.path}`);
+  }
+  // A space moved to another profile whose memory could not be carried over then is carried now.
+  for (const sp of spaces.listAll()) {
+    if (memoryRepos.carryPending(sp.id)) void memoryRepos.followSpace(sp.id).catch((e) => console.error(`[memory] the memory of ${sp.name} not carried over yet: ${e instanceof Error ? e.message : String(e)}`));
   }
   // …and what Claude wrote in a space folder that no settled turn committed is committed now. Then the
   // memory Claude kept outside Realm is brought in, and again every few minutes, so a Claude run in a
