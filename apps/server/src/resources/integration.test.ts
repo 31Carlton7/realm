@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter } from "@realm/adapters";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { ResourceReport } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
@@ -104,6 +107,29 @@ describe("resources.snapshot through the app", () => {
     const c = await client(app.port);
     await c.call("resources.snapshot", { fresh: true }); // a report reads the machine again
     expect(app.sessions.idleMinutes()).toBe(30);
+    c.close();
+  });
+
+  it("answers machine_status over the gateway, as any session's agent would call it", async () => {
+    const probe: MachineProbe = {
+      ...quietMachineProbe(),
+      processes: async () => [{ pid: process.pid, ppid: 1, tty: null, residentBytes: 100 * MB, startedAt: 0, command: "node main.js" }, { pid: 900_100, ppid: 1, tty: null, residentBytes: MB, startedAt: 0, command: "node /x/vitest run" }],
+      memory: async () => ({ memory: { totalBytes: 24 * 1024 * MB, availablePercent: 20, pressure: "warn", pressureWhy: "macOS reports memory pressure", swap: null, compressedBytes: null, swapOutPerSecond: null, load: [2, 2, 2], cpus: 8 }, counters: { at: 0, swapouts: null } }),
+    };
+    app = await createApp({ home: tempDir("realm-res-"), port: 0, adapters: { fake: new FakeAdapter({ script: [] }) }, resources: { probe } });
+    const c = await client(app.port);
+    const prof = (await c.call("profiles.create", { name: "W" })).result;
+    const sp = (await c.call("spaces.create", { profileId: prof.id, name: "S" })).result;
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    const cfg = app.gateway.register(session.id, sp.id) as { url: string; headers: Record<string, string> };
+    const mcp = new Client({ name: "t", version: "1.0.0" }, { capabilities: {} });
+    await mcp.connect(new StreamableHTTPClientTransport(new URL(cfg.url), { requestInit: { headers: cfg.headers } }));
+    expect((await mcp.listTools()).tools.map((t) => t.name)).toContain("realm-workspace__machine_status");
+    const r = await mcp.callTool({ name: "realm-workspace__machine_status", arguments: {} }) as CallToolResult;
+    const out = r.content.map((x) => (x as { text: string }).text).join("");
+    expect(out).toContain("Memory pressure: warn — macOS reports memory pressure");
+    expect(out).toContain("- vitest: 1 process");
+    await mcp.close();
     c.close();
   });
 

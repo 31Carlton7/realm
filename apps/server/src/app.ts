@@ -72,6 +72,7 @@ import type { LayaRuntime } from "./laya/runtime";
 import { ResourceService } from "./resources/service";
 import { ResourcePolicies } from "./resources/policies";
 import { ResourceControls } from "./resources/controls";
+import { createMachineStatusTools } from "./resources/agent-tools";
 import { quietMachineProbe, type MachineProbe } from "./resources/machine";
 import type { AppProcess } from "./resources/attribute";
 import { durationWords, engineDetail } from "./resources/words";
@@ -1599,6 +1600,14 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     }),
     createSpacesTools({ spaces, settings, broker: browserBroker, rpc }),
     createSettingsTools({ settings, broker: browserBroker, rpc }),
+    // `machine_status`: the Mac's memory and what of Realm's is heavy, read before heavy work.
+    createMachineStatusTools({
+      report: async () => {
+        if (!resourcesLate) throw new Error("Realm is still starting; ask again in a moment.");
+        return resourcesLate.snapshot();
+      },
+      processes: () => machineProbe.processes(),
+    }),
     createCatalogTools({
       catalog: (sessionId, spaceId) => mcpGateway.catalogFor(sessionId, spaceId),
       connections: (spaceId) => mcp.list(spaceId).servers,
