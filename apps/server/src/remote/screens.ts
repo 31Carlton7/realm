@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Machine, MachineState, Simulator, SimulatorState } from "@realm/contracts";
@@ -13,9 +13,9 @@ import type { Downscale } from "./preview";
  *
  * A frame is polled every second or two while the phone's viewer is open, so it is bounded on every
  * side: a JPEG at most the side asked for (a simulator's home screen at 1000 px is about 50 KB) and at
- * most FRAME_MAX_BYTES, made from a capture that is written only to a folder of its own under the
- * system's temporary folder and gone again before the answer is; one capture of a screen at a time,
- * however many calls come for it, and none waited on past SCREEN_DEADLINE_MS.
+ * most FRAME_MAX_BYTES, made from a capture that passes only through the system's temporary folder and
+ * is gone from it once read (`CAPTURE_LEFTOVER`); one capture of a screen at a time, however many calls
+ * come for it, and none waited on past SCREEN_DEADLINE_MS.
  */
 
 /** The JPEG quality a frame is made at, and the most one may weigh: a heavier one is made again,
@@ -100,5 +100,29 @@ export async function screenFrame(capture: Buffer, side: number, capturedAt: num
     return { mime: "image/jpeg", data: jpeg.toString("base64"), width: size.width, height: size.height, capturedAt };
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * What a picture of a screen leaves in the system's temporary folder while it is being made, by name: an
+ * iOS Simulator's PNG as `simctl` writes it (`SimulatorService.capture`), the folder a capture is written
+ * to for `sips` (`screenFrame`), and the one `sips` writes each JPEG to (`sipsDownscale`, a file
+ * preview's too). Each is gone again once read, so one still there was left by a server that stopped
+ * part way.
+ */
+export const CAPTURE_LEFTOVER = /^realm-(?:simulator-[0-9A-Z]{26}-[0-9a-f-]+\.png|screen-[A-Za-z0-9]{6}|preview-[A-Za-z0-9]{6})$/;
+
+/** Far older than any is while it is being made — `sips` gives up on a frame's three tries within a
+ *  minute and a half — so a server running beside this one, another home's or a check's, never loses
+ *  one it is still using. */
+const LEFTOVER_AGE_MS = 10 * 60_000;
+
+/** Clears what servers that stopped part way through a picture left in the temporary folder: run as the
+ *  server starts. `dir` and `now` are its test's. */
+export async function clearCaptureLeftovers(dir = tmpdir(), now = Date.now()): Promise<void> {
+  for (const name of (await readdir(dir).catch(() => [] as string[])).filter((n) => CAPTURE_LEFTOVER.test(n))) {
+    const path = join(dir, name);
+    const modified = await lstat(path).then((s) => s.mtimeMs, () => now);
+    if (now - modified >= LEFTOVER_AGE_MS) await rm(path, { recursive: true, force: true }).catch(() => {});
   }
 }

@@ -784,9 +784,13 @@ Screen {
   through the same capture an agent's look takes, one of a screen at a time: the calls for it that come
   while it is being taken (the viewer's, the session card's, another phone's) share it, each made at
   its own `maxSide`. A picture not made within ten seconds is given up on (`INTERNAL`), well inside the
-  phone's own wait, and the next call takes a new one. The Mac keeps nothing of it: the capture is
-  written to a folder of its own under the system's temporary folder for `sips` to read, and removed
-  before the answer goes. Nothing is written into the space's folder.
+  phone's own wait, and the next call takes a new one. The Mac keeps nothing of it, and writes nothing
+  into the space's folder, but the picture passes through the system's temporary folder on its way: an
+  iOS Simulator's capture as the full-size PNG `simctl` writes, every capture again in a folder of its
+  own for `sips` to read, and each JPEG `sips` makes in another. Each is removed once read, before the
+  answer goes — or, when the answer was that the picture took too long, once the work behind it ends —
+  and what a server that stopped part way left there is cleared by the next one to start, once it is
+  ten minutes old.
 
 **Opening a session subscribes the channel to it.** From then until `session.close` or the end of
 the channel, the Mac sends that session's `session.rows`, `session.status`, `session.hint`,

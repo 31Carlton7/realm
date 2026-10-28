@@ -17,7 +17,7 @@ import {
 import { DIFF_PAGE_BYTES } from "./changes";
 import { PREVIEW_MAX_BYTES, TEXT_HEAD_BYTES, type Downscale } from "./preview";
 import { RpcCallError, type RpcPort } from "./rpc-port";
-import { FRAME_MAX_BYTES, SCREEN_DEADLINE_MS } from "./screens";
+import { CAPTURE_LEFTOVER, clearCaptureLeftovers, FRAME_MAX_BYTES, SCREEN_DEADLINE_MS } from "./screens";
 
 /**
  * mobile.v1's `home.get` against a fake of the desktop's RPC. Needs you is `@realm/view`'s rule; what
@@ -1387,6 +1387,8 @@ describe("session.screens and session.screen", () => {
     expect(path.endsWith(".png")).toBe(true);
     // THE MUTANT: leave the capture behind. A frame every second or two would fill the folder.
     expect(existsSync(dirname(path))).toBe(false);
+    // …and one a server left there when it stopped part way is one its next start clears.
+    expect(CAPTURE_LEFTOVER.test(basename(dirname(path)))).toBe(true);
 
     // A machine's frame may be a JPEG, read as one; its size is the frame's, never the one the machine reported.
     const mac = shrinking(() => jpegHeader(1000, 625));
@@ -1535,5 +1537,42 @@ describe("session.screens and session.screen", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("what a picture of a screen leaves in the temporary folder", () => {
+  it("is cleared as the server starts, once it is older than any still being made, and nothing else is", async () => {
+    const dir = tempDir("realm-tmp-");
+    const now = Date.now();
+    const HOUR = 3_600_000;
+    const left = (name: string, age: number, folder = false): string => {
+      const path = join(dir, name);
+      if (folder) { mkdirSync(path); writeFileSync(join(path, "capture.png"), "a picture"); } else writeFileSync(path, "a picture");
+      utimesSync(path, new Date(now - age), new Date(now - age));
+      return path;
+    };
+    const stale = [
+      // A simulator's PNG as 2.6.0 named it, and as it is named now.
+      left("realm-simulator-01JSIMULATOR00000000000001-1790000000000.png", HOUR),
+      left("realm-simulator-01JSIMULATOR00000000000001-6f1c2a4e-9b0d-4f3a-8e2b-1c5d7a9e3f60.png", HOUR),
+      left("realm-screen-w22hRq", HOUR, true),
+      left("realm-preview-Ab3dE9", HOUR, true),
+    ];
+    const kept = [
+      // One being made just now, by a server running beside this one.
+      left("realm-screen-q9ZrT2", 30_000, true),
+      // A live check's pictures, kept on purpose, and what is not a picture's at all.
+      left("realm-simulator-agent-tools-tap.png", HOUR),
+      left("realm-simulator-pick", HOUR, true),
+      left("realm-checkpoint-Xy12Ab", HOUR, true),
+      left("serve-sim", HOUR, true),
+    ];
+    await clearCaptureLeftovers(dir, now);
+    // THE MUTANT: clear nothing — a frame cut off by a crash is up to three full-size files that stay for good.
+    expect(stale.filter((path) => existsSync(path))).toEqual([]);
+    // THE MUTANT: clear by the prefix alone, or whatever its age.
+    expect(kept.filter((path) => !existsSync(path))).toEqual([]);
+    // As the real server starts, and only there: no test's server clears the Mac's own temporary folder.
+    expect(readFileSync(join(__dirname, "../main.ts"), "utf8")).toContain("void clearCaptureLeftovers();");
   });
 });

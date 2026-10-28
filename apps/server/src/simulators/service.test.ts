@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { tempDir } from "@realm/test-utils";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { openDatabase, type Db } from "../db/database";
@@ -8,6 +8,7 @@ import { ItemsStore } from "../store/items";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
 import { SimulatorsStore } from "../store/simulators";
+import { CAPTURE_LEFTOVER } from "../remote/screens";
 import { SimulatorService, toolchainAvailable } from "./service";
 import type { Simctl } from "./simctl";
 import type { ServeSim, ServeSimStream } from "./serve-sim";
@@ -411,6 +412,8 @@ describe("the agent's screenshot", () => {
     expect(seen).toHaveLength(2);
     expect(seen[0]).not.toBe(seen[1]);
     expect(seen.filter((path) => existsSync(path))).toEqual([]);
+    // One a server left there when it stopped part way is one its next start clears.
+    expect(seen.filter((path) => !CAPTURE_LEFTOVER.test(basename(path)))).toEqual([]);
   });
 
   it("a failed capture says what the command said, and still leaves nothing behind", async () => {

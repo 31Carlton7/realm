@@ -20,6 +20,7 @@ import { defaultRelay } from "./remote/relays";
 import { BOOT_ID, acquireLock, clearState, currentBundleId, newToken, readState, releaseLock, writeState } from "./daemon/state";
 import { listenFromEnv } from "./access/listen";
 import { homeKeyFile } from "./remote/home-key";
+import { clearCaptureLeftovers } from "./remote/screens";
 
 const envPort = Number(process.env.REALM_PORT);
 const port = Number.isFinite(envPort) && envPort >= 0 ? envPort : 0;
@@ -132,6 +133,10 @@ try {
     version: 1, pid: process.pid, bootId: BOOT_ID, port: app.port, token, home, protocol: DAEMON_PROTOCOL,
     bundleId: currentBundleId(entry), entry, startedAt: Date.now(), state: "running",
   });
+
+  // What a picture of a screen left in the system's temporary folder when a server stopped part way
+  // through it. Only here: that folder is the whole Mac's, and no test's or script's server clears it.
+  void clearCaptureLeftovers();
 
   // A drain rewrites the state file so a launcher that arrives mid-drain sees `draining` and WAITS
   // rather than adopting a daemon that is on its way out — `decideLaunch` checks that before it
