@@ -128,6 +128,26 @@ extension View {
     func touchTarget() -> some View {
         frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
     }
+
+    /// Never wider than the width it is offered. A row that cannot fit runs past its own edge instead
+    /// of widening the column it stands in, which would shift every row beside it off the screen.
+    func keepsToOfferedWidth() -> some View {
+        OfferedWidth { self }
+    }
+}
+
+/// Lays its content out in the width offered and reports no more than that width.
+private struct OfferedWidth: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let content = subviews.first else { return .zero }
+        let size = content.sizeThatFits(proposal)
+        guard let width = proposal.width else { return size }
+        return CGSize(width: min(size.width, width), height: size.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
+    }
 }
 
 /// A state's tone. Green, orange and red say state, never decoration, and always beside a word or a

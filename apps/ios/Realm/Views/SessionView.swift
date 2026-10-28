@@ -63,6 +63,7 @@ struct SessionView: View {
                 }
                 ForEach(drawn) { item in
                     TranscriptItemView(item: item, sessionId: sessionId)
+                        .keepsToOfferedWidth()
                         .freshEntrance(born: item.firstKey.flatMap { model.rowBirths[$0] })
                         .id(item.id)
                 }
@@ -72,6 +73,7 @@ struct SessionView: View {
                 }
                 ForEach(outgoing) { item in
                     OutgoingMessageView(item: item)
+                        .keepsToOfferedWidth()
                         .id(item.id.uuidString)
                 }
             }
