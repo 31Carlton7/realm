@@ -1,4 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect } from "vitest";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { fetchAcpCatalog, fetchAcpModels, probeAcp } from "./probe";
 
@@ -63,5 +66,41 @@ describe("fetchAcpModels", () => {
 
   it("answers null (within the bound) when the agent handshakes and then goes mute", async () => {
     expect(await fetchAcpModels({ ...opts({ FAKE_ACP_MUTE_SESSION_NEW: "1" }), timeoutMs: 500 })).toBeNull();
+  });
+});
+
+describe("what a probe leaves running once it has answered", () => {
+  const FAKE = fileURLToPath(new URL("./fixtures/fake-acp-agent.mjs", import.meta.url));
+  const dirs: string[] = [];
+  const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  /** Gone within a second: a process killed a moment ago stays signalable until launchd has reaped it. */
+  const gone = async (pid: number) => {
+    for (let i = 0; i < 50 && alive(pid); i++) await new Promise((r) => setTimeout(r, 20));
+    return !alive(pid);
+  };
+  const childOf = (env: Record<string, string>) => {
+    const dir = mkdtempSync(join(tmpdir(), "realm-acp-probe-")); dirs.push(dir);
+    return { opts: { bin: process.execPath, args: [FAKE], cwd: process.cwd(), env: { ...env, FAKE_ACP_CHILD_PID: join(dir, "pid") } }, pid: () => Number(readFileSync(join(dir, "pid"), "utf8")), dir };
+  };
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) {
+      const file = join(dir, "pid");
+      if (existsSync(file)) { const pid = Number(readFileSync(file, "utf8")); if (alive(pid)) process.kill(pid, "SIGKILL"); }
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === "win32")("takes what the agent started down with it, when the agent exits on its own", async () => {
+    // Hermes starts the MCP servers in its own config at boot. THE MUTANT: ending the agent alone, which
+    // leaves each of those under launchd for good — a Realm process nothing will ever stop.
+    const c = childOf({});
+    expect(await fetchAcpModels(c.opts)).not.toBeNull();
+    expect(await gone(c.pid())).toBe(true);
+  });
+
+  it.skipIf(process.platform === "win32")("and when the agent has to be killed", async () => {
+    const c = childOf({ FAKE_ACP_IGNORE_EOF: "1" });
+    expect(await fetchAcpModels(c.opts)).not.toBeNull();
+    expect(await gone(c.pid())).toBe(true);
   });
 });

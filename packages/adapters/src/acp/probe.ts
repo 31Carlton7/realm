@@ -79,6 +79,9 @@ export async function fetchAcpCatalog(
       args: opts.args,
       cwd: opts.cwd,
       env: opts.env,
+      // A throwaway: once it has answered, nothing it started — Hermes starts the MCP servers in its
+      // own config at boot — is worth keeping, and none of it may outlive the probe under launchd.
+      ownGroup: true,
       onNotification: () => {},
       // The probe declares no capabilities and prompts nothing, so any server request is one it cannot
       // honour; answering (rather than ignoring) keeps the child from wedging on an unanswered frame.

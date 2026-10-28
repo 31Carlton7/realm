@@ -53,6 +53,13 @@ export type StdioJsonRpcOptions = {
    *  `StartOptions.wrap` in ../types. It may throw, and the throw is left to reach the constructor's
    *  caller: a child that could not be confined must not be started unconfined. */
   wrap?: (command: string, args: string[]) => { command: string; args: string[] };
+  /**
+   * Run the child in a process group of its own, and end the whole group once `dispose` has seen the
+   * child go: whatever it started — an MCP server from its own config, a language server — goes with it
+   * rather than living on under launchd. For a throwaway child (a probe), whose children serve nothing
+   * once it has answered. POSIX only: on Windows `killTree` already ends the tree.
+   */
+  ownGroup?: boolean;
   onNotification: (n: JsonRpcNotification) => void;
   /** MUST be answered with respond()/respondError() — an unanswered server request stalls the agent's turn forever. */
   onServerRequest: (r: JsonRpcServerRequest) => void;
@@ -82,16 +89,21 @@ export class StdioJsonRpc {
   private _stderrTail: string[] = [];
 
   private platform: string;
-  constructor(private o: StdioJsonRpcOptions, deps: { spawn?: typeof nodeSpawn; platform?: string } = {}) {
+  /** Whether the child leads a process group of its own (`ownGroup`), which `dispose` ends. */
+  private readonly group: boolean;
+  private readonly killGroup: (pgid: number, signal: NodeJS.Signals) => void;
+  constructor(private o: StdioJsonRpcOptions, deps: { spawn?: typeof nodeSpawn; platform?: string; killGroup?: (pgid: number, signal: NodeJS.Signals) => void } = {}) {
     const spawnFn = deps.spawn ?? nodeSpawn;
     this.platform = deps.platform ?? process.platform;
+    this.group = o.ownGroup === true && this.platform !== "win32";
+    this.killGroup = deps.killGroup ?? ((pgid, signal) => { process.kill(-pgid, signal); });
     // Deliberately NOT inside a try: `wrap` throwing means the sandbox could not be applied, and the
     // constructor must fail rather than fall through to an unconfined `spawnFn(o.command, ...)`.
     const spawned = o.wrap ? o.wrap(o.command, o.args) : { command: o.command, args: o.args };
     const env = { ...process.env, ...o.env };
     // On Windows an npm-installed CLI is a `.cmd`, which only cmd.exe can start (spawn-target.ts).
     const target = spawnTarget(spawned.command, spawned.args, { env, platform: this.platform });
-    this.child = spawnFn(target.command, target.args, { cwd: o.cwd, stdio: ["pipe", "pipe", "pipe"], env, ...target.options });
+    this.child = spawnFn(target.command, target.args, { cwd: o.cwd, stdio: ["pipe", "pipe", "pipe"], env, ...target.options, ...(this.group ? { detached: true } : {}) });
     this.child.stdout?.setEncoding("utf8");
     this.child.stderr?.setEncoding("utf8");
     this.child.stdout?.on("data", (c: string) => this.onStdout(c));
@@ -141,13 +153,16 @@ export class StdioJsonRpc {
 
   /**
    * Sends EOF — most CLI agents exit cleanly on stdin close — then waits briefly for the real process to
-   * go away, escalating to SIGKILL if it hasn't. The child is not spawned detached, so a hard crash of
-   * this process still orphans it; this only covers the graceful path.
+   * go away, escalating to SIGKILL if it hasn't. With `ownGroup`, whatever is left of its group then goes
+   * too. A hard crash of this process still orphans the child; this only covers the graceful path.
    */
   async dispose(): Promise<void> {
     if (!this.dead) this.die("disposed", null, null, true);
     this.child.stdin?.end();
     await this.reap();
+    if (this.group && this.child.pid !== undefined) {
+      try { this.killGroup(this.child.pid, "SIGKILL"); } catch { /* the group is empty: nothing it started outlived it */ }
+    }
   }
 
   private reap(): Promise<void> {
