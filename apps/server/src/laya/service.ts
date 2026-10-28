@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { LAYA_ASSIST_MIN_ACCURACY, LayaModeSchema, type LayaAssistGate, type LayaAutoInstall, type LayaEvalReport, type LayaEvaluation, type LayaInstallStep, type LayaMode, type LayaRuntimeState, type LayaStatus, type LayaTraining } from "@realm/contracts";
+import { LAYA_ASSIST_MIN_ACCURACY, LAYA_IDLE_STOP_DEFAULT, LAYA_IDLE_STOP_KEY, LayaModeSchema, type LayaAssistGate, type LayaAutoInstall, type LayaEvalReport, type LayaEvaluation, type LayaInstallStep, type LayaMode, type LayaRuntimeState, type LayaStatus, type LayaTraining } from "@realm/contracts";
 import { RpcError } from "../store/rows";
 import { LAYA_CHECKPOINT, LayaClient, type LayaHealth } from "./client";
 import type { DecisionLog } from "./log";
@@ -48,12 +48,15 @@ export type LayaTiming = {
    *  and which costs a run of every interpreter on the machine to ask about. */
   autoSlowRecheckMs: number;
   autoBackoffMs: number[];
+  /** A minute, as the idle window (`LAYA_IDLE_STOP_KEY`, in minutes) counts it — a test shortens it. */
+  minuteMs: number;
 };
 
 export const LAYA_TIMING: LayaTiming = {
   startupMs: 180_000, pollMs: 500, healthEveryMs: 30_000, healthMisses: 3,
   backoffMs: [1_000, 2_000, 4_000, 8_000, 16_000], requestTimeoutMs: 2_000, warmupTimeoutMs: 20_000,
   autoFirstMs: 3 * 60_000, autoRecheckMs: 60_000, autoSlowRecheckMs: 30 * 60_000, autoBackoffMs: [5 * 60_000, 30 * 60_000, 2 * 3_600_000, 8 * 3_600_000],
+  minuteMs: 60_000,
 };
 
 /** How many recent round trips the p50 is taken over. */
@@ -74,6 +77,13 @@ const LATENCY_WINDOW = 100;
  * per-start key, polled until the checkpoint is loaded, warmed with one question the latency ignores,
  * watched every thirty seconds, restarted with backoff when it dies, and — after five restarts that
  * never reached ready — left stopped and reported as `failed` with what it last said, verbatim.
+ *
+ * **On demand, in Shadow.** `laya-serve` holds about 2.4 GB of footprint, and Shadow used to keep it
+ * loaded from boot to quit whether or not any agent touched a computer or a device. Now it starts when
+ * a step needs it (`acquire`, which the shadow awaits off the step's path) and stops once
+ * `LAYA_IDLE_STOP_KEY` minutes pass with no question asked — never with a question in flight, never
+ * mid-start, never in Assist, whose pick sits on the step's path. A person's own Install, Shadow or
+ * Try again still starts it at once, so Settings can show it working.
  */
 export class LayaService {
   private mode: LayaMode;
@@ -102,6 +112,15 @@ export class LayaService {
   private trainAbort: AbortController | null = null;
   private latencies: number[] = [];
   private closed = false;
+  /** When a step last asked, or the process last came up — the idle clock's start. */
+  private usedAt = 0;
+  /** Questions out at laya-serve right now. The idle stop waits for none. */
+  private asking = 0;
+  private idleTimer: NodeJS.Timeout | null = null;
+  /** Steps waiting for a start to settle (`acquire`): woken when it is ready, or when it gives up. */
+  private readonly waiting = new Set<() => void>();
+  /** A process died and its restart is waiting out the backoff: starting, not on standby. */
+  private restartPending = false;
   private readonly t: LayaTiming;
 
   constructor(private readonly d: {
@@ -142,15 +161,109 @@ export class LayaService {
     this.t = { ...LAYA_TIMING, ...d.timing };
   }
 
-  /** At boot: bring the server back if Laya is on, or arm the install that starts on its own. */
+  /** At boot: bring the server back if Laya is on — unless it starts on demand — or arm the install
+   *  that starts on its own. */
   boot(): void {
-    if (this.mode !== "off" && this.d.runtime?.installed() && !this.d.runtime.unavailable) void this.start();
+    if (this.mode !== "off" && this.d.runtime?.installed() && !this.d.runtime.unavailable) { if (!this.onDemand()) void this.start(); }
     else this.armAuto(this.t.autoFirstMs, { state: "waiting", why: "Installs on its own a few minutes after Realm opens." });
   }
 
   /** The client, only while the checkpoint is loaded and warm. The shadow asks nothing otherwise. */
   client(): LayaClient | null {
     return this.ready && this.run ? this.run.client : null;
+  }
+
+  /** Minutes with no step before the process is stopped; 0 keeps it loaded. */
+  idleMinutes(): number {
+    const raw = this.d.settings.get(LAYA_IDLE_STOP_KEY);
+    return typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : LAYA_IDLE_STOP_DEFAULT;
+  }
+
+  /** Whether the process comes and goes with the steps: Shadow, with an idle window set. */
+  private onDemand(): boolean {
+    return this.mode === "shadow" && this.idleMinutes() > 0;
+  }
+
+  /**
+   * Whether a step could have a client by waiting: Laya is on and installed, and nothing — a training
+   * run, a start that failed, an install, quitting — stands in the way. The shadow asks this before it
+   * queues a step it cannot answer yet.
+   */
+  startable(): boolean {
+    const rt = this.d.runtime;
+    return this.mode !== "off" && Boolean(rt && !rt.unavailable && rt.installed()) && !this.trainAbort && !this.startFailure && !this.installing && !this.closed;
+  }
+
+  /**
+   * The client, starting `laya-serve` for it first when it is not running. Settles with the client once
+   * the checkpoint is loaded and warm, or with null when Laya is off, cannot start, or gave up starting.
+   * Only for work that is off every step's path — the shadow's questions: a start takes seconds.
+   */
+  async acquire(): Promise<LayaClient | null> {
+    const deadline = this.now() + this.t.startupMs + this.t.warmupTimeoutMs;
+    for (;;) {
+      const ready = this.client();
+      if (ready) { this.touch(); return ready; }
+      if (!this.startable() || this.now() >= deadline) return null;
+      if (!this.run) void this.start();
+      await new Promise<void>((resolve) => { this.waiting.add(resolve); });
+    }
+  }
+
+  /**
+   * Stop `laya-serve` now, to give its memory back: what the Memory page's button does. Only where it
+   * would have stopped on its own — Shadow, between questions, not starting — and it starts again on the
+   * next step. Answers whether it stopped.
+   */
+  async stopIdle(): Promise<boolean> {
+    if (!this.onDemand() || !this.run || !this.ready || this.asking > 0) return false;
+    await this.stop();
+    this.changed();
+    return true;
+  }
+
+  /** A question is going out or has come back: the idle clock starts again from now. */
+  private noteAsking(asking: boolean): void {
+    this.asking += asking ? 1 : -1;
+    this.touch();
+  }
+
+  private touch(): void {
+    this.usedAt = this.now();
+    this.armIdle();
+  }
+
+  /** Look again when the idle window would end. One timer, re-armed by every use. */
+  private armIdle(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = null;
+    if (!this.onDemand() || !this.run || this.closed) return;
+    const t = setTimeout(() => { this.idleTimer = null; void this.idleCheck(); }, Math.max(1, this.usedAt + this.idleMinutes() * this.t.minuteMs - this.now()));
+    t.unref?.();
+    this.idleTimer = t;
+  }
+
+  /** Stop the process if it has had nothing to do for the whole window — and only then. */
+  private async idleCheck(): Promise<void> {
+    if (!this.onDemand() || !this.run || this.closed) return;
+    // A question out, or a start not yet warm, is work in progress: a whole window from now.
+    if (this.asking > 0 || !this.ready) return this.touch();
+    if (this.now() < this.usedAt + this.idleMinutes() * this.t.minuteMs) return this.armIdle();
+    await this.stop();
+    this.changed();
+  }
+
+  /** The idle window was changed in Settings: measured again from the last use, so a Laya idle past
+   *  the new window stops now and one turned to 0 stays loaded. */
+  idleChanged(): void {
+    this.armIdle();
+  }
+
+  /** Every step waiting on a start learns how it ended. */
+  private wake(): void {
+    const all = [...this.waiting];
+    this.waiting.clear();
+    for (const w of all) w();
   }
 
   /** The running `laya-serve`, for the resource report: its process, and what it is doing. */
@@ -395,6 +508,8 @@ export class LayaService {
       this.startFailure = null;
       this.restarts = 0;
       if (!this.run) void this.start();
+      // A person's switch is a use: the idle window, where there is one, runs from here.
+      else this.touch();
     } else {
       // Off stops the auto-install where it is, an install it started included; a person's own
       // Install click finishes, and simply does not start the server.
@@ -498,6 +613,9 @@ export class LayaService {
 
   async close(): Promise<void> {
     this.closed = true;
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = null;
+    this.wake();
     this.clearAuto();
     this.installAbort?.abort();
     this.trainAbort?.abort();
@@ -519,6 +637,7 @@ export class LayaService {
       port = await rt.freePort();
     } catch (e) {
       this.startFailure = { reason: `No free port on 127.0.0.1: ${e instanceof Error ? e.message : String(e)}`, detail: "" };
+      this.wake();
       this.changed();
       return;
     }
@@ -528,7 +647,7 @@ export class LayaService {
     this.serving = local;
     const run = {
       proc: rt.start({ port, apiKey, ...(local ? { checkpoint: join(rt.checkpointsDir, local) } : {}) }),
-      client: new LayaClient({ baseUrl: `http://127.0.0.1:${port}`, apiKey, fetchImpl: this.d.fetchImpl, onLatency: (ms) => this.recordLatency(ms) }),
+      client: new LayaClient({ baseUrl: `http://127.0.0.1:${port}`, apiKey, fetchImpl: this.d.fetchImpl, onLatency: (ms) => this.recordLatency(ms), onAsking: (asking) => { if (this.run === run) this.noteAsking(asking); } }),
     };
     this.run = run;
     this.changed();
@@ -544,6 +663,7 @@ export class LayaService {
         this.startFailure = { reason: `laya-serve did not answer on 127.0.0.1:${port} within ${Math.round(this.t.startupMs / 1000)} s.`, detail: "" };
         this.run = null;
         await run.proc.stop();
+        this.wake();
         this.changed();
         return;
       }
@@ -570,6 +690,9 @@ export class LayaService {
     this.restarts = 0;
     this.startFailure = null;
     this.watch(run);
+    // Up is a use: the window runs from here, so a start nobody has asked yet is not stopped at once.
+    this.touch();
+    this.wake();
     this.changed();
   }
 
@@ -591,22 +714,30 @@ export class LayaService {
     if (this.run !== run) return;
     this.run = null;
     this.ready = null;
+    this.asking = 0;
     if (this.closed || this.mode === "off") return this.changed();
     const reason = lastLine(exit.output) || `laya-serve exited with ${exit.signal ?? `code ${exit.code}`}.`;
     if (this.restarts >= this.t.backoffMs.length) {
       this.startFailure = { reason, detail: exit.output };
+      this.wake();
       return this.changed();
     }
     const delay = this.t.backoffMs[this.restarts]!;
     this.restarts++;
+    this.restartPending = true;
     this.changed();
-    this.later(() => { if (!this.run && !this.closed && this.mode !== "off") void this.start(); }, delay);
+    this.later(() => { this.restartPending = false; if (!this.run && !this.closed && this.mode !== "off") void this.start(); }, delay);
   }
 
   private async stop(): Promise<void> {
     const run = this.run;
     this.run = null;
     this.ready = null;
+    this.asking = 0;
+    this.restartPending = false;
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = null;
+    this.wake();
     for (const t of this.timers) clearTimeout(t);
     this.timers.clear();
     for (const [t, wake] of this.sleepers) { clearTimeout(t); wake(); }
@@ -630,6 +761,7 @@ export class LayaService {
     if (this.mode === "off" || this.trainAbort) return { state: "off" };
     if (this.startFailure) return { state: "failed", during: "start", ...this.startFailure };
     if (this.ready) return { state: "ready", device: this.ready.device, p50Ms: this.p50(), checkpoint: this.ready.checkpoint };
+    if (!this.run && !this.restartPending && this.onDemand()) return { state: "standby", idleMinutes: this.idleMinutes() };
     return { state: "starting" };
   }
 

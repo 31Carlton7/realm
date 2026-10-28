@@ -229,6 +229,48 @@ describe("never in the way", () => {
     expect(rows()).toEqual([]);
   });
 
+  it("asks a step seen while Laya was asleep once it has started, naming the checkpoint that answered", async () => {
+    // Laya on demand: not running when the step came, able to start. THE MUTANT: skipping it as though
+    // Laya were off — every first step of a computer-use burst would go unasked.
+    server = await fakeLayaServer();
+    const client = new LayaClient({ baseUrl: `http://127.0.0.1:${server.port}`, apiKey: "k" });
+    let up = false, starts = 0;
+    let release!: () => void;
+    const started = new Promise<void>((r) => { release = r; });
+    const path = join(tempDir("realm-laya-shadow-"), "decisions.jsonl");
+    const shadow = new LayaShadow({
+      laya: {
+        client: () => (up ? client : null), checkpoint: () => (up ? "english@55cf4c4" : null), startable: () => true,
+        acquire: async () => { starts++; await started; up = true; return client; },
+      },
+      log: new DecisionLog({ path }),
+    });
+    const t0 = performance.now();
+    const after = shadow.observe(step());
+    after?.([]);
+    // The tool never waits on the start.
+    expect(performance.now() - t0).toBeLessThan(20);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(server.asked).toEqual([]);
+    release();
+    await shadow.flush();
+    expect(starts).toBe(1);
+    const [row] = readFileSync(path, "utf8").trim().split("\n").map((l) => JSON.parse(l) as ShadowRow);
+    expect(row!.checkpoint).toBe("english@55cf4c4");
+    expect(row!.laya.target?.choice).toBeDefined();
+    expect(row!.laya.errors).toEqual([]);
+  });
+
+  it("logs a step's truth all the same when Laya could not start, and says so", async () => {
+    const path = join(tempDir("realm-laya-shadow-"), "decisions.jsonl");
+    const shadow = new LayaShadow({ laya: { client: () => null, checkpoint: () => null, startable: () => true, acquire: async () => null }, log: new DecisionLog({ path }) });
+    shadow.observe(step());
+    await shadow.flush();
+    const [row] = readFileSync(path, "utf8").trim().split("\n").map((l) => JSON.parse(l) as ShadowRow);
+    expect(row!.laya.errors).toEqual(["skipped: Laya did not start"]);
+    expect(row!.truth.target).toEqual({ id: "2", source: "agent" });
+  });
+
   it("swallows its own failures: an observer that breaks still returns", async () => {
     const shadow = new LayaShadow({
       laya: { client: () => { throw new Error("broken"); }, checkpoint: () => null },

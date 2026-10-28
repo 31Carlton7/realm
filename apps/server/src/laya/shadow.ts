@@ -194,7 +194,9 @@ export class LayaShadow {
   private closed = false;
 
   constructor(private readonly d: {
-    laya: { client(): LayaClient | null; checkpoint(): string | null };
+    /** `startable` and `acquire` are Laya on demand (`LayaService`): a step that finds it not running
+     *  but able to start is queued, and asked once it is up. Absent, a step with no client is skipped. */
+    laya: { client(): LayaClient | null; checkpoint(): string | null; startable?(): boolean; acquire?(): Promise<LayaClient | null> };
     log: { append(row: unknown): void };
     onLogged?: () => void;
     requestTimeoutMs?: number;
@@ -210,7 +212,8 @@ export class LayaShadow {
       // next one.
       const answer = this.claimAnswer(o.sessionId, o.tool);
       const client = this.d.laya.client();
-      if (!client) return;
+      // Not running and not about to: off, not installed, failed — skipped without a word, as ever.
+      if (!client && !this.d.laya.startable?.()) return;
       const step = this.begin(o, client, answer);
       return (after) => {
         try { this.after(step, after); } catch { /* never the tool's problem */ }
@@ -253,7 +256,7 @@ export class LayaShadow {
 
   /* ---------------------------------- a step ---------------------------------- */
 
-  private begin(o: ActObservation, client: LayaClient, answer: Truth["permission"]): Step {
+  private begin(o: ActObservation, client: LayaClient | null, answer: Truth["permission"]): Step {
     const chosenElement = o.chosen && "element" in o.chosen ? o.chosen.element : null;
     const intent = clip(o.intent.trim(), 200);
     const step: Step = {
@@ -304,7 +307,12 @@ export class LayaShadow {
     return turn;
   }
 
-  private async ask(step: Step, client: LayaClient): Promise<void> {
+  private async ask(step: Step, ready: LayaClient | null): Promise<void> {
+    // Not running when the step was seen: started now, off the step's path, and asked once it is up.
+    const client = ready ?? await this.d.laya.acquire?.() ?? null;
+    if (!client) { step.laya.errors.push("skipped: Laya did not start"); return; }
+    // The checkpoint that answers, which a step seen before the start could not name.
+    step.checkpoint ??= this.d.laya.checkpoint();
     const timeout = this.d.requestTimeoutMs ?? 2_000;
     const { o, intent, chosenElement } = step;
     step.candidates = pickCandidates(step.elements, chosenElement, intent);

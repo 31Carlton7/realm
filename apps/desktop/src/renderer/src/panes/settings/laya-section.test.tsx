@@ -110,6 +110,13 @@ describe("the Laya section", () => {
     expect(within(stateRow()).getByText("cpu")).toBeInTheDocument();
   });
 
+  it("on standby: says it starts when a step needs it, and when it stops — with no action, since none is needed", async () => {
+    const { stateRow } = await mount(status({ state: "standby", idleMinutes: 10 }, { installed: true, mode: "shadow" }));
+    expect(stateRow()).toHaveAccessibleName("Laya: Starts when a step needs it");
+    expect(within(stateRow()).getByText(/Stopped after 10 minutes with no step/)).toBeInTheDocument();
+    expect(within(stateRow()).queryByRole("button")).toBeNull();
+  });
+
   it("a failed install shows the installer's own words, its output, and Install again", async () => {
     const { api, stateRow } = await mount(status({ state: "failed", during: "install", reason: "ERROR: No matching distribution found for laya[serve]==0.3.21", detail: "Collecting laya[serve]==0.3.21\nERROR: No matching distribution found for laya[serve]==0.3.21\n" }));
     expect(stateRow()).toHaveAccessibleName("Laya: Install failed");
