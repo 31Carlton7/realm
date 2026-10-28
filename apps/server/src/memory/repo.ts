@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, rmdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
@@ -10,10 +10,11 @@ import type { GhRun } from "../code-review/gh";
 import { RpcError } from "../store/rows";
 import type { SettingsStore } from "../store/settings";
 import { GIT_DIFF_FLAGS, gitCapture, gitReason, type GitResult, type GitRun } from "../workspace/git-exec";
-import { claudeFact, claudeFactFile, withClaudeIndexLine, type ClaudeFactType } from "./claude-facts";
+import { claudeFact, claudeFactFile, claudeIndexTarget, mergeClaudeIndex, withClaudeIndexLine, type ClaudeFactType } from "./claude-facts";
 import { planClaudeImport, type ClaudeMemorySource } from "./claude-import";
 import { MemorySearch } from "./search";
 import { secretShapeIn } from "./secret-shapes";
+import { spaceFolderSettingKey } from "./sink";
 
 export { secretShapeIn };
 
@@ -34,12 +35,34 @@ const repoKey = (o: RepoOwner): string => `memory.repo:${o.scope}:${o.id}`;
 /** Per-space opt-OUT of the profile's repo, stored as the disable so absence means inherit — the
  *  profile document's rule (`memory.profileDocDisabled`), for the same reason. */
 const inheritDisabledKey = (spaceId: string): string => `memory.repoInheritDisabled:${spaceId}`;
-/** The folder a space's memory has in its profile's repo, chosen once: renaming the space never moves it. */
-const spaceFolderKey = (spaceId: string): string => `memory.spaceFolder:${spaceId}`;
+/** The folder a space's memory has in its profile's repo, chosen once: renaming the space never moves it.
+ *  Kept with the profile whose repo it is in (`FolderRecord`), so a space moved to another profile
+ *  takes a folder of its own in that profile's repo. */
+const spaceFolderKey = spaceFolderSettingKey;
 /** Where the space folders sit in a profile's repo: `spaces/<folder>/`. */
 export const SPACES_DIR = "spaces";
 /** What a recorded folder name may be — the shape `folderSlug` makes. Anything else was not Realm's. */
 const FOLDER_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+/** A space's recorded folder: its name, the profile whose repo it is in, and — after the space moved
+ *  to another profile, until its memory is carried over — the folder it left. */
+type FolderRecord = { folder: string; profileId: string | null; carryFrom: { folder: string; profileId: string } | null };
+
+/** A space's record, in either shape it has been kept in: `{ folder, profileId }`, or the bare folder
+ *  name of a record made before the profile was kept with it (`profileId` null). Null for none. */
+export function readSpaceFolder(v: unknown): FolderRecord | null {
+  if (typeof v === "string") return FOLDER_NAME.test(v) ? { folder: v, profileId: null, carryFrom: null } : null;
+  if (!v || typeof v !== "object") return null;
+  const r = v as { folder?: unknown; profileId?: unknown; carryFrom?: { folder?: unknown; profileId?: unknown } | null };
+  if (typeof r.folder !== "string" || !FOLDER_NAME.test(r.folder) || typeof r.profileId !== "string") return null;
+  const c = r.carryFrom;
+  const carryFrom = c && typeof c.folder === "string" && FOLDER_NAME.test(c.folder) && typeof c.profileId === "string" ? { folder: c.folder, profileId: c.profileId } : null;
+  return { folder: r.folder, profileId: r.profileId, carryFrom };
+}
+
+/** What carrying a moved space's memory into its new folder did: the files copied, and the ones left
+ *  where they were, with why. */
+export type FolderCarry = { folder: string; copied: string[]; left: { file: string; reason: string }[]; sha: string | null };
 const inSpaces = (rel: string): boolean => rel.startsWith(`${SPACES_DIR}/`);
 /** The commit that takes in what Claude wrote while nobody was committing for it. */
 const CLAUDE_LEFT = "Save memory Claude left uncommitted";
@@ -99,6 +122,13 @@ const realish = (p: string): string => {
   }
   return join(realpathSync(head), ...tail);
 };
+
+/** Remove `rel` and each folder above it that is left empty, up to — never including — the repo itself. */
+function pruneEmpty(repo: string, rel: string): void {
+  for (let at = rel; at !== "." && at !== ""; at = dirname(at)) {
+    try { rmdirSync(join(repo, at)); } catch { return; }
+  }
+}
 
 /** Why a synced repo is refusing saves, as the row says it. */
 const DIVERGED_REASON = "this repo and its remote have both changed since they last matched — Realm never merges memory, so saving is paused until you resolve it in Terminal";
@@ -267,20 +297,96 @@ export class MemoryRepoService {
   spaceFolderFor(spaceId: string): SpaceFolder | null {
     const repo = this.activeFor(spaceId).find((r) => r.scope === "profile");
     if (!repo) return null;
-    const recorded = this.d.settings.get(spaceFolderKey(spaceId));
-    const folder = typeof recorded === "string" && FOLDER_NAME.test(recorded) ? recorded : this.unusedFolder(spaceId, repo);
-    if (folder !== recorded) this.d.settings.set(spaceFolderKey(spaceId), folder);
+    const rec = readSpaceFolder(this.d.settings.get(spaceFolderKey(spaceId)));
+    let folder: string;
+    if (rec && (rec.profileId === null || rec.profileId === repo.ownerId)) {
+      folder = rec.folder;
+      // A record from before the profile was kept with it is this profile's, and says so from now on.
+      if (rec.profileId === null) this.d.settings.set(spaceFolderKey(spaceId), { folder, profileId: repo.ownerId });
+    } else {
+      // New here, or moved here from another profile: the name it had may be another space's in this
+      // repo, so it takes one of its own — and remembers the folder it left, to carry its memory over.
+      folder = this.unusedFolder(spaceId, repo);
+      const carryFrom = rec?.profileId ? { folder: rec.folder, profileId: rec.profileId } : null;
+      this.d.settings.set(spaceFolderKey(spaceId), { folder, profileId: repo.ownerId, ...(carryFrom ? { carryFrom } : {}) });
+    }
     return { owner: { scope: "profile", id: repo.ownerId }, repoPath: repo.path, folder, dir: join(repo.path, SPACES_DIR, folder) };
   }
 
+  /** Whether this space has a folder recorded in its own profile's repo — what the tidy pass asks, so
+   *  it never allocates one, nor takes a moved space's old folder for its new one. */
+  hasSpaceFolder(spaceId: string): boolean {
+    const rec = readSpaceFolder(this.d.settings.get(spaceFolderKey(spaceId)));
+    return rec !== null && (rec.profileId === null || rec.profileId === (this.d.scopes?.profileIdOf(spaceId) ?? null));
+  }
+
+  /** Whether this space moved to another profile and its memory has not been carried over yet. */
+  carryPending(spaceId: string): boolean {
+    const rec = readSpaceFolder(this.d.settings.get(spaceFolderKey(spaceId)));
+    if (!rec) return false;
+    return rec.carryFrom !== null || (rec.profileId !== null && rec.profileId !== (this.d.scopes?.profileIdOf(spaceId) ?? null));
+  }
+
+  /**
+   * A space that moved to another profile takes its memory along: a folder of its own in that
+   * profile's repo (`spaceFolderFor`), and the files of the folder it had copied into it as one commit.
+   * The repo it left is not touched — its history keeps what the space learned there. A file shaped like
+   * a credential, too long, or not a plain file stays behind and is named in `left`; so is one whose
+   * name the new folder already holds, which keeps its own. Null where there is nothing to carry. A
+   * refusal (the repo has someone's changes in it) throws, and the carry waits for the next try.
+   */
+  async followSpace(spaceId: string): Promise<FolderCarry | null> {
+    const at = this.spaceFolderFor(spaceId);
+    const rec = readSpaceFolder(this.d.settings.get(spaceFolderKey(spaceId)));
+    if (!at || !rec?.carryFrom) return null;
+    const from = this.config({ scope: "profile", id: rec.carryFrom.profileId });
+    const dir = from ? join(from.path, SPACES_DIR, rec.carryFrom.folder) : null;
+    const into = `${SPACES_DIR}/${at.folder}`;
+    const indexRel = `${into}/${MEMORY_REPO_INDEX_FILE}`;
+    const carried: FolderCarry = { folder: at.folder, copied: [], left: [], sha: null };
+    if (dir && existsSync(dir)) {
+      const out = await this.batch(at.owner, (repo) => {
+        const writes = new Map<string, string | null>();
+        carried.copied = [];
+        carried.left = [];
+        let index: string | null = null;
+        for (const e of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+          const file = join(dir, e.name);
+          if (!e.isFile()) { carried.left.push({ file, reason: "it is not a plain file" }); continue; }
+          const text = readFileSync(file, "utf8");
+          const secret = secretShapeIn(text);
+          if (secret) { carried.left.push({ file, reason: `it looks like it holds ${secret}, and memory never holds credentials` }); continue; }
+          if (text.length > MEMORY_DOC_MAX) { carried.left.push({ file, reason: `it is longer than ${MEMORY_DOC_MAX} characters` }); continue; }
+          if (e.name === MEMORY_REPO_INDEX_FILE) { index = text; continue; }
+          const here = this.readOrNull(repo, `${into}/${e.name}`);
+          if (here === null) { writes.set(`${into}/${e.name}`, text); carried.copied.push(e.name); }
+          else if (here !== text) carried.left.push({ file, reason: `the folder it moved to has its own ${e.name}` });
+        }
+        // Its index comes too, for the files that came: a line for one left behind would lead nowhere.
+        if (index !== null) {
+          const lines = index.split("\n").filter((l) => { const t = claudeIndexTarget(l); return t === null || carried.copied.includes(t) || existsSync(join(repo, into, t)); });
+          const merged = mergeClaudeIndex(this.readOrEmpty(repo, indexRel), lines.join("\n"));
+          if (merged !== this.readOrEmpty(repo, indexRel)) writes.set(indexRel, merged);
+        }
+        if (writes.has(indexRel) || existsSync(join(repo, indexRel))) writes.set(MEMORY_REPO_INDEX_FILE, withIndexLink(this.readOrEmpty(repo, MEMORY_REPO_INDEX_FILE), indexRel));
+        return writes;
+      }, `Carry the memory of ${short(this.d.scopes?.spaceNameOf?.(spaceId) ?? "a space")} over from the profile it left`);
+      carried.sha = out.sha;
+    }
+    // Carried, or nothing left to carry: the record waits for nothing more.
+    this.d.settings.set(spaceFolderKey(spaceId), { folder: at.folder, profileId: at.owner.id });
+    for (const l of carried.left) console.error(`[memory] ${l.file} stays where it was: ${l.reason}`);
+    return carried;
+  }
+
   /** The space's name as a folder, numbered past every folder already in the repo and every one
-   *  another space of the profile has recorded but not written yet. */
+   *  another space of the profile has recorded in it but not written yet. */
   private unusedFolder(spaceId: string, repo: ActiveRepo): string {
     const taken = new Set<string>();
     try { for (const e of readdirSync(join(repo.path, SPACES_DIR))) taken.add(e.toLowerCase()); } catch { /* no folders yet */ }
     for (const other of this.d.scopes?.spaceIdsOf?.(repo.ownerId) ?? []) {
-      const f = other === spaceId ? null : this.d.settings.get(spaceFolderKey(other));
-      if (typeof f === "string") taken.add(f);
+      const r = other === spaceId ? null : readSpaceFolder(this.d.settings.get(spaceFolderKey(other)));
+      if (r && (r.profileId === null || r.profileId === repo.ownerId)) taken.add(r.folder);
     }
     const base = folderSlug(this.d.scopes?.spaceNameOf?.(spaceId) ?? "");
     let folder = base;
@@ -533,41 +639,54 @@ export class MemoryRepoService {
    * clean repo, staged and committed by path. Files already as asked are left out of the commit.
    *
    * The writes may be a function of the repo's folder, called inside the lock: a read-modify-write
-   * (an index line, a merge) worked out there never overwrites a save that landed in between.
+   * (an index line, a merge) worked out there never overwrites a save that landed in between. The
+   * message may be one too, asked once the writes are known, so it can say what they do.
    */
-  async writeBatch(owner: RepoOwner, writes: Map<string, string | null> | ((repo: string) => Map<string, string | null>), message: string, author?: string): Promise<MemoryEditOutcome> {
+  async writeBatch(owner: RepoOwner, writes: Map<string, string | null> | ((repo: string) => Map<string, string | null>), message: string | (() => string), author?: string): Promise<MemoryEditOutcome> {
     return this.batch(owner, typeof writes === "function" ? writes : () => writes, message, author);
   }
 
-  private async batch(owner: RepoOwner, plan: (repo: string) => Map<string, string | null>, message: string, author?: string): Promise<MemoryEditOutcome> {
+  private async batch(owner: RepoOwner, plan: (repo: string) => Map<string, string | null>, message: string | (() => string), author?: string): Promise<MemoryEditOutcome> {
     const cfg = this.mustConfig(owner);
     const repo = cfg.path;
     const out = await this.locked(repo, async () => {
-      const asked = new Map<string, string | null>();
-      for (const [path, content] of plan(repo)) {
-        const rel = this.checkedRel(path);
-        if (rel === "") throw new RpcError("MEMORY_PATH", "give a path inside the memory repo");
-        if (content !== null) {
-          if (content.length > MEMORY_DOC_MAX) throw new RpcError("MEMORY_FILE_TOO_LARGE", `${rel}: a memory file is capped at ${MEMORY_DOC_MAX} characters`);
-          const secret = secretShapeIn(content);
-          if (secret) throw new RpcError("MEMORY_SECRET", `${rel} looks like it holds ${secret}; memory never holds credentials`);
-        }
-        asked.set(rel, content);
-      }
-      await this.ensureWritable(owner, repo, cfg, [...asked.keys()]);
-      const writes = new Map<string, string | null>();
-      for (const [rel, content] of asked) {
-        const abs = this.inside(repo, rel);
-        const before = existsSync(abs) ? readFileSync(abs, "utf8") : null;
-        if (before !== content) writes.set(rel, content);
-      }
+      const why = await this.invalidReason(repo);
+      if (why) throw new RpcError("MEMORY_REPO_INVALID", `${repo} is not a memory repo: ${why}`);
+      // Nothing to write is nothing to do: a file Claude is still writing waits for its own turn's
+      // commit, and someone's changes in the repo are no refusal to report.
+      if (this.changesIn(repo, plan(repo)).size === 0) return { changed: false, file: "", line: null, sha: null, diff: "" };
+      // What Claude left in a profile's space folders goes in first, and the plan is made again on top
+      // of it — that commit can link a folder from the root index, which a plan made before would undo.
+      if (owner.scope === "profile") await this.commitUnder(repo, SPACES_DIR, CLAUDE_LEFT);
+      const writes = this.changesIn(repo, plan(repo));
       const first = writes.keys().next().value ?? "";
       if (writes.size === 0) return { changed: false, file: first, line: null, sha: null, diff: "" };
-      const done = await this.commitFiles(repo, writes, message, author);
+      await this.ensureWritable(owner, repo, cfg, [...writes.keys()]);
+      const done = await this.commitFiles(repo, writes, typeof message === "function" ? message() : message, author);
       return { changed: true, file: first, line: null, ...done };
     });
     if (out.changed) void this.queueSync(owner);
     return out;
+  }
+
+  /** What a plan would change, checked before anything is written: every path stays inside the repo
+   *  and out of `.git`, every content is within size and holds nothing shaped like a secret. Files
+   *  already as asked are left out. */
+  private changesIn(repo: string, planned: Map<string, string | null>): Map<string, string | null> {
+    const writes = new Map<string, string | null>();
+    for (const [path, content] of planned) {
+      const rel = this.checkedRel(path);
+      if (rel === "") throw new RpcError("MEMORY_PATH", "give a path inside the memory repo");
+      if (content !== null) {
+        if (content.length > MEMORY_DOC_MAX) throw new RpcError("MEMORY_FILE_TOO_LARGE", `${rel}: a memory file is capped at ${MEMORY_DOC_MAX} characters`);
+        const secret = secretShapeIn(content);
+        if (secret) throw new RpcError("MEMORY_SECRET", `${rel} looks like it holds ${secret}; memory never holds credentials`);
+      }
+      const abs = this.inside(repo, rel);
+      const before = existsSync(abs) ? readFileSync(abs, "utf8") : null;
+      if (before !== content) writes.set(rel, content);
+    }
+    return writes;
   }
 
   // ─── Claude's own writes ───────────────────────────────────────────────────────────────────────
@@ -1000,6 +1119,10 @@ export class MemoryRepoService {
     return abs;
   }
 
+  private readOrNull(repo: string, rel: string): string | null {
+    try { return readFileSync(join(repo, rel), "utf8"); } catch { return null; }
+  }
+
   private readOrEmpty(repo: string, rel: string): string {
     try { return readFileSync(join(repo, rel), "utf8"); } catch { return ""; }
   }
@@ -1029,6 +1152,8 @@ export class MemoryRepoService {
       if (paths.length > 0) await this.git(repo, ["reset", "-q", "--", ...paths]);
       throw e;
     }
+    // A folder its last file left goes too — git keeps no empty folders, and neither does the repo.
+    for (const [rel, content] of writes) if (content === null) pruneEmpty(repo, dirname(rel));
     const sha = (await this.git(repo, ["rev-parse", "HEAD"])).stdout.trim();
     const show = await this.git(repo, ["show", ...GIT_DIFF_FLAGS, "--format=", "HEAD"], { maxBytes: 64 * 1024 });
     return { sha, diff: short(show.stdout, DIFF_MAX) };

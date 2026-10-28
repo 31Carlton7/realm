@@ -252,8 +252,10 @@ export class MemoryService {
    * What the USER changes does: their space or profile document, whether this space inherits the
    * profile's, which memory repos the space uses (one attached, detached or switched off here — the
    * tools the block names come and go with them), the CLAUDE.md files a skills-isolated Claude session
-   * re-reads, and the session's agent, folder or isolation. Those make up the key; the indexes' content
-   * is not in it, and neither is a space folder's index appearing, since an agent's save is what makes one.
+   * re-reads, and the session's agent, folder, space or isolation — a session moved to another space
+   * reads that space's folder, and a Claude session is told that folder is its memory directory. Those
+   * make up the key; the indexes' content is not in it, and neither is a space folder's index
+   * appearing, since an agent's save is what makes one.
    */
   contextForSession(sessionId: string, o: { spaceId: string; kind: AgentKind; cwd: string; skillsInjected: boolean }): string | undefined {
     const key = this.freezeKey(o);
@@ -264,7 +266,7 @@ export class MemoryService {
     return context;
   }
 
-  /** A deleted session's frozen block goes with it. */
+  /** A deleted session's frozen block goes with it, and a moved one's. */
   forgetSession(sessionId: string): void { this.frozen.delete(sessionId); }
 
   private readonly frozen = new Map<string, { key: string; context: string | undefined }>();
@@ -274,7 +276,7 @@ export class MemoryService {
     const repos = (this.d.repos?.indexesFor(o.spaceId) ?? []).filter((r) => r.kind !== "spaceFolder").map((r) => `${r.scope}:${r.path}`);
     const claude = o.kind === "claude" && o.skillsInjected ? claudeMemoryFiles(o.cwd, this.claudeDir).map((f) => [f.path, f.content ?? null]) : [];
     const profileDoc = eff.profile !== null && eff.profile.enabledHere ? eff.profile.doc : null;
-    return createHash("sha256").update(JSON.stringify([o.kind, o.cwd, o.skillsInjected, eff.spaceDoc, profileDoc, repos, claude])).digest("hex");
+    return createHash("sha256").update(JSON.stringify([o.spaceId, o.kind, o.cwd, o.skillsInjected, eff.spaceDoc, profileDoc, repos, claude])).digest("hex");
   }
 
   /**

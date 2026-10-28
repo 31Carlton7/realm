@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { CLAUDE_PROJECT_LEFT_OUT, MEMORY_DOC_MAX, MEMORY_REPO_INDEX_FILE, withIndexLink, type MemoryClaudeBackfill } from "@realm/contracts";
+import { CLAUDE_PROJECT_LEFT_OUT, MEMORY_DOC_MAX, MEMORY_REPO_INDEX_FILE, wikiLinkFor, withIndexLink, type MemoryClaudeBackfill } from "@realm/contracts";
 import { decodeClaudeProjectSlug } from "../import/sources";
 import { RpcError } from "../store/rows";
 import type { SettingsStore } from "../store/settings";
@@ -23,7 +23,11 @@ import { secretShapeIn } from "./secret-shapes";
  * - a copy nobody has touched since, whose source then changed in `~/.claude`, is updated;
  * - a copy changed in the repo since (Claude in Realm edits these files too) is never overwritten,
  *   and neither is a file of that name another project put there — both are named in `skipped`;
- * - a copy removed from the repo stays removed until its source changes again.
+ * - a copy removed from the repo stays removed until its source changes again;
+ * - a project placed by hand goes only where it was placed: when the choice changes, the copies made
+ *   for the space it was in before come out, with their index lines, in the same commit — those
+ *   unchanged since they were copied. A changed one stays, and is said so. A space moving to another
+ *   profile is no change of choice, so the repo it leaves keeps what it had.
  *
  * A project that no space works in, or that several do, is reported, never guessed at, until someone
  * places it by hand (`memory.claudeProjectSpace:<project>`: a space, or left out) — a choice that wins
@@ -138,8 +142,9 @@ function projectPath(project: string): string | null {
   return decodeClaudeProjectSlug(project, (dir) => { try { return readdirSync(dir); } catch { return []; } });
 }
 
-/** The manifest of one profile's copies: repo path → the file it was copied from, and its hash then. */
-type Manifest = Record<string, { source: string; hash: string }>;
+/** The manifest of one profile's copies: repo path → the file it was copied from, its hash then, and
+ *  the space it was copied for (absent on a copy made before that was kept). */
+type Manifest = Record<string, { source: string; hash: string; space?: string }>;
 const manifestKey = (profileId: string): string => `memory.claudeBackfill:${profileId}`;
 /** A person's own answer for one Claude project: the space its memory goes to, or left out. */
 export const claudeProjectChoiceKey = (project: string): string => `memory.claudeProjectSpace:${project}`;
@@ -153,20 +158,25 @@ type Skip = MemoryClaudeBackfill["skipped"][number] & { hash: string };
  * What bringing these projects into their space folders writes to the repo at `repo`, worked out from
  * disk (the rules are on the module). Projects are taken in order, each seeing what the ones before it
  * planned, so two projects that land in one folder never overwrite each other.
+ *
+ * `folders` is each folder with the projects coming into it and the space each comes for. `byHand` is
+ * every project placed by hand and the space it now goes to, or null for left out: a copy made for any
+ * other space comes out.
  */
-export function planBackfill(repo: string, projectsDir: string, folders: ReadonlyMap<string, readonly string[]>, before: Manifest) {
+export function planBackfill(repo: string, projectsDir: string, folders: ReadonlyMap<string, readonly { project: string; spaceId: string }[]>, before: Manifest, byHand: ReadonlyMap<string, string | null> = new Map()) {
   const writes = new Map<string, string | null>();
   const manifest: Manifest = { ...before };
   const skipped: Skip[] = [];
   let imported = 0;
   let updated = 0;
+  let removed = 0;
   const now = (rel: string): string | null => (writes.has(rel) ? writes.get(rel)! : readOr(join(repo, rel)));
   const rootBefore = now(MEMORY_REPO_INDEX_FILE) ?? "";
   let root = rootBefore;
   for (const [folder, projects] of folders) {
     const at = `${SPACES_DIR}/${folder}`;
     const indexRel = `${at}/${MEMORY_REPO_INDEX_FILE}`;
-    for (const project of projects) {
+    for (const { project, spaceId } of projects) {
       const src = join(projectsDir, project, "memory");
       for (const name of factFiles(src)) {
         const from = join(src, name);
@@ -192,7 +202,7 @@ export function planBackfill(repo: string, projectsDir: string, folders: Readonl
           skipped.push({ file: from, reason: known && known.source !== from ? `${rel} holds another Claude project's file of that name` : `${rel} has changed in the repo since it was copied`, hash });
           continue;
         }
-        manifest[rel] = { source: from, hash };
+        manifest[rel] = { source: from, hash, space: spaceId };
       }
       // The project's index lines join the folder's, for the files the folder now holds.
       const index = readOr(join(src, MEMORY_REPO_INDEX_FILE));
@@ -203,16 +213,72 @@ export function planBackfill(repo: string, projectsDir: string, folders: Readonl
     }
     if (now(indexRel) !== null) root = withIndexLink(root, indexRel);
   }
+  // A project placed by hand goes only where it was placed. What was copied for any other space comes
+  // out — the copies nobody changed since, and their index lines. A changed one is somebody's now: it
+  // stays, and is said so.
+  const emptied = new Map<string, Set<string>>();
+  for (const [rel, copy] of Object.entries(manifest)) {
+    const [, folder, name] = rel.split("/");
+    if (!folder || !name || !misplaced(copy, projectsDir, byHand)) continue;
+    const here = now(rel);
+    if (here === null) { delete manifest[rel]; continue; }
+    const hash = sha(here);
+    if (hash !== copy.hash) { skipped.push({ file: join(repo, rel), reason: `it has changed since it was copied, so it stays in ${SPACES_DIR}/${folder}`, hash }); continue; }
+    writes.set(rel, null);
+    delete manifest[rel];
+    removed++;
+    emptied.set(folder, (emptied.get(folder) ?? new Set()).add(name));
+  }
+  for (const [folder, names] of emptied) {
+    const at = `${SPACES_DIR}/${folder}`;
+    const indexRel = `${at}/${MEMORY_REPO_INDEX_FILE}`;
+    const index = now(indexRel);
+    if (index === null) continue;
+    const kept = index.split("\n").filter((l) => { const t = claudeIndexTarget(l); return t === null || !names.has(t); });
+    // A folder left with nothing in it goes altogether, and its link from the root index with it.
+    if (kept.every((l) => l.trim() === "") && filesIn(repo, at, writes).length === 0) {
+      writes.set(indexRel, null);
+      root = root.split("\n").filter((l) => l.trim() !== `- ${wikiLinkFor(indexRel)}`).join("\n");
+    } else if (kept.join("\n") !== index) writes.set(indexRel, kept.join("\n"));
+  }
   if (writes.size > 0 && root !== rootBefore) writes.set(MEMORY_REPO_INDEX_FILE, root);
   const total = Object.keys(manifest).filter((rel) => now(rel) !== null).length;
-  return { writes, manifest, skipped, imported, updated, total };
+  return { writes, manifest, skipped, imported, updated, removed, total };
+}
+
+/** Whether a copy was made for a space other than the one its project is now placed in by hand. */
+function misplaced(copy: Manifest[string], projectsDir: string, byHand: ReadonlyMap<string, string | null>): boolean {
+  const project = basename(dirname(dirname(copy.source)));
+  return copy.space !== undefined && dirname(copy.source) === join(projectsDir, project, "memory") && byHand.has(project) && byHand.get(project) !== copy.space;
+}
+
+/** A folder's files once `writes` lands, its own index aside. */
+function filesIn(repo: string, at: string, writes: ReadonlyMap<string, string | null>): string[] {
+  let names: string[] = [];
+  try { names = readdirSync(join(repo, at)); } catch { /* not made yet */ }
+  const all = new Set(names);
+  for (const [rel, content] of writes) {
+    if (dirname(rel) !== at) continue;
+    if (content === null) all.delete(basename(rel));
+    else all.add(basename(rel));
+  }
+  all.delete(MEMORY_REPO_INDEX_FILE);
+  return [...all];
 }
 
 /** How often memory Claude keeps outside Realm is looked for: a few hundred small files read and
  *  hashed, nothing written unless something changed. */
 export const CLAUDE_BACKFILL_EVERY_MS = 5 * 60_000;
 
-export const NEVER_RUN: MemoryClaudeBackfill = { imported: 0, updated: 0, total: 0, unmatched: [], chosen: [], skipped: [], error: null, sha: null, at: null };
+export const NEVER_RUN: MemoryClaudeBackfill = { imported: 0, updated: 0, removed: 0, total: 0, unmatched: [], chosen: [], skipped: [], error: null, sha: null, at: null };
+
+/** The commit a run makes, said for what it does: brings copies in, takes them out, or both. */
+function backfillMessage(p: { imported: number; updated: number; removed: number }): string {
+  const bring = "Bring in memory Claude kept outside Realm";
+  const take = "take Claude's memory out of a space it no longer goes in";
+  if (p.removed === 0) return bring;
+  return p.imported + p.updated > 0 ? `${bring}, and ${take}` : `${take.charAt(0).toUpperCase()}${take.slice(1)}`;
+}
 
 const biggestFirst = (a: { project: string; files: number }, b: { project: string; files: number }): number => b.files - a.files || a.project.localeCompare(b.project);
 
@@ -342,9 +408,11 @@ export class ClaudeMemoryBackfill {
     }
     unmatched.sort(biggestFirst);
     chosen.sort(biggestFirst);
-    const byProfile = new Map<string, { owner: RepoOwner; folders: Map<string, string[]> }>();
+    const byProfile = new Map<string, { owner: RepoOwner; folders: Map<string, { project: string; spaceId: string }[]> }>();
     /** By profile: projects whose space keeps no memory in Realm (no repo, or turned off there). */
     const offIn = new Map<string, Skip[]>();
+    /** Each project placed by hand, and the space it now goes to — null for left out. */
+    const byHand = new Map(chosen.map((c) => [c.project, c.spaceId] as const));
     for (const [n, spaceId] of placed) {
       const at = this.d.repos.spaceFolderFor(spaceId);
       if (!at) {
@@ -352,8 +420,8 @@ export class ClaudeMemoryBackfill {
         offIn.set(sp.profileId, [...(offIn.get(sp.profileId) ?? []), { file: memoryOf(n), reason: `${sp.name} keeps no memory in Realm`, hash: folderHash(memoryOf(n)) }]);
         continue;
       }
-      const group = byProfile.get(at.owner.id) ?? { owner: at.owner, folders: new Map<string, string[]>() };
-      group.folders.set(at.folder, [...(group.folders.get(at.folder) ?? []), n]);
+      const group = byProfile.get(at.owner.id) ?? { owner: at.owner, folders: new Map<string, { project: string; spaceId: string }[]>() };
+      group.folders.set(at.folder, [...(group.folders.get(at.folder) ?? []), { project: n, spaceId }]);
       byProfile.set(at.owner.id, group);
     }
     const at = Date.now();
@@ -365,16 +433,19 @@ export class ClaudeMemoryBackfill {
       const mine = chosen.filter((c) => c.profileId === null || c.profileId === profileId).map(({ profileId: _, ...c }) => c);
       const base: MemoryClaudeBackfill = { ...NEVER_RUN, total: kept, unmatched, chosen: mine, at };
       const outside = [...passedOver, ...(offIn.get(profileId) ?? [])];
-      if (!group) { this.settle(profileId, base, outside, true); continue; }
+      // Copies here of a project since placed in another space by hand, or left out, come out too.
+      const stale = repo !== undefined && Object.values(manifest).some((copy) => misplaced(copy, projectsDir, byHand));
+      if (!group && !stale) { this.settle(profileId, base, outside, true); continue; }
+      const owner: RepoOwner = group?.owner ?? { scope: "profile", id: profileId };
       // Planned inside the repo's lock, from the files as they are then; the manifest moves only once
       // the commit has landed.
       const planned: { plan?: ReturnType<typeof planBackfill> } = {};
       try {
-        const out = await this.d.repos.writeBatch(group.owner, (dir) => (planned.plan = planBackfill(dir, projectsDir, group.folders, manifest)).writes, "Bring in memory Claude kept outside Realm");
+        const out = await this.d.repos.writeBatch(owner, (dir) => (planned.plan = planBackfill(dir, projectsDir, group?.folders ?? new Map(), manifest, byHand)).writes, () => backfillMessage(planned.plan!));
         const p = planned.plan!;
         this.d.settings.set(manifestKey(profileId), p.manifest);
-        this.settle(profileId, { ...base, imported: p.imported, updated: p.updated, total: p.total, sha: out.sha }, [...outside, ...p.skipped], true);
-        if (out.changed) this.d.onChanged?.(group.owner);
+        this.settle(profileId, { ...base, imported: p.imported, updated: p.updated, removed: p.removed, total: p.total, sha: out.sha }, [...outside, ...p.skipped], true);
+        if (out.changed) this.d.onChanged?.(owner);
       } catch (e) {
         // What the plan found left out still stands; with no plan, what is not known is not forgotten.
         this.settle(profileId, { ...base, error: e instanceof Error ? e.message : String(e) }, [...outside, ...(planned.plan?.skipped ?? [])], planned.plan !== undefined);

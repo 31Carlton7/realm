@@ -130,6 +130,34 @@ describe("a session's memory block, frozen for its later starts", () => {
     expect(start("s1", { kind: "acp:cursor" })).toContain("Deploys from main");
   });
 
+  it("composes afresh when the session moves to another space, though its documents and repos are the same", () => {
+    const home = tempDir("realm-memory-freeze-space-");
+    const folder = join(home, "space");
+    mkdirSync(folder, { recursive: true });
+    // One profile repo, no documents: all that tells the two spaces apart is each one's own folder.
+    const spaced = new MemoryService({
+      home, settings: new SettingsStore(openDatabase(join(home, "realm.db"))), claudeDir: join(home, "claude-home"),
+      environments: { ensurePrimary: (spaceId: string): Environment => ({ id: `env-${spaceId}`, spaceId, path: folder, branch: null, kind: "primary", portBlockStart: null, createdAt: 0, updatedAt: 0 }) },
+      scopes: { profileIdOf: () => "P" },
+      repos: {
+        indexesFor: (spaceId, o) => [
+          { scope: "profile", kind: "root", path: "/mine", index: "# Memory", truncated: false },
+          ...(o?.forAgent === "claude" ? [] : [{ scope: "profile" as const, kind: "spaceFolder" as const, path: `/mine/spaces/${spaceId}`, index: `- [Fact](fact.md) — what ${spaceId} keeps`, truncated: false }]),
+        ],
+        spaceFolderFor: (spaceId) => ({ dir: `/mine/spaces/${spaceId}` }),
+      },
+    });
+    const at = (spaceId: string, kind: "codex" | "claude") => spaced.contextForSession(`s-${kind}`, { spaceId, kind, cwd: folder, skillsInjected: false }) ?? "";
+    expect(at("alpha", "codex")).toContain("what alpha keeps");
+    // THE MUTANT: a key without the space. The moved session is handed the first space's folder.
+    expect(at("beta", "codex")).toContain("what beta keeps");
+    expect(at("beta", "codex")).not.toContain("what alpha keeps");
+    expect(at("alpha", "claude")).toContain("Your own memory directory in this workspace is /mine/spaces/alpha");
+    // …and a Claude session is told the folder its memory directory now is.
+    expect(at("beta", "claude")).toContain("Your own memory directory in this workspace is /mine/spaces/beta");
+    expect(at("beta", "claude")).not.toContain("/mine/spaces/alpha");
+  });
+
   it("forgets a deleted session's block", () => {
     const { start, agentSaves, memory } = harness();
     start("s1");
@@ -176,6 +204,39 @@ async function client(port: number) {
 }
 
 describe("frozen through a session's restarts, end to end", () => {
+  it("gives a session moved to another space that space's folder on its next start, and drops the frozen block at the move", async () => {
+    const home = tempDir("realm-memory-freeze-move-");
+    vi.stubEnv("REALM_BUNDLED_SKILLS", join(home, "no-bundle"));
+    const forget = vi.spyOn(MemoryService.prototype, "forgetSession");
+    const claude = new RecordingAdapter("claude");
+    app = await createApp({ home, port: 0, adapters: { claude }, claudeDir: join(home, "claude-home") });
+    const c = await client(app.port);
+    const p = (await c.call("profiles.create", { name: "W" })).result;
+    const alpha = (await c.call("spaces.create", { profileId: p.id, name: "Alpha" })).result;
+    const beta = (await c.call("spaces.create", { profileId: p.id, name: "Beta" })).result;
+    const repo = (await c.call("memory.repo.create", { scope: "profile", ownerId: p.id })).result.path as string;
+    const { session } = (await c.call("sessions.create", { spaceId: alpha.id, agentKind: "claude" })).result;
+    const startOnce = async () => {
+      const before = claude.starts.length;
+      await c.call("sessions.send", { id: session.id, text: "go" });
+      await waitFor(() => claude.starts.length === before + 1);
+      return claude.starts.at(-1)!;
+    };
+    const first = await startOnce();
+    expect(first.systemContext).toContain(`Your own memory directory in this workspace is ${join(repo, "spaces", "alpha")}`);
+    await app.sessions.stopAgent(session.id);
+    forget.mockClear();
+    expect((await c.call("sessions.moveToSpace", { id: session.id, spaceId: beta.id })).error).toBeUndefined();
+    // THE MUTANT: the move keeps the frozen block, which was composed for the space it left.
+    expect(forget).toHaveBeenCalledWith(session.id);
+    const second = await startOnce();
+    expect(second.memoryDirectory).toBe(join(repo, "spaces", "beta"));
+    expect(second.systemContext).toContain(`Your own memory directory in this workspace is ${join(repo, "spaces", "beta")}`);
+    expect(second.systemContext).not.toContain(join(repo, "spaces", "alpha"));
+    c.close();
+    forget.mockRestore();
+  }, 20_000);
+
   it("gives a restarted session the exact context of its first start after an agent's save, and a new one after the user's edit", async () => {
     const home = tempDir("realm-memory-freeze-int-");
     vi.stubEnv("REALM_BUNDLED_SKILLS", join(home, "no-bundle"));

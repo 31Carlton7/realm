@@ -107,6 +107,32 @@ describe("Claude's uncommitted memory never wedges a save", () => {
     expect(status(repo)).toBe("?? spaces/realm/keys.md\n");
   });
 
+  it("does nothing with nothing to write: a file Claude is still writing waits for its turn, and a dirty repo is no error", async () => {
+    const { repos, repo, claudeWrites } = await made();
+    await repos.writeBatch(P, new Map([["notes.md", "n\n"]]), "Seed");
+    const before = git(repo, "rev-list", "--count", "HEAD").trim();
+    claudeWrites("half-written.md", "Half a thought.\n");
+    writeFileSync(join(repo, "draft.md"), "the person's own, uncommitted");
+    // THE MUTANT: the clean check — with the commit of Claude's leftovers in it — ahead of the empty check.
+    expect(await repos.writeBatch(P, new Map([["notes.md", "n\n"]]), "Again")).toMatchObject({ changed: false, sha: null });
+    expect(git(repo, "rev-list", "--count", "HEAD").trim()).toBe(before);
+    expect(status(repo)).toBe("?? draft.md\n?? spaces/realm/half-written.md\n");
+  });
+
+  it("plans a save on top of what Claude left, so the root link that commit adds stays", async () => {
+    const { repos, repo, claudeWrites } = await made();
+    claudeWrites("uses-pnpm.md", "The repo uses pnpm.\n");
+    claudeWrites("MEMORY.md", "- [uses-pnpm](uses-pnpm.md) — the repo uses pnpm\n");
+    expect(readFileSync(join(repo, "MEMORY.md"), "utf8")).not.toContain("spaces/realm");
+    await repos.saveSpaceMemory(OTHER, { name: "deploys", description: "Deploys go out on Fridays", type: "project", body: "" });
+    const root = readFileSync(join(repo, "MEMORY.md"), "utf8");
+    // THE MUTANT: plan first, then commit what Claude left — the link that commit adds is written over.
+    expect(root).toContain("- [[spaces/realm/MEMORY]]");
+    expect(root).toContain("- [[spaces/stora/MEMORY]]");
+    expect(subjects(repo, 2)).toEqual(["Remember deploys", "Save memory Claude left uncommitted"]);
+    expect(status(repo)).toBe("");
+  });
+
   it("keeps the rule whole for anything else, and in a team's repo", async () => {
     const { repos, repo, settings } = await made();
     writeFileSync(join(repo, "draft.md"), "mine");
@@ -118,6 +144,6 @@ describe("Claude's uncommitted memory never wedges a save", () => {
     writeFileSync(join(teamRepo, "spaces", "notes.md"), "a teammate's, uncommitted");
     // A team repo is written only through the tools: nothing of anyone's is committed on their behalf.
     await expect(repos.edit(team, { op: "add", entry: "Ships Fridays", sessionId: SESSION })).rejects.toMatchObject({ code: "MEMORY_REPO_DIRTY" });
-    expect(settings.get(`memory.spaceFolder:${SPACE}`)).toBe("realm");
+    expect(settings.get(`memory.spaceFolder:${SPACE}`)).toEqual({ folder: "realm", profileId: PROFILE });
   });
 });

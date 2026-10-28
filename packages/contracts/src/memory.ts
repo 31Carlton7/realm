@@ -281,6 +281,9 @@ export const MemoryClaudeBackfillSchema = z.object({
   imported: z.number(),
   /** Copies brought up to date because the file changed only in Claude's folder. */
   updated: z.number(),
+  /** Copies taken out of a folder their project no longer goes to: it was placed somewhere else by
+   *  hand, or left out. Only copies nobody changed since they were copied; a changed one is in `skipped`. */
+  removed: z.number(),
   /** Every file of Claude's memory this profile's space folders hold a copy of. */
   total: z.number(),
   /** Claude projects no space claims, or more than one does, and nobody has placed — with why, never

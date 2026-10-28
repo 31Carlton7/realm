@@ -248,6 +248,20 @@ describe("bringing in Claude's own memory", () => {
     expect(await h.run()).toMatchObject({ imported: 1, error: null });
   });
 
+  it("touches nothing on a check with nothing to bring in: a file Claude is writing waits, and someone's changes are no error", async () => {
+    const h = await harness();
+    h.claudeKept(h.realmDir, "a.md", "a\n");
+    await h.run();
+    const before = commits(h.repo);
+    writeFileSync(join(h.repo, "spaces", "realm", "half-written.md"), "Claude, mid-turn.\n");
+    writeFileSync(join(h.repo, "draft.md"), "the person's own");
+    // THE MUTANT: the clean check ahead of the empty check — every five minutes, an error on the row,
+    // or Claude's half-written file committed under somebody else's message.
+    expect(await h.run()).toMatchObject({ imported: 0, updated: 0, error: null });
+    expect(commits(h.repo)).toBe(before);
+    expect(git(h.repo, "status", "--porcelain")).toBe("?? draft.md\n?? spaces/realm/half-written.md\n");
+  });
+
   it("lists a file left out once per version of it: once the page has shown it, not again until it changes", async () => {
     const h = await harness();
     h.claudeKept(h.realmDir, "keys.md", `staging key ${KEY}\n`);
@@ -323,9 +337,11 @@ describe("placing a Claude project by hand", () => {
       return projectOf(cwd);
     };
     const run = async () => { await backfill.run(); return backfill.result(PROFILE); };
-    return { home, settings, repo, realmDir, shared, spaces, claudeKept, run, backfill, hold };
+    return { home, settings, repos, repo, realmDir, shared, spaces, claudeKept, run, backfill, hold };
   }
   const has = (repo: string, rel: string): boolean => existsSync(join(repo, rel));
+  const commits = (repo: string): number => Number(git(repo, "rev-list", "--count", "HEAD").trim());
+  const subject = (repo: string): string => git(repo, "log", "-1", "--format=%s").trim();
 
   it("brings a project two spaces share into the one chosen for it, over the tie", async () => {
     const h = await harness();
@@ -407,6 +423,72 @@ describe("placing a Claude project by hand", () => {
     await first;
     // THE MUTANT: join the run already going — its plan never heard of the choice.
     expect(await chosen).toMatchObject({ unmatched: [], chosen: [{ project, spaceId: STORA }] });
+    expect(has(h.repo, "spaces/stora/a.md")).toBe(true);
+  });
+
+  it("takes a re-placed project's copies out of the space it was in, with their index lines, in the same commit", async () => {
+    const h = await harness();
+    const project = h.claudeKept(h.shared, { "deploys.md": "Deploys on Fridays.\n", "ports.md": "Ports from 8790.\n", "MEMORY.md": "- [deploys](deploys.md) — Fridays\n- [ports](ports.md) — the port map\n" });
+    await h.backfill.choose(PROFILE, project, REALM);
+    // Realm's own memory sits beside the copies, and stays.
+    await h.repos.saveSpaceMemory(REALM, { name: "own", description: "Realm's own", type: "project", body: "" });
+    const before = commits(h.repo);
+    const moved = await h.backfill.choose(PROFILE, project, STORA);
+    // THE MUTANT: copy into the new space and leave the old one as it was — the fact twice, forever.
+    expect(moved).toMatchObject({ imported: 2, removed: 2, skipped: [] });
+    expect(commits(h.repo)).toBe(before + 1);
+    expect(subject(h.repo)).toBe("Bring in memory Claude kept outside Realm, and take Claude's memory out of a space it no longer goes in");
+    expect([has(h.repo, "spaces/realm/deploys.md"), has(h.repo, "spaces/realm/ports.md"), has(h.repo, "spaces/stora/deploys.md")]).toEqual([false, false, true]);
+    expect(readFileSync(join(h.repo, "spaces", "realm", "MEMORY.md"), "utf8")).toBe("- [own](own.md) — Realm's own\n");
+    // Left out: its copies leave Stora too, and Stora's folder — nothing else in it — goes with its root link.
+    const left = await h.backfill.choose(PROFILE, project, "skip");
+    expect(left).toMatchObject({ imported: 0, removed: 2 });
+    expect(subject(h.repo)).toBe("Take Claude's memory out of a space it no longer goes in");
+    expect(has(h.repo, "spaces/stora")).toBe(false);
+    const root = readFileSync(join(h.repo, "MEMORY.md"), "utf8");
+    expect(root).not.toContain("spaces/stora");
+    expect(root).toContain("- [[spaces/realm/MEMORY]]");
+    expect(git(h.repo, "status", "--porcelain")).toBe("");
+  });
+
+  it("leaves a copy changed since it was copied where it is, and says so", async () => {
+    const h = await harness();
+    const project = h.claudeKept(h.shared, { "a.md": "a\n", "b.md": "b\n" });
+    await h.backfill.choose(PROFILE, project, REALM);
+    await h.repos.writeBatch(P, new Map([["spaces/realm/a.md", "a, edited in Realm\n"]]), "Edit a");
+    const moved = await h.backfill.choose(PROFILE, project, STORA);
+    // THE MUTANT: take every copy out, changed or not — what someone wrote in Realm is lost.
+    expect(readFileSync(join(h.repo, "spaces", "realm", "a.md"), "utf8")).toBe("a, edited in Realm\n");
+    expect(has(h.repo, "spaces/realm/b.md")).toBe(false);
+    expect(moved.removed).toBe(1);
+    expect(moved.skipped).toEqual([{ file: join(h.repo, "spaces", "realm", "a.md"), reason: "it has changed since it was copied, so it stays in spaces/realm" }]);
+    // Said once: the page was handed it, so the next check leaves it off.
+    expect((await h.run()).skipped).toEqual([]);
+    expect(has(h.repo, "spaces/realm/a.md")).toBe(true);
+  });
+
+  it("never takes out the copies of a project nobody placed", async () => {
+    const h = await harness();
+    const project = h.claudeKept(h.realmDir, { "a.md": "a\n" });
+    await h.run();
+    expect(has(h.repo, "spaces/realm/a.md")).toBe(true);
+    // A second space comes to work in the same folder: the project no longer matches one space by itself.
+    h.spaces[1] = { ...h.spaces[1]!, paths: [...h.spaces[1]!.paths, h.realmDir] };
+    const r = await h.run();
+    // THE MUTANT: take out every copy of a project not placed right now — matching changing is no choice.
+    expect(r.unmatched.map((u) => u.project)).toEqual([project]);
+    expect(r.removed).toBe(0);
+    expect(has(h.repo, "spaces/realm/a.md")).toBe(true);
+  });
+
+  it("keeps the copies a space's old repo has when the space moves to another profile", async () => {
+    const h = await harness();
+    const project = h.claudeKept(h.shared, { "a.md": "a\n" });
+    await h.backfill.choose(PROFILE, project, STORA);
+    h.spaces[1] = { ...h.spaces[1]!, profileId: SCHOOL };
+    const r = await h.run();
+    // The choice did not change; its space went elsewhere. The repo it left is left as it was.
+    expect(r.removed).toBe(0);
     expect(has(h.repo, "spaces/stora/a.md")).toBe(true);
   });
 });

@@ -322,7 +322,7 @@ describe("ProfilePage · Memory repo sync", () => {
 
 describe("ProfilePage · Claude memory", () => {
   const openMemory = () => fireEvent.click(screen.getByRole("radio", { name: "Memory" }));
-  const ran = { imported: 0, updated: 0, total: 0, unmatched: [], chosen: [], skipped: [], error: null, sha: null, at: Date.now() - 60_000 };
+  const ran = { imported: 0, updated: 0, removed: 0, total: 0, unmatched: [], chosen: [], skipped: [], error: null, sha: null, at: Date.now() - 60_000 };
   const spaces = [space("s1", "p1", "Versed"), space("s3", "p1", "Side project"), space("s2", "p2", "Homework")];
   const big = { project: "-Users-me-code-stora-platform", path: "/Users/me/code/stora-platform", files: 80, reason: "no space works in that folder" };
   const small = { project: "-Users-me-code-clubology", path: null, files: 1, reason: "Versed and Side project both work there" };
@@ -376,18 +376,19 @@ describe("ProfilePage · Claude memory", () => {
     expect((screen.getByRole("combobox", { name: "Where the memory of code/stora-platform goes" }) as HTMLSelectElement).value).toBe("s3");
   });
 
-  it("leaves a project out on asking, and says so on its select", async () => {
+  it("leaves a project out on asking, says so on its select, and says what came out of the space it was in", async () => {
     const { api } = await mount({
       spaces, memoryRepos: { p1: fakeMemoryRepo() },
       claudeBackfills: { p1: {
-        last: { ...ran, unmatched: [small] },
-        placed: { ...ran, chosen: [{ project: small.project, path: null, files: 1, spaceId: null }] },
+        last: { ...ran, total: 1, chosen: [{ project: small.project, path: null, files: 1, spaceId: "s1" }] },
+        placed: { ...ran, removed: 1, sha: "f00dfeed", chosen: [{ project: small.project, path: null, files: 1, spaceId: null }] },
       } },
     });
     openMemory();
     fireEvent.change(await screen.findByRole("combobox", { name: "Where the memory of -Users-me-code-clubology goes" }), { target: { value: "skip" } });
     await waitFor(() => expect(api.calls).toContain("setClaudeProject:p1:-Users-me-code-clubology:skip"));
-    expect(await screen.findByText("Placed by hand.")).toBeInTheDocument();
+    expect(await screen.findByText("None of this profile's spaces has memory Claude kept outside Realm. It took 1 copy out of a space it no longer goes in.")).toBeInTheDocument();
+    expect(screen.getByText("Placed by hand.")).toBeInTheDocument();
     expect((screen.getByRole("combobox", { name: "Where the memory of -Users-me-code-clubology goes" }) as HTMLSelectElement).value).toBe("skip");
   });
 

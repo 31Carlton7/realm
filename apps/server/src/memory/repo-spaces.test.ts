@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import type { Environment } from "@realm/contracts";
@@ -47,7 +47,7 @@ describe("MemoryRepoService.spaceFolderFor", () => {
     const { repos, repo, settings } = await made();
     const at = repos.spaceFolderFor(SPACE)!;
     expect(at).toEqual({ owner: P, repoPath: repo, folder: "realm", dir: join(repo, "spaces", "realm") });
-    expect(settings.get(`memory.spaceFolder:${SPACE}`)).toBe("realm");
+    expect(settings.get(`memory.spaceFolder:${SPACE}`)).toEqual({ folder: "realm", profileId: PROFILE });
     expect(existsSync(at.dir)).toBe(false);
     expect(status(repo)).toBe("");
   });
@@ -196,3 +196,101 @@ describe("the index a session reads, by agent", () => {
     expect(claude).not.toContain("rather than in any memory file of your own");
   });
 });
+
+describe("a space moved to another profile", () => {
+  const WORK = "01ARZ3NDEKTSV4RRFFQ69G5FPW";
+  const SCHOOL = "01ARZ3NDEKTSV4RRFFQ69G5FPS";
+  const WORK_GENERAL = "01ARZ3NDEKTSV4RRFFQ69G5FWG";
+  const SCHOOL_GENERAL = "01ARZ3NDEKTSV4RRFFQ69G5FSG";
+  /** Two profiles with a repo each, and a space called General in both — the owner's own case. */
+  async function twoProfiles() {
+    const home = tempDir("realm-memmove-");
+    const settings = new SettingsStore(openDatabase(join(home, "realm.db")));
+    const profileOf: Record<string, string> = { [WORK_GENERAL]: WORK, [SCHOOL_GENERAL]: SCHOOL };
+    const repos = new MemoryRepoService({
+      home, settings,
+      scopes: {
+        profileIdOf: (s) => profileOf[s] ?? null,
+        spaceIdsOf: (p) => Object.keys(profileOf).filter((s) => profileOf[s] === p),
+        spaceNameOf: () => "General",
+      },
+      committerName: async () => "Tester",
+    });
+    const work = (await repos.create({ scope: "profile", id: WORK })).path;
+    const school = (await repos.create({ scope: "profile", id: SCHOOL })).path;
+    return { settings, repos, work, school, moveToWork: () => { profileOf[SCHOOL_GENERAL] = WORK; } };
+  }
+
+  it("takes a folder of its own in the new profile's repo, with its memory, and leaves the old repo as it was", async () => {
+    const h = await twoProfiles();
+    await h.repos.saveSpaceMemory(WORK_GENERAL, { name: "ports", description: "The port map", type: "project", body: "From 8790." });
+    await h.repos.saveSpaceMemory(SCHOOL_GENERAL, { name: "deadlines", description: "When the essays are due", type: "project", body: "Fridays." });
+    const schoolHead = git(h.school, "rev-parse", "HEAD");
+    h.moveToWork();
+    // THE MUTANT: reuse the recorded name — both Generals in spaces/general, one memory directory for two spaces.
+    expect(h.repos.spaceFolderFor(SCHOOL_GENERAL)).toMatchObject({ folder: "general-2", dir: join(h.work, "spaces", "general-2") });
+    expect(h.repos.spaceFolderFor(WORK_GENERAL)!.folder).toBe("general");
+    const carried = await h.repos.followSpace(SCHOOL_GENERAL);
+    expect(carried).toMatchObject({ folder: "general-2", copied: ["deadlines.md"], left: [] });
+    expect(readFileSync(join(h.work, "spaces", "general-2", "deadlines.md"), "utf8")).toBe(readFileSync(join(h.school, "spaces", "general", "deadlines.md"), "utf8"));
+    expect(readFileSync(join(h.work, "spaces", "general-2", "MEMORY.md"), "utf8")).toBe("- [deadlines](deadlines.md) — When the essays are due\n");
+    expect(readFileSync(join(h.work, "MEMORY.md"), "utf8")).toContain("- [[spaces/general-2/MEMORY]]");
+    // One commit in the new repo; the other General's folder and the repo the space left are untouched.
+    expect(git(h.work, "log", "-1", "--format=%s").trim()).toBe("Carry the memory of General over from the profile it left");
+    expect(git(h.work, "show", "--name-only", "--format=", "HEAD").split("\n").filter(Boolean).sort()).toEqual(["MEMORY.md", "spaces/general-2/MEMORY.md", "spaces/general-2/deadlines.md"]);
+    expect(readdirSync(join(h.work, "spaces", "general")).sort()).toEqual(["MEMORY.md", "ports.md"]);
+    expect(git(h.school, "rev-parse", "HEAD")).toBe(schoolHead);
+    expect(git(h.school, "status", "--porcelain")).toBe("");
+    // Carried once: the record waits for nothing, and a second follow does nothing.
+    expect(h.settings.get(`memory.spaceFolder:${SCHOOL_GENERAL}`)).toEqual({ folder: "general-2", profileId: WORK });
+    expect(h.repos.carryPending(SCHOOL_GENERAL)).toBe(false);
+    expect(await h.repos.followSpace(SCHOOL_GENERAL)).toBeNull();
+  });
+
+  it("does not hand out a name another space of the new profile has recorded but not written yet", async () => {
+    const h = await twoProfiles();
+    expect(h.repos.spaceFolderFor(WORK_GENERAL)!.folder).toBe("general");
+    expect(h.repos.spaceFolderFor(SCHOOL_GENERAL)!.folder).toBe("general");
+    h.moveToWork();
+    // THE MUTANT: read only the old bare-name records — Work's General, recorded as { folder, profileId }, is not counted.
+    expect(h.repos.spaceFolderFor(SCHOOL_GENERAL)!.folder).toBe("general-2");
+  });
+
+  it("reads a folder recorded before the profile was kept with it, and keeps the profile with it from then on", async () => {
+    const h = await twoProfiles();
+    h.settings.set(`memory.spaceFolder:${WORK_GENERAL}`, "general-notes");
+    // THE MUTANT: a bare name read as no record — the space would take a new folder and lose sight of its memory.
+    expect(h.repos.spaceFolderFor(WORK_GENERAL)!.folder).toBe("general-notes");
+    expect(h.settings.get(`memory.spaceFolder:${WORK_GENERAL}`)).toEqual({ folder: "general-notes", profileId: WORK });
+    expect(h.repos.hasSpaceFolder(WORK_GENERAL)).toBe(true);
+    expect(h.repos.carryPending(WORK_GENERAL)).toBe(false);
+  });
+
+  it("lets the tidy pass see only a folder recorded in the space's own profile", async () => {
+    const h = await twoProfiles();
+    expect(h.repos.hasSpaceFolder(SCHOOL_GENERAL)).toBe(false);
+    h.repos.spaceFolderFor(SCHOOL_GENERAL);
+    expect(h.repos.hasSpaceFolder(SCHOOL_GENERAL)).toBe(true);
+    h.moveToWork();
+    // THE MUTANT: any record counts — the pass would ask for a moved space's folder and allocate it one.
+    expect(h.repos.hasSpaceFolder(SCHOOL_GENERAL)).toBe(false);
+    expect(h.repos.carryPending(SCHOOL_GENERAL)).toBe(true);
+    await h.repos.followSpace(SCHOOL_GENERAL);
+    expect(h.repos.hasSpaceFolder(SCHOOL_GENERAL)).toBe(true);
+  });
+
+  it("waits to carry a moved space's memory while the new repo has someone's changes, and carries it once it is clean", async () => {
+    const h = await twoProfiles();
+    await h.repos.saveSpaceMemory(SCHOOL_GENERAL, { name: "deadlines", description: "When the essays are due", type: "project", body: "" });
+    h.moveToWork();
+    writeFileSync(join(h.work, "draft.md"), "the person's own");
+    await expect(h.repos.followSpace(SCHOOL_GENERAL)).rejects.toMatchObject({ code: "MEMORY_REPO_DIRTY" });
+    // The new folder is the space's already; only the copy waits.
+    expect(h.repos.spaceFolderFor(SCHOOL_GENERAL)!.folder).toBe("general");
+    expect(h.repos.carryPending(SCHOOL_GENERAL)).toBe(true);
+    rmSync(join(h.work, "draft.md"));
+    expect(await h.repos.followSpace(SCHOOL_GENERAL)).toMatchObject({ copied: ["deadlines.md"] });
+    expect(h.repos.carryPending(SCHOOL_GENERAL)).toBe(false);
+  });
+});
+

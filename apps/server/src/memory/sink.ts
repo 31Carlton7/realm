@@ -26,6 +26,8 @@ export interface MemorySink {
 }
 
 /** Where the store records a space's folder once it has chosen one (the batch's design: settings
- *  `memory.spaceFolder:<spaceId>`). The tidy pass reads it to find the folders that exist without
- *  asking `spaceFolderFor`, which would allocate one for every space it was asked about. */
+ *  `memory.spaceFolder:<spaceId>`), as `{ folder, profileId }` — a bare folder name in a record made
+ *  before the profile was kept with it. The tidy pass asks `MemoryRepoService.hasSpaceFolder`, which
+ *  reads it, to find the folders that exist without asking `spaceFolderFor`, which would allocate one
+ *  for every space it was asked about — and a new one for a space moved from another profile. */
 export const spaceFolderSettingKey = (spaceId: string): string => `memory.spaceFolder:${spaceId}`;
