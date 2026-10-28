@@ -748,7 +748,10 @@ ScheduledTask {
   task that continues one session refuses another run while its last is still going (`FORBIDDEN`).
 
 **A session's screens are its space's.** `session.screens` lists every simulator and machine the
-session's space has open on the Mac: each a pane with a screen in it, whichever session opened it.
+session's space has open on the Mac: each a pane with a screen in it, whichever session opened it. A
+Mac app (a machine that shows an app on the Mac itself) is left out: a picture of one is a snapshot of
+the app by the helper an agent's computer use acts through, which keeps one snapshot per app, so a
+phone watching it would leave the agent's own snapshot stale.
 
 ```
 Screen {
@@ -756,10 +759,10 @@ Screen {
   kind: "simulator"|"machine",
   name,                      what its pane is called: its sidebar row's title ("iPhone 17 Pro")
   detail?: string,           what it is, in words: "iOS Simulator", "Android emulator", "Your iPhone" or
-                             "Your iPad" for a real one on the Mac's cable; "Mac app", "Remote screen",
-                             "Virtual machine" for a machine
+                             "Your iPad" for a real one on the Mac's cable; "Remote screen" or "Virtual
+                             machine" for a machine
   live: bool                 there is a picture to take now: the simulator's pane is showing pixels, the
-                             machine is running (connected, booted, or for a Mac app, started)
+                             machine is running (connected, or booted)
 }
 ```
 
@@ -771,9 +774,10 @@ Screen {
   more at seven tenths of the side; a phone's screen at 1000 is usually well under that. `width` and
   `height` are the JPEG's own; `capturedAt` is when the Mac took it.
 - **Only its own space's**: a screen that is not one `session.screens` lists for that session, or is
-  listed under the other kind, is `NOT_FOUND`, exactly as one that never existed. One that is not live
-  is `FORBIDDEN`, and so is a live one the Mac could not capture just then (a phone's runner not
-  answering, an app with no window open), each in the Mac's words.
+  listed under the other kind, is `NOT_FOUND`, exactly as one that never existed; a Mac app in the
+  session's own space is `FORBIDDEN`, as one that is not live. One that is not live is `FORBIDDEN`,
+  and so is a live one the Mac could not capture just then (a phone's runner not answering), each in
+  the Mac's words.
 - **Polled**, about once a second or two while the phone's viewer is open. The Mac takes a picture for
   each call, through the same capture an agent's look takes, and keeps nothing of it: the capture is
   written to a folder of its own under the system's temporary folder for `sips` to read, and removed

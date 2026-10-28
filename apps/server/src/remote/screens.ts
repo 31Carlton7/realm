@@ -7,8 +7,9 @@ import type { Downscale } from "./preview";
 
 /**
  * What a phone is shown of the screens a session's space has open (`session.screens`, `session.screen`):
- * each simulator and machine named as its pane is, and a picture of one made small. Which screen may be
- * pictured is not decided here: the caller has found it in the session's own space and seen it live.
+ * each simulator and machine named as its pane is, but a Mac app (`phoneMayWatch`), and a picture of one
+ * made small. Which screen may be pictured is not decided here: the caller has found it in the session's
+ * own space and seen it live.
  *
  * A frame is polled every second or two while the phone's viewer is open, so it is bounded on every
  * side: a JPEG at most the side asked for (a simulator's home screen at 1000 px is about 50 KB), made
@@ -38,6 +39,15 @@ export function simulatorScreen(row: Simulator, state: SimulatorState | undefine
 export function machineScreen(row: Machine, state: MachineState | undefined, name: string): Screen {
   return { id: row.id, kind: "machine", name, detail: MACHINE_WORDS[row.source], live: state?.status === "running" };
 }
+
+/**
+ * A machine a phone may watch: not a Mac app (`mac`), in 2.6.1. A picture of one is a whole accessibility
+ * snapshot of the app on the computer-use helper, which keeps one snapshot per app — so a phone watching
+ * it would leave an agent's `computer_snapshot` of that app stale before its `computer_act` — and the
+ * machine counts as running from its Start to its Stop, archived or not, whether or not anything on the
+ * Mac is showing the app.
+ */
+export const phoneMayWatch = (row: Machine): boolean => row.source !== "mac";
 
 /** The live first, then by name as a person reads a list, then by id, so two reads of it agree. */
 export const screenOrder = (a: Screen, b: Screen): number =>

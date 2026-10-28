@@ -1309,7 +1309,7 @@ describe("Scheduled", () => {
 
 describe("session.screens and session.screen", () => {
   /** Space s1 holds a phone, an emulator, a renamed simulator, this Mac's TextEdit, a Mac at an address
-   *  still connecting and a guest that is off; s2 holds one simulator of its own. */
+   *  connected, one still connecting and a guest that is off; s2 holds one simulator of its own. */
   const sims = [
     simulator("sim-pro", "s1", "iPhone 17 Pro"),
     simulator("sim-pixel", "s1", "Pixel 9", { platform: "android" }),
@@ -1319,8 +1319,9 @@ describe("session.screens and session.screen", () => {
   ];
   const simStates = [simulatorState("sim-pro", "running"), simulatorState("sim-pixel", "off"), simulatorState("sim-phone", "running"),
     simulatorState("sim-renamed", "serving"), simulatorState("sim-other", "running")];
-  const machines = [machine("m-textedit", "s1", "TextEdit", "mac"), machine("m-studio", "s1", "Studio", "vnc"), machine("m-debian", "s1", "Debian", "qemu")];
-  const machineStates = [machineState("m-textedit", "running"), machineState("m-studio", "booting"), machineState("m-debian", "off")];
+  const machines = [machine("m-textedit", "s1", "TextEdit", "mac"), machine("m-mini", "s1", "Mac mini", "vnc"), machine("m-studio", "s1", "Studio", "vnc"),
+    machine("m-debian", "s1", "Debian", "qemu")];
+  const machineStates = [machineState("m-textedit", "running"), machineState("m-mini", "running"), machineState("m-studio", "booting"), machineState("m-debian", "off")];
   const items = [item("sim-renamed", "s1", "Checkout flow", { kind: "simulator" }), item("m-textedit", "s1", "TextEdit", { kind: "machine" })];
 
   function rig(o: { capture?: (p: { simulatorId: string }) => unknown; machineCapture?: (p: { machineId: string }) => unknown } = {}) {
@@ -1329,7 +1330,7 @@ describe("session.screens and session.screen", () => {
       "machines.list": ((p: { spaceId: string }) => ({ machines: machines.filter((x) => x.spaceId === p.spaceId), states: machineStates })) as never,
       "items.list": ((p: { spaceId: string }) => items.filter((it) => it.spaceId === p.spaceId)) as never,
       "simulators.capture": (o.capture ?? (() => ({ data: pngHeader(1206, 2622).toString("base64"), mimeType: "image/png", width: 1206, height: 2622 }))) as never,
-      // A mac machine's frame is the helper's JPEG, at the window's size in points.
+      // A machine's frame: a JPEG, at a size the machine reports that is not the picture's.
       "machines.capture": (o.machineCapture ?? (() => ({ data: jpegHeader(1600, 1000).toString("base64"), mimeType: "image/jpeg", width: 800, height: 500 }))) as never,
     });
   }
@@ -1345,13 +1346,17 @@ describe("session.screens and session.screen", () => {
   }
   const captures = (asked: [string, unknown][]) => asked.filter(([m]) => m.endsWith(".capture"));
 
-  it("lists every simulator and machine in the session's space, live ones first, then by name, each said in words", async () => {
+  it("lists every simulator and machine in the session's space but a Mac app, live ones first, then by name, each said in words", async () => {
     const got = await attempt(api(), rig().rpc, "session.screens", { id: "in-s1" });
     if (!got.ok) throw new Error(got.message);
-    expect(MobileCalls["session.screens"].result.parse(got.result).screens).toEqual([
+    const { screens } = MobileCalls["session.screens"].result.parse(got.result);
+    // This Mac's TextEdit is started, but a phone is not shown a Mac app in 2.6.1 (`phoneMayWatch`).
+    // THE MUTANT: list every machine in the space.
+    expect(screens.map((s) => s.id)).not.toContain("m-textedit");
+    expect(screens).toEqual([
       { id: "sim-phone", kind: "simulator", name: "Carlton's iPhone", detail: "Your iPhone", live: true },
       { id: "sim-pro", kind: "simulator", name: "iPhone 17 Pro", detail: "iOS Simulator", live: true },
-      { id: "m-textedit", kind: "machine", name: "TextEdit", detail: "Mac app", live: true },
+      { id: "m-mini", kind: "machine", name: "Mac mini", detail: "Remote screen", live: true },
       // Renamed in the sidebar: the pane is called what its row is called. Serving is not yet a picture.
       { id: "sim-renamed", kind: "simulator", name: "Checkout flow", detail: "iOS Simulator", live: false },
       { id: "m-debian", kind: "machine", name: "Debian", detail: "Virtual machine", live: false },
@@ -1383,9 +1388,9 @@ describe("session.screens and session.screen", () => {
     // THE MUTANT: leave the capture behind. A frame every second or two would fill the folder.
     expect(existsSync(dirname(path))).toBe(false);
 
-    // A mac machine's frame is the helper's JPEG, read as one; its size is the frame's, never the window's points.
+    // A machine's frame may be a JPEG, read as one; its size is the frame's, never the one the machine reported.
     const mac = shrinking(() => jpegHeader(1000, 625));
-    expect(await attempt(api(mac.downscale), rig().rpc, "session.screen", { id: "in-s1", screenId: "m-textedit", kind: "machine" }))
+    expect(await attempt(api(mac.downscale), rig().rpc, "session.screen", { id: "in-s1", screenId: "m-mini", kind: "machine" }))
       .toMatchObject({ ok: true, result: { width: 1000, height: 625 } });
     expect(mac.asked[0]!.path.endsWith(".jpg")).toBe(true);
   });
@@ -1417,6 +1422,12 @@ describe("session.screens and session.screen", () => {
     expect(await attempt(a, rpc, "session.screen", { id: "in-s1", screenId: "m-textedit", kind: "simulator" })).toMatchObject({ ok: false, code: "NOT_FOUND" });
     expect(await attempt(a, rpc, "session.screen", { id: "in-s1", screenId: "sim-pixel", kind: "simulator" })).toEqual({ ok: false, code: "FORBIDDEN", message: "Pixel 9 is not running on the Mac." });
     expect(await attempt(a, rpc, "session.screen", { id: "in-s1", screenId: "m-studio", kind: "machine" })).toMatchObject({ ok: false, code: "FORBIDDEN" });
+    // A Mac app, though started, is refused as one that is not live: each frame of one would be a whole
+    // snapshot on the helper an agent acts through. THE MUTANT: picture it because it is running.
+    expect(await attempt(a, rpc, "session.screen", { id: "in-s1", screenId: "m-textedit", kind: "machine" }))
+      .toEqual({ ok: false, code: "FORBIDDEN", message: "TextEdit is an app on the Mac, and Realm does not show a Mac app's screen on a phone." });
+    // …and in another space's session it is not found, as one that never was.
+    expect(await attempt(a, rpc, "session.screen", { id: "in-s2", screenId: "m-textedit", kind: "machine" })).toMatchObject({ ok: false, code: "NOT_FOUND" });
     expect(captures(asked)).toEqual([]);
     expect(small.asked).toEqual([]);
   });
@@ -1425,11 +1436,11 @@ describe("session.screens and session.screen", () => {
     const stalled = rig({ capture: () => { throw new RpcCallError("UNAVAILABLE", "the device's runner is not answering"); } });
     expect(await attempt(api(shrinking().downscale), stalled.rpc, "session.screen", { id: "in-s1", screenId: "sim-phone", kind: "simulator" }))
       .toEqual({ ok: false, code: "FORBIDDEN", message: "the device's runner is not answering" });
-    const windowless = rig({ machineCapture: () => { throw new Error("macOS did not return an image. Screen Recording may not be granted, or that app may have no windows open."); } });
-    expect(await attempt(api(shrinking().downscale), windowless.rpc, "session.screen", { id: "in-s1", screenId: "m-textedit", kind: "machine" }))
-      .toMatchObject({ ok: false, code: "FORBIDDEN", message: expect.stringContaining("no windows open") });
+    const driverless = rig({ machineCapture: () => { throw new RpcCallError("NOT_FOUND", "that machine has nothing to capture"); } });
+    expect(await attempt(api(shrinking().downscale), driverless.rpc, "session.screen", { id: "in-s1", screenId: "m-mini", kind: "machine" }))
+      .toEqual({ ok: false, code: "FORBIDDEN", message: "that machine has nothing to capture" });
     const empty = rig({ machineCapture: () => ({ data: null, mimeType: "image/jpeg", width: 0, height: 0 }) });
-    expect(await attempt(api(shrinking().downscale), empty.rpc, "session.screen", { id: "in-s1", screenId: "m-textedit", kind: "machine" }))
+    expect(await attempt(api(shrinking().downscale), empty.rpc, "session.screen", { id: "in-s1", screenId: "m-mini", kind: "machine" }))
       .toMatchObject({ ok: false, code: "FORBIDDEN" });
     // Bytes that are no picture are not handed to `sips`, and a frame that comes back no JPEG is not sent.
     const garbled = rig({ capture: () => ({ data: Buffer.from("not a picture").toString("base64"), mimeType: "image/png", width: 0, height: 0 }) });

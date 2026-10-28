@@ -3094,10 +3094,10 @@
           "live": true
         },
         {
-          "id": "01JMACHINE0000000000000001",
+          "id": "01JMACHINE0000000000000003",
           "kind": "machine",
-          "name": "TextEdit",
-          "detail": "Mac app",
+          "name": "Studio",
+          "detail": "Remote screen",
           "live": true
         },
         {

@@ -3,31 +3,26 @@
  *
  * Boots the BUILT server on a scratch home (fake agent, so no billed calls), with the relay's core on a
  * local port and a TypeScript phone paired through Settings' own calls, as mobile-server-live does. A
- * socket stands in for Electron main: it hands over the `remote` key, and answers a `mac` machine's
- * `machineCaptureOnce` with a real picture (`--picture <png>`, a device frame by default) — so the
- * frame goes through the bundle's own `machines.capture`, `MobileApi`, `sips` and the gateway's Noise
- * framing to the phone. No simulator is booted, started or captured: the one listed has a udid no
- * device has. The frame the phone got is written to `--out <jpg>` when given.
- * Needs `pnpm build` first. Touches only a scratch home; kills only what it started.
+ * socket stands in for Electron main: it hands over the `remote` key, and would answer a `mac` machine's
+ * `machineCaptureOnce` with a picture — which, a Mac app being held back from a phone in 2.6.1, the
+ * server must never ask it for. No simulator is booted, started or captured: the one listed has a udid
+ * no device has. Needs `pnpm build` first. Touches only a scratch home; kills only what it started.
  */
 import { randomBytes } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { REMOTE_RELAY_KEY, type EventName, type EventPayload } from "@realm/contracts";
 import type { MobileResult } from "@realm/remote";
 import { startLocalRelay } from "@realm/relay/src/node";
 import { finish, ok } from "./harness";
-import { bootServer, ms, quantile, removeHome, repoRoot } from "./lib/mobile-rig";
+import { bootServer, removeHome, repoRoot } from "./lib/mobile-rig";
 import { loopbackRpc, type RpcPort } from "../src/remote/rpc-port";
-import { jpegSize } from "../src/remote/screens";
 import { PhoneCallError, TestPhone } from "../src/remote/test-phone";
 
 if (!existsSync(join(repoRoot, "apps/server/dist/main.js"))) { console.error("build first: pnpm build"); process.exit(2); }
 
-const arg = (name: string): string | undefined => { const i = process.argv.indexOf(`--${name}`); return i >= 0 ? process.argv[i + 1] : undefined; };
-const picture = readFileSync(arg("picture") ?? join(repoRoot, "apps/desktop/src/renderer/src/assets/devices/ipad.png"));
-const out = arg("out");
+const picture = readFileSync(join(repoRoot, "apps/desktop/src/renderer/src/assets/devices/ipad.png"));
 
 const until = async (cond: () => boolean | Promise<boolean>, timeoutMs = 10_000): Promise<void> => {
   const end = Date.now() + timeoutMs;
@@ -82,27 +77,12 @@ try {
   const theirs = await mac.call("simulators.create", { spaceId: other.id, name: "iPad Air", udid: null });
 
   const { screens } = await phone.call<MobileResult<"session.screens">>("session.screens", { id: session.id });
-  ok("session.screens lists the space's screens, the live one first, each in words", JSON.stringify(screens) === JSON.stringify([
-    { id: app.machineId, kind: "machine", name: "TextEdit", detail: "Mac app", live: true },
+  ok("session.screens lists the space's screens but the Mac app, each in words", JSON.stringify(screens) === JSON.stringify([
     { id: sim.simulatorId, kind: "simulator", name: "iPhone 17 Pro", detail: "iOS Simulator", live: false },
     { id: studio.machineId, kind: "machine", name: "Studio", detail: "Remote screen", live: false },
   ]), JSON.stringify(screens.map((s) => [s.name, s.detail, s.live])));
-
-  const times: number[] = [];
-  let frame: MobileResult<"session.screen"> | null = null;
-  for (let i = 0; i < 5; i++) {
-    const t = performance.now();
-    frame = await phone.call<MobileResult<"session.screen">>("session.screen", { id: session.id, screenId: app.machineId, kind: "machine", maxSide: 1000 });
-    times.push(performance.now() - t);
-  }
-  const jpeg = Buffer.from(frame!.data, "base64");
-  const size = jpegSize(jpeg);
-  ok("session.screen sends the Mac app's frame as a JPEG through the bundle's own capture", frame!.mime === "image/jpeg" && captures.at(-1) === "com.apple.TextEdit" && size !== null);
-  ok("no longer than the side asked for, its size the JPEG's own", size !== null && Math.max(size.width, size.height) <= 1000 && size.width === frame!.width && size.height === frame!.height,
-    `${frame!.width}×${frame!.height}`);
-  ok("small enough to poll", jpeg.length <= 200 * 1024, `${(jpeg.length / 1024).toFixed(1)} KB from a ${(picture.length / 1024).toFixed(0)} KB capture; p50 ${ms(quantile(times, 0.5))}, max ${ms(Math.max(...times))}`);
-  ok("taken just now", Math.abs(Date.now() - frame!.capturedAt) < 10_000);
-  if (out) writeFileSync(out, jpeg);
+  ok("the Mac app, started, is refused as not live, and never captured",
+    await refusal(phone.call("session.screen", { id: session.id, screenId: app.machineId, kind: "machine", maxSide: 1000 })) === "FORBIDDEN" && captures.length === 0);
 
   ok("another space's screen is not found", await refusal(phone.call("session.screen", { id: session.id, screenId: theirs.simulatorId, kind: "simulator" })) === "NOT_FOUND");
   ok("nor is one named as the other kind", await refusal(phone.call("session.screen", { id: session.id, screenId: app.machineId, kind: "simulator" })) === "NOT_FOUND");

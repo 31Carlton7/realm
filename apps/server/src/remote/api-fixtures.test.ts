@@ -54,11 +54,13 @@ const BRIEF_RUN = "01JRUN00000000000000000001";
 const CI_RUN = "01JRUN00000000000000000002";
 const NOW_RUN = "01JRUN00000000000000000003";
 const BRIEF_SESSION = "01JBRIEF000000000000000000";
-/** The Realm space's screens: two simulators, this Mac's TextEdit and a guest that is off. */
+/** The Realm space's screens: two simulators, a Mac at an address, a guest that is off, and this Mac's
+ *  TextEdit, which a phone is not shown. */
 const SIM = "01JSIMULATOR00000000000001";
 const PHONE = "01JSIMULATOR00000000000002";
 const TEXTEDIT = "01JMACHINE0000000000000001";
 const GUEST = "01JMACHINE0000000000000002";
+const STUDIO = "01JMACHINE0000000000000003";
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 /** Far enough ahead that no window has reset whenever this runs, and far enough back that one has. */
@@ -312,8 +314,8 @@ async function generate(): Promise<Record<string, unknown>> {
       states: [simulatorState(SIM, "running"), simulatorState(PHONE, "off")],
     })) as never,
     "machines.list": ((p: { spaceId: string }) => (p.spaceId !== "sp1" ? { machines: [], states: [] } : {
-      machines: [machine(TEXTEDIT, "sp1", "TextEdit", "mac"), machine(GUEST, "sp1", "Ubuntu", "qemu")],
-      states: [machineState(TEXTEDIT, "running"), machineState(GUEST, "off")],
+      machines: [machine(TEXTEDIT, "sp1", "TextEdit", "mac"), machine(STUDIO, "sp1", "Studio", "vnc"), machine(GUEST, "sp1", "Ubuntu", "qemu")],
+      states: [machineState(TEXTEDIT, "running"), machineState(STUDIO, "running"), machineState(GUEST, "off")],
     })) as never,
     "simulators.capture": (() => ({ data: pngHeader(1206, 2622).toString("base64"), mimeType: "image/png", width: 1206, height: 2622 })) as never,
   });

@@ -3,7 +3,7 @@ import { realpath } from "node:fs/promises";
 import { join, sep } from "node:path";
 import {
   AGENT_META, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, isSecretPath, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, readEffortSupport,
-  resolveMidTurnMode, SELECTABLE_AGENT_KINDS, type AgentKind, type DelegatedChild, type IconAsset, type Item, type MethodResult, type ModelInfo,
+  resolveMidTurnMode, SELECTABLE_AGENT_KINDS, type AgentKind, type DelegatedChild, type IconAsset, type Item, type Machine, type MethodResult, type ModelInfo,
   type QueuedPrompt, type Schedule, type Session, type Space, type StoredSessionEvent, type TurnChanges,
 } from "@realm/contracts";
 import { givenAttachmentName, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
@@ -20,7 +20,7 @@ import { agentOptions, changesFor, ChoiceRefused, probeList, type InitFacts, typ
 import { filePreview, PreviewRefused, sipsDownscale, type Downscale } from "./preview";
 import { queuedMessage, SessionProjector } from "./rows";
 import { RpcCallError, type RpcPort } from "./rpc-port";
-import { frameSide, machineScreen, screenFrame, screenOrder, simulatorScreen } from "./screens";
+import { frameSide, machineScreen, phoneMayWatch, screenFrame, screenOrder, simulatorScreen } from "./screens";
 import { checkUploads, saveUploads, UploadRefused, type Upload } from "./uploads";
 import { everyPlan, monthStart, spend } from "./usage";
 import { isOpenReview, newestReviewFirst, reviewItem, reviewPictures, reviewSummary, scheduledTask } from "./work";
@@ -241,7 +241,7 @@ export class MobileApi {
         case "session.diff": return await this.diff(rpc, p.id as string, p.checkpointId as string, p.path as string, p.from as number);
         case "session.file": return await this.file(rpc, p.id as string, p.path as string);
         case "space.icon": return await this.spaceIcon(rpc, p.id as string);
-        case "session.screens": return { screens: (await this.screens(rpc, p.id as string)).sort(screenOrder) };
+        case "session.screens": return { screens: (await this.screens(rpc, p.id as string)).shown.sort(screenOrder) };
         case "session.screen": return await this.screen(rpc, p as MobileParams<"session.screen">);
         case "debug.report": {
           if (!this.o.dev) throw new MobileError("FORBIDDEN", "debug.report is for development builds");
@@ -689,24 +689,33 @@ export class MobileApi {
   }
 
   /** Every simulator and machine in the session's space, each named as its pane is: by its sidebar
-   *  row's title, which a rename changes, else by its own name. */
-  private async screens(rpc: RpcPort, id: string): Promise<Screen[]> {
+   *  row's title, which a rename changes, else by its own name. `shown` is what a phone may watch;
+   *  `held`, the Mac apps it may not (`phoneMayWatch`). */
+  private async screens(rpc: RpcPort, id: string): Promise<{ shown: Screen[]; held: Screen[] }> {
     const { spaceId } = await rpc.call("sessions.get", { id });
     const [sims, machines, items] = await Promise.all([
       rpc.call("simulators.list", { spaceId }), rpc.call("machines.list", { spaceId }), rpc.call("items.list", { spaceId }),
     ]);
     const titles = new Map(items.filter((it) => it.kind === "simulator" || it.kind === "machine").map((it) => [it.refId, it.title]));
-    return [
-      ...sims.simulators.map((s) => simulatorScreen(s, sims.states.find((st) => st.simulatorId === s.id), titles.get(s.id) || s.name)),
-      ...machines.machines.map((m) => machineScreen(m, machines.states.find((st) => st.machineId === m.id), titles.get(m.id) || m.name)),
-    ];
+    const machine = (m: Machine): Screen => machineScreen(m, machines.states.find((st) => st.machineId === m.id), titles.get(m.id) || m.name);
+    return {
+      shown: [
+        ...sims.simulators.map((s) => simulatorScreen(s, sims.states.find((st) => st.simulatorId === s.id), titles.get(s.id) || s.name)),
+        ...machines.machines.filter(phoneMayWatch).map(machine),
+      ],
+      held: machines.machines.filter((m) => !phoneMayWatch(m)).map(machine),
+    };
   }
 
   /** A picture of one of the session's screens as it is now, made small: only one `session.screens`
    *  lists for that session, and only while it is live. One of another space is not found, as one
-   *  that never was. */
+   *  that never was; a Mac app of its own space is refused, as one that is not live. */
   private async screen(rpc: RpcPort, p: MobileParams<"session.screen">): Promise<MobileResult<"session.screen">> {
-    const screen = (await this.screens(rpc, p.id)).find((s) => s.kind === p.kind && s.id === p.screenId);
+    const { shown, held } = await this.screens(rpc, p.id);
+    const named = (s: Screen) => s.kind === p.kind && s.id === p.screenId;
+    const app = held.find(named);
+    if (app) throw new MobileError("FORBIDDEN", `${app.name} is an app on the Mac, and Realm does not show a Mac app's screen on a phone.`);
+    const screen = shown.find(named);
     if (!screen) throw new MobileError("NOT_FOUND", "That screen is not open in this session's space.");
     if (!screen.live) throw new MobileError("FORBIDDEN", `${screen.name} is not running on the Mac.`);
     let shot: { data: string | null };
