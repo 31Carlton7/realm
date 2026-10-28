@@ -141,6 +141,16 @@ export class SessionService {
    *  `background_task` events' launching calls, until each says it stopped. An engine holding one is
    *  never idle: stopping it would stop them. */
   private background = new Map<string, Set<string>>();
+  /**
+   * Claude Code's own scheduling, which runs inside the engine and dies with it: `/loop`, `CronCreate`
+   * and `ScheduleWakeup`. No event says when one is due or done, so it is read off the calls: a cron
+   * created and not deleted holds the engine for the engine's life, and a wakeup holds it while the
+   * last turn to settle scheduled one (a loop schedules the next in every turn it wakes for).
+   */
+  private crons = new Map<string, number>();
+  private wakeups = new Set<string>();
+  /** Sessions whose turn in flight has scheduled a wakeup; read when the turn settles. */
+  private wakingTurn = new Set<string>();
   private reapTimer: ReturnType<typeof setInterval> | null = null;
   /**
    * Messages waiting for the current turn to end, oldest first, per session.
@@ -1284,7 +1294,27 @@ export class SessionService {
     if (this.turnStarted.has(id) || this.measuring.has(id) || this.forkInFlight.has(id) || this.rewindTurns.has(id)) return false;
     for (const a of this.asked.values()) if (a.sessionId === id) return false;
     if ((this.background.get(id)?.size ?? 0) > 0) return false;
+    if ((this.crons.get(id) ?? 0) > 0 || this.wakeups.has(id)) return false;
     return !(this.d.keepEngine?.(id) ?? false);
+  }
+
+  /** A call to one of the engine's own schedulers (`crons`), or a turn settling (`wakeups`). */
+  private noteScheduling(id: string, ev: SessionEvent): void {
+    if (ev.type === "tool_call") {
+      if (ev.payload.name === "CronCreate") this.crons.set(id, (this.crons.get(id) ?? 0) + 1);
+      else if (ev.payload.name === "CronDelete") { const n = (this.crons.get(id) ?? 0) - 1; if (n > 0) this.crons.set(id, n); else this.crons.delete(id); }
+      else if (ev.payload.name === "ScheduleWakeup") this.wakingTurn.add(id);
+    } else if (ev.type === "status" && ev.payload.status === "idle") {
+      if (this.wakingTurn.delete(id)) this.wakeups.add(id); else this.wakeups.delete(id);
+    }
+  }
+
+  /** The engine is gone, and everything it was holding went with it. */
+  private forgetHeld(id: string): void {
+    this.background.delete(id);
+    this.crons.delete(id);
+    this.wakeups.delete(id);
+    this.wakingTurn.delete(id);
   }
 
   private noteBackground(id: string, toolUseId: string, status: "running" | "stopped"): void {
@@ -1300,7 +1330,7 @@ export class SessionService {
     // `reaping` and then starts a fresh engine that resumes the conversation.
     this.live.delete(id);
     this.lastActive.delete(id);
-    this.background.delete(id);
+    this.forgetHeld(id);
     this.reapedHandles.add(l.handle);
     this.d.gateway.release(id);
     const done: Promise<void> = (async () => {
@@ -1789,7 +1819,7 @@ export class SessionService {
         }
       }
       catch (e) { console.error(`[sessions] pump failed for ${id}: ${e instanceof Error ? e.message : String(e)}`); }
-      finally { if (this.live.get(id)?.handle === handle) { this.live.delete(id); this.background.delete(id); this.d.gateway.release(id); } }
+      finally { if (this.live.get(id)?.handle === handle) { this.live.delete(id); this.forgetHeld(id); this.d.gateway.release(id); } }
     })();
     this.live.set(id, { handle, pump, skillsInjected: skills !== undefined, startedAt: Date.now() });
     this.lastActive.set(id, Date.now());
@@ -1982,6 +2012,7 @@ export class SessionService {
     if (ev.type === "permission_request" && ev.payload.ask) this.asked.set(ev.payload.requestId, { sessionId: id, card: ev.payload.ask });
     else if (ev.type === "permission_response") this.asked.delete(ev.payload.requestId);
     else if (ev.type === "background_task") this.noteBackground(id, ev.payload.toolUseId, ev.payload.status);
+    this.noteScheduling(id, ev);
     // BEFORE the status update below, so the hook sees the row's PREVIOUS status — a settle is a
     // transition, and only this side of the update still knows both ends of it.
     this.d.notifications?.handleSessionEvent(before, ev);

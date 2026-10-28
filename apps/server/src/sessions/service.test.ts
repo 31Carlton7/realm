@@ -445,6 +445,40 @@ describe("SessionService over rpc", () => {
     c.close();
   });
 
+  it("never stops an engine holding a cron it created, or whose last turn scheduled a wakeup — /loop lives in the engine", async () => {
+    // THE MUTANT: counting only background_task events. A `/loop` waiting for its next wake, or a cron
+    // set to run hourly, has no event on the wire; stopping the engine silently ends it.
+    const { c, sp } = await boot(new FakeAdapter({ script: [
+      { on: "addcron", emit: [{ kind: "tool", name: "CronCreate", input: { cron: "0 * * * *", prompt: "check the build" }, result: "job-1" }, { kind: "text", text: "scheduled" }] },
+      { on: "delcron", emit: [{ kind: "tool", name: "CronDelete", input: { id: "job-1" }, result: "deleted" }, { kind: "text", text: "done" }] },
+      { on: "wake", emit: [{ kind: "tool", name: "ScheduleWakeup", input: { delaySeconds: 1200, prompt: "look again" }, result: "ok" }, { kind: "text", text: "see you" }] },
+      { on: "plain", emit: [{ kind: "text", text: "hello" }] },
+    ] }));
+    const later = Date.now() + 24 * 60 * 60_000;
+    const settle = async (id: string, text: string) => {
+      const replies = () => c.eventTypes(id).filter((t) => t === "assistant_text").length;
+      const before = replies();
+      await c.call("sessions.send", { id, text });
+      await waitFor(async () => replies() > before && (await c.call("sessions.get", { id })).result.status === "idle");
+    };
+    const cron = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result.session;
+    await settle(cron.id, "addcron");
+    await settle(cron.id, "plain");
+    expect(await app.sessions.reapIdle(later)).toEqual([]);
+    expect(await app.sessions.stopIdleNow()).toEqual([]);
+    await settle(cron.id, "delcron");
+    expect(await app.sessions.stopIdleNow()).toEqual([cron.id]);
+
+    const loop = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result.session;
+    await settle(loop.id, "wake");
+    expect(await app.sessions.reapIdle(later)).toEqual([]);
+    expect(await app.sessions.stopIdleNow()).toEqual([]);
+    // A turn that schedules nothing more ends the loop.
+    await settle(loop.id, "plain");
+    expect(await app.sessions.stopIdleNow()).toEqual([loop.id]);
+    c.close();
+  });
+
   it("stops nothing when the process table could not be read — unknown is not \"no background work\"", async () => {
     // THE MUTANT: a failed `ps` read as an empty set, which stops the engine and the dev server under it.
     const { c, sp } = await boot(new FakeAdapter({ script: [{ on: "hi", emit: [{ kind: "text", text: "hello" }] }] }));
