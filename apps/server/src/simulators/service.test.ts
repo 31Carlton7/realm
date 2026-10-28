@@ -501,3 +501,33 @@ describe("which simulator a loopback port is streaming", () => {
     expect(await service.streamedOn(3100)).toBe("UDID-1");
   });
 });
+
+describe("the simulators Realm booted", () => {
+  const remembering = () => {
+    const kept = new Map<string, unknown>();
+    return { get: (k: string) => kept.get(k), set: (k: string, v: unknown) => { kept.set(k, v); } };
+  };
+
+  it("are remembered when Realm's own boot started them, and not when the device was already up", async () => {
+    for (const booted of [true, false]) {
+      const settings = remembering();
+      const { service, spaceId, events } = bring({ simctl: { boot: async () => ({ ok: true, detail: "", booted }) } });
+      Object.assign((service as unknown as { d: object }).d, { settings, now: () => 1234 });
+      const { simulatorId } = service.create({ spaceId, name: "iPhone 17 Pro" });
+      service.start(simulatorId, "UDID-1");
+      await settle(() => events.some((e) => e.status === "running"));
+      expect(service.realmBooted()).toEqual(booted ? [{ udid: "UDID-1", name: "iPhone 17 Pro", bootedAt: 1234 }] : []);
+    }
+  });
+
+  it("are forgotten once the device is gone", async () => {
+    const settings = remembering();
+    const { service, spaceId, events } = bring({ simctl: { boot: async () => ({ ok: true, detail: "", booted: true }) } });
+    Object.assign((service as unknown as { d: object }).d, { settings });
+    const { simulatorId } = service.create({ spaceId, name: "iPhone 17 Pro" });
+    service.start(simulatorId, "UDID-1");
+    await settle(() => events.some((e) => e.status === "running"));
+    service.forgetBoot("UDID-1");
+    expect(service.realmBooted()).toEqual([]);
+  });
+});

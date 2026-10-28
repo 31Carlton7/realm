@@ -57,7 +57,16 @@ export type SimulatorServiceDeps = {
    * gets unless it hands in a scripted phone, and what a Mac with no Xcode gets anyway.
    */
   physical?: Pick<PhysicalDevices, "devices" | "start" | "ax" | "capture" | "apps" | "app" | "act" | "input" | "stop" | "stopAll" | "streamedOn" | "rehearses">;
+  /** Where the simulators Realm booted are remembered (`REALM_BOOTED_KEY`), so a restart of the server
+   *  still knows which of the booted devices are Realm's to count and to shut down. */
+  settings?: { get(key: string): unknown; set(key: string, value: unknown): void };
+  now?: () => number;
 };
+
+/** The simulators Realm booted itself: udid → its name and when. A device that was already running
+ *  when a pane pointed at it — somebody's Xcode session — is never written here. */
+export const REALM_BOOTED_KEY = "simulators.realmBooted";
+type RealmBoot = { name: string; at: number };
 
 /** How long to wait for the framebuffer to have a size. serve-sim answers `{"width":0}` until the
  *  capture engine has a frame, and a freshly booted device can take a few seconds to produce one. */
@@ -108,6 +117,34 @@ export class SimulatorService {
     this.droid = d.android ?? android();
     this.droidStream = d.androidStream ?? new AndroidStream(this.droid, (serial) => this.droid.size(serial));
     this.sendInput = d.inputChannel ?? sendSteps;
+  }
+
+  /** Every simulator Realm booted that it has not seen go away, with when it booted it. */
+  realmBooted(): { udid: string; name: string; bootedAt: number }[] {
+    return Object.entries(this.boots()).map(([udid, b]) => ({ udid, name: b.name, bootedAt: b.at }));
+  }
+
+  private boots(): Record<string, RealmBoot> {
+    const raw = this.d.settings?.get(REALM_BOOTED_KEY);
+    if (!raw || typeof raw !== "object") return {};
+    const out: Record<string, RealmBoot> = {};
+    for (const [udid, v] of Object.entries(raw as Record<string, unknown>)) {
+      const b = v as Partial<RealmBoot> | null;
+      if (b && typeof b.name === "string" && typeof b.at === "number") out[udid] = { name: b.name, at: b.at };
+    }
+    return out;
+  }
+
+  private noteBoot(udid: string, name: string): void {
+    this.d.settings?.set(REALM_BOOTED_KEY, { ...this.boots(), [udid]: { name, at: this.d.now?.() ?? Date.now() } });
+  }
+
+  /** Forget a boot: the device was shut down, by Realm or by anybody. */
+  forgetBoot(udid: string): void {
+    const all = this.boots();
+    if (!(udid in all)) return;
+    delete all[udid];
+    this.d.settings?.set(REALM_BOOTED_KEY, all);
   }
 
   /** Which toolchain a row is reached with. Read from the row rather than guessed from the udid. */
@@ -699,6 +736,8 @@ export class SimulatorService {
     const fail = (error: string, detail: string) => { if (current()) this.set({ ...OFF(simulatorId, udid), status: "failed", error, detail: detail || null }); };
     try {
       const booted = await this.cli.boot(udid);
+      // Remembered before anything else can go wrong: the device is up whether or not its stream comes.
+      if (booted.ok && booted.booted) this.noteBoot(udid, this.d.simulators.get(simulatorId)?.name ?? udid);
       if (!current()) return;
       if (!booted.ok) return fail("boot_failed", booted.detail);
 

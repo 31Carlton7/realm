@@ -155,6 +155,11 @@ export class TerminalService {
 
   has(terminalId: string): boolean { return this.manager.has(terminalId); }
 
+  /** Every running terminal's shell, named as its pane is (`resources/attribute.ts`). */
+  processes(): { terminalId: string; title: string; pid: number; tty: string | null }[] {
+    return this.manager.processes().map((p) => ({ terminalId: p.id, title: this.d.items.findByRefId(p.id)?.title ?? "Terminal", pid: p.pid, tty: p.tty }));
+  }
+
   /** Every terminal started or restored since boot, oldest first, optionally one space's. */
   list(spaceId?: string): TerminalStatus[] {
     const all = [...this.status.values()];

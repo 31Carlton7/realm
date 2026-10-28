@@ -84,6 +84,7 @@ import type { ShipsStore } from "../store/ships";
 import type { PortAllocator } from "../workspace/ports";
 import type { ExecutionSandboxService } from "../sandbox/service";
 import type { LayaService } from "../laya/service";
+import type { ResourceService } from "../resources/service";
 import type { AppViewService } from "../apps/service";
 import type { RemoteService } from "../remote/service";
 import type { Presence } from "../remote/presence";
@@ -110,6 +111,8 @@ export type Deps = {
    *  methods without the delegation stack. */
   teammates?: Teammates;
   laya: LayaService;
+  /** What Realm costs this Mac in memory (`resources/service.ts`). */
+  resources: ResourceService;
   agentSignIn: AgentSignInService;
   /** The views MCP servers draw for tool calls (MCP Apps). */
   appViews: AppViewService;
@@ -1211,6 +1214,7 @@ export function registerMethods(d: Deps): void {
   reg("laya.record", (p) => d.laya.record(p.simulatorId, p.apps));
   reg("laya.stopRecording", () => d.laya.stopRecording());
   reg("laya.deleteRecordings", () => d.laya.deleteRecordings());
+  reg("resources.snapshot", (p) => d.resources.snapshot({ fresh: p.fresh }));
 
   reg("failover.get", (p) => {
     if (!d.spaces.get(p.spaceId)) throw new NotFoundError("space", p.spaceId);

@@ -45,6 +45,7 @@ export * from "./cli";
 export * from "./agent-marks";
 export * from "./computer-use";
 export * from "./laya";
+export * from "./resources";
 /* Colour maths, the shape of a palette, and reading a VS Code theme into one. Down here rather than
    in `@realm/ui` because the SERVER imports all three to translate a theme file on disk, and the ui
    package is React — the seed is data, and only expanding it into a palette needs a renderer. */

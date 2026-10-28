@@ -117,7 +117,16 @@ export const TEAM_HOST_OPS = [
   "teamPolicyBump",
 ] as const;
 
-export const HOST_OPS = [...BROWSER_HOST_OPS, ...COMPUTER_HOST_OPS, ...APP_HOST_OPS, ...VAULT_HOST_OPS, ...TEAM_HOST_OPS] as const;
+/**
+ * What the resource report asks the app (`resources/`). Main answers with no window: it names its own
+ * processes — which renderer is a window, which a browser pane's view — and sizes none of them.
+ */
+export const RESOURCE_HOST_OPS = [
+  /** Every Electron process, labelled (main's `app-metrics.ts`). */
+  "appMetrics",
+] as const;
+
+export const HOST_OPS = [...BROWSER_HOST_OPS, ...COMPUTER_HOST_OPS, ...APP_HOST_OPS, ...VAULT_HOST_OPS, ...TEAM_HOST_OPS, ...RESOURCE_HOST_OPS] as const;
 /** Every op the bridge will relay, of either family. */
 export type HostOp = (typeof HOST_OPS)[number];
 

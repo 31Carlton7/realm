@@ -119,7 +119,7 @@ export const ENGINE_IDLE_MINUTES_DEFAULT = 30;
 /** How often live engines are looked over for one that has sat idle long enough. */
 const REAP_SWEEP_MS = 60_000;
 
-type Live = { handle: AgentHandle; pump: Promise<void>; skillsInjected: boolean };
+type Live = { handle: AgentHandle; pump: Promise<void>; skillsInjected: boolean; startedAt: number };
 
 /**
  * Owns the session trio: DB row + sidebar item + live adapter handle. Adapter handles are started lazily on the
@@ -1185,6 +1185,20 @@ export class SessionService {
   liveCount(): number {
     return this.live.size;
   }
+  /**
+   * Every live engine: whose it is, what it runs and since when, and what it is doing — what the
+   * resource report matches running processes against (`resources/attribute.ts`). `lastActiveAt` is
+   * the engine's last event, the clock `reapIdle` reads.
+   */
+  engines(): { sessionId: string; title: string; kind: AgentKind; providerSessionId: string | null; startedAt: number; lastActiveAt: number; status: Session["status"] }[] {
+    const out = [];
+    for (const [id, l] of this.live) {
+      const row = this.d.sessions.get(id);
+      if (!row) continue;
+      out.push({ sessionId: id, title: row.title, kind: row.agentKind, providerSessionId: row.providerSessionId, startedAt: l.startedAt, lastActiveAt: this.lastActive.get(id) ?? l.startedAt, status: row.status });
+    }
+    return out;
+  }
   /** Stop every live adapter handle, leaving the service up: the tray's *Stop all agents*. Rows and
    *  items stay exactly as they are, so each session resumes on its next send. */
   async stopAll(): Promise<number> {
@@ -1722,7 +1736,7 @@ export class SessionService {
       catch (e) { console.error(`[sessions] pump failed for ${id}: ${e instanceof Error ? e.message : String(e)}`); }
       finally { if (this.live.get(id)?.handle === handle) { this.live.delete(id); this.d.gateway.release(id); } }
     })();
-    this.live.set(id, { handle, pump, skillsInjected: skills !== undefined });
+    this.live.set(id, { handle, pump, skillsInjected: skills !== undefined, startedAt: Date.now() });
     this.lastActive.set(id, Date.now());
     return handle;
   }

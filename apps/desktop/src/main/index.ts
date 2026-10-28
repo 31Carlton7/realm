@@ -26,6 +26,7 @@ import { readTextFile } from "./read-text";
 import { compressIconIfNeeded, describeFiles, existingPath, fileThumbnail, openablePath, saveTempAttachment, statFile, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
 import { shareImage } from "./share-images";
 import { clearBrowserPartition, createBrowserPane, governBrowserDownloads, shareSiteCookies, type BrowserPane, type DownloadPolicy } from "./browser-pane";
+import { labelAppProcesses, type AppProcessLabel } from "./app-metrics";
 import { refuseCapture } from "./capture-guard";
 import { viewNavigationAllowed } from "./app-views";
 import { BlockedDownloads, DownloadGovernor, SavedDownloads, retryBlockedDownload } from "./downloads";
@@ -368,6 +369,15 @@ function holderOf(browserId: string, sender?: WebContents): { win: BrowserWindow
   return null;
 }
 const paneFor = (browserId: string, sender?: WebContents): BrowserPane | null => holderOf(browserId, sender)?.pane ?? null;
+
+/** Every Electron process, named (app-metrics.ts): realm-server's resource report sizes them itself. */
+function appProcesses(): AppProcessLabel[] {
+  const views = new Map<number, { browserId: string; title: string; detail: string | null }>();
+  for (const { pane } of windowPanes.values()) for (const v of pane.viewProcesses()) views.set(v.pid, { browserId: v.browserId, title: v.title, detail: null });
+  const titles = new Map<number, string>();
+  for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) titles.set(win.webContents.getOSProcessId(), win.getTitle());
+  return labelAppProcesses({ metrics: app.getAppMetrics(), views, windows: titles });
+}
 
 /* The element picker over Realm's own window (app-pick.ts): a window says when its person is picking,
    and asks for the picture of a pick — always the window's OWN capture, and never inside a browser
@@ -2246,6 +2256,8 @@ app.whenReady().then(async () => {
         // Computer-use ops share this socket but not the browser executor: they need no window and
         // no view, so they are answered before the window check below.
         if (op.startsWith("computer")) return computerHost.handleOp(op, params);
+        // The resource report's question about the app's own processes: no window needed either.
+        if (op === "appMetrics") return Promise.resolve(appProcesses());
         // Realm's own window, which is a different target from any browser view — so these are
         // answered before the executor below, whose `host` is about panes and would refuse first
         // with a message about a pane.

@@ -50,6 +50,7 @@ import { GoalSchema, GoalStatusSchema } from "./goal";
 import { UnlockedEggPackSchema } from "./egg-pack";
 import { FailoverPolicySchema } from "./failover";
 import { LayaModeSchema, LayaStatusSchema } from "./laya";
+import { ResourceReportSchema } from "./resources";
 import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
 import { ExecutionSandboxPolicySchema, ExecutionSandboxPrefsSchema } from "./execution-sandbox";
 import { AskAnswersSchema } from "./ui-ask";
@@ -2050,6 +2051,14 @@ export const Methods = {
   "laya.stopRecording": { params: z.object({}), result: LayaStatusSchema },
   /** Every recording and every screen it kept, gone. */
   "laya.deleteRecordings": { params: z.object({}), result: LayaStatusSchema },
+  /**
+   * What Realm costs this Mac in memory right now, by part — each session's engine, each MCP server,
+   * each terminal, Laya, the simulators Realm booted, the windows and their browser panes — beside the
+   * Mac's pressure, swap and load, and the other apps' sizes by name (`apps/server/src/resources`).
+   * Read at most every few seconds however often it is asked: `fresh` skips that, for a page that
+   * has just changed something.
+   */
+  "resources.snapshot": { params: z.object({ fresh: z.boolean().default(false) }), result: ResourceReportSchema },
   "agents.probe": { params: z.object({ force: z.boolean().default(false) }), result: z.array(AgentProbeRowSchema) },
   /**
    * One agent's probe, fresh, for a screen that leads with one or two agents and must not wait on

@@ -348,6 +348,8 @@ export type BrowserPane = {
   /** Where the view's page sits in the window, in window points, and how many of those a CSS pixel is
    *  — what places a menu under a field in the page (password-autofill.ts). */
   viewFrame(id: string): { x: number; y: number; zoom: number } | null;
+  /** Each live view's renderer process and its page's title, for the resource report (app-metrics.ts). */
+  viewProcesses(): { browserId: string; pid: number; title: string }[];
 };
 
 export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: PasskeyInstaller): BrowserPane {
@@ -405,6 +407,7 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
       const b = view.getBounds();
       return { x: b.x, y: b.y, zoom: wc.getZoomFactor() };
     },
+    viewProcesses: () => [...views].filter(([, wc]) => !wc.isDestroyed()).map(([browserId, wc]) => ({ browserId, pid: wc.getOSProcessId(), title: wc.getTitle() })),
     capture: async (id) => {
       const wc = views.get(id);
       if (!wc || wc.isDestroyed()) return null;

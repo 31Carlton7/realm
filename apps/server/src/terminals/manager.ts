@@ -69,6 +69,11 @@ export class TerminalManager {
   ttyName(id: string): string | null {
     return (this.terms.get(id) as (pty.IPty & { ptsName?: string }) | undefined)?.ptsName ?? null;
   }
+  /** Every running shell's process and terminal device — what the resource report counts each
+   *  terminal by: the shell, what runs under it, and what else sits on its tty. */
+  processes(): { id: string; pid: number; tty: string | null }[] {
+    return [...this.terms].map(([id, p]) => ({ id, pid: p.pid, tty: (p as pty.IPty & { ptsName?: string }).ptsName ?? null }));
+  }
   write(id: string, data: string): void { this.get(id).write(data); }
   /**
    * Write once the shell has stopped producing output for `quietMs` (or `timeoutMs` elapses).

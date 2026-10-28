@@ -153,6 +153,13 @@ export class LayaService {
     return this.ready && this.run ? this.run.client : null;
   }
 
+  /** The running `laya-serve`, for the resource report: its process, and what it is doing. */
+  process(): { pid: number; detail: string } | null {
+    const pid = this.run?.proc.pid ?? null;
+    if (pid === null) return null;
+    return { pid, detail: `${this.mode === "assist" ? "Assist" : "Shadow"}, ${this.ready ? "ready" : "starting"}` };
+  }
+
   /** e.g. `english@55cf4c4`, while ready. */
   checkpoint(): string | null {
     return this.ready?.checkpoint ?? null;

@@ -69,6 +69,10 @@ import { bundledLayaDir } from "./laya/benchmark";
 import { machineState, readEval, trainCheckpoint } from "./laya/training";
 import { LayaRecorder } from "./laya/recorder";
 import type { LayaRuntime } from "./laya/runtime";
+import { ResourceService } from "./resources/service";
+import { quietMachineProbe, type MachineProbe } from "./resources/machine";
+import type { AppProcess } from "./resources/attribute";
+import { engineDetail } from "./resources/words";
 import { createTerminalAgentProvider } from "./terminals/agent-tools";
 import { SignInTickets } from "./browsers/signin";
 import { SignInFlow } from "./browsers/signin-flow";
@@ -845,6 +849,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /** A second listener, for clients on other machines (`realm serve --listen`). Absent, the server
    *  listens on loopback only, as it always has. */
   access?: AccessOptions;
+  /** How the resource report reads this machine. Only `main.ts` passes the real one
+   *  (`realMachineProbe`); left out, the machine reads as empty and says nothing about its memory, so a
+   *  suite never measures the Mac it runs on. A test that needs a machine hands in a fake table. */
+  resources?: { probe?: MachineProbe };
 }): Promise<App> {
   // A listener the rules refuse, or a certificate that cannot be read, stops the boot before anything
   // is opened: there is no half-started server to tidy up, and the person reads the reason first.
@@ -962,7 +970,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     (udid, error) => simulatorsLate?.runnerStopped(udid, error),
     (udid, stills) => simulatorsLate?.pictureChanged(udid, stills),
   ) ?? opts.simulator?.physical;
-  const simulators = new SimulatorService({ rpc, spaces, items, simulators: simulatorsStore, ...opts.simulator, physical: physicalDevices });
+  const simulators = new SimulatorService({ rpc, spaces, items, simulators: simulatorsStore, settings, ...opts.simulator, physical: physicalDevices });
   simulatorsLate = simulators;
   // Plan 22: the preview listener guides and PDFs are framed from. Its root lookup is late-bound to
   // the service below (a workspace id → its checkout), which is the only thing it needs to know.
@@ -1831,6 +1839,19 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     needsYou: () => sessions.statusCounts().needsYou,
     titleOf: (id) => items.findByRefId(id)?.title ?? sessionsStore.get(id)?.title ?? null,
     log: (line) => console.error(line) });
+  /* What Realm costs this Mac in memory, by part (`resources/`): each service says what it owns, the
+     app says which of its processes is which, and the service sizes them all itself. */
+  const resources = new ResourceService({
+    probe: opts.resources?.probe ?? quietMachineProbe(),
+    owners: () => ({
+      engines: sessions.engines().map((e) => ({ sessionId: e.sessionId, title: e.title, kind: e.kind, providerSessionId: e.providerSessionId, startedAt: e.startedAt, detail: engineDetail(e, Date.now()) })),
+      terminals: terminals.processes(),
+      mcp: mcpHub.processes().map((m) => ({ serverId: m.serverId, name: mcpServersStore.get(m.serverId)?.name ?? m.serverId, pid: m.pid, detail: null })),
+      laya: laya.process(),
+      simulators: simulators.realmBooted().map((b) => ({ udid: b.udid, name: b.name, bootedAt: b.bootedAt, detail: "Booted by Realm" })),
+    }),
+    app: async () => (browserBridge.connected ? (await browserBridge.call("appMetrics", {})) as AppProcess[] : null),
+  });
   // One searcher for ⌘P and the `@` list's Files, so the two read a checkout the same way.
   const projectSearch = new ProjectSearchService();
   /** The remote listener, once it is up (below, after the loopback socket). */
@@ -1839,7 +1860,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
     profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, claudeBackfill, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, handoffs, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns, teammates,
-    iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, agentSignIn,
+    iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, resources, agentSignIn,
     libraryFiles, remote, presence,
     access: () => (access ? { url: access.url } : null),
     appViews: new AppViewService({ views: appViews, hub: mcpHub, mcp, servers: mcpServersStore, sessions: sessionsStore, server: appViewServer, gateway: mcpGateway, log: (line) => console.log(line) }),
@@ -1920,6 +1941,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   terminals.restoreAll();
   // Brings laya-serve back only if the user left Laya on and an install is on disk.
   laya.boot();
+  // Memory pressure, read every half minute from here on.
+  resources.start();
   // Starts nothing, and clears every recorded ws port: a port held against last run's listener is a
   // lie, and the UNIQUE index would refuse to reissue it to the machine it belonged to.
   machines.restoreAll();
@@ -1975,6 +1998,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     summaries?.close(); // a debounced recap must not fire onto a closing handle, or outlive the process
     memoryLearner?.close(); // likewise a session's quiet timer
     memoryTidier?.close(); // and the tidy pass's clock
+    resources.close();
     terminals.closeAll();
     cliInstaller.disposeAll();
     // While the socket is still open, so a window that outlives this daemon hears the sign-in end.
