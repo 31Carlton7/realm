@@ -29,10 +29,17 @@ export function repoStatus(r: MemoryRepoState, now = Date.now()): { name: string
   return { name: "Last saved", text: `${cap(when)}: ${r.lastCommitSubject ?? ""}`, sentence: `Last saved ${when}: ${r.lastCommitSubject ?? ""}`, tone: null };
 }
 
-/** What a row says when its owner has no repo yet. */
+/** What a row says when its owner has no repo. A profile gets one made by default, so a profile
+ *  without one is a profile whose repo was detached (or could not be made). */
 const EMPTY = {
-  profile: { name: "No memory repo", desc: "Agents save what they learn about you to a git repo of Markdown files, and every engine reads it back in later sessions." },
+  profile: { name: "No memory repo", desc: "Memory is off for this profile, so its agents keep nothing between sessions. Create a repo to turn it on, or attach one you already keep." },
   space: { name: "No repo of its own", desc: "Give this space a memory repo beside your own — one a team shares, so everyone's agents read and save the same facts." },
+} as const;
+
+/** What Detach does, said before it is pressed: a profile's repo is not made again by itself. */
+const DETACH = {
+  profile: "Turn memory off for this profile: agents in its spaces stop saving to it and reading it, and Realm does not make another. The folder and its history stay where they are.",
+  space: "Stop using this repo. The folder and its history stay where they are.",
 } as const;
 
 /** One owner's repo: create or attach, then the repo with its folder, sync, Claude import and history. */
@@ -90,7 +97,7 @@ export function MemoryRepoRow({ owner }: { owner: MemoryRepoOwner }) {
           <code className="env-path settings-row-desc">{repo.path}</code>
         </div>
         {reveal && <button type="button" className="btn-quiet" onClick={() => { void reveal(repo.path); }}>Show in Finder</button>}
-        <button type="button" className="btn-quiet" title="Stop using this repo. The folder and its history stay where they are."
+        <button type="button" className="btn-quiet" title={DETACH[scope]}
           onClick={() => run(() => detachMemoryRepo(owner))}>Detach</button>
       </div>
       {repo.valid && <SyncRows owner={owner} repo={repo} />}

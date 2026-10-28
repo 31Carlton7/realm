@@ -739,6 +739,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /** Where a memory repo goes when Realm's home is inside a space's folder. Unset, it is the app's
    *  Application Support folder under `userHome` — and nowhere at all when no `userHome` is named. */
   memoryFallbackRoot?: string;
+  /** Memory on by default: every profile that has never had a memory repo gets one, at boot and when
+   *  it is made. Only `main.ts` turns it on; a test or a script starts every profile with none. */
+  memoryRepoByDefault?: boolean;
   /** Teams Phase 3 test knobs: the platform every channel acts on, and main's answer about a press.
    *  Production passes neither — the platform is the fake only under REALM_FAKE_ACT_ADAPTER=1 (live
    *  checks), not connected otherwise, and a press is asked of Electron main over the bridge. */
@@ -1153,6 +1156,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     gh: ghRunner(opts.codeReview?.gh ?? "gh"),
     // A pull or push settles in the background, after the save that started it has answered.
     onSynced: (o) => memoryRepoChanged(o),
+    autoCreate: opts.memoryRepoByDefault === true,
   });
   /** Every space that shows a repo is told it changed: all of a profile's spaces, or the one space. */
   const memoryRepoChanged = (o: RepoOwner): void => {
@@ -1684,7 +1688,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     ...(opts.lab?.now ? { now: opts.lab.now } : {}),
   });
   /* `realm-memory`: the memory repo's tools, on by default and listed only where the space's profile
-     has a repo — attaching one is the opt-in. The only memory that reaches Cursor and the other ACP
+     has a repo — which every profile has unless its repo was detached. The only memory that reaches Cursor and the other ACP
      agents, which take no per-session context. A save repaints every open memory row of the profile. */
   mcpGateway.registerProvider(createMemoryAgentProvider({ repos: memoryRepos, mcp, onChanged: memoryRepoChanged }));
   // The durable ship log (Plan 14 W1): GitWriteService stays a pure git service — the recorder is the
@@ -1812,6 +1816,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // boots (SearchService.runBackfill's doc comment states the design). Fire-and-forget — search over
   // the not-yet-covered range is merely incomplete while it runs, and a failure only pauses it.
   void search.runBackfill();
+  /* Memory is on by default: a profile that has never had a repo gets one before the first session can
+     start, so that session's memory already has somewhere to go. A detached one stays detached. */
+  for (const p of profiles.list()) {
+    const made = await memoryRepos.ensureProfileRepo(p.id);
+    if (made) console.log(`[memory] made ${p.name}'s memory repo at ${made.path}`);
+  }
   /* Saves made while the network was down are pushed now, and what other machines pushed is pulled:
      every synced repo, in the background, never holding up the boot. */
   for (const p of profiles.list()) void memoryRepos.queueSync({ scope: "profile", id: p.id });

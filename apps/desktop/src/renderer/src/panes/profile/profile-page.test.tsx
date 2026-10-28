@@ -224,9 +224,12 @@ describe("ProfilePage · Memory repo", () => {
     openMemory();
     const detach = await screen.findByRole("button", { name: "Detach" });
     expect(detach).toHaveAttribute("title", expect.stringContaining("The folder and its history stay where they are"));
+    // A profile's repo is made by default, so the consequence said before the click is that it is not made again.
+    expect(detach).toHaveAttribute("title", expect.stringContaining("Realm does not make another"));
     fireEvent.click(detach);
     await waitFor(() => expect(api.calls).toContain("detachMemoryRepo:profile:p1"));
     expect(await screen.findByText("No memory repo")).toBeInTheDocument();
+    expect(screen.getByText(/^Memory is off for this profile/)).toBeInTheDocument();
   });
 });
 

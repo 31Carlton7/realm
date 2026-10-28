@@ -109,6 +109,9 @@ export type MemoryRepoDeps = {
   gh?: GhRun;
   /** After a pull or push settles, so the rows on screen show where the repo stands. */
   onSynced?: (owner: RepoOwner) => void;
+  /** Whether a profile that has never had a repo gets one made (`ensureProfileRepo`). On in the app;
+   *  a harness leaves it off and every profile starts with none, as before. */
+  autoCreate?: boolean;
   /** How long one fetch or push may take before it counts as offline. */
   syncTimeoutMs?: number;
 };
@@ -245,8 +248,29 @@ export class MemoryRepoService {
     return (await this.state(owner))!;
   }
 
-  /** Forget the owner's repo. The folder, its files and its history stay where they are. */
+  /** Forget the owner's repo. The folder, its files and its history stay where they are. The setting
+   *  is kept, holding null: it is what tells a detached profile from one that never had a repo. */
   detach(owner: RepoOwner): void { this.d.settings.set(repoKey(owner), null); }
+
+  /**
+   * Memory is on by default: a profile that has never had a repo configured gets one made where
+   * `create` would put it. A profile whose repo was detached stays without one, and a profile with
+   * nowhere allowed to keep one is logged and left for the person to choose a folder — this never
+   * throws, because it runs at boot and when a profile is made. Null when nothing was made.
+   */
+  async ensureProfileRepo(profileId: string): Promise<MemoryRepoState | null> {
+    const owner: RepoOwner = { scope: "profile", id: profileId };
+    if (!this.d.autoCreate || this.d.settings.has(repoKey(owner))) return null;
+    if (!this.placeFor(owner)) {
+      console.error(`[memory] no memory repo made for profile ${profileId}: Realm's folder is inside a space's folder and there is no second place for it`);
+      return null;
+    }
+    try { return await this.create(owner); }
+    catch (e) {
+      console.error(`[memory] no memory repo made for profile ${profileId}: ${e instanceof Error ? e.message : String(e)}`);
+      return null;
+    }
+  }
 
   // ─── State ────────────────────────────────────────────────────────────────────────────────────
 

@@ -7,6 +7,10 @@ export class SettingsStore {
     if (!r) return null;
     try { return JSON.parse(r.value_json) as unknown; } catch { return null; }
   }
+  /** Whether the key was ever written — `get` reads a key set to null and a missing one alike. */
+  has(key: string): boolean {
+    return this.db.prepare("SELECT 1 FROM settings WHERE key = ?").get(key) !== undefined;
+  }
   /** A key holding a list of ids. A missing key, or one whose value is not an array of strings,
    *  reads as empty — settings rows are user-editable JSON and must not crash a caller. */
   getIds(key: string): string[] {

@@ -222,7 +222,8 @@ export function registerMethods(d: Deps): void {
   });
 
   reg("profiles.list", () => d.profiles.list());
-  reg("profiles.create", (p) => { const r = d.profiles.create(p); rpc.broadcast("profiles.changed", {}); return r; });
+  // Its memory repo is made before the profile is handed back, so its Memory page opens on one.
+  reg("profiles.create", async (p) => { const r = d.profiles.create(p); await d.memoryRepos.ensureProfileRepo(r.id); rpc.broadcast("profiles.changed", {}); return r; });
   reg("profiles.update", (p) => { const r = d.profiles.update(p); rpc.broadcast("profiles.changed", {}); return r; });
   reg("profiles.delete", async (p) => {
     // Refused up front for the last profile, before anything below is stopped: a delete that fails
