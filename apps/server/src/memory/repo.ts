@@ -4,12 +4,13 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import {
   MEMORY_DOC_MAX, MEMORY_REPO_INDEX_FILE, MEMORY_REPO_INDEX_MAX, MEMORY_REPO_INITIAL_INDEX,
   amrRepoSourceLink, applyMemoryEdit, githubRepoOf, memoryEntryProblem, parseMemoryEntry, wikiLinkTarget, withIndexLink,
-  type MemoryClaudeImport, type MemoryEntry, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemoryRepoSync,
+  type AgentKind, type MemoryClaudeImport, type MemoryEntry, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemoryRepoSync,
 } from "@realm/contracts";
 import type { GhRun } from "../code-review/gh";
 import { RpcError } from "../store/rows";
 import type { SettingsStore } from "../store/settings";
 import { GIT_DIFF_FLAGS, gitCapture, gitReason, type GitResult, type GitRun } from "../workspace/git-exec";
+import { claudeFact, claudeFactFile, withClaudeIndexLine, type ClaudeFactType } from "./claude-facts";
 import { planClaudeImport, type ClaudeMemorySource } from "./claude-import";
 import { secretShapeIn } from "./secret-shapes";
 
@@ -19,6 +20,11 @@ export { secretShapeIn };
 export type RepoOwner = { scope: MemoryRepoScope; id: string };
 /** A repo one space's sessions use, and whose it is. */
 export type ActiveRepo = { scope: MemoryRepoScope; ownerId: string; path: string };
+/** One `MEMORY.md` a session in a space reads: a repo's root index, or — `spaceFolder` — the index of
+ *  the space's own folder in the profile's repo, in Claude's auto-memory format. */
+export type RepoIndex = { scope: MemoryRepoScope; kind: "root" | "spaceFolder"; path: string; index: string; truncated: boolean };
+/** Where one space's Claude-format memory lives in its profile's repo. */
+export type SpaceFolder = { owner: RepoOwner; repoPath: string; folder: string; dir: string };
 
 /** Which repo an owner uses. `push` is on only with `pushRemote`: the URL the user turned sync on
  *  for, after Realm checked (or the user confirmed) that it is private. A remote changed under it
@@ -27,6 +33,18 @@ const repoKey = (o: RepoOwner): string => `memory.repo:${o.scope}:${o.id}`;
 /** Per-space opt-OUT of the profile's repo, stored as the disable so absence means inherit — the
  *  profile document's rule (`memory.profileDocDisabled`), for the same reason. */
 const inheritDisabledKey = (spaceId: string): string => `memory.repoInheritDisabled:${spaceId}`;
+/** The folder a space's memory has in its profile's repo, chosen once: renaming the space never moves it. */
+const spaceFolderKey = (spaceId: string): string => `memory.spaceFolder:${spaceId}`;
+/** Where the space folders sit in a profile's repo: `spaces/<folder>/`. */
+export const SPACES_DIR = "spaces";
+/** What a recorded folder name may be — the shape `folderSlug` makes. Anything else was not Realm's. */
+const FOLDER_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+/** A space's name as a folder: lowercase letters, digits and dashes. */
+export function folderSlug(name: string): string {
+  const s = name.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+/, "").slice(0, 48).replace(/-+$/, "");
+  return s || "space";
+}
 
 type RepoConfig = { path: string; push: boolean; pushRemote: string | null };
 
@@ -88,9 +106,10 @@ export type MemoryRepoDeps = {
   home: string;
   settings: SettingsStore;
   git?: GitRun;
-  /** Space → profile, the same seam MemoryService takes, and a profile's spaces (whose imported
-   *  Claude memory a profile repo takes in). Unwired, no space has a profile's repo. */
-  scopes?: { profileIdOf(spaceId: string): string | null; spaceIdsOf?(profileId: string): string[] };
+  /** Space → profile, the same seam MemoryService takes, a profile's spaces (whose imported Claude
+   *  memory a profile repo takes in) and a space's name (its folder's first name). Unwired, no space
+   *  has a profile's repo. */
+  scopes?: { profileIdOf(spaceId: string): string | null; spaceIdsOf?(profileId: string): string[]; spaceNameOf?(spaceId: string): string | null };
   /** Folders a memory repo may never be inside: every space's checkouts, the agents' own config
    *  folders, Realm's install. The spec's first rule is that memory lives apart from the project. */
   forbiddenRoots?: () => string[];
@@ -198,17 +217,82 @@ export class MemoryRepoService {
     return out;
   }
 
-  /** Each active repo's `MEMORY.md` as one session receives it: whole up to `MEMORY_REPO_INDEX_MAX`,
-   *  cut after that — the cap is per repo, so a team's long index never crowds out the user's. */
-  indexesFor(spaceId: string): { scope: MemoryRepoScope; path: string; index: string; truncated: boolean }[] {
-    const out: { scope: MemoryRepoScope; path: string; index: string; truncated: boolean }[] = [];
-    for (const repo of this.activeFor(spaceId)) {
+  /**
+   * Each active repo's `MEMORY.md` as one session receives it: whole up to `MEMORY_REPO_INDEX_MAX`,
+   * cut after that — the cap is per file, so a team's long index never crowds out the user's. After
+   * the profile's root index comes the space folder's, except for Claude: that folder is its own
+   * auto-memory directory, which it loads itself.
+   */
+  indexesFor(spaceId: string, opts: { forAgent?: AgentKind } = {}): RepoIndex[] {
+    const out: RepoIndex[] = [];
+    const push = (scope: MemoryRepoScope, kind: RepoIndex["kind"], path: string, file: string): void => {
       let index: string;
-      try { index = readFileSync(join(repo.path, MEMORY_REPO_INDEX_FILE), "utf8"); } catch { continue; }
+      try { index = readFileSync(file, "utf8"); } catch { return; }
       const truncated = index.length > MEMORY_REPO_INDEX_MAX;
-      out.push({ scope: repo.scope, path: repo.path, index: truncated ? index.slice(0, MEMORY_REPO_INDEX_MAX) : index, truncated });
+      out.push({ scope, kind, path, index: truncated ? index.slice(0, MEMORY_REPO_INDEX_MAX) : index, truncated });
+    };
+    for (const repo of this.activeFor(spaceId)) {
+      push(repo.scope, "root", repo.path, join(repo.path, MEMORY_REPO_INDEX_FILE));
+      if (repo.scope !== "profile" || opts.forAgent === "claude") continue;
+      const at = this.spaceFolderFor(spaceId);
+      if (at) push("profile", "spaceFolder", at.dir, join(at.dir, MEMORY_REPO_INDEX_FILE));
     }
     return out;
+  }
+
+  // ─── Space folders ────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * The folder of the user's profile repo that holds this space's memory in Claude's own format, or
+   * null where the space has no profile repo in use (no profile, the memory tools off, or the
+   * profile's repo turned off here). The folder is chosen the first time it is asked for — the space's
+   * name, made unique in the repo — and recorded, so a rename never moves it. Nothing is written to
+   * the repo here; the folder appears with its first file.
+   */
+  spaceFolderFor(spaceId: string): SpaceFolder | null {
+    const repo = this.activeFor(spaceId).find((r) => r.scope === "profile");
+    if (!repo) return null;
+    const recorded = this.d.settings.get(spaceFolderKey(spaceId));
+    const folder = typeof recorded === "string" && FOLDER_NAME.test(recorded) ? recorded : this.unusedFolder(spaceId, repo);
+    if (folder !== recorded) this.d.settings.set(spaceFolderKey(spaceId), folder);
+    return { owner: { scope: "profile", id: repo.ownerId }, repoPath: repo.path, folder, dir: join(repo.path, SPACES_DIR, folder) };
+  }
+
+  /** The space's name as a folder, numbered past every folder already in the repo and every one
+   *  another space of the profile has recorded but not written yet. */
+  private unusedFolder(spaceId: string, repo: ActiveRepo): string {
+    const taken = new Set<string>();
+    try { for (const e of readdirSync(join(repo.path, SPACES_DIR))) taken.add(e.toLowerCase()); } catch { /* no folders yet */ }
+    for (const other of this.d.scopes?.spaceIdsOf?.(repo.ownerId) ?? []) {
+      const f = other === spaceId ? null : this.d.settings.get(spaceFolderKey(other));
+      if (typeof f === "string") taken.add(f);
+    }
+    const base = folderSlug(this.d.scopes?.spaceNameOf?.(spaceId) ?? "");
+    let folder = base;
+    for (let n = 2; taken.has(folder); n++) folder = `${base}-${n}`;
+    return folder;
+  }
+
+  /**
+   * Create or overwrite one fact in the space's folder, in Claude's own format — its file under the
+   * fact's name, and its line in the folder's `MEMORY.md` — and link the folder from the repo's root
+   * index the first time, all as one commit.
+   */
+  async saveSpaceMemory(spaceId: string, m: { name: string; description: string; type: ClaudeFactType; body: string; sessionId?: string; author?: string }): Promise<MemoryEditOutcome> {
+    const at = this.spaceFolderFor(spaceId);
+    if (!at) throw new RpcError("MEMORY_REPO_NONE", "this space has no memory repo in use: its profile has none, or this space turned it or the memory tools off");
+    const name = m.name.trim();
+    const description = m.description.trim();
+    if (!name || !description || /[\r\n]/.test(name + description)) throw new RpcError("MEMORY_ENTRY_INVALID", "a memory needs a one-line name and a one-line description");
+    const file = claudeFactFile(name);
+    const folder = `${SPACES_DIR}/${at.folder}`;
+    const content = claudeFact({ name, description, type: m.type, body: m.body, source: m.sessionId ? amrRepoSourceLink(m.sessionId) : undefined });
+    return this.batch(at.owner, (repo) => {
+      const writes = new Map<string, string | null>([[`${folder}/${file}`, content]]);
+      writes.set(`${folder}/${MEMORY_REPO_INDEX_FILE}`, withClaudeIndexLine(this.readOrEmpty(repo, `${folder}/${MEMORY_REPO_INDEX_FILE}`), file, name, description));
+      writes.set(MEMORY_REPO_INDEX_FILE, withIndexLink(this.readOrEmpty(repo, MEMORY_REPO_INDEX_FILE), `${folder}/${MEMORY_REPO_INDEX_FILE}`));
+      return writes;
+    }, `Remember ${short(name)}`, m.author);
   }
 
   // ─── Create, attach, detach ───────────────────────────────────────────────────────────────────
@@ -437,6 +521,49 @@ export class MemoryRepoService {
       if (before === null) writes.set(MEMORY_REPO_INDEX_FILE, withIndexLink(this.readOrEmpty(repo, MEMORY_REPO_INDEX_FILE), rel));
       const out = await this.commitFiles(repo, writes, `${before === null ? "Save" : "Update"} ${rel}`, author);
       return { changed: true, file: rel, line: null, ...out };
+    });
+    if (out.changed) void this.queueSync(owner);
+    return out;
+  }
+
+  /**
+   * Several files as one commit: each repo-relative path to its new content, or null to delete it.
+   * Every path is checked to stay inside the repo and out of `.git`, every content for secret shapes
+   * and size, before anything is written; then the same rules as every other write — the lock, a
+   * clean repo, staged and committed by path. Files already as asked are left out of the commit.
+   */
+  async writeBatch(owner: RepoOwner, writes: Map<string, string | null>, message: string, author?: string): Promise<MemoryEditOutcome> {
+    return this.batch(owner, () => writes, message, author);
+  }
+
+  /** `writeBatch` with the writes worked out inside the lock, from the files as they are then — what a
+   *  read-modify-write (an index line, a link) needs so two saves never overwrite each other's. */
+  private async batch(owner: RepoOwner, plan: (repo: string) => Map<string, string | null>, message: string, author?: string): Promise<MemoryEditOutcome> {
+    const cfg = this.mustConfig(owner);
+    const repo = cfg.path;
+    const out = await this.locked(repo, async () => {
+      const asked = new Map<string, string | null>();
+      for (const [path, content] of plan(repo)) {
+        const rel = this.checkedRel(path);
+        if (rel === "") throw new RpcError("MEMORY_PATH", "give a path inside the memory repo");
+        if (content !== null) {
+          if (content.length > MEMORY_DOC_MAX) throw new RpcError("MEMORY_FILE_TOO_LARGE", `${rel}: a memory file is capped at ${MEMORY_DOC_MAX} characters`);
+          const secret = secretShapeIn(content);
+          if (secret) throw new RpcError("MEMORY_SECRET", `${rel} looks like it holds ${secret}; memory never holds credentials`);
+        }
+        asked.set(rel, content);
+      }
+      await this.ensureWritable(repo, cfg);
+      const writes = new Map<string, string | null>();
+      for (const [rel, content] of asked) {
+        const abs = this.inside(repo, rel);
+        const before = existsSync(abs) ? readFileSync(abs, "utf8") : null;
+        if (before !== content) writes.set(rel, content);
+      }
+      const first = writes.keys().next().value ?? "";
+      if (writes.size === 0) return { changed: false, file: first, line: null, sha: null, diff: "" };
+      const done = await this.commitFiles(repo, writes, message, author);
+      return { changed: true, file: first, line: null, ...done };
     });
     if (out.changed) void this.queueSync(owner);
     return out;
@@ -791,25 +918,29 @@ export class MemoryRepoService {
     try { return readFileSync(join(repo, rel), "utf8"); } catch { return ""; }
   }
 
-  /** Write the files, stage exactly them, commit exactly them. A failed commit puts every file back
-   *  as it was and unstages them — the tree is left as clean as the write found it. */
-  private async commitFiles(repo: string, writes: Map<string, string>, message: string, author?: string): Promise<{ sha: string; diff: string }> {
+  /** Write the files (null deletes one), stage exactly them, commit exactly them. A failed commit puts
+   *  every file back as it was and unstages them — the tree is left as clean as the write found it. */
+  private async commitFiles(repo: string, writes: Map<string, string | null>, message: string, author?: string): Promise<{ sha: string; diff: string }> {
     const before = new Map<string, string | null>();
     for (const rel of writes.keys()) before.set(rel, existsSync(join(repo, rel)) ? readFileSync(join(repo, rel), "utf8") : null);
-    const paths = [...writes.keys()];
+    // A file git never knew that is deleted is simply gone: there is nothing of it to stage or commit.
+    const known = new Set((await this.git(repo, ["ls-files", "-z", "--", ...writes.keys()])).stdout.split("\0").filter(Boolean));
+    const paths = [...writes].filter(([rel, content]) => content !== null || known.has(rel)).map(([rel]) => rel);
     try {
       for (const [rel, content] of writes) {
+        if (content === null) { rmSync(join(repo, rel), { force: true }); continue; }
         mkdirSync(dirname(join(repo, rel)), { recursive: true });
         writeFileSync(join(repo, rel), content);
       }
+      if (paths.length === 0) return { sha: (await this.git(repo, ["rev-parse", "HEAD"])).stdout.trim(), diff: "" };
       await this.must(repo, ["add", "--", ...paths]);
       await this.must(repo, [...commitConfig(author?.trim() || await this.committer()), "commit", "-q", "-m", message, "--", ...paths]);
     } catch (e) {
       for (const [rel, content] of before) {
         if (content === null) rmSync(join(repo, rel), { force: true });
-        else writeFileSync(join(repo, rel), content);
+        else { mkdirSync(dirname(join(repo, rel)), { recursive: true }); writeFileSync(join(repo, rel), content); }
       }
-      await this.git(repo, ["reset", "-q", "--", ...paths]);
+      if (paths.length > 0) await this.git(repo, ["reset", "-q", "--", ...paths]);
       throw e;
     }
     const sha = (await this.git(repo, ["rev-parse", "HEAD"])).stdout.trim();

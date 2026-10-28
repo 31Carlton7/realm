@@ -962,6 +962,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     profileIdOf: (spaceId: string): string | null => spaces.get(spaceId)?.profileId ?? null,
     spaceIdsOf: (profileId: string): string[] => spaces.list(profileId).map((sp) => sp.id),
     allSpaceIds: (): string[] => spaces.listAll().map((sp) => sp.id),
+    spaceNameOf: (spaceId: string): string | null => spaces.get(spaceId)?.name ?? null,
   };
   // Repo-shipped skills reach the user's library here, once each, before any session can be started.
   const skills = new SkillsService({

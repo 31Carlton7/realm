@@ -138,7 +138,7 @@ export function createMemoryAgentProvider(d: MemoryAgentToolsDeps): RealmToolPro
             const idx = d.repos.indexesFor(ctx.spaceId).filter((r) => want === undefined || r.scope === want);
             if (idx.length === 0) return err(want ? `this space has no ${want} memory repo with a MEMORY.md` : "the memory repo has no MEMORY.md");
             return ok(idx.map((r) =>
-              `${idx.length > 1 || r.scope === "space" ? `The ${r.scope} memory repo` : "Memory repo"} at ${r.path}. MEMORY.md:\n\n${r.index}${r.truncated ? "\n\n[MEMORY.md is longer than this; memory_read MEMORY for the rest]" : ""}`,
+              `${r.kind === "spaceFolder" ? "This workspace's folder of the profile memory repo" : idx.length > 1 || r.scope === "space" ? `The ${r.scope} memory repo` : "Memory repo"} at ${r.path}. MEMORY.md:\n\n${r.index}${r.truncated ? "\n\n[MEMORY.md is longer than this; memory_read it for the rest]" : ""}`,
             ).join("\n\n---\n\n"));
           }
           case "memory_read": {
