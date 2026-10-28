@@ -1,12 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
-import { mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { appendFileSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { memoryLearningKey } from "@realm/contracts";
 import type { MemoryTidyInput } from "@realm/adapters";
 import type { MemorySink } from "./sink";
 import {
-  MemoryTidier, TIDY_EVERY_MS, TIDY_INDEX_MAX, TIDY_SOONEST_MS, TidyDraft, factFields, parseTidyPlan, readSnapshot,
+  MemoryTidier, TIDY_BACKOFF_MS, TIDY_EVERY_MS, TIDY_INDEX_MAX, TIDY_SOONEST_MS, TidyDraft, factFields, parseTidyPlan, readSnapshot,
   type TidyOp,
 } from "./tidy";
 
@@ -299,15 +299,33 @@ describe("parseTidyPlan", () => {
 });
 
 /** A tidier over a repo on disk, with the store's folders for s1 (work) and s2 (home), both recorded. */
-function tidier(dir: string, o: { plan?: unknown; reply?: string; inactive?: string[]; recorded?: string[]; settings?: Record<string, unknown>; fail?: boolean } = {}) {
+type Busy = {
+  /** When something else saves, just before the pass's write takes the lock: before every write, or
+   *  only the first. */
+  when: "always" | "first";
+  /** The file it saves to (default the root index). */
+  file?: string;
+};
+
+function tidier(dir: string, o: { plan?: unknown; reply?: string; inactive?: string[]; recorded?: string[]; settings?: Record<string, unknown>; fail?: boolean; busy?: Busy; systemClock?: boolean } = {}) {
   const folders: Record<string, string> = { s1: "work", s2: "home" };
   const settings = new Map<string, unknown>(Object.entries(o.settings ?? {}));
   const batches: { writes: Map<string, string | null>; message: string; author?: string }[] = [];
+  let writesAsked = 0;
   const sink: MemorySink = {
     spaceFolderFor: vi.fn((spaceId: string) => (folders[spaceId] && !o.inactive?.includes(spaceId)
       ? { owner: { scope: "profile" as const, id: "p1" }, repoPath: dir, folder: folders[spaceId]!, dir: join(dir, "spaces", folders[spaceId]!) } : null)),
     // As the store does: a function is asked inside the repo's lock, with the repo's path.
     writeBatch: vi.fn(async (_owner, writes, message, author) => {
+      if (o.busy && (o.busy.when === "always" || writesAsked === 0)) {
+        // Saved an hour and more ago by the file's clock, so only the comparison with what the plan
+        // saw can tell it was written since — the "changed in the last hour" rule cannot.
+        const file = join(dir, o.busy.file ?? "MEMORY.md");
+        appendFileSync(file, `- saved meanwhile ${writesAsked + 1}\n`);
+        const t = (Date.now() - 3 * HOUR) / 1000;
+        utimesSync(file, t, t);
+      }
+      writesAsked++;
       batches.push({ writes: typeof writes === "function" ? writes(dir) : writes, message, author });
       return { changed: true, file: "", line: null, sha: "sha1", diff: "" };
     }),
@@ -324,7 +342,9 @@ function tidier(dir: string, o: { plan?: unknown; reply?: string; inactive?: str
     profileIds: () => ["p1"], spaceIdsOf: () => ["s1", "s2"],
     folderRecorded: (spaceId) => (o.recorded ?? ["s1", "s2"]).includes(spaceId),
     sink, settings: { get: (k) => settings.get(k) ?? null, set: (k, v) => { settings.set(k, v); } },
-    generate, now: () => now, today: () => "2026-10-28", onTidied,
+    generate, today: () => "2026-10-28", onTidied,
+    // `systemClock`: the tidier reads Date.now, which fake timers move along with its hourly tick.
+    ...(o.systemClock ? {} : { now: () => now }),
   });
   return { t, sink, batches, generate, settings, onTidied, advance: (ms: number) => { now += ms; } };
 }
@@ -469,5 +489,109 @@ describe("MemoryTidier — when it runs", () => {
     const x = tidier(repo(store()), { settings: { [memoryLearningKey("p1")]: false, "memory.tidiedAt:p1": NOW - 2 * TIDY_EVERY_MS } });
     x.t.check("p1");
     expect(x.generate).not.toHaveBeenCalled();
+  });
+});
+
+describe("MemoryTidier — memory saved while it plans", () => {
+  const merge = { operations: [
+    { op: "merge", into: "spaces/work/billing-owner.md", from: ["spaces/work/billing-lead.md"], description: "Dana owns and runs billing", body: "Dana owns and runs billing." },
+  ] };
+  const lastWeek = { "memory.tidiedAt:p1": NOW - TIDY_EVERY_MS };
+
+  it("makes the pass once more, at once, with the same plan — no second call — and writes it", async () => {
+    const x = tidier(repo(store(olds(5))), { plan: merge, busy: { when: "first" }, settings: lastWeek });
+    const r = await x.t.tidy("p1");
+    expect(r).toMatchObject({ ran: true, promoted: 1, applied: 1, sha: "sha1" });
+    expect(x.generate).toHaveBeenCalledTimes(1);
+    expect(x.batches).toHaveLength(1);
+    // Made again on the root as it is now: the save made meanwhile is kept under the promotion.
+    expect(x.batches[0]!.writes.get("MEMORY.md")).toContain("- saved meanwhile 1");
+    expect(x.batches[0]!.writes.get("MEMORY.md")).toContain("([[spaces/home/terse]])");
+    expect(x.batches[0]!.writes.get("spaces/work/billing-lead.md")).toBeNull();
+    expect(x.settings.get("memory.tidyBackoff:p1")).toBeNull();
+  });
+
+  it("drops an operation whose file was written after the plan was made, even where the write does not look recent", async () => {
+    const x = tidier(repo(store(olds(5))), { plan: merge, busy: { when: "first", file: "spaces/work/MEMORY.md" }, settings: lastWeek });
+    const r = await x.t.tidy("p1");
+    expect(r).toMatchObject({ ran: true, promoted: 1, applied: 0 });
+    expect(r.ran && r.dropped.map((d) => d.why)).toEqual(["a file it would change was written after the plan was made"]);
+    expect([...x.batches[0]!.writes.keys()]).toEqual(["MEMORY.md"]);
+  });
+
+  it("holds the plan made once more to the files the model saw whole", async () => {
+    const long = fact("long", "project", "A long one", "x".repeat(4_000));
+    const x = tidier(repo(store({ ...olds(5), "spaces/work/long.md": long })), { plan: { operations: [{ op: "delete", path: "spaces/work/long.md" }] }, busy: { when: "first" }, settings: lastWeek });
+    const r = await x.t.tidy("p1");
+    expect(r).toMatchObject({ ran: true, promoted: 1, applied: 0 });
+    expect(r.ran && r.dropped.map((d) => d.why)).toEqual(["it names a file the plan did not see whole"]);
+    expect(x.batches[0]!.writes.has("spaces/work/long.md")).toBe(false);
+  });
+
+  it("writes nothing when it is overtaken again, and puts its clock back", async () => {
+    const x = tidier(repo(store(olds(5))), { plan: merge, busy: { when: "always" }, settings: lastWeek });
+    expect(await x.t.tidy("p1")).toEqual({ ran: false, why: "memory changed during the pass: MEMORY.md" });
+    expect(x.batches).toHaveLength(0);
+    expect(x.generate).toHaveBeenCalledTimes(1);
+    expect(x.settings.get("memory.tidiedAt:p1")).toBe(NOW - TIDY_EVERY_MS);
+    expect(x.settings.get("memory.tidyBackoff:p1")).toEqual({ overtaken: [NOW], notBefore: NOW + TIDY_BACKOFF_MS });
+  });
+});
+
+describe("MemoryTidier — backing off while memory keeps moving", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  /** An hour of the tidier's own clock at a time, with the pass each tick starts let run to its end. */
+  const hours = async (n: number) => {
+    for (let i = 0; i < n; i++) {
+      await vi.advanceTimersByTimeAsync(HOUR);
+      for (let k = 0; k < 50; k++) await Promise.resolve();
+    }
+  };
+
+  it("waits six hours after a pass memory moved under, and after two in a day, the week", async () => {
+    vi.useFakeTimers({ now: NOW });
+    const x = tidier(repo(store()), { busy: { when: "always" }, systemClock: true, settings: { "memory.tidiedAt:p1": NOW - TIDY_EVERY_MS } });
+    x.t.start();
+    await hours(1);
+    expect(x.generate).toHaveBeenCalledTimes(1); // overtaken as planned and once more: nothing written
+    await hours(5);
+    expect(x.generate).toHaveBeenCalledTimes(1); // inside the six hours
+    await hours(1);
+    expect(x.generate).toHaveBeenCalledTimes(2); // six hours on — overtaken again: the second in a day
+    await hours(7 * 24 - 1);
+    expect(x.generate).toHaveBeenCalledTimes(2); // waiting for the weekly slot
+    await hours(1);
+    expect(x.generate).toHaveBeenCalledTimes(3); // the weekly slot
+    // A day is a day: the passes overtaken a week ago no longer count, so this one waits six hours.
+    await hours(5);
+    expect(x.generate).toHaveBeenCalledTimes(3);
+    await hours(1);
+    expect(x.generate).toHaveBeenCalledTimes(4);
+    expect(x.batches).toHaveLength(0);
+    x.t.close();
+  });
+
+  it("goes back to the weekly rhythm once a pass gets written", async () => {
+    vi.useFakeTimers({ now: NOW });
+    const dir = repo(store());
+    const x = tidier(dir, { busy: { when: "always" }, systemClock: true, settings: { "memory.tidiedAt:p1": NOW - TIDY_EVERY_MS } });
+    x.t.start();
+    await hours(1);
+    expect(x.generate).toHaveBeenCalledTimes(1);
+    // Memory goes quiet: the next pass, six hours on, is written, and the wait is forgotten.
+    (x.sink.writeBatch as ReturnType<typeof vi.fn>).mockImplementation(async (_o, writes, message, author) => {
+      x.batches.push({ writes: typeof writes === "function" ? writes(dir) : writes, message, author });
+      return { changed: true, file: "", line: null, sha: "sha2", diff: "" };
+    });
+    await hours(6);
+    expect(x.generate).toHaveBeenCalledTimes(2);
+    expect(x.batches).toHaveLength(1);
+    expect(x.settings.get("memory.tidyBackoff:p1")).toBeNull();
+    await hours(7 * 24 - 1);
+    expect(x.generate).toHaveBeenCalledTimes(2);
+    await hours(1);
+    expect(x.generate).toHaveBeenCalledTimes(3);
+    x.t.close();
   });
 });
