@@ -1,8 +1,8 @@
 import { afterEach, describe, it, expect } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { tempDir } from "@realm/test-utils";
 import { fetchAcpCatalog, fetchAcpModels, probeAcp } from "./probe";
 
 describe("probeAcp", () => {
@@ -79,14 +79,13 @@ describe("what a probe leaves running once it has answered", () => {
     return !alive(pid);
   };
   const childOf = (env: Record<string, string>) => {
-    const dir = mkdtempSync(join(tmpdir(), "realm-acp-probe-")); dirs.push(dir);
+    const dir = tempDir("realm-acp-probe-"); dirs.push(dir);
     return { opts: { bin: process.execPath, args: [FAKE], cwd: process.cwd(), env: { ...env, FAKE_ACP_CHILD_PID: join(dir, "pid") } }, pid: () => Number(readFileSync(join(dir, "pid"), "utf8")), dir };
   };
   afterEach(() => {
     for (const dir of dirs.splice(0)) {
       const file = join(dir, "pid");
       if (existsSync(file)) { const pid = Number(readFileSync(file, "utf8")); if (alive(pid)) process.kill(pid, "SIGKILL"); }
-      rmSync(dir, { recursive: true, force: true });
     }
   });
 
