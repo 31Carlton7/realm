@@ -255,6 +255,13 @@ export const MemoryClaudeImportSchema = z.object({
 });
 export type MemoryClaudeImport = z.infer<typeof MemoryClaudeImportSchema>;
 
+/** One project of Claude's (`~/.claude/projects/<project>`): its folder name, the folder it names
+ *  where that still exists, and how many memory files it keeps. */
+const ClaudeProjectSchema = z.object({ project: z.string(), path: z.string().nullable(), files: z.number() });
+
+/** What a Claude project's memory is brought into: a space's id, or this — leave it in Claude's folder. */
+export const CLAUDE_PROJECT_LEFT_OUT = "skip";
+
 /**
  * Claude's own memory, brought in from `~/.claude/projects/<project>/memory` (read, never written)
  * to the folder of the space that works in that project, as it was there and in the same format. It
@@ -268,10 +275,15 @@ export const MemoryClaudeBackfillSchema = z.object({
   updated: z.number(),
   /** Every file of Claude's memory this profile's space folders hold a copy of. */
   total: z.number(),
-  /** Claude projects no space claims, or more than one does, with why — never guessed at. */
-  unmatched: z.array(z.object({ project: z.string(), reason: z.string() })),
+  /** Claude projects no space claims, or more than one does, and nobody has placed — with why, never
+   *  guessed at, biggest first. Their memory waits in Claude's folder until someone chooses. */
+  unmatched: z.array(ClaudeProjectSchema.extend({ reason: z.string() })),
+  /** Claude projects placed by hand (`memory.repo.setClaudeProject`): brought into one of this
+   *  profile's spaces (`spaceId`), or left out (null). A choice wins over matching, ties included. */
+  chosen: z.array(ClaudeProjectSchema.extend({ spaceId: z.string().nullable() })),
   /** What stays where it is, and why: a credential, a file changed in the repo since its copy was
-   *  made, a temporary folder. */
+   *  made, a temporary folder. Each is listed once per version of it: once the Memory page has shown
+   *  it, a later run lists it again only after it changes. */
   skipped: z.array(z.object({ file: z.string(), reason: z.string() })),
   /** Why nothing could be written on the last run, or null. */
   error: z.string().nullable(),

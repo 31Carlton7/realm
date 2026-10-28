@@ -2,7 +2,9 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { MEMORY_DOC_MAX, MEMORY_REPO_INDEX_FILE, withIndexLink, type MemoryClaudeBackfill } from "@realm/contracts";
+import { CLAUDE_PROJECT_LEFT_OUT, MEMORY_DOC_MAX, MEMORY_REPO_INDEX_FILE, withIndexLink, type MemoryClaudeBackfill } from "@realm/contracts";
+import { decodeClaudeProjectSlug } from "../import/sources";
+import { RpcError } from "../store/rows";
 import type { SettingsStore } from "../store/settings";
 import { claudeIndexTarget, mergeClaudeIndex } from "./claude-facts";
 import { SPACES_DIR, type MemoryRepoService, type RepoOwner } from "./repo";
@@ -23,8 +25,12 @@ import { secretShapeIn } from "./secret-shapes";
  *   and neither is a file of that name another project put there — both are named in `skipped`;
  * - a copy removed from the repo stays removed until its source changes again.
  *
- * A project that no space works in, or that several do, is reported, never guessed at; one in a
- * temporary folder (a test run, a scratch copy) is passed over.
+ * A project that no space works in, or that several do, is reported, never guessed at, until someone
+ * places it by hand (`memory.claudeProjectSpace:<project>`: a space, or left out) — a choice that wins
+ * over matching, ties included. One in a temporary folder (a test run, a scratch copy) is passed over.
+ *
+ * What stays out is listed once per version of it (`memory.claudeBackfillShown:<profileId>`): once the
+ * Memory page has shown a file as left out, later runs leave it off the list until it changes.
  */
 
 /** Claude's name for a project's folder: every character but a letter or a digit made a dash — the
@@ -122,11 +128,26 @@ function factFiles(dir: string): string[] {
   } catch { return []; }
 }
 
+/** One project's memory folder as one hash: each fact file's name and contents. */
+function folderHash(dir: string): string {
+  return sha(factFiles(dir).map((n) => `${n}\0${sha(readOr(join(dir, n)) ?? "")}`).join("\n"));
+}
+
+/** The folder a project's name stands for, where it still exists — what the Memory page calls it. */
+function projectPath(project: string): string | null {
+  return decodeClaudeProjectSlug(project, (dir) => { try { return readdirSync(dir); } catch { return []; } });
+}
+
 /** The manifest of one profile's copies: repo path → the file it was copied from, and its hash then. */
 type Manifest = Record<string, { source: string; hash: string }>;
 const manifestKey = (profileId: string): string => `memory.claudeBackfill:${profileId}`;
+/** A person's own answer for one Claude project: the space its memory goes to, or left out. */
+export const claudeProjectChoiceKey = (project: string): string => `memory.claudeProjectSpace:${project}`;
+/** Each file the Memory page has shown as left out, and the version of it that was shown. */
+const shownKey = (profileId: string): string => `memory.claudeBackfillShown:${profileId}`;
 
-type Skipped = MemoryClaudeBackfill["skipped"];
+/** A file (or a whole project) left where it is, why, and which version of it. */
+type Skip = MemoryClaudeBackfill["skipped"][number] & { hash: string };
 
 /**
  * What bringing these projects into their space folders writes to the repo at `repo`, worked out from
@@ -136,7 +157,7 @@ type Skipped = MemoryClaudeBackfill["skipped"];
 export function planBackfill(repo: string, projectsDir: string, folders: ReadonlyMap<string, readonly string[]>, before: Manifest) {
   const writes = new Map<string, string | null>();
   const manifest: Manifest = { ...before };
-  const skipped: Skipped = [];
+  const skipped: Skip[] = [];
   let imported = 0;
   let updated = 0;
   const now = (rel: string): string | null => (writes.has(rel) ? writes.get(rel)! : readOr(join(repo, rel)));
@@ -152,10 +173,10 @@ export function planBackfill(repo: string, projectsDir: string, folders: Readonl
         const rel = `${at}/${name}`;
         const text = readOr(from);
         if (text === null) continue;
-        const secret = secretShapeIn(text);
-        if (secret) { skipped.push({ file: from, reason: `it looks like it holds ${secret}, and memory never holds credentials` }); continue; }
-        if (text.length > MEMORY_DOC_MAX) { skipped.push({ file: from, reason: `it is longer than ${MEMORY_DOC_MAX} characters` }); continue; }
         const hash = sha(text);
+        const secret = secretShapeIn(text);
+        if (secret) { skipped.push({ file: from, reason: `it looks like it holds ${secret}, and memory never holds credentials`, hash }); continue; }
+        if (text.length > MEMORY_DOC_MAX) { skipped.push({ file: from, reason: `it is longer than ${MEMORY_DOC_MAX} characters`, hash }); continue; }
         const known = manifest[rel];
         const here = now(rel);
         if (here === null) {
@@ -168,7 +189,7 @@ export function planBackfill(repo: string, projectsDir: string, folders: Readonl
           writes.set(rel, text);
           updated++;
         } else {
-          skipped.push({ file: from, reason: known && known.source !== from ? `${rel} holds another Claude project's file of that name` : `${rel} has changed in the repo since it was copied` });
+          skipped.push({ file: from, reason: known && known.source !== from ? `${rel} holds another Claude project's file of that name` : `${rel} has changed in the repo since it was copied`, hash });
           continue;
         }
         manifest[rel] = { source: from, hash };
@@ -191,10 +212,14 @@ export function planBackfill(repo: string, projectsDir: string, folders: Readonl
  *  hashed, nothing written unless something changed. */
 export const CLAUDE_BACKFILL_EVERY_MS = 5 * 60_000;
 
-export const NEVER_RUN: MemoryClaudeBackfill = { imported: 0, updated: 0, total: 0, unmatched: [], skipped: [], error: null, sha: null, at: null };
+export const NEVER_RUN: MemoryClaudeBackfill = { imported: 0, updated: 0, total: 0, unmatched: [], chosen: [], skipped: [], error: null, sha: null, at: null };
+
+const biggestFirst = (a: { project: string; files: number }, b: { project: string; files: number }): number => b.files - a.files || a.project.localeCompare(b.project);
 
 export class ClaudeMemoryBackfill {
   private last = new Map<string, MemoryClaudeBackfill>();
+  /** The last run's list of what stayed out, by profile, with the version of each — what `seen` records. */
+  private listed = new Map<string, Skip[]>();
   private running: Promise<void> | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private stopped = false;
@@ -215,6 +240,46 @@ export class ClaudeMemoryBackfill {
 
   /** What the last run did for one profile; before the first, that nothing has run. */
   result(profileId: string): MemoryClaudeBackfill { return this.last.get(profileId) ?? NEVER_RUN; }
+
+  /**
+   * The last run's result as the Memory page shows it. What it lists as left out counts as shown from
+   * here: the next run lists a file again only once it has changed. Until a page has asked, nothing is
+   * taken off the list, so a file left out overnight is still there in the morning.
+   */
+  seen(profileId: string): MemoryClaudeBackfill {
+    const listed = this.listed.get(profileId) ?? [];
+    const shown = this.shownOf(profileId);
+    if (listed.some((s) => shown[s.file] !== s.hash)) {
+      for (const s of listed) shown[s.file] = s.hash;
+      this.d.settings.set(shownKey(profileId), shown);
+    }
+    return this.result(profileId);
+  }
+
+  /**
+   * Place one Claude project by hand: its memory goes into this space of the profile, or — `"skip"` —
+   * stays in Claude's folder. Then a run, so the choice is honoured now, and what it did.
+   */
+  async choose(profileId: string, project: string, into: string): Promise<MemoryClaudeBackfill> {
+    if (into !== CLAUDE_PROJECT_LEFT_OUT && this.d.spaces().find((s) => s.id === into)?.profileId !== profileId) {
+      throw new RpcError("NOT_FOUND", "that space is not one of this profile's");
+    }
+    this.d.settings.set(claudeProjectChoiceKey(project), into);
+    await this.runAgain();
+    return this.seen(profileId);
+  }
+
+  /** Run once any run already going has finished: that one was planned before whatever the caller just
+   *  changed — a project placed, a file written in Claude's folder. */
+  async runAgain(): Promise<void> {
+    await this.running;
+    await this.run();
+  }
+
+  private shownOf(profileId: string): Record<string, string> {
+    const v = this.d.settings.get(shownKey(profileId));
+    return v && typeof v === "object" && !Array.isArray(v) ? { ...(v as Record<string, string>) } : {};
+  }
 
   /** Run now — or, while a run is going, wait for that one. Never throws: a failure is the result's `error`. */
   run(): Promise<void> {
@@ -243,24 +308,52 @@ export class ClaudeMemoryBackfill {
     let names: string[] = [];
     try { names = readdirSync(projectsDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort(); } catch { /* no Claude here */ }
     names = names.filter((n) => existsSync(join(projectsDir, n, "memory", MEMORY_REPO_INDEX_FILE)) || factFiles(join(projectsDir, n, "memory")).length > 0);
+    const memoryOf = (n: string): string => join(projectsDir, n, "memory");
     const temporary = this.d.temporaryRoots ?? TEMPORARY_ROOTS;
-    const passedOver: Skipped = names.filter((n) => isUnder(n, temporary)).map((n) => ({ file: join(projectsDir, n), reason: "it is a temporary folder, not a project" }));
+    const passedOver: Skip[] = names.filter((n) => isUnder(n, temporary))
+      .map((n) => ({ file: join(projectsDir, n), reason: "it is a temporary folder, not a project", hash: folderHash(memoryOf(n)) }));
+    const live = names.filter((n) => !isUnder(n, temporary));
     const spaces = this.d.spaces();
-    const matches = matchClaudeProjects(names.filter((n) => !isUnder(n, temporary)), spaces);
+    // A person's choice comes first, ties included; matching answers only for the rest.
+    const choices = new Map<string, string>();
+    for (const n of live) {
+      const c = this.d.settings.get(claudeProjectChoiceKey(n));
+      if (typeof c === "string") choices.set(n, c);
+    }
+    const matches = matchClaudeProjects(live.filter((n) => !choices.has(n)), spaces);
+    const project = (n: string) => ({ project: n, path: projectPath(n), files: factFiles(memoryOf(n)).length });
     const unmatched: MemoryClaudeBackfill["unmatched"] = [];
+    const chosen: (MemoryClaudeBackfill["chosen"][number] & { profileId: string | null })[] = [];
+    const placed = new Map<string, string>();
+    for (const n of live) {
+      const choice = choices.get(n);
+      if (choice === CLAUDE_PROJECT_LEFT_OUT) { chosen.push({ ...project(n), spaceId: null, profileId: null }); continue; }
+      if (choice !== undefined) {
+        const sp = spaces.find((s) => s.id === choice);
+        // A space since deleted is no answer: the project is asked about again, never guessed at.
+        if (!sp) { unmatched.push({ ...project(n), reason: "the space it was brought into is gone" }); continue; }
+        chosen.push({ ...project(n), spaceId: sp.id, profileId: sp.profileId });
+        placed.set(n, sp.id);
+        continue;
+      }
+      const m = matches.get(n)!;
+      if ("reason" in m) unmatched.push({ ...project(n), reason: m.reason });
+      else placed.set(n, m.spaceId);
+    }
+    unmatched.sort(biggestFirst);
+    chosen.sort(biggestFirst);
     const byProfile = new Map<string, { owner: RepoOwner; folders: Map<string, string[]> }>();
     /** By profile: projects whose space keeps no memory in Realm (no repo, or turned off there). */
-    const offIn = new Map<string, Skipped>();
-    for (const [project, m] of matches) {
-      if ("reason" in m) { unmatched.push({ project, reason: m.reason }); continue; }
-      const at = this.d.repos.spaceFolderFor(m.spaceId);
+    const offIn = new Map<string, Skip[]>();
+    for (const [n, spaceId] of placed) {
+      const at = this.d.repos.spaceFolderFor(spaceId);
       if (!at) {
-        const sp = spaces.find((s) => s.id === m.spaceId)!;
-        offIn.set(sp.profileId, [...(offIn.get(sp.profileId) ?? []), { file: join(projectsDir, project, "memory"), reason: `${sp.name} keeps no memory in Realm` }]);
+        const sp = spaces.find((s) => s.id === spaceId)!;
+        offIn.set(sp.profileId, [...(offIn.get(sp.profileId) ?? []), { file: memoryOf(n), reason: `${sp.name} keeps no memory in Realm`, hash: folderHash(memoryOf(n)) }]);
         continue;
       }
       const group = byProfile.get(at.owner.id) ?? { owner: at.owner, folders: new Map<string, string[]>() };
-      group.folders.set(at.folder, [...(group.folders.get(at.folder) ?? []), project]);
+      group.folders.set(at.folder, [...(group.folders.get(at.folder) ?? []), n]);
       byProfile.set(at.owner.id, group);
     }
     const at = Date.now();
@@ -269,8 +362,10 @@ export class ClaudeMemoryBackfill {
       const group = byProfile.get(profileId);
       const repo = this.d.repos.config({ scope: "profile", id: profileId })?.path;
       const kept = Object.keys(manifest).filter((rel) => repo !== undefined && existsSync(join(repo, rel))).length;
-      const base: MemoryClaudeBackfill = { ...NEVER_RUN, total: kept, unmatched, skipped: [...passedOver, ...(offIn.get(profileId) ?? [])], at };
-      if (!group) { this.last.set(profileId, base); continue; }
+      const mine = chosen.filter((c) => c.profileId === null || c.profileId === profileId).map(({ profileId: _, ...c }) => c);
+      const base: MemoryClaudeBackfill = { ...NEVER_RUN, total: kept, unmatched, chosen: mine, at };
+      const outside = [...passedOver, ...(offIn.get(profileId) ?? [])];
+      if (!group) { this.settle(profileId, base, outside, true); continue; }
       // Planned inside the repo's lock, from the files as they are then; the manifest moves only once
       // the commit has landed.
       const planned: { plan?: ReturnType<typeof planBackfill> } = {};
@@ -278,11 +373,29 @@ export class ClaudeMemoryBackfill {
         const out = await this.d.repos.writeBatch(group.owner, (dir) => (planned.plan = planBackfill(dir, projectsDir, group.folders, manifest)).writes, "Bring in memory Claude kept outside Realm");
         const p = planned.plan!;
         this.d.settings.set(manifestKey(profileId), p.manifest);
-        this.last.set(profileId, { ...base, imported: p.imported, updated: p.updated, total: p.total, skipped: [...base.skipped, ...p.skipped], sha: out.sha });
+        this.settle(profileId, { ...base, imported: p.imported, updated: p.updated, total: p.total, sha: out.sha }, [...outside, ...p.skipped], true);
         if (out.changed) this.d.onChanged?.(group.owner);
       } catch (e) {
-        this.last.set(profileId, { ...base, error: e instanceof Error ? e.message : String(e) });
+        // What the plan found left out still stands; with no plan, what is not known is not forgotten.
+        this.settle(profileId, { ...base, error: e instanceof Error ? e.message : String(e) }, [...outside, ...(planned.plan?.skipped ?? [])], planned.plan !== undefined);
       }
     }
+  }
+
+  /**
+   * Record one profile's run. Of what stayed out, only what the Memory page has not shown yet — or has
+   * changed since — is listed. `whole` says the run saw everything that is left out now, so a file
+   * no longer among it is forgotten, and is shown again if it is ever left out again.
+   */
+  private settle(profileId: string, result: MemoryClaudeBackfill, left: Skip[], whole: boolean): void {
+    const shown = this.shownOf(profileId);
+    if (whole) {
+      const now = new Set(left.map((s) => s.file));
+      const kept = Object.fromEntries(Object.entries(shown).filter(([file]) => now.has(file)));
+      if (Object.keys(kept).length !== Object.keys(shown).length) this.d.settings.set(shownKey(profileId), kept);
+    }
+    const fresh = left.filter((s) => shown[s.file] !== s.hash);
+    this.listed.set(profileId, fresh);
+    this.last.set(profileId, { ...result, skipped: fresh.map(({ file, reason }) => ({ file, reason })) });
   }
 }

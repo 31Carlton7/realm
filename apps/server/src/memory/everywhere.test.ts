@@ -185,4 +185,30 @@ describe("Claude's memory from outside Realm, through the Memory page's row", ()
     expect(readFileSync(join(repo.path, "spaces", "stora", "deploys.md"), "utf8")).toBe("Deploys on Fridays.\n");
     c.close();
   });
+
+  it("brings a project no space works in into the space chosen for it over RPC, at once; and lists what stays out once", async () => {
+    const home = tempDir("realm-membackfill-app-");
+    const c = await boot(home);
+    const [personal] = await c.call("profiles.list", {});
+    const sp = await c.call("spaces.create", { profileId: personal.id, name: "Stora" });
+    await waitFor(async () => (await c.call("memory.repo.claudeBackfill", { profileId: personal.id })).at !== null);
+    const memory = join(home, "claude-home", "projects", "-Users-me-code-stora-platform", "memory");
+    mkdirSync(memory, { recursive: true });
+    writeFileSync(join(memory, "deploys.md"), "Deploys on Fridays.\n");
+    writeFileSync(join(memory, "keys.md"), `The key is sk-${"a".repeat(30)}\n`);
+    const before = await c.call("memory.repo.claudeBackfill", { profileId: personal.id, run: true });
+    expect(before.unmatched).toEqual([{ project: "-Users-me-code-stora-platform", path: null, files: 2, reason: "no space works in that folder" }]);
+    // A space of another profile is refused, and nothing is recorded.
+    const other = await c.call("profiles.create", { name: "School" });
+    const homework = await c.call("spaces.create", { profileId: other.id, name: "Homework" });
+    await expect(c.call("memory.repo.setClaudeProject", { profileId: personal.id, project: "-Users-me-code-stora-platform", into: homework.id })).rejects.toThrow(/not one of this profile's/);
+    const r = await c.call("memory.repo.setClaudeProject", { profileId: personal.id, project: "-Users-me-code-stora-platform", into: sp.id });
+    expect(r).toMatchObject({ imported: 1, unmatched: [], chosen: [{ project: "-Users-me-code-stora-platform", files: 2, spaceId: sp.id }] });
+    const [repo] = (await c.call("memory.repo.get", { profileId: personal.id })).repos;
+    expect(readFileSync(join(repo.path, "spaces", "stora", "deploys.md"), "utf8")).toBe("Deploys on Fridays.\n");
+    // The page was handed keys.md as left out; the next check leaves it off until it changes.
+    expect(r.skipped.map((s: { file: string }) => s.file)).toEqual([join(memory, "keys.md")]);
+    expect((await c.call("memory.repo.claudeBackfill", { profileId: personal.id, run: true })).skipped).toEqual([]);
+    c.close();
+  });
 });

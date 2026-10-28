@@ -658,6 +658,8 @@ export type Api = TeamApi & LabApi & {
   importClaudeMemory(owner: MemoryRepoOwner, dryRun: boolean): Promise<MemoryClaudeImport>;
   /** `memory.repo.claudeBackfill` — what bringing in Claude's own memory last did; `run` runs it now. */
   claudeBackfill(profileId: string, run: boolean): Promise<MemoryClaudeBackfill>;
+  /** `memory.repo.setClaudeProject` — a Claude project placed by hand (a space's id, or "skip"), then a run. */
+  setClaudeProject(profileId: string, project: string, into: string): Promise<MemoryClaudeBackfill>;
   /** `mcp.tools.list` — triggers a lazy connect. A connect failure comes back as `error`, not a throw:
    *  the list is still a renderable result. */
   mcpToolsList(id: string): Promise<{ tools: McpServer["tools"]; error: string | null }>;
@@ -2991,6 +2993,8 @@ export type AppState = TeamSlice & LabSlice & {
   importClaudeMemory(owner: MemoryRepoOwner, dryRun: boolean): Promise<MemoryClaudeImport>;
   /** What bringing in Claude's own memory last did for a profile's repo — or, with `run`, does now. */
   claudeBackfill(profileId: string, run: boolean): Promise<MemoryClaudeBackfill>;
+  /** Bring a Claude project's memory into a space of the profile, or leave it out ("skip"), at once. */
+  setClaudeProject(profileId: string, project: string, into: string): Promise<MemoryClaudeBackfill>;
   /** Narrow (or, with `null`, reset) this space's allowlist for one server. */
   setMcpAllowedTools(spaceId: string, id: string, tools: string[] | null): Promise<void>;
   /** Refresh one server's cached tools. Never throws for a connect failure — that lands in
@@ -6965,6 +6969,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const r = await api.claudeBackfill(profileId, run);
         const owner = { scope: "profile" as const, id: profileId };
         if (run && r.sha !== null) await Promise.all([get().refreshMemoryRepoLog(owner), get().refreshMemoryRepoOf(owner)]);
+        return r;
+      },
+      async setClaudeProject(profileId, project, into) {
+        const r = await api.setClaudeProject(profileId, project, into);
+        const owner = { scope: "profile" as const, id: profileId };
+        if (r.sha !== null) await Promise.all([get().refreshMemoryRepoLog(owner), get().refreshMemoryRepoOf(owner)]);
         return r;
       },
       async refreshMemoryRepoOf(owner) {

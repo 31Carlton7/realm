@@ -675,11 +675,19 @@ export function registerMethods(d: Deps): void {
     if (r.sha !== null) repoChanged(o);
     return r;
   });
+  // What the page is handed counts as shown: a file it lists as left out is listed again only once it changes.
   reg("memory.repo.claudeBackfill", async (p) => {
     ownerOf({ scope: "profile", ownerId: p.profileId });
     if (!d.claudeBackfill) return { ...NEVER_RUN, error: "this Realm reads no Claude folder" };
-    if (p.run) await d.claudeBackfill.run();
-    return d.claudeBackfill.result(p.profileId);
+    if (p.run) await d.claudeBackfill.runAgain();
+    return d.claudeBackfill.seen(p.profileId);
+  });
+  reg("memory.repo.setClaudeProject", async (p) => {
+    const o = ownerOf({ scope: "profile", ownerId: p.profileId });
+    if (!d.claudeBackfill) throw new RpcError("MEMORY_NO_CLAUDE", "this Realm reads no Claude folder");
+    const r = await d.claudeBackfill.choose(p.profileId, p.project, p.into);
+    if (r.sha !== null) repoChanged(o);
+    return r;
   });
 
   reg("projects.list", (p) => d.projects.list(p.spaceId));
