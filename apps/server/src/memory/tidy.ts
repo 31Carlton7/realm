@@ -33,17 +33,24 @@ const OPERATIONS_MAX = 20;
 
 const tidiedAtKey = (profileId: string): string => `memory.tidiedAt:${profileId}`;
 
+/** Thrown inside the store's lock when files the pass would change were written while it was planned. */
+class MemoryMovedOn extends Error {
+  constructor(readonly paths: string[]) { super(`${paths.join(", ")} changed while the pass was planned`); }
+}
+
 // ─── The store as the pass sees it ────────────────────────────────────────────────────────────────
 
-type Doc = { path: string; text: string; mtimeMs: number };
+/** One file as the pass read it. `text` is "" for a file that was not there, which `exists` tells apart
+ *  from an empty one — the difference matters when the pass checks nobody wrote it since. */
+type Doc = { path: string; text: string; exists: boolean; mtimeMs: number };
 export type Fact = Doc & { folder: string; name: string; type: string | null; description: string | null };
 export type TidySnapshot = { root: Doc; folders: { folder: string; index: Doc; facts: Fact[] }[] };
 
 const indexPathOf = (folder: string): string => `spaces/${folder}/${MEMORY_REPO_INDEX_FILE}`;
 
 function readDoc(repoPath: string, path: string): Doc {
-  try { return { path, text: readFileSync(join(repoPath, path), "utf8"), mtimeMs: statSync(join(repoPath, path)).mtimeMs }; }
-  catch { return { path, text: "", mtimeMs: 0 }; }
+  try { return { path, text: readFileSync(join(repoPath, path), "utf8"), exists: true, mtimeMs: statSync(join(repoPath, path)).mtimeMs }; }
+  catch { return { path, text: "", exists: false, mtimeMs: 0 }; }
 }
 
 /** The root index and, for each folder, its index and its fact files — read from disk, written by nobody here. */
@@ -165,17 +172,32 @@ export class TidyDraft {
   /** What changed against the disk: path → new content, or null to delete. */
   changes(): Map<string, string | null> {
     const out = new Map<string, string | null>();
-    for (const [path, text] of this.content) {
-      const before = path === MEMORY_REPO_INDEX_FILE ? this.snap.root.text : this.snap.folders.find((f) => f.index.path === path)?.index.text ?? this.facts.get(path)?.text ?? null;
-      if (text !== before) out.set(path, text);
-    }
+    for (const [path, text] of this.content) if (text !== this.read(path)) out.set(path, text);
     return out;
   }
 
-  private mtime(path: string): number {
-    if (path === MEMORY_REPO_INDEX_FILE) return this.snap.root.mtimeMs;
-    return this.snap.folders.find((f) => f.index.path === path)?.index.mtimeMs ?? this.facts.get(path)?.mtimeMs ?? 0;
+  /**
+   * The files this pass would change whose text is no longer what the pass read: somebody wrote them
+   * while the plan was being made — an agent saving, Claude's own memory, the person. `current` is
+   * what the store holds now, null for a file that is not there. Asked inside the store's lock, just
+   * before the pass is written, so a write that lands during the model call is never written over.
+   */
+  drifted(current: (path: string) => string | null): string[] {
+    return [...this.changes().keys()].filter((path) => current(path) !== this.read(path));
   }
+
+  /** A file as the pass read it, or null when it was not there. */
+  private read(path: string): string | null {
+    const doc = this.doc(path);
+    return doc?.exists ? doc.text : null;
+  }
+
+  private doc(path: string): Doc | undefined {
+    if (path === MEMORY_REPO_INDEX_FILE) return this.snap.root;
+    return this.snap.folders.find((f) => f.index.path === path)?.index ?? this.facts.get(path);
+  }
+
+  private mtime(path: string): number { return this.doc(path)?.mtimeMs ?? 0; }
 
   recent(path: string): boolean { return this.now - this.mtime(path) < TIDY_RECENT_MS; }
 
@@ -238,11 +260,13 @@ export class TidyDraft {
     if (rest.some((x) => x.folder !== first!.folder)) return "it merges facts from different spaces";
     const goes = op.op === "merge" ? rest : op.op === "delete" ? [first!] : [];
     const index = indexPathOf(first!.folder);
-    const rootLinks = goes.some((x) => (this.get(MEMORY_REPO_INDEX_FILE) ?? "").split("\n").some((l) => linksFact(l, x, "root")));
-    const touched = [...paths, index, ...(rootLinks ? [MEMORY_REPO_INDEX_FILE] : [])];
+    // Every root line linking a fact that goes, goes with it — one the person wrote included — and each
+    // is a deletion against the cap like the file is.
+    const rootLines = (this.get(MEMORY_REPO_INDEX_FILE) ?? "").split("\n").filter((l) => goes.some((x) => linksFact(l, x, "root"))).length;
+    const touched = [...paths, index, ...(rootLines > 0 ? [MEMORY_REPO_INDEX_FILE] : [])];
     if (touched.some((p) => this.recent(p))) return "a file it would change was changed in the last hour";
     if (op.op !== "delete" && secretShapeIn(`${op.description}\n${op.body}`)) return "it looks like it holds a secret";
-    if (this.deleted + goes.length > this.cap) return `it would take this pass past its ${this.cap} deletions`;
+    if (this.deleted + goes.length + rootLines > this.cap) return `it would take this pass past its ${this.cap} deletions`;
 
     if (op.op !== "delete") {
       this.content.set(first!.path, rewriteFact(this.get(first!.path)!, first!.name, op.description, op.body));
@@ -251,9 +275,9 @@ export class TidyDraft {
     for (const x of goes) {
       this.content.set(x.path, null);
       this.editLines(index, (l) => (linksFact(l, x, "index") ? null : l));
-      if (rootLinks) this.editLines(MEMORY_REPO_INDEX_FILE, (l) => (linksFact(l, x, "root") ? null : l));
+      if (rootLines > 0) this.editLines(MEMORY_REPO_INDEX_FILE, (l) => (linksFact(l, x, "root") ? null : l));
     }
-    this.deleted += goes.length;
+    this.deleted += goes.length + rootLines;
     return null;
   }
 
@@ -412,6 +436,7 @@ export class MemoryTidier {
     if (places.length === 0) return skip("no memory in use");
     const { owner, repoPath } = places[0]!;
     const now = this.now();
+    const lastClock = this.d.settings.get(tidiedAtKey(profileId));
     this.inFlight.add(profileId);
     try {
       // The attempt is the clock, whatever comes of it: a pass that fails must not be retried hourly.
@@ -447,7 +472,23 @@ export class MemoryTidier {
       if (rejected) this.d.onError?.(`[memory] tidy for profile ${profileId}: the plan was refused (${rejected}); only the deterministic step applies`);
       const writes = draft.changes();
       if (o.dryRun || writes.size === 0) return { ran: true, writes, promoted, applied, dropped, rejected, sha: null };
-      const out = await this.d.sink.writeBatch(owner, writes, TIDY_COMMIT_MESSAGE, LEARNED_AUTHOR);
+      let out;
+      try {
+        // Checked inside the store's lock, against what is there now: the model call takes a while, and
+        // a fact saved during it must not be written over by a plan made from the files before it.
+        out = await this.d.sink.writeBatch(owner, (repo) => {
+          const moved = draft.drifted((path) => { try { return readFileSync(join(repo, path), "utf8"); } catch { return null; } });
+          if (moved.length > 0) throw new MemoryMovedOn(moved);
+          return writes;
+        }, TIDY_COMMIT_MESSAGE, LEARNED_AUTHOR);
+      } catch (e) {
+        if (!(e instanceof MemoryMovedOn)) throw e;
+        // Nothing of the pass is written, and the clock goes back, so the next hourly check plans again
+        // from the files as they are now.
+        this.d.settings.set(tidiedAtKey(profileId), lastClock);
+        this.d.onError?.(`[memory] tidy for profile ${profileId}: ${e.message}; nothing written, trying again at the next check`);
+        return skip(`memory changed during the pass: ${e.paths.join(", ")}`);
+      }
       this.d.onTidied?.(owner);
       return { ran: true, writes, promoted, applied, dropped, rejected, sha: out.sha };
     } finally {

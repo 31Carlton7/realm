@@ -15,8 +15,10 @@ export interface MemorySink {
   /** The space's folder in its profile's repo, or null when the space has no profile repo in use
    *  (memory tools off, inheritance off, no profile). Allocates and records the folder on first use. */
   spaceFolderFor(spaceId: string): SpaceFolder | null;
-  /** Several files as one commit: repo-relative path → new content, or null to delete. */
-  writeBatch(owner: RepoOwner, writes: Map<string, string | null>, message: string, author?: string): Promise<MemoryEditOutcome>;
+  /** Several files as one commit: repo-relative path → new content, or null to delete. Given a function,
+   *  the store calls it inside the repo's lock with the repo's path, so what it reads there is what the
+   *  commit is made on top of; a throw from it writes nothing. */
+  writeBatch(owner: RepoOwner, writes: Map<string, string | null> | ((repo: string) => Map<string, string | null>), message: string, author?: string): Promise<MemoryEditOutcome>;
   /** Create or overwrite one fact in the space's folder, keeping its index line current. */
   saveSpaceMemory(spaceId: string, m: { name: string; description: string; type: SpaceMemoryType; body: string; sessionId?: string; author?: string }): Promise<MemoryEditOutcome>;
   /** Add, replace or remove one entry of a Markdown file — the root `MEMORY.md` by default. */

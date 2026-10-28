@@ -54,7 +54,9 @@ function fakeSink(o: { active?: boolean } = {}) {
   let editFails: ((o: Parameters<MemorySink["edit"]>[1]) => Error | null) | null = null;
   const sink: MemorySink = {
     spaceFolderFor: vi.fn(() => (o.active === false ? null : place)),
-    writeBatch: vi.fn(async (_owner, w, message, author) => { writes.push("batch"); batches.push({ writes: w, message, author }); return outcome(); }),
+    writeBatch: vi.fn(async (_owner, w, message, author) => {
+      writes.push("batch"); batches.push({ writes: typeof w === "function" ? w(repoPath) : w, message, author }); return outcome();
+    }),
     saveSpaceMemory: vi.fn(async (_spaceId, m) => { writes.push(`space:${m.name}`); saved.push(m); return outcome(`spaces/billing/${m.name}.md`); }),
     edit: vi.fn(async (_owner, e) => {
       const err = editFails?.(e);
@@ -367,6 +369,36 @@ describe("SessionLearner — where each memory goes", () => {
     expect(t.saved[0]!.name).toBe("deploy-steps");
   });
 
+  it("never writes over a fact already under its name — the new one is saved beside it, numbered", async () => {
+    // THE BUG: saveSpaceMemory overwrites, so a hand-written or imported billing-owner.md was replaced.
+    const t = build(exchange(), { reply: answer([spaceFact()]) });
+    writeFileSync(join(t.place.dir, "billing-owner.md"), "---\nname: billing-owner\n---\nwritten by hand\n");
+    await t.learner.learn("s1");
+    expect(t.saved.map((m) => m.name)).toEqual(["billing-owner-2"]);
+  });
+
+  it("takes the next free number when the first is taken too", async () => {
+    const t = build(exchange(), { reply: answer([spaceFact()]) });
+    for (const n of ["billing-owner", "billing-owner-2"]) writeFileSync(join(t.place.dir, `${n}.md`), "x\n");
+    await t.learner.learn("s1");
+    expect(t.saved.map((m) => m.name)).toEqual(["billing-owner-3"]);
+  });
+
+  it("asks after the file the store will write, which is not always the name plus .md", async () => {
+    // The store keeps a fact called "memory" in memory-note.md; memory.md would be the folder's own
+    // MEMORY.md on a disk that ignores case, and would read as taken.
+    const t = build(exchange(), { reply: answer([spaceFact({ name: "memory" })]) });
+    await t.learner.learn("s1");
+    expect(t.saved.map((m) => m.name)).toEqual(["memory"]);
+  });
+
+  it("writes over a fact only when `replaces` names it", async () => {
+    const t = build(exchange(), { reply: answer([spaceFact({ replaces: "billing-owner" })]) });
+    writeFileSync(join(t.place.dir, "billing-owner.md"), "---\nname: billing-owner\n---\nolder\n");
+    await t.learner.learn("s1");
+    expect(t.saved.map((m) => m.name)).toEqual(["billing-owner"]);
+  });
+
   it("keeps the model's name when what it replaces is not there", async () => {
     const t = build(exchange(), { reply: answer([spaceFact({ name: "deploy-process", replaces: "no-such-fact" })]) });
     await t.learner.learn("s1");
@@ -391,6 +423,16 @@ describe("SessionLearner — where each memory goes", () => {
     expect(b.message).toBe('Realm learned small-prs from session "Billing cleanup" (s1)');
     expect(b.author).toBe(LEARNED_AUTHOR);
     expect(t.edits[0]!.entry).toBe("Prefers small PRs ([[learned/small-prs]])");
+  });
+
+  it("never writes over a body file already under its name either", async () => {
+    const body = "Keep pull requests small.\nBig ones sit unreviewed for days.";
+    const t = build(exchange(), { reply: answer([profileFact({ body })]) });
+    mkdirSync(join(t.place.repoPath, "learned"), { recursive: true });
+    writeFileSync(join(t.place.repoPath, "learned", "small-prs.md"), "# An older one\n\nkept\n");
+    await t.learner.learn("s1");
+    expect([...t.batches[0]!.writes.keys()]).toEqual(["learned/small-prs-2.md"]);
+    expect(t.edits[0]!.entry).toBe("Prefers small PRs ([[learned/small-prs-2]])");
   });
 
   it("replaces the root entry it names, and adds when there is no such entry", async () => {
