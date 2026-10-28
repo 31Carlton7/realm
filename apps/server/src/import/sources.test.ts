@@ -59,6 +59,29 @@ describe("decodeClaudeProjectSlug", () => {
       .toBe("/Users/me/Desktop/Home/Work/Projects/realm-worktrees/durable-runs");
   });
 
+  it("finds a folder whose name holds an underscore, a dot or a space, as Claude encodes them", () => {
+    // A GitHub runner's temp folder is `/private/var/folders/n6/hn37q6pj7sj_9dmqqc…/T`, and a worktree
+    // checkout can sit in `.verify`: Claude writes both with dashes, so the raw name never matches.
+    const odd: Record<string, string[]> = {
+      "/": ["private", "Users"],
+      "/private": ["var"], "/private/var": ["folders"], "/private/var/folders": ["n6"],
+      "/private/var/folders/n6": ["hn37q6pj7sj_9dmqqc2113800000gn"],
+      "/private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn": ["T"],
+      "/Users": ["me"], "/Users/me": ["realm-worktrees", "My Notes"], "/Users/me/realm-worktrees": [".verify"],
+    };
+    const of = (dir: string): string[] => odd[dir] ?? [];
+    // THE MUTANT: compare each child's raw name — every one of these decodes to null.
+    expect(decodeClaudeProjectSlug("-private-var-folders-n6-hn37q6pj7sj-9dmqqc2113800000gn-T", of))
+      .toBe("/private/var/folders/n6/hn37q6pj7sj_9dmqqc2113800000gn/T");
+    expect(decodeClaudeProjectSlug("-Users-me-realm-worktrees--verify", of)).toBe("/Users/me/realm-worktrees/.verify");
+    expect(decodeClaudeProjectSlug("-Users-me-My-Notes", of)).toBe("/Users/me/My Notes");
+  });
+
+  it("gives up rather than guess between two folders that encode alike", () => {
+    const twins = (dir: string): string[] => (dir === "/" ? ["a_b", "a.b"] : []);
+    expect(decodeClaudeProjectSlug("-a-b", twins)).toBeNull();
+  });
+
   it("resolves the plain case with no ambiguity at all", () => {
     expect(decodeClaudeProjectSlug("-Users-me-Desktop-Home-Work-Projects-realm", childrenOf))
       .toBe("/Users/me/Desktop/Home/Work/Projects/realm");
