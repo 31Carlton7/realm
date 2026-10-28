@@ -178,6 +178,7 @@ async function frameFor(name, ms = 20_000) {
   const fc = cdp(t.webSocketDebuggerUrl);
   await fc.ready;
   await fc.send("Runtime.enable");
+  fc.targetId = t.id;
   return fc;
 }
 
@@ -269,6 +270,28 @@ const KIT_WORK = `(async () => {
   await wait(400);
   return true; })()`;
 
+/** A PDF of one page per title, written by hand so the check needs nothing installed. */
+function makePdf(titles) {
+  const objects = ["<< /Type /Catalog /Pages 2 0 R >>", null];
+  const kids = [];
+  for (const t of titles) {
+    const content = `BT /F1 28 Tf 72 700 Td (${t}) Tj ET`;
+    const page = objects.length + 1;
+    kids.push(`${page} 0 R`);
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${page + 1} 0 R /Resources << /Font << /F1 ${titles.length * 2 + 3} 0 R >> >> >>`);
+    objects.push(`<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`);
+  }
+  objects[1] = `<< /Type /Pages /Kids [${kids.join(" ")}] /Count ${titles.length} >>`;
+  objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  let out = "%PDF-1.4\n"; const offsets = [];
+  objects.forEach((body, i) => { offsets.push(Buffer.byteLength(out)); out += `${i + 1} 0 obj\n${body}\nendobj\n`; });
+  const xref = Buffer.byteLength(out);
+  out += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const o of offsets) out += `${String(o).padStart(10, "0")} 00000 n \n`;
+  out += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(out, "latin1");
+}
+
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const near = (a, b) => Math.abs(a - b) <= 4;
 
@@ -294,6 +317,9 @@ async function main() {
   fs.copyFileSync(RG_GUIDE, path.join(school.folderPath, "guides", path.basename(RG_GUIDE)));
   fs.copyFileSync(KIT_GUIDE, path.join(school.folderPath, "guides", path.basename(KIT_GUIDE)));
   fs.writeFileSync(path.join(school.folderPath, "notes.md"), `# Notes\n\n${Array.from({ length: 80 }, (_, i) => `Line ${i + 1} of the lecture notes.`).join("\n\n")}\n`);
+  fs.writeFileSync(path.join(school.folderPath, "sheet.csv"), `n,square\n${Array.from({ length: 300 }, (_, i) => `${i + 1},${(i + 1) ** 2}`).join("\n")}\n`);
+  fs.writeFileSync(path.join(school.folderPath, "code.ts"), Array.from({ length: 300 }, (_, i) => `export const value${i} = ${i};`).join("\n") + "\n");
+  fs.writeFileSync(path.join(school.folderPath, "slides.pdf"), makePdf(["Lecture 4", "Pipelines", "Hazards", "Forwarding"]));
   await api.call("sessions.create", { spaceId: school.id, agentKind: "fake", title: OTHER, permissionMode: "default" });
   await api.call("sessions.create", { spaceId: school.id, agentKind: "fake", title: STUDY, permissionMode: "default" });
   const away = await api.call("spaces.create", { profileId: school.profileId, name: AWAY });
@@ -316,6 +342,7 @@ async function main() {
    *  work is done again first, so every switch is measured on its own. */
   async function roundTrip(kind, name, digest, label, leave, back, work, worked) {
     let fc = await frameFor(name);
+    const targetBefore = fc.targetId;
     let before = await evalIn(fc, digest);
     if (!same(before, worked)) {
       note(`${kind} ${label}: starting state was lost — working it again`, before);
@@ -333,9 +360,10 @@ async function main() {
     await sleep(1500);
     const after = await evalIn(fc, digest);
     await shot(c, `${kind}-${label}-back`);
+    const kept = fc.targetId === targetBefore;
     fc.close();
-    note(`${kind} ${label}`, { before, after });
-    return { before, after };
+    note(`${kind} ${label}`, { before, after, sameFrame: kept });
+    return { before, after, kept };
   }
 
   /* ── the rg guide ───────────────────────────────────────────────────────────────────────── */
@@ -355,7 +383,9 @@ async function main() {
     check(`rg ${label}: open sections`, same(before.open, after.open), { before: before.open, after: after.open });
     check(`rg ${label}: scroll position`, near(before.top, after.top), { before: before.top, after: after.top });
   };
-  rgChecks("file tab", await roundTrip("rg", rgName, RG_DIGEST, "tab", () => evalIn(c, clickTab("notes.md")), () => evalIn(c, clickTab(`guides/${rgName}`)), RG_WORK, worked));
+  const rgTab = await roundTrip("rg", rgName, RG_DIGEST, "tab", () => evalIn(c, clickTab("notes.md")), () => evalIn(c, clickTab(`guides/${rgName}`)), RG_WORK, worked);
+  rgChecks("file tab", rgTab);
+  check("rg file tab: the guide's frame was kept alive behind the other tab, not reloaded", rgTab.kept);
   rgChecks("session", await roundTrip("rg", rgName, RG_DIGEST, "session", () => evalIn(c, clickRow(OTHER)), async () => {
     await evalIn(c, clickRow(STUDY));
     await until(() => evalIn(c, `!!document.querySelector('.documents-pane')`), 10_000, "pane back");
@@ -381,7 +411,9 @@ async function main() {
     check(`kit ${label}: open sections`, same(before.open, after.open), { before: before.open, after: after.open });
     check(`kit ${label}: scroll position`, near(before.top, after.top), { before: before.top, after: after.top });
   };
-  kitChecks("file tab", await roundTrip("kit", kitName, KIT_DIGEST, "tab", () => evalIn(c, clickTab("notes.md")), () => evalIn(c, clickTab(`guides/${kitName}`)), KIT_WORK, kitWorked));
+  const kitTab = await roundTrip("kit", kitName, KIT_DIGEST, "tab", () => evalIn(c, clickTab("notes.md")), () => evalIn(c, clickTab(`guides/${kitName}`)), KIT_WORK, kitWorked);
+  kitChecks("file tab", kitTab);
+  check("kit file tab: the guide's frame was kept alive behind the other tab, not reloaded", kitTab.kept);
   kitChecks("session", await roundTrip("kit", kitName, KIT_DIGEST, "session", () => evalIn(c, clickRow(OTHER)), async () => {
     await evalIn(c, clickRow(STUDY));
     await until(() => evalIn(c, `!!document.querySelector('.documents-pane')`), 10_000, "pane back");
@@ -393,6 +425,60 @@ async function main() {
     await until(() => evalIn(c, `!!document.querySelector('.documents-pane')`), 10_000, "pane back");
   }, KIT_WORK, kitWorked);
   kitChecks("space", kitSpace);
+
+  /* ── the other kinds: a Markdown file in Source, a sheet, a PDF, a code file ─────────────────── */
+  for (const p of ["sheet.csv", "slides.pdf", "code.ts"]) {
+    await api.call("documents.openPath", { spaceId: school.id, path: p });
+    await sleep(400);
+  }
+  await evalIn(c, clickTab("notes.md"));
+  await until(() => evalIn(c, `!!document.querySelector('.documents-modes')`), 10_000, "notes head");
+  await evalIn(c, `(() => { [...document.querySelectorAll('.documents-modes button')].find((b) => b.textContent === 'Source').click(); return true; })()`);
+  const ta = `document.querySelector('textarea.documents-source')`;
+  await until(() => evalIn(c, `!!${ta}`), 10_000, "notes source");
+  await evalIn(c, `(() => { const t = ${ta}; t.scrollTop = 600; t.dispatchEvent(new Event('scroll')); t.setSelectionRange(120, 131); t.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowRight' })); return true; })()`);
+  await evalIn(c, clickTab("sheet.csv"));
+  const grid = `document.querySelector('.dsg-container')`;
+  await until(() => evalIn(c, `!!${grid} && ${grid}.scrollHeight > 2000`), 15_000, "sheet grid");
+  await evalIn(c, `(() => { const g = ${grid}; g.scrollTop = 900; g.dispatchEvent(new Event('scroll')); return true; })()`);
+  await sleep(300);
+  await evalIn(c, clickTab("slides.pdf"));
+  await until(() => evalIn(c, `!!document.querySelector('.pdf-page-field') && !!document.querySelector('.pdf-page[data-painted]')`), 20_000, "pdf");
+  for (let i = 0; i < 2; i++) { await evalIn(c, `(() => { document.querySelector('button[aria-label="Next page"]').click(); return true; })()`); await sleep(400); }
+  await evalIn(c, clickTab("code.ts"));
+  const cm = `document.querySelector('.cm-scroller')`;
+  await until(() => evalIn(c, `!!${cm} && ${cm}.scrollHeight > 2000`), 15_000, "code editor");
+  await evalIn(c, `(() => { const s = ${cm}; s.scrollTop = 1200; s.dispatchEvent(new Event('scroll')); return true; })()`);
+  await sleep(300);
+
+  const KINDS = `(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const tab = (n) => document.querySelector('.documents-tab-label[title="' + n + '"]').click();
+    const out = {};
+    tab('notes.md'); await wait(1200);
+    const t = document.querySelector('textarea.documents-source');
+    out.notes = { mode: document.querySelector('.documents-modes button[aria-pressed="true"]')?.textContent ?? null, top: t ? Math.round(t.scrollTop) : null, caret: t ? [t.selectionStart, t.selectionEnd] : null };
+    tab('sheet.csv'); await wait(1500);
+    out.sheet = { top: Math.round(document.querySelector('.dsg-container')?.scrollTop ?? -1) };
+    tab('slides.pdf'); await wait(2000);
+    out.pdf = { page: document.querySelector('.pdf-page-field')?.value ?? null };
+    tab('code.ts'); await wait(1500);
+    out.code = { top: Math.round(document.querySelector('.cm-scroller')?.scrollTop ?? -1) };
+    return out; })()`;
+  const kindsBefore = await evalIn(c, KINDS);
+  await shot(c, "kinds-before");
+  await evalIn(c, clickRow(OTHER));
+  await sleep(900);
+  await evalIn(c, clickRow(STUDY));
+  await until(() => evalIn(c, `!!document.querySelector('.documents-pane')`), 10_000, "pane back");
+  await sleep(800);
+  const kindsAfter = await evalIn(c, KINDS);
+  await shot(c, "kinds-back");
+  note("other kinds", { before: kindsBefore, after: kindsAfter });
+  check("markdown: comes back in Source, at its scroll and its caret", same(kindsBefore.notes, kindsAfter.notes) && kindsAfter.notes.mode === "Source", { before: kindsBefore.notes, after: kindsAfter.notes });
+  check("sheet: comes back at its scroll", near(kindsBefore.sheet.top, kindsAfter.sheet.top) && kindsAfter.sheet.top > 0, { before: kindsBefore.sheet, after: kindsAfter.sheet });
+  check("pdf: comes back on its page", kindsBefore.pdf.page === kindsAfter.pdf.page && kindsAfter.pdf.page !== "1", { before: kindsBefore.pdf, after: kindsAfter.pdf });
+  check("code: comes back at its scroll", near(kindsBefore.code.top, kindsAfter.code.top) && kindsAfter.code.top > 0, { before: kindsBefore.code, after: kindsAfter.code });
 
   /* ── a relaunch: the kit's own saved progress is the part that should outlive it ───────────── */
   await sleep(1500); // the sidecar write is debounced
