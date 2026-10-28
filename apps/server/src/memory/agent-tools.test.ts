@@ -93,6 +93,24 @@ describe("realm-memory provider", () => {
     expect(text(await provider.call(ctx, "memory_save", { entry: "x", force: true }))).toMatch(/invalid arguments/);
   });
 
+  it("lifts the calling space's own folder above the same fact in another space's", async () => {
+    const { repos, provider } = harness();
+    await repos.create(P);
+    const OTHER = "01ARZ3NDEKTSV4RRFFQ69G5FS2";
+    const fact = { name: "deploy-day", description: "Deploys go out on Fridays", type: "project", body: "Deploys go out on Fridays." } as const;
+    await repos.saveSpaceMemory(SPACE, fact);
+    await repos.saveSpaceMemory(OTHER, fact);
+    const mine = repos.spaceFolderFor(SPACE)!.folder;
+    const theirs = repos.spaceFolderFor(OTHER)!.folder;
+    expect(mine).not.toBe(theirs);
+    // THE MUTANT: pass no preference — the two folders tie and either may lead.
+    const here = text(await provider.call(ctx, "memory_search", { query: "deploys fridays" })).split("\n");
+    expect(here[0]).toMatch(new RegExp(`^spaces/${mine}/`));
+    expect(here.some((l) => l.startsWith(`spaces/${theirs}/`))).toBe(true);
+    const there = text(await provider.call({ ...ctx, spaceId: OTHER }, "memory_search", { query: "deploys fridays" })).split("\n");
+    expect(there[0]).toMatch(new RegExp(`^spaces/${theirs}/`));
+  });
+
   it("with a space repo beside the profile's: writes go to the space's unless told, reads find either", async () => {
     const { repos, provider, changed } = harness();
     const prof = (await repos.create(P)).path;

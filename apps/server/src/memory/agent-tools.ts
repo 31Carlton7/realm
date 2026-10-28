@@ -26,7 +26,7 @@ export const MEMORY_PROVIDER_NAME = "realm-memory";
  * — the spec's composability rule.
  */
 export type MemoryAgentToolsDeps = {
-  repos: Pick<MemoryRepoService, "activeFor" | "indexesFor" | "read" | "search" | "edit" | "writeFile">;
+  repos: Pick<MemoryRepoService, "activeFor" | "indexesFor" | "read" | "search" | "edit" | "writeFile" | "spaceFolderFor">;
   mcp: { providerEnabled(spaceId: string, name: string): boolean };
   /** After a write, so the memory rows on screen show the new commit. */
   onChanged?: (owner: RepoOwner) => void;
@@ -168,7 +168,10 @@ export function createMemoryAgentProvider(d: MemoryAgentToolsDeps): RealmToolPro
             const repos = Array.isArray(picked) ? picked : [picked];
             // One ranking across the repos searched, so the best hit leads whichever repo it is in.
             const scopeOf = new Map(repos.map((r) => [r.path, r.scope]));
-            const lines = d.repos.search(repos.map((r) => r.path), a.value.query)
+            // This space's own folder of the profile repo is lifted, not filtered: its facts are about
+            // the work at hand, and a far better hit in another space's folder still leads.
+            const own = d.repos.spaceFolderFor(ctx.spaceId);
+            const lines = d.repos.search(repos.map((r) => r.path), a.value.query, own ? `spaces/${own.folder}/` : undefined)
               .map((h) => `${active.length > 1 ? `[${scopeOf.get(h.repo)}] ` : ""}${h.path}:${h.line}: ${h.text}`);
             return ok(lines.length === 0 ? `Nothing in the memory repo matches "${a.value.query}".` : lines.join("\n"));
           }
