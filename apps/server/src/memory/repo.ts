@@ -321,9 +321,10 @@ export class MemoryRepoService {
   }
 
   /** The best matches for `query` across the given repos' files, best first (`MemorySearch`): ranked,
-   *  in this process, never a shell `grep` over a string an agent wrote. */
-  search(repos: string | readonly string[], query: string, limit = SEARCH_HITS_MAX): { repo: string; path: string; line: number; text: string }[] {
-    return this.finder.search(typeof repos === "string" ? [repos] : repos, query, limit).map(({ repo, path, line, text }) => ({ repo, path, line, text }));
+   *  in this process, never a shell `grep` over a string an agent wrote. `prefer` — the space's own
+   *  folder, `spaces/<folder>/` — lifts the hits under it without hiding the rest. */
+  search(repos: string | readonly string[], query: string, prefer?: string): { repo: string; path: string; line: number; text: string }[] {
+    return this.finder.search(typeof repos === "string" ? [repos] : repos, query, SEARCH_HITS_MAX, prefer).map(({ repo, path, line, text }) => ({ repo, path, line, text }));
   }
 
   // ─── Writing ──────────────────────────────────────────────────────────────────────────────────

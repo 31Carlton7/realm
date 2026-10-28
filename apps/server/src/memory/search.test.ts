@@ -180,6 +180,46 @@ describe("hits", () => {
   });
 });
 
+describe("a preferred folder", () => {
+  /** The same fact in two space folders, so only the path can tell them apart. */
+  const twins = {
+    "spaces/a/deploys.md": fact("Deploys", "Deploys go out from main", "Nothing else here."),
+    "spaces/b/deploys.md": fact("Deploys", "Deploys go out from main", "Nothing else here."),
+  };
+
+  it("lifts the hits under it by half again, and leaves the rest where they were", () => {
+    const repo = corpus(twins);
+    const finder = new MemorySearch();
+    const plain = finder.search([repo], "deploys main", 5);
+    // A tie, settled by path.
+    expect(plain.map((h) => h.path)).toEqual(["spaces/a/deploys.md", "spaces/b/deploys.md"]);
+    expect(plain[0]!.score).toBe(plain[1]!.score);
+    const lifted = finder.search([repo], "deploys main", 5, "spaces/b/");
+    // THE MUTANT: no lift — the tie stands and a's hit leads.
+    expect(lifted.map((h) => h.path)).toEqual(["spaces/b/deploys.md", "spaces/a/deploys.md"]);
+    expect(lifted[0]!.score).toBeCloseTo(plain[1]!.score * 1.5, 10);
+    // THE MUTANT: a filter — the other folder's hit is gone. It is still there, scored as before.
+    expect(lifted[1]!.score).toBe(plain[0]!.score);
+  });
+
+  it("is a lift, not a filter: a far better match outside it still leads", () => {
+    const repo = corpus({
+      "MEMORY.md": "- The release train leaves on Mondays\n",
+      "spaces/b/notes.md": `# Notes\n\n${"Background on other things. ".repeat(30)}A train was late once.\n`,
+    });
+    const hits = new MemorySearch().search([repo], "release train", 5, "spaces/b/");
+    expect(hits.map((h) => h.path)).toEqual(["MEMORY.md", "spaces/b/notes.md"]);
+  });
+
+  it("changes nothing when there is none, or nothing is under it", () => {
+    const repo = corpus(twins);
+    const finder = new MemorySearch();
+    const plain = finder.search([repo], "deploys main", 5);
+    expect(finder.search([repo], "deploys main", 5, "")).toEqual(plain);
+    expect(finder.search([repo], "deploys main", 5, "spaces/zzz/")).toEqual(plain);
+  });
+});
+
 describe("the cache", () => {
   it("re-reads a file only when its mtime or size moved, and forgets a deleted one", () => {
     const repo = corpus({ "a.md": "# A\n\nalpha fact\n", "b.md": "# B\n\nbeta fact\n" });

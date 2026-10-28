@@ -261,6 +261,10 @@ describe("MemoryRepoService reading", () => {
     // Ranked, not "every word": the closest fact still comes back for a query only part of which it holds.
     expect(repos.search(repo, "webhooks paypal").map((h) => h.path)).toEqual(["projects/payments.md"]);
     expect(repos.search(repo, "paypal")).toEqual([]);
+    // The same fact in a second file: a tie that path order settles, until the search prefers a folder.
+    await repos.edit(P, { file: "archive/payments", op: "add", entry: "Stripe webhooks retry for 3 days", sessionId: SESSION });
+    expect(repos.search(repo, "stripe webhooks").map((h) => h.path)).toEqual(["archive/payments.md", "projects/payments.md"]);
+    expect(repos.search(repo, "stripe webhooks", "projects/").map((h) => h.path)).toEqual(["projects/payments.md", "archive/payments.md"]);
     // Reading works on a dirty repo; only writes wait for it to be clean.
     writeFileSync(join(repo, "wip.md"), "- wip");
     expect(repos.read(repo, "MEMORY")).toContain("[[projects/payments]]");

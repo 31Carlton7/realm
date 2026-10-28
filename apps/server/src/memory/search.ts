@@ -17,7 +17,9 @@ import { MEMORY_REPO_INDEX_FILE } from "@realm/contracts";
  *
  * Length is normalised against the average of the same kind of document, so a one-line entry is not
  * favoured just for being short beside a whole file. A query's exact phrase — the whole query, or any
- * "quoted" part — multiplies a document's score by 1.5 for each phrase it holds.
+ * "quoted" part — multiplies a document's score by 1.5 for each phrase it holds. A preferred folder —
+ * the session's own space's, `spaces/<folder>/` — multiplies the score of every hit under it by 1.5:
+ * it lifts them, and hides nothing outside it.
  *
  * Words are matched the way a person means them: case, accents and punctuation do not count
  * (`pixel-office`, `Pixel Office` and `pixeloffice` are one term; `indexesFor` is `indexes`, `for` and
@@ -39,6 +41,7 @@ const SNIPPET_MAX = 300;
 const PREFIX_MIN = 4;
 const PREFIX_WEIGHT = 0.5;
 const PHRASE_BOOST = 0.5;
+const PREFER_BOOST = 1.5;
 const W_TITLE = 3;
 const W_INDEX = 2;
 const W_PATH = 2;
@@ -178,8 +181,10 @@ export function parseFile(repo: string, path: string, content: string): Doc[] {
 export class MemorySearch {
   private readonly files = new Map<string, Cached>();
 
-  /** The best `limit` hits across `repos` for `query`, best first; ties go by repo, path and line. */
-  search(repos: readonly string[], query: string, limit: number): SearchHit[] {
+  /** The best `limit` hits across `repos` for `query`, best first; ties go by repo, path and line.
+   *  `prefer` is a path from a repo's root, such as `spaces/realm/`, whose hits are lifted ×1.5 in every
+   *  repo searched. */
+  search(repos: readonly string[], query: string, limit: number, prefer?: string): SearchHit[] {
     const q = parseQuery(query);
     if (q.terms.length === 0) return [];
     const docs = repos.flatMap((r) => this.docsOf(r));
@@ -220,6 +225,7 @@ export class MemorySearch {
       if (score <= 0) continue;
       const phrases = q.phrases.filter((p) => d.seq.includes(p)).length;
       score *= 1 + PHRASE_BOOST * phrases;
+      if (prefer && d.path.startsWith(prefer)) score *= PREFER_BOOST;
       const best = bestLine(d, expansions, idf, q.phrases);
       hits.push({ repo: d.repo, path: d.path, line: best.n, text: snippet(best.text, best.terms, expansions), score });
     }
