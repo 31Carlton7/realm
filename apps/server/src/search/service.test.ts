@@ -183,10 +183,12 @@ describe("memory repos in search", () => {
     await h.memoryRepos.edit(betaTeam, { op: "add", entry: "School okapi theme", sessionId: "S1" });
     // THE MUTANT: leave `repoHits` out of `memory()` — what agents saved is invisible to search.
     const r = h.search.query(h.work.id, "okapi theme").memory;
+    // Within one repo the hits come in memory_search's ranking, where an index line weighs double — so
+    // the profile's MEMORY.md leads its topic file.
     expect(r.map((x) => [x.scope, x.profileId ?? x.spaceId, x.file])).toEqual([
-      ["profile", h.work.id, "editor.md"], ["profile", h.work.id, "MEMORY.md"], ["space", h.alpha.id, "team.md"],
+      ["profile", h.work.id, "MEMORY.md"], ["profile", h.work.id, "editor.md"], ["space", h.alpha.id, "team.md"],
     ]);
-    expect(r[1]!.title).toBe("Work memory repo · MEMORY.md");
+    expect(r[0]!.title).toBe("Work memory repo · MEMORY.md");
     expect(r[2]!.snippet.filter((p) => p.match).map((p) => p.text.toLowerCase())).toEqual(["okapi", "theme"]);
     expect(h.search.query(h.school.id, "okapi").memory.map((x) => x.spaceId)).toEqual([h.beta.id]);
   });
