@@ -431,49 +431,57 @@ async function main() {
     await api.call("documents.openPath", { spaceId: school.id, path: p });
     await sleep(400);
   }
-  await evalIn(c, clickTab("notes.md"));
-  await until(() => evalIn(c, `!!document.querySelector('.documents-modes')`), 10_000, "notes head");
-  await evalIn(c, `(() => { [...document.querySelectorAll('.documents-modes button')].find((b) => b.textContent === 'Source').click(); return true; })()`);
-  const ta = `document.querySelector('textarea.documents-source')`;
-  await until(() => evalIn(c, `!!${ta}`), 10_000, "notes source");
-  await evalIn(c, `(() => { const t = ${ta}; t.scrollTop = 600; t.dispatchEvent(new Event('scroll')); t.setSelectionRange(120, 131); t.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowRight' })); return true; })()`);
-  await evalIn(c, clickTab("sheet.csv"));
+  /* The view (Rich/Grid or Source) is the PANE's, so the sheet is placed in Grid first and the notes
+     are put in Source last — which is the view the pane is then left in, and has to come back in. */
   const grid = `document.querySelector('.dsg-container')`;
-  await until(() => evalIn(c, `!!${grid} && ${grid}.scrollHeight > 2000`), 15_000, "sheet grid");
+  const ta = `document.querySelector('textarea.documents-source')`;
+  const cm = `document.querySelector('.cm-scroller')`;
+  const pressMode = (label) => `(() => { const b = [...document.querySelectorAll('.documents-modes button')].find((x) => x.textContent === ${JSON.stringify(label)}); if (!b) return false; b.click(); return true; })()`;
+  await evalIn(c, clickTab("sheet.csv"));
+  await until(() => evalIn(c, `!!${grid} && ${grid}.scrollHeight > 2000`), 20_000, "sheet grid");
   await evalIn(c, `(() => { const g = ${grid}; g.scrollTop = 900; g.dispatchEvent(new Event('scroll')); return true; })()`);
   await sleep(300);
+  const kindsBefore = { sheet: { top: await evalIn(c, `Math.round(${grid}.scrollTop)`) } };
   await evalIn(c, clickTab("slides.pdf"));
   await until(() => evalIn(c, `!!document.querySelector('.pdf-page-field') && !!document.querySelector('.pdf-page[data-painted]')`), 20_000, "pdf");
-  for (let i = 0; i < 2; i++) { await evalIn(c, `(() => { document.querySelector('button[aria-label="Next page"]').click(); return true; })()`); await sleep(400); }
+  for (let i = 0; i < 2; i++) { await evalIn(c, `(() => { document.querySelector('button[aria-label="Next page"]').click(); return true; })()`); await sleep(500); }
+  kindsBefore.pdf = { page: await evalIn(c, `document.querySelector('.pdf-page-field')?.value ?? null`) };
   await evalIn(c, clickTab("code.ts"));
-  const cm = `document.querySelector('.cm-scroller')`;
   await until(() => evalIn(c, `!!${cm} && ${cm}.scrollHeight > 2000`), 15_000, "code editor");
   await evalIn(c, `(() => { const s = ${cm}; s.scrollTop = 1200; s.dispatchEvent(new Event('scroll')); return true; })()`);
   await sleep(300);
-
-  const KINDS = `(async () => {
-    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-    const tab = (n) => document.querySelector('.documents-tab-label[title="' + n + '"]').click();
-    const out = {};
-    tab('notes.md'); await wait(1200);
-    const t = document.querySelector('textarea.documents-source');
-    out.notes = { mode: document.querySelector('.documents-modes button[aria-pressed="true"]')?.textContent ?? null, top: t ? Math.round(t.scrollTop) : null, caret: t ? [t.selectionStart, t.selectionEnd] : null };
-    tab('sheet.csv'); await wait(1500);
-    out.sheet = { top: Math.round(document.querySelector('.dsg-container')?.scrollTop ?? -1) };
-    tab('slides.pdf'); await wait(2000);
-    out.pdf = { page: document.querySelector('.pdf-page-field')?.value ?? null };
-    tab('code.ts'); await wait(1500);
-    out.code = { top: Math.round(document.querySelector('.cm-scroller')?.scrollTop ?? -1) };
-    return out; })()`;
-  const kindsBefore = await evalIn(c, KINDS);
+  kindsBefore.code = { top: await evalIn(c, `Math.round(${cm}.scrollTop)`) };
+  await evalIn(c, clickTab("notes.md"));
+  await until(() => evalIn(c, pressMode("Source")), 10_000, "notes Source");
+  await until(() => evalIn(c, `!!${ta}`), 10_000, "notes source");
+  await evalIn(c, `(() => { const t = ${ta}; t.setSelectionRange(120, 131); t.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowRight' })); t.scrollTop = 600; t.dispatchEvent(new Event('scroll')); return true; })()`);
+  await sleep(300);
+  const NOTES = `(() => { const t = ${ta}; return { mode: document.querySelector('.documents-modes button[aria-pressed="true"]')?.textContent ?? null, top: t ? Math.round(t.scrollTop) : null, caret: t ? [t.selectionStart, t.selectionEnd] : null }; })()`;
+  kindsBefore.notes = await evalIn(c, NOTES);
   await shot(c, "kinds-before");
+
   await evalIn(c, clickRow(OTHER));
   await sleep(900);
+  await shot(c, "kinds-away");
   await evalIn(c, clickRow(STUDY));
   await until(() => evalIn(c, `!!document.querySelector('.documents-pane')`), 10_000, "pane back");
-  await sleep(800);
-  const kindsAfter = await evalIn(c, KINDS);
-  await shot(c, "kinds-back");
+  await sleep(1200);
+  const kindsAfter = { notes: await evalIn(c, NOTES) };
+  await shot(c, "kinds-back-notes");
+  await evalIn(c, clickTab("slides.pdf"));
+  await sleep(2500);
+  kindsAfter.pdf = { page: await evalIn(c, `document.querySelector('.pdf-page-field')?.value ?? null`) };
+  await shot(c, "kinds-back-pdf");
+  await evalIn(c, clickTab("code.ts"));
+  await until(() => evalIn(c, `!!${cm}`), 15_000, "code back");
+  await sleep(1500);
+  kindsAfter.code = { top: await evalIn(c, `Math.round(${cm}.scrollTop)`) };
+  await evalIn(c, clickTab("sheet.csv"));
+  await until(() => evalIn(c, pressMode("Grid")), 10_000, "sheet Grid");
+  await until(() => evalIn(c, `!!${grid}`), 15_000, "sheet back");
+  await sleep(1500);
+  kindsAfter.sheet = { top: await evalIn(c, `Math.round(${grid}.scrollTop)`) };
+  await shot(c, "kinds-back-sheet");
   note("other kinds", { before: kindsBefore, after: kindsAfter });
   check("markdown: comes back in Source, at its scroll and its caret", same(kindsBefore.notes, kindsAfter.notes) && kindsAfter.notes.mode === "Source", { before: kindsBefore.notes, after: kindsAfter.notes });
   check("sheet: comes back at its scroll", near(kindsBefore.sheet.top, kindsAfter.sheet.top) && kindsAfter.sheet.top > 0, { before: kindsBefore.sheet, after: kindsAfter.sheet });
@@ -503,7 +511,8 @@ async function main() {
   }
   if (!(await evalIn(c, `!!document.querySelector('.documents-pane')`))) await openSideTool(c, STUDY, "Documents");
   await until(() => evalIn(c, `!!document.querySelector('.documents-pane')`), 10_000, "documents pane after relaunch");
-  await evalIn(c, clickTab(`guides/${kitName}`));
+  // The relaunched pane reads its tabs back a beat after it mounts.
+  await until(() => evalIn(c, clickTab(`guides/${kitName}`)), 10_000, "kit tab after relaunch");
   fc = await frameFor(kitName);
   await until(() => evalIn(fc, `!!window.Kit`), 20_000, "kit after relaunch");
   await sleep(1200);

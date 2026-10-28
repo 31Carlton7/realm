@@ -13,7 +13,7 @@ import type { CaretSpot } from "../../caret-geometry";
 import { codeLanguageFor, type CodeLanguage } from "./code-languages";
 import { loadCodeMode } from "./code-modes";
 import { realmCodeTheme } from "./code-theme";
-import { forgetScroll, recallCaret, rememberCaret, useScrollMemory } from "../scroll-memory";
+import { forgetScroll, recallCaret, recallScroll, rememberCaret, useScrollMemory } from "../scroll-memory";
 
 /**
  * Where CodeMirror's primary caret is: the head of the main selection, from CodeMirror's own layout,
@@ -184,6 +184,12 @@ export function CodeEditor({ path, text, onChange, onSave, reveal = null, scroll
        scroll listener and the settle loop) and is simply not in the hook's `void` return type. */
     if (revealAtBuild.current !== null && scrollKey) forgetScroll(scrollKey);
     const detach = (attachScroll as (el: HTMLElement | null) => (() => void) | void)(v.scrollDOM);
+    /* And once more after CodeMirror's first measure. Until it has measured a line its heights are a
+       guess (14px a line, where Realm's are about 21), so the offset the hook writes at once lands in
+       the guess, and the real heights carry the reader down the file: 1200px came back as 1770 in the
+       live check. Written in the measure's write phase, the offset means what it meant when taken. */
+    const mark = scrollKey ? recallScroll(scrollKey) : null;
+    if (mark && mark.top > 0) v.requestMeasure({ read: () => null, write: () => { v.scrollDOM.scrollTop = mark.top; } });
     return () => {
       // `void` in the hook's return type, a real cleanup at runtime — checked rather than cast twice.
       if (typeof detach === "function") detach();
