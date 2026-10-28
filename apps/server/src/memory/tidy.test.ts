@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { memoryLearningKey } from "@realm/contracts";
@@ -216,6 +216,47 @@ describe("the model's plan, applied to the draft", () => {
   });
 });
 
+describe("TidyDraft.drifted — what was written under the pass while it planned", () => {
+  /** The files as the store holds them now: the snapshot's, with `now` laid over it. */
+  const reader = (dir: string, now: Record<string, string | null> = {}) => (path: string): string | null => {
+    if (path in now) return now[path]!;
+    try { return readFileSync(join(dir, path), "utf8"); } catch { return null; }
+  };
+  const merge: TidyOp = { op: "merge", into: "spaces/work/billing-owner.md", from: ["spaces/work/billing-lead.md"], description: "Dana owns and runs billing", body: "Dana owns and runs billing." };
+
+  it("names nothing while every file the pass changes reads as it did", () => {
+    const dir = repo(store());
+    const d = draftOf(dir);
+    d.apply(merge);
+    expect(d.drifted(reader(dir))).toEqual([]);
+  });
+
+  it("names each file the pass changes that was written since — one rewritten, one already gone", () => {
+    const dir = repo(store());
+    const d = draftOf(dir);
+    d.apply(merge);
+    const now = reader(dir, { "spaces/work/MEMORY.md": "- [Billing owner](billing-owner.md) — saved during the call\n", "spaces/work/billing-lead.md": null });
+    expect(d.drifted(now).sort()).toEqual(["spaces/work/MEMORY.md", "spaces/work/billing-lead.md"]);
+  });
+
+  it("names a file the pass would make that was made since", () => {
+    const files = store();
+    delete (files as Record<string, string>)["MEMORY.md"];
+    const dir = repo(files);
+    const d = draftOf(dir);
+    expect(d.promote()).toBe(1);
+    expect(d.drifted(reader(dir))).toEqual([]);
+    expect(d.drifted(reader(dir, { "MEMORY.md": "# Memory\n" }))).toEqual(["MEMORY.md"]);
+  });
+
+  it("does not care about a file the pass leaves alone", () => {
+    const dir = repo(store());
+    const d = draftOf(dir);
+    d.apply(merge);
+    expect(d.drifted(reader(dir, { "spaces/home/terse.md": "rewritten", "spaces/work/deploy-day.md": null }))).toEqual([]);
+  });
+});
+
 describe("parseTidyPlan", () => {
   it("reads a plan, and forgives a fence", () => {
     expect(parseTidyPlan('{"operations": []}')).toEqual({ ok: true, operations: [] });
@@ -241,7 +282,11 @@ function tidier(dir: string, o: { plan?: unknown; reply?: string; inactive?: str
   const sink: MemorySink = {
     spaceFolderFor: vi.fn((spaceId: string) => (folders[spaceId] && !o.inactive?.includes(spaceId)
       ? { owner: { scope: "profile" as const, id: "p1" }, repoPath: dir, folder: folders[spaceId]!, dir: join(dir, "spaces", folders[spaceId]!) } : null)),
-    writeBatch: vi.fn(async (_owner, writes, message, author) => { batches.push({ writes, message, author }); return { changed: true, file: "", line: null, sha: "sha1", diff: "" }; }),
+    // As the store does: a function is asked inside the repo's lock, with the repo's path.
+    writeBatch: vi.fn(async (_owner, writes, message, author) => {
+      batches.push({ writes: typeof writes === "function" ? writes(dir) : writes, message, author });
+      return { changed: true, file: "", line: null, sha: "sha1", diff: "" };
+    }),
     saveSpaceMemory: vi.fn(async () => { throw new Error("the tidy pass never saves a single fact"); }),
     edit: vi.fn(async () => { throw new Error("the tidy pass never edits an entry on its own"); }),
   };
