@@ -233,8 +233,10 @@ describe("the budget", () => {
     fireEvent.change(screen.getByRole("spinbutton", { name: /Monthly ceiling/ }), { target: { value: "250" } });
     fireEvent.click(screen.getByRole("checkbox", { name: "125%" }));
     fireEvent.click(screen.getByRole("button", { name: "Save budget" }));
-    await waitFor(() => expect(api.calls).toContain("setUsageBudget:250"));
-    await waitFor(() => expect(api.calls.filter((c) => c.startsWith("usageSummary:")).length).toBeGreaterThan(1));
+    // Four seconds, not testing-library's one: under a full suite's load the save and re-read have taken
+    // just over a second, and the test is about what is saved, not how fast.
+    await waitFor(() => expect(api.calls).toContain("setUsageBudget:250"), { timeout: 4000 });
+    await waitFor(() => expect(api.calls.filter((c) => c.startsWith("usageSummary:")).length).toBeGreaterThan(1), { timeout: 4000 });
   });
 
   it("says plainly that this is not a bill", async () => {
