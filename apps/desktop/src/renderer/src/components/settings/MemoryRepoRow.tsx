@@ -24,6 +24,8 @@ export function repoStatus(r: MemoryRepoState, now = Date.now()): { name: string
     const why = r.reason ?? "uncommitted changes";
     return { name: "Saving paused", text: `${cap(why)}.`, sentence: `Saving paused: ${why}.`, tone: "warning" };
   }
+  // Saving goes on; a file an agent wrote that cannot be memory (a credential, say) was left out.
+  if (r.reason) return { name: "File left out", text: `${cap(r.reason)}.`, sentence: `File left out: ${r.reason}.`, tone: "warning" };
   if (r.lastCommitAt === null) return { name: "No commits yet", text: "", sentence: "No commits yet.", tone: null };
   const when = ago(r.lastCommitAt, now);
   return { name: "Last saved", text: `${cap(when)}: ${r.lastCommitSubject ?? ""}`, sentence: `Last saved ${when}: ${r.lastCommitSubject ?? ""}`, tone: null };

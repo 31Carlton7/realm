@@ -217,6 +217,11 @@ describe("ProfilePage · Memory repo", () => {
     act(() => store.setState({ profileMemoryRepo: { p1: fakeMemoryRepo({ valid: false, reason: "the folder is gone" }) } }));
     expect(screen.getByText("Not a memory repo")).toHaveAttribute("data-tone", "danger");
     expect(screen.getByText("The folder is gone.")).toBeInTheDocument();
+    // Saving goes on past a file Claude wrote that cannot be memory, and the row names it.
+    const held = "spaces/realm/keys.md stays uncommitted: it looks like it holds an API key, and memory never holds credentials. Edit or delete it";
+    act(() => store.setState({ profileMemoryRepo: { p1: fakeMemoryRepo({ clean: true, uncommitted: ["spaces/realm/keys.md"], reason: held }) } }));
+    expect(screen.getByText("File left out")).toHaveAttribute("data-tone", "warning");
+    expect(screen.getByText(`${held.charAt(0).toUpperCase()}${held.slice(1)}.`)).toBeInTheDocument();
   });
 
   it("detaches this profile's repo and leaves the folder to the user", async () => {

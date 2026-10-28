@@ -417,7 +417,16 @@ export class ClaudeAdapter implements AgentAdapter {
       // `flagSettings.fastMode === true`, and otherwise every turn reports `sdk_opt_in_required`.
       // Checked against the keys `Settings` declares, because nothing else would check it: a spread
       // is never checked for excess keys (the old line compiled), and `Settings` takes any key.
-      ...(opts.fastMode ? { settings: { fastMode: true } satisfies DeclaredSettings } : {}),
+      //
+      // The same layer points Claude's auto-memory at the space's folder of the user's memory repo.
+      // The CLI reads `autoMemoryDirectory` from policy settings first and flag settings second, so
+      // this beats the user's own settings files without writing to any of them.
+      ...(opts.fastMode || opts.memoryDirectory ? {
+        settings: {
+          ...(opts.fastMode ? { fastMode: true } : {}),
+          ...(opts.memoryDirectory ? { autoMemoryDirectory: opts.memoryDirectory } : {}),
+        } satisfies DeclaredSettings,
+      } : {}),
     };
 
     /**

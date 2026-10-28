@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
@@ -39,6 +39,15 @@ const spaceFolderKey = (spaceId: string): string => `memory.spaceFolder:${spaceI
 export const SPACES_DIR = "spaces";
 /** What a recorded folder name may be — the shape `folderSlug` makes. Anything else was not Realm's. */
 const FOLDER_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const inSpaces = (rel: string): boolean => rel.startsWith(`${SPACES_DIR}/`);
+/** The commit that takes in what Claude wrote while nobody was committing for it. */
+const CLAUDE_LEFT = "Save memory Claude left uncommitted";
+
+/** What one commit of Claude's own writes took in, and the files it left out, with why. */
+export type ClaudeCommit = { sha: string | null; committed: string[]; held: { path: string; reason: string }[] };
+
+/** The paths of `git status --porcelain -z` (with `--no-renames`, one path per entry, never quoted). */
+const statusPaths = (z: string): string[] => z.split("\0").filter(Boolean).map((e) => e.slice(3));
 
 /** A space's name as a folder: lowercase letters, digits and dashes. */
 export function folderSlug(name: string): string {
@@ -145,7 +154,9 @@ export type MemoryEditOutcome = { changed: boolean; file: string; line: string |
  * gets it wrong and several sessions write one repo at once:
  *
  * - **Clean before writing.** `status --porcelain` must be empty or the write is refused with the
- *   paths in the way. Reading works on a dirty repo.
+ *   paths in the way. Reading works on a dirty repo. The one exception is Claude's own memory in a
+ *   profile's `spaces/` folders, which Claude writes itself: it is committed first, never refused.
+ *   Anything else stays the person's to commit.
  * - **Staged by path.** `git add -- <the files this edit touched>`, committed with the same pathspec.
  *   Never `-A`, never `.`, never a push, never a reset of anything but the index on a failed commit.
  * - **One writer per repo.** An in-process lock serializes edits, so two sessions saving at once
@@ -371,7 +382,12 @@ export class MemoryRepoService {
       indexChars: 0, inheritedHere: spaceId === undefined || owner.scope === "space" ? null : this.inheritedIn(spaceId), reason: invalid,
     };
     if (invalid !== null) return base;
-    const dirty = await this.uncommitted(cfg.path);
+    const all = await this.uncommitted(cfg.path);
+    // What Claude wrote in a profile's space folders never pauses saving: it is committed before the
+    // next save. Only a file it had to leave out is worth a word.
+    const claudes = owner.scope === "profile" ? all.filter(inSpaces) : [];
+    const dirty = all.filter((p) => !claudes.includes(p));
+    const held = claudes.map((path) => ({ path, why: this.heldReason(cfg.path, path) })).find((h) => h.why !== null);
     const last = await this.log(owner, 1);
     const remote = await this.remoteOf(cfg.path);
     const sync = await this.standing(cfg);
@@ -379,9 +395,10 @@ export class MemoryRepoService {
     try { indexChars = readFileSync(join(cfg.path, MEMORY_REPO_INDEX_FILE), "utf8").length; } catch { /* checked by invalidReason */ }
     const reason = dirty.length > 0 ? `${dirty.length} uncommitted change${dirty.length === 1 ? "" : "s"} — agents save again once the repo is clean`
       : sync.sync === "diverged" ? DIVERGED_REASON
+      : held ? `${held.path} stays uncommitted: ${held.why}. Edit or delete it`
       : null;
     return {
-      ...base, clean: dirty.length === 0, uncommitted: dirty.slice(0, 20),
+      ...base, clean: dirty.length === 0, uncommitted: all.slice(0, 20),
       head: last[0]?.sha.slice(0, 7) ?? null, lastCommitAt: last[0]?.at ?? null, lastCommitSubject: last[0]?.subject ?? null,
       remote, indexChars, ...sync, reason,
     };
@@ -480,7 +497,7 @@ export class MemoryRepoService {
     }
     if (o.op !== "add" && !(o.match ?? "").trim()) throw new RpcError("MEMORY_ENTRY_INVALID", "say which entry to change: give its text in `replaces`");
     const out = await this.locked(repo, async () => {
-      await this.ensureWritable(repo, cfg);
+      await this.ensureWritable(owner, repo, cfg, [rel]);
       const abs = this.inside(repo, rel);
       const before = existsSync(abs) ? readFileSync(abs, "utf8") : null;
       if (before === null && o.op !== "add") throw new RpcError("MEMORY_FILE_NOT_FOUND", `${rel} is not in the memory repo`);
@@ -513,7 +530,7 @@ export class MemoryRepoService {
     const secret = secretShapeIn(content);
     if (secret) throw new RpcError("MEMORY_SECRET", `that looks like it holds ${secret}; memory never holds credentials`);
     const out = await this.locked(repo, async () => {
-      await this.ensureWritable(repo, cfg);
+      await this.ensureWritable(owner, repo, cfg, [rel]);
       const abs = this.inside(repo, rel);
       const before = existsSync(abs) ? readFileSync(abs, "utf8") : null;
       if (before === content) return { changed: false, file: rel, line: null, sha: null, diff: "" };
@@ -553,7 +570,7 @@ export class MemoryRepoService {
         }
         asked.set(rel, content);
       }
-      await this.ensureWritable(repo, cfg);
+      await this.ensureWritable(owner, repo, cfg, [...asked.keys()]);
       const writes = new Map<string, string | null>();
       for (const [rel, content] of asked) {
         const abs = this.inside(repo, rel);
@@ -567,6 +584,85 @@ export class MemoryRepoService {
     });
     if (out.changed) void this.queueSync(owner);
     return out;
+  }
+
+  // ─── Claude's own writes ───────────────────────────────────────────────────────────────────────
+
+  /**
+   * Commit what Claude wrote in this space's folder since the last commit, as one commit with the
+   * caller's message — run when one of its turns settles. Null where the space has no folder.
+   */
+  async commitSpaceFolder(spaceId: string, message: string): Promise<ClaudeCommit | null> {
+    const at = this.spaceFolderFor(spaceId);
+    if (!at) return null;
+    if (!existsSync(at.dir)) return { sha: null, committed: [], held: [] };
+    return this.commitClaude(at.owner, `${SPACES_DIR}/${at.folder}`, message);
+  }
+
+  /** Every space folder of a profile's repo at once: what Claude wrote while Realm was not running to
+   *  commit it, or outside a turn Realm saw end. */
+  async commitSpaceFolders(owner: RepoOwner): Promise<ClaudeCommit | null> {
+    return this.commitClaude(owner, SPACES_DIR, CLAUDE_LEFT);
+  }
+
+  private async commitClaude(owner: RepoOwner, dir: string, message: string): Promise<ClaudeCommit | null> {
+    const cfg = this.config(owner);
+    if (!cfg || owner.scope !== "profile") return null;
+    const out = await this.locked(cfg.path, async () => ((await this.invalidReason(cfg.path)) === null ? this.commitUnder(cfg.path, dir, message) : null));
+    if (out?.sha) void this.queueSync(owner);
+    return out;
+  }
+
+  /**
+   * Commit every change under `dir` that is not committed yet, staged and committed by path. A file
+   * that cannot be memory — shaped like a credential, too long, a link — stays uncommitted and is
+   * named in `held`; it is the person's to edit or delete, never Realm's. A space folder with an index
+   * is linked from the root index in the same commit, the first time, unless that index has changes
+   * of someone's own waiting. Runs inside the repo's lock.
+   */
+  private async commitUnder(repo: string, dir: string, message: string): Promise<ClaudeCommit> {
+    if (!existsSync(join(repo, dir))) return { sha: null, committed: [], held: [] };
+    const r = await this.git(repo, ["status", "--porcelain", "-z", "--untracked-files=all", "--no-renames", "--", dir]);
+    if (r.code !== 0) throw new RpcError("MEMORY_REPO_GIT", gitReason(r));
+    const committed: string[] = [];
+    const held: ClaudeCommit["held"] = [];
+    for (const path of statusPaths(r.stdout)) {
+      const reason = this.heldReason(repo, path);
+      if (reason) held.push({ path, reason });
+      else committed.push(path);
+    }
+    if (committed.length === 0) return { sha: null, committed, held };
+    const rootBefore = this.readOrEmpty(repo, MEMORY_REPO_INDEX_FILE);
+    let root = rootBefore;
+    for (const folder of new Set(committed.map((p) => p.split("/").slice(0, 2).join("/")))) {
+      if (existsSync(join(repo, folder, MEMORY_REPO_INDEX_FILE))) root = withIndexLink(root, `${folder}/${MEMORY_REPO_INDEX_FILE}`);
+    }
+    const rootOwn = (await this.git(repo, ["status", "--porcelain", "--", MEMORY_REPO_INDEX_FILE])).stdout.trim() !== "";
+    const paths = root !== rootBefore && !rootOwn ? [...committed, MEMORY_REPO_INDEX_FILE] : committed;
+    try {
+      if (paths.length > committed.length) writeFileSync(join(repo, MEMORY_REPO_INDEX_FILE), root);
+      await this.must(repo, ["add", "--", ...paths]);
+      await this.must(repo, [...commitConfig(await this.committer()), "commit", "-q", "-m", message, "--", ...paths]);
+    } catch (e) {
+      if (paths.length > committed.length) writeFileSync(join(repo, MEMORY_REPO_INDEX_FILE), rootBefore);
+      await this.git(repo, ["reset", "-q", "--", ...paths]);
+      throw e;
+    }
+    return { sha: (await this.git(repo, ["rev-parse", "HEAD"])).stdout.trim(), committed, held };
+  }
+
+  /** Why a file Claude wrote stays out of the repo, or null when it may go in. A deleted file's
+   *  deletion always may. */
+  private heldReason(repo: string, rel: string): string | null {
+    const abs = join(repo, rel);
+    let st;
+    try { st = lstatSync(abs); } catch { return null; }
+    if (st.isSymbolicLink()) return "it is a link, and memory is plain files";
+    if (st.size > MEMORY_DOC_MAX * 4) return `it is longer than ${MEMORY_DOC_MAX} characters`;
+    const text = readFileSync(abs, "utf8");
+    if (text.length > MEMORY_DOC_MAX) return `it is longer than ${MEMORY_DOC_MAX} characters`;
+    const secret = secretShapeIn(text);
+    return secret ? `it looks like it holds ${secret}, and memory never holds credentials` : null;
   }
 
   // ─── Claude memory import ─────────────────────────────────────────────────────────────────────
@@ -589,7 +685,7 @@ export class MemoryRepoService {
     const counts = (p: ReturnType<typeof plan>) => ({ projects: p.projects, files: p.files, entries: p.entries, skipped: p.skipped });
     if (o.dryRun) return { ...counts(plan()), sha: null };
     const out = await this.locked(repo, async () => {
-      await this.ensureWritable(repo, cfg);
+      await this.ensureWritable(owner, repo, cfg);
       const p = plan();
       if (p.writes.size === 0) return { ...counts(p), sha: null };
       const message = `Import ${p.entries} memor${p.entries === 1 ? "y" : "ies"} from Claude`;
@@ -746,7 +842,9 @@ export class MemoryRepoService {
   private async settle(cfg: RepoConfig, t: { tracking: string }): Promise<"ok" | "diverged" | "offline"> {
     const c = await this.counts(cfg.path, t);
     if (c.behind > 0 && c.ahead > 0) { this.note(cfg.path, null); return "diverged"; }
-    if (c.behind > 0 && (await this.uncommitted(cfg.path)).length === 0) {
+    // Claude's writes in a space folder do not hold up a fast-forward: git itself refuses one that
+    // would overwrite them.
+    if (c.behind > 0 && (await this.uncommitted(cfg.path)).filter((p) => !inSpaces(p)).length === 0) {
       const ff = await this.git(cfg.path, [...commitConfig(await this.committer()), "merge", "-q", "--ff-only", t.tracking]);
       if (ff.code !== 0) { this.note(cfg.path, gitReason(ff)); return "offline"; }
     }
@@ -853,9 +951,9 @@ export class MemoryRepoService {
   }
 
   private async uncommitted(repo: string): Promise<string[]> {
-    const r = await this.git(repo, ["status", "--porcelain", "--untracked-files=all"]);
+    const r = await this.git(repo, ["status", "--porcelain", "-z", "--untracked-files=all", "--no-renames"]);
     if (r.code !== 0) throw new RpcError("MEMORY_REPO_GIT", gitReason(r));
-    return r.stdout.split("\n").filter(Boolean).map((l) => l.slice(3));
+    return statusPaths(r.stdout);
   }
 
   private async remoteOf(repo: string): Promise<string | null> {
@@ -871,10 +969,14 @@ export class MemoryRepoService {
    * on top of what other machines saved. Offline is no reason to refuse a save (the push waits); a
    * remote that has moved while this side has too is, because only a person should merge memory.
    */
-  private async ensureWritable(repo: string, cfg?: RepoConfig): Promise<void> {
+  private async ensureWritable(owner: RepoOwner, repo: string, cfg?: RepoConfig, touching: readonly string[] = []): Promise<void> {
     const why = await this.invalidReason(repo);
     if (why) throw new RpcError("MEMORY_REPO_INVALID", `${repo} is not a memory repo: ${why}`);
-    const dirty = await this.uncommitted(repo);
+    // In a profile's repo Claude writes the space folders itself, between saves. What it left is
+    // committed first, so its memory never holds up a save; a file that had to stay out holds up only
+    // a save that would write over it.
+    if (owner.scope === "profile") await this.commitUnder(repo, SPACES_DIR, CLAUDE_LEFT);
+    const dirty = (await this.uncommitted(repo)).filter((p) => owner.scope !== "profile" || !inSpaces(p) || touching.includes(p));
     if (dirty.length > 0) {
       throw new RpcError("MEMORY_REPO_DIRTY",
         `the memory repo at ${repo} has uncommitted changes, so nothing was saved (the spec's rule: clean before writing). Tell the user these need committing or removing first: ${dirty.slice(0, 10).join(", ")}${dirty.length > 10 ? ` and ${dirty.length - 10} more` : ""}`);

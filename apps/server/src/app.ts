@@ -108,6 +108,7 @@ import { McpGateway } from "./mcp/gateway";
 import { McpOauth } from "./mcp/oauth";
 import type { AgentKind, McpServerStatus } from "@realm/contracts";
 import { MemoryService } from "./memory/service";
+import { AgentMemoryFolders } from "./memory/claude-redirect";
 import { MemoryRepoService, type RepoOwner } from "./memory/repo";
 import { MEMORY_PROVIDER_NAME, createMemoryAgentProvider } from "./memory/agent-tools";
 import { NotificationsStore } from "./store/notifications";
@@ -1164,6 +1165,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     for (const spaceId of o.scope === "space" ? [o.id] : spaces.list(o.id).map((sp) => sp.id)) rpc.broadcast("memory.changed", { spaceId });
   };
   const memory = new MemoryService({ home: opts.home, settings, environments, claudeDir: opts.claudeDir, scopes: scopeSeam, repos: memoryRepos });
+  // Claude's own memory goes to the space's folder of the profile repo, and is committed as it lands.
+  const agentMemory = new AgentMemoryFolders({ repos: memoryRepos, onChanged: (o) => memoryRepoChanged(o) });
   // The browser agent surface (Plan 11 W3): the main↔server op bridge, the permission broker, and the
   // `realm-browser` provider on the gateway. The broker's callbacks are late-bound to `sessionService`
   // (the checkpoints knot again): nothing in it runs before a session exists to run it for.
@@ -1295,7 +1298,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // A team role's goal run settles when its goal stops, not after its first turn.
     onChanged: (sessionId, goal) => handoffs?.goalChanged(sessionId, goal),
   });
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, planLimits, documents, goals, views: appViews,
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, agentMemory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, planLimits, documents, goals, views: appViews,
     // What the idle reaper must leave running between turns. Read at sweep time, long after every
     // service named here exists.
     keepEngine: (sessionId) => goals.get(sessionId)?.status === "active"
@@ -1823,6 +1826,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     const made = await memoryRepos.ensureProfileRepo(p.id);
     if (made) console.log(`[memory] made ${p.name}'s memory repo at ${made.path}`);
   }
+  // …and what Claude wrote in a space folder that no settled turn committed is committed now.
+  void agentMemory.sweep(profiles.list().map((p) => p.id));
   /* Saves made while the network was down are pushed now, and what other machines pushed is pulled:
      every synced repo, in the background, never holding up the boot. */
   for (const p of profiles.list()) void memoryRepos.queueSync({ scope: "profile", id: p.id });
