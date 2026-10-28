@@ -239,6 +239,8 @@ export class McpHub {
     } finally {
       clock.stop();
       this.open.delete(open);
+      // The idle window runs from the end of the last call: a call of twenty minutes is twenty minutes of use.
+      entry.usedAt = Date.now();
     }
   }
 

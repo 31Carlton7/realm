@@ -713,6 +713,26 @@ describe("stopping a stdio server nobody has called", () => {
     expect(hub.processes().map((p) => p.serverId)).toEqual([kept.id]);
   });
 
+  it("measures the window from when the last call finished, not when it began", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const row = newRow();
+      const stub = makeStubServer({ delayMs: 50 });
+      const { hub } = sleepyHub(stub);
+      const t0 = Date.now();
+      await hub.tools(row.id);
+      const call = hub.call(row.id, "echo", {});
+      // The call runs twenty minutes.
+      vi.setSystemTime(t0 + 20 * 60_000);
+      await call;
+      // Thirty-five minutes after it began, fifteen after it finished: not idle yet.
+      expect(hub.sleepIdle(30 * 60_000, t0 + 35 * 60_000)).toEqual([]);
+      expect(hub.sleepIdle(30 * 60_000, t0 + 51 * 60_000)).toEqual([row.id]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("never stops a remote server, which holds no process here", async () => {
     const row = newRow();
     const { hub } = sleepyHub(makeStubServer(), { pid: null });
