@@ -20,7 +20,7 @@ import { agentOptions, changesFor, ChoiceRefused, probeList, type InitFacts, typ
 import { filePreview, PreviewRefused, sipsDownscale, type Downscale } from "./preview";
 import { queuedMessage, SessionProjector } from "./rows";
 import { RpcCallError, type RpcPort } from "./rpc-port";
-import { frameSide, machineScreen, phoneMayWatch, screenFrame, screenOrder, simulatorScreen } from "./screens";
+import { frameSide, machineScreen, phoneMayWatch, SCREEN_DEADLINE_MS, screenFrame, screenOrder, simulatorScreen } from "./screens";
 import { checkUploads, saveUploads, UploadRefused, type Upload } from "./uploads";
 import { everyPlan, monthStart, spend } from "./usage";
 import { isOpenReview, newestReviewFirst, reviewItem, reviewPictures, reviewSummary, scheduledTask } from "./work";
@@ -84,6 +84,17 @@ async function within<T>(p: Promise<T>, ms: number): Promise<T | null> {
   const late = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), ms); });
   try {
     return await Promise.race([p.catch(() => null), late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** `p`'s answer if it comes within `ms`, else a failure in the words `late`. */
+async function deadline<T>(p: Promise<T>, ms: number, late: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const expired = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(late)), ms); });
+  try {
+    return await Promise.race([p, expired]);
   } finally {
     clearTimeout(timer);
   }
@@ -171,7 +182,15 @@ const inside = (path: string, root: string): boolean => path === root || path.st
 
 const GONE = "That message has already gone out.";
 
+/** A picture of `screen` that did not come within SCREEN_DEADLINE_MS, as a phone is told it. */
+const tooLong = (screen: Screen): string => `The Mac could not take a picture of ${screen.name} in time.`;
+
 export class MobileApi {
+  /** Each screen's capture while it is being taken, by kind and id: every call for that screen
+   *  meanwhile — the viewer's, the session card's, another phone's — waits on it rather than taking
+   *  its own, as the gateway answers a phone's calls as they come. */
+  private readonly capturing = new Map<string, Promise<{ bytes: Buffer; capturedAt: number }>>();
+
   constructor(private readonly o: { macName: () => string; reportsDir: string; dev: boolean; downscale?: Downscale; realmHome: string }) {}
 
   async handle(ctx: ChannelContext, method: string, params: unknown): Promise<unknown> {
@@ -719,10 +738,10 @@ export class MobileApi {
     if (!screen) throw new MobileError("NOT_FOUND", "That screen is not open in this session's space.");
     if (!screen.live) throw new MobileError("FORBIDDEN", `${screen.name} is not running on the Mac.`);
     try {
-      const shot = p.kind === "simulator" ? await rpc.call("simulators.capture", { simulatorId: p.screenId }) : await rpc.call("machines.capture", { machineId: p.screenId });
-      const capturedAt = Date.now();
-      if (!shot.data) throw new Error(`${screen.name} had nothing on screen to show.`);
-      return await screenFrame(Buffer.from(shot.data, "base64"), frameSide(p.maxSide), capturedAt, this.o.downscale ?? sipsDownscale);
+      return await deadline((async () => {
+        const { bytes, capturedAt } = await this.capture(rpc, screen);
+        return await screenFrame(bytes, frameSide(p.maxSide), capturedAt, this.o.downscale ?? sipsDownscale);
+      })(), SCREEN_DEADLINE_MS, tooLong(screen));
     } catch (e) {
       // It is there and live, so a picture that did not come is one that did not come just now — a
       // device whose runner has stopped answering, a capture that is no picture — and the next call may
@@ -730,5 +749,25 @@ export class MobileApi {
       // screen that is not live, which a phone stops asking for until its list changes.
       throw new MobileError("INTERNAL", (e as Error).message);
     }
+  }
+
+  /** The screen as it is now, at its own size: one capture of it at a time, shared by every call that
+   *  comes while it is taken, and given up on after SCREEN_DEADLINE_MS — which lets the screen go, so
+   *  the next call takes a new one rather than waiting on a capture that may never answer. */
+  private capture(rpc: RpcPort, screen: Screen): Promise<{ bytes: Buffer; capturedAt: number }> {
+    const key = `${screen.kind} ${screen.id}`;
+    const taking = this.capturing.get(key);
+    if (taking) return taking;
+    const shot = deadline((async () => {
+      const { data } = screen.kind === "simulator"
+        ? await rpc.call("simulators.capture", { simulatorId: screen.id })
+        : await rpc.call("machines.capture", { machineId: screen.id });
+      if (!data) throw new Error(`${screen.name} had nothing on screen to show.`);
+      return { bytes: Buffer.from(data, "base64"), capturedAt: Date.now() };
+    })(), SCREEN_DEADLINE_MS, tooLong(screen)).finally(() => {
+      if (this.capturing.get(key) === shot) this.capturing.delete(key);
+    });
+    this.capturing.set(key, shot);
+    return shot;
   }
 }

@@ -779,8 +779,11 @@ Screen {
   in the Mac's words: asking again will not change that until the list does. A live one the Mac could
   not picture just then (a phone's runner not answering, a capture that was no picture) is `INTERNAL`,
   in the Mac's words too: the next call may bring one.
-- **Polled**, about once a second or two while the phone's viewer is open. The Mac takes a picture for
-  each call, through the same capture an agent's look takes, and keeps nothing of it: the capture is
+- **Polled**, about once a second or two while the phone's viewer is open. The Mac takes a picture
+  through the same capture an agent's look takes, one of a screen at a time: the calls for it that come
+  while it is being taken (the viewer's, the session card's, another phone's) share it, each made at
+  its own `maxSide`. A picture not made within ten seconds is given up on (`INTERNAL`), well inside the
+  phone's own wait, and the next call takes a new one. The Mac keeps nothing of it: the capture is
   written to a folder of its own under the system's temporary folder for `sips` to read, and removed
   before the answer goes. Nothing is written into the space's folder.
 

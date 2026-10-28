@@ -17,7 +17,7 @@ import {
 import { DIFF_PAGE_BYTES } from "./changes";
 import { PREVIEW_MAX_BYTES, TEXT_HEAD_BYTES, type Downscale } from "./preview";
 import { RpcCallError, type RpcPort } from "./rpc-port";
-import { FRAME_MAX_BYTES } from "./screens";
+import { FRAME_MAX_BYTES, SCREEN_DEADLINE_MS } from "./screens";
 
 /**
  * mobile.v1's `home.get` against a fake of the desktop's RPC. Needs you is `@realm/view`'s rule; what
@@ -1452,5 +1452,76 @@ describe("session.screens and session.screen", () => {
     expect(untouched.asked).toEqual([]);
     expect(await attempt(api(shrinking(() => Buffer.from("jpeg")).downscale), rig().rpc, "session.screen", { id: "in-s1", screenId: "sim-pro", kind: "simulator" }))
       .toMatchObject({ ok: false, code: "INTERNAL" });
+  });
+
+  it("takes one capture of a screen at a time, for every call that comes while it is taken: the viewer's, the session card's, another phone's", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const png = { data: pngHeader(1206, 2622).toString("base64"), mimeType: "image/png", width: 1206, height: 2622 };
+    const phone = rig({ capture: async () => { await held; return png; } });
+    const another = rig({ capture: async () => { await held; return png; } });
+    const small = shrinking();
+    const a = api(small.downscale);
+    const ask = (rpc: RpcPort, maxSide: number) => attempt(a, rpc, "session.screen", { id: "in-s1", screenId: "sim-pro", kind: "simulator", maxSide });
+    const asking = [ask(phone.rpc, 1000), ask(phone.rpc, 320), ask(another.rpc, 1000)];
+    // Every call has come to the capture before it answers.
+    await new Promise((resolve) => setImmediate(resolve));
+    release();
+    const frames = await Promise.all(asking);
+    // THE MUTANT: no guard — the gateway answers a phone's calls as they come, so each took a capture of its own.
+    expect([...captures(phone.asked), ...captures(another.asked)]).toEqual([["simulators.capture", { simulatorId: "sim-pro" }]]);
+    // Each made at the side it asked for, from the one capture, taken at one moment.
+    expect(frames.map((f) => f.ok && (f.result as { height: number }).height)).toEqual([1000, 320, 1000]);
+    expect(new Set(frames.map((f) => (f as { result: { capturedAt: number } }).result.capturedAt)).size).toBe(1);
+    // Once it is taken the screen is let go, and the next call takes a new one.
+    expect(await ask(another.rpc, 1000)).toMatchObject({ ok: true });
+    expect(captures(another.asked)).toHaveLength(1);
+  });
+
+  it("gives up on a capture after SCREEN_DEADLINE_MS, inside a phone's 15 s, as a failure worth asking again, and lets the screen go", async () => {
+    vi.useFakeTimers();
+    try {
+      let taken = 0;
+      const png = { data: pngHeader(1206, 2622).toString("base64"), mimeType: "image/png", width: 1206, height: 2622 };
+      // A device whose first capture never answers.
+      const { rpc, asked } = rig({ capture: () => (taken++ === 0 ? new Promise(() => {}) : png) });
+      const a = api(shrinking().downscale);
+      const ask = () => attempt(a, rpc, "session.screen", { id: "in-s1", screenId: "sim-pro", kind: "simulator" });
+      let answered = false;
+      const first = ask().finally(() => { answered = true; });
+      const joined = ask();
+      await vi.advanceTimersByTimeAsync(SCREEN_DEADLINE_MS - 1);
+      expect(answered).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await first).toEqual({ ok: false, code: "INTERNAL", message: "The Mac could not take a picture of iPhone 17 Pro in time." });
+      expect(await joined).toEqual({ ok: false, code: "INTERNAL", message: "The Mac could not take a picture of iPhone 17 Pro in time." });
+      expect(SCREEN_DEADLINE_MS).toBeLessThan(15_000);
+      // THE MUTANT: hold the screen until its capture answers — one that never does would hold it for good,
+      // and every call after would wait on it until the phone gave up.
+      expect(await ask()).toMatchObject({ ok: true, result: { height: 1000 } });
+      expect(captures(asked)).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("answers within SCREEN_DEADLINE_MS though the capture came and its frame did not", async () => {
+    vi.useFakeTimers();
+    try {
+      let release!: () => void;
+      const stuck = new Promise<void>((resolve) => { release = resolve; });
+      const written: string[] = [];
+      // `sips` stuck on the capture, as one under load can be for half a minute.
+      const downscale: Downscale = async (path, side) => { written.push(path); await stuck; return jpegHeader(Math.round(side * 1206 / 2622), side); };
+      const asking = attempt(api(downscale), rig().rpc, "session.screen", { id: "in-s1", screenId: "sim-pro", kind: "simulator" });
+      await vi.advanceTimersByTimeAsync(SCREEN_DEADLINE_MS);
+      // THE MUTANT: a deadline on the capture alone — the phone would wait out its own 15 s instead.
+      expect(await asking).toEqual({ ok: false, code: "INTERNAL", message: "The Mac could not take a picture of iPhone 17 Pro in time." });
+      // The capture it was made from is still removed, once `sips` lets go of it.
+      release();
+      await vi.waitFor(() => expect(existsSync(dirname(written[0]!))).toBe(false));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

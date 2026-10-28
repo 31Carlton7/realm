@@ -14,12 +14,17 @@ import type { Downscale } from "./preview";
  * A frame is polled every second or two while the phone's viewer is open, so it is bounded on every
  * side: a JPEG at most the side asked for (a simulator's home screen at 1000 px is about 50 KB), made
  * from a capture that is written only to a folder of its own under the system's temporary folder and
- * gone again before the answer is.
+ * gone again before the answer is; one capture of a screen at a time, however many calls come for it,
+ * and none waited on past SCREEN_DEADLINE_MS.
  */
 
 /** The JPEG quality a frame is made at, and the most one may weigh before it is made once more, smaller. */
 export const FRAME_QUALITY = 65;
 export const FRAME_MAX_BYTES = 320 * 1024;
+
+/** The longest a picture of a screen may take, capture and all: well inside the 15 s a phone waits on a
+ *  call, so a capture that hangs is answered as one that failed, and the next call takes a new one. */
+export const SCREEN_DEADLINE_MS = 10_000;
 
 /** The side a frame is made at: the one asked for, brought inside `SCREEN_SIDE`. */
 export const frameSide = (asked: number | undefined): number =>
