@@ -71,6 +71,7 @@ import { LayaRecorder } from "./laya/recorder";
 import type { LayaRuntime } from "./laya/runtime";
 import { ResourceService } from "./resources/service";
 import { ResourcePolicies } from "./resources/policies";
+import { ResourceControls } from "./resources/controls";
 import { quietMachineProbe, type MachineProbe } from "./resources/machine";
 import type { AppProcess } from "./resources/attribute";
 import { durationWords, engineDetail } from "./resources/words";
@@ -1876,6 +1877,13 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     settings, mcp: mcpHub, adapt: adaptIdle,
     app: () => (browserBridge.connected ? { call: (op, params) => browserBridge.call(op, params) } : null),
   });
+  /* The Memory page's side: the report with what each "free memory now" button would let go of, the
+     windows as set and as pressure leaves them, and the buttons. */
+  const resourceControls = new ResourceControls({
+    settings, snapshot: (o) => resources.snapshot(o), adapt: adaptIdle,
+    engines: sessions, simulators, laya,
+    browsers: () => (browserBridge.connected ? { call: (op, params) => browserBridge.call(op, params) } : null),
+  });
   /* Memory just got short: every idle window shrinks now, and what is already past the shorter one goes
      at once rather than on each policy's next tick. */
   resources.onPressure((pressure) => {
@@ -1893,7 +1901,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
     profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, claudeBackfill, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, handoffs, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns, teammates,
-    iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, resources, agentSignIn,
+    iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, resources: resourceControls, agentSignIn,
     libraryFiles, remote, presence,
     access: () => (access ? { url: access.url } : null),
     appViews: new AppViewService({ views: appViews, hub: mcpHub, mcp, servers: mcpServersStore, sessions: sessionsStore, server: appViewServer, gateway: mcpGateway, log: (line) => console.log(line) }),

@@ -1,6 +1,6 @@
 import { realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
+import { ENGINE_IDLE_MINUTES_DEFAULT, ENGINE_IDLE_MINUTES_KEY, AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, RestartRequiredError, type AdapterRegistry, type AgentAdapter, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -113,9 +113,9 @@ export const QUEUE_HOLD_TTL_MS = 10 * 60_000;
 export const AGENT_PROBE_TTL_MS = 15 * 60_000;
 /** How long a CLI that crashed or hung on a probe is left alone by unforced probes. */
 export const PROBE_CRASH_BACKOFF_MS = 60 * 60_000;
-/** Minutes an engine may sit idle before its process is stopped (`reapIdle`). 0 keeps engines forever. */
-export const ENGINE_IDLE_MINUTES_KEY = "sessions.engineIdleMinutes";
-export const ENGINE_IDLE_MINUTES_DEFAULT = 30;
+/** Minutes an engine may sit idle before its process is stopped (`reapIdle`). 0 keeps engines forever.
+ *  In contracts, because the Memory page sets it. */
+export { ENGINE_IDLE_MINUTES_DEFAULT, ENGINE_IDLE_MINUTES_KEY };
 /** How often live engines are looked over for one that has sat idle long enough. */
 const REAP_SWEEP_MS = 60_000;
 
@@ -1249,6 +1249,11 @@ export class SessionService {
     const raw = this.d.settings.get(ENGINE_IDLE_MINUTES_KEY);
     const base = typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? raw : ENGINE_IDLE_MINUTES_DEFAULT;
     return this.d.adaptIdle?.(base) ?? base;
+  }
+
+  /** The engines that are idle now — nothing mid-turn, waiting, queued or counting on them. */
+  idleEngines(): string[] {
+    return [...this.live.keys()].filter((id) => this.engineIdle(id));
   }
 
   /** Every engine that is idle now and could be stopped without interrupting anything, and the ones

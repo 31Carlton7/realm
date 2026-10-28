@@ -7649,6 +7649,26 @@ select { appearance: none; padding-right: 22px;
 .memory-doc-foot { display: flex; align-items: center; gap: 12px; }
 /* The count recedes until it matters — it reports a limit almost nobody is near. */
 .memory-doc-count { font-size: 12px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
+/* Settings ▸ RAM. A category is a row that opens onto its parts — shut, its name and its size; open,
+   what it is made of, heaviest first, in the same card. Sizes are tabular, so a column of them reads
+   down; in the total's own sentence the size is the sentence's ink. */
+.ram-size { flex: none; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.settings-row-name > .ram-size { font-size: inherit; line-height: inherit; color: inherit; }
+.settings-row.ram-category { display: block; padding: 0; }
+.ram-category > details { border-radius: inherit; }
+.ram-category > details > summary { display: flex; align-items: center; gap: 12px; padding: 14px 16px; list-style: none; }
+.ram-category > details:not([open]) > summary { border-radius: inherit; }
+.ram-category > details > summary::-webkit-details-marker { display: none; }
+.ram-category > details > summary::before { content: "▸"; flex: none; font-size: 12px; color: var(--rl-text-faint); transition: rotate var(--dur-hover) ease; }
+.ram-category > details[open] > summary::before { rotate: 90deg; }
+.ram-category > details > summary > .settings-row-name { flex: 1; min-width: 0; }
+.ram-category > details > summary:hover { background: var(--rl-hover); }
+.ram-category > details > summary:focus-visible { outline: 1.5px solid var(--rl-accent); outline-offset: -1.5px; }
+.ram-parts { list-style: none; margin: 0; padding: 0 16px 8px 36px; }
+.ram-part { display: flex; align-items: center; gap: 12px; min-height: 40px; padding: 8px 0; }
+.ram-part + .ram-part { border-top: var(--hairline-w) solid var(--rl-line); }
+.ram-part-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ram-part-name { font-size: 14px; line-height: 20px; color: var(--rl-text-bright); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The Library's index of every space's memory. Shut, a space is one line — the caret, its mark and
    name, the first thing its document says, its size — and the whole line is the button that opens
    it. Open, the line becomes the document's own head (MemoryDoc's `lead`), so a space never wears two

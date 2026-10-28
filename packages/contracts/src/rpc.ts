@@ -50,7 +50,7 @@ import { GoalSchema, GoalStatusSchema } from "./goal";
 import { UnlockedEggPackSchema } from "./egg-pack";
 import { FailoverPolicySchema } from "./failover";
 import { LayaModeSchema, LayaStatusSchema } from "./laya";
-import { ResourceReportSchema } from "./resources";
+import { FreeActionSchema, ResourcePoliciesSchema, ResourcePolicyKeySchema, ResourceReportSchema } from "./resources";
 import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
 import { ExecutionSandboxPolicySchema, ExecutionSandboxPrefsSchema } from "./execution-sandbox";
 import { AskAnswersSchema } from "./ui-ask";
@@ -2062,6 +2062,17 @@ export const Methods = {
    * has just changed something.
    */
   "resources.snapshot": { params: z.object({ fresh: z.boolean().default(false) }), result: ResourceReportSchema },
+  /** The idle windows the Memory page sets, as set and as memory pressure leaves them. */
+  "resources.policies": { params: z.object({}), result: ResourcePoliciesSchema },
+  /** Write one: a whole number of minutes (0 never), the count of hidden panes kept, or the adaptive
+   *  switch. Answers every window as it now stands. */
+  "resources.setPolicy": { params: z.object({ key: ResourcePolicyKeySchema, value: z.union([z.number().int().min(0).max(24 * 60), z.boolean()]) }), result: ResourcePoliciesSchema },
+  /**
+   * Free memory now: stop the engines that are idle, shut down the simulators Realm booted that nobody
+   * is using, discard the hidden browser panes, or stop Laya between steps. The same "never interrupt"
+   * rules as the policies; only the wait is skipped. Answers how many went.
+   */
+  "resources.free": { params: z.object({ action: FreeActionSchema }), result: z.object({ freed: z.number().int().nonnegative() }) },
   "agents.probe": { params: z.object({ force: z.boolean().default(false) }), result: z.array(AgentProbeRowSchema) },
   /**
    * One agent's probe, fresh, for a screen that leads with one or two agents and must not wait on

@@ -179,6 +179,13 @@ export class SimulatorService {
     return this.d.adaptIdle?.(m) ?? m;
   }
 
+  /** The simulators Realm booted that no pane is showing — what the Memory page's button would look at.
+   *  The button's own sweep still checks each is the same boot and that nothing else is using it. */
+  idleCandidates(): string[] {
+    const now = this.now();
+    return this.realmBooted().filter((b) => now - (this.shownAt.get(b.udid) ?? 0) >= SHOWN_FRESH_MS).map((b) => b.udid);
+  }
+
   /** Look over the simulators Realm booted once a minute. Unref'd: it never keeps the server up. */
   startIdleSweep(): void {
     if (this.sweepTimer) return;

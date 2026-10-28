@@ -218,8 +218,13 @@ export class LayaService {
    * would have stopped on its own — Shadow, between questions, not starting — and it starts again on the
    * next step. Answers whether it stopped.
    */
+  /** Whether `stopIdle` would stop it now. */
+  stoppable(): boolean {
+    return this.onDemand() && Boolean(this.run) && Boolean(this.ready) && this.asking === 0;
+  }
+
   async stopIdle(): Promise<boolean> {
-    if (!this.onDemand() || !this.run || !this.ready || this.asking > 0) return false;
+    if (!this.stoppable()) return false;
     await this.stop();
     this.changed();
     return true;

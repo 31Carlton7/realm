@@ -7,7 +7,7 @@ import {
   SentIcon, StopIcon, SparklesIcon, ArrowDown01Icon, ArrowUp01Icon, ArrowDown02Icon, ArrowUp02Icon, ArrowRight02Icon, CheckmarkCircle02Icon, CancelCircleIcon,
   Alert02Icon, BotIcon, Wrench01Icon, CodeIcon, IdeaIcon, Copy01Icon, Attachment01Icon, Image01Icon,
   Task01Icon, GitBranchIcon, GitCompareIcon, GitCommitIcon, GitPullRequestIcon, LaptopIcon, PlugSocketIcon, QuoteUpIcon,
-  Layout2ColumnIcon, Layout2RowIcon, BookOpen01Icon, Download04Icon,
+  Layout2ColumnIcon, Layout2RowIcon, BookOpen01Icon, Download04Icon, ComputerActivityIcon,
   // Space icon picker's "Default" section (SPACE_ICONS, packages/contracts/src/presets.ts) — every
   // name there must have a matching key below.
   Rocket01Icon, StarIcon, Book01Icon, Camera01Icon, MusicNote01Icon, Shield01Icon, Flag01Icon, Coffee01Icon, RadioButtonIcon, Target01Icon, Compass01Icon,
@@ -194,6 +194,9 @@ export const icons = {
      brand name wins the lookup; shortcuts are the ⌘ every Mac menu prints beside them — the pack's
      `Keyboard` is a face at row size; and an import is the tray things arrive in. */
   cpu: CpuIcon, gauge: DashboardSpeed02Icon, pointer: Cursor01Icon, command: CommandIcon, inboxDownload: InboxDownloadIcon,
+  /* What Realm holds in this Mac's RAM: the Mac with its pulse, beside the engines' chip and the spend's
+     gauge. Neither pack draws a memory module, and `context` is already Memory — what agents remember. */
+  ram: ComputerActivityIcon,
   /* A saved password's mark: a padlock. `lock` is the pack's round keyhole, which at 16px is a circle
      with a dot — and it stays as it is, because it is a space icon people have already picked. */
   padlock: SquareLockPasswordIcon,

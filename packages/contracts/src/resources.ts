@@ -75,6 +75,14 @@ export type ResourceSize = z.infer<typeof ResourceSizeSchema>;
 export const OtherAppSchema = ResourceSizeSchema.extend({ name: z.string() });
 export type OtherApp = z.infer<typeof OtherAppSchema>;
 
+/** What the Memory page's "free memory now" buttons can each let go of right now, without
+ *  interrupting anything: how many, and how much they hold. */
+export const FREE_ACTIONS = ["engines", "simulators", "browsers", "laya"] as const;
+export const FreeActionSchema = z.enum(FREE_ACTIONS);
+export type FreeAction = z.infer<typeof FreeActionSchema>;
+export const FreeableSchema = z.object({ count: z.number().int().nonnegative(), bytes: z.number().nonnegative() });
+export type Freeable = z.infer<typeof FreeableSchema>;
+
 export const ResourceReportSchema = z.object({
   at: z.number(),
   machine: MachineMemorySchema,
@@ -87,6 +95,8 @@ export const ResourceReportSchema = z.object({
   others: z.array(OtherAppSchema),
   /** Which measure the totals are: `footprint` on a Mac, `resident` where footprint cannot be read. */
   measure: z.enum(["footprint", "resident"]),
+  /** What each "free memory now" button would let go of; absent where nothing has been asked. */
+  freeable: z.object({ engines: FreeableSchema, simulators: FreeableSchema, browsers: FreeableSchema, laya: FreeableSchema }).optional(),
 });
 export type ResourceReport = z.infer<typeof ResourceReportSchema>;
 
@@ -141,3 +151,28 @@ export function adaptIdleMinutes(minutes: number, pressure: MemoryPressure, adap
  */
 export const MCP_IDLE_STOP_KEY = "mcp.idleStopMinutes";
 export const MCP_IDLE_STOP_DEFAULT = 30;
+
+/** Minutes an engine may sit idle before its process is stopped (`SessionService.reapIdle`); 0 never. */
+export const ENGINE_IDLE_MINUTES_KEY = "sessions.engineIdleMinutes";
+export const ENGINE_IDLE_MINUTES_DEFAULT = 30;
+
+/** Every policy setting the Memory page writes, and the shape it is written in. */
+export const RESOURCE_POLICY_KEYS = [
+  "sessions.engineIdleMinutes", "mcp.idleStopMinutes", "laya.idleStopMinutes", "simulators.idleShutdownMinutes",
+  "browser.discardHiddenMinutes", "browser.keepHidden", "resources.adaptive",
+] as const;
+export const ResourcePolicyKeySchema = z.enum(RESOURCE_POLICY_KEYS);
+export type ResourcePolicyKey = z.infer<typeof ResourcePolicyKeySchema>;
+
+/** The windows as set, and as memory pressure leaves them now. Minutes; 0 is never. */
+export const ResourcePoliciesSchema = z.object({
+  engineIdleMinutes: z.number().int().nonnegative(),
+  mcpIdleMinutes: z.number().int().nonnegative(),
+  layaIdleMinutes: z.number().int().nonnegative(),
+  simulatorIdleMinutes: z.number().int().nonnegative(),
+  browserHiddenMinutes: z.number().int().nonnegative(),
+  browserKeepHidden: z.number().int().nonnegative(),
+  adaptive: z.boolean(),
+  effective: z.object({ engines: z.number(), mcp: z.number(), laya: z.number(), simulators: z.number(), browsers: z.number() }),
+});
+export type ResourcePolicies = z.infer<typeof ResourcePoliciesSchema>;

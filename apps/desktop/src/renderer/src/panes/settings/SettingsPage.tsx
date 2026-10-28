@@ -22,6 +22,7 @@ import type { PaneProps } from "../registry";
 import { hasWindowMaterial, useResolvedMode, type ThemePref } from "../../theme/useTheme";
 import { ImportPanel } from "../../components/settings/ImportPanel";
 import { UsagePanel } from "./usage/UsagePanel";
+import { RamPanel } from "./RamPanel";
 import { FailoverPanel } from "./FailoverPanel";
 import { LayaSection } from "./LayaSection";
 import { DevicesPanel } from "./DevicesPanel";
@@ -144,6 +145,7 @@ export function SettingsPage(_props: PaneProps) {
               {tab === "devices" && <DevicesPanel onOpenSetting={openSetting} />}
               {tab === "engines" && <EnginesTab />}
               {tab === "usage" && <UsagePanel />}
+              {tab === "ram" && <RamPanel />}
               {tab === "signins" && <SignInsTab />}
               {tab === "permissions" && <PermissionsTab />}
               {tab === "computer-use" && <ComputerUseTab />}
