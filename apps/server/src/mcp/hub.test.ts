@@ -722,7 +722,8 @@ describe("stopping a stdio server nobody has called", () => {
       const t0 = Date.now();
       await hub.tools(row.id);
       const call = hub.call(row.id, "echo", {});
-      // The call runs twenty minutes.
+      // Under way — the server has it — and then it runs twenty minutes.
+      await new Promise((r) => setTimeout(r, 10));
       vi.setSystemTime(t0 + 20 * 60_000);
       await call;
       // Thirty-five minutes after it began, fifteen after it finished: not idle yet.
