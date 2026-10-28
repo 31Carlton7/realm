@@ -82,6 +82,12 @@ describe("the resource report", () => {
     expect(r.others.map((o) => o.name)).toContain("Realm");
   });
 
+  it("refuses a report rather than give one from a process table it could not read", async () => {
+    const { probe } = fakeMachine();
+    const s = new ResourceService({ probe: { ...probe, processes: async () => { throw new Error("ps could not be read: timed out"); } }, owners, app: async () => null, serverPid: 50 });
+    await expect(s.snapshot()).rejects.toThrow(/could not be read/);
+  });
+
   it("says it measured nothing on a system whose processes it does not read, not that Realm holds nothing", async () => {
     const { probe } = fakeMachine({ table: [] });
     const s = new ResourceService({ probe: { ...probe, readsProcesses: false }, owners, app: async () => null, serverPid: 50 });

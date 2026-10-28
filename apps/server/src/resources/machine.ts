@@ -175,15 +175,24 @@ export function parseBundleId(out: string): string | null {
   return /(?:bundleID|"CFBundleIdentifier")\s*=\s*"([^"]+)"/i.exec(out)?.[1] ?? null;
 }
 
-type Run = (file: string, args: string[], timeoutMs: number) => Promise<string>;
+/** `strict`: reject on any error — a non-zero exit, a timeout, output past the buffer — rather than
+ *  answer with whatever was printed before it. */
+type Run = (file: string, args: string[], timeoutMs: number, strict?: boolean) => Promise<string>;
 
 /**
  * The command's output, whatever its exit: `sysctl` exits 1 for one unknown name and still prints the
  * rest. Always in the C locale: `ps -o lstart` follows LC_TIME ("Tue 27 Oct" in en_GB, "Di. 27 Okt." in
  * de_DE), and a row `parsePs` cannot read is a process the report and the policies never see.
+ *
+ * Strict where a part of the answer would be read as the whole: a `ps` killed at its timeout has
+ * printed some of the table, and a table missing a simulator's launchd or an engine's shell says that
+ * device has gone and that engine has no work running.
  */
-export const run: Run = (file, args, timeoutMs) => new Promise((resolve) => {
-  execFile(file, args, { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, encoding: "utf8", env: { ...process.env, LC_ALL: "C" } }, (_err, stdout) => resolve(stdout ?? ""));
+export const run: Run = (file, args, timeoutMs, strict = false) => new Promise((resolve, reject) => {
+  execFile(file, args, { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, encoding: "utf8", env: { ...process.env, LC_ALL: "C" } }, (err, stdout) => {
+    if (err && strict) reject(new Error(`${file} could not be read: ${err.message}`));
+    else resolve(stdout ?? "");
+  });
 });
 
 /** The commands a reading runs, as `ps` lists them — `(name)` while one is exiting. */
@@ -207,7 +216,8 @@ export function realMachineProbe(o: { platform?: string; run?: Run; readText?: (
     async processes() {
       if (platform === "win32") return [];
       // The reading's own commands are this process's children while it reads: not Realm's work.
-      return parsePs(await exec("ps", ["-A", "-ww", "-o", "pid=,ppid=,tty=,rss=,lstart=,command="], 10_000))
+      // Strict: a table cut short is not a table (`run`); the callers read a rejection as unknown.
+      return parsePs(await exec("ps", ["-A", "-ww", "-o", "pid=,ppid=,tty=,rss=,lstart=,command="], 10_000, true))
         .filter((r) => !(r.ppid === process.pid && MEASURING.test(r.command)));
     },
     async footprints(pids) {

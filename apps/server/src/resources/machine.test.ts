@@ -173,6 +173,20 @@ describe("the real probe", () => {
     }
   });
 
+  it("takes a ps that failed or ran out of time as unreadable, not as the part it printed", async () => {
+    // THE MUTANT: the lenient read sysctl needs. A ps killed at its timeout has printed half the table,
+    // and a half table says a simulator's launchd has gone and an engine has no work running.
+    const slow = [process.execPath, ["-e", "process.stdout.write('1 0 ?? 10 Tue Oct 27 02:08:07 2026 /sbin/launchd\\n'); setTimeout(() => {}, 5000)"]] as const;
+    await expect(run(slow[0], [...slow[1]], 300, true)).rejects.toThrow(/could not be read/);
+    expect(await run(slow[0], [...slow[1]], 300)).toContain("/sbin/launchd");
+    await expect(run(process.execPath, ["-e", "process.stdout.write('x'); process.exit(1)"], 5_000, true)).rejects.toThrow();
+    // The probe asks for ps strictly, and passes the refusal on.
+    const asked: boolean[] = [];
+    const probe = realMachineProbe({ platform: "darwin", run: async (_f, _a, _t, strict) => { asked.push(strict === true); throw new Error("ps timed out"); } });
+    await expect(probe.processes()).rejects.toThrow(/timed out/);
+    expect(asked).toEqual([true]);
+  });
+
   it("asks footprint(1) in batches, and only on a Mac", async () => {
     const calls: string[][] = [];
     const probe = realMachineProbe({ platform: "darwin", run: async (_f, args) => { calls.push(args); return ""; } });
