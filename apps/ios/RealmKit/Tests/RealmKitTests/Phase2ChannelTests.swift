@@ -90,6 +90,13 @@ struct Phase2ChannelTests {
         _ = try? await api.spaceIcon(id: "sp1")
         #expect(relay.methods.last == "space.icon")
         #expect(relay.params.last == ["id": "sp1"])
+        _ = try? await api.screens(id: "s1")
+        #expect(relay.methods.last == "session.screens")
+        #expect(relay.params.last == ["id": "s1"])
+        let simulator = SessionScreen(id: "sim1", kind: .simulator, name: "iPhone 17 Pro", detail: nil, live: true)
+        _ = try? await api.screen(id: "s1", screen: simulator, maxSide: 1000)
+        #expect(relay.methods.last == "session.screen")
+        #expect(relay.params.last == ["id": "s1", "screenId": "sim1", "kind": "simulator", "maxSide": 1000])
         await connection.stop()
     }
 }

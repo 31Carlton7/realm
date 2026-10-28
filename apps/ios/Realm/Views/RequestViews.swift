@@ -372,8 +372,7 @@ struct AnswerButtons: View {
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
         }
-        .buttonStyle(.bordered)
-        .tint(Palette.ink)
+        .buttonStyle(GreyButtonStyle())
     }
 
     private var acceptButton: some View {
@@ -382,8 +381,7 @@ struct AnswerButtons: View {
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
         }
-        .buttonStyle(.borderedProminent)
-        .tint(Palette.accentFill)
+        .buttonStyle(InkButtonStyle())
     }
 }
 

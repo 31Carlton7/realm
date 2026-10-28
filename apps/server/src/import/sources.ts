@@ -54,8 +54,9 @@ export function isScratchPath(cwd: string, tmp = tmpdir()): boolean {
 }
 
 /**
- * Claude's project-directory names are a lossy encoding of the cwd: every `/` becomes `-`, and so
- * does every `-` that was already in the path. `-Users-carltonaikins-Desktop-Home-Work-Projects-realm`
+ * Claude's project-directory names are a lossy encoding of the cwd: every character that is not a
+ * letter or a digit becomes `-` — every `/`, and every `-`, `_`, `.` or space already in the path.
+ * `-Users-carltonaikins-Desktop-Home-Work-Projects-realm`
  * could decode to `/Users/.../Projects/realm` or `/Users/.../Projects-realm`, and nothing in the name
  * says which.
  *
@@ -76,15 +77,25 @@ export function decodeClaudeProjectSlug(slug: string, childrenOf: (dir: string) 
   // `School/SP26` — which does not exist — before it can discover that the real child is
   // `SP26-EE-451`, and then no continuation can recover. Listing the directory removes the guesswork
   // entirely: `School` has exactly one child matching a run, and it is found in one pass.
+  //
+  // Each child is compared the way Claude wrote it — `_`, `.` and spaces made dashes like `/` was — so a
+  // folder like `hn37_9dmq` or `.verify` is found by its own name. Two children that encode alike
+  // (`a_b` beside `a.b`) leave the name ambiguous, and an ambiguous name decodes to nothing.
   let path = "";
   for (let i = 0; i < parts.length;) {
-    const children = new Set(childrenOf(path === "" ? "/" : path));
-    let taken = -1;
-    for (let j = parts.length - 1; j >= i; j--) {
-      if (children.has(parts.slice(i, j + 1).join("-"))) { taken = j; break; }
+    const byEncoding = new Map<string, string | null>();
+    for (const child of childrenOf(path === "" ? "/" : path)) {
+      const encoded = child.replace(/[^a-zA-Z0-9]/g, "-");
+      byEncoding.set(encoded, byEncoding.has(encoded) ? null : child);
     }
-    if (taken === -1) return null; // nothing here matches: the slug names a directory that is gone
-    path = `${path}/${parts.slice(i, taken + 1).join("-")}`;
+    let taken = -1;
+    let child: string | null | undefined;
+    for (let j = parts.length - 1; j >= i; j--) {
+      child = byEncoding.get(parts.slice(i, j + 1).join("-"));
+      if (child !== undefined) { taken = j; break; }
+    }
+    if (taken === -1 || !child) return null; // gone, or two folders that read the same
+    path = `${path}/${child}`;
     i = taken + 1;
   }
   return path;

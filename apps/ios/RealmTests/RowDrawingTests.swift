@@ -193,6 +193,33 @@ struct RowDrawingTests {
         #expect(words.contains("Read this") && words.contains("notes.pdf"), "\(words)")
     }
 
+    /// A row is never wider than the screen gives it, however long a tool's name: one that was pushed
+    /// every row of the transcript, and the bars under it, off the screen's left edge.
+    @Test func aLongToolNameStaysInsideTheColumn() {
+        let name = "an_extraordinarily_long_tool_name_that_some_server_registered_without_a_thought"
+        for tool in [name, "mcp__realm__realm-agent__\(name)"] {
+            let row = TranscriptRowView(row: Self.row(.tool(name: tool, summary: "/Users/someone/Realm/work/persona/plans/persona-adapters-design.md",
+                                                            state: .running, detail: nil)), sessionId: "s1")
+            let host = UIHostingController(rootView: row.environment(AppModel()))
+            #expect(host.sizeThatFits(in: CGSize(width: 358, height: 1_000)).width <= 358, "\(tool)")
+        }
+    }
+
+    /// Whatever a row sets at its own width, the column only ever sees the width it offered.
+    @Test func aRowThatCannotFitDoesNotWidenTheColumn() {
+        let wide = Text(String(repeating: "mcp__realm__realm-agent__agent_start ", count: 4)).fixedSize()
+        #expect(UIHostingController(rootView: wide).sizeThatFits(in: CGSize(width: 358, height: 1_000)).width > 358)
+        let kept = UIHostingController(rootView: wide.keepsToOfferedWidth())
+        #expect(kept.sizeThatFits(in: CGSize(width: 358, height: 1_000)).width <= 358)
+    }
+
+    /// Three reads in a row are one line that counts them.
+    @Test func aRunOfReadsIsOneLine() throws {
+        let rows = (1...3).map { Self.row(.tool(name: "Read", summary: "/repo/src/file\($0).ts", state: .done, detail: nil), key: "t\($0)") }
+        let words = try Drawing.words(WorkRun(rows: rows, sessionId: "s1").environment(AppModel()))
+        #expect(words.contains("Read 3 files") && !words.contains("file2.ts"), "\(words)")
+    }
+
     /// The work is quiet lines that say what they did, in the tense of their state.
     @Test func workSaysWhatItDid() throws {
         let rows = [Self.row(.tool(name: "Read", summary: "AppSettings.tsx", state: .done, detail: nil), key: "t1"),
@@ -395,6 +422,39 @@ struct TranscriptLayoutTests {
         #expect(LiveActivity.of([]) == .working)
     }
 
+    /// A reply is headed with who answers: the first item after each thing the person said, and
+    /// nothing else.
+    @Test func aReplyOpensAfterWhatThePersonSaid() {
+        let items = TranscriptLayout.items([Self.user("u1"), Self.said("a1"), Self.tool("t1", "Read"), Self.user("u2"), Self.said("a2")],
+                                           settled: false)
+        #expect(TranscriptLayout.replyStarts(items) == ["a1", "a2"])
+        #expect(TranscriptLayout.replyStarts([]).isEmpty)
+    }
+
+    /// The current step is the turn's newest: the tool under way and what it acts on, thinking, or the
+    /// last tool done while words are written — never the words themselves, which the transcript says
+    /// — and nothing once the turn is over.
+    @Test func theCurrentStepIsTheTurnsNewest() {
+        func transcript(_ rows: [TranscriptRow], status: SessionStatus = .running) -> Transcript {
+            modelWithSession(status: status, rows: rows).store.transcript("s1")
+        }
+        let running = Self.row("t1", .tool(name: "Read", summary: "/repo/src/app.ts", state: .running, detail: nil))
+        let read = Self.row("t1", .tool(name: "Read", summary: "/repo/src/app.ts", state: .done, detail: nil))
+        let writing = Self.row("a1", .assistant(text: "Wri", streaming: true))
+        #expect(CurrentStep.of(transcript([running]))?.words == "Reading app.ts")
+        #expect(CurrentStep.of(transcript([read, writing]))?.words == "Read app.ts")
+        #expect(CurrentStep.of(transcript([read, Self.user("u2"), writing]))?.words == "Working")
+        #expect(CurrentStep.of(transcript([Self.row("k1", .thinking(text: "Hmm"))]))?.words == "Thinking")
+        #expect(CurrentStep.of(transcript([running], status: .idle)) == nil)
+    }
+
+    @Test func theCurrentStepsClockCountsAsManusDoes() {
+        #expect(CurrentStep.clock(16) == "00:16")
+        #expect(CurrentStep.clock(723) == "12:03")
+        #expect(CurrentStep.clock(3_723) == "1:02:03")
+        #expect(CurrentStep.clock(-4) == "00:00")
+    }
+
     @Test func aFoldSaysHowMuchWorkItHolds() {
         let rows = [Self.said("p1"), Self.tool("t1", "Read"), Self.row("k1", .thinking(text: "Hmm")), Self.tool("t2", "Edit")]
         #expect(FoldedWork.summary(rows) == "Worked · 3 steps")
@@ -411,8 +471,58 @@ struct WorkWordsTests {
         #expect(ToolWords.line(tool: "Edit", summary: "a.ts", running: false).verb == "Edited")
         #expect(ToolWords.line(tool: "Write", summary: "a.ts", running: false).verb == "Wrote")
         #expect(ToolWords.line(tool: "TodoWrite", summary: "3 todos", running: false) == .init(verb: "Updated the plan", object: nil))
-        #expect(ToolWords.line(tool: "Linear__create_issue", summary: "", running: false) == .init(verb: "Called Linear__create_issue", object: nil))
+        #expect(ToolWords.line(tool: "frobnicate", summary: "", running: false) == .init(verb: "Called frobnicate", object: nil))
         #expect(ToolWords.line(tool: "Read", summary: "Read", running: false).object == nil)
+    }
+
+    /// A connector's tool is said by its own name, never the servers it came through, as the desktop says it.
+    @Test func aConnectorsToolIsSaidByItsOwnName() {
+        #expect(ToolWords.line(tool: "mcp__realm__realm-agent__agent_start", summary: "Persona package", running: false)
+            == .init(verb: "Agent start", object: "Persona package"))
+        #expect(ToolWords.line(tool: "mcp__claude_ai_Linear__save_issue", summary: "", running: true).verb == "Save issue")
+        #expect(ToolWords.line(tool: "realm-team__review_submit", summary: "", running: false).verb == "Review submit")
+        #expect(ToolWords.connectorTool("Bash") == nil)
+        #expect(ToolWords.connectorTool("mcp__realm__") == nil)
+    }
+
+    /// Every tool has a kind, the same for every agent, and Realm's own servers are known by name.
+    @Test func aToolIsKnownByWhatItDoes() {
+        #expect(ToolWords.kind("Bash") == .run)
+        #expect(ToolWords.kind("exec_command") == .run)
+        #expect(ToolWords.kind("apply_patch") == .edit)
+        #expect(ToolWords.kind("TodoWrite") == .plan)
+        #expect(ToolWords.kind("mcp__realm__realm-simulator__simulator_tap") == .simulator)
+        #expect(ToolWords.kind("mcp__realm__realm-agent__agent_start") == .delegate)
+        #expect(ToolWords.kind("mcp__realm__realm-browser__browser_open") == .browser)
+        #expect(ToolWords.kind("mcp__linear__save_issue") == .connector)
+        #expect(ToolWords.kind("frobnicate") == .other)
+        #expect(ToolWords.Kind.run.glyph != ToolWords.Kind.read.glyph)
+    }
+
+    /// A file is named by its own name on its line; a command is shown as it was run.
+    @Test func aLineNamesAFileByItsOwnName() {
+        #expect(ToolWords.shown("/Users/someone/Realm/work/persona/plans/pr1.md", kind: .write) == "pr1.md")
+        #expect(ToolWords.shown("cd /Users/someone && ls", kind: .run) == "cd /Users/someone && ls")
+        #expect(ToolWords.shown("src/", kind: .read) == "src/")
+        #expect(ToolWords.shown("Persona package", kind: .delegate) == "Persona package")
+    }
+
+    /// Calls of one kind in a row are counted under one line; a kind whose calls each say something
+    /// of their own never is.
+    @Test func callsOfOneKindAreSaidOnce() {
+        #expect(ToolWords.group(.read, count: 4, running: false) == "Read 4 files")
+        #expect(ToolWords.group(.run, count: 3, running: true) == "Running 3 commands")
+        #expect(ToolWords.group(.edit, count: 1, running: false) == "Edited 1 file")
+        #expect(ToolWords.group(.delegate, count: 2, running: false) == nil)
+        #expect(ToolWords.group(.connector, count: 2, running: false) == nil)
+
+        func tool(_ key: String, _ name: String) -> TranscriptRow {
+            TranscriptRow(key: key, seq: 1, content: .tool(name: name, summary: "a", state: .done, detail: nil))
+        }
+        let rows = [tool("t1", "Read"), tool("t2", "Read"), tool("t3", "Bash"), tool("t4", "Read"),
+                    TranscriptRow(key: "k1", seq: 1, content: .thinking(text: "Hmm")),
+                    tool("t5", "mcp__realm__realm-agent__agent_start"), tool("t6", "mcp__realm__realm-agent__agent_start")]
+        #expect(WorkRun.segments(rows).map { $0.map(\.key) } == [["t1", "t2"], ["t3"], ["t4"], ["k1"], ["t5"], ["t6"]])
     }
 
     @Test func anEditFindsItsFileHoweverEitherPathWasShortened() {
@@ -638,10 +748,11 @@ struct ComposerDrawingTests {
         modelWithSession(status: .idle, modelLabel: "Opus 5.5")
     }
 
-    /// At rest it is one capsule, the field and its button, with no chip naming the model.
-    @Test func atRestItIsTheFieldAndItsButton() throws {
+    /// At rest it is already the card, as Manus's composer is: the model a message goes to is a chip
+    /// under the field before anything is typed.
+    @Test func atRestTheModelIsAlreadyAChip() throws {
         let words = try Drawing.words(Host().environment(Self.model()))
-        #expect(!words.contains("Opus"), "\(words)")
+        #expect(words.contains("Opus 5.5"), "\(words)")
     }
 
     /// With words in it, it is a card, and the model the message goes to is a chip under them.

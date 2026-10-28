@@ -569,14 +569,13 @@ private struct DecisionDock: View {
                 choose(.approve)
             } label: {
                 HStack(spacing: 6) {
-                    if deciding { ProgressView().controlSize(.small).tint(.white) }
+                    if deciding { ProgressView().controlSize(.small).tint(Fill.onPrimary) }
                     Text(review.itemCount > 1 ? "Approve all \(review.itemCount)" : "Approve")
                 }
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Palette.accentFill)
+            .buttonStyle(InkButtonStyle())
             ViewThatFits(in: .horizontal) {
                 EqualWidths(spacing: 10) {
                     secondary

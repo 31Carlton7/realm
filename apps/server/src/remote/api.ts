@@ -3,13 +3,13 @@ import { realpath } from "node:fs/promises";
 import { join, sep } from "node:path";
 import {
   AGENT_META, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, isSecretPath, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, readEffortSupport,
-  resolveMidTurnMode, SELECTABLE_AGENT_KINDS, type AgentKind, type DelegatedChild, type IconAsset, type Item, type MethodResult, type ModelInfo,
+  resolveMidTurnMode, SELECTABLE_AGENT_KINDS, type AgentKind, type DelegatedChild, type IconAsset, type Item, type Machine, type MethodResult, type ModelInfo,
   type QueuedPrompt, type Schedule, type Session, type Space, type StoredSessionEvent, type TurnChanges,
 } from "@realm/contracts";
 import { givenAttachmentName, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
 import {
   MobileCalls, RECENT_LIMIT, SEND_LIMITS, type Home, type MobileErrorCode, type MobileMethod, type MobileParams, type MobileResult, type QueuedMessage,
-  type ScheduledTask, type SessionOptions, type SessionRow, type Subagent,
+  type ScheduledTask, type Screen, type SessionOptions, type SessionRow, type Subagent,
 } from "@realm/remote";
 import {
   FALLBACK_AGENT, isLive, LAST_AGENT_SETTING, modelLabel, needsYou, nestChildren, QUICK_CHAT_SETTING, quickChatIdOf, subagentState, upcomingOrder, type NeedsYouState,
@@ -17,9 +17,10 @@ import {
 import { resolveDefaultPermissionMode } from "../sessions/service";
 import { diffPage } from "./changes";
 import { agentOptions, changesFor, ChoiceRefused, probeList, type InitFacts, type OptionsInput, type ProbeRow } from "./options";
-import { filePreview, PreviewRefused, type Downscale } from "./preview";
+import { filePreview, PreviewRefused, sipsDownscale, type Downscale } from "./preview";
 import { queuedMessage, SessionProjector } from "./rows";
 import { RpcCallError, type RpcPort } from "./rpc-port";
+import { frameSide, machineScreen, phoneMayWatch, SCREEN_DEADLINE_MS, screenFrame, screenOrder, simulatorScreen } from "./screens";
 import { checkUploads, saveUploads, UploadRefused, type Upload } from "./uploads";
 import { everyPlan, monthStart, spend } from "./usage";
 import { isOpenReview, newestReviewFirst, reviewItem, reviewPictures, reviewSummary, scheduledTask } from "./work";
@@ -83,6 +84,17 @@ async function within<T>(p: Promise<T>, ms: number): Promise<T | null> {
   const late = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), ms); });
   try {
     return await Promise.race([p.catch(() => null), late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** `p`'s answer if it comes within `ms`, else a failure in the words `late`. */
+async function deadline<T>(p: Promise<T>, ms: number, late: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const expired = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(late)), ms); });
+  try {
+    return await Promise.race([p, expired]);
   } finally {
     clearTimeout(timer);
   }
@@ -170,7 +182,15 @@ const inside = (path: string, root: string): boolean => path === root || path.st
 
 const GONE = "That message has already gone out.";
 
+/** A picture of `screen` that did not come within SCREEN_DEADLINE_MS, as a phone is told it. */
+const tooLong = (screen: Screen): string => `The Mac could not take a picture of ${screen.name} in time.`;
+
 export class MobileApi {
+  /** Each screen's capture while it is being taken, by kind and id: every call for that screen
+   *  meanwhile — the viewer's, the session card's, another phone's — waits on it rather than taking
+   *  its own, as the gateway answers a phone's calls as they come. */
+  private readonly capturing = new Map<string, Promise<{ bytes: Buffer; capturedAt: number }>>();
+
   constructor(private readonly o: { macName: () => string; reportsDir: string; dev: boolean; downscale?: Downscale; realmHome: string }) {}
 
   async handle(ctx: ChannelContext, method: string, params: unknown): Promise<unknown> {
@@ -240,6 +260,8 @@ export class MobileApi {
         case "session.diff": return await this.diff(rpc, p.id as string, p.checkpointId as string, p.path as string, p.from as number);
         case "session.file": return await this.file(rpc, p.id as string, p.path as string);
         case "space.icon": return await this.spaceIcon(rpc, p.id as string);
+        case "session.screens": return { screens: (await this.screens(rpc, p.id as string)).shown.sort(screenOrder) };
+        case "session.screen": return await this.screen(rpc, p as MobileParams<"session.screen">);
         case "debug.report": {
           if (!this.o.dev) throw new MobileError("FORBIDDEN", "debug.report is for development builds");
           mkdirSync(this.o.reportsDir, { recursive: true });
@@ -683,5 +705,69 @@ export class MobileApi {
     if (!picture) throw new MobileError("NOT_FOUND", "This space's picture is gone.");
     if (picture.data.length > ICON_MAX_BYTES) throw new MobileError("NOT_FOUND", "This space's picture is too large to send to a phone.");
     return { mime: picture.mime, data: picture.data.toString("base64") };
+  }
+
+  /** Every simulator and machine in the session's space, each named as its pane is: by its sidebar
+   *  row's title, which a rename changes, else by its own name. `shown` is what a phone may watch;
+   *  `held`, the Mac apps it may not (`phoneMayWatch`). */
+  private async screens(rpc: RpcPort, id: string): Promise<{ shown: Screen[]; held: Screen[] }> {
+    const { spaceId } = await rpc.call("sessions.get", { id });
+    const [sims, machines, items] = await Promise.all([
+      rpc.call("simulators.list", { spaceId }), rpc.call("machines.list", { spaceId }), rpc.call("items.list", { spaceId }),
+    ]);
+    const titles = new Map(items.filter((it) => it.kind === "simulator" || it.kind === "machine").map((it) => [it.refId, it.title]));
+    const machine = (m: Machine): Screen => machineScreen(m, machines.states.find((st) => st.machineId === m.id), titles.get(m.id) || m.name);
+    return {
+      shown: [
+        ...sims.simulators.map((s) => simulatorScreen(s, sims.states.find((st) => st.simulatorId === s.id), titles.get(s.id) || s.name)),
+        ...machines.machines.filter(phoneMayWatch).map(machine),
+      ],
+      held: machines.machines.filter((m) => !phoneMayWatch(m)).map(machine),
+    };
+  }
+
+  /** A picture of one of the session's screens as it is now, made small: only one `session.screens`
+   *  lists for that session, and only while it is live. One of another space is not found, as one
+   *  that never was; a Mac app of its own space is refused, as one that is not live. */
+  private async screen(rpc: RpcPort, p: MobileParams<"session.screen">): Promise<MobileResult<"session.screen">> {
+    const { shown, held } = await this.screens(rpc, p.id);
+    const named = (s: Screen) => s.kind === p.kind && s.id === p.screenId;
+    const app = held.find(named);
+    if (app) throw new MobileError("FORBIDDEN", `${app.name} is an app on the Mac, and Realm does not show a Mac app's screen on a phone.`);
+    const screen = shown.find(named);
+    if (!screen) throw new MobileError("NOT_FOUND", "That screen is not open in this session's space.");
+    if (!screen.live) throw new MobileError("FORBIDDEN", `${screen.name} is not running on the Mac.`);
+    try {
+      return await deadline((async () => {
+        const { bytes, capturedAt } = await this.capture(rpc, screen);
+        return await screenFrame(bytes, frameSide(p.maxSide), capturedAt, this.o.downscale ?? sipsDownscale);
+      })(), SCREEN_DEADLINE_MS, tooLong(screen));
+    } catch (e) {
+      // It is there and live, so a picture that did not come is one that did not come just now — a
+      // device whose runner has stopped answering, a capture that is no picture — and the next call may
+      // bring one: INTERNAL, which a phone asks again after, in the Mac's words. FORBIDDEN is for a
+      // screen that is not live, which a phone stops asking for until its list changes.
+      throw new MobileError("INTERNAL", (e as Error).message);
+    }
+  }
+
+  /** The screen as it is now, at its own size: one capture of it at a time, shared by every call that
+   *  comes while it is taken, and given up on after SCREEN_DEADLINE_MS — which lets the screen go, so
+   *  the next call takes a new one rather than waiting on a capture that may never answer. */
+  private capture(rpc: RpcPort, screen: Screen): Promise<{ bytes: Buffer; capturedAt: number }> {
+    const key = `${screen.kind} ${screen.id}`;
+    const taking = this.capturing.get(key);
+    if (taking) return taking;
+    const shot = deadline((async () => {
+      const { data } = screen.kind === "simulator"
+        ? await rpc.call("simulators.capture", { simulatorId: screen.id })
+        : await rpc.call("machines.capture", { machineId: screen.id });
+      if (!data) throw new Error(`${screen.name} had nothing on screen to show.`);
+      return { bytes: Buffer.from(data, "base64"), capturedAt: Date.now() };
+    })(), SCREEN_DEADLINE_MS, tooLong(screen)).finally(() => {
+      if (this.capturing.get(key) === shot) this.capturing.delete(key);
+    });
+    this.capturing.set(key, shot);
+    return shot;
   }
 }

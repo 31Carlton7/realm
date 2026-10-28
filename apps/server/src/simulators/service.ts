@@ -1,4 +1,5 @@
 import { newId, type Simulator, type SimulatorPlatform, type SimulatorAct, type SimulatorApp, type SimulatorAxTree, type SimulatorDevice, type SimulatorEvent, type SimulatorState, type SimulatorUiState } from "@realm/contracts";
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -347,7 +348,8 @@ export class SimulatorService {
    * `screenshot` above is the user's: a file in the space's folder, named to be kept. An agent checks
    * the screen after every step, and a keeper per check would be a folder of phone screenshots nobody
    * asked for in the middle of somebody's project. So this is the same capture — `simctl`'s full-size
-   * PNG, or the adb one — into a temporary file that is gone again before the bytes are returned.
+   * PNG, or the adb one — into a temporary file that is gone again before the bytes are returned, named
+   * for this call alone: an agent and a phone may capture one device in the same millisecond.
    */
   async capture(simulatorId: string): Promise<Buffer> {
     const row = this.get(simulatorId);
@@ -358,7 +360,7 @@ export class SimulatorService {
       return png;
     }
     const udid = this.udidOf(simulatorId);
-    const path = join(tmpdir(), `realm-simulator-${simulatorId}-${Date.now()}.png`);
+    const path = join(tmpdir(), `realm-simulator-${simulatorId}-${randomUUID()}.png`);
     try {
       const r = await this.cli.screenshot(udid, path);
       if (!r.ok) throw new RpcError("FAILED", r.detail || "the screenshot did not happen");
