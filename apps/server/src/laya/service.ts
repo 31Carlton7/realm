@@ -262,8 +262,10 @@ export class LayaService {
   }
 
   /** The idle window was changed in Settings: measured again from the last use, so a Laya idle past
-   *  the new window stops now and one turned to 0 stays loaded. */
+   *  the new window stops now and one turned to 0 stays loaded — and one turned to 0 while it sat
+   *  stopped loads now, as a boot with that setting would have. */
   idleChanged(): void {
+    if (!this.onDemand() && this.mode !== "off" && !this.run && !this.restartPending && this.startable()) void this.start();
     this.armIdle();
   }
 

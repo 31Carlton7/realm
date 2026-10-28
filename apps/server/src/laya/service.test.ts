@@ -457,6 +457,16 @@ describe("on demand, in Shadow", () => {
     await until(async () => (await state(service)).state === "standby", 1_000);
   });
 
+  it("loads at once when its window is turned to Never while it sits stopped, rather than saying Starting forever", async () => {
+    const { service, settings, runtime } = demand();
+    expect(await state(service)).toEqual({ state: "standby", idleMinutes: 10 });
+    settings.set(LAYA_IDLE_STOP_KEY, 0);
+    service.idleChanged();
+    await until(() => service.client() !== null, 2_000);
+    expect(runtime.starts).toHaveLength(1);
+    expect((await state(service)).state).toBe("ready");
+  });
+
   it("is never stopped in Assist, whose pick is on the step's path", async () => {
     const runtime = fakeRuntime({ dir: tempDir("realm-laya-svc-"), installed: true });
     const { service } = setup({ runtime, mode: "assist", timing: { minuteMs: MIN } });
