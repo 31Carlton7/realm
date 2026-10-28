@@ -70,9 +70,10 @@ import { machineState, readEval, trainCheckpoint } from "./laya/training";
 import { LayaRecorder } from "./laya/recorder";
 import type { LayaRuntime } from "./laya/runtime";
 import { ResourceService } from "./resources/service";
+import { ResourcePolicies } from "./resources/policies";
 import { quietMachineProbe, type MachineProbe } from "./resources/machine";
 import type { AppProcess } from "./resources/attribute";
-import { engineDetail } from "./resources/words";
+import { durationWords, engineDetail } from "./resources/words";
 import { createTerminalAgentProvider } from "./terminals/agent-tools";
 import { SignInTickets } from "./browsers/signin";
 import { SignInFlow } from "./browsers/signin-flow";
@@ -1854,7 +1855,18 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       laya: laya.process(),
       simulators: simulators.realmBooted().map((b) => ({ udid: b.udid, name: b.name, bootedAt: b.bootedAt, detail: "Booted by Realm" })),
     }),
-    app: async () => (browserBridge.connected ? (await browserBridge.call("appMetrics", {})) as AppProcess[] : null),
+    app: async () => {
+      if (!browserBridge.connected) return null;
+      const now = Date.now();
+      return ((await browserBridge.call("appMetrics", {})) as AppProcess[]).map((a) => (a.kind === "browser"
+        ? { ...a, detail: a.hiddenSince ? `Hidden ${durationWords(now - a.hiddenSince)}` : "On screen" } : a));
+    },
+  });
+  /* The policies that act through the app on the server's clock: browser panes off screen past their
+     window are discarded, page and scroll kept (`resources/policies.ts`). */
+  const resourcePolicies = new ResourcePolicies({
+    settings,
+    app: () => (browserBridge.connected ? { call: (op, params) => browserBridge.call(op, params) } : null),
   });
   // One searcher for ⌘P and the `@` list's Files, so the two read a checkout the same way.
   const projectSearch = new ProjectSearchService();
@@ -1949,6 +1961,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   resources.start();
   // …and the simulators Realm booted, looked over once a minute for one nobody is using.
   simulators.startIdleSweep();
+  // …and the browser panes that have been off screen long enough to give their memory back.
+  resourcePolicies.start();
   // Starts nothing, and clears every recorded ws port: a port held against last run's listener is a
   // lie, and the UNIQUE index would refuse to reissue it to the machine it belonged to.
   machines.restoreAll();
@@ -2005,6 +2019,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     memoryLearner?.close(); // likewise a session's quiet timer
     memoryTidier?.close(); // and the tidy pass's clock
     resources.close();
+    resourcePolicies.close();
     terminals.closeAll();
     cliInstaller.disposeAll();
     // While the socket is still open, so a window that outlives this daemon hears the sign-in end.

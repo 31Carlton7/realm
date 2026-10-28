@@ -370,10 +370,28 @@ function holderOf(browserId: string, sender?: WebContents): { win: BrowserWindow
 }
 const paneFor = (browserId: string, sender?: WebContents): BrowserPane | null => holderOf(browserId, sender)?.pane ?? null;
 
+/**
+ * Discard the browser views hidden longer than `hiddenMs` in every window, keeping each window's
+ * `keepHidden` most recently hidden (`BrowserPaneHost.sweep`). realm-server's clock asks for this, with
+ * the window its setting and the Mac's memory pressure decide; the Memory page's button asks with 0, 0.
+ */
+async function sweepBrowsers(params: unknown): Promise<{ discarded: string[]; kept: { id: string; reason: string }[] }> {
+  const p = (params ?? {}) as { hiddenMs?: unknown; keepHidden?: unknown };
+  const hiddenMs = typeof p.hiddenMs === "number" && p.hiddenMs >= 0 ? p.hiddenMs : Number.POSITIVE_INFINITY;
+  const keepHidden = typeof p.keepHidden === "number" && p.keepHidden >= 0 ? Math.floor(p.keepHidden) : Number.POSITIVE_INFINITY;
+  const out: { discarded: string[]; kept: { id: string; reason: string }[] } = { discarded: [], kept: [] };
+  for (const { pane } of windowPanes.values()) {
+    const r = await pane.host.sweep({ hiddenMs, keepHidden });
+    out.discarded.push(...r.discarded);
+    out.kept.push(...r.kept);
+  }
+  return out;
+}
+
 /** Every Electron process, named (app-metrics.ts): realm-server's resource report sizes them itself. */
 function appProcesses(): AppProcessLabel[] {
-  const views = new Map<number, { browserId: string; title: string; detail: string | null }>();
-  for (const { pane } of windowPanes.values()) for (const v of pane.viewProcesses()) views.set(v.pid, { browserId: v.browserId, title: v.title, detail: null });
+  const views = new Map<number, { browserId: string; title: string; hiddenSince: number | null }>();
+  for (const { pane } of windowPanes.values()) for (const v of pane.viewProcesses()) views.set(v.pid, { browserId: v.browserId, title: v.title, hiddenSince: v.hiddenSince });
   const titles = new Map<number, string>();
   for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) titles.set(win.webContents.getOSProcessId(), win.getTitle());
   return labelAppProcesses({ metrics: app.getAppMetrics(), views, windows: titles });
@@ -2258,6 +2276,7 @@ app.whenReady().then(async () => {
         if (op.startsWith("computer")) return computerHost.handleOp(op, params);
         // The resource report's question about the app's own processes: no window needed either.
         if (op === "appMetrics") return Promise.resolve(appProcesses());
+        if (op === "browserSweep") return sweepBrowsers(params);
         // Realm's own window, which is a different target from any browser view — so these are
         // answered before the executor below, whose `host` is about panes and would refuse first
         // with a message about a pane.

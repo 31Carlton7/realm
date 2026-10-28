@@ -18,12 +18,14 @@ export type AppProcessLabel = {
   label: string;
   ownerId: string | null;
   detail: string | null;
+  /** A browser pane's view: since when it has been off screen, or null while it is on screen. */
+  hiddenSince?: number | null;
 };
 
 export function labelAppProcesses(o: {
   metrics: readonly MetricLike[];
   /** Each live browser view's renderer: pid → the browser it draws and the page's title. */
-  views: ReadonlyMap<number, { browserId: string; title: string; detail: string | null }>;
+  views: ReadonlyMap<number, { browserId: string; title: string; hiddenSince: number | null }>;
   /** Each window's renderer — Realm's own, and any a page opened — pid → what the window is called. */
   windows: ReadonlyMap<number, string>;
 }): AppProcessLabel[] {
@@ -31,7 +33,7 @@ export function labelAppProcesses(o: {
     if (m.type === "Browser") return { pid: m.pid, kind: "main", label: "Realm", ownerId: null, detail: null };
     if (m.type === "GPU") return { pid: m.pid, kind: "gpu", label: "GPU", ownerId: null, detail: null };
     const view = o.views.get(m.pid);
-    if (view) return { pid: m.pid, kind: "browser", label: view.title || "Browser pane", ownerId: view.browserId, detail: view.detail };
+    if (view) return { pid: m.pid, kind: "browser", label: view.title || "Browser pane", ownerId: view.browserId, detail: null, hiddenSince: view.hiddenSince };
     const win = o.windows.get(m.pid);
     if (win !== undefined) return { pid: m.pid, kind: "window", label: win || "Window", ownerId: null, detail: null };
     if (m.type === "Utility") return { pid: m.pid, kind: "utility", label: m.name || m.serviceName || "Utility", ownerId: null, detail: null };

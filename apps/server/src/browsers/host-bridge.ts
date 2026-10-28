@@ -124,6 +124,9 @@ export const TEAM_HOST_OPS = [
 export const RESOURCE_HOST_OPS = [
   /** Every Electron process, labelled (main's `app-metrics.ts`). */
   "appMetrics",
+  /** Discard browser panes hidden past a window (main's `BrowserPaneHost.sweep`), sparing what the
+   *  page or an agent is still using. Answers what went and what stayed. */
+  "browserSweep",
 ] as const;
 
 export const HOST_OPS = [...BROWSER_HOST_OPS, ...COMPUTER_HOST_OPS, ...APP_HOST_OPS, ...VAULT_HOST_OPS, ...TEAM_HOST_OPS, ...RESOURCE_HOST_OPS] as const;

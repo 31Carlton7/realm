@@ -102,3 +102,14 @@ export const RESOURCE_CATEGORY_LABEL: Record<ResourceCategory, string> = {
   server: "Realm's server",
   other: "Other processes",
 };
+
+/**
+ * Minutes a browser pane may sit off screen before its view is discarded — its renderer process given
+ * up, its page and scroll kept, and the page loaded again when the pane is shown (0: never). A view an
+ * agent drove within the window, or whose page plays media or holds unsent input, is never discarded.
+ */
+export const BROWSER_DISCARD_HIDDEN_KEY = "browser.discardHiddenMinutes";
+export const BROWSER_DISCARD_HIDDEN_DEFAULT = 20;
+/** How many of the most recently hidden browser panes are kept loaded whatever the window says. */
+export const BROWSER_KEEP_HIDDEN_KEY = "browser.keepHidden";
+export const BROWSER_KEEP_HIDDEN_DEFAULT = 3;

@@ -35,6 +35,8 @@ export type AppProcess = {
   /** A browser id for a pane's view; null for everything else. */
   ownerId: string | null;
   detail: string | null;
+  /** A browser pane's view: since when it has been off screen, or null while it is on screen. */
+  hiddenSince?: number | null;
 };
 
 export type Owners = {

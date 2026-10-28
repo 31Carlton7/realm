@@ -12,7 +12,7 @@ describe("naming the app's processes for the resource report", () => {
         { pid: 5, type: "Utility", name: "Network Service", serviceName: "network.mojom.NetworkService" },
         { pid: 6, type: "Tab" },
       ],
-      views: new Map([[4, { browserId: "b-1", title: "Linear", detail: null }]]),
+      views: new Map([[4, { browserId: "b-1", title: "Linear", hiddenSince: 1234 }]]),
       windows: new Map([[3, "Personal"]]),
     });
     expect(labels).toEqual([
@@ -21,7 +21,7 @@ describe("naming the app's processes for the resource report", () => {
       { pid: 3, kind: "window", label: "Personal", ownerId: null, detail: null },
       // THE MUTANT: checking windows before views would be wrong only if a pid were both; this one is
       // the view's, and owned by its browser so the server can name it from the pane's row.
-      { pid: 4, kind: "browser", label: "Linear", ownerId: "b-1", detail: null },
+      { pid: 4, kind: "browser", label: "Linear", ownerId: "b-1", detail: null, hiddenSince: 1234 },
       { pid: 5, kind: "utility", label: "Network Service", ownerId: null, detail: null },
       // A renderer nobody claims — DevTools, an MCP app's frame — is named by its type, not guessed.
       { pid: 6, kind: "other", label: "Tab", ownerId: null, detail: null },
@@ -29,7 +29,7 @@ describe("naming the app's processes for the resource report", () => {
   });
 
   it("calls an untitled page a browser pane rather than nothing", () => {
-    const [view] = labelAppProcesses({ metrics: [{ pid: 9, type: "Tab" }], views: new Map([[9, { browserId: "b", title: "", detail: null }]]), windows: new Map() });
+    const [view] = labelAppProcesses({ metrics: [{ pid: 9, type: "Tab" }], views: new Map([[9, { browserId: "b", title: "", hiddenSince: null }]]), windows: new Map() });
     expect(view!.label).toBe("Browser pane");
   });
 });
