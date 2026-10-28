@@ -374,6 +374,8 @@ export type BrowserPane = {
   /** Each live view's renderer process, its page's title and how long it has been off screen, for the
    *  resource report (app-metrics.ts). */
   viewProcesses(): { browserId: string; pid: number; title: string; hiddenSince: number | null }[];
+  /** An agent typed into this view's page: kept from a discard until its next navigation. */
+  markTyped(id: string): void;
 };
 
 export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: PasskeyInstaller, o: { retainedLimit?: () => number | null } = {}): BrowserPane {
@@ -462,6 +464,7 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
       const b = view.getBounds();
       return { x: b.x, y: b.y, zoom: wc.getZoomFactor() };
     },
+    markTyped: (id) => { if (views.has(id)) typedSince.mark(id); },
     viewProcesses: () => [...views].filter(([, wc]) => !wc.isDestroyed())
       .map(([browserId, wc]) => ({ browserId, pid: wc.getOSProcessId(), title: wc.getTitle(), hiddenSince: host.visibilityOf(browserId)?.hiddenSince ?? null })),
     capture: async (id) => {

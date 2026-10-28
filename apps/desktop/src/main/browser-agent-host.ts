@@ -83,6 +83,9 @@ export type BrowserAgentHostDeps = {
   /** The view's page, brought back first if it was discarded for memory and loaded far enough to read
    *  (`BrowserPaneHost.revivedPage`). Absent, a step runs on whatever the view has. */
   revived?(browserId: string): Promise<void>;
+  /** An agent typed into this view's page — keys, inserted text, a filled sign-in: what it typed is
+   *  the page's state now, and the page is not to be discarded for memory (`TypedSince`). */
+  typed?(browserId: string): void;
   /** Is the pane's view currently alive? Gates the cache — a destroyed view's binding is dropped.
    *  True for a RETAINED view too: a browser whose space is off screen is still drivable. */
   hasView(browserId: string): boolean;
@@ -588,6 +591,8 @@ export class BrowserAgentHost {
          */
         if (action.kind === "click" || action.kind === "key") await this.armChooser(entry);
         const result = await performAct(entry.binding.send, action);
+        // Whatever the method: inserted text sends no key event for the keyboard's own record to hear.
+        if (result.ok && (action.kind === "type" || action.kind === "key")) this.d.typed?.(browserId);
         return this.withChooserNote(entry, result);
       }
       /**
@@ -781,6 +786,7 @@ export class BrowserAgentHost {
           return { ok: false, error: `the ${generate ? "new" : "saved"} sign-in could not be typed into that field` } satisfies BrowserActResult;
         }
         this.auditFill(credentialId, origin, result.ok ? (generate ? "generated" : "filled") : FILL_OUTCOMES[result.refused ?? "password"] ?? "error", who);
+        if (result.ok) this.d.typed?.(browserId);
         // The id travels back only for a generated fill, and only as metadata: it is how the agent
         // fills this same new password into a confirm field without ever being told what it is.
         return result.ok && generate && credentialId

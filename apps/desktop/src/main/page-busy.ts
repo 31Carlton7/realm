@@ -49,6 +49,9 @@ export class TypedSince {
    *  and keeps what was typed into it. */
   navigated(id: string): void { this.typed.delete(id); }
 
+  /** An agent typed into it, by whatever route — `Input.insertText` sends no key event at all. */
+  mark(id: string): void { this.typed.add(id); }
+
   has(id: string): boolean { return this.typed.has(id); }
 
   forget(id: string): void { this.typed.delete(id); }

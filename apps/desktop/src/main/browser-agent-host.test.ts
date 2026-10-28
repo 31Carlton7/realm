@@ -37,6 +37,8 @@ function setup(opts: {
   respond?: (method: string, params?: Record<string, unknown>) => unknown;
   /** The page being brought back from a discard: settles when it has loaded. */
   revived?: (id: string) => Promise<void>;
+  /** Told when an agent typed into a page. */
+  typed?: (id: string) => void;
 } = {}) {
   let emit: ((method: string, params: unknown) => void) | null = null;
   const calls: { method: string; params?: Record<string, unknown> }[] = [];
@@ -118,11 +120,36 @@ function setup(opts: {
     readFile: opts.readFile === false ? undefined : async () => new Uint8Array([1, 2, 3]),
     ...(opts.paneProfile !== undefined ? { profileOf: (id: string) => (liveViews.has(id) ? opts.paneProfile ?? null : null) } : {}),
     ...(opts.revived ? { revived: opts.revived } : {}),
+    ...(opts.typed ? { typed: opts.typed } : {}),
   });
   return { host, calls, liveViews, audit, minted, grants, touched, emitEvent: (method: string, params: unknown) => emit?.(method, params) };
 }
 
 describe("BrowserAgentHost — a page given up for memory", () => {
+  it("marks a page typed into by an agent, by keys, inserted text, a key or a filled sign-in — and nothing else", async () => {
+    // THE MUTANT: leaving it to the keyboard's own record. `Input.insertText` sends no key event, so an
+    // agent-filled React form would read as untouched and be discarded with its answers.
+    const typed: string[] = [];
+    const cred: BrowserCredential = { id: "cred-1", origin: "https://example.com", username: "ada", label: "Work", createdAt: 1, generated: false };
+    const { host } = setup({ typed: (id) => typed.push(id), credentials: [cred], respond: (method) => (method === "DOM.describeNode" ? { node: { nodeName: "INPUT", attributes: ["type", "text"] } } : undefined) });
+    await host.handleOp("act", { browserId: "b1", action: { kind: "type", ref: 3, text: "Ada Lovelace", method: "insertText" } });
+    expect(typed).toEqual(["b1"]);
+    await host.handleOp("act", { browserId: "b1", action: { kind: "type", ref: 3, text: "Ada" } });
+    await host.handleOp("act", { browserId: "b1", action: { kind: "key", key: "Tab" } });
+    expect(typed).toHaveLength(3);
+    // A click or a scroll is not typing.
+    await host.handleOp("act", { browserId: "b1", action: { kind: "click", ref: 42, button: "left", clickCount: 1, modifiers: [] } });
+    await host.handleOp("act", { browserId: "b1", action: { kind: "scroll", deltaX: 0, deltaY: 100 } });
+    expect(typed).toHaveLength(3);
+    const filled = await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1", profileId: "pWork", pageOrigin: "https://example.com" });
+    expect(filled).toMatchObject({ ok: true });
+    expect(typed).toHaveLength(4);
+    // A refused type typed nothing.
+    const refused = setup({ typed: (id) => typed.push(id), respond: (method) => (method === "DOM.describeNode" ? { node: { nodeName: "INPUT", attributes: ["type", "password"] } } : undefined) });
+    expect(await refused.host.handleOp("act", { browserId: "b1", action: { kind: "type", ref: 3, text: "hunter2" } })).toMatchObject({ ok: false });
+    expect(typed).toHaveLength(4);
+  });
+
   it("waits for the page to come back before an agent's step reads it, and never for describe or navigate", async () => {
     // THE MUTANT: no wait. The first snapshot after a discard reads the about:blank a revived view
     // boots on, and the agent is told the page is empty.

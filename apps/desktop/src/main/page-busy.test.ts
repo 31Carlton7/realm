@@ -52,5 +52,10 @@ describe("what the keyboard says", () => {
     t.input("b", { type: "keyDown", key: "Enter" });
     t.forget("b");
     expect(t.has("b")).toBe(false);
+    // An agent's typing is told rather than heard, and goes the same way.
+    t.mark("b");
+    expect(t.has("b")).toBe(true);
+    t.navigated("b");
+    expect(t.has("b")).toBe(false);
   });
 });

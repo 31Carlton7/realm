@@ -758,6 +758,7 @@ ipcMain.handle("browser:password-offer", (e, browserId: unknown, offerId: unknow
 const agentHost = new BrowserAgentHost({
   attach: (id) => paneFor(id)?.attachCdp(id) ?? null,
   revived: async (id) => { await paneFor(id)?.host.revivedPage(id); },
+  typed: (id) => paneFor(id)?.markTyped(id),
   hasView: (id) => paneFor(id) !== null,
   touch: (id) => paneFor(id)?.host.touch(id),
   navigate: (id, url) => paneFor(id)?.host.navigate(id, url) ?? null,
