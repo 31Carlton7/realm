@@ -164,6 +164,26 @@ describe("CodeEditor", () => {
     expect(recallScroll("doc:d1:code:src/b.ts")).toMatchObject({ top: 900 });
   });
 
+  it("puts the caret back where the reader left it in a file — unless they were sent to a line", () => {
+    /* THE MUTANT: build the state without `selection`. Scroll comes back, the caret is at the top of
+       the file, and the next keystroke lands there. */
+    const text = "one\ntwo\nthree\n";
+    const first = render(<CodeEditor path="src/c.ts" text={text} onChange={() => {}} scrollKey="doc:d1:code:src/c.ts" />);
+    act(() => { viewOf(first.container).dispatch({ selection: { anchor: 4, head: 7 } }); });
+    first.unmount();
+
+    const again = render(<CodeEditor path="src/c.ts" text={text} onChange={() => {}} scrollKey="doc:d1:code:src/c.ts" />);
+    expect(viewOf(again.container).state.selection.main).toMatchObject({ anchor: 4, head: 7 });
+    // Clamped to a file that has since got shorter, rather than failing to open.
+    again.unmount();
+    const shorter = render(<CodeEditor path="src/c.ts" text={"on"} onChange={() => {}} scrollKey="doc:d1:code:src/c.ts" />);
+    expect(viewOf(shorter.container).state.selection.main).toMatchObject({ anchor: 2, head: 2 });
+    shorter.unmount();
+    // A line asked for wins over the remembered caret.
+    const sent = render(<CodeEditor path="src/c.ts" text={text} onChange={() => {}} reveal={{ line: 3 }} scrollKey="doc:d1:code:src/c.ts" />);
+    expect(viewOf(sent.container).state.doc.lineAt(viewOf(sent.container).state.selection.main.anchor).number).toBe(3);
+  });
+
   it("names the file on the editing surface, where a reader will hear it", async () => {
     const { container } = render(<CodeEditor path="apps/server/src/app.ts" text="" onChange={() => {}} />);
     await waitFor(() => {

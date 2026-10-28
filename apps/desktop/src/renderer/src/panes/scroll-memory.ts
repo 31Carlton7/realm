@@ -47,6 +47,22 @@ export const SETTLE_MS = 1000;
 
 const marks = new Map<string, ScrollMark>();
 
+/** Where the reader's caret was in text they edit: the selection's two ends, as offsets into it.
+ *  Kept beside the scroll, under the same key and for the same run, because in an editor the place a
+ *  reader comes back to is the caret as much as the offset — the next keystroke lands there. Put back
+ *  without focus: the keyboard stays where the switch left it, and finds the caret when it returns. */
+export type CaretMark = { anchor: number; head: number };
+
+const carets = new Map<string, CaretMark>();
+
+export function rememberCaret(key: string, mark: CaretMark): void {
+  carets.set(key, mark);
+}
+
+export function recallCaret(key: string): CaretMark | null {
+  return carets.get(key) ?? null;
+}
+
 /** Read an element's current position as a mark. */
 export function markOf(el: HTMLElement): ScrollMark {
   return { top: el.scrollTop, atEnd: el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_END_PX };
@@ -71,12 +87,14 @@ export function recallScroll(key: string): ScrollMark | null {
  *  a restore still settling would scroll them away from the line they were sent to. */
 export function forgetScroll(key: string): void {
   marks.delete(key);
+  carets.delete(key);
 }
 
 /** Test seam only: the marks are process-wide, so a suite that did not clear them would let one
  *  test's scroll position decide another test's first paint. */
 export function forgetAllScroll(): void {
   marks.clear();
+  carets.clear();
 }
 
 /**
@@ -93,6 +111,17 @@ export function useScrollMemory(key: string | null): (el: HTMLElement | null) =>
   return useCallback((el: HTMLElement | null) => {
     if (!el || !key) return;
     const wanted = recallScroll(key);
+
+    /* A source view is a text the reader edits, so its caret is kept too. Put back before the offset:
+       a selection placed in a textarea can move its scroller, and the offset is the one to trust. */
+    const text = el instanceof HTMLTextAreaElement ? el : null;
+    const caret = text ? recallCaret(key) : null;
+    if (text && caret) {
+      const n = text.value.length;
+      text.setSelectionRange(Math.min(caret.anchor, n), Math.min(caret.head, n));
+    }
+    const onCaret = () => { if (text) rememberCaret(key, { anchor: text.selectionStart, head: text.selectionEnd }); };
+    if (text) for (const t of ["select", "keyup", "mouseup", "input"]) text.addEventListener(t, onCaret);
 
     /* Restoring is not one assignment. A scroller can be in the DOM before the content that fills
        it: the rich editor's wrapper mounts empty and ProseMirror appends into it a beat later, and
@@ -136,6 +165,7 @@ export function useScrollMemory(key: string | null): (el: HTMLElement | null) =>
 
     return () => {
       giveUp();
+      if (text) for (const t of ["select", "keyup", "mouseup", "input"]) text.removeEventListener(t, onCaret);
       if (timer !== null) clearTimeout(timer);
       el.removeEventListener("wheel", giveUp);
       el.removeEventListener("pointerdown", giveUp);

@@ -13,7 +13,7 @@ import type { CaretSpot } from "../../caret-geometry";
 import { codeLanguageFor, type CodeLanguage } from "./code-languages";
 import { loadCodeMode } from "./code-modes";
 import { realmCodeTheme } from "./code-theme";
-import { forgetScroll, useScrollMemory } from "../scroll-memory";
+import { forgetScroll, recallCaret, rememberCaret, useScrollMemory } from "../scroll-memory";
 
 /**
  * Where CodeMirror's primary caret is: the head of the main selection, from CodeMirror's own layout,
@@ -105,10 +105,15 @@ export function CodeEditor({ path, text, onChange, onSave, reveal = null, scroll
   useEffect(() => {
     const parent = host.current;
     if (!parent) return;
+    // Where the caret was when the reader left this file — unless they were sent to a line, which is
+    // where it goes instead. Clamped: the file may be shorter now.
+    const kept = scrollKey && revealAtBuild.current === null ? recallCaret(scrollKey) : null;
+    const end = currentText.current.length;
     const v = new EditorView({
       parent,
       state: EditorState.create({
         doc: currentText.current,
+        ...(kept ? { selection: { anchor: Math.min(kept.anchor, end), head: Math.min(kept.head, end) } } : {}),
         extensions: [
           lineNumbers(),
           highlightActiveLineGutter(),
@@ -156,6 +161,11 @@ export function CodeEditor({ path, text, onChange, onSave, reveal = null, scroll
           realmCodeTheme(),
           // The app's caret stands where CodeMirror says its own is, so it is told whenever that moves.
           EditorView.updateListener.of((u) => { if (u.selectionSet || u.docChanged || u.geometryChanged) caretMoved(); }),
+          EditorView.updateListener.of((u) => {
+            if (!scrollKey || !(u.selectionSet || u.docChanged)) return;
+            const { anchor, head } = u.state.selection.main;
+            rememberCaret(scrollKey, { anchor, head });
+          }),
           EditorView.updateListener.of((u) => {
             if (!u.docChanged) return;
             const next = u.state.doc.toString();
