@@ -109,6 +109,13 @@ describe("realm-memory provider", () => {
     // A link from the profile's index resolves without naming the repo: the space's is tried first.
     expect(text(await provider.call(ctx, "memory_read", { path: "[[prefs]]" }))).toContain("Prefers tabs");
     expect(text(await provider.call(ctx, "memory_search", { query: "tabs" }))).toMatch(/^\[profile\] prefs\.md:3: - Prefers tabs/);
+    // One ranking across both repos: the better hit leads whichever repo it is in — here the
+    // profile's, though the space's repo is searched first. THE MUTANT: concatenate per repo.
+    await provider.call(ctx, "memory_save", { entry: "The release train leaves on Mondays" });
+    const ranked = text(await provider.call(ctx, "memory_search", { query: "prefers tabs release" })).split("\n");
+    expect(ranked[0]).toMatch(/^\[profile\] prefs\.md:3: - Prefers tabs/);
+    expect(ranked.filter((l) => /^\[space\] MEMORY\.md:\d+: - .*release train/.test(l))).toHaveLength(2);
+    expect(text(await provider.call(ctx, "memory_search", { query: "release", repo: "space" }))).not.toContain("[profile]");
     const both = text(await provider.call(ctx, "memory_index", {}));
     expect(both).toContain(`The space memory repo at ${team}`);
     expect(both).toContain(`The profile memory repo at ${prof}`);

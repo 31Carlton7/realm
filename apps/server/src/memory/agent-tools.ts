@@ -68,8 +68,12 @@ const TOOLS: Tool[] = [
   },
   {
     name: "memory_search",
-    description: "Find lines in the memory repo holding every word of the query, case-insensitively, with their file and line. Read-only.",
-    inputSchema: { type: "object", properties: { query: { type: "string" }, repo: REPO_PROP }, required: ["query"], additionalProperties: false },
+    description: [
+      "Search every file of the memory repo — its index, topic files and each space's folder — and get the best matches first, each with its file, line and the line itself. Read-only.",
+      "Words match whatever their case, punctuation or ending (\"deploy\" finds \"deployment\"), so a few plain words beat an exact sentence; put a phrase in quotes to prefer it.",
+      "Read a hit's file with `memory_read` for the whole of it.",
+    ].join(" "),
+    inputSchema: { type: "object", properties: { query: { type: "string", description: "a few words, e.g. `release signing` or `\"prompt cache\" budget`" }, repo: REPO_PROP }, required: ["query"], additionalProperties: false },
   },
   {
     name: "memory_save",
@@ -159,13 +163,13 @@ export function createMemoryAgentProvider(d: MemoryAgentToolsDeps): RealmToolPro
           case "memory_search": {
             const a = parseArgs(SearchArgs, args ?? {});
             if ("error" in a) return a.error;
-            const repos = a.value.repo === undefined ? active : [pick(a.value.repo)];
-            const lines: string[] = [];
-            for (const repo of repos) {
-              if (typeof repo === "string") return err(repo);
-              const tag = active.length > 1 ? `[${repo.scope}] ` : "";
-              for (const h of d.repos.search(repo.path, a.value.query)) lines.push(`${tag}${h.path}:${h.line}: ${h.text}`);
-            }
+            const picked = a.value.repo === undefined ? active : pick(a.value.repo);
+            if (typeof picked === "string") return err(picked);
+            const repos = Array.isArray(picked) ? picked : [picked];
+            // One ranking across the repos searched, so the best hit leads whichever repo it is in.
+            const scopeOf = new Map(repos.map((r) => [r.path, r.scope]));
+            const lines = d.repos.search(repos.map((r) => r.path), a.value.query)
+              .map((h) => `${active.length > 1 ? `[${scopeOf.get(h.repo)}] ` : ""}${h.path}:${h.line}: ${h.text}`);
             return ok(lines.length === 0 ? `Nothing in the memory repo matches "${a.value.query}".` : lines.join("\n"));
           }
           case "memory_save": {

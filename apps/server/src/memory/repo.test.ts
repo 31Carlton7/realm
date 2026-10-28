@@ -252,13 +252,15 @@ describe("MemoryRepoService writes", () => {
 });
 
 describe("MemoryRepoService reading", () => {
-  it("reads by link, lists a folder, and searches every word case-insensitively", async () => {
+  it("reads by link, lists a folder, and searches case-insensitively, best match first", async () => {
     const { repos, repo } = await made();
     await repos.edit(P, { file: "projects/payments", op: "add", entry: "Stripe webhooks retry for 3 days", sessionId: SESSION });
     expect(repos.read(repo, "[[projects/payments]]")).toContain("Stripe webhooks");
     expect(repos.read(repo, "projects")).toBe("payments.md");
-    expect(repos.search(repo, "WEBHOOKS stripe")).toEqual([{ path: "projects/payments.md", line: 3, text: expect.stringContaining("Stripe webhooks retry") }]);
-    expect(repos.search(repo, "webhooks paypal")).toEqual([]);
+    expect(repos.search(repo, "WEBHOOKS stripe")).toEqual([{ repo, path: "projects/payments.md", line: 3, text: expect.stringContaining("Stripe webhooks retry") }]);
+    // Ranked, not "every word": the closest fact still comes back for a query only part of which it holds.
+    expect(repos.search(repo, "webhooks paypal").map((h) => h.path)).toEqual(["projects/payments.md"]);
+    expect(repos.search(repo, "paypal")).toEqual([]);
     // Reading works on a dirty repo; only writes wait for it to be clean.
     writeFileSync(join(repo, "wip.md"), "- wip");
     expect(repos.read(repo, "MEMORY")).toContain("[[projects/payments]]");
