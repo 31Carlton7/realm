@@ -176,6 +176,19 @@ function disk(api: Api) {
   };
 }
 const settle = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+/** The real server's check, which the fake does not make: a write lands only on the disk it was based
+ *  on, or on no file at all. */
+function refuseStaleWrites(api: Api) {
+  const files = api.data.documentFiles.docs1!;
+  const hashOf = (t: string) => `h:${t.length}:${t}`;
+  api.writeDocument = async (_id, path, text, baseHash) => {
+    api.calls.push(`writeDocument:docs1:${path}`);
+    const cur = files[path];
+    if (cur !== undefined && hashOf(cur) !== baseHash) return { ok: false as const, currentText: cur, currentHash: hashOf(cur) };
+    files[path] = text;
+    return { ok: true as const, hash: hashOf(text) };
+  };
+}
 const writesTo = (api: Api, path: string) => api.calls.filter((c) => c === `writeDocument:docs1:${path}`);
 
 describe("a file that changed on disk while it sat in a tab is left as disk has it", () => {
@@ -289,6 +302,35 @@ describe("a file that changed on disk while it sat in a tab is left as disk has 
     await settle(50);
     expect(api.data.documentFiles.docs1?.["a.tex"]).toBe("x and my paragraph");
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("Keep mine on a deleted file that has come back with other contents turns into the conflict it is, settled in one go", async () => {
+    /* The file reappeared before its event reached the pane, so Keep mine's write is refused with the
+       file's new contents. THE MUTANT: a refusal leaves `missing` as it was. The bar becomes a conflict
+       whose head still says Deleted on disk, the conflict's Keep mine lands on a buffer marked deleted
+       that nothing saves, and the deleted-file bar comes back, wanting a second Keep mine. */
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    const { api, store } = makeStore({ "a.tex": "x" }, ["a.tex"], "a.tex");
+    refuseStaleWrites(api);
+    render(pane(store));
+    await settle(50);
+    fireEvent.change(screen.getByLabelText("Edit a.tex"), { target: { value: "x and my paragraph" } });
+    disk(api).remove("a.tex");
+    expect(screen.getByRole("alert")).toHaveTextContent("This file was deleted on disk while you were editing.");
+    disk(api).quietly.put("a.tex", "x as an agent made it again");
+
+    fireEvent.click(screen.getByRole("button", { name: "Keep mine" }));
+    await settle(10);
+    expect(screen.getByRole("alert")).toHaveTextContent("This file changed on disk while you were editing.");
+    expect(screen.getByRole("alert")).not.toHaveTextContent(/deleted/i);
+    expect(document.querySelector(".documents-state")).toHaveTextContent("Needs a decision");
+    expect(api.data.documentFiles.docs1?.["a.tex"]).toBe("x as an agent made it again");
+
+    fireEvent.click(screen.getByRole("button", { name: "Keep mine" }));
+    await settle(800);
+    expect(api.data.documentFiles.docs1?.["a.tex"]).toBe("x and my paragraph");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByLabelText("Edit a.tex")).toHaveValue("x and my paragraph");
   });
 
   it("typing in a file that is then deleted is not written as the pane goes", async () => {
@@ -455,16 +497,8 @@ describe("typing the pane could not write comes back after a switch, as it was l
   it("typing whose write was refused as the pane went comes back as the conflict it is", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: false });
     const { api, store } = makeStore({ "a.tex": "x" }, ["a.tex"], "a.tex");
-    // The real server's check: a write lands only on the disk it was based on.
+    refuseStaleWrites(api);
     const files = api.data.documentFiles.docs1!;
-    const hashOf = (t: string) => `h:${t.length}:${t}`;
-    api.writeDocument = async (_id, path, text, baseHash) => {
-      api.calls.push(`writeDocument:docs1:${path}`);
-      const cur = files[path];
-      if (cur !== undefined && hashOf(cur) !== baseHash) return { ok: false as const, currentText: cur, currentHash: hashOf(cur) };
-      files[path] = text;
-      return { ok: true as const, hash: hashOf(text) };
-    };
     const first = await mount(store);
     typeInto("a.tex", "mine");
     disk(api).quietly.put("a.tex", "the agent's, unheard"); // between the last event and the pane going

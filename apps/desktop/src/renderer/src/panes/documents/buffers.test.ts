@@ -154,6 +154,15 @@ describe("resolving a conflict", () => {
 });
 
 describe("a save the server refused", () => {
+  it("says the file is there, so a deleted file found back with other contents is a conflict and not a deletion", () => {
+    /* THE MUTANT: leave `missing` as it was. The conflict's Keep mine then lands on a buffer still
+       marked deleted, which nothing saves, and the bar goes back to saying the file was deleted. */
+    const gone = externalChange(edited(base(), "mine"), null, null);
+    const b = writeRejected(gone, "made again by an agent", H("again"));
+    expect(b).toMatchObject({ text: "mine", missing: false, dirty: true, conflict: { theirs: "made again by an agent", theirHash: H("again") } });
+    expect(canSave(keepMine(b))).toBe(true);
+  });
+
   it("over a disk that already holds the reader's text, is a save", () => {
     /* THE MUTANT: drop the rule in writeRejected. A second write of typing the first already put there
        (a pane that came back before its own write did) asks the reader to choose between twins. */
