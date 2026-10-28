@@ -29,7 +29,7 @@ struct MarkdownView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
                 BlockView(block: block)
             }
@@ -42,7 +42,9 @@ private struct BlockView: View {
     let block: MarkdownBlock
     @Environment(\.proseGround) private var ground
     @Environment(\.legibilityWeight) private var legibilityWeight
-    @ScaledMetric(relativeTo: .body) private var lineSpacing: CGFloat = 3
+    /// Reading leading near ChatGPT's and Claude's, about 1.45 of the body's size: a reply is read, not
+    /// scanned, and the system's own leading is set for a row of a list.
+    @ScaledMetric(relativeTo: .body) private var lineSpacing: CGFloat = 5
 
     var body: some View {
         switch block {
@@ -98,7 +100,7 @@ private struct BlockView: View {
     }
 
     static func headingWeight(_ level: Int) -> Font.Weight {
-        level <= 2 ? .bold : .semibold
+        level == 1 ? .bold : .semibold
     }
 
     /// Fonts for each run by its marks: the system face at the block's style, JetBrains Mono for code
