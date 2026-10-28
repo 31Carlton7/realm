@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   MEMORY_DOC_MAX, MEMORY_REPO_INDEX_FILE, MEMORY_REPO_INDEX_MAX, MEMORY_REPO_INITIAL_INDEX,
   amrRepoSourceLink, applyMemoryEdit, githubRepoOf, memoryEntryProblem, parseMemoryEntry, wikiLinkTarget, withIndexLink,
@@ -12,6 +12,7 @@ import type { SettingsStore } from "../store/settings";
 import { GIT_DIFF_FLAGS, gitCapture, gitReason, type GitResult, type GitRun } from "../workspace/git-exec";
 import { claudeFact, claudeFactFile, withClaudeIndexLine, type ClaudeFactType } from "./claude-facts";
 import { planClaudeImport, type ClaudeMemorySource } from "./claude-import";
+import { MemorySearch } from "./search";
 import { secretShapeIn } from "./secret-shapes";
 
 export { secretShapeIn };
@@ -75,8 +76,9 @@ const commitConfig = (name: string): string[] => [
 
 /** How much of one file `memory_read` hands back, and of one `memory_write_file`. */
 const READ_MAX = 100_000;
-const SEARCH_HITS_MAX = 60;
-const SEARCH_FILE_MAX = 1_000_000;
+/** How many hits `memory_search` hands back: enough for a query that touches several topics, few
+ *  enough that the answer is a ranked shortlist rather than a dump. */
+const SEARCH_HITS_MAX = 20;
 const DIFF_MAX = 4_000;
 
 const within = (child: string, parent: string): boolean => {
@@ -175,6 +177,8 @@ export class MemoryRepoService {
   /** How each repo's last pull or push went, by path: in memory, since a restart retries anyway. */
   private readonly syncNotes = new Map<string, { error: string | null; at: number | null }>();
   private name: string | null = null;
+  /** `search`'s parsed files, kept between searches and re-read only when one changes. */
+  private readonly finder = new MemorySearch();
 
   constructor(private d: MemoryRepoDeps) {
     this.git = d.git ?? gitCapture;
@@ -441,32 +445,11 @@ export class MemoryRepoService {
     return text.length > READ_MAX ? `${text.slice(0, READ_MAX)}\n\n[cut at ${READ_MAX} characters of ${text.length}]` : text;
   }
 
-  /** Lines of the repo's text files holding every word of `query`, case-insensitively — a walk in
-   *  this process, never a shell `grep` over a string an agent wrote. */
-  search(repo: string, query: string): { path: string; line: number; text: string }[] {
-    const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-    if (words.length === 0) return [];
-    const hits: { path: string; line: number; text: string }[] = [];
-    const walk = (dir: string): void => {
-      for (const e of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-        if (hits.length >= SEARCH_HITS_MAX) return;
-        if (e.name === ".git" || e.isSymbolicLink()) continue;
-        const abs = join(dir, e.name);
-        if (e.isDirectory()) { walk(abs); continue; }
-        if (!e.isFile() || statSync(abs).size > SEARCH_FILE_MAX) continue;
-        const buf = readFileSync(abs);
-        if (buf.subarray(0, 8000).includes(0)) continue;
-        const rel = relative(repo, abs).split(sep).join("/");
-        const relHit = words.every((w) => rel.toLowerCase().includes(w));
-        buf.toString("utf8").split("\n").forEach((text, i) => {
-          if (hits.length >= SEARCH_HITS_MAX) return;
-          const lower = text.toLowerCase();
-          if (words.every((w) => lower.includes(w)) || (relHit && i === 0)) hits.push({ path: rel, line: i + 1, text: short(text.trim(), 300) });
-        });
-      }
-    };
-    walk(repo);
-    return hits;
+  /** The best matches for `query` across the given repos' files, best first (`MemorySearch`): ranked,
+   *  in this process, never a shell `grep` over a string an agent wrote. `prefer` — the space's own
+   *  folder, `spaces/<folder>/` — lifts the hits under it without hiding the rest. */
+  search(repos: string | readonly string[], query: string, prefer?: string): { repo: string; path: string; line: number; text: string }[] {
+    return this.finder.search(typeof repos === "string" ? [repos] : repos, query, SEARCH_HITS_MAX, prefer).map(({ repo, path, line, text }) => ({ repo, path, line, text }));
   }
 
   // ─── Writing ──────────────────────────────────────────────────────────────────────────────────

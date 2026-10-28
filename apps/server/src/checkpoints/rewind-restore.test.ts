@@ -139,7 +139,7 @@ beforeEach(() => {
     adapters: { claude: adapter },
     skills: { injectionFor: () => null, wouldInject: () => false },
     gateway: { register: () => ({ name: "realm", transport: "http", url: "http://127.0.0.1:1/mcp", headers: {} }), release: () => {}, realmProvidersFor: () => [] },
-    memory: { systemContextFor: () => undefined, sourcesFor: () => ({}) },
+    memory: { contextForSession: () => undefined, forgetSession: () => {}, sourcesFor: () => ({}) },
     checkpoints,
     failover: {
       turnStarted: () => {}, cancel: () => {}, release: () => {}, close: () => {},

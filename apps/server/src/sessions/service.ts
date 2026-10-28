@@ -1127,6 +1127,8 @@ export class SessionService {
     this.d.browserAgents?.release(id);
     // And its carried handoff context, plus any retry still on a timer.
     this.d.failover?.release(id);
+    // And the memory block its starts were frozen to.
+    this.d.memory.forgetSession(id);
     // Nothing left to send into. No broadcast: the session's own row is going away with it.
     this.queued.delete(id);
     clearTimeout(this.queueHolds.get(id)?.timer);
@@ -1630,7 +1632,8 @@ export class SessionService {
     // injection above is active on a Claude session — the CLAUDE.md content that `settingSources: []`
     // would otherwise silently drop. `skills !== undefined` is the same fact the adapter keys the
     // isolation on, so the re-injection can never disagree with it.
-    const baseContext = this.d.memory.systemContextFor({ spaceId: s.spaceId, kind: s.agentKind, cwd: s.cwd, skillsInjected: skills !== undefined });
+    // Frozen per session (`contextForSession`): a restart gets the bytes the first start did.
+    const baseContext = this.d.memory.contextForSession(id, { spaceId: s.spaceId, kind: s.agentKind, cwd: s.cwd, skillsInjected: skills !== undefined });
     // A delegated browser-agent child (W5) additionally carries its browsing-policy preamble —
     // appended AFTER the space's memory so the policy is the last (most binding) thing the agent
     // reads. Undefined for every ordinary session, leaving `systemContext` byte-identical to before.
@@ -1646,9 +1649,12 @@ export class SessionService {
     // Skipped for a session that already carries `agentContext` — a delegated child, a reviewer, an
     // unattended worker. Each of those was spawned with a brief written for one job, and generic advice
     // about spawning MORE agents beside a brief that just told it how deep it may go is noise at best.
-    // An agent with no context channel at all — Cursor's ACP session/new takes no per-session context —
-    // is told the same thing by the one thing it does connect to: the gateway's own `initialize`
-    // answer, as the server's instructions. Never both, so Claude does not read it twice.
+    // Every agent with a context channel gets it in `systemContext`, in this one order: Claude in its
+    // system prompt, Codex in its developer instructions, and the ACP agents at the top of the first
+    // prompt each agent process is sent (`firstPrompt`) — a route every one of them reads, where an MCP
+    // server's `instructions` reach the model only if the client chooses to pass them on. Only an agent
+    // with no channel at all is told through the gateway's own `initialize` answer instead. Never both,
+    // so no agent reads it twice.
     const preamble = agentContext ? undefined : capabilitiesContext(this.d.gateway.realmProvidersFor(id, s.spaceId));
     const noChannel = AGENT_MEMORY_CHANNEL[s.agentKind] === "none";
     const capabilities = noChannel ? undefined : preamble;

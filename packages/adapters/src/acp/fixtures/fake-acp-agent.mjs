@@ -9,7 +9,8 @@
  *   - `session/prompt` is one request that stays pending for the whole turn (§3)
  *   - `session/cancel` is a NOTIFICATION; the pending prompt still resolves, with `stopReason:"cancelled"` (§6)
  *
- * What a turn does is selected by the text of the prompt's text blocks:
+ * What a turn does is selected by the text of the prompt's text blocks — never a `<realm-context>` block,
+ * which is Realm's context riding at the top of a first prompt, not the user's words:
  *
  *   HANG              never resolves on its own                     (send()-must-not-await, interrupt)
  *   LATEPERMIT        asks for permission 30ms in, then exits    (permission racing the teardown)
@@ -44,9 +45,11 @@
  * FAKE_ACP_MODEL_GARBAGE=1 pollutes session/new's availableModels with malformed rows.
  * FAKE_ACP_IGNORE_EOF=1 keeps the child alive after its stdin closes, FAKE_ACP_NOSESSIONID=1 answers session/new without a sessionId, FAKE_ACP_BADAUTH=1 sends a non-array
  * `authMethods`, and FAKE_ACP_EXIT_MARKER=<path> writes that file when our stdin closes.
+ * FAKE_ACP_PROMPT_LOG=<path> appends every `session/prompt`'s `prompt` array to that file, one JSON line per
+ * prompt, as it came over the wire — the capture a live check reads without the reply echoing it.
  */
 
-import { writeFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 
 let nextSessionN = 0;
 let nextCallN = 0;
@@ -69,7 +72,8 @@ const ask = (method, params) => {
   send({ jsonrpc: "2.0", id, method, params });
   return new Promise((resolve) => pendingRequests.set(id, resolve));
 };
-const promptText = (prompt) => (Array.isArray(prompt) ? prompt : []).map((b) => (b && typeof b.text === "string" ? b.text : "")).join(" ");
+const promptText = (prompt) => (Array.isArray(prompt) ? prompt : [])
+  .map((b) => (b && typeof b.text === "string" && !b.text.startsWith("<realm-context>") ? b.text : "")).join(" ");
 
 /**
  * ACP `configOptions` as real opencode 1.18.13 returns them — the shape that REPLACES `modes`/`models`
@@ -189,7 +193,7 @@ async function runTurn(id, sessionId, prompt) {
   if (text.includes("HANG")) return; // resolved only by session/cancel
   // An attachment-only prompt has no text block at all (Plan 14 W5) — echoed like ECHO, for the same
   // input-shape assertions.
-  const hasTextBlock = Array.isArray(prompt) && prompt.some((b) => b && b.type === "text");
+  const hasTextBlock = Array.isArray(prompt) && prompt.some((b) => b && b.type === "text" && !String(b.text).startsWith("<realm-context>"));
   if (text.includes("ECHO") || !hasTextBlock) message(sessionId, JSON.stringify(prompt));
   else if (text.includes("REVEAL")) message(sessionId, JSON.stringify(journal));
   else if (text.includes("PERMIT2")) await Promise.all([permitTurn(sessionId, 0), permitTurn(sessionId, 1)]);
@@ -276,6 +280,7 @@ function handleRequest(id, method, params) {
       void loadSession(id, params);
       return;
     case "session/prompt":
+      if (process.env.FAKE_ACP_PROMPT_LOG) appendFileSync(process.env.FAKE_ACP_PROMPT_LOG, `${JSON.stringify(params.prompt)}\n`);
       pendingPrompts.set(params.sessionId, id);
       void runTurn(id, params.sessionId, params.prompt);
       return;

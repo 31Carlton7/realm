@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import {
@@ -7,6 +8,7 @@ import {
 import { RpcError } from "../store/rows";
 import type { SettingsStore } from "../store/settings";
 import { claudeMemoryFiles, claudeUserDir } from "./claude-files";
+import { budgetRepoIndexes, readRestPointer } from "./context-budget";
 import type { RepoIndex } from "./repo";
 
 /** Per-space opt-in flag for the managed `AGENTS.md`. Off by default: it is a write into a folder. */
@@ -188,7 +190,8 @@ export class MemoryService {
 
   /**
    * The per-session context for one agent start — `StartOptions.systemContext`, which the Claude
-   * adapter appends to its system prompt and the Codex adapter sends as `developerInstructions`.
+   * adapter appends to its system prompt, the Codex adapter sends as `developerInstructions`, and the
+   * ACP adapter puts at the top of the first prompt each agent process is sent.
    *
    * Two ingredients, in load order:
    *
@@ -202,9 +205,8 @@ export class MemoryService {
    * 2. **This space's Realm memory document** — and only this space's; `spaceId` comes from the session
    *    row the caller is starting.
    *
-   * Undefined for agents with no channel (`AGENT_MEMORY_CHANNEL` = "none"): Cursor's ACP session/new
-   * takes `{cwd, mcpServers}` and nothing else, and handing an adapter context it can only drop would
-   * make the memory pane a lie.
+   * Undefined for an agent with no channel at all (`AGENT_MEMORY_CHANNEL` = "none", the scripted fake):
+   * handing an adapter context it can only drop would make the memory pane a lie.
    */
   systemContextFor(o: { spaceId: string; kind: AgentKind; cwd: string; skillsInjected: boolean }): string | undefined {
     if (AGENT_MEMORY_CHANNEL[o.kind] === "none") return undefined;
@@ -223,13 +225,13 @@ export class MemoryService {
     // truncated to whatever room remains under MEMORY_COMBINED_MAX.
     //
     // The memory repos' MEMORY.md files go between them: they are what AGENTS wrote, so the user's own
-    // space doc still comes after them and has the last word. Each is already capped at
-    // MEMORY_REPO_INDEX_MAX, and a whole space doc plus two whole indexes cannot push past the combined
-    // cap, so the profile doc is still the one that gives way.
+    // space doc still comes after them and has the last word. Together they fit MEMORY_INDEX_BUDGET
+    // (context-budget.ts), and a whole space doc plus that budget cannot push past the combined cap,
+    // so the profile doc is still the one that gives way.
     const eff = this.effective(o.spaceId);
     const spaceDoc = eff.spaceDoc.trim();
     // Claude is not handed its space folder's index: the folder is its own memory directory, read by itself.
-    const repos = (this.d.repos?.indexesFor(o.spaceId, { forAgent: o.kind }) ?? []).map((r) => ({ ...r, index: r.index.trim() }));
+    const repos = budgetRepoIndexes((this.d.repos?.indexesFor(o.spaceId, { forAgent: o.kind }) ?? []).map((r) => ({ ...r, index: r.index.trim() })));
     const claudeDir = o.kind === "claude" ? this.d.repos?.spaceFolderFor?.(o.spaceId)?.dir ?? null : null;
     const repoChars = repos.reduce((n, r) => n + r.index.length, 0);
     let profileDoc = eff.profile !== null && eff.profile.enabledHere ? eff.profile.doc.trim() : "";
@@ -238,6 +240,41 @@ export class MemoryService {
     if (repos.length > 0) parts.push(repoBlock(repos, claudeDir));
     if (spaceDoc) parts.push(`# Space memory\n\nThe user keeps this context for every session in this workspace (managed in Realm):\n\n${spaceDoc}`);
     return parts.length > 0 ? parts.join("\n\n") : undefined;
+  }
+
+  /**
+   * `systemContextFor`, frozen per session. The block a session's first start composed is handed to
+   * every later start of that session in this server run — a restart after a crash, an idle reap, a
+   * mode the agent takes only at launch — so the prompt's prefix stays the same bytes and the
+   * provider's prompt cache keeps hitting. An agent's save to memory does not change it: the index it
+   * shows is the one the session started with, and `memory_index` or `memory_search` reads the latest.
+   *
+   * What the USER changes does: their space or profile document, whether this space inherits the
+   * profile's, which memory repos the space uses (one attached, detached or switched off here — the
+   * tools the block names come and go with them), the CLAUDE.md files a skills-isolated Claude session
+   * re-reads, and the session's agent, folder or isolation. Those make up the key; the indexes' content
+   * is not in it, and neither is a space folder's index appearing, since an agent's save is what makes one.
+   */
+  contextForSession(sessionId: string, o: { spaceId: string; kind: AgentKind; cwd: string; skillsInjected: boolean }): string | undefined {
+    const key = this.freezeKey(o);
+    const held = this.frozen.get(sessionId);
+    if (held?.key === key) return held.context;
+    const context = this.systemContextFor(o);
+    this.frozen.set(sessionId, { key, context });
+    return context;
+  }
+
+  /** A deleted session's frozen block goes with it. */
+  forgetSession(sessionId: string): void { this.frozen.delete(sessionId); }
+
+  private readonly frozen = new Map<string, { key: string; context: string | undefined }>();
+
+  private freezeKey(o: { spaceId: string; kind: AgentKind; cwd: string; skillsInjected: boolean }): string {
+    const eff = this.effective(o.spaceId);
+    const repos = (this.d.repos?.indexesFor(o.spaceId) ?? []).filter((r) => r.kind !== "spaceFolder").map((r) => `${r.scope}:${r.path}`);
+    const claude = o.kind === "claude" && o.skillsInjected ? claudeMemoryFiles(o.cwd, this.claudeDir).map((f) => [f.path, f.content ?? null]) : [];
+    const profileDoc = eff.profile !== null && eff.profile.enabledHere ? eff.profile.doc : null;
+    return createHash("sha256").update(JSON.stringify([o.kind, o.cwd, o.skillsInjected, eff.spaceDoc, profileDoc, repos, claude])).digest("hex");
   }
 
   /**
@@ -294,7 +331,7 @@ function repoBlock(all: RepoIndex[], claudeDir: string | null): string {
     `What agents learned in this workspace, one fact per file in ${folder.path}; \`memory_read\` ${relative(profile.path, folder.path)}/<file> reads one. Its MEMORY.md follows.`,
     "",
     "<memory-index folder=\"workspace\">", folder.index, "</memory-index>",
-    ...(folder.truncated ? ["", "That MEMORY.md is longer than this; `memory_read` it for the rest."] : []),
+    ...(folder.truncated ? ["", readRestPointer(folder)] : []),
   ].join("\n");
   const rootsBlock = roots.length > 0 ? repoRootsBlock(roots, claudeDir === null ? " rather than in any memory file of your own" : "") : null;
   return [rootsBlock, own, folderBlock].filter(Boolean).join("\n\n");
@@ -305,7 +342,7 @@ function repoRootsBlock(repos: RepoIndex[], ownFiles: string): string {
   const space = repos.find((r) => r.scope === "space");
   const tagged = (r: RepoIndex, attr: string): string[] => [
     `<memory-index${attr}>`, r.index, "</memory-index>",
-    ...(r.truncated ? ["", attr ? `That MEMORY.md is longer than this; \`memory_read\` MEMORY with \`repo: "${r.scope}"\` for the rest.` : "MEMORY.md is longer than this; `memory_read` MEMORY for the rest."] : []),
+    ...(r.truncated ? ["", readRestPointer(r)] : []),
   ];
   if (profile && !space) {
     return [

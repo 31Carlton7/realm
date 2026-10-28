@@ -7679,9 +7679,6 @@ select { appearance: none; padding-right: 22px;
 .memory-fact-label { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13.5px; color: var(--rl-text-bright); }
 .memory-fact-sub { font-size: 12.5px; line-height: 1.45; color: var(--rl-text-dim); }
 .memory-fact .env-path { color: var(--rl-text-dim); word-break: normal; overflow-wrap: anywhere; }
-/* Who reads it: each agent's mark and name, inline — identities, not pills. */
-.memory-readers { flex: none; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px 16px; }
-.memory-reader { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--rl-text-bright); }
 .memory-path-row .env-path { word-break: normal; overflow-wrap: anywhere; }
 /* The memory repo's rows. Its state is words, toned only where a save would be refused. */
 .memory-repo-actions { flex: none; display: flex; align-items: center; gap: 8px; }

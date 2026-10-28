@@ -6,7 +6,8 @@ import type { Environment, EnvironmentKind } from "@realm/contracts";
 import { openDatabase } from "../db/database";
 import { SettingsStore } from "../store/settings";
 import { RpcError } from "../store/rows";
-import { MEMORY_COMBINED_MAX, MEMORY_DOC_MAX, MEMORY_REPO_INDEX_MAX } from "@realm/contracts";
+import { MEMORY_COMBINED_MAX, MEMORY_DOC_MAX } from "@realm/contracts";
+import { MEMORY_INDEX_BUDGET, TEAM_INDEX_CAP } from "./context-budget";
 import { AGENTS_FILE_MARKER, MemoryService } from "./service";
 
 const SPACE_A = "01ARZ3NDEKTSV4RRFFQ69G5FAA";
@@ -80,11 +81,19 @@ describe("MemoryService systemContextFor", () => {
     expect(memory.systemContextFor({ spaceId: SPACE_A, kind: "claude", cwd: "/tmp", skillsInjected: false })).toBeUndefined();
   });
 
-  it("is undefined for agents with no channel, whatever the doc says", () => {
+  it("is undefined for an agent with no channel at all, whatever the doc says", () => {
     const { memory } = harness();
     memory.set(SPACE_A, "space A memory");
-    for (const kind of ["acp:cursor", "acp:gemini", "fake"] as const) {
-      expect(memory.systemContextFor({ spaceId: SPACE_A, kind, cwd: "/tmp", skillsInjected: false })).toBeUndefined();
+    expect(memory.systemContextFor({ spaceId: SPACE_A, kind: "fake", cwd: "/tmp", skillsInjected: false })).toBeUndefined();
+  });
+
+  it("gives the ACP agents the block Codex gets — it rides in their first prompt instead", () => {
+    const { memory } = harness();
+    memory.set(SPACE_A, "space A memory");
+    const codex = memory.systemContextFor({ spaceId: SPACE_A, kind: "codex", cwd: "/tmp", skillsInjected: false });
+    expect(codex).toContain("space A memory");
+    for (const kind of ["acp:cursor", "acp:gemini", "acp:hermes"] as const) {
+      expect(memory.systemContextFor({ spaceId: SPACE_A, kind, cwd: "/tmp", skillsInjected: false })).toBe(codex);
     }
   });
 
@@ -222,12 +231,15 @@ describe("MemoryService sourcesFor", () => {
     expect(empty).toMatchObject({ basis: "reported", sources: [] });
   });
 
-  it("cursor: a stated nothing — no channel, no sources, no realm memory, and a note naming the agent", () => {
+  it("cursor: Realm memory through its first prompt, no file report of its own, and a note naming the agent", () => {
     const { memory } = harness();
     memory.set(SPACE_A, "space A memory");
     const r = memory.sourcesFor({ kind: "acp:cursor", spaceId: SPACE_A, cwd: "/tmp", skillsInjected: false, reported: null });
-    expect(r).toMatchObject({ agent: "acp:cursor", channel: "none", basis: "none", realmMemoryInjected: false, sources: [] });
+    expect(r).toMatchObject({ agent: "acp:cursor", channel: "firstPrompt", basis: "none", realmMemoryInjected: true, sources: [] });
     expect(r.note).toContain("Cursor");
+    // The fake has no channel, and is never told the document travelled — it did not.
+    expect(memory.sourcesFor({ kind: "fake", spaceId: SPACE_A, cwd: "/tmp", skillsInjected: false, reported: null }))
+      .toMatchObject({ channel: "none", realmMemoryInjected: false });
   });
 
   it("realmMemoryInjected tracks the doc of THE space asked about", () => {
@@ -237,6 +249,10 @@ describe("MemoryService sourcesFor", () => {
     expect(memory.sourcesFor({ kind: "codex", spaceId: SPACE_B, cwd: "/tmp", skillsInjected: false, reported: null }).realmMemoryInjected).toBe(false);
   });
 });
+
+/** `n` index lines of 100 characters each, newline included — an index the budget cuts only at a line. */
+const indexLines = (n: number, tag = "fact"): string =>
+  Array.from({ length: n }, (_, i) => `- ${tag} ${String(i).padStart(4, "0")} `.padEnd(99, "x")).join("\n");
 
 describe("scoping (W2) — the inherited profile memory doc", () => {
   // SPACE_A lives in profile PA, SPACE_B in PB — and a second seam puts them in ONE profile where a
@@ -323,7 +339,7 @@ describe("scoping (W2) — the inherited profile memory doc", () => {
 
   it("fits the memory repo's index inside the combined cap: space doc and index whole, profile doc gives way", () => {
     const h = harness();
-    const index = "i".repeat(MEMORY_REPO_INDEX_MAX);
+    const index = indexLines(60);
     const memory = new MemoryService({
       home: h.home, settings: h.settings, claudeDir: h.claudeDir, scopes: seam({ [SPACE_A]: "PA" }),
       environments: envs({ [SPACE_A]: { path: h.folderOf(SPACE_A), kind: "primary" } }),
@@ -332,23 +348,55 @@ describe("scoping (W2) — the inherited profile memory doc", () => {
     memory.setProfile("PA", "p".repeat(MEMORY_DOC_MAX));
     memory.set(SPACE_A, "s".repeat(MEMORY_DOC_MAX));
     const a = ctx(memory, SPACE_A)!;
-    const kept = MEMORY_COMBINED_MAX - MEMORY_DOC_MAX - MEMORY_REPO_INDEX_MAX;
+    const kept = MEMORY_COMBINED_MAX - MEMORY_DOC_MAX - index.length;
     expect(a).toContain("s".repeat(MEMORY_DOC_MAX));
     expect(a).toContain(index);
     // THE MUTANT: leave the index out of the arithmetic — the profile doc keeps 50k and the three
-    // together run 20k past the cap every engine was promised.
+    // together run past the cap every engine was promised.
     expect(a).toContain("p".repeat(kept));
     expect(a).not.toContain("p".repeat(kept + 1));
-    expect(a).toContain("`memory_read` MEMORY for the rest");
+    expect(a).toContain('`memory_read` MEMORY with `repo: "profile"` for the rest');
     expect(memory.sourcesFor({ kind: "codex", spaceId: SPACE_A, cwd: "/tmp", skillsInjected: false, reported: null }).repoIndexInjected).toBe(true);
-    // An agent with no channel is never told the index travelled — it did not.
-    expect(memory.sourcesFor({ kind: "acp:cursor", spaceId: SPACE_A, cwd: "/tmp", skillsInjected: false, reported: null }).repoIndexInjected).toBe(false);
+    // An agent with no channel is never told the index travelled — it did not. Cursor's first prompt did.
+    expect(memory.sourcesFor({ kind: "fake", spaceId: SPACE_A, cwd: "/tmp", skillsInjected: false, reported: null }).repoIndexInjected).toBe(false);
+    expect(memory.sourcesFor({ kind: "acp:cursor", spaceId: SPACE_A, cwd: "/tmp", skillsInjected: false, reported: null }).repoIndexInjected).toBe(true);
+  });
+
+  it("fits the indexes to MEMORY_INDEX_BUDGET: the space folder's whole, a team's next, the profile root gives way — each with its pointer", () => {
+    const h = harness();
+    const folder = indexLines(150, "FOLDER");
+    const team = indexLines(150, "TEAM");
+    const root = indexLines(150, "ROOT");
+    const memory = new MemoryService({
+      home: h.home, settings: h.settings, claudeDir: h.claudeDir, scopes: seam({ [SPACE_A]: "PA" }),
+      environments: envs({ [SPACE_A]: { path: h.folderOf(SPACE_A), kind: "primary" } }),
+      repos: { indexesFor: () => [
+        { scope: "space", kind: "root", path: "/team", index: team, truncated: false },
+        { scope: "profile", kind: "root", path: "/mine", index: root, truncated: false },
+        { scope: "profile", kind: "spaceFolder", path: "/mine/spaces/a", index: folder, truncated: false },
+      ] },
+    });
+    memory.set(SPACE_A, "SPACE_DOC");
+    const a = ctx(memory, SPACE_A)!;
+    const kept = (tag: string) => a.split("\n").filter((l) => l.startsWith(`- ${tag} `)).length;
+    // 150 lines of 100 is 15,000 each, against caps of 20,000 / 8,000 / 8,000 and a total of 28,000:
+    // the folder's 15,000 whole, the team's root to its cap, and the profile's root what is left.
+    // (The folder's own lines are drawn once the repo block renders `spaceFolder` entries; here it
+    // takes its share of the budget all the same, which is what the profile root's count shows.)
+    // THE MUTANT: the old behaviour — every index whole, 45,000 characters of agent memory in every prompt.
+    expect(kept("TEAM")).toBeGreaterThanOrEqual(TEAM_INDEX_CAP / 100 - 3);
+    expect(kept("TEAM")).toBeLessThan(TEAM_INDEX_CAP / 100);
+    expect(kept("ROOT")).toBeGreaterThanOrEqual((MEMORY_INDEX_BUDGET - folder.length - TEAM_INDEX_CAP) / 100 - 3);
+    expect(kept("ROOT")).toBeLessThan((MEMORY_INDEX_BUDGET - folder.length - TEAM_INDEX_CAP) / 100);
+    expect(a).toContain('`memory_read` MEMORY with `repo: "space"` for the rest');
+    expect(a).toContain('`memory_read` MEMORY with `repo: "profile"` for the rest');
+    expect(a).toContain("SPACE_DOC");
   });
 
   it("carries a space's own repo beside the profile's, both whole within the cap, general before specific", () => {
     const h = harness();
-    const prof = "P".repeat(MEMORY_REPO_INDEX_MAX);
-    const team = "T".repeat(MEMORY_REPO_INDEX_MAX);
+    const prof = indexLines(60, "P");
+    const team = indexLines(60, "T");
     const memory = new MemoryService({
       home: h.home, settings: h.settings, claudeDir: h.claudeDir, scopes: seam({ [SPACE_A]: "PA" }),
       environments: envs({ [SPACE_A]: { path: h.folderOf(SPACE_A), kind: "primary" } }),
@@ -357,8 +405,8 @@ describe("scoping (W2) — the inherited profile memory doc", () => {
     memory.setProfile("PA", "p".repeat(MEMORY_DOC_MAX));
     memory.set(SPACE_A, "s".repeat(MEMORY_DOC_MAX));
     const a = ctx(memory, SPACE_A)!;
-    // THE MUTANT: count only the first index in the arithmetic — the four together run 20k past the cap.
-    const kept = MEMORY_COMBINED_MAX - MEMORY_DOC_MAX - 2 * MEMORY_REPO_INDEX_MAX;
+    // THE MUTANT: count only the first index in the arithmetic — the four together run past the cap.
+    const kept = MEMORY_COMBINED_MAX - MEMORY_DOC_MAX - prof.length - team.length;
     expect(a).toContain("p".repeat(kept));
     expect(a).not.toContain("p".repeat(kept + 1));
     expect(a).toContain(prof);

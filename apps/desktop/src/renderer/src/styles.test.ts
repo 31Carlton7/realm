@@ -1086,7 +1086,6 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       ".memory-doc-status",
       ".memory-fact-label",
       ".memory-fact-sub",
-      ".memory-reader",
       ".memory-space-here",
       ".memory-space-size",
       ".onboarding-note",
