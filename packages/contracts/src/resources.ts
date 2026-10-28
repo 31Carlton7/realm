@@ -93,8 +93,10 @@ export const ResourceReportSchema = z.object({
   parts: z.array(ResourcePartSchema),
   /** The biggest of everything else, heaviest first. */
   others: z.array(OtherAppSchema),
-  /** Which measure the totals are: `footprint` on a Mac, `resident` where footprint cannot be read. */
-  measure: z.enum(["footprint", "resident"]),
+  /** Which measure the totals are: `footprint` on a Mac, `resident` where footprint cannot be read
+   *  (Linux), `none` where Realm does not read the system's processes at all (Windows) — so the report
+   *  says it measured nothing rather than that Realm holds nothing. */
+  measure: z.enum(["footprint", "resident", "none"]),
   /** What each "free memory now" button would let go of; absent where nothing has been asked. */
   freeable: z.object({ engines: FreeableSchema, simulators: FreeableSchema, browsers: FreeableSchema, laya: FreeableSchema }).optional(),
 });

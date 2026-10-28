@@ -131,6 +131,7 @@ export class ResourceService {
     const measured = footprint.size > 0;
     const { claimed: _claimed, members: _members, ...attribution } = attribute({ table, owners, footprint, allFootprint, footprintMeasured: measured });
     const report: ResourceReport = { at: this.now(), machine: memory, ...attribution };
+    if (this.d.probe.readsProcesses === false) report.measure = "none";
     this.cached = { at: report.at, report };
     return report;
   }

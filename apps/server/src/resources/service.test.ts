@@ -82,6 +82,12 @@ describe("the resource report", () => {
     expect(r.others.map((o) => o.name)).toContain("Realm");
   });
 
+  it("says it measured nothing on a system whose processes it does not read, not that Realm holds nothing", async () => {
+    const { probe } = fakeMachine({ table: [] });
+    const s = new ResourceService({ probe: { ...probe, readsProcesses: false }, owners, app: async () => null, serverPid: 50 });
+    expect((await s.snapshot()).measure).toBe("none");
+  });
+
   it("counts the app's processes as main names them", async () => {
     const { probe } = fakeMachine({ table: [row(100, 1, 300, "/Applications/Realm.app/Contents/MacOS/Realm"), row(101, 100, 900, "Realm Helper (GPU)"), row(50, 100, 100, "server")] });
     const s = new ResourceService({ probe, owners, serverPid: 50, app: async () => [

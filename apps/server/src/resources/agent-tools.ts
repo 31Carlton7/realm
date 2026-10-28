@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import { RESOURCE_CATEGORY_LABEL, type MachineMemory, type ResourceReport } from "@realm/contracts";
+import { RESOURCE_CATEGORY_LABEL, platformCapabilities, type MachineMemory, type ResourceReport } from "@realm/contracts";
 import { ok, parseArgs } from "../mcp/tool-result";
 import type { WorkspaceToolGroup } from "../workspace/agent-tools";
 import type { ProcRow } from "./machine";
@@ -89,7 +89,10 @@ export function createMachineStatusTools(d: {
   report: () => Promise<ResourceReport>;
   /** The process table, for the heavy work already running. */
   processes: () => Promise<ProcRow[]>;
+  /** What the machine is called: "Mac", "computer" (`platformCapabilities`). */
+  machine?: string;
 }): WorkspaceToolGroup {
+  const machine = d.machine ?? platformCapabilities(process.platform).machine;
   return {
     tools: TOOLS,
     handlers: {
@@ -97,7 +100,7 @@ export function createMachineStatusTools(d: {
         const args = parseArgs(z.object({}).strict(), raw); if ("error" in args) return args.error;
         const [report, table] = await Promise.all([d.report(), d.processes()]);
         const m = report.machine;
-        const lines = ["# This Mac right now", ""];
+        const lines = [`# This ${machine} right now`, ""];
         lines.push(`Memory pressure: ${m.pressure}${m.pressureWhy ? ` — ${m.pressureWhy}` : ""}`);
         lines.push([
           m.totalBytes > 0 ? `RAM ${gb(m.totalBytes)}` : null,
@@ -105,12 +108,17 @@ export function createMachineStatusTools(d: {
           m.swap ? `swap ${gb(m.swap.usedBytes)} of ${gb(m.swap.totalBytes)} in use` : null,
           m.compressedBytes !== null ? `${gb(m.compressedBytes)} compressed` : null,
         ].filter(Boolean).join(" · "));
-        lines.push(`Load: ${m.load.map((l) => l.toFixed(1)).join(" / ")} on ${m.cpus} cores`);
-        lines.push("", `## Realm's heaviest (${report.measure}; Realm in all: ${gb(size(report.realm))})`);
-        const parts = report.parts.slice(0, 10);
-        lines.push(...(parts.length > 0
-          ? parts.map((p) => `- ${gb(size(p))} — ${RESOURCE_CATEGORY_LABEL[p.category]}: ${p.label}${p.ownerId === ctx.sessionId ? " (this session)" : ""}${p.detail ? ` — ${p.detail}` : ""}`)
-          : ["Nothing measured."]));
+        if (report.measure === "none") {
+          // Windows: no process table is read, and Node's load average there is always zeros.
+          lines.push("", "Realm does not read this system's processes, so it cannot say what is heavy. Keep to targeted tests and one build at a time.");
+        } else {
+          lines.push(`Load: ${m.load.map((l) => l.toFixed(1)).join(" / ")} on ${m.cpus} cores`);
+          lines.push("", `## Realm's heaviest (${report.measure}; Realm in all: ${gb(size(report.realm))})`);
+          const parts = report.parts.slice(0, 10);
+          lines.push(...(parts.length > 0
+            ? parts.map((p) => `- ${gb(size(p))} — ${RESOURCE_CATEGORY_LABEL[p.category]}: ${p.label}${p.ownerId === ctx.sessionId ? " (this session)" : ""}${p.detail ? ` — ${p.detail}` : ""}`)
+            : ["Nothing measured."]));
+        }
         const heavy = heavyWork(table);
         if (heavy.length > 0) lines.push("", "## Heavy work running on this Mac (anyone's)", ...heavy.map((h) => `- ${h.name}: ${h.processes} process${h.processes === 1 ? "" : "es"}`));
         if (report.others.length > 0) lines.push("", "## Other apps (not Realm's; never touch them)", report.others.slice(0, 6).map((o) => `${o.name} ${gb(size(o))}`).join(", "));

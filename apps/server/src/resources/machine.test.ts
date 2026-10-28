@@ -156,4 +156,12 @@ describe("the real probe", () => {
     expect((await linux.footprints([1, 2])).size).toBe(0);
     expect(await linux.allFootprints()).toBeNull();
   });
+
+  it("reads processes on a Mac and on Linux, and says it does not on Windows", async () => {
+    expect(realMachineProbe({ platform: "darwin" }).readsProcesses).toBe(true);
+    expect(realMachineProbe({ platform: "linux" }).readsProcesses).toBe(true);
+    const windows = realMachineProbe({ platform: "win32", run: async () => { throw new Error("must not run"); } });
+    expect(windows.readsProcesses).toBe(false);
+    expect(await windows.processes()).toEqual([]);
+  });
 });

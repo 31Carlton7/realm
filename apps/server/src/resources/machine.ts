@@ -147,6 +147,9 @@ export type MachineCounters = { at: number; swapouts: number | null };
 
 /** Everything the resource service asks of the machine — the seam a test hands a fake table to. */
 export type MachineProbe = {
+  /** False where this platform's processes are not read at all (Windows has no `ps`): a report then
+   *  says it measured nothing. Absent is true. */
+  readonly readsProcesses?: boolean;
   /** Every process on the machine. */
   processes(): Promise<ProcRow[]>;
   /** The footprint of each of these processes, where it can be read; a process missing from the answer has none. */
@@ -181,6 +184,7 @@ export function realMachineProbe(o: { platform?: string; run?: Run; readText?: (
     return { load: [one, five, fifteen], cpus: Math.max(1, cpus().length) };
   };
   return {
+    readsProcesses: platform !== "win32",
     async processes() {
       if (platform === "win32") return [];
       // The reading's own commands are this process's children while it reads: not Realm's work.

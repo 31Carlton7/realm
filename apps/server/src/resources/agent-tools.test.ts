@@ -34,6 +34,16 @@ describe("machine_status", () => {
     expect(out).toContain("oversubscribed (load 30.0 on 14 cores)");
   });
 
+  it("on a system whose processes Realm does not read, says so rather than that Realm holds nothing", async () => {
+    // Windows: no `ps`, and a load average Node reads as zeros.
+    const g = createMachineStatusTools({ report: async () => report({ measure: "none", parts: [], machine: machine({ pressure: "unknown", load: [0, 0, 0] }) }), processes: async () => [], machine: "computer" });
+    const out = text(await g.handlers.machine_status!({ sessionId: "me", spaceId: "s" }, {}));
+    expect(out.startsWith("# This computer right now")).toBe(true);
+    expect(out).toContain("Realm does not read this system's processes");
+    expect(out).not.toContain("Realm in all");
+    expect(out).not.toContain("Load:");
+  });
+
   it("refuses arguments it does not take", async () => {
     const g = createMachineStatusTools({ report: async () => report(), processes: async () => [] });
     expect((await g.handlers.machine_status!({ sessionId: "me", spaceId: "s" }, { verbose: true })).isError).toBe(true);

@@ -141,6 +141,9 @@ The adapters package builds `findExecutable`, `spawnTarget` and `killTree` from 
 - **Simulators** (`apps/server/src/simulators/`): left out of the side panel's "+", the new-tab page and the palette (`side-tools.ts` `sideToolOffered`).
   - Android's SDK path is Mac-shaped (`simulators/android.ts:35` *(base)*), so it goes too.
 - **Laya:** the Engines section is hidden, and `realLayaRuntime` reports itself unavailable off a Mac. That covers arm64 Linux and arm64 Windows too.
+- **Settings ▸ RAM** (`RamPanel.tsx`, `apps/server/src/resources/machine.ts`): offered on every OS, because its idle windows apply everywhere. Laya's and the simulators' rows go with those features.
+  - Linux reads `ps` and `/proc`: sizes are resident, and pressure is the kernel's pressure stall information.
+  - Windows' processes are not read (`measure: "none"`). The page says so and keeps only the idle windows; `machine_status` says the same.
 - **Dock icons** (`AppIconPicker.tsx` `canChooseAppIcon`): hidden.
 - **Quick Look and Share** (`file-actions.ts`): hidden. Thumbnails already returned null off darwin (`attachments.ts:136` *(base)*).
 - **Look Up** in the text menu (`text-context-menu.ts`): offered on a Mac only.

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import type { ResourceReport } from "@realm/contracts";
+import { platformCapabilities, type ResourceReport } from "@realm/contracts";
 import { createAppStore, StoreContext } from "../../state/store";
 import { defaultResourcePolicies, emptyResourceReport, fakeApi, type FakeData } from "../../state/store.test-fakes";
 import { RamPanel, bytesLabel, windowLabel } from "./RamPanel";
@@ -11,7 +11,10 @@ import { RamPanel, bytesLabel, windowLabel } from "./RamPanel";
  * app's name.
  */
 
-afterEach(() => cleanup());
+afterEach(() => { cleanup(); delete (window as { realm?: unknown }).realm; });
+
+/** The preload as another OS's would be: only the capabilities differ. */
+const onOs = (platform: string) => { (window as { realm?: unknown }).realm = { platform, capabilities: platformCapabilities(platform) }; };
 
 const GB = 1024 ** 3, MB = 1024 ** 2;
 const REPORT: ResourceReport = {
@@ -41,6 +44,12 @@ async function mount(over: FakeData = {}) {
 }
 
 const row = (setting: string) => document.querySelector(`[data-setting="${setting}"]`) as HTMLElement;
+
+async function booted(report: ResourceReport) {
+  const store = createAppStore(fakeApi({ resourceReport: report }));
+  await store.getState().boot();
+  return store;
+}
 
 describe("Settings ▸ RAM", () => {
   it("says what Realm holds beside how short the Mac is", async () => {
@@ -93,6 +102,28 @@ describe("Settings ▸ RAM", () => {
     expect(within(others).getByText("Google Chrome")).toBeInTheDocument();
     expect(within(others).getByText("12 GB")).toBeInTheDocument();
     expect(within(others).queryByRole("button")).toBeNull();
+  });
+
+  it("on Linux, measures the same parts with no Laya or simulator rows, and calls the machine a computer", async () => {
+    onOs("linux");
+    await mount({ resourceReport: { ...REPORT, measure: "resident" } });
+    expect(screen.getByText("of this computer's 24 GB · 12 processes")).toBeInTheDocument();
+    for (const id of ["ram-free-laya", "ram-laya-idle", "ram-free-simulators", "ram-simulator-idle"]) expect(row(id), id).toBeNull();
+    for (const id of ["ram-free-engines", "ram-free-browsers", "ram-engine-idle", "ram-mcp-idle", "ram-browser-idle", "ram-adaptive"]) expect(row(id), id).not.toBeNull();
+    expect(screen.getByText("Other apps on this computer")).toBeInTheDocument();
+    expect(screen.getByText(/Sizes are resident memory/)).toBeInTheDocument();
+  });
+
+  it("on Windows, which it does not measure, says so — never that Realm holds nothing — and keeps the idle windows", async () => {
+    onOs("win32");
+    render(<StoreContext.Provider value={await booted({ ...REPORT, measure: "none", realm: { processes: 0, residentBytes: 0, footprintBytes: null }, categories: [], parts: [], others: [], machine: { ...REPORT.machine, pressure: "unknown", pressureWhy: null, swap: null, load: [0, 0, 0] } })}><RamPanel /></StoreContext.Provider>);
+    await screen.findByText("Realm does not measure its memory here yet");
+    expect(screen.queryByText(/Realm is holding/)).toBeNull();
+    expect(screen.queryByText(/load 0\.0/)).toBeNull();
+    // Nothing priced to free, and no pressure for a window to shrink under.
+    expect(screen.queryByText("Free memory now")).toBeNull();
+    expect(row("ram-adaptive")).toBeNull();
+    for (const id of ["ram-engine-idle", "ram-mcp-idle", "ram-browser-idle", "ram-browser-keep"]) expect(row(id), id).not.toBeNull();
   });
 
   it("says nothing until it has measured", async () => {
