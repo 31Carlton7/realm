@@ -37,7 +37,7 @@ sends T3 events to a webhook. Its demo pitches it as "your outer loop", and that
 | Approvals | A card for each approval; never approves without your yes; while you're away it declines risky commands and tells the thread a safer way | Same rule. The Lead **never** approves on its own |
 | `t3-watch`, delegated mode | "Ping me when X finishes"; "I'm away, keep it moving": nudge stalled threads, resume after a usage limit | Watches on sessions, runs, PRs and CI. An Away mode that nudges, resumes at the limit reset (Realm already reads plan limits), and keeps a list of what happened while you were away |
 | `t3-digest`, `t3-project-report` | "Wake up to a briefing": threads finished, PRs ready to merge, questions for you | Morning briefing and weekly wrap-up in the Lead's channel; a project report as an HTML document on request |
-| `t3-pm-thread` | A PM thread plans the work, pushes back, starts worker and reviewer threads, and checks results before calling it done | PM mode, built on Teams (Phase 1 is on main; #139–142 are open), `agent_start`, `agent_review` and goals. Lands or replaces orchestrator PR #129 |
+| `t3-pm-thread` | A PM thread plans the work, pushes back, starts worker and reviewer threads, and checks results before calling it done | PM mode, built on Teams (all of it is on main: PRs #139–142 and the orchestrator tab #129 shipped in 2.1.0 through integration branches, though GitHub still shows them open), `agent_start`, `agent_review` and goals |
 | `t3-project-tracker` | A living tracker: goal, milestones, decisions, next steps | The channel summary (Phase 1) |
 | `t3-sync`, "Move projects" | Keeps your computers' setup in sync; moves a project to another computer | Phase 2, across Realm servers |
 | `t3-handoff` | Hands a thread to a cloud agent that returns a PR | Phase 2: move a session to a cloud machine |
@@ -237,7 +237,7 @@ views, with the transport swapped.
   one exists, and a browser pane with your sign-ins otherwise (aurafarm already posts to TikTok
   this way).
 - **The flow:** draft, then an approval card, then one tap or one spoken yes posts it at a paced slot
-  (Teams Phase 3, #142).
+  (Teams' approve-then-post, shipped in 2.1.0).
 - Analytics are read back into the channel.
 - Nothing is ever posted without approval.
 
