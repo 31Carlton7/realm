@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyPressure, classifyPsi, parseFootprint, parseMeminfo, parsePs, parseSysctl, parseTop, parseVmStat, realMachineProbe, SWAP_OUT_WARN_BYTES_PER_SECOND } from "./machine";
+import { classifyPressure, classifyPsi, parseBundleId, parseFootprint, parseFrontAsn, parseMeminfo, parsePs, parseSysctl, parseTop, parseVmStat, realMachineProbe, SWAP_OUT_WARN_BYTES_PER_SECOND } from "./machine";
 
 /* Every fixture below is what the real command printed on this Mac (2026-10-28), trimmed. */
 
@@ -84,6 +84,21 @@ describe("reading the machine's memory", () => {
     const m = parseMeminfo("MemTotal:       16303456 kB\nMemAvailable:    8000000 kB\nSwapTotal: 0 kB\n");
     expect(m.get("MemTotal")).toBe(16303456 * 1024);
     expect(m.get("SwapTotal")).toBe(0);
+  });
+});
+
+describe("the app in front", () => {
+  it("reads lsappinfo's front app and its bundle id, as this Mac printed them", async () => {
+    expect(parseFrontAsn("ASN:0x0-0x73073:\n")).toBe("ASN:0x0-0x73073:");
+    expect(parseFrontAsn("[ NULL ]")).toBeNull();
+    expect(parseBundleId('[ NULL ]  ASN:0x0-0x73073: (in front) \n    bundleID="co.charmtechnologies.realm"\n    bundle path=[ NULL ] ')).toBe("co.charmtechnologies.realm");
+    expect(parseBundleId('"CFBundleIdentifier"="com.apple.iphonesimulator"')).toBe("com.apple.iphonesimulator");
+    expect(parseBundleId("    bundleID=[ NULL ] ")).toBeNull();
+    const calls: string[][] = [];
+    const probe = realMachineProbe({ platform: "darwin", run: async (_f, args) => { calls.push(args); return args[0] === "front" ? "ASN:0x0-0x1a01a:" : 'bundleID="com.apple.iphonesimulator"'; } });
+    expect(await probe.frontApp!()).toBe("com.apple.iphonesimulator");
+    expect(calls).toEqual([["front"], ["info", "-only", "bundleid", "ASN:0x0-0x1a01a:"]]);
+    expect(await realMachineProbe({ platform: "linux", run: async () => { throw new Error("must not run"); } }).frontApp!()).toBeNull();
   });
 });
 

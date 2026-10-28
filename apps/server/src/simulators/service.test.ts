@@ -539,7 +539,7 @@ describe("shutting down a simulator Realm booted once nothing uses it", () => {
   const T0 = 1_800_000_000_000;
   const launchd = (startedAt: number, udid = "D94F0FDE-7C84-42F1-A328-97EF12A91866") => ({ pid: 700, ppid: 1, tty: null, residentBytes: 1, startedAt, command: `launchd_sim /U/Library/Developer/CoreSimulator/Devices/${udid}/data/var/run/launchd_bootstrap.plist` });
 
-  async function booted(o: { booted?: boolean; table?: (t: number) => import("../resources/machine").ProcRow[]; minutes?: number } = {}) {
+  async function booted(o: { booted?: boolean; table?: (t: number) => import("../resources/machine").ProcRow[]; minutes?: number; front?: () => string | null } = {}) {
     let t = T0;
     const kept = new Map<string, unknown>(o.minutes === undefined ? [] : [[SIMULATOR_IDLE_SHUTDOWN_KEY, o.minutes]]);
     const env = bring({ simctl: { boot: async () => ({ ok: true, detail: "", booted: o.booted ?? true }) } });
@@ -547,6 +547,7 @@ describe("shutting down a simulator Realm booted once nothing uses it", () => {
       settings: { get: (k: string) => kept.get(k), set: (k: string, v: unknown) => { kept.set(k, v); } },
       now: () => t,
       processes: async () => (o.table ?? ((at: number) => [launchd(at)]))(T0),
+      ...(o.front ? { frontApp: async () => o.front!() } : {}),
     });
     const { simulatorId } = env.service.create({ spaceId: env.spaceId, name: "iPhone 17 Pro" });
     env.service.start(simulatorId, "D94F0FDE-7C84-42F1-A328-97EF12A91866");
@@ -653,6 +654,32 @@ describe("shutting down a simulator Realm booted once nothing uses it", () => {
     service.seen(simulatorId);
     at(6);
     expect(await service.sweepIdle({ minutes: 0 })).toEqual([]);
+  });
+
+  it("counts Simulator.app in front as somebody using every simulator Realm booted, for thirty minutes, whatever the window", async () => {
+    // Which device's window is in front cannot be read without Accessibility: one window counts for all.
+    let front: string | null = "com.apple.iphonesimulator";
+    const { service, at } = await booted({ minutes: 10, front: () => front });
+    at(20);
+    expect(await service.sweepIdle()).toEqual([]);
+    front = "co.charmtechnologies.realm";
+    // Twenty-nine minutes after it was last in front: still in use, past a ten-minute window and for the
+    // Memory page's button too.
+    at(49);
+    expect(await service.sweepIdle()).toEqual([]);
+    expect(service.idleCandidates()).toEqual([]);
+    expect(await service.sweepIdle({ minutes: 0 })).toEqual([]);
+    at(51);
+    expect(service.idleCandidates()).toEqual(["D94F0FDE-7C84-42F1-A328-97EF12A91866"]);
+    expect(await service.sweepIdle()).toEqual(["D94F0FDE-7C84-42F1-A328-97EF12A91866"]);
+  });
+
+  it("does not count another app in front, or a front it could not read", async () => {
+    for (const front of ["com.apple.dt.Xcode", null]) {
+      const { service, at } = await booted({ front: () => front });
+      at(31);
+      expect(await service.sweepIdle(), String(front)).toEqual(["D94F0FDE-7C84-42F1-A328-97EF12A91866"]);
+    }
   });
 
   it("shuts nothing down where it cannot read the Mac's processes", async () => {

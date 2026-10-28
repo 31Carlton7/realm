@@ -158,7 +158,22 @@ export type MachineProbe = {
   allFootprints(): Promise<Map<number, number> | null>;
   /** Memory, pressure, swap and load, given the counters of the reading before (null for none). */
   memory(previous: MachineCounters | null): Promise<{ memory: MachineMemory; counters: MachineCounters }>;
+  /** The bundle id of the app in front (`lsappinfo`, no permission needed), or null — always null off a
+   *  Mac. Absent, nothing is read. */
+  frontApp?(): Promise<string | null>;
 };
+
+/** `lsappinfo front`: `ASN:0x0-0x73073:`. */
+export function parseFrontAsn(out: string): string | null {
+  const m = /ASN:0x[0-9a-f]+-0x[0-9a-f]+/i.exec(out);
+  return m ? `${m[0]}:` : null;
+}
+
+/** `lsappinfo info -only bundleid <asn>`: `bundleID="com.apple.iphonesimulator"` (older macOS quotes
+ *  the key as `"CFBundleIdentifier"`); `[ NULL ]` for an app without one. */
+export function parseBundleId(out: string): string | null {
+  return /(?:bundleID|"CFBundleIdentifier")\s*=\s*"([^"]+)"/i.exec(out)?.[1] ?? null;
+}
 
 type Run = (file: string, args: string[], timeoutMs: number) => Promise<string>;
 
@@ -168,7 +183,7 @@ const run: Run = (file, args, timeoutMs) => new Promise((resolve) => {
 });
 
 /** The commands a reading runs, as `ps` lists them — `(name)` while one is exiting. */
-const MEASURING = /^\(?(?:\/usr\/s?bin\/|\/bin\/)?(?:ps|top|footprint|sysctl|vm_stat)(?:\)|\s|$)/;
+const MEASURING = /^\(?(?:\/usr\/s?bin\/|\/bin\/)?(?:ps|top|footprint|sysctl|vm_stat|lsappinfo)(?:\)|\s|$)/;
 
 /** At most this many pids per `footprint` call: its argv stays far under ARG_MAX, and one slow process costs one batch. */
 const FOOTPRINT_BATCH = 64;
@@ -204,6 +219,11 @@ export function realMachineProbe(o: { platform?: string; run?: Run; readText?: (
       if (platform !== "darwin") return null;
       const map = parseTop(await exec("/usr/bin/top", ["-l", "1", "-stats", "pid,mem"], 15_000));
       return map.size > 0 ? map : null;
+    },
+    async frontApp() {
+      if (platform !== "darwin") return null;
+      const asn = parseFrontAsn(await exec("/usr/bin/lsappinfo", ["front"], 2_000));
+      return asn ? parseBundleId(await exec("/usr/bin/lsappinfo", ["info", "-only", "bundleid", asn], 2_000)) : null;
     },
     async memory(previous) {
       const at = now();
@@ -255,6 +275,7 @@ export function quietMachineProbe(): MachineProbe {
     processes: async () => [],
     footprints: async () => new Map(),
     allFootprints: async () => null,
+    frontApp: async () => null,
     memory: async () => ({
       memory: { totalBytes: 0, availablePercent: null, pressure: "unknown", pressureWhy: null, swap: null, compressedBytes: null, swapOutPerSecond: null, load: [0, 0, 0], cpus: 1 },
       counters: { at: 0, swapouts: null },

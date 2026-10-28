@@ -981,7 +981,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      its pressure through this, as late-bound as the other knots in this file. */
   let resourcesLate: ResourceService | null = null;
   const adaptIdle = (minutes: number): number => resourcesLate?.adapt(minutes) ?? minutes;
-  const simulators = new SimulatorService({ rpc, spaces, items, simulators: simulatorsStore, settings, processes: () => machineProbe.processes(), adaptIdle, ...opts.simulator, physical: physicalDevices });
+  const simulators = new SimulatorService({ rpc, spaces, items, simulators: simulatorsStore, settings, processes: () => machineProbe.processes(), frontApp: async () => (await machineProbe.frontApp?.()) ?? null, adaptIdle, ...opts.simulator, physical: physicalDevices });
   simulatorsLate = simulators;
   // Plan 22: the preview listener guides and PDFs are framed from. Its root lookup is late-bound to
   // the service below (a workspace id → its checkout), which is the only thing it needs to know.

@@ -69,12 +69,24 @@ export type SimulatorServiceDeps = {
   processes?: () => Promise<ProcRow[]>;
   /** The idle window as memory pressure leaves it (`adaptIdleMinutes`): shorter when memory is short. */
   adaptIdle?: (minutes: number) => number;
+  /** The bundle id of the app in front (`MachineProbe.frontApp`), read on each sweep while Realm has a
+   *  simulator booted. Absent, Simulator.app's windows are not looked at. */
+  frontApp?: () => Promise<string | null>;
 };
 
 /** How often the simulators Realm booted are looked over for one gone idle. */
 export const IDLE_SWEEP_MS = 60_000;
 /** A pane says it is showing a device about once a minute (`simulators.seen`); past this it is not. */
 export const SHOWN_FRESH_MS = 90_000;
+/** Simulator.app, whose windows are somebody using a simulator by hand. */
+export const SIMULATOR_APP_BUNDLE_ID = "com.apple.iphonesimulator";
+/**
+ * How long Simulator.app in front keeps every simulator Realm booted in use, whatever the idle window.
+ * Which device's window was in front cannot be read without Accessibility or Screen Recording, so one
+ * Simulator.app window counts for all of them. Read once a sweep, so a visit shorter than a minute
+ * between two sweeps can go unseen.
+ */
+export const SIMULATOR_APP_FRONT_MS = 30 * 60_000;
 
 /**
  * Whether anything on the Mac other than the device itself and its stream is using it: a process naming
@@ -149,6 +161,8 @@ export class SimulatorService {
   private readonly usedAt = new Map<string, number>();
   private sweepTimer: NodeJS.Timeout | null = null;
   private sweeping = false;
+  /** When a sweep last found Simulator.app in front; 0 for never. */
+  private simulatorAppAt = 0;
 
   constructor(private readonly d: SimulatorServiceDeps) {
     this.cli = d.simctl ?? simctl();
@@ -183,7 +197,13 @@ export class SimulatorService {
    *  The button's own sweep still checks each is the same boot and that nothing else is using it. */
   idleCandidates(): string[] {
     const now = this.now();
+    if (this.simulatorAppInUse(now)) return [];
     return this.realmBooted().filter((b) => now - (this.shownAt.get(b.udid) ?? 0) >= SHOWN_FRESH_MS).map((b) => b.udid);
+  }
+
+  /** Whether Simulator.app was in front within `SIMULATOR_APP_FRONT_MS`, as the last sweep found it. */
+  private simulatorAppInUse(now: number): boolean {
+    return this.simulatorAppAt > 0 && now - this.simulatorAppAt < SIMULATOR_APP_FRONT_MS;
   }
 
   /** Look over the simulators Realm booted once a minute. Unref'd: it never keeps the server up. */
@@ -201,7 +221,8 @@ export class SimulatorService {
    * Never one Realm did not boot: only the boots it recorded are looked at, and only while the device's
    * launchd is still the one that boot started — a device shut down and booted again from Xcode is
    * somebody else's now. Never one in use: a pane showing it, anything acting on it within the window,
-   * a pane still bringing it up, or any other process on the Mac using it.
+   * a pane still bringing it up, any other process on the Mac using it, or — for every one of them —
+   * Simulator.app in front within `SIMULATOR_APP_FRONT_MS`.
    */
   async sweepIdle(o: { minutes?: number } = {}): Promise<string[]> {
     const minutes = o.minutes ?? this.idleMinutes();
@@ -209,8 +230,11 @@ export class SimulatorService {
     if ((o.minutes === undefined && minutes === 0) || boots.length === 0 || this.sweeping || !this.d.processes) return [];
     this.sweeping = true;
     try {
-      const table = await this.d.processes();
+      const [table, front] = await Promise.all([this.d.processes(), this.d.frontApp?.().catch(() => null) ?? null]);
       const now = this.now();
+      if (front === SIMULATOR_APP_BUNDLE_ID) this.simulatorAppAt = now;
+      // Somebody at Simulator.app: every simulator Realm booted may be the one in its window.
+      if (this.simulatorAppInUse(now)) return [];
       const done: string[] = [];
       for (const b of boots) {
         const launchd = table.find((p) => simulatorLaunchd(p.command)?.toUpperCase() === b.udid.toUpperCase());
