@@ -1,5 +1,39 @@
 # Changelog
 
+## v2.6.0 — 2026-10-28
+
+### Memory that doesn't depend on the model
+
+- **Realm keeps your memory, on by default.** Every profile now has a memory repo, made the first time Realm
+  starts unless you detached yours, and each space keeps its own folder in it.
+- **Claude's memory lands in Realm.** Claude sessions save what they learn straight into their space's
+  folder, not `~/.claude`, and Realm commits it as each turn ends.
+- **What Claude already remembered comes with it.** Realm brings each project's memory in from
+  `~/.claude/projects` to the space that works there, and keeps bringing in what Claude saves outside Realm.
+  A project no space works in waits on the Memory page with a choice of where it goes.
+- **Every agent reads it.** Codex, Cursor, Gemini and the other agents get the same memory Claude does.
+  Cursor and the other ACP agents get it at the top of their first message, and it never shows in your
+  transcript.
+- **Less of your context, more of your cache.** The memory a session carries is capped at 28,000
+  characters (it was 150,000), with its own space's first. It stays the same across a session's restarts,
+  so the prompt cache keeps hitting. `memory_search` ranks what it finds and puts the current space's
+  facts first.
+- **Realm learns from your sessions.** When a session goes quiet, Realm notes what is worth remembering,
+  whichever agent ran it. About once a week it tidies each profile's memory, as one commit you can undo.
+  "Learn from sessions" on the profile's Memory page turns it off.
+- **No cheaper models behind your back.** Titles, recaps and memory learning now run on the same frontier
+  model as your sessions.
+
+### Documents keeps your place
+
+- **Study guides come back as you left them.** Switching tab, session or space no longer resets a guide:
+  answers, checked quizzes, steps, flashcards, open sections and scroll all return. A course's own
+  progress survives a relaunch.
+- **Every kind of file keeps its place:** Markdown in Source or Rich, code, sheets, PDFs and video, with
+  your caret.
+- **Your typing is safe.** Unsaved typing is kept across a switch. Documents never writes over a PDF or
+  video, and never brings back a file deleted on disk unless you choose Keep mine.
+
 ## v2.5.1 — 2026-10-27
 
 ### Fixes
