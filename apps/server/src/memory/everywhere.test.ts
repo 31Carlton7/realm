@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { AsyncQueue, type AgentAdapter, type AgentHandle, type StartOptions } from "@realm/adapters";
@@ -242,6 +242,34 @@ describe("a space moved to another profile, over RPC", () => {
     await c.call("sessions.send", { id: session.id, text: "go" });
     expect(c.claude.starts.at(-1)!.memoryDirectory).toBe(join(workRepo.path, "spaces", "general-2"));
     c.close();
+  });
+
+  it("carries at the next boot what it could not carry at the move", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const home = tempDir("realm-memmove-app-");
+    const c = await boot(home);
+    const [work] = await c.call("profiles.list", {});
+    const school = await c.call("profiles.create", { name: "School" });
+    const general = await c.call("spaces.create", { profileId: school.id, name: "General" });
+    const [workRepo] = (await c.call("memory.repo.get", { profileId: work.id })).repos;
+    const [schoolRepo] = (await c.call("memory.repo.get", { profileId: school.id })).repos;
+    const { session } = await c.call("sessions.create", { spaceId: general.id, agentKind: "claude", title: "Learn" });
+    await c.call("sessions.send", { id: session.id, text: "go" });
+    await waitFor(() => git(schoolRepo.path, "log", "-1", "--format=%s").startsWith("Save what Claude remembered"));
+    // The person has a change of their own in Work's repo: the move goes through, the carry waits.
+    writeFileSync(join(workRepo.path, "draft.md"), "the person's own");
+    await c.call("spaces.update", { id: general.id, profileId: work.id });
+    expect(existsSync(join(workRepo.path, "spaces", "general", "uses-pnpm.md"))).toBe(false);
+    expect(log.mock.calls.flat().join(" ")).toMatch(/the memory of General not carried over yet/);
+    rmSync(join(workRepo.path, "draft.md"));
+    c.close();
+    await app!.close();
+    app = null;
+    // THE MUTANT: no pass at boot — a carry refused once is never tried again.
+    const again = await boot(home);
+    await waitFor(() => existsSync(join(workRepo.path, "spaces", "general", "uses-pnpm.md")));
+    again.close();
+    log.mockRestore();
   });
 });
 
