@@ -907,7 +907,8 @@ export class BrowserPaneHost {
     if (v.visible || v.hiddenSince === null) { v.visible = false; v.hiddenSince = this.now(); }
     this.retained.delete(id);
     this.retained.add(id); // to the back: most recently retained
-    this.budget = this.budget.then(() => this.enforceBudget());
+    // Never a rejected chain: one guard that failed must not stop every budget after it.
+    this.budget = this.budget.then(() => this.enforceBudget()).catch(() => {});
   }
 
   /** Every off-screen budget enforcement asked for so far, settled. */

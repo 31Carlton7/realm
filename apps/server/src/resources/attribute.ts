@@ -189,7 +189,6 @@ export function attribute(o: {
     .filter((p) => !claimed.has(p.pid) && engineBin(p.command) !== null);
   const unmatched = new Set(owners.engines.map((e) => e.sessionId));
   const enginesById = new Map(owners.engines.map((e) => [e.sessionId, e]));
-  const engineDetail = (e: EngineOwner) => e.detail;
   const leftovers: ProcRow[] = [];
   for (const p of engineProcs) {
     const bin = engineBin(p.command)!;
@@ -203,7 +202,7 @@ export function attribute(o: {
     const session = resumed ? owners.engines.find((e) => unmatched.has(e.sessionId) && e.providerSessionId === resumed) : undefined;
     if (session) {
       unmatched.delete(session.sessionId);
-      add("engines", session.sessionId, session.title, engineDetail(session), claimTree(p.pid));
+      add("engines", session.sessionId, session.title, session.detail, claimTree(p.pid));
     } else {
       leftovers.push(p);
     }
@@ -218,7 +217,7 @@ export function attribute(o: {
     const session = candidates[0];
     if (session) {
       unmatched.delete(session.sessionId);
-      add("engines", session.sessionId, session.title, engineDetail(session), claimTree(p.pid));
+      add("engines", session.sessionId, session.title, session.detail, claimTree(p.pid));
     } else {
       add("engines", null, `${engineBin(p.command)} (no session)`, null, claimTree(p.pid));
     }

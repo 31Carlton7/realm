@@ -308,11 +308,19 @@ export function electronViewFactory(
       scrollAfterLoad: (x, y) => {
         // A page that builds its height as it loads can clamp the first scroll short; one more try.
         const go = () => wc.executeJavaScript(`window.scrollTo(${Math.round(x)}, ${Math.round(y)}); window.scrollY`, false).catch(() => null);
-        wc.once("did-finish-load", () => {
+        // The passkey install's own `about:blank` finishes loading first; the page's load is the next
+        // one, and a load that fails ends the wait rather than scrolling whatever is opened after it.
+        const done = () => { wc.off("did-finish-load", loaded); wc.off("did-fail-load", failed); };
+        const loaded = () => {
+          if (wc.isDestroyed() || wc.getURL() === "about:blank") return;
+          done();
           void go().then((landed) => {
             if (typeof landed === "number" && landed < y - 2) setTimeout(() => { if (!wc.isDestroyed()) void go(); }, 600);
           });
-        });
+        };
+        const failed = (_e: unknown, _code: number, _desc: string, url: string, isMainFrame: boolean) => { if (isMainFrame && url !== "about:blank") done(); };
+        wc.on("did-finish-load", loaded);
+        wc.on("did-fail-load", failed);
       },
       destroy: () => {
         for (const popup of popups) if (!popup.isDestroyed()) popup.destroy();
