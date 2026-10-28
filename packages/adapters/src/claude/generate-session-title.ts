@@ -1,4 +1,5 @@
 import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
+import { BACKGROUND_MODEL } from "./background-model";
 
 type QueryFn = typeof sdkQuery;
 
@@ -6,8 +7,8 @@ const TITLE_MAX = 40;
 
 /**
  * One-shot prompt-in/title-out summary, same shape as `generateSvgIcon`: calls the SDK's `query()`
- * directly instead of running a full `ClaudeAdapter` session — `maxTurns: 1`, no tools, cheapest
- * model in the fleet (a sidebar title does not need a frontier model).
+ * directly instead of running a full `ClaudeAdapter` session — `maxTurns: 1`, no tools, on
+ * `BACKGROUND_MODEL` like every other call Realm makes on its own (the owner's never-downgrade rule).
  *
  * Rides the same `claude auth login` credentials every Claude session already uses. Throws on any
  * non-success result (error, refusal, max-turns) or an empty response; callers decide how to
@@ -20,7 +21,7 @@ export async function generateSessionTitle(text: string, deps: { query?: QueryFn
     options: {
       maxTurns: 1,
       allowedTools: [],
-      model: "claude-haiku-4-5",
+      model: BACKGROUND_MODEL,
       systemPrompt: [
         "You write short titles that summarize a coding assistant's chat session for a sidebar list.",
         "Respond with ONLY the title text: no quotes, no markdown, no trailing punctuation, no",

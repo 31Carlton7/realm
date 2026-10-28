@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { BACKGROUND_MODEL } from "./background-model";
 import { HINT_MAX } from "./generate-prompt-hint";
 import { SUMMARY_MAX } from "./generate-session-summary";
 import { generateSessionRecap, splitRecap } from "./generate-session-recap";
@@ -89,7 +90,7 @@ describe("generateSessionRecap", () => {
       return (async function* () { yield { type: "result", subtype: "success", result: "SUMMARY: a. b.\nHINT: NONE" }; })();
     }) as never;
     await generateSessionRecap(INPUT, { query });
-    expect(seen.model).toBe("claude-haiku-4-5");
+    expect(seen.model).toBe(BACKGROUND_MODEL);
     expect(seen.maxTurns).toBe(1);
     expect(seen.allowedTools).toEqual([]);
   });

@@ -1,4 +1,5 @@
 import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
+import { BACKGROUND_MODEL } from "./background-model";
 import { SUMMARY_MAX, cleanSummary } from "./generate-session-summary";
 import { HINT_MAX, cleanHint } from "./generate-prompt-hint";
 
@@ -38,8 +39,9 @@ export type Recap = {
  * session gets the derived summary line and the deterministic hint together rather than one of each.
  * That is the honest trade for halving the per-turn spend, and both fallbacks already existed.
  *
- * Still the one-shot shape: `maxTurns: 1`, no tools, and the cheapest model in the fleet regardless
- * of what the SESSION runs — which is what lets a Codex or Cursor session have either field at all.
+ * Still the one-shot shape: `maxTurns: 1`, no tools, and `BACKGROUND_MODEL` regardless of what the
+ * SESSION runs — which is what lets a Codex or Cursor session have either field at all. Not a cheaper
+ * model: the owner's never-downgrade rule covers background work, recaps included.
  *
  * The counts are handed in rather than asked for, for the reason the summary always had: a model
  * reading a transcript will cheerfully miscount the files it touched, and "edited 8 files" when it
@@ -60,7 +62,7 @@ export async function generateSessionRecap(input: RecapInput, deps: { query?: Qu
     options: {
       maxTurns: 1,
       allowedTools: [],
-      model: "claude-haiku-4-5",
+      model: BACKGROUND_MODEL,
       systemPrompt: [
         "You read a coding assistant's session and reply with exactly two lines, each on its own line,",
         "each beginning with its label. No markdown, no preamble, no blank line between them.",
