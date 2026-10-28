@@ -132,6 +132,20 @@ describe("the real probe", () => {
     expect(second.memory.swap).toEqual({ usedBytes: 1024 ** 3, totalBytes: 2 * 1024 ** 3 });
   });
 
+  it("leaves its own readings out of the table", async () => {
+    const me = process.pid;
+    const probe = realMachineProbe({ platform: "darwin", run: async () => [
+      `${me} 1 ?? 1000 Tue Oct 27 02:08:07 2026 node main.js`,
+      `91 ${me} ?? 10 Tue Oct 27 02:08:07 2026 ps -A -ww -o pid=,ppid=,tty=,rss=,lstart=,command=`,
+      `92 ${me} ?? 0 Tue Oct 27 02:08:07 2026 (vm_stat)`,
+      `93 ${me} ?? 10 Tue Oct 27 02:08:07 2026 /usr/bin/top -l 1 -stats pid,mem`,
+      `94 ${me} ?? 10 Tue Oct 27 02:08:07 2026 /usr/bin/topaz --serve`,
+      `95 1 ?? 10 Tue Oct 27 02:08:07 2026 ps aux`,
+    ].join("\n") });
+    // Somebody else's `ps`, and a binary that merely starts with "top", are not this reading.
+    expect((await probe.processes()).map((r) => r.pid)).toEqual([me, 94, 95]);
+  });
+
   it("asks footprint(1) in batches, and only on a Mac", async () => {
     const calls: string[][] = [];
     const probe = realMachineProbe({ platform: "darwin", run: async (_f, args) => { calls.push(args); return ""; } });

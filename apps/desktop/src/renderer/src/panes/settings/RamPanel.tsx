@@ -34,7 +34,7 @@ export function bytesLabel(bytes: number): string {
 
 const sizeOf = (s: { footprintBytes: number | null; residentBytes: number }) => s.footprintBytes ?? s.residentBytes;
 
-const PRESSURE_WORD: Record<MemoryPressure, string> = { normal: "Normal", warn: "Memory is short", critical: "Memory is critically short", unknown: "Not reported" };
+const PRESSURE_WORD: Record<MemoryPressure, string> = { normal: "Memory pressure is normal", warn: "Memory is short", critical: "Memory is critically short", unknown: "Memory pressure is not reported here" };
 
 /** "10 minutes", "1 hour", "Never". */
 export function windowLabel(minutes: number): string {

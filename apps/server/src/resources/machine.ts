@@ -164,6 +164,9 @@ const run: Run = (file, args, timeoutMs) => new Promise((resolve) => {
   execFile(file, args, { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, encoding: "utf8" }, (_err, stdout) => resolve(stdout ?? ""));
 });
 
+/** The commands a reading runs, as `ps` lists them — `(name)` while one is exiting. */
+const MEASURING = /^\(?(?:\/usr\/s?bin\/|\/bin\/)?(?:ps|top|footprint|sysctl|vm_stat)(?:\)|\s|$)/;
+
 /** At most this many pids per `footprint` call: its argv stays far under ARG_MAX, and one slow process costs one batch. */
 const FOOTPRINT_BATCH = 64;
 
@@ -180,7 +183,9 @@ export function realMachineProbe(o: { platform?: string; run?: Run; readText?: (
   return {
     async processes() {
       if (platform === "win32") return [];
-      return parsePs(await exec("ps", ["-A", "-ww", "-o", "pid=,ppid=,tty=,rss=,lstart=,command="], 10_000));
+      // The reading's own commands are this process's children while it reads: not Realm's work.
+      return parsePs(await exec("ps", ["-A", "-ww", "-o", "pid=,ppid=,tty=,rss=,lstart=,command="], 10_000))
+        .filter((r) => !(r.ppid === process.pid && MEASURING.test(r.command)));
     },
     async footprints(pids) {
       const out = new Map<number, number>();
