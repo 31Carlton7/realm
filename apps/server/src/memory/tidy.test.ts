@@ -322,7 +322,7 @@ function tidier(dir: string, o: { plan?: unknown; reply?: string; inactive?: str
         // saw can tell it was written since — the "changed in the last hour" rule cannot.
         const file = join(dir, o.busy.file ?? "MEMORY.md");
         appendFileSync(file, `- saved meanwhile ${writesAsked + 1}\n`);
-        const t = (Date.now() - 3 * HOUR) / 1000;
+        const t = ((o.systemClock ? Date.now() : now) - 3 * HOUR) / 1000;
         utimesSync(file, t, t);
       }
       writesAsked++;
