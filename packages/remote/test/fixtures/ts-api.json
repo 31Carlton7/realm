@@ -1535,8 +1535,62 @@
             "defaultEffort": "high"
           },
           {
+            "id": "claude-sonnet-5-5",
+            "label": "Sonnet 5.5",
+            "efforts": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "XHigh"
+              },
+              {
+                "id": "max",
+                "label": "Max"
+              }
+            ],
+            "defaultEffort": "high"
+          },
+          {
             "id": "claude-sonnet-5",
             "label": "Sonnet 5",
+            "efforts": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "XHigh"
+              },
+              {
+                "id": "max",
+                "label": "Max"
+              }
+            ],
+            "defaultEffort": "high"
+          },
+          {
+            "id": "claude-haiku-5-5",
+            "label": "Haiku 5.5",
             "efforts": [
               {
                 "id": "low",
@@ -1883,8 +1937,62 @@
             "defaultEffort": "high"
           },
           {
+            "id": "claude-sonnet-5-5",
+            "label": "Sonnet 5.5",
+            "efforts": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "XHigh"
+              },
+              {
+                "id": "max",
+                "label": "Max"
+              }
+            ],
+            "defaultEffort": "high"
+          },
+          {
             "id": "claude-sonnet-5",
             "label": "Sonnet 5",
+            "efforts": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "XHigh"
+              },
+              {
+                "id": "max",
+                "label": "Max"
+              }
+            ],
+            "defaultEffort": "high"
+          },
+          {
+            "id": "claude-haiku-5-5",
+            "label": "Haiku 5.5",
             "efforts": [
               {
                 "id": "low",
@@ -2213,8 +2321,62 @@
               "defaultEffort": "high"
             },
             {
+              "id": "claude-sonnet-5-5",
+              "label": "Sonnet 5.5",
+              "efforts": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "XHigh"
+                },
+                {
+                  "id": "max",
+                  "label": "Max"
+                }
+              ],
+              "defaultEffort": "high"
+            },
+            {
               "id": "claude-sonnet-5",
               "label": "Sonnet 5",
+              "efforts": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "XHigh"
+                },
+                {
+                  "id": "max",
+                  "label": "Max"
+                }
+              ],
+              "defaultEffort": "high"
+            },
+            {
+              "id": "claude-haiku-5-5",
+              "label": "Haiku 5.5",
               "efforts": [
                 {
                   "id": "low",

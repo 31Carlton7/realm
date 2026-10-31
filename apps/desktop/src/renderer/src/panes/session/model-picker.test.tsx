@@ -75,7 +75,7 @@ describe("picking", () => {
     const { picked } = mount();
     fireEvent.keyDown(search(), { key: "ArrowDown" });
     fireEvent.keyDown(search(), { key: "Enter" });
-    expect(picked).toEqual([["claude", "claude-sonnet-5"]]); // the row after Opus 5
+    expect(picked).toEqual([["claude", "claude-sonnet-5-5"]]); // the row after Opus 5
     await exited();
     expect(dialog()).not.toHaveAttribute("data-closing");
   });
@@ -117,7 +117,7 @@ describe("picking", () => {
     expect(document.activeElement).toBe(field);
     expect([field.selectionStart, field.selectionEnd]).toEqual([0, "sonnet".length]);
     // …and the list is the one that was picked from, until the next keystroke.
-    expect(screen.getAllByRole("option").map((o) => o.getAttribute("aria-label"))).toEqual(["Claude Sonnet 5"]);
+    expect(screen.getAllByRole("option").map((o) => o.getAttribute("aria-label"))).toEqual(["Claude Sonnet 5.5", "Claude Sonnet 5"]);
   });
 
   it("holds the list still when a pick moves the session to another harness", () => {
@@ -196,9 +196,9 @@ describe("picking", () => {
   it("narrows as you type, and the first match is what Enter takes", () => {
     const { picked } = mount();
     fireEvent.change(search(), { target: { value: "haiku" } });
-    expect(screen.getAllByRole("option").map((o) => o.getAttribute("aria-label"))).toEqual(["Claude Haiku 4.5"]);
+    expect(screen.getAllByRole("option").map((o) => o.getAttribute("aria-label"))).toEqual(["Claude Haiku 5.5", "Claude Haiku 4.5"]);
     fireEvent.keyDown(search(), { key: "Enter" });
-    expect(picked).toEqual([["claude", "claude-haiku-4-5"]]);
+    expect(picked).toEqual([["claude", "claude-haiku-5-5"]]);
   });
 });
 
