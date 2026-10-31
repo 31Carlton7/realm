@@ -84,9 +84,10 @@ export type ModelRow = {
  * Model lists come from THREE sources, most honest first:
  *
  * 1. **The probe's live catalog** (`agentProbe[kind].models`) — ids the provider itself handed over
- *    (Codex `model/list`, Cursor's ACP `availableModels`). A probe-sourced list additionally gets a
- *    leading DEFAULT row (`modelId: null`, the adapter's own default): a live catalog's ordering
- *    carries no promise that its first entry IS the default the adapter runs un-pinned (Cursor's
+ *    (Codex `model/list`, Claude's `supportedModels()`, Cursor's ACP `availableModels`). A catalog
+ *    that marks its default (`isDefault`) selects that model's row for `model === null`; one that
+ *    does not gets a leading DEFAULT row (`modelId: null`, the adapter's own default): a live
+ *    catalog's ordering carries no promise that its first entry IS the default the adapter runs un-pinned (Cursor's
  *    catalog leads with "Auto" while an un-pinned session runs Composer — verified live), so
  *    `model === null` selects the explicit default row instead of guessing at index 0.
  * 2. **The static curated list** (`AGENT_MODELS[kind]`) — any kind whose probe has not answered (or
@@ -120,7 +121,7 @@ export function modelRows({ kind, model, agentProbe, canSwitchAgent, favorites =
   const ownProbed = agentProbe.find((p) => p.kind === kind)?.models ?? null;
   const ownLive = ownProbed !== null && ownProbed.length > 0;
   const selectedId = model !== null ? model
-    : ownLive ? null                          // the explicit adapter-default row
+    : ownLive ? (ownProbed.find((m) => m.isDefault)?.id ?? null) // the model the catalog runs un-pinned, else the explicit default row
     : (AGENT_MODELS[kind][0]?.id ?? null);    // static lists pin their first entry as the default
 
   const byKey = new Map<string, ModelRow>();
@@ -131,9 +132,11 @@ export function modelRows({ kind, model, agentProbe, canSwitchAgent, favorites =
     const probed = agentProbe.find((p) => p.kind === k)?.models ?? null;
     const live = probed !== null && probed.length > 0;
     const models: ReadonlyArray<{ id: string; label: string }> = live ? probed : AGENT_MODELS[k];
-    // A kind with no list at all, and the explicit default row a live catalog earns. Both are
-    // per-harness by nature, so they key on the harness and never merge with another's default.
-    const defaults = models.length === 0 || live
+    // A kind with no list at all, and the explicit default row a live catalog earns when it does not
+    // say which model it runs un-pinned. One that does (Codex, Claude) has that model's own row for
+    // its default; a second row under DEFAULT_MODEL_LABEL would name a model the CLI may no longer
+    // default to. Both are per-harness by nature, so they never merge with another's default.
+    const defaults = models.length === 0 || (live && !probed.some((m) => m.isDefault))
       ? [{ key: `default:${k}`, id: null as string | null, label: DEFAULT_MODEL_LABEL[k] }]
       : [];
     const entries = [
