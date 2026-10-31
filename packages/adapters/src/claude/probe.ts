@@ -148,10 +148,22 @@ async function claudeAuthStatus(bin: string, bundled: boolean, env: NodeJS.Proce
  * The version is reported as printed whichever copy answered — Realm's own prints
  * `2.1.281 (Claude Code)` like any other, and it is the version every session really runs.
  */
-export async function probeClaude(bin?: string, o: ClaudeLookup = {}): Promise<{ available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null }> {
+export async function probeClaude(bin?: string, o: ClaudeLookup = {}): Promise<ClaudeProbe> {
+  return (await probeClaudeBinary(bin, o)).probe;
+}
+
+type ClaudeProbe = { available: boolean; version: string | null; loggedIn: boolean | null; reason: string | null };
+
+/**
+ * `probeClaude`, plus the binary that answered — what the adapter hands its sessions, so a session
+ * runs the CLI Settings reports and updates. `bin` is null when none ran, and `bundled` says it is
+ * Realm's own copy, the one the SDK spawns anyway when given no executable.
+ */
+export async function probeClaudeBinary(bin?: string, o: ClaudeLookup = {}): Promise<{ probe: ClaudeProbe; bin: string | null; bundled: boolean }> {
   const found = await locate(bin, o);
-  if (!found.ok) return { available: false, version: null, loggedIn: null, reason: found.reason };
-  return { available: true, version: found.version, ...(await claudeAuthStatus(found.bin, found.bundled, o.env ?? process.env)) };
+  if (!found.ok) return { probe: { available: false, version: null, loggedIn: null, reason: found.reason }, bin: null, bundled: false };
+  const auth = await claudeAuthStatus(found.bin, found.bundled, o.env ?? process.env);
+  return { probe: { available: true, version: found.version, ...auth }, bin: found.bin, bundled: found.bundled };
 }
 
 /**

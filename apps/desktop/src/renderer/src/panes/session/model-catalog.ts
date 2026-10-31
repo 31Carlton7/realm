@@ -89,8 +89,8 @@ export type ModelRow = {
  *    carries no promise that its first entry IS the default the adapter runs un-pinned (Cursor's
  *    catalog leads with "Auto" while an un-pinned session runs Composer — verified live), so
  *    `model === null` selects the explicit default row instead of guessing at index 0.
- * 2. **The static curated list** (`AGENT_MODELS[kind]`) — Claude, whose CLI has no enumeration
- *    channel, plus any kind whose probe has not answered (or answered without models).
+ * 2. **The static curated list** (`AGENT_MODELS[kind]`) — any kind whose probe has not answered (or
+ *    answered without models).
  * 3. **The single DEFAULT_MODEL_LABEL row** — a kind with no list at all.
  *
  * `model === null` means the user has pinned nothing and the adapter is running its own default. That

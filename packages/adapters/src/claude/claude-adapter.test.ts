@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ClaudeAdapter, claudeAllowedTools, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode, effortByModel, fastModeByModel, streamWindowId } from "./claude-adapter";
+import { ClaudeAdapter, claudeAllowedTools, claudeModels, claudeAskTools, claudeMcpServers, claudeSdkPermissionMode, effortByModel, fastModeByModel, streamWindowId } from "./claude-adapter";
 import { HIDDEN_ANSWER, type SessionEvent } from "@realm/contracts";
 import { GATEWAY_TOOL_TIMEOUT_MS, RestartRequiredError, type StartOptions } from "../types";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"; import { join, dirname } from "node:path"; import { fileURLToPath } from "node:url";
@@ -49,8 +49,8 @@ type FakeOpts = {
 };
 function fakeQuery(opts: FakeOpts, calls: string[] = []) {
   return ({ prompt, options }: { prompt: AsyncIterable<unknown>; options: Record<string, unknown> }) => {
+    opts.captureOptions?.push(options);
     const gen = (async function* () {
-      opts.captureOptions?.push(options);
       for (const l of opts.stderr ?? []) (options.stderr as (d: string) => void)(l);
       const it = prompt[Symbol.asyncIterator](); const first = await it.next();
       if (first.done) return;
@@ -86,7 +86,7 @@ function fakeQuery(opts: FakeOpts, calls: string[] = []) {
       if (opts.hang) { for await (const _ of { [Symbol.asyncIterator]: () => it }) { /* drain until input closes */ } }
     })();
     return Object.assign(gen, {
-      interrupt: async () => { calls.push("interrupt"); }, setModel: async () => {},
+      interrupt: async () => { calls.push("interrupt"); }, setModel: async () => {}, close: () => { calls.push("close"); },
       setPermissionMode: async (mode: string) => {
         opts.modeSwitches?.push(mode);
         if (opts.refuseModeWith) throw new Error(opts.refuseModeWith);
@@ -1367,5 +1367,85 @@ describe("streamWindowId", () => {
     expect(streamWindowId("five_hour", [w("model:Fable")])).toBe("five_hour");
     expect(streamWindowId("seven_day_overage_included", [w("five_hour")])).toBe("seven_day_overage_included");
     expect(streamWindowId(null, [])).toBeNull();
+  });
+});
+
+/* The CLI's own model list, as `claude` 2.1.316 answers `supportedModels()` (captured 2026-10-31):
+   aliases first, each resolving to an id, then the older models by id. */
+const CLI_ROWS = [
+  { value: "default", resolvedModel: "claude-opus-5-5", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"], supportsFastMode: true },
+  { value: "opus[1m]", resolvedModel: "claude-opus-5-5[1m]", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"], supportsFastMode: true },
+  { value: "sonnet", resolvedModel: "claude-sonnet-5-5", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high"] },
+  { value: "haiku", resolvedModel: "claude-haiku-4-5-20251001" },
+  { value: "claude-sonnet-5", resolvedModel: "claude-sonnet-5", supportsEffort: true, supportedEffortLevels: ["low", "medium"] },
+];
+
+describe("the Claude models the CLI lists", () => {
+  it("files each alias under the id it resolves to, without its window or date, in the CLI's order", () => {
+    expect(claudeModels(CLI_ROWS)).toEqual([
+      { id: "claude-opus-5-5", label: "Claude Opus 5.5", isDefault: true, efforts: ["low", "medium", "high", "xhigh", "max"], fastMode: true },
+      { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", efforts: ["low", "medium", "high"] },
+      { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+      { id: "claude-sonnet-5", label: "Claude Sonnet 5", efforts: ["low", "medium"] },
+    ]);
+  });
+
+  it("skips a row that resolves to nothing a session could pin", () => {
+    expect(claudeModels([{ value: "sonnet" }, { value: "custom-gateway-model", resolvedModel: "my-proxy" }])).toEqual([]);
+  });
+});
+
+describe("ClaudeAdapter.probe", () => {
+  const found = (bin: string | null, version: string, bundled = false) => async () =>
+    ({ probe: { available: bin !== null, version, loggedIn: true, reason: null }, bin, bundled });
+
+  it("reads the model list off the CLI it found, and asks no model anything", async () => {
+    const captureOptions: Record<string, unknown>[] = [];
+    const capture: unknown[] = [];
+    const calls: string[] = [];
+    const a = new ClaudeAdapter({ query: fakeQuery({ models: CLI_ROWS, captureOptions, capture }, calls) as never, probe: found("/usr/local/bin/claude", "2.1.316") });
+    const r = await a.probe();
+    expect(r.models?.map((m) => m.id)).toEqual(["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5", "claude-sonnet-5"]);
+    expect(captureOptions[0]).toMatchObject({ pathToClaudeCodeExecutable: "/usr/local/bin/claude", settingSources: [], strictMcpConfig: true, persistSession: false });
+    expect(capture).toEqual([]); // no prompt was ever sent
+    expect(calls).toContain("close");
+  });
+
+  it("asks the CLI again only once its version moves — an update brings its models in", async () => {
+    let version = "2.1.283";
+    const captureOptions: Record<string, unknown>[] = [];
+    const models = [...CLI_ROWS];
+    const a = new ClaudeAdapter({ query: fakeQuery({ models, captureOptions }) as never, probe: async () => found("/usr/local/bin/claude", version)() });
+    await a.probe();
+    await a.probe();
+    expect(captureOptions).toHaveLength(1); // the same CLI is not asked twice
+    version = "2.1.320";
+    models.push({ value: "claude-fable-6", resolvedModel: "claude-fable-6" });
+    expect((await a.probe()).models?.map((m) => m.id)).toContain("claude-fable-6");
+    expect(captureOptions).toHaveLength(2);
+  });
+
+  it("answers models:null when the CLI declines, so the picker keeps its curated list", async () => {
+    const a = new ClaudeAdapter({ query: fakeQuery({}) as never, probe: found("/usr/local/bin/claude", "2.1.283") });
+    expect((await a.probe()).models).toBeNull();
+  });
+
+  it("runs sessions on the CLI the probe found, and on Realm's own copy when that is what it found", async () => {
+    const captureOptions: Record<string, unknown>[] = [];
+    const own = new ClaudeAdapter({ query: fakeQuery({ models: CLI_ROWS, captureOptions }) as never, probe: found("/usr/local/bin/claude", "2.1.316") });
+    await own.probe();
+    const h = own.start({ cwd: "/tmp", mcpServers: [] });
+    await h.send({ text: "hi", attachments: [] });
+    await collectUntil(h.events, (e) => e.type === "status" && e.payload.status === "idle");
+    await h.dispose();
+    expect(captureOptions.at(-1)!.pathToClaudeCodeExecutable).toBe("/usr/local/bin/claude");
+
+    const bundled = new ClaudeAdapter({ query: fakeQuery({ models: CLI_ROWS, captureOptions }) as never, probe: found("/realm/sdk/claude", "2.1.316", true) });
+    await bundled.probe();
+    const b = bundled.start({ cwd: "/tmp", mcpServers: [] });
+    await b.send({ text: "hi", attachments: [] });
+    await collectUntil(b.events, (e) => e.type === "status" && e.payload.status === "idle");
+    await b.dispose();
+    expect(captureOptions.at(-1)!.pathToClaudeCodeExecutable).toBeUndefined(); // the SDK's own, as before
   });
 });

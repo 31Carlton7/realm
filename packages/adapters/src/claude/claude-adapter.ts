@@ -1,15 +1,18 @@
 import { readFile, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { spawn as nodeSpawn } from "node:child_process";
 import { query as sdkQuery, type EffortLevel, type Options, type PermissionResult, type PermissionUpdate, type SDKUserMessage, type Settings, type SpawnOptions, type SpawnedProcess, type Query } from "@anthropic-ai/claude-agent-sdk";
-import { ASK_PERMISSION_MODE, REALM_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, askCardFromAskUserQuestion, claudeAnswers, loggableAnswers, mergeWindows, newId, normalizeAnswers, planWindowLabel, sessionEvent, type AskAnswers, type AskCard, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
+import { type AgentModel, ASK_PERMISSION_MODE, REALM_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, askCardFromAskUserQuestion, claudeAnswers, loggableAnswers, mergeWindows, newId, normalizeAnswers, planWindowLabel, sessionEvent, type AskAnswers, type AskCard, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { createSdkMapper, type ChainCursor } from "./map-sdk-message";
-import { probeClaude } from "./probe";
+import { probeClaudeBinary } from "./probe";
 import { carrySettingsAuth } from "./settings-auth";
 import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
 import { GATEWAY_TOOL_TIMEOUT_MS, RestartRequiredError } from "../types";
 
 type QueryFn = typeof sdkQuery;
+/** How long the model list may take. It answered in 0.8–1.5 s live; past this the CLI is unwell. */
+const MODEL_LIST_TIMEOUT_MS = 15_000;
 /** The keys `Settings` actually declares. The SDK's type ends in `[k: string]: unknown`, so a
  *  `satisfies Settings` passes any misspelling; this is the same type without that catch-all. */
 type DeclaredSettings = { [K in keyof Settings as string extends K ? never : number extends K ? never : K]?: Settings[K] };
@@ -64,6 +67,42 @@ export function fastModeByModel(rows: readonly { value: string; resolvedModel?: 
     else if (!(base in out)) out[base] = r.supportsFastMode;
   }
   return out;
+}
+
+/** `claude-sonnet-5-5` → `Claude Sonnet 5.5`: the CLI's own row names are bare families ("Sonnet"),
+ *  which cannot tell 5.5 from 5 once the older ones are listed beside it. */
+function claudeModelLabel(id: string): string {
+  const [, family = "", ...version] = id.split("-");
+  return `Claude ${family.charAt(0).toUpperCase()}${family.slice(1)} ${version.join(".")}`.trim();
+}
+
+/**
+ * The picker's Claude models, read off the CLI's own `supportedModels()` — so a CLI that learns a
+ * model brings it to the picker with no change to Realm.
+ *
+ * Rows are aliases (`default`, `opus[1m]`, `sonnet`) as often as ids, so each is filed under the
+ * model it resolves to: the context-window variant and the release date come off (`claude-opus-5-5`,
+ * `claude-haiku-4-5`), which are the ids a session pins and the keys fast-mode and effort answers are
+ * remembered under. The CLI's order is kept; the first row naming a model wins; `default` marks the
+ * model an un-pinned session runs. A row that resolves to nothing Claude-shaped is skipped.
+ */
+export function claudeModels(rows: Parameters<typeof effortByModel>[0] & Parameters<typeof fastModeByModel>[0]): AgentModel[] {
+  const efforts = effortByModel(rows);
+  const fast = fastModeByModel(rows);
+  const byId = new Map<string, AgentModel>();
+  for (const r of rows) {
+    const id = modelBase(r.resolvedModel ?? r.value)?.replace(/-\d{8}$/, "");
+    if (!id || !/^claude-[a-z]+-\d/.test(id)) continue;
+    const row = byId.get(id) ?? { id, label: claudeModelLabel(id) };
+    if (r.value === "default") row.isDefault = true;
+    if (!byId.has(id)) {
+      const levels = efforts[id];
+      if (levels && levels.length > 0) row.efforts = levels;
+      if (fast[id] !== undefined) row.fastMode = fast[id];
+      byId.set(id, row);
+    }
+  }
+  return [...byId.values()];
 }
 
 /**
@@ -240,9 +279,63 @@ function spawnWrapped(o: SpawnOptions, wrap: NonNullable<StartOptions["wrap"]>, 
 export class ClaudeAdapter implements AgentAdapter {
   readonly kind = "claude" as const;
   private queryFn: QueryFn;
-  constructor(deps: { query?: QueryFn } = {}) { this.queryFn = deps.query ?? sdkQuery; }
+  /**
+   * The `claude` sessions run: the one the last probe found, which is the one Settings reports and
+   * updates — the person's own CLI when it runs, else Realm's copy (left to the SDK, as `undefined`).
+   * Before any probe it is Realm's copy too; the prompter probes on mount, so a session a person
+   * starts has one. REALM_CLAUDE_BIN still wins outright.
+   */
+  private executable: string | undefined;
+  /** The last catalog, by the binary and version it was read from: the CLI is only asked again
+   *  once one of them changes, so a probe on every prompter mount does not spawn a CLI each time. */
+  private catalog: { key: string; models: AgentModel[] } | null = null;
+  private readonly probeBinary: typeof probeClaudeBinary;
+  constructor(deps: { query?: QueryFn; probe?: typeof probeClaudeBinary } = {}) {
+    this.queryFn = deps.query ?? sdkQuery;
+    this.probeBinary = deps.probe ?? probeClaudeBinary;
+  }
 
-  async probe(): Promise<ProbeResult> { const p = await probeClaude(); return { kind: this.kind, ...p }; }
+  async probe(): Promise<ProbeResult> {
+    const found = await this.probeBinary();
+    const bin = found.bundled ? undefined : found.bin ?? undefined;
+    this.executable = bin;
+    const models = found.probe.available ? await this.listModels(bin, found.probe.version) : null;
+    return { kind: this.kind, ...found.probe, models };
+  }
+
+  /**
+   * Ask the CLI for its model list without starting a turn: a query whose prompt never yields still
+   * completes the handshake `supportedModels()` answers from, and nothing reaches the API. User
+   * settings, MCP servers and the session file are all left out — this process exists to answer one
+   * question. `null` on any failure: the picker falls back to the curated list.
+   */
+  private async listModels(bin: string | undefined, version: string | null): Promise<AgentModel[] | null> {
+    const key = `${bin ?? "bundled"}|${version ?? ""}`;
+    if (this.catalog?.key === key) return this.catalog.models;
+    const idle = new AsyncQueue<SDKUserMessage>();
+    let q: Query | null = null;
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      q = this.queryFn({ prompt: idle, options: {
+        cwd: tmpdir(), pathToClaudeCodeExecutable: process.env.REALM_CLAUDE_BIN || bin,
+        settingSources: [], mcpServers: {}, strictMcpConfig: true, persistSession: false,
+      } });
+      const rows = await Promise.race([
+        q.supportedModels(),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("supportedModels timed out")), MODEL_LIST_TIMEOUT_MS); }),
+      ]);
+      const models = claudeModels(rows);
+      if (models.length === 0) return null;
+      this.catalog = { key, models };
+      return models;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+      idle.close();
+      q?.close();
+    }
+  }
 
   start(opts: StartOptions & ClaudeResumeFork): ClaudeHandle {
     const events = new AsyncQueue<SessionEvent>();
@@ -392,7 +485,9 @@ export class ClaudeAdapter implements AgentAdapter {
       ...(opts.skills ? { settingSources: [], plugins: [{ type: "local" as const, path: opts.skills.pluginPath, skipMcpDiscovery: true }] } : {}),
       env,
       stderr: onStderr,
-      pathToClaudeCodeExecutable: process.env.REALM_CLAUDE_BIN,
+      // The CLI the probe reports, so a session runs the models Settings shows — and the ones a
+      // `claude` update just brought.
+      pathToClaudeCodeExecutable: process.env.REALM_CLAUDE_BIN || this.executable,
       // Realm's execution sandbox. The SDK owns the argv — which node, which cli.js, which flags —
       // so there is nowhere else to stand: `spawnClaudeCodeProcess` is the SDK's own documented seam
       // for running the CLI somewhere other than plainly here (`sdk.d.ts`: "Use this to run Claude

@@ -3,8 +3,8 @@ import type { AgentKind } from "@realm/contracts";
 import { delegableModels, modelMenu, resolveModelName, type ProbedAgent } from "./models";
 
 /**
- * The model resolver, against a catalog shaped like a real Mac's: Claude on its curated list (its
- * CLI has no enumeration channel), Codex and Cursor on live catalogs, Cursor's labelled with its
+ * The model resolver, against a catalog shaped like a real Mac's: Claude on its curated list (a
+ * probe that could not read the CLI's), Codex and Cursor on live catalogs, Cursor's labelled with its
  * own raw ids the way cursor-agent reports them, and an ACP harness that is not installed.
  *
  * Each `it` names the mutant it exists to kill — a rule that no test can fail is a rule nobody can

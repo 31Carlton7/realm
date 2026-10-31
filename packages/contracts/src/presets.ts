@@ -65,9 +65,10 @@ export type AgentModel = {
  *
  * The asymmetry is deliberate, not an accident of neglect:
  *
- *  - **claude** is a curated list that stays hardcoded because no enumeration channel exists — the
- *    Claude Code CLI has no `--list-models`, and the Agent SDK takes a model id on faith. Curation is
- *    the honest option left; keep it in step with the CLI's own picker.
+ *  - **claude** is the fallback for a probe that could not read the CLI's own list. The probe asks
+ *    the CLI sessions run for `supportedModels()` (`ClaudeAdapter.probe`), so an updated `claude`
+ *    brings its new models to the picker by itself; this list only shows before that answers, or
+ *    when it cannot. Keep it to models Realm's bundled copy knows.
  *
  *    "On faith" is the trap: a model id here is only usable if the `claude` binary the Agent SDK
  *    bundles is new enough to know it. Too old and the API rejects the turn with
