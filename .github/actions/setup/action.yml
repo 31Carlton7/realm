@@ -5,6 +5,9 @@
 # on a pull request would serve nothing but that pull request's reruns, and push main's out of the 10 GB.
 # With node_modules restored, `pnpm install` finds it up to date and links nothing; the store is fetched
 # only when node_modules missed, so a changed lockfile downloads just what changed.
+#
+# Windows caches the store alone. pnpm links node_modules there with junctions, which come back from the
+# cache's tar as entries pnpm cannot follow (EPERM on realpath), so it installs from the store each time.
 name: Set up
 description: Node, pnpm and the workspace's dependencies, restored from main's cache.
 
@@ -48,6 +51,7 @@ runs:
 
     - name: Restore node_modules
       id: modules
+      if: runner.os != 'Windows'
       uses: actions/cache/restore@v4
       with:
         path: |
@@ -78,7 +82,7 @@ runs:
       run: test -e packages/ui/node_modules/@hugeicons-pro/core-stroke-rounded/package.json || { echo "::error::@hugeicons-pro did not install; check the HUGEICONS_TOKEN repo secret"; exit 1; }
 
     - name: Save node_modules
-      if: inputs.save-cache == 'true' && steps.modules.outputs.cache-hit != 'true'
+      if: inputs.save-cache == 'true' && steps.modules.outputs.cache-hit != 'true' && runner.os != 'Windows'
       uses: actions/cache/save@v4
       with:
         path: |
