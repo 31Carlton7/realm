@@ -157,6 +157,7 @@ export const liveApi = (): Api => ({
   respondPermission: async (id, requestId, decision, answers) => { await rpc().call("sessions.respondPermission", { id, requestId, decision, ...(answers ? { answers } : {}) }); },
   setSessionOptions: (id, o) => rpc().call("sessions.setOptions", { id, ...o }),
   setSessionAgent: (id, agentKind) => rpc().call("sessions.setAgent", { id, agentKind }),
+  switchSessionAgent: (sessionId, agentKind, model) => rpc().call("sessions.switchAgent", { sessionId, agentKind, model }),
   failoverGet: (spaceId) => rpc().call("failover.get", { spaceId }),
   failoverSet: (spaceId, policy) => rpc().call("failover.set", { spaceId, policy }),
   layaStatus: () => rpc().call("laya.status", {}),

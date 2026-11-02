@@ -1,9 +1,9 @@
-import { generateMemoryExtraction, generateMemoryTidyPlan, generateSessionRecap, generateSessionTitle } from "@realm/adapters";
+import { generateHandoffNotes, generateMemoryExtraction, generateMemoryTidyPlan, generateSessionRecap, generateSessionTitle } from "@realm/adapters";
 
 /**
  * The server's own billed model calls — a model-written sidebar title on a session's first message,
  * a recap when a turn settles, what Realm learns from a quiet session for memory and the pass that keeps
- * that memory tidy — or none at all.
+ * that memory tidy, the hand-off note a switch of agents writes — or none at all.
  *
  * None while the scripted agent is enabled. That flag is how every live check and capture boots the
  * BUILT app (`REALM_ENABLE_FAKE_AGENT=1`, "offline dev" in `defaultAdapters`), and those boot this
@@ -13,11 +13,11 @@ import { generateMemoryExtraction, generateMemoryTidyPlan, generateSessionRecap,
  * the heuristic first-line title instead, which is all any live check reads, and learns nothing.
  */
 export function billedGenerators(env: NodeJS.ProcessEnv = process.env): {
-  titleGenerator?: typeof generateSessionTitle; summaryGenerator?: typeof generateSessionRecap;
+  titleGenerator?: typeof generateSessionTitle; summaryGenerator?: typeof generateSessionRecap; handoffGenerator?: typeof generateHandoffNotes;
   memoryLearning?: { extract: typeof generateMemoryExtraction; tidy: typeof generateMemoryTidyPlan };
 } {
   return env.REALM_ENABLE_FAKE_AGENT === "1" ? {} : {
-    titleGenerator: generateSessionTitle, summaryGenerator: generateSessionRecap,
+    titleGenerator: generateSessionTitle, summaryGenerator: generateSessionRecap, handoffGenerator: generateHandoffNotes,
     memoryLearning: { extract: generateMemoryExtraction, tidy: generateMemoryTidyPlan },
   };
 }

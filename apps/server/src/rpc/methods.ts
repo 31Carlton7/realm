@@ -1239,6 +1239,7 @@ export function registerMethods(d: Deps): void {
   reg("sessions.respondPermission", (p) => { d.sessions.respondPermission(p.id, p.requestId, p.decision, p.answers); return { ok: true as const }; });
   reg("sessions.setOptions", (p) => d.sessions.setOptions(p.id, { model: p.model, effort: p.effort, permissionMode: p.permissionMode, fastMode: p.fastMode }));
   reg("sessions.setAgent", (p) => d.sessions.setAgent(p.id, p.agentKind));
+  reg("sessions.switchAgent", (p) => d.sessions.switchAgent(p.sessionId, { agentKind: p.agentKind, model: p.model, effort: p.effort }));
   /* Laya (`laya/service.ts`). The service makes every refusal — an install with no Python to make it
      from, Shadow before an install — so nothing here decides anything. */
   reg("laya.status", () => d.laya.status());

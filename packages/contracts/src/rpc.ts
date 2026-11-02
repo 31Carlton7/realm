@@ -2216,6 +2216,16 @@ export const Methods = {
    *  model id from the old kind means nothing to the new one. */
   "sessions.setAgent": { params: z.object({ id: IdSchema, agentKind: AgentKindSchema }), result: SessionSchema },
   /**
+   * Move a session that HAS run onto another agent, in place: Realm writes a hand-off note of the
+   * conversation (the ask, decisions, what changed, open questions, the last turns verbatim) on the
+   * frontier model, saves it under its home's `handoffs/`, and the new agent's first start is handed
+   * it as system context with the file's path. A `handoff` event with `reason: "switch"` says so on
+   * the transcript. Refused while a turn is live (SESSION_BUSY) — a switch is about the next turn.
+   * An untouched session is simply re-pointed, as `setAgent` does. `model: null` is the new agent's
+   * own default; `effort` likewise.
+   */
+  "sessions.switchAgent": { params: z.object({ sessionId: IdSchema, agentKind: AgentKindSchema, model: z.string().nullable().optional(), effort: z.string().nullable().optional() }), result: SessionSchema },
+  /**
    * The space's failover policy: whether a stalled turn retries, and which agents it may be handed
    * to when retrying is not the answer (`failover.ts`).
    *

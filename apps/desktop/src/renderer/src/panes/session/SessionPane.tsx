@@ -250,6 +250,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const openAgentsTabFor = useApp((s) => s.openAgentsTab);
   const setSessionOptions = useApp((s) => s.setSessionOptions);
   const setSessionAgent = useApp((s) => s.setSessionAgent);
+  const switchSessionAgent = useApp((s) => s.switchSessionAgent);
   const setSessionMode = useApp((s) => s.setSessionMode);
   const planReturn = useApp((s) => s.planReturn[id] ?? null);
   /* Looked at, not opened: a peek keeps the transcript and its cards and gives up the prompter. */
@@ -734,6 +735,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
               if (kind !== session.agentKind) await setSessionAgent(id, kind);
               if (modelId !== null) await setSessionOptions(id, { model: modelId });
             })}
+            onSwitchAgent={(kind, modelId) => switchSessionAgent(id, kind, modelId)}
             onMode={(mode) => run(() => setSessionMode(id, mode))} planReturn={planReturn}
             onParkPermission={(permissionMode) => run(() => setParkedPermission(id, permissionMode))}
             // The agent's own modes off THIS session's init event (Plan 14 W3): null = handshake not

@@ -75,6 +75,14 @@ describe("modelRows with a probe catalog", () => {
     expect(rows.filter((r) => r.kind === "codex").every((r) => r.blockedReason === null)).toBe(true);
     expect(rows.filter((r) => r.kind !== "codex").every((r) => r.blockedReason !== null)).toBe(true);
   });
+
+  it("offers every route again to a session that has run but can hand over", () => {
+    const rows = modelRows({ kind: "codex", model: "gpt-5.6-terra", agentProbe: [probe("codex", codexCatalog), probe("acp:cursor", cursorCatalog)], canSwitchAgent: false, handoff: true });
+    expect(rows.every((r) => r.blockedReason === null)).toBe(true);
+    // Still the session's own harness wherever it offers the model, so its own picks cost no switch.
+    expect(rows.find((r) => r.selected)?.kind).toBe("codex");
+    expect(rows.some((r) => r.kind === "claude")).toBe(true);
+  });
 });
 
 describe("usableModel — a remembered model, if the harness still offers it", () => {

@@ -8,6 +8,7 @@ import type { SessionsStore, SessionEventsStore } from "../store/sessions";
 import type { SettingsStore } from "../store/settings";
 import type { AdapterRegistry, ProbeResult } from "@realm/adapters";
 import type { SendMessage } from "./service";
+import { handOver } from "./handover";
 
 /**
  * Failover: finishing a turn the agent could not.
@@ -308,32 +309,17 @@ export class FailoverService {
   }
 
   /**
-   * Move the session onto `to` and replay the turn there.
-   *
-   * Order matters and is load-bearing throughout: the adapter is stopped BEFORE the row is rewritten
-   * (a live handle outliving its own `agentKind` would keep pumping the old agent's events into a
-   * session that now claims to be another one), and the context is written BEFORE the row moves,
-   * because `ensureLive` reads both and must never see one without the other.
+   * Move the session onto `to` (`handOver`, the move a switch makes too) and replay the turn there.
+   * `model` and `effort` go to the new agent's own defaults: nothing said which of its models to use.
    */
   private async handoff(session: Session, to: AgentKind, kind: FailureKind, turn: Attempt): Promise<void> {
-    await this.d.stop(session.id);
-    if (this.closing || this.turns.get(session.id) !== turn) return;
-
-    const turns = this.d.events.transcript(session.id, Date.now());
-    this.d.settings.set(handoffContextKey(session.id), buildHandoffContext({ from: session.agentKind, turns }));
-    this.d.sessions.update({
-      id: session.id, agentKind: to,
-      // All three are per-kind and none of them survives the move. A stale providerSessionId would
-      // ask the new adapter to resume a thread it has never heard of; a stale model id would ask it
-      // for a model from another vendor's catalogue.
-      providerSessionId: null, model: null, effort: null,
-    });
+    const moved = await handOver(this.d, session, {
+      to, model: null, effort: null,
+      context: () => buildHandoffContext({ from: session.agentKind, turns: this.d.events.transcript(session.id, Date.now()) }),
+      event: { from: session.agentKind, to, reason: kind, note: handoffNote(session.agentKind, to, kind), attempt: turn.retries },
+    }, () => !this.closing && this.turns.get(session.id) === turn);
+    if (!moved) return;
     turn.tried = [...turn.tried, session.agentKind];
-    this.d.emit(session.id, sessionEvent("handoff", {
-      from: session.agentKind, to, reason: kind,
-      note: handoffNote(session.agentKind, to, kind),
-      attempt: turn.retries,
-    }));
     // Every budget and verdict here is per-AGENT: the reason the old one was out of attempts says
     // nothing about this one, and neither does what its CLI said about being signed in. Carrying
     // either across would put the outgoing agent's sentence — and its login command — under the

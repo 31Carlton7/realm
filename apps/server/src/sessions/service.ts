@@ -12,8 +12,9 @@ import type { SpacesStore } from "../store/spaces";
 import type { SettingsStore } from "../store/settings";
 import type { TerminalService } from "../terminals/service";
 import { NotFoundError, RpcError } from "../store/rows";
-import { shouldSurfaceWrite } from "@realm/contracts";
+import { buildHandoffContext, shouldSurfaceWrite, switchNote } from "@realm/contracts";
 import type { FailoverHooks } from "./failover";
+import { handOver, modeAfterSwitch, modelNameOf } from "./handover";
 import { portEnv, type PortAllocator } from "../workspace/ports";
 import type { WorktreeService } from "../workspace/worktrees";
 import type { CheckpointService } from "../checkpoints/service";
@@ -229,10 +230,17 @@ export class SessionService {
   private secrets = new SecretAnswers();
   /** Set while the daemon is going quiet for a handoff. See `ensureLive` for the rule that matters. */
   private draining = false;
+  /** Sessions changing agents (`switchAgent`). A message sent meanwhile waits for the switch, so it is
+   *  the new agent's first rather than one more for the agent being left. */
+  private switching = new Map<string, Promise<unknown>>();
   constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; settings: SettingsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry; skills: SkillsService; gateway: McpGateway; memory: MemoryService; checkpoints?: CheckpointService;
     /** Failover (fallbacks + forks). Optional so a server built without it behaves exactly as
      *  before: no retries, no handoffs, an error is an error. */
     failover?: FailoverHooks;
+    /** What a switch hands the incoming agent (`sessions/handover.ts`): the hand-off note, written on
+     *  the frontier model and saved under Realm's home. Optional — without it a switch still happens,
+     *  carrying the conversation verbatim, and writes no file. */
+    handoffNotes?: { write(session: Session, sides: { from: string; to: string }): Promise<{ path: string; notes: string }> };
     /** The Seatbelt policy an agent CLI is spawned under. Optional so a harness built without it
      *  spawns exactly what Realm spawned before this feature existed. */
     sandbox?: ExecutionSandboxService;
@@ -453,6 +461,7 @@ export class SessionService {
    * delegation and run services send into children they have just created — reads the setting.
    */
   async send(id: string, msg: SendMessage, delivery: "auto" | "queue" | "steer" = "auto"): Promise<void> {
+    await this.switching.get(id)?.catch(() => {});
     // `waiting_permission` counts: the turn has not ended, it is blocked on a card the user has not
     // answered. The prompter draws both states the same way for the same reason, and a message typed
     // against an open permission card is the one most likely to be a correction.
@@ -1014,6 +1023,51 @@ export class SessionService {
     if (!this.d.adapters[agentKind]) throw new RpcError("AGENT_UNAVAILABLE", `${agentKind} is not registered`);
     if (this.d.events.hasAny(id)) throw new RpcError("SESSION_STARTED", "this session has already run; its agent can no longer be changed");
     return this.d.sessions.update({ id, agentKind, model: null });
+  }
+
+  /**
+   * Move a session onto another agent mid-conversation — the picker's switch (`sessions.switchAgent`).
+   *
+   * An untouched session is only re-pointed, as `setAgent` does. One that has run hands over in place,
+   * by the move failover makes (`handOver`) with the person's reason on it: Realm writes a hand-off
+   * note of the conversation (`HandoffNotes`), and the new agent's next start is handed it as system
+   * context with the file's path. The permission mode stays where the new agent can be put in it and
+   * otherwise goes to the default, as a fork's does.
+   *
+   * Refused while a turn is live: a switch is about the next turn, and stopping one mid-write to
+   * change agents under it is what Stop is for, not the picker.
+   */
+  async switchAgent(id: string, o: { agentKind: AgentKind; model?: string | null; effort?: string | null }): Promise<Session> {
+    const s = this.get(id);
+    if (!this.d.adapters[o.agentKind]) throw new RpcError("AGENT_UNAVAILABLE", `${o.agentKind} is not registered`);
+    if (s.agentKind === o.agentKind || !this.d.events.hasAny(id)) {
+      if (s.agentKind !== o.agentKind) this.setAgent(id, o.agentKind);
+      if (o.model || o.effort !== undefined) return this.setOptions(id, { ...(o.model ? { model: o.model } : {}), ...(o.effort !== undefined ? { effort: o.effort } : {}) });
+      return this.get(id);
+    }
+    if (s.status === "running" || s.status === "waiting_permission") {
+      throw new RpcError("SESSION_BUSY", `${AGENT_META[s.agentKind].label} is still working on this turn. Stop it or let it finish, then switch.`);
+    }
+    if (this.switching.has(id)) throw new RpcError("SESSION_SWITCHING", "this session is already switching agents");
+    const work = this.switchOver(s, { agentKind: o.agentKind, model: o.model ?? null, effort: o.effort ?? null });
+    this.switching.set(id, work);
+    try { await work; } finally { this.switching.delete(id); }
+    return this.get(id);
+  }
+
+  private async switchOver(s: Session, o: { agentKind: AgentKind; model: string | null; effort: string | null }): Promise<void> {
+    const probes = await this.probe();
+    const sides = { from: modelNameOf(s.agentKind, s.model, probes), to: modelNameOf(o.agentKind, o.model, probes) };
+    const written = (await this.d.handoffNotes?.write(s, sides)) ?? null;
+    await handOver({ sessions: this.d.sessions, settings: this.d.settings, stop: (id) => this.stop(id), emit: (id, ev) => this.onEvent(id, ev) }, s, {
+      to: o.agentKind, model: o.model, effort: o.effort,
+      permissionMode: modeAfterSwitch(o.agentKind, s.permissionMode, resolveDefaultPermissionMode(o.agentKind, this.d.settings.get(DEFAULT_PERMISSION_MODE_KEY))),
+      context: () => buildHandoffContext({
+        from: s.agentKind, turns: this.d.events.transcript(s.id, Date.now()),
+        ...(written ? { switched: { notes: written.notes, path: written.path } } : {}),
+      }),
+      event: { from: s.agentKind, to: o.agentKind, reason: "switch", note: switchNote(sides.from, sides.to), attempt: 0, ...(written ? { summaryPath: written.path } : {}) },
+    });
   }
 
   /**

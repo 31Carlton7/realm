@@ -1562,6 +1562,11 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       if (data.sessions[i]!.lastEventSeq > 0) throw new Error("this session has already run; its agent can no longer be changed");
       const s = { ...data.sessions[i]!, agentKind, model: null }; data.sessions[i] = s; return s;
     },
+    switchSessionAgent: async (id, agentKind, model) => {
+      calls.push(`switchSessionAgent:${id}=${agentKind}:${model}`);
+      const i = data.sessions.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no session ${id}`);
+      const s = { ...data.sessions[i]!, agentKind, model, providerSessionId: null }; data.sessions[i] = s; return s;
+    },
     setSessionEnvironment: async (id, environmentId) => {
       calls.push(`setSessionEnvironment:${id}=${environmentId}`);
       const i = data.sessions.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no session ${id}`);

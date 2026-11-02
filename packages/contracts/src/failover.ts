@@ -282,6 +282,22 @@ export function exhaustedNote(from: AgentKind, kind: FailureKind): string {
  *  said "Copilot" — or worse, said `acp:copilot`, an enum leaking into prose. */
 export const agentLabel = (kind: AgentKind): string => AGENT_META[kind].label;
 
+/** The sentence a switch the person made puts on the transcript, naming both models in full. */
+export function switchNote(from: string, to: string): string {
+  return `Switched from ${from} to ${to}`;
+}
+
+/**
+ * A model as a sentence names it: "Claude Opus 5.5", "Codex GPT-5.6". The agent leads unless the
+ * model's own name already starts with it, and a model the agent's name already holds — "Default",
+ * or "Fake" under "Fake agent" — is the agent alone: "Copilot Default" names nothing.
+ */
+export function agentModelName(kind: AgentKind, label: string): string {
+  const agent = agentLabel(kind);
+  if (label === "Default" || agent.startsWith(label)) return agent;
+  return label.startsWith(`${agent} `) ? label : `${agent} ${label}`;
+}
+
 /**
  * The cap on transcript carried across a handoff, in characters (~6k tokens) — the same budget a
  * fork carries, for the same reason: the tail is what the next agent needs, and a briefing longer
@@ -293,6 +309,28 @@ export const HANDOFF_CONTEXT_MAX = 24_000;
 export const handoffContextKey = (sessionId: string): string => `failover.context:${sessionId}`;
 
 /**
+ * Spoken turns as the text another agent is handed: `User:` and `Assistant:` blocks, cut to their
+ * newest `max` characters on a turn boundary so the carried text never opens mid-block, and the
+ * backtick run that fences them, longer than any run inside so transcript text can never break out.
+ * A handover, a switch and a fork all carry a conversation this one way.
+ */
+export function carriedTranscript(turns: readonly { role: "user" | "assistant"; text: string }[], max: number): { body: string; truncated: boolean; fence: string } {
+  let body = turns.map((t) => `${t.role === "user" ? "User" : "Assistant"}: ${t.text}`).join("\n\n");
+  let truncated = false;
+  if (body.length > max) {
+    const tail = body.slice(body.length - max);
+    const boundary = tail.indexOf("\n\n");
+    body = boundary === -1 ? tail : tail.slice(boundary + 2);
+    truncated = true;
+  }
+  return { body, truncated, fence: fenceFor(body) };
+}
+
+/** A backtick run longer than any inside `text`, and never shorter than three. */
+export const fenceFor = (text: string): string =>
+  "`".repeat(Math.max(3, ...(text.match(/`+/g) ?? []).map((r) => r.length + 1)));
+
+/**
  * What the incoming agent is told.
  *
  * The hard truth stated first, because everything else depends on it: the provider conversation
@@ -302,23 +340,32 @@ export const handoffContextKey = (sessionId: string): string => `failover.contex
  *
  * Spoken turns only. Tool chatter is bulk rather than context, and the files it touched are on disk
  * where the new agent can read them for itself.
+ *
+ * A switch the person made carries Realm's hand-off note instead of the transcript: the note already
+ * holds the conversation's gist and its last turns verbatim, and it names the file it is saved in so
+ * the agent can read it again once its own context has moved on.
  */
 export function buildHandoffContext(input: {
   from: AgentKind;
   turns: { role: "user" | "assistant"; text: string }[];
   max?: number;
+  switched?: { notes: string; path: string };
 }): string {
-  const max = input.max ?? HANDOFF_CONTEXT_MAX;
-  let body = input.turns.map((t) => `${t.role === "user" ? "User" : "Assistant"}: ${t.text}`).join("\n\n");
-  let truncated = false;
-  if (body.length > max) {
-    // Keep the tail; cut forward to the next turn boundary so the carried text never opens mid-block.
-    const tail = body.slice(body.length - max);
-    const boundary = tail.indexOf("\n\n");
-    body = boundary === -1 ? tail : tail.slice(boundary + 2);
-    truncated = true;
+  if (input.switched) {
+    const { notes, path } = input.switched;
+    const fence = fenceFor(notes);
+    return [
+      "# Switched mid-session",
+      `This session was running on ${agentLabel(input.from)}, and the person switched it to you. ` +
+      "You are taking it over IN PLACE: same working directory, same files, same task. " +
+      "The provider conversation could not be moved, so this is a fresh conversation for you. " +
+      `Realm's hand-off note for it is below, and saved at ${path}. ` +
+      "Work already on disk is real — read it before redoing it.",
+      `${fence}markdown\n${notes}\n${fence}`,
+    ].join("\n\n");
   }
-  const fence = "`".repeat(Math.max(3, ...(body.match(/`+/g) ?? []).map((r) => r.length + 1)));
+  const max = input.max ?? HANDOFF_CONTEXT_MAX;
+  const { body, truncated, fence } = carriedTranscript(input.turns, max);
   const carried = input.turns.length === 0
     ? "There was no conversation before the handover, so no transcript is carried."
     : `The conversation so far is carried below as plain text${truncated

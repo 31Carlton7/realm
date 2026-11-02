@@ -744,6 +744,12 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
                   which is the one thing a seam must not read as. */}
               <span>{b.note}</span>
               {b.attempt > 0 && <span className="msg-handoff-tries">after {b.attempt} {b.attempt === 1 ? "retry" : "retries"}</span>}
+              {/* What the new agent was handed, opened beside the session as any file it names is. */}
+              {b.summaryPath && checkout && <>
+                <span className="msg-handoff-tries" aria-hidden="true">·</span>
+                <button type="button" className="msg-handoff-link" title={b.summaryPath}
+                  onClick={() => checkout.onOpen(b.summaryPath!, null)}>Summary</button>
+              </>}
             </div>;
             // Present tense, because this one is about right now: it is the only block in the
             // transcript that will be replaced rather than joined by what comes next.

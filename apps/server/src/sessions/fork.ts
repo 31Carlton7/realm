@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import type { AgentKind, Environment, Session } from "@realm/contracts";
+import { carriedTranscript, type AgentKind, type Environment, type Session } from "@realm/contracts";
 import type { AdapterRegistry } from "@realm/adapters";
 import type { CheckpointsStore } from "../store/checkpoints";
 import type { EnvironmentsStore } from "../store/environments";
@@ -48,17 +48,7 @@ export function buildForkContext(input: {
   max?: number;
 }): string {
   const max = input.max ?? FORK_CONTEXT_MAX;
-  const blocks = input.turns.map((t) => `${t.role === "user" ? "User" : "Assistant"}: ${t.text}`);
-  let body = blocks.join("\n\n");
-  let truncated = false;
-  if (body.length > max) {
-    // Keep the tail; cut forward to the next turn boundary so the carried text never opens mid-block.
-    const tail = body.slice(body.length - max);
-    const boundary = tail.indexOf("\n\n");
-    body = boundary === -1 ? tail : tail.slice(boundary + 2);
-    truncated = true;
-  }
-  const fence = "`".repeat(Math.max(3, ...(body.match(/`+/g) ?? []).map((r) => r.length + 1)));
+  const { body, truncated, fence } = carriedTranscript(input.turns, max);
   const carried = input.turns.length === 0
     ? "The ancestor had no conversation before that checkpoint, so no transcript is carried."
     : `The ancestor transcript up to that checkpoint is carried below as plain text${truncated

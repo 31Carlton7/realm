@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AUTH_MAX_RECHECKS, AUTH_RECHECK_BACKOFF_MS, DEFAULT_FAILOVER_POLICY, FAILOVER_BACKOFF_MS,
-  FAILOVER_MAX_RETRIES, agentLabel, authBackoffFor, authFix, backoffFor, buildHandoffContext,
+  FAILOVER_MAX_RETRIES, agentLabel, agentModelName, authBackoffFor, authFix, backoffFor, buildHandoffContext, carriedTranscript, switchNote,
   classifyFailure, exhaustedNote, handoffNote, isHandoffable, isRetryable, nextInChain,
 } from "./failover";
 import type { AgentKind } from "./entities";
@@ -156,6 +156,34 @@ describe("the briefing the incoming agent gets", () => {
     const c = buildHandoffContext({ from: "claude", turns: [] });
     expect(c).toContain("no transcript is carried");
     expect(c).not.toContain("transcript\n");
+  });
+
+  it("carries a switch's hand-off note and its path instead of the transcript", () => {
+    const c = buildHandoffContext({ from: "claude", turns, switched: { notes: "## The ask\nrun ```ls```", path: "/realm/handoffs/s1/1.md" } });
+    expect(c).toContain("# Switched mid-session");
+    expect(c).toContain("the person switched it to you");
+    expect(c).toContain("saved at /realm/handoffs/s1/1.md");
+    expect(c).toContain("could not be moved");
+    // The note is fenced past its own backtick runs, and the transcript is not carried a second time.
+    expect(c).toContain("````markdown\n## The ask");
+    expect(c).not.toContain("User: add a health endpoint");
+  });
+});
+
+describe("naming a switch", () => {
+  it("names each side by agent and model, without repeating either", () => {
+    expect(agentModelName("claude", "Claude Opus 5.5")).toBe("Claude Opus 5.5");
+    expect(agentModelName("claude", "Fable 5.1")).toBe("Claude Fable 5.1");
+    expect(agentModelName("codex", "GPT-5.6")).toBe("Codex GPT-5.6");
+    expect(agentModelName("acp:copilot", "Default")).toBe(agentLabel("acp:copilot"));
+    expect(switchNote("Claude Opus 5.5", "Codex GPT-5.6")).toBe("Switched from Claude Opus 5.5 to Codex GPT-5.6");
+  });
+
+  it("carries a transcript the one way a handover, a switch and a fork share", () => {
+    const { body, truncated, fence } = carriedTranscript([{ role: "user", text: "a" }, { role: "assistant", text: "b" }], 100);
+    expect(body).toBe("User: a\n\nAssistant: b");
+    expect(truncated).toBe(false);
+    expect(fence).toBe("```");
   });
 });
 

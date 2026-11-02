@@ -1449,17 +1449,20 @@ describe("prompter model picker", () => {
   });
 
   describe("once the session has run", () => {
-    it("lists only what the session can still run, says why, and offers no way round it", async () => {
+    it("still offers other agents' models, and asks before moving the session to one", async () => {
       const { api, store } = await mountFresh({}, 1);
       openPicker();
-      expect(screen.queryByRole("option", { name: /GPT-5\.6/ })).toBeNull();
-      expect(within(screen.getByRole("listbox", { name: "Models" })).getAllByRole("group").map((g) => g.getAttribute("aria-label"))).toEqual(["Claude"]);
-      expect(document.querySelector(".mp-locked")).toHaveTextContent(/already run on Claude/);
-      // A search that only other agents could answer says so, rather than "no match".
-      fireEvent.change(screen.getByRole("combobox", { name: "Search models" }), { target: { value: "gpt" } });
-      expect(document.querySelector(".mp-empty")).toHaveTextContent(/already run/);
-      expect(api.calls.filter((c) => c.startsWith("setSessionAgent"))).toHaveLength(0);
+      expect(document.querySelector(".mp-locked")).toBeNull();
+      fireEvent.click(screen.getByRole("option", { name: /GPT-5\.6/ }));
+      const ask = screen.getByRole("group", { name: "Switch to Codex" });
+      expect(ask).toHaveTextContent("Switch to Codex?It starts fresh with a summary of this conversation.");
+      // Nothing has moved on the pick alone.
       expect(store.getState().sessions.se1?.agentKind).toBe("claude");
+      fireEvent.click(within(ask).getByRole("button", { name: "Switch" }));
+      await waitFor(() => expect(store.getState().sessions.se1?.agentKind).toBe("codex"));
+      expect(api.calls.filter((c) => c.startsWith("switchSessionAgent"))).toHaveLength(1);
+      // Never the before-the-first-message route, which the server refuses once a session has run.
+      expect(api.calls.filter((c) => c.startsWith("setSessionAgent"))).toHaveLength(0);
     });
 
     it("keeps models within the current agent selectable", async () => {
@@ -1471,23 +1474,26 @@ describe("prompter model picker", () => {
       await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-opus-5"));
     });
 
-    it("locks on a live event arriving into an open prompter, and on a row that already carries events", async () => {
-      const { store } = await mountFresh({}, 0);
+    it("asks first once a live event arrives into an open prompter, and on a row that already carries events", async () => {
+      const { api, store } = await mountFresh({}, 0);
       openPicker();
-      expect(screen.getByRole("option", { name: /GPT-5\.6/ })).toBeInTheDocument();
       act(() => store.getState().applySessionEvent({ seq: 7, sessionId: "se1", ephemeral: false, event: sessionEvent("user_message", { text: "hi", attachments: [] }) }));
-      await waitFor(() => expect(screen.queryByRole("option", { name: /GPT-5\.6/ })).toBeNull());
-      expect(document.querySelector(".mp-locked")).not.toBeNull();
+      fireEvent.click(screen.getByRole("option", { name: /GPT-5\.6/ }));
+      expect(screen.getByRole("group", { name: "Switch to Codex" })).toBeInTheDocument();
+      expect(api.calls.filter((c) => c.startsWith("setSessionAgent"))).toHaveLength(0);
 
       // lastEventSeq comes back with sessions.list; the transcript is fetched afterwards. Trusting
-      // only the transcript would flash a live agent switch on every revisit of a long session.
-      const api = fakeApi({ sessions: [session("se2", "s1", { status: "idle", agentKind: "claude", lastEventSeq: 12 })] });
-      const st = createAppStore(api); await st.getState().boot();
+      // only the transcript would offer a free agent switch on every revisit of a long session.
+      const api2 = fakeApi({ sessions: [session("se2", "s1", { status: "idle", agentKind: "claude", lastEventSeq: 12 })] });
+      const st = createAppStore(api2); await st.getState().boot();
       st.setState({ sessionStatus: { se2: "idle" } });
       render(<StoreContext.Provider value={st}><SessionPane item={item("i8", "s1", { kind: "session", refId: "se2", title: "Claude session" })} visible /></StoreContext.Provider>);
       const chips = await screen.findAllByRole("button", { name: "Model" });
       fireEvent.click(chips[1]!);
-      await waitFor(() => expect(screen.getAllByRole("dialog", { name: "Model picker" }).at(-1)).toHaveTextContent(/already run on Claude/));
+      const second = screen.getAllByRole("dialog", { name: "Model picker" }).at(-1)!;
+      fireEvent.click(within(second).getByRole("option", { name: /GPT-5\.6/ }));
+      expect(within(second).getByRole("group", { name: "Switch to Codex" })).toBeInTheDocument();
+      expect(api2.calls.filter((c) => c.startsWith("setSessionAgent"))).toHaveLength(0);
     });
   });
 
@@ -1803,15 +1809,14 @@ describe("prompter model picker", () => {
       expect(picker()).toHaveTextContent(AGENT_NOTES["acp:deepseek"].billing);
     });
 
-    it("offers no other harness once the session has run, and says why", async () => {
-      // sessions.setAgent refuses after the first event, so a second way to run a model would be a
-      // click whose only outcome is a refusal.
+    it("offers a model's other harness once the session has run, and asks before taking it", async () => {
       const { store } = await mountFresh({ model: "claude-fable-5-1", lastEventSeq: 3 }, 3, proxyProbe);
       await waitFor(() => expect(store.getState().agentProbe).toHaveLength(1));
       openPicker();
       fireEvent.mouseEnter(screen.getByRole("option", { name: /Claude Fable 5\.1/ }));
-      expect(picker().querySelector(".mp-ways")).toBeNull();
-      expect(picker()).toHaveTextContent(/already run on Claude/);
+      fireEvent.click(screen.getByRole("button", { name: "Run Claude Fable 5.1 through Cursor" }));
+      expect(screen.getByRole("group", { name: "Switch to Cursor" })).toBeInTheDocument();
+      expect(store.getState().sessions.se1?.agentKind).toBe("claude");
     });
   });
 });

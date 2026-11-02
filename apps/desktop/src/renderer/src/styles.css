@@ -1561,6 +1561,14 @@ kbd { font: 11px var(--font-mono); }
 .mp-about-specs { margin: auto 0 0; font-size: 12px; line-height: 17px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* The question a switch of agents asks, in the place of the picked model's card: what happens, then
+   the two answers at the trailing edge, where a sheet's decision sits. */
+.mp-switch { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 10px 14px 12px; border-top: var(--hairline-w) solid var(--rl-hairline); }
+.mp-switch-title { margin: 0; font-size: 13px; line-height: 18px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
+.mp-switch-note { margin: 0; min-height: 34px; font-size: 12px; line-height: 17px; color: var(--rl-text-dim); text-wrap: pretty; }
+.mp-switch-note[data-tone="warning"] { color: var(--rl-warning); }
+.mp-switch-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+
 /* How the answer is produced: effort, fast mode, and whatever the control row could not fit. */
 .mp-foot { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 12px; border-top: var(--hairline-w) solid var(--rl-hairline); }
 /* A label column, then the control: one width for every group, so the segments start on one edge. */
@@ -4026,6 +4034,9 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .msg-unseen { display: flex; align-items: center; gap: 10px; margin: 14px 0; font-size: 11px; color: var(--rl-accent); }
 .msg-unseen::before, .msg-unseen::after { content: ""; flex: 1; height: 1px; background: color-mix(in oklab, var(--rl-accent) 45%, transparent); }
 .msg-handoff-tries { color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+/* The note a switch wrote, as a link set into the seam: the seam's size, the link's ink. */
+.msg-handoff-link { font: inherit; color: var(--rl-accent); font-weight: var(--fw-label); padding: 0; background: none; }
+.msg-handoff-link:hover { text-decoration: underline; text-underline-offset: 2px; }
 .msg-thinking { font-size: 12px; }
 .thinking-toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--rl-text-faint); padding: 2px 6px; border-radius: var(--r-chip); corner-shape: squircle; }
 .thinking-toggle:hover { background: var(--rl-hover); color: var(--rl-text-dim); }

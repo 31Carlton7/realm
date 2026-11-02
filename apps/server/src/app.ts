@@ -100,6 +100,7 @@ import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { EnvironmentsStore } from "./store/environments";
 import { SessionService, resolveDefaultPermissionMode } from "./sessions/service";
 import { RECAP_DEBOUNCE_MS, SessionSummaryService } from "./sessions/summary";
+import { HandoffNotes, type HandoffNotesGenerator } from "./sessions/handover";
 import { PlanLimitsService } from "./limits/service";
 import type { MemoryExtractionInput, MemoryTidyInput, ProbeResult } from "@realm/adapters";
 import { SkillsService } from "./skills/service";
@@ -823,6 +824,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  derived line and the prompter keeps its deterministic ladder. */
   summaryGenerator?: (input: { asked: string; transcript: string; facts: string })
     => Promise<{ summary: string; hint: string | null }>;
+  /** The hand-off note a switch of agents writes (`sessions/handover.ts`). Omitted for the same
+   *  reason: without it a switch carries the conversation verbatim. */
+  handoffGenerator?: HandoffNotesGenerator;
   /** Realm learning from quiet sessions for memory, and tidying what it keeps. `extract` and `tidy` are
    *  the billed calls, omitted for `titleGenerator`'s reason: only `main.ts` passes them, and not in a
    *  harness. `sink` stands in for the memory repo's helpers and `idleMs` for the quiet spell, for a test. */
@@ -1314,6 +1318,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
         isIdle: (id) => sessionsStore.get(id)?.status === "idle",
       })
     : undefined;
+  /* What a switch of agents hands the incoming one, written on the frontier model when this build may
+     make that call and the machine can, and verbatim otherwise. */
+  const handoffNotes = new HandoffNotes({
+    home: opts.home, events: sessionEvents, generate: opts.handoffGenerator, available: claudeCanAnswer,
+    onError: (line) => console.error(line),
+  });
   /** The brief a session was started with — a delegated child's, a reviewer's, a fork's carried
    *  context, an unattended worker's — or undefined for a session the person started. A session is a
    *  child of at most one registry. */
@@ -1381,7 +1391,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // A team role's goal run settles when its goal stops, not after its first turn.
     onChanged: (sessionId, goal) => handoffs?.goalChanged(sessionId, goal),
   });
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, agentMemory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, planLimits, documents, goals, views: appViews,
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, agentMemory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, handoffNotes, planLimits, documents, goals, views: appViews,
     // What the idle reaper must leave running between turns. Read at sweep time, long after every
     // service named here exists.
     keepEngine: (sessionId) => goals.get(sessionId)?.status === "active"
@@ -1426,7 +1436,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     },
     browserAgents: {
       parentInterrupted: (id) => browserAgents?.parentInterrupted(id),
-      release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); runs?.release(id); codeReview?.release(id); teammates?.release(id); },
+      release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); runs?.release(id); codeReview?.release(id); teammates?.release(id); void handoffNotes.release(id).catch(() => {}); },
       extraSystemContext: agentContextOf,
       skillsFilter: (id) => agentRuns?.skillsFilter(id) ?? runs?.skillsFilter(id) ?? null,
       modeSet: async (id, mode) => { await agentRuns?.cascadeMode(id, mode); },

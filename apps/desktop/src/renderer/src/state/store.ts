@@ -420,6 +420,8 @@ export type Api = TeamApi & LabApi & {
   setSessionOptions(id: string, o: SessionOptions): Promise<Session>;
   /** `sessions.setAgent` — rejected by the server once the session has any event. */
   setSessionAgent(id: string, agentKind: AgentKind): Promise<Session>;
+  /** `sessions.switchAgent` — a session that has run moves to another agent with a hand-off note. */
+  switchSessionAgent(sessionId: string, agentKind: AgentKind, model: string | null): Promise<Session>;
   failoverGet(spaceId: string): Promise<FailoverPolicy>;
   failoverSet(spaceId: string, policy: FailoverPolicy): Promise<FailoverPolicy>;
   /** `laya.*` — the local Laya runtime (Settings ▸ Engines). Each answers the fresh status; the server
@@ -2204,6 +2206,9 @@ export type AppState = TeamSlice & LabSlice & {
   /** Switch an unstarted session's agent (prompter model picker). The server refuses once events exist —
    *  cross-agent rows go unavailable there, so this is only ever called while it is legal. */
   setSessionAgent(id: string, agentKind: AgentKind): Promise<void>;
+  /** Move a session that has run onto another agent: the server writes a hand-off note of the
+   *  conversation and the new agent starts fresh with it (`sessions.switchAgent`). */
+  switchSessionAgent(id: string, agentKind: AgentKind, model: string | null): Promise<void>;
   /** The active space's failover policy, or null before it has been read. Null is "not known yet"
    *  rather than "off" — a switch rendered off against an unread row would lie for one frame and
    *  then jump. */
@@ -6049,6 +6054,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (ev.event.type === "init" && (ev.event.payload.supportsFastMode !== undefined || ev.event.payload.fastModeModels || ev.event.payload.effortModels)) {
           void get().run(() => get().refreshFastSupport());
         }
+        /* The session changed agents — a failover's handoff, or a switch made in another window. The
+           row is what the prompter's chip reads, and the event is the only word of it this window gets. */
+        if (ev.event.type === "handoff" && !ev.ephemeral) {
+          void get().run(async () => { const row = await api.getSession(ev.sessionId); if (get().sessions[row.id]) mergeSession(row); });
+        }
         /** This event makes no other write: the line, and the log's length, are the whole of it. */
         const lineOnly = () => { if (also) set(also); };
         const buf = loading.get(ev.sessionId);
@@ -6511,6 +6521,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         rememberAgent(agentKind);
         // The server renames an untouched default title to match the new agent; the sidebar row shows it.
         await get().refreshItems(row.spaceId);
+      },
+      async switchSessionAgent(id, agentKind, model) {
+        mergeSession(await api.switchSessionAgent(id, agentKind, model));
+        rememberAgent(agentKind);
       },
       async setSessionEnvironment(id, environmentId) {
         // The id travels verbatim and the merged session is the server's answer — the chip renders

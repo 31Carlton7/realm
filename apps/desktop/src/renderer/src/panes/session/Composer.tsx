@@ -391,7 +391,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
+export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onSwitchAgent, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** The checkout's changed files (`workspace.diff`), for the pill over the card. */
   changes?: DiffSummary | null;
@@ -442,6 +442,9 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
   onParkPermission?: (permissionMode: string) => void;
   /** Sets agent AND model in one action — the picker's rows are (agent, model) pairs. */
   onPickModel: (kind: AgentKind, modelId: string | null) => void;
+  /** Moves a session that has run onto another agent with a summary of this one (`sessions.switchAgent`).
+   *  Absent where a prompter cannot, which leaves other agents' models unoffered once it has run. */
+  onSwitchAgent?: (kind: AgentKind, modelId: string | null) => Promise<void>;
   /** Build ⇄ Plan. The store parks and restores the permission mode around the trip. */
   onMode: (mode: SessionMode) => void;
   /** ACP sessions only (Plan 14 W3): the agent's OWN modes as the session's init event carried them —
@@ -1086,12 +1089,13 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
         detail: acpModesPending ? "Waiting for the agent's modes" : "The one mode this agent offers",
         title: acpModesPending ? "Waiting for the agent's modes" : modeTitleFor(mode) }];
 
+  const handsOver = !canSwitchAgent && !!onSwitchAgent;
   // Built HERE rather than inside ModelPicker so the chip, the list, the effort levels and the
   // fast-mode answer all read the same rows: two independent `modelRows` calls could disagree about
   // which harness a model resolved to.
   const rows = useMemo(
-    () => modelRows({ kind, model: session.model, agentProbe, canSwitchAgent, favorites: modelFavorites }),
-    [kind, session.model, agentProbe, canSwitchAgent, modelFavorites]);
+    () => modelRows({ kind, model: session.model, agentProbe, canSwitchAgent, handoff: handsOver, favorites: modelFavorites }),
+    [kind, session.model, agentProbe, canSwitchAgent, handsOver, modelFavorites]);
   /* The active model's context window, joined through the SAME canonical key the picker's rows use —
      the session stores a per-harness wire id (`gpt-5.3-codex[reasoning=medium]`), which no catalog is
      keyed by, so the selected ROW is the only thing that can bridge the two. Null whenever the
@@ -1394,7 +1398,8 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
                 harness's mark, so nothing a harness chip said is lost. */}
             <ModelPicker kind={kind} model={session.model} effort={effort} rows={rows} info={modelInfo}
               onToggleFavorite={onToggleModelFavorite}
-              onPick={onPickModel} fast={fast} eggs={eggs} />
+              onPick={onPickModel} fast={fast} eggs={eggs}
+              switchAgent={handsOver && onSwitchAgent ? { busy: status === "running" || status === "waiting_permission", onSwitch: onSwitchAgent } : undefined} />
             {/* Send↔stop morph (§6): both icons stay in the DOM; data-state cross-fades them (160ms,
                 opacity + scale .25→1 + 4px blur). ⌘↵ still sends while running — only the button morphs. */}
             {/* Attachments the agent will receive can go alone (Plan 14 W5 relaxed sessions.send's

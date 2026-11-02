@@ -47,7 +47,7 @@ export type Block =
    * a reader comparing the two needs to know where the seam is. `attempt` is how many same-agent
    * retries were spent first, which is what explains the gap in the timestamps.
    */
-  | { kind: "handoff"; from: string; to: string; note: string; attempt: number; ts: number }
+  | { kind: "handoff"; from: string; to: string; note: string; attempt: number; summaryPath?: string; ts: number }
   /**
    * A retry is pending. Ephemeral in every sense — the event is not persisted, and the block is
    * REPLACED by the next one rather than stacking, so three attempts leave one line saying what is
@@ -414,7 +414,8 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
         { kind: "error", message: e.payload.message, ...(e.payload.fix ? { fix: e.payload.fix } : {}), ts: e.ts }] };
     case "handoff":
       return { ...t, blocks: [...dropPending(blocks),
-        { kind: "handoff", from: e.payload.from, to: e.payload.to, note: e.payload.note, attempt: e.payload.attempt, ts: e.ts }] };
+        { kind: "handoff", from: e.payload.from, to: e.payload.to, note: e.payload.note, attempt: e.payload.attempt,
+          ...(e.payload.summaryPath ? { summaryPath: e.payload.summaryPath } : {}), ts: e.ts }] };
     case "context_reset":
       return { ...t, blocks: [...dropPending(blocks),
         { kind: "context_reset", note: e.payload.note, reason: e.payload.reason, ts: e.ts }] };

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, createEvent, fireEvent, render, screen, within } from "@testing-library/react";
 import { MODEL_NOTES, canonicalModelKey, type AgentKind, type ModelInfo } from "@realm/contracts";
 import { exited } from "../../components/popover-exit.test-fakes";
-import { ModelPicker, type OverflowGroup } from "./ModelPicker";
+import { ModelPicker, type OverflowGroup, type SwitchAgent } from "./ModelPicker";
 import { modelRows, type EffortControl, type FastMode, type ModelRow } from "./model-catalog";
 import type { AgentProbe } from "../../state/store";
 
@@ -26,11 +26,11 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 function mount({ rows = rowsFor(), kind = "claude" as AgentKind, model = "claude-opus-5" as string | null, effort,
-  overflow, fast, info = {} }: { rows?: ModelRow[]; kind?: AgentKind; model?: string | null; effort?: EffortControl;
-  overflow?: OverflowGroup[]; fast?: FastMode; info?: Record<string, ModelInfo> } = {}) {
+  overflow, fast, info = {}, switchAgent }: { rows?: ModelRow[]; kind?: AgentKind; model?: string | null; effort?: EffortControl;
+  overflow?: OverflowGroup[]; fast?: FastMode; info?: Record<string, ModelInfo>; switchAgent?: SwitchAgent } = {}) {
   const picked: [AgentKind, string | null][] = [];
   const starred: string[] = [];
-  render(<ModelPicker kind={kind} model={model} effort={effort} rows={rows} info={info}
+  render(<ModelPicker kind={kind} model={model} effort={effort} rows={rows} info={info} switchAgent={switchAgent}
     onToggleFavorite={(k) => starred.push(k)} onPick={(k, m) => picked.push([k, m])} overflow={overflow} fast={fast} />);
   fireEvent.click(screen.getByRole("button", { name: "Model" }));
   return { picked, starred };
@@ -298,6 +298,81 @@ describe("a session that has already run", () => {
     fireEvent.change(search(), { target: { value: "gpt" } });
     expect(screen.queryAllByRole("option")).toEqual([]);
     expect(document.querySelector(".mp-empty")).toHaveTextContent(/No Claude model matches “gpt” — this session has already run/);
+  });
+});
+
+describe("a session that has run and can hand over", () => {
+  const handing = () => rowsFor({ canSwitchAgent: false, handoff: true });
+  const switching = (busy = false, fail?: string) => {
+    const switched: [AgentKind, string | null][] = [];
+    const switchAgent: SwitchAgent = { busy, onSwitch: async (k, m) => { if (fail) throw new Error(fail); switched.push([k, m]); } };
+    return { switched, switchAgent };
+  };
+
+  it("offers every agent's models again, and says nothing is locked", () => {
+    const { switchAgent } = switching();
+    mount({ rows: handing(), switchAgent });
+    const groups = within(screen.getByRole("listbox", { name: "Models" })).getAllByRole("group").map((g) => g.getAttribute("aria-label"));
+    expect(groups).toContain("Cursor");
+    expect(document.querySelector(".mp-locked")).toBeNull();
+  });
+
+  it("asks before a pick moves it to another agent, and switches only on yes", async () => {
+    const { switched, switchAgent } = switching();
+    const { picked } = mount({ rows: handing(), switchAgent });
+    fireEvent.click(option(/^GPT-5\.5/));
+    // Nothing has moved yet: the card asks, in place of the model's own.
+    expect(picked).toEqual([]);
+    expect(switched).toEqual([]);
+    const ask = screen.getByRole("group", { name: "Switch to Cursor" });
+    expect(ask).toHaveTextContent("Switch to Cursor?");
+    expect(ask).toHaveTextContent("It starts fresh with a summary of this conversation.");
+    expect(document.querySelector(".mp-about")).toBeNull();
+    await act(async () => { fireEvent.click(within(ask).getByRole("button", { name: "Switch" })); });
+    expect(switched).toEqual([["acp:cursor", "gpt-5.5"]]);
+    expect(picked).toEqual([]);
+    // Done: the card asks nothing more, and the picker stays open for how the new model runs.
+    expect(screen.queryByRole("group", { name: "Switch to Cursor" })).toBeNull();
+    expect(dialog()).toBeInTheDocument();
+  });
+
+  it("takes a model on its own agent at once, with no question", () => {
+    const { switched, switchAgent } = switching();
+    const { picked } = mount({ rows: handing(), switchAgent });
+    fireEvent.click(option("Claude Sonnet 5"));
+    expect(picked).toEqual([["claude", "claude-sonnet-5"]]);
+    expect(switched).toEqual([]);
+    expect(screen.queryByRole("group", { name: /^Switch to/ })).toBeNull();
+  });
+
+  it("is Return twice from the keyboard, and Cancel puts the model's card back", async () => {
+    const { switched, switchAgent } = switching();
+    mount({ rows: handing(), switchAgent });
+    fireEvent.click(option(/^GPT-5\.5/));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("group", { name: "Switch to Cursor" })).toBeNull();
+    expect(document.querySelector(".mp-about")).not.toBeNull();
+    fireEvent.keyDown(search(), { key: "Enter" });
+    expect(screen.getByRole("group", { name: "Switch to Cursor" })).toBeInTheDocument();
+    await act(async () => { fireEvent.keyDown(search(), { key: "Enter" }); });
+    expect(switched).toEqual([["acp:cursor", "gpt-5.5"]]);
+  });
+
+  it("says what a switch is waiting on while a turn runs, and offers none", () => {
+    const { switchAgent } = switching(true);
+    mount({ rows: handing(), switchAgent });
+    fireEvent.click(option(/^GPT-5\.5/));
+    const ask = screen.getByRole("group", { name: "Switch to Cursor" });
+    expect(ask).toHaveTextContent("Claude is still working. Stop the turn or let it finish, then switch.");
+    expect(within(ask).getByRole("button", { name: "Switch" })).toBeDisabled();
+  });
+
+  it("keeps the question open with the server's answer when the switch fails", async () => {
+    const { switchAgent } = switching(false, "Codex is not signed in");
+    mount({ rows: handing(), switchAgent });
+    fireEvent.click(option(/^GPT-5\.5/));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Switch" })); });
+    expect(screen.getByRole("group", { name: "Switch to Cursor" })).toHaveTextContent("Codex is not signed in");
   });
 });
 
