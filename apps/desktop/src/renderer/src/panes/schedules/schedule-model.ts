@@ -132,6 +132,9 @@ export type Draft = {
   fastMode: boolean;
 };
 
+/** The part of a draft that says WHEN — what a teammate's check-in has of a task too. */
+export type When = Pick<Draft, "repeat" | "every" | "time" | "minute" | "weekday" | "monthDay" | "cron" | "date">;
+
 const pad = (n: number) => String(n).padStart(2, "0");
 const timeOf = (hour: number, minute: number) => `${pad(hour)}:${pad(minute)}`;
 const hm = (time: string): [number, number] => { const [h, m] = time.split(":").map(Number); return [h ?? 0, m ?? 0]; };
@@ -172,7 +175,7 @@ export function draftOf(s: Schedule, fallbackKind: AgentKind, now = Date.now()):
 
 /** The expression a draft writes — the single thing the server is told about WHEN. Null for a single
  *  run whose date and time do not name a moment. */
-export function exprOf(d: Draft): string | null {
+export function exprOf(d: When): string | null {
   if (!d.repeat) {
     const ms = parseMoment(`${d.date}T${d.time}`);
     return ms === null ? null : onceExpr(ms);
@@ -187,7 +190,7 @@ export function exprOf(d: Draft): string | null {
 }
 
 /** When the draft would first fire, or null when it never would — what keeps Create disabled. */
-export function firstRun(d: Draft, now = Date.now()): number | null {
+export function firstRun(d: When, now = Date.now()): number | null {
   const expr = exprOf(d);
   return expr === null || expr === "" ? null : nextFireOf(expr, now);
 }
