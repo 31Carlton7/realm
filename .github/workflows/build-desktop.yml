@@ -1,7 +1,24 @@
-# Builds Realm's desktop app on each OS it runs on (docs/platforms.md): install, typecheck, test,
-# build, then package unsigned artifacts — a dmg and zip on macOS, an AppImage and a deb on Linux, an
-# NSIS installer on Windows — and keep them as workflow artifacts. Nothing is signed and nothing is
-# published: `pnpm release` is still how a Mac release ships.
+# Builds Realm's desktop app on each OS it runs on (docs/platforms.md): lint, typecheck, test, build,
+# then package unsigned artifacts — a dmg and zip on macOS, an AppImage and a deb on Linux, an NSIS
+# installer on Windows. Nothing is signed and nothing is published: `pnpm release` is still how a Mac
+# release ships.
+#
+# The work is split into jobs that run side by side, so a run takes as long as its slowest job rather
+# than the sum of them. A pull request that changes only the website, the docs or the repo's prose
+# (scripts/ci-changes.mjs) skips everything but Lint.
+#
+# What runs where:
+#   - every run: Lint, Typecheck, the whole suite on macOS in shards, and a build on each OS, with the
+#     tests of the platform branches on Linux and Windows.
+#   - pushes to main, runs by hand, and release branches (integration/*): the installers, kept as the
+#     artifacts realm-macOS, realm-Linux and realm-Windows. Other pull requests package an unpacked app
+#     instead, which runs the same staging and electron-builder without making installers.
+#   - pushes to main and runs by hand: the whole suite on Linux and Windows, for information. Run the
+#     workflow by hand on a branch to see it there.
+#
+# Runners: each job runs on the repository variable RUNNER_MACOS, RUNNER_LINUX or RUNNER_WINDOWS when it
+# is set, and on GitHub's own runner when it is not, so moving to other machines needs no edit here.
+# Test workers follow the runner's cores (--maxWorkers=100%).
 name: Build desktop
 
 on:
@@ -14,66 +31,124 @@ concurrency:
   group: build-desktop-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Unsigned on every OS: never go looking for a signing identity in the runner's keychain.
+  CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
 jobs:
-  build:
-    name: ${{ matrix.os }}
+  changes:
+    name: Changes
+    runs-on: ${{ vars.RUNNER_LINUX || 'ubuntu-latest' }}
+    timeout-minutes: 5
+    outputs:
+      desktop: ${{ steps.changes.outputs.desktop }}
+    steps:
+      # The whole history without file contents (blobless), so the pull request's merge base is here to
+      # diff against; contents are fetched only for the files checked out.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      - id: changes
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/ci-changes.mjs
+
+  lint:
+    name: Lint
+    runs-on: ${{ vars.RUNNER_LINUX || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          hugeicons-token: ${{ secrets.HUGEICONS_TOKEN }}
+      - run: pnpm lint
+
+  typecheck:
+    name: Typecheck
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
+    runs-on: ${{ vars.RUNNER_LINUX || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          hugeicons-token: ${{ secrets.HUGEICONS_TOKEN }}
+      - run: pnpm -r typecheck
+
+  # The whole suite was written on a Mac — live ptys under /bin/sh, POSIX paths in fixtures — so it gates
+  # the Mac. Linux and Windows are gated on the tests that exercise their branches with the platform
+  # injected (in Build), and run the rest for information until it is made portable.
+  test:
+    name: Test (macOS ${{ matrix.shard }}/3)
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
+    runs-on: ${{ vars.RUNNER_MACOS || 'macos-latest' }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          hugeicons-token: ${{ secrets.HUGEICONS_TOKEN }}
+      - run: pnpm vitest run --shard=${{ matrix.shard }}/3 --maxWorkers=100%
+
+  test-informational:
+    name: Test (${{ matrix.os }} ${{ matrix.shard }}/${{ matrix.shards }}, informational)
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true' && github.event_name != 'pull_request'
+    runs-on: ${{ matrix.runner }}
+    # Information only: a failure here does not fail the run.
+    continue-on-error: true
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
-            dist: dist
-          - os: ubuntu-latest
-            dist: dist:linux
-          - os: windows-latest
-            dist: dist:win
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
-    env:
-      # Unsigned on every OS: never go looking for a signing identity in the runner's keychain.
-      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          - { os: Linux, runner: "${{ vars.RUNNER_LINUX || 'ubuntu-latest' }}", shards: 3, shard: 1 }
+          - { os: Linux, runner: "${{ vars.RUNNER_LINUX || 'ubuntu-latest' }}", shards: 3, shard: 2 }
+          - { os: Linux, runner: "${{ vars.RUNNER_LINUX || 'ubuntu-latest' }}", shards: 3, shard: 3 }
+          - { os: Windows, runner: "${{ vars.RUNNER_WINDOWS || 'windows-latest' }}", shards: 6, shard: 1 }
+          - { os: Windows, runner: "${{ vars.RUNNER_WINDOWS || 'windows-latest' }}", shards: 6, shard: 2 }
+          - { os: Windows, runner: "${{ vars.RUNNER_WINDOWS || 'windows-latest' }}", shards: 6, shard: 3 }
+          - { os: Windows, runner: "${{ vars.RUNNER_WINDOWS || 'windows-latest' }}", shards: 6, shard: 4 }
+          - { os: Windows, runner: "${{ vars.RUNNER_WINDOWS || 'windows-latest' }}", shards: 6, shard: 5 }
+          - { os: Windows, runner: "${{ vars.RUNNER_WINDOWS || 'windows-latest' }}", shards: 6, shard: 6 }
     steps:
       - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
+      - uses: ./.github/actions/setup
         with:
-          node-version: 22
-          cache: pnpm
+          hugeicons-token: ${{ secrets.HUGEICONS_TOKEN }}
+      - run: pnpm vitest run --shard=${{ matrix.shard }}/${{ matrix.shards }} --maxWorkers=100%
 
-      # @hugeicons-pro is a paid package on Hugeicons' own registry; the token is the repo secret
-      # HUGEICONS_TOKEN. Written to the user .npmrc so it never lands in the checkout. A pull request
-      # from a fork is given no secrets, so it skips this and builds with the free pack under the same
-      # names (docs/dev/hugeicons.md). Every other run still needs the token.
-      - name: Hugeicons registry
-        if: ${{ !github.event.pull_request.head.repo.fork }}
-        shell: bash
-        env:
-          HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
-        run: |
-          test -n "$HUGEICONS_TOKEN" || { echo "::error::Set the HUGEICONS_TOKEN repo secret to install @hugeicons-pro"; exit 1; }
-          printf '@hugeicons-pro:registry=https://npm.hugeicons.com/\n//npm.hugeicons.com/:_authToken=%s\n' "$HUGEICONS_TOKEN" >> ~/.npmrc
-
-      - name: Install
-        run: pnpm install --frozen-lockfile
-
-      # The Pro pack is an optional dependency, and pnpm skips one it cannot fetch without failing, so
-      # a token that has lapsed would otherwise build with the free pack and say nothing.
-      - name: Hugeicons Pro installed
-        if: ${{ !github.event.pull_request.head.repo.fork }}
-        shell: bash
-        run: test -e packages/ui/node_modules/@hugeicons-pro/core-stroke-rounded/package.json || { echo "::error::@hugeicons-pro did not install; check the HUGEICONS_TOKEN repo secret"; exit 1; }
-
-      - name: Typecheck
-        run: pnpm -r typecheck
-
-      # The whole suite was written on a Mac — live ptys under /bin/sh, POSIX paths in fixtures — so it
-      # gates the Mac. Linux and Windows are gated on the tests that exercise their branches with the
-      # platform injected, and run the rest for information until it is made portable.
-      - name: Test (whole suite)
-        if: runner.os == 'macOS'
-        run: pnpm test
+  build:
+    name: Build (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macOS, runner: "${{ vars.RUNNER_MACOS || 'macos-latest' }}", dist: dist }
+          - { os: Linux, runner: "${{ vars.RUNNER_LINUX || 'ubuntu-latest' }}", dist: "dist:linux" }
+          - { os: Windows, runner: "${{ vars.RUNNER_WINDOWS || 'windows-latest' }}", dist: "dist:win" }
+    env:
+      INSTALLERS: ${{ github.event_name != 'pull_request' || startsWith(github.head_ref, 'integration/') }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          hugeicons-token: ${{ secrets.HUGEICONS_TOKEN }}
+          save-cache: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
       - name: Test (platform branches)
         if: runner.os != 'macOS'
@@ -90,21 +165,19 @@ jobs:
           apps/desktop/src/renderer/src/platform.test.ts
           apps/desktop/src/renderer/src/platform-gates.test.ts
 
-      - name: Test (whole suite, informational)
-        if: runner.os != 'macOS'
-        continue-on-error: true
-        # Information only, so it may not spend the job's 60 minutes: on Windows its timeouts alone ran
-        # past them, and the job was cancelled in Package with every gating step green.
-        timeout-minutes: 40
-        run: pnpm test
-
       - name: Build
         run: pnpm build
 
       - name: Package (unsigned)
+        if: env.INSTALLERS == 'true'
         run: pnpm --filter @realm/desktop ${{ matrix.dist }}
 
+      - name: Package (unpacked)
+        if: env.INSTALLERS != 'true'
+        run: pnpm --filter @realm/desktop dist:dir
+
       - uses: actions/upload-artifact@v4
+        if: env.INSTALLERS == 'true'
         with:
           name: realm-${{ runner.os }}
           if-no-files-found: error
