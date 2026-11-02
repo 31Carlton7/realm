@@ -1,6 +1,6 @@
 import { PERMISSION_MODES, TEAMMATE_COLORS, TEAMMATE_SHAPES, teammateIconFromSeed, type AgentKind, type Teammate, type TeammateIcon as IconSpec, type TeammatePermissionMode } from "@realm/contracts";
 import { Icon, TEAMMATE_PALETTE, TEAMMATE_SHAPE_LABELS, TeammateIcon, teammateFill } from "@realm/ui";
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { FALLBACK_AGENT, useApp } from "../../state/store";
 import { Sheet } from "../../components/Sheet";
 import { Spinner } from "../../components/Spinner";
@@ -42,7 +42,8 @@ function fieldsOf(t: Teammate, spaceFolder: string | undefined): Fields {
 export function TeammateSheet({ spaceId, id }: { spaceId: string; id?: string }) {
   const space = useApp((s) => s.spaces.find((sp) => sp.id === spaceId));
   const editing = useApp((s) => (id ? s.teammates[spaceId]?.find((t) => t.id === id) : undefined));
-  const groups = useApp((s) => [...new Set((s.teammates[spaceId] ?? []).map((t) => t.group).filter((g): g is string => !!g))]);
+  const spaceTeammates = useApp((s) => s.teammates[spaceId]);
+  const groups = useMemo(() => [...new Set((spaceTeammates ?? []).map((t) => t.group).filter((g): g is string => !!g))], [spaceTeammates]);
   const lastAgent = useApp((s) => s.lastAgentKind ?? FALLBACK_AGENT);
   const lastModel = useApp((s) => s.lastModels[s.lastAgentKind ?? FALLBACK_AGENT] ?? null);
   const defaultMode = useApp((s) => s.settingsPrefs?.defaultPermissionMode);
