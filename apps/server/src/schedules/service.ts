@@ -1,6 +1,6 @@
 import {
-  CreateScheduleSchema, SCHEDULE_CATCHUP_MS, SCHEDULE_TICK_MS, isOnce, isRunLive, nextFireOf, parseOnce,
-  type CreateScheduleInput, type Run, type Schedule, type UpdateScheduleInput,
+  CreateScheduleSchema, SCHEDULE_CATCHUP_MS, SCHEDULE_TICK_MS, TEAMMATE_CLOCK_PROMPT, isOnce, isRunLive, nextFireOf, parseOnce,
+  type CreateScheduleInput, type Run, type Schedule, type TeammateScheduleInput, type UpdateScheduleInput,
 } from "@realm/contracts";
 import type { SchedulesStore } from "../store/schedules";
 import type { RunService } from "../runs/service";
@@ -38,6 +38,10 @@ const dedupeKeyFor = (scheduleId: string, dueAt: number) => `schedule:${schedule
  * one occurrence, so the only thing the window could do is drop it. "In two weeks, open the PR"
  * dropped because the lid was shut on the day is the failure this whole feature would be judged on,
  * and firing it late — visibly, with the run in the Tasks lens — is the better of the two answers.
+ *
+ * **A teammate's clock makes no run.** It is a turn in the teammate's own chat (`TeammatesService.
+ * clockFired`), and the chat decides whether the work wants a task session. The claim, the catch-up
+ * window and the record of what each occurrence did are the same as every other schedule's.
  */
 export class ScheduleService {
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -51,6 +55,9 @@ export class ScheduleService {
     archiveSession?: (sessionId: string, archived: boolean) => void;
     /** Whether a space exists, for an edit that moves a schedule into one. */
     spaceExists?: (spaceId: string) => boolean;
+    /** A teammate's clock came due: its prompt goes into the teammate's chat, unless the clock's last
+     *  turn there has not ended (`busy`) or the teammate is gone. */
+    teammates?: { clockFired(schedule: Schedule): "delivered" | "busy" | "gone" };
     /** Test seam only — production leaves this alone and uses the real clock. */
     clock?: () => number;
   }) {}
@@ -129,6 +136,12 @@ export class ScheduleService {
    * missed one, rather than forking the conversation the schedule was asked to keep.
    */
   private fire(schedule: Schedule, dueAt: number, at: number): void {
+    if (schedule.roleId !== null) {
+      const outcome = this.d.teammates?.clockFired(schedule) ?? "gone";
+      this.d.store.recordFiring(schedule.id, { at, runId: null, skipped: outcome !== "delivered" });
+      this.announce(schedule.spaceId);
+      return;
+    }
     let sessionId: string | null = null;
     if (!schedule.newSessionPerRun) {
       const last = this.d.runs.latestForSchedule(schedule.id);
@@ -190,6 +203,7 @@ export class ScheduleService {
   update(input: UpdateScheduleInput): Schedule {
     const before = this.d.store.get(input.id);
     if (!before) throw new NotFoundError("schedule", input.id);
+    if (before.roleId !== null) throw this.teammateClock();
     // Same gate as create, but only for an edit that changes WHEN or resumes the task: a rename, new
     // instructions or a pause leave the expression alone and must not be re-validated into a failure
     // — a finished one-shot's moment is behind it for good, and it is still the task's to rename.
@@ -208,6 +222,7 @@ export class ScheduleService {
   remove(id: string): boolean {
     const before = this.d.store.get(id);
     if (!before) return false;
+    if (before.roleId !== null) throw this.teammateClock();
     const gone = this.d.store.remove(id);
     if (gone) this.announce(before.spaceId);
     return gone;
@@ -224,6 +239,15 @@ export class ScheduleService {
   runNow(id: string): Schedule {
     const schedule = this.d.store.get(id);
     if (!schedule) throw new NotFoundError("schedule", id);
+    if (schedule.roleId !== null) {
+      // Asked first, so a press that changes nothing is told so and leaves no skip on the row.
+      const outcome = this.d.teammates?.clockFired(schedule) ?? "gone";
+      if (outcome === "busy") throw new RpcError("SCHEDULE_BUSY", "this teammate's last scheduled turn has not ended yet — let it finish first");
+      if (outcome === "gone") throw new NotFoundError("teammate", schedule.roleId);
+      this.d.store.recordFiring(id, { at: this.now(), runId: null, skipped: false });
+      this.announce(schedule.spaceId);
+      return this.d.store.get(id)!;
+    }
     // The clock records a skip when the conversation is still busy; a person who clicked is told.
     const last = schedule.newSessionPerRun ? null : this.d.runs.latestForSchedule(id);
     if (last && isRunLive(last.state))
@@ -231,6 +255,37 @@ export class ScheduleService {
     const at = this.now();
     this.fire(schedule, at, at);
     return this.d.store.get(id)!;
+  }
+
+  /* ── a teammate's clock ──────────────────────────────────────────────── */
+
+  forTeammate(teammateId: string): Schedule | null { return this.d.store.forRole(teammateId); }
+
+  /**
+   * Set, change or (with null) remove a teammate's clock. Its title follows the teammate's name, which
+   * is what the chat draws above a turn the clock wrote. An empty patch re-arms it from now.
+   */
+  setForTeammate(t: { id: string; spaceId: string; name: string }, patch: TeammateScheduleInput | null): Schedule | null {
+    const cur = this.d.store.forRole(t.id);
+    if (patch === null) {
+      if (cur) this.d.store.remove(cur.id);
+      return null;
+    }
+    if (!cur) {
+      if (!patch.cron) throw new RpcError("INVALID_ARGUMENT", "a teammate's clock needs a cron expression");
+      if (nextFireOf(patch.cron, this.now()) === null) throw this.unfireable(patch.cron);
+      return this.d.store.create({ spaceId: t.spaceId, title: t.name, goal: patch.prompt ?? TEAMMATE_CLOCK_PROMPT, cron: patch.cron,
+        enabled: patch.enabled ?? true, constraints: null, newSessionPerRun: false, archiveSucceeded: false, roleId: t.id });
+    }
+    const cron = patch.cron ?? cur.cron;
+    const resumes = patch.enabled === true && !cur.enabled;
+    if ((cron !== cur.cron || resumes) && nextFireOf(cron, this.now()) === null) throw this.unfireable(cron);
+    return this.d.store.update(cur.id, { spaceId: t.spaceId, title: t.name, cron,
+      ...(patch.prompt !== undefined ? { goal: patch.prompt } : {}), ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}) });
+  }
+
+  private teammateClock(): RpcError {
+    return new RpcError("SCHEDULE_TEAMMATE", "this is a teammate's clock — change it on the teammate's page");
   }
 
   /** Why an expression was refused, in the terms of the spelling it was written in. A one-shot in

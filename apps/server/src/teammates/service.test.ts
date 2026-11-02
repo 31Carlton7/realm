@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type FakeScript } from "@realm/adapters";
 import type { SessionEvent, StoredSessionEvent } from "@realm/contracts";
@@ -25,12 +25,17 @@ const SCRIPT: FakeScript = [
   { on: "slow work", emit: [{ kind: "text", text: "one two three four five six seven eight nine ten", paceMs: 40 }] },
   { on: "start a task", emit: [{ kind: "call", tool: "realm-agent__agent_start", input: { goal: "Move search to SQLite", title: "sqlite search" } }, { kind: "text", text: "Started it." }] },
   { on: "Move search to SQLite", emit: [{ kind: "text", text: "Moved." }] },
+  { on: "Do your scheduled work.", emit: [{ kind: "text", text: "Nothing is due today." }] },
+  { on: "clock task", emit: [{ kind: "call", tool: "realm-agent__agent_start", input: { goal: "Long migration", title: "long migration" } },
+    { kind: "text", text: "a b c d e f g h i j k l m n o p q r s t", paceMs: 150 }] },
+  { on: "Long migration", emit: [{ kind: "text", text: "one two three four five six seven eight", paceMs: 400 }] },
 ];
 
-async function boot() {
+async function boot(extra: { clockTurnMs?: number } = {}) {
   const home = tempDir("realm-teammates-");
   const fake = new FakeAdapter({ script: SCRIPT, delayMs: 2 });
-  app = await createApp({ home, port: 0, adapters: { fake, claude: fake }, agentRun: { fallbackKind: "fake" } });
+  app = await createApp({ home, port: 0, adapters: { fake, claude: fake }, agentRun: { fallbackKind: "fake" },
+    ...(extra.clockTurnMs ? { teammates: { clockTurnMs: extra.clockTurnMs } } : {}) });
   const profile = new ProfilesStore(app.db).create({ name: "P", icon: "x", color: "#000" });
   const space = new SpacesStore(app.db, home).create({ profileId: profile.id, name: "Realm", icon: "folder" });
   const make = (name: string, extra: Record<string, unknown> = {}) =>
@@ -188,5 +193,116 @@ describe("what a teammate starts", () => {
     await app.team.message(cto.id, "start a task");
     await waitFor(() => app.sessions.listAll().some((s) => s.dispatchedBy?.sessionId === cto.homeSessionId));
     expect(app.sessions.listAll().find((s) => s.dispatchedBy?.sessionId === cto.homeSessionId)).toMatchObject({ permissionMode: "bypassPermissions", teammateId: cto.id });
+  });
+});
+
+describe("a teammate's clock", () => {
+  /** The clock's next occurrence is now, and the scheduler's minute has come. */
+  const due = (scheduleId: string) => {
+    app.db.prepare("UPDATE schedules SET next_run_at = ? WHERE id = ?").run(Date.now() - 1_000, scheduleId);
+    app.schedules.tick();
+  };
+  const clockTurns = (sessionId: string) => userMessages(sessionId).filter((m) => m.scheduled);
+
+  it("writes its prompt into the teammate's chat as the clock's turn, in the teammate's mode, unread and without a pane", async () => {
+    const { make } = await boot();
+    const ops = make("Ops", { permissionMode: "acceptEdits", schedule: { cron: "0 8 * * 1" } });
+    expect(ops.schedule).toMatchObject({ cron: "0 8 * * 1", prompt: "Do your scheduled work.", enabled: true, lastRunAt: null });
+    expect(ops.schedule!.nextRunAt).toBeGreaterThan(Date.now());
+    // The person set the chat's chip lower; the clock's turn runs as the teammate does.
+    await app.sessions.setOptions(ops.homeSessionId!, { permissionMode: "default" });
+    const broadcast = app.rpc.broadcast.bind(app.rpc);
+    const said: string[] = [];
+    vi.spyOn(app.rpc, "broadcast").mockImplementation((event, payload) => { said.push(event); broadcast(event, payload); });
+
+    due(ops.schedule!.id);
+    await waitFor(() => clockTurns(ops.homeSessionId!).length === 1);
+    const [turn] = clockTurns(ops.homeSessionId!);
+    expect(turn!.text.startsWith("Do your scheduled work.\n\n[Realm] Your schedule sent this")).toBe(true);
+    expect(turn!.scheduled).toMatchObject({ task: "Ops", scheduleId: ops.schedule!.id });
+    expect(turn!.from).toBeUndefined();
+    await idle(ops.homeSessionId!);
+    expect(app.sessions.get(ops.homeSessionId!).permissionMode).toBe("acceptEdits");
+    // No run, no new session: the chat is where it happened.
+    expect(app.sessions.listAll().filter((s) => s.teammateId === ops.id).map((s) => s.id)).toEqual([ops.homeSessionId]);
+    const after = app.team.get(ops.id);
+    expect(after.unread).toBe(true);
+    expect(after.schedule!.lastRunAt).not.toBeNull();
+    expect(after.schedule!.nextRunAt).toBeGreaterThan(Date.now());
+    expect(said).toContain("teammates.changed");
+    expect(said).not.toContain("session.agentOpened");
+  });
+
+  it("does not fire while paused, stops while its teammate is archived, and starts again from now when it is back", async () => {
+    const { make } = await boot();
+    const paused = make("Research", { schedule: { cron: "0 9 * * 1-5", enabled: false } });
+    expect(paused.schedule).toMatchObject({ enabled: false, nextRunAt: null });
+    due(paused.schedule!.id);
+    const ops = make("Ops", { schedule: { cron: "0 8 * * 1" } });
+    app.team.archive(ops.id, true);
+    expect(app.team.get(ops.id).schedule!.nextRunAt).toBeNull();
+    due(ops.schedule!.id);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(clockTurns(paused.homeSessionId!)).toEqual([]);
+    expect(clockTurns(ops.homeSessionId!)).toEqual([]);
+    expect(app.team.get(ops.id).schedule!.lastRunAt).toBeNull();
+
+    const back = app.team.archive(ops.id, false);
+    expect(back.schedule!.nextRunAt).toBeGreaterThan(Date.now());
+  });
+
+  it("is set, changed and removed with the teammate, and a clock that would never run is refused with the rest of the edit", async () => {
+    const { spaceId, make } = await boot();
+    const ops = make("Ops");
+    expect(ops.schedule).toBeNull();
+    expect(() => app.team.update({ id: ops.id, schedule: { prompt: "Check the invoices." } })).toThrow(/needs a cron/);
+    const set = app.team.update({ id: ops.id, schedule: { cron: "0 8 * * 1", prompt: "Check the invoices." } });
+    expect(set.schedule).toMatchObject({ cron: "0 8 * * 1", prompt: "Check the invoices.", enabled: true });
+    expect(app.team.update({ id: ops.id, schedule: { enabled: false } }).schedule).toMatchObject({ cron: "0 8 * * 1", prompt: "Check the invoices.", enabled: false, nextRunAt: null });
+    expect(() => app.team.update({ id: ops.id, name: "Admin", schedule: { cron: "not a clock", enabled: true } })).toThrow(/will ever run/);
+    expect(app.team.get(ops.id).name).toBe("Ops");
+    // A rename carries to the clock's title, which the chat draws above its turns.
+    app.team.update({ id: ops.id, name: "Admin" });
+    expect(app.schedules.forTeammate(ops.id)!.title).toBe("Admin");
+    // Its page edits it; the Scheduled page neither lists nor edits it.
+    expect(app.schedules.list(spaceId)).toEqual([]);
+    expect(() => app.schedules.update({ id: set.schedule!.id, cron: "0 9 * * *" })).toThrow(/teammate's clock/);
+    expect(app.team.update({ id: ops.id, schedule: null }).schedule).toBeNull();
+    expect(() => make("Bad", { schedule: { cron: "never" } })).toThrow(/will ever run/);
+    expect(app.team.list(spaceId).map((t) => t.handle)).toEqual(["ops"]);
+  });
+
+  it("skips an occurrence while its last turn is still going", async () => {
+    const { make } = await boot();
+    const ops = make("Ops", { schedule: { cron: "0 8 * * 1", prompt: "slow work" } });
+    due(ops.schedule!.id);
+    await waitFor(() => app.sessions.get(ops.homeSessionId!).status === "running");
+    due(ops.schedule!.id);
+    expect(app.team.get(ops.id).schedule!.lastSkippedAt).not.toBeNull();
+    expect(() => app.schedules.runNow(ops.schedule!.id)).toThrow(/has not ended yet/);
+    await idle(ops.homeSessionId!);
+    expect(clockTurns(ops.homeSessionId!)).toHaveLength(1);
+    // Once it has ended, the next one goes.
+    app.schedules.runNow(ops.schedule!.id);
+    await waitFor(() => clockTurns(ops.homeSessionId!).length === 2);
+  });
+
+  it("stops a turn that runs past its time, and leaves the task session it started working", async () => {
+    const { make } = await boot({ clockTurnMs: 1_500 });
+    const ops = make("Ops", { schedule: { cron: "0 8 * * 1", prompt: "clock task" } });
+    due(ops.schedule!.id);
+    await waitFor(() => app.sessions.listAll().some((s) => s.dispatchedBy?.sessionId === ops.homeSessionId), { timeout: 10_000 });
+    const task = app.sessions.listAll().find((s) => s.dispatchedBy?.sessionId === ops.homeSessionId)!;
+    // The settle after its turn began (an engine's start reports one of its own before it).
+    const settle = () => {
+      const statuses = events(ops.homeSessionId!).flatMap((e) => (e.type === "status" ? [e.payload] : []));
+      return statuses.slice(statuses.findIndex((p) => p.status === "running")).find((p) => p.status === "idle") ?? null;
+    };
+    await waitFor(() => settle() !== null, { timeout: 10_000 });
+    expect(settle()).toMatchObject({ interrupted: true });
+    expect(app.sessions.get(task.id).status).toBe("running");
+    await waitFor(() => app.sessions.get(task.id).status === "idle", { timeout: 10_000 });
+    expect(events(task.id).some((e) => e.type === "assistant_text" && e.payload.text.includes("seven eight"))).toBe(true);
+    expect(events(task.id).some((e) => e.type === "status" && e.payload.interrupted)).toBe(false);
   });
 });

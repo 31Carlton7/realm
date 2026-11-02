@@ -44,8 +44,12 @@ export type SendMessage = { text: string; attachments: { path: string; mime: str
    *  else: what the AGENT is handed is the same prompt either way. */
   goal?: "continuation" | "budget";
   /** A scheduled task's run, and the note the run appended to the task's instructions — the same
-   *  transcript-only ride as `goal`: the agent is handed the text, note and all. */
-  scheduled?: { task: string; note: string };
+   *  transcript-only ride as `goal`: the agent is handed the text, note and all. `scheduleId` names
+   *  a teammate's clock, which writes into its chat with no run behind it. */
+  scheduled?: { task: string; note: string; scheduleId?: string };
+  /** The mode this turn runs in, set on the session as the turn goes out — after any turn it was
+   *  queued behind has ended, so that one keeps the mode it ran in. It stays, as the chip's would. */
+  permissionMode?: string;
   /** Written by another session's agent (`session_open`'s first message) — transcript-only, as `goal`
    *  is, so the pane never shows an agent's words as something the user typed. */
   from?: { sessionId: string; title: string; teammateId?: string };
@@ -716,6 +720,7 @@ export class SessionService {
     // An app the message mentions is granted BEFORE the handle starts, so a session that starts on
     // this message lists the computer tools from its first read of them.
     await this.grantMentionedApps(id, msg);
+    if (msg.permissionMode !== undefined && msg.permissionMode !== this.get(id).permissionMode) await this.setOptions(id, { permissionMode: msg.permissionMode });
     // Stopped the way the idle sweep stops an engine, so this message starts a fresh one that resumes
     // the conversation in the mode the old one could not switch to.
     if (this.restartOwed.delete(id)) void this.reap(id);
@@ -913,13 +918,15 @@ export class SessionService {
     return { interrupted };
   }
 
-  async interrupt(id: string): Promise<void> {
+  /** `keepDelegated`: the caller has settled this session's delegated runs itself, and only the turn
+   *  is stopped (a teammate's clock running past its time keeps the task sessions it started). */
+  async interrupt(id: string, opts: { keepDelegated?: boolean } = {}): Promise<void> {
     this.get(id);
     // Interrupting a session also cancels its delegated browser-agent run (W5): the child is
     // interrupted and the blocked `browser_agent_run` call resolves as cancelled. BEFORE the handle
     // interrupt, and unconditional — the run wait lives in the gateway, not the adapter, so it must
     // be cancelled even when the parent's adapter process is already gone.
-    this.d.browserAgents?.parentInterrupted(id);
+    if (!opts.keepDelegated) this.d.browserAgents?.parentInterrupted(id);
     // A scheduled retry dies with the turn it belonged to. Resuming work somebody just cancelled is
     // the rudest thing failover could do, and the one that would make people turn it off.
     this.d.failover?.cancel(id);

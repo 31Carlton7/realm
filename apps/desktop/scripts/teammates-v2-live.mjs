@@ -12,7 +12,9 @@
  *      chat marked as from the sender; with `wait` the sender's call returns the other's reply.
  *   4. `agent_start` from a teammate's chat makes a task session that carries the teammate, leads its
  *      title with the handle, runs in the teammate's mode, and is listed by `teammates.sessions`.
- *   5. Every change is announced as `teammates.changed`.
+ *   5. A teammate's clock, set with `teammates.update` and fired with `schedules.runNow`, is a turn in
+ *      its chat marked as the clock's, in the teammate's mode, unread, with no pane opened.
+ *   6. Every change is announced as `teammates.changed`.
  *
  * Ports: REALM_PORT 8791 (env LIVE_SERVER_PORT). Writes only into its scratch folder and a report
  * beside the stream's other notes. Stops the daemon with `daemon.stop`, then SIGKILLs whatever is left
@@ -44,6 +46,7 @@ const SCRIPT = [
   { on: "ask design", emit: [{ kind: "call", tool: "realm-team__team_message", input: { to: "design", message: "which colour is the icon?", wait: true } }, { kind: "text", text: "Design answered." }] },
   { on: "which colour is the icon?", emit: [{ kind: "text", text: "Violet, on graphite." }] },
   { on: "second colour", emit: [{ kind: "text", text: "Noted." }] },
+  { on: "Do your scheduled work.", emit: [{ kind: "text", text: "Nothing is due today." }] },
   // The child is named onto the scripted agent too: one left to `agent_start`'s own choice falls back
   // to Claude, because the scripted agent takes no skills, and that is a real, billed turn.
   { on: "start a task", emit: [{ kind: "call", tool: "realm-agent__agent_start", input: { goal: "Move search to SQLite", title: "sqlite search", constraints: { agentKind: "fake" } } }, { kind: "text", text: "Started it." }] },
@@ -174,11 +177,36 @@ async function main() {
   const view = await api.call("teammates.get", { id: cto.id });
   check("its row carries the task among its sessions", view.taskSessions.some((t) => t.id === task.id), view.taskSessions);
 
+  // ── 5. A clock writes into the chat ──
+  const clocked = await api.call("teammates.update", { id: design.id, permissionMode: "acceptEdits", schedule: { cron: "0 9 * * 1-5" } });
+  check("teammates.update sets a clock, shown on the teammate with its next time",
+    clocked.schedule?.cron === "0 9 * * 1-5" && clocked.schedule.prompt === "Do your scheduled work." && clocked.schedule.enabled === true && clocked.schedule.nextRunAt > Date.now(),
+    clocked.schedule);
+  // The person set the chat's chip lower; the clock's turn runs as the teammate does.
+  await api.call("sessions.setOptions", { id: design.homeSessionId, permissionMode: "default" });
+  // Only what the clock caused: step 4's task session was announced too, as every delegated child is
+  // (the window lists one under its lead and opens no pane for it).
+  const firedAt = api.events.length;
+  await api.call("schedules.runNow", { id: clocked.schedule.id });
+  const ticked = await until(async () => (await userMessages(design.homeSessionId)).find((m) => m.scheduled), 20_000, "the clock's turn");
+  await until(async () => (await events(design.homeSessionId)).filter((e) => e.type === "assistant_text").some((e) => e.payload.text === "Nothing is due today."), 20_000, "design's answer to its clock");
+  check("the clock's prompt is a turn in the teammate's chat, marked as the clock's and not as anyone's message",
+    ticked.text.startsWith("Do your scheduled work.") && ticked.scheduled.scheduleId === clocked.schedule.id && ticked.scheduled.task === "Design" && !ticked.from,
+    { text: ticked.text.slice(0, 80), scheduled: ticked.scheduled, from: ticked.from });
+  const after = await api.call("teammates.get", { id: design.id });
+  const chat = await api.call("sessions.get", { id: design.homeSessionId });
+  check("it ran in the teammate's mode, landed unread, and recorded the run", chat.permissionMode === "acceptEdits" && after.unread === true && after.schedule.lastRunAt !== null,
+    { mode: chat.permissionMode, unread: after.unread, lastRunAt: after.schedule.lastRunAt });
+  const sinceFired = api.events.slice(firedAt);
+  check("no pane was opened for it, and no session was made for it",
+    !sinceFired.some((e) => e.event === "session.agentOpened") && (await api.call("sessions.listAll", {})).filter((s) => s.teammateId === design.id).length === 1,
+    sinceFired.filter((e) => e.event === "session.agentOpened"));
+
   // Nothing in this check may have reached a real engine.
   const engines = [...new Set((await api.call("sessions.listAll", {})).map((s) => s.agentKind))];
   check("every session in the check ran on the scripted agent", engines.length === 1 && engines[0] === "fake", engines);
 
-  // ── 5. Changes are announced ──
+  // ── 6. Changes are announced ──
   check("teammates.changed was broadcast for the space", api.events.some((e) => e.event === "teammates.changed" && e.payload?.spaceId === space.id),
     api.events.filter((e) => e.event === "teammates.changed").length);
 

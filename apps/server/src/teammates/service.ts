@@ -1,9 +1,9 @@
 import { statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import {
-  AGENT_META, DEFAULT_MODEL_LABEL, TEAM_MESSAGE_WAIT_MS, TeamMessageArgsSchema, fenceAgentOutput, normalizeHandle, sessionLink, teammateHandle, teammateIconFromSeed,
-  type CreateTeammateInput, type MentionRef, type ReorderTeammatesInput, type Session, type SessionEvent, type SessionStatus, type Teammate, type TeammateState,
-  type TeammateTaskSession, type UpdateTeammateInput,
+  AGENT_META, DEFAULT_MODEL_LABEL, TEAMMATE_CLOCK_TURN_MS, TEAM_MESSAGE_WAIT_MS, TeamMessageArgsSchema, fenceAgentOutput, normalizeHandle, sessionLink, teammateHandle, teammateIconFromSeed,
+  type CreateTeammateInput, type MentionRef, type ReorderTeammatesInput, type Schedule, type Session, type SessionEvent, type SessionStatus, type Teammate,
+  type TeammateSchedule, type TeammateState, type TeammateTaskSession, type UpdateTeammateInput,
 } from "@realm/contracts";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { ProviderCallContext } from "../mcp/gateway";
@@ -11,6 +11,7 @@ import { clip, err, ok, parseArgs } from "../mcp/tool-result";
 import type { RpcServer } from "../rpc/server";
 import type { SessionService } from "../sessions/service";
 import type { DelegationEngine, ActiveRun } from "../delegation/engine";
+import type { ScheduleService } from "../schedules/service";
 import type { EnvironmentsStore } from "../store/environments";
 import type { SpacesStore } from "../store/spaces";
 import { NotFoundError, RpcError } from "../store/rows";
@@ -33,9 +34,15 @@ const louder = (a: TeammateState, b: TeammateState): TeammateState =>
 
 const firstLine = (s: string): string => s.trim().split("\n").find((l) => l.trim())?.trim() ?? "";
 
+/** What Realm adds under a clock's prompt for the agent. The transcript keeps it out of the bubble. */
+const CLOCK_NOTE = "[Realm] Your schedule sent this, not the person, and nobody is watching: they will read this chat later. Do real work in a task session as you always do, and end with a short report of what you did, linking the sessions that did it. If you need the person, say so plainly at the end.";
+
 /** A `team_message` with `wait` in flight: who is waiting (a teammate, or a session of the person's) on
  *  which teammate. The edges `team_message` refuses to close into a cycle. */
 type Wait = { from: string; to: string };
+
+/** A clock's turn in a home session: on its way (`sending`), queued, or begun (`timer` armed). */
+type ClockTurn = { scheduleId: string; sending: boolean; timer: ReturnType<typeof setTimeout> | null };
 
 /**
  * Teams v2: teammates, their home sessions, and the two tools they talk to each other with.
@@ -46,6 +53,11 @@ type Wait = { from: string; to: string };
  * message from another teammate is a turn in the home session, queued behind a live one by the
  * session's own queue; one sent with `wait` holds the sender's call until that turn ends, through the
  * delegation engine's registry and its transcript read, as `agent_ask` does.
+ *
+ * A teammate may have a clock (`TeammateSchedule`). When it fires, its prompt is a turn in the home
+ * session like anyone else's message, marked as the clock's and run in the teammate's mode. One clock
+ * turn at a time: an occurrence that comes while the last is still queued or going is skipped, and a
+ * turn still going after `TEAMMATE_CLOCK_TURN_MS` is stopped, leaving the task sessions it started.
  */
 export class TeammatesService {
   /** When each teammate's state last moved, for "Working · 4m". In memory: a restart starts the clock. */
@@ -54,20 +66,32 @@ export class TeammatesService {
   private readonly askedBy = new Map<string, string | null>();
   private readonly waits = new Map<object, Wait>();
   private readonly pending = new Map<string, ReturnType<typeof setTimeout>>();
+  /** By home session. In memory, like the session's queue it waits in: a restart clears both. */
+  private readonly clockTurns = new Map<string, ClockTurn>();
 
   constructor(private readonly d: {
     store: TeammatesStore;
     spaces: Pick<SpacesStore, "get">;
     environments: Pick<EnvironmentsStore, "ensurePrimary" | "ensureAt">;
-    sessions: Pick<SessionService, "create" | "get" | "send" | "setOptions" | "events" | "retitleIf">;
-    engine: Pick<DelegationEngine, "begin" | "end" | "awaitAnswer">;
+    sessions: Pick<SessionService, "create" | "get" | "send" | "setOptions" | "events" | "retitleIf" | "queuedFor" | "interrupt">;
+    engine: Pick<DelegationEngine, "begin" | "end" | "awaitAnswer" | "parentInterrupted">;
+    schedules: Pick<ScheduleService, "forTeammate" | "setForTeammate">;
     rpc: Pick<RpcServer, "broadcast">;
     /** The mode a new session starts in on `kind` when nobody named one (Settings' default). */
     defaultMode: (kind: Session["agentKind"]) => string;
     /** The team tools came or went in a space: sessions re-read their tool lists. */
     toolsChanged?: () => void;
     timeouts?: { waitMs: number; pollMs: number };
+    /** How long a clock's turn may run (`TEAMMATE_CLOCK_TURN_MS`); shortened by tests. */
+    clockTurnMs?: number;
   }) {}
+
+  close(): void {
+    for (const t of this.pending.values()) clearTimeout(t);
+    this.pending.clear();
+    for (const c of this.clockTurns.values()) if (c.timer) clearTimeout(c.timer);
+    this.clockTurns.clear();
+  }
 
   /* ──────────────────────────────── reads ──────────────────────────────── */
 
@@ -110,12 +134,21 @@ export class TeammatesService {
       id: row.id, spaceId: row.spaceId, handle: row.handle, name: row.name, brief: row.brief, icon: row.icon,
       agentKind: row.agentKind, model: row.model, effort: row.effort, permissionMode: row.permissionMode,
       folder: this.folderOf(row), lead: row.lead, group: row.group, sortOrder: row.sortOrder, archived: row.archived,
-      homeSessionId: row.homeSessionId, createdAt: row.createdAt, updatedAt: row.updatedAt,
+      homeSessionId: row.homeSessionId, schedule: this.scheduleOf(row), createdAt: row.createdAt, updatedAt: row.updatedAt,
       state, stateSince: state === "idle" ? null : was?.state === state ? was.at : (live ?? home)?.updatedAt ?? null,
       unread: home?.unread ?? false,
       liveTask: live?.title ?? null,
       taskSessions: this.tasks(row, sessions).slice(0, ROW_TASKS),
     };
+  }
+
+  private scheduleOf(row: TeammateRow): TeammateSchedule | null {
+    const s = this.d.schedules.forTeammate(row.id);
+    return s ? {
+      id: s.id, cron: s.cron, prompt: s.goal, enabled: s.enabled,
+      // An archived teammate's clock is not claimed, so the time the row still holds is not when it runs.
+      nextRunAt: row.archived ? null : s.nextRunAt, lastRunAt: s.lastRunAt, lastSkippedAt: s.lastSkippedAt,
+    } : null;
   }
 
   /**
@@ -152,6 +185,9 @@ export class TeammatesService {
       permissionMode: input.permissionMode ?? (this.d.defaultMode(agentKind) as Teammate["permissionMode"]),
       folder: this.checkFolder(input.folder ?? null), lead: false, group: input.group ?? null,
     });
+    if (input.schedule) {
+      try { this.d.schedules.setForTeammate(row, input.schedule); } catch (e) { this.d.store.remove(row.id); throw e; }
+    }
     if (input.lead) this.d.store.setLead(row.spaceId, row.id);
     // Made with it, so its page opens onto a composer. An agent that cannot start a session now is
     // tried again by the first message, which says why.
@@ -165,6 +201,9 @@ export class TeammatesService {
     const cur = this.row(input.id);
     const handle = input.handle && input.handle !== cur.handle ? this.claim(cur.spaceId, input.handle, cur.id) : undefined;
     const folder = input.folder === undefined ? undefined : this.checkFolder(input.folder);
+    // First, so a clock it refuses leaves the rest of the edit unwritten too.
+    if (input.schedule !== undefined) this.d.schedules.setForTeammate({ id: cur.id, spaceId: cur.spaceId, name: input.name ?? cur.name }, input.schedule);
+    else if (input.name !== undefined && input.name !== cur.name && this.d.schedules.forTeammate(cur.id)) this.d.schedules.setForTeammate({ id: cur.id, spaceId: cur.spaceId, name: input.name }, {});
     const next = this.d.store.update(cur.id, {
       ...(handle ? { handle } : {}),
       ...(input.name !== undefined ? { name: input.name } : {}),
@@ -192,6 +231,8 @@ export class TeammatesService {
       ? { archived: true }
       // Back in the list, and under a handle no one took while it was away.
       : { archived: false, handle: this.d.store.freeHandle(cur.spaceId, cur.handle, cur.id) });
+    // Its clock was not claimed while it was away: it starts again from now rather than from a time it missed.
+    if (!archived && this.d.schedules.forTeammate(id)) this.d.schedules.setForTeammate(cur, {});
     this.d.toolsChanged?.();
     this.changed(cur.spaceId);
     return this.get(id);
@@ -308,6 +349,7 @@ export class TeammatesService {
    */
   handleSessionEvent(session: Session, ev: SessionEvent): void {
     if (!session.teammateId) return;
+    if (session.teammateHome) this.followClockTurn(session, ev);
     if (ev.type === "user_message") {
       if (session.teammateHome) this.askedBy.set(session.id, ev.payload.from?.sessionId ?? null);
     } else if (ev.type === "status") {
@@ -348,8 +390,81 @@ export class TeammatesService {
   /** A home session was deleted: the next message makes another. */
   release(sessionId: string): void {
     this.askedBy.delete(sessionId);
+    this.endClockTurn(sessionId);
     const row = this.d.store.byHomeSession(sessionId);
     if (row) { this.d.store.update(row.id, { homeSessionId: null }); this.changed(row.spaceId); }
+  }
+
+  /* ──────────────────────────────── the clock ──────────────────────────────── */
+
+  /**
+   * `ScheduleService`'s seam: a teammate's clock came due. Its prompt goes into the home session as the
+   * clock's turn, queued behind one the chat is on, in the teammate's mode — no pane opens, and the
+   * chat is unread until the person looks. `busy` while the clock's last turn is still queued or going.
+   */
+  clockFired(schedule: Schedule): "delivered" | "busy" | "gone" {
+    const row = schedule.roleId ? this.d.store.get(schedule.roleId) : null;
+    if (!row || row.archived || this.d.schedules.forTeammate(row.id)?.id !== schedule.id) return "gone";
+    let home: string;
+    try { home = this.ensureHome(row.id); } catch (e) {
+      console.error(`[teammates] @${row.handle}'s clock found no chat to write in: ${e instanceof Error ? e.message : String(e)}`);
+      return "gone";
+    }
+    if (this.clockBusy(home)) return "busy";
+    const turn: ClockTurn = { scheduleId: schedule.id, sending: true, timer: null };
+    this.clockTurns.set(home, turn);
+    void this.d.sessions.send(home, { text: `${schedule.goal}\n\n${CLOCK_NOTE}`, attachments: [], scheduled: { task: schedule.title, note: CLOCK_NOTE, scheduleId: schedule.id },
+      permissionMode: row.permissionMode }, "queue")
+      .catch((e: unknown) => {
+        console.error(`[teammates] @${row.handle}'s clock could not write in its chat: ${e instanceof Error ? e.message : String(e)}`);
+        if (this.clockTurns.get(home) === turn) this.endClockTurn(home);
+      })
+      .finally(() => { turn.sending = false; });
+    this.changed(row.spaceId);
+    return "delivered";
+  }
+
+  /** Whether the clock's last turn in this chat is on its way, waiting in its queue, or going. One the
+   *  person took off the queue is over. */
+  private clockBusy(home: string): boolean {
+    const turn = this.clockTurns.get(home);
+    if (!turn) return false;
+    if (turn.sending || turn.timer) return true;
+    if (this.d.sessions.queuedFor(home).some((q) => q.msg.scheduled?.scheduleId === turn.scheduleId)) return true;
+    this.endClockTurn(home);
+    return false;
+  }
+
+  /** The clock's turn begins when its message is written, and ends on the settle after it — or on a
+   *  message of anyone else's, which only arrives first when it was sent to stop the turn. */
+  private followClockTurn(session: Session, ev: SessionEvent): void {
+    const turn = this.clockTurns.get(session.id);
+    if (!turn) return;
+    if (ev.type === "user_message") {
+      if (ev.payload.scheduled?.scheduleId !== turn.scheduleId) { if (turn.timer) this.endClockTurn(session.id); return; }
+      if (turn.timer) return;
+      turn.timer = setTimeout(() => {
+        if (this.clockTurns.get(session.id) !== turn) return;
+        this.endClockTurn(session.id);
+        console.log(`[teammates] a clock's turn in session ${session.id} ran past ${Math.round((this.d.clockTurnMs ?? TEAMMATE_CLOCK_TURN_MS) / 60_000)} minutes and was stopped; the task sessions it started go on`);
+        // Its questions to other teammates are let go; the work it handed to task sessions is not.
+        this.d.engine.parentInterrupted(session.id, { sparePeople: true, spareDetached: true });
+        void this.d.sessions.interrupt(session.id, { keepDelegated: true }).catch(() => { /* the chat is gone */ });
+      }, this.d.clockTurnMs ?? TEAMMATE_CLOCK_TURN_MS);
+      turn.timer.unref?.();
+      return;
+    }
+    if (ev.type !== "status" || !turn.timer) return;
+    const was = session.status;
+    const now = ev.payload.status;
+    if (now === "error" || now === "ended" || (now === "idle" && (was === "running" || was === "waiting_permission"))) this.endClockTurn(session.id);
+  }
+
+  private endClockTurn(home: string): void {
+    const turn = this.clockTurns.get(home);
+    if (!turn) return;
+    if (turn.timer) clearTimeout(turn.timer);
+    this.clockTurns.delete(home);
   }
 
   /**
@@ -528,6 +643,7 @@ export class TeammatesService {
     }
   }
 }
+
 
 /** What a teammate's home session is told about itself and its team, on every start. */
 export function homePreamble(me: TeammateRow, others: readonly TeammateRow[]): string {

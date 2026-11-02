@@ -744,6 +744,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /** Plan 13 W1: the same knobs for `agent_run`. `fallbackKind` falls back to `browserAgent`'s when
    *  unset (test harnesses configure the fake once); `timeouts` shrinks the settle budget. */
   agentRun?: { fallbackKind?: import("@realm/contracts").AgentKind; timeouts?: { baseMs: number; perTurnMs: number; pollMs: number }; maxDepth?: number; caps?: { perParent?: number; total?: number } };
+  /** How long a teammate's clock turn may run before it is stopped (`TEAMMATE_CLOCK_TURN_MS`), shortened by suites. */
+  teammates?: { clockTurnMs?: number };
   /** Plan 13 W3: the same knobs for the reviewer recipe. `fallbackKind` (the reviewer's kind when the
    *  requester's has no read-only plan mode, or the user clicked) falls back to `agentRun`'s, then
    *  `browserAgent`'s. */
@@ -1586,6 +1588,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   schedules = new ScheduleService({
     store: new SchedulesStore(db), runs, rpc,
     spaceExists: (id) => Boolean(spaces.get(id)),
+    // A teammate's clock writes into its chat (made just below), not into a run.
+    teammates: { clockFired: (schedule) => team?.clockFired(schedule) ?? "gone" },
     // The session's sidebar row: an item, archived the way the row's own Archive does it.
     archiveSession: (sessionId, archived) => {
       const item = items.findByRefId(sessionId);
@@ -1604,7 +1608,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   const teammatesStore = new TeammatesStore(db);
   { const filled = teammatesStore.backfill(); if (filled > 0) console.log(`[teammates] ${filled} role(s) from the first Teams brought through as teammates`); }
   team = new TeammatesService({
-    store: teammatesStore, spaces, environments, sessions, engine: delegationEngine, rpc,
+    store: teammatesStore, spaces, environments, sessions, engine: delegationEngine, rpc, schedules,
+    ...(opts.teammates?.clockTurnMs ? { clockTurnMs: opts.teammates.clockTurnMs } : {}),
     defaultMode: (kind) => resolveDefaultPermissionMode(kind, settings.get(DEFAULT_PERMISSION_MODE_KEY)),
     toolsChanged: () => mcpGateway.notifyToolsChanged(),
   });
@@ -1858,6 +1863,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     claudeBackfill?.stop(); // likewise for Claude's memory: no run starts on a closing handle
     payloadCompactor.stop(); // likewise its batches
     schedules?.close(); // before runs: a tick must not create a run on a service that is stopping
+    team?.close(); // and a teammate's clock turn must not stop a session on one
     runs?.close(); // likewise: an in-flight dispatch must not write to a closing handle
     codeReview?.close(); // and a reviewer settling now must not write its findings to one
     summaries?.close(); // a debounced recap must not fire onto a closing handle, or outlive the process
