@@ -170,13 +170,20 @@ export class TeammatesStore {
   /**
    * The roles the first Teams made, given what a teammate needs that they lacked: a handle from the
    * name, unique in the space, and an icon rolled from the Realmite's seed, so a role keeps the same
-   * face on every boot. Only rows that have no handle yet; returns how many it filled.
+   * face on every boot. Only rows that have no handle yet — every teammate is made with one — so each
+   * role is brought through once; returns how many it filled.
+   *
+   * Each comes through in Full access. Its column said Plan, Ask or Accept edits, but every run a role
+   * made went in Full access whatever it said (the first Teams' `runPermissionMode` in runs/service.ts),
+   * and a teammate's clock runs in the teammate's mode: carrying the column over would park the 9am
+   * work on its first permission prompt with nobody there. A teammate made since takes the space's default.
    */
   backfill(): number {
     const rows = this.db.prepare("SELECT * FROM team_roles WHERE handle IS NULL ORDER BY created_at").all() as Raw[];
     for (const r of rows) {
       const handle = this.freeHandle(r.space_id, teammateHandle(r.name), r.id);
-      this.db.prepare("UPDATE team_roles SET handle = ?, icon_json = ? WHERE id = ?").run(handle, JSON.stringify(teammateIconFromSeed(realmiteSeed(r))), r.id);
+      this.db.prepare("UPDATE team_roles SET handle = ?, icon_json = ?, permission_mode = 'bypassPermissions' WHERE id = ?")
+        .run(handle, JSON.stringify(teammateIconFromSeed(realmiteSeed(r))), r.id);
     }
     return rows.length;
   }

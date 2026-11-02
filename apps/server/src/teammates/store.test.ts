@@ -58,10 +58,10 @@ describe("teammates from the first Teams' roles", () => {
     expect(store.backfill()).toBe(4);
 
     const versed = store.list("versed");
-    expect(versed.map((t) => [t.name, t.handle, t.brief, t.model, t.permissionMode])).toEqual([
-      ["Creator Manager", "creator-manager", "You manage this team's creators.", "sonnet", "default"],
-      ["Content Producer", "content-producer", "You make short-form slideshows.", "sonnet", "acceptEdits"],
-      ["Viral Video Studier", "viral-video-studier", "You study what went viral.", "claude-opus-5-5", "plan"],
+    expect(versed.map((t) => [t.name, t.handle, t.brief, t.model])).toEqual([
+      ["Creator Manager", "creator-manager", "You manage this team's creators.", "sonnet"],
+      ["Content Producer", "content-producer", "You make short-form slideshows.", "sonnet"],
+      ["Viral Video Studier", "viral-video-studier", "You study what went viral.", "claude-opus-5-5"],
     ]);
     expect(store.list("general").map((t) => [t.name, t.handle])).toEqual([["Ops", "ops"]]);
     for (const t of [...versed, ...store.list("general")]) {
@@ -69,6 +69,22 @@ describe("teammates from the first Teams' roles", () => {
     }
     // Nothing the first Teams wrote is dropped: its own columns still read as they were.
     expect(db.prepare("SELECT template, week_budget_usd FROM team_roles WHERE id = 'R1'").get()).toEqual({ template: "creator-manager", week_budget_usd: 20 });
+    db.close();
+  });
+
+  it("brings the owner's four through in Full access, the mode their runs went in, whatever their column said", () => {
+    const db = openDatabase(homeWithRoles());
+    const store = new TeammatesStore(db);
+    store.backfill();
+    const all = [...store.list("versed"), ...store.list("general")];
+    expect(all.map((t) => [t.name, t.permissionMode])).toEqual([
+      ["Creator Manager", "bypassPermissions"], ["Content Producer", "bypassPermissions"], ["Viral Video Studier", "bypassPermissions"], ["Ops", "bypassPermissions"],
+    ]);
+    // A teammate made afterwards keeps its own, however many boots follow.
+    const made = store.create({ spaceId: "versed", handle: "new", name: "New", brief: "", icon: { shape: "circle", color: "blue" }, agentKind: "claude",
+      model: null, effort: null, permissionMode: "default", folder: null, lead: false, group: null });
+    expect(store.backfill()).toBe(0);
+    expect(store.get(made.id)!.permissionMode).toBe("default");
     db.close();
   });
 
