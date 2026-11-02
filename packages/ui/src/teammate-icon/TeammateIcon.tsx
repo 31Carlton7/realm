@@ -1,6 +1,6 @@
 import { useId } from "react";
 import type { TeammateIcon as TeammateIconSpec } from "@realm/contracts";
-import { BADGE_OKLCH, bodyOklch, bothFaces, EYE_OKLCH } from "./palette";
+import { BADGE_OKLCH, bothFaces, EYE_OKLCH, teammateFill } from "./palette";
 import { SHAPE_GEO } from "./shapes";
 
 /** The eyes in the 64-unit square, laid on the pixel grid of the size they are drawn at.
@@ -74,7 +74,7 @@ export function TeammateIcon({ icon, size, lead = false, title, className }: {
         </mask>
       )}
       <g mask={lead ? `url(#${mask})` : undefined}>
-        <g style={{ fill: bothFaces((face) => bodyOklch(icon.color, face)) }}>
+        <g style={{ fill: teammateFill(icon.color) }}>
           {geo.prims.map((p, i) => ("circle" in p
             ? <circle key={i} cx={p.circle[0]} cy={p.circle[1]} r={p.circle[2]} />
             : <path key={i} d={p.d} />))}

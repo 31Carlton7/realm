@@ -49,3 +49,6 @@ export const BADGE_OKLCH: Record<Face, Oklch> = { dark: { l: 0.86, c: 0.15, h: 8
 /** A CSS colour for both faces at once. The window declares its `color-scheme` from Realm's mode, so
  *  an icon follows the window's face without being told it. */
 export const bothFaces = (pick: (face: Face) => Oklch): string => `light-dark(${css(pick("light"))}, ${css(pick("dark"))})`;
+
+/** A colour's body fill as CSS, for a swatch that has to match the icons it picks for. */
+export const teammateFill = (color: TeammateColor): string => bothFaces((face) => bodyOklch(color, face));
