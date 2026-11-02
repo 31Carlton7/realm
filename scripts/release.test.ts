@@ -3,7 +3,6 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tempDir } from "@realm/test-utils";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { tempDir } from "@realm/test-utils";
 import {
   bumpPackageJsonText, bumpVersion, changelogEntries, entriesFromGh, missingArtifacts, nextStepsText,
   parseReleaseArgs, prEntryFromSubject, prependChangelog, release, renderStub, smokeTestPackagedServer,
