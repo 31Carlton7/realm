@@ -8,7 +8,7 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "start": "node dist/main.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.scripts.json"
+    "typecheck": "tsc -p tsconfig.json --noEmit --incremental --tsBuildInfoFile tsconfig.tsbuildinfo && tsc -p tsconfig.scripts.json --incremental"
   },
   "//tsconfig.scripts": "the live-*-check scripts sit outside tsconfig.json's src-only include; this second project gives them type coverage",
   "//node-pty": "pinned to 1.2.0-beta.15: 1.1.0 prebuild ships non-executable spawn-helper",

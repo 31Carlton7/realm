@@ -10,7 +10,7 @@
     "#hugeicons": "./src/hugeicons.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit --incremental"
   },
   "dependencies": {
     "@hugeicons/core-free-icons": "^1.2.1",
