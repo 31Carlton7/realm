@@ -26,6 +26,7 @@ import { SessionFilesHost } from "./SessionFiles";
 import { GoalStrip } from "./GoalStrip";
 import { useSessionSubagents } from "./session-subagents";
 import { orchestratorOrder } from "../agents-tab/subagent-state";
+import { useAsSubagent } from "../agents-tab/SubagentViewer";
 import { useSelectInRealm } from "../../app-pick/start";
 import { PathMenu, asRef } from "./PathMenu";
 import { useSpaceTint } from "../../components/sidebar/use-sidebar-model";
@@ -268,6 +269,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
     onMove: (queuedId, before) => run(() => moveQueuedPrompt(id, queuedId, before)),
   }), [id, run, releaseQueuedPrompt, dequeuePrompt, beginQueuedEdit, saveQueuedEdit, cancelQueuedEdit, moveQueuedPrompt]);
   const transcript = entry?.t ?? emptyTranscript();
+  const { brief, report } = useAsSubagent(session, transcript.blocks, status);
   /* Having the pane with the keyboard IS reading it. `applySessionEvent` stamps what arrives while the
      pane is focused; this stamps what was already here when the focus did. Without it a session
      opened to read its news kept the unread ring — and its row in every list of what needs you —
@@ -682,7 +684,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
         onExpandPlan={(planId) => openSheet({ kind: "session-plan", sessionId: id, planId })}
         // A plan, or an answer, handed to other models: this session's Agents tab, with it as the work.
         onImplementWith={peek ? undefined : (text) => run(() => openAgentsTabFor(id, { plan: text }))}
-        sessionId={id}
+        sessionId={id} brief={brief} report={report}
         mode={sessionModeOf(session.permissionMode)}
         eggs={easterEggs} packLabels={packLabels}
         onPath={(p, at) => setPathMenu({ path: p, at })} checkout={checkout} turnEditing={turnEditing}

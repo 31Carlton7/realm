@@ -4223,6 +4223,11 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    head belongs to the body and folds with it, and a closed card is the head on even padding. */
 .subagent-view-result { flex: none; max-height: 60%; display: flex; flex-direction: column; margin: 0 12px 10px; padding: 12px 6px 12px 16px;
   border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); }
+/* The same card in place of a sub-agent's last message, opened as a session: as tall as the report,
+   since the transcript is what scrolls, with the message itself — its words and its actions — as the
+   body, set the gap under the head the viewer's report is. */
+.msg-report { max-height: none; margin: 0; padding-right: 16px; }
+.msg-report .msg-assistant-row { padding-top: 12px; }
 .subagent-view-result-head { flex: none; margin: 0; font-size: 13px; line-height: 18px; font-weight: var(--fw-title); color: var(--ink); }
 /* The whole head row is the target, grown into the card's padding to a desktop control's 40px. Closed,
    the report's first line follows the name in the secondary ink, so the card still says what came

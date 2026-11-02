@@ -1587,6 +1587,11 @@ export type AppState = TeamSlice & LabSlice & {
    *  agent's launching call id or a delegated child's session id. Absent: the tab's overview.
    *  Persisted (`SETTING_AGENTS_SHOWN`), so a restored tab opens where it was left. */
   agentsShown: Record<string, string>;
+  /** Whether a sub-agent's report is open, by the sub-agent's id, where the reader chose — the viewer
+   *  and the sub-agent's own transcript fold the same report, so they keep one answer. Absent: as its
+   *  length decides (`ReportFold`). Kept while the app runs. */
+  reportsOpen: Record<string, boolean>;
+  setReportOpen(id: string, open: boolean): void;
   /** The checkpoint the sheet is asking about, as the preview it is showing. Null = the list state;
    *  the preview carries its own `checkpointId`, so there is nothing else to remember. */
   checkpointPreview: RestorePreview | null;
@@ -4461,7 +4466,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionActivityAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, unlockPolicy: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, computerAwaiting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeBranches: {}, worktreeAckStale: null,
-      checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, dismissedSubagents: {}, agentsAsk: {}, agentsShown: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
+      checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, dismissedSubagents: {}, agentsAsk: {}, agentsShown: {}, reportsOpen: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
       sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null, viewer: null,
       machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
@@ -7515,6 +7520,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)) { await get().openItem(itemId); return; }
         await adoptItem(sid, itemId, null, { sessionId });
       },
+      setReportOpen(id, open) { set({ reportsOpen: { ...get().reportsOpen, [id]: open } }); },
       showSubagent(leadId, id) {
         if (!agentsShownLoaded) { void get().hydrateAgentsShown().then(() => get().showSubagent(leadId, id)); return; }
         if ((get().agentsShown[leadId] ?? null) === id) return;

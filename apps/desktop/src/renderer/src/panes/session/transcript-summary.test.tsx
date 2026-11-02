@@ -83,6 +83,15 @@ describe("summaryText", () => {
     expect(recapSession([relayed, asked("mine", 2)]).asked).toBe("mine");
     expect(recapSession([relayed, asked("mine", 2)]).turns).toBe(1);
   });
+
+  it("never quotes a sub-agent's brief as what you asked", () => {
+    // Its first line is Realm's own wrapper, and its lead wrote the rest: "You asked: “You are a
+    // delegated agent. Accomplish this goal:”" was false twice over. THE MUTANT: the brief not passed.
+    const brief = "You are a delegated agent. Accomplish this goal:\n\nFold the report card.";
+    expect(summaryText([asked(brief, 1), read("/r/viewer.tsx", 2)], brief)).toBe("The agent read 1 file.");
+    expect(summaryText([asked(brief, 1), read("/r/viewer.tsx", 2), asked("and the tests?", 3)], brief))
+      .toBe("You asked: “and the tests?”. Over 2 turns the agent read 1 file.");
+  });
 });
 
 describe("the closing line", () => {

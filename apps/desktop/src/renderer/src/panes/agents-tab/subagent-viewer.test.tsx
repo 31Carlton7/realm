@@ -5,6 +5,7 @@ import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
 import { forgetLookedFiles } from "../session/file-links";
 import { reduceAll } from "../session/transcript-model";
+import { SessionPane } from "../session/SessionPane";
 import { AgentsTab } from "./AgentsTab";
 
 const NOW = Date.now();
@@ -207,14 +208,28 @@ describe("the report's disclosure", () => {
     expect(head).toHaveFocus();
   });
 
-  it("is remembered per sub-agent while the tab is up, and a new tab opens every report again", async () => {
-    await mount({ shown: "se3" });
+  it("is remembered per sub-agent, past the tab: closed, it is closed when the tab comes back", async () => {
+    const { store, unmount } = await mount({ shown: "se3" });
     fireEvent.click(toggle(await viewer("Write the migration")));
     fireEvent.click(screen.getByRole("tab", { name: "Write the tests, Working" }));
     await viewer("Write the tests");
     fireEvent.click(screen.getByRole("tab", { name: "Write the migration, Done" }));
     // THE MUTANT: keep the choice in the viewer, which remounts for each sub-agent — it comes back open.
     expect(toggle(await viewer("Write the migration"))).toHaveAttribute("aria-expanded", "false");
+    // …and in the tab, which a closed tab takes with it.
+    unmount();
+    render(<StoreContext.Provider value={store}><AgentsTab item={TAB} visible /></StoreContext.Provider>);
+    expect(toggle(await viewer("Write the migration"))).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("starts a long report closed, its first line in its head, and a short one open", async () => {
+    // The owner: the report "needs to be able to open and close"; a screenful of it standing open over
+    // the log is the case that asked. THE MUTANT: every report starting open.
+    const long = ["## Every surface that shows a report", "", ...Array.from({ length: 14 }, (_, i) => `- Surface ${i + 1}: folds under the same head.`)].join("\n");
+    await mount({ shown: "se3", children: [CHILDREN[0]!, { ...CHILDREN[1]!, report: long }] });
+    const head = toggle(await viewer("Write the migration"));
+    expect(head).toHaveAttribute("aria-expanded", "false");
+    expect(head).toHaveTextContent("What it reported" + "Every surface that shows a report");
     cleanup();
     await mount({ shown: "se3" });
     expect(toggle(await viewer("Write the migration"))).toHaveAttribute("aria-expanded", "true");
@@ -281,6 +296,32 @@ describe("what a delegated sub-agent was asked", () => {
     expect(within(brief).getByText("gone.ts")).toBeInTheDocument();
     fireEvent.click(open);
     await waitFor(() => expect(api.calls).toContain("openDocumentPath:s1:/r/wt/tests/src/settings.ts"));
+  });
+
+  it("reads the same opened as a session: the brief in its parts, and its report under the same head, closed where the viewer closed it", async () => {
+    // The owner: the brief "looks extremely hard to read" — it was the raw bubble there, Realm's two
+    // lines round the goal included. THE MUTANT: the session pane passing no `brief` and no `report`.
+    const { store } = await asked();
+    store.setState({ transcripts: { ...store.getState().transcripts, se3: { lastSeq: 3, t: reduceAll([
+      sessionEvent("user_message", { text: handed, attachments: [] }),
+      sessionEvent("tool_call", { toolUseId: "r1", name: "Read", input: { file_path: "/r/wt/tests/src/settings.ts" }, parentToolUseId: null }),
+      sessionEvent("tool_result", { toolUseId: "r1", content: "…", isError: false }),
+      sessionEvent("assistant_text", { messageId: "m1", text: "Added the column. **All 12 pass.**" }),
+    ]) } } });
+    fireEvent.click(within(await viewer("Write the migration")).getByRole("button", { name: "What it reported" }));
+    cleanup();
+    render(<StoreContext.Provider value={store}><SessionPane item={item("i3", "s1", { kind: "session", refId: "se3", title: "Write the migration" })} visible /></StoreContext.Provider>);
+    const pane = document.querySelector<HTMLElement>(".session-pane")!;
+    const brief = within(pane).getByRole("region", { name: "What it was asked" });
+    expect(within(brief).getAllByRole("heading", { level: 4 }).map((h) => h.textContent)).toEqual(["Where you work", "Read first", "What to build"]);
+    expect(pane.querySelector(".msg-user")).toBeNull();
+    expect(pane).not.toHaveTextContent("You are a delegated agent");
+    const report = within(pane).getByRole("button", { name: "What it reported" });
+    expect(report).toHaveAttribute("aria-expanded", "false");
+    expect(report).toHaveTextContent("Added the column. All 12 pass.");
+    fireEvent.click(report);
+    expect(report).toHaveAttribute("aria-expanded", "true");
+    expect(store.getState().reportsOpen.se3).toBe(true);
   });
 
   it("keeps the bubble for a first message that is not its brief", async () => {
