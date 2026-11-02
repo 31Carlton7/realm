@@ -140,7 +140,8 @@ describe("MemoryLibrary — discovery", () => {
     const pnpm = entries.find((e) => e.rel === "spaces/realm/uses-pnpm.md")!;
     expect(pnpm).toMatchObject({ title: "uses-pnpm", description: "The repo uses pnpm", type: "project", folder: "Realm" });
     expect(entries.find((e) => e.rel === "contacts.md")).toMatchObject({ title: "Contacts", description: "Maya runs partnerships", type: null, folder: null });
-    expect(entries.find((e) => e.rel === `${STORA}.md`)).toMatchObject({ title: "Stora", description: "Stora ships on Fridays.", folder: "Space document" });
+    expect(entries.find((e) => e.rel === `${STORA}.md`)).toMatchObject({ title: "Stora", description: "Stora ships on Fridays.", folder: null });
+    expect(entries.find((e) => e.rel === "MEMORY.md")).toMatchObject({ title: "MEMORY.md", description: "The index every session here starts with" });
     expect(entries.find((e) => e.sourceId === "claude-projects")).toMatchObject({ rel: "-Users-me-code-stora/memory/deploy.md", title: "deploy" });
     // Only Markdown: the project's `notes.txt` and Claude's `settings.json` are not memory.
     expect(entries.some((e) => e.rel.endsWith(".txt") || e.rel.endsWith(".json"))).toBe(false);

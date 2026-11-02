@@ -58,3 +58,12 @@ describe("ProfilePage · Memory · Learn from sessions", () => {
     expect((await openMemory({ spaces, settings: { [memoryLearningKey("p1")]: false } }, "s1")).toggle).not.toBeChecked();
   });
 });
+
+describe("ProfilePage · Memory · every memory file", () => {
+  it("opens the Library on its Memory section", async () => {
+    const { store } = await openMemory();
+    fireEvent.click(screen.getByRole("button", { name: "Open in Library" }));
+    await waitFor(() => expect(store.getState().pageOverlay).toMatchObject({ kind: "library-page" }));
+    expect(store.getState().libraryTab.s1).toBe("memory");
+  });
+});

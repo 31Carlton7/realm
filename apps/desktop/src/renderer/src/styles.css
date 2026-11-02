@@ -8842,12 +8842,15 @@ button.cr-finding-where:hover { text-decoration: underline; }
    scroller is the one that scrolls. */
 .memory-reader-body .documents-rich { height: auto; }
 .memory-reader-body .documents-rich-scroll { overflow: visible; }
-.memory-reader-body .documents-rich-surface { padding: 0; font-size: 15px; }
+.memory-reader-body .documents-rich .documents-rich-surface { padding: 0; font-size: 15px; }
 .memory-reader-body .documents-rich-surface a { color: var(--rl-accent); font-weight: var(--fw-label); text-decoration: none; }
 .memory-reader-body .documents-rich-surface a:hover { text-decoration: underline; text-underline-offset: 2px; }
 /* Editing, and a new memory: the source editor takes what the head leaves. */
 .memory-editor-body { flex: 1; min-height: 0; display: flex; padding: 0 8px 8px; }
-.memory-editor-body > .documents-code { flex: 1; height: auto; }
+/* Concentric with the sheet: its 20px corner less the 8px between them. */
+.memory-editor-body > .documents-code { flex: 1; height: auto; overflow: hidden; border-radius: var(--r-panel); }
+.memory-new-text { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 5px; }
+.memory-new-label { padding: 0 28px; font-size: 12px; color: var(--rl-text-dim); }
 .memory-new-fields { flex: none; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px 16px; padding: 0 28px 16px; }
 .memory-new-fields > :is(.memory-new-name, .memory-new-desc) { grid-column: 1 / -1; }
 .memory-lib-empty { margin: auto; max-width: 380px; padding: 24px; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }

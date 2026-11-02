@@ -58,6 +58,12 @@ export function linkWikiLinks(body: string): string {
   }).join("\n");
 }
 
+/** The body without its opening `# Title` line when that is the title the head already shows. */
+export function withoutTitle(body: string, title: string): string {
+  const m = /^\s*#{1,6}\s+(.+?)\s*\n/.exec(body.endsWith("\n") ? body : `${body}\n`);
+  return m && m[1] === title ? body.slice(m[0].length).replace(/^\n+/, "") : body;
+}
+
 type Mode = { kind: "read" } | { kind: "edit"; draft: string } | { kind: "new" };
 
 /**
@@ -289,6 +295,11 @@ function MemoryReader({ file, source, onOpen, onEdit, onDeleted }: {
   const reveal = window.realm?.files?.reveal;
   const name = file.rel.split("/").at(-1)!;
   const props = file.frontmatter.filter((f) => !SHOWN_ELSEWHERE.has(f.key));
+  /* What the head already says is not said again under it: a description is a lede only where the
+     frontmatter gave one (otherwise it is the body's own first line), and a title taken from the body's
+     opening heading leaves that heading out. */
+  const lede = file.frontmatter.some((f) => f.key === "description") ? file.description : null;
+  const body = withoutTitle(file.body, file.title);
   /* A link a memory makes to another opens it here, and one that leads nowhere the library knows says
      so; a web link is left to the window's own handling. */
   const follow = (e: ReactMouseEvent) => {
@@ -324,9 +335,8 @@ function MemoryReader({ file, source, onOpen, onEdit, onDeleted }: {
             </button>
           )}
           {file.deletable && (
-            <button type="button" className="icon-btn" aria-label={`Delete ${file.title}`} title="Delete" aria-pressed={confirming}
-              onClick={() => setConfirming((c) => !c)}>
-              <Icon name="trash" size={16} />
+            <button type="button" className="btn" aria-label={`Delete ${file.title}`} aria-pressed={confirming} onClick={() => setConfirming((c) => !c)}>
+              Delete…
             </button>
           )}
           {file.writable && <button type="button" className="btn" onClick={onEdit}><Icon name="edit" size={14} />Edit</button>}
@@ -340,11 +350,11 @@ function MemoryReader({ file, source, onOpen, onEdit, onDeleted }: {
               : "It is removed from the memory repo with a commit, and its line leaves MEMORY.md."}
           </p>
           <button type="button" className="btn" onClick={() => setConfirming(false)}>Cancel</button>
-          <button type="button" className="btn danger" onClick={doDelete}>{file.external ? "Move to Trash" : "Delete"}</button>
+          <button type="button" className="btn destructive" onClick={doDelete}>{file.external ? "Move to Trash" : "Delete"}</button>
         </div>
       )}
       <div className="memory-reader-scroll" ref={scroller}>
-        {file.description && <p className="memory-reader-desc">{file.description}</p>}
+        {lede && <p className="memory-reader-desc">{lede}</p>}
         <dl className="memory-props">
           {file.type && <><dt>Type</dt><dd>{TYPES.find((t) => t.id === file.type)?.label ?? file.type}</dd></>}
           <dt>Read by</dt><dd className="memory-readers"><Readers file={file} /></dd>
@@ -353,9 +363,9 @@ function MemoryReader({ file, source, onOpen, onEdit, onDeleted }: {
         </dl>
         {file.note && <p className="memory-reader-note">{file.note}</p>}
         <div className="memory-reader-body" data-selectable onClickCapture={follow}>
-          {file.body.trim() === "" ? <p className="memory-lib-note">Nothing written below the properties.</p> : (
+          {body.trim() === "" ? <p className="memory-lib-note">Nothing written below the properties.</p> : (
             <Suspense fallback={null}>
-              <RichTextEditor key={`${file.id}:${file.updatedAt}`} text={linkWikiLinks(file.body)} onChange={NOOP} readOnly />
+              <RichTextEditor key={`${file.id}:${file.updatedAt}`} text={linkWikiLinks(body)} onChange={NOOP} readOnly />
             </Suspense>
           )}
         </div>
@@ -417,7 +427,7 @@ function MemoryEditor({ file, source, profileId, draft, onDraft, onDone }: {
       </header>
       {state === "asking" && (
         <div className="memory-confirm" role="group" aria-label={`Write ${name}`}>
-          <p>{name} is {owner ? `${owner}'s` : "an agent's"} own file, at {file.path}. Write your change into it?</p>
+          <p title={file.path}>{name} is {owner ? `${owner}'s` : "an agent's"} own file, outside Realm. Write your change into it?</p>
           <button type="button" className="btn" onClick={() => setState("idle")}>Keep editing</button>
           <button type="button" className="btn primary" onClick={() => { confirmedOutside.add(file.id); save(true); }}>Write it</button>
         </div>
@@ -514,10 +524,13 @@ function NewMemory({ sources, spaceId, preferred, onCancel, onMade }: {
           </select>
         </label>
       </div>
-      <div className="memory-editor-body memory-new-body">
-        <Suspense fallback={null}>
-          <CodeEditor path="new-memory.md" text={body} onChange={setBody} />
-        </Suspense>
+      <div className="memory-new-text">
+        <span className="memory-new-label">Text</span>
+        <div className="memory-editor-body">
+          <Suspense fallback={null}>
+            <CodeEditor path="new-memory.md" text={body} onChange={setBody} />
+          </Suspense>
+        </div>
       </div>
     </form>
   );

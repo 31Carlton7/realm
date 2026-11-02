@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { EditorView } from "@codemirror/view";
 import { PAGE_REF_IDS, type MemoryLibraryFile, type MemoryLibrarySource } from "@realm/contracts";
 import { LibraryPage } from "./LibraryPage";
-import { linkWikiLinks } from "./MemoryLibrary";
+import { linkWikiLinks, withoutTitle } from "./MemoryLibrary";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, type FakeData } from "../../state/store.test-fakes";
 
@@ -30,7 +30,8 @@ const files = (): MemoryLibraryFile[] => [
   memory({
     sourceId: REPO, rel: "creators.md", title: "Creator campaign", description: "Who runs the spring creator campaign", type: "project",
     body: "The briefs live in the shared Drive; see [[contacts]].\n", text: "---\nname: Creator campaign\n---\n\nThe briefs live in the shared Drive; see [[contacts]].\n",
-    frontmatter: [{ key: "name", value: "Creator campaign" }, { key: "metadata.type", value: "project" }, { key: "metadata.source", value: "realm:session/abc" }],
+    frontmatter: [{ key: "name", value: "Creator campaign" }, { key: "description", value: "Who runs the spring creator campaign" },
+      { key: "metadata.type", value: "project" }, { key: "metadata.source", value: "realm:session/abc" }],
     links: [{ target: "contacts", id: `${REPO}:contacts.md` }], updatedAt: Date.now() - 60_000,
     readBy: [{ who: "Claude", where: "in Versed", how: "as its own memory" }, { who: "Other agents", where: "in Versed", how: "through Realm's memory tools" }],
   }),
@@ -144,7 +145,7 @@ describe("the Library's Memory section", () => {
     fireEvent.click(within(reader()).getByRole("button", { name: "Save" }));
     // THE MUTANT: write at once — Claude's own file changed with nobody asked.
     const ask = await within(reader()).findByRole("group", { name: "Write CLAUDE.md" });
-    expect(ask).toHaveTextContent("CLAUDE.md is Claude's own file, at /x/CLAUDE.md. Write your change into it?");
+    expect(ask).toHaveTextContent("CLAUDE.md is Claude's own file, outside Realm. Write your change into it?");
     expect(api.calls.some((c) => c.startsWith("memoryLibraryWrite"))).toBe(false);
     fireEvent.click(within(ask).getByRole("button", { name: "Write it" }));
     await waitFor(() => expect(api.calls).toContain("memoryLibraryWrite:claude-user:CLAUDE.md:true"));
@@ -183,6 +184,14 @@ describe("the Library's Memory section", () => {
     fireEvent.click(save);
     await waitFor(() => expect(api.calls).toContain(`memoryLibraryCreate:${REPO}:s1:Spring logins`));
     expect(await screen.findByRole("heading", { name: "Spring logins", level: 2 })).toBeInTheDocument();
+  });
+});
+
+describe("withoutTitle", () => {
+  it("leaves out the opening heading the head already shows, and only that", () => {
+    expect(withoutTitle("# House rules\n\nPrefer small PRs.\n", "House rules")).toBe("Prefer small PRs.\n");
+    expect(withoutTitle("# Other\n\nText\n", "House rules")).toBe("# Other\n\nText\n");
+    expect(withoutTitle("Text first\n# House rules\n", "House rules")).toBe("Text first\n# House rules\n");
   });
 });
 

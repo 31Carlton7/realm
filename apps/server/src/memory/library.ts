@@ -386,9 +386,9 @@ export class MemoryLibrary {
       : fieldOf(fields, "name") ?? heading ?? name.replace(/\.mdc?$/i, "");
     return {
       id: memoryLibraryId(s.id, rel), sourceId: s.id, path: abs, rel, title,
-      description: fieldOf(fields, "description") ?? firstProse(body),
+      description: fieldOf(fields, "description") ?? (s.owner && rel === MEMORY_REPO_INDEX_FILE ? "The index every session here starts with" : firstProse(body)),
       type: fieldOf(fields, "type", "metadata.type"),
-      folder: doc ? (("spaceId" in doc) ? "Space document" : "Profile document") : s.folderOf?.(rel) ?? null,
+      folder: doc ? null : s.folderOf?.(rel) ?? null,
       updatedAt, size, match: null,
     };
   }
