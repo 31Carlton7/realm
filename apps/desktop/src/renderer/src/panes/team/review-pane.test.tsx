@@ -10,17 +10,27 @@ import { fakeApi, item, profile, space, teamReview, teamRole, teamSpace } from "
  * as a decision is made. Each test names the one-line mutant it kills.
  */
 
-const realNow = Date.now.bind(Date);
+/**
+ * The clock these tests run on: today's local noon, ticking from there. A post here is scheduled two
+ * hours out and read back as "today" — on the wall clock, any run after 10 pm put it tomorrow, and the
+ * five tests that read its time failed every night (CI runs in UTC, so that was 10 pm–midnight UTC).
+ */
+const wall = Date.now.bind(Date);
+const noon = new Date();
+noon.setHours(12, 0, 0, 0);
+const shift = noon.getTime() - wall();
+const testNow = () => wall() + shift;
 beforeEach(() => {
+  vi.spyOn(Date, "now").mockImplementation(testNow);
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} unobserve() {} });
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 /** Past the beat in which a press on a review just put in front is taken as the tail of a double click. */
-const settle = () => vi.spyOn(Date, "now").mockImplementation(() => realNow() + 2_000);
+const settle = () => vi.spyOn(Date, "now").mockImplementation(() => testNow() + 2_000);
 
 const slides = ["deck/01.png", "deck/02.png", "deck/03.png"];
 const detail = (id: string, title: string, over: Partial<TeamReviewDetail> = {}): TeamReviewDetail => ({
-  ...teamReview(id, "s1", title, { roleId: "r1", roleName: "Content Producer", itemCount: 2, thumb: slides[0]!, channels: ["TikTok"], account: "@versed.nathan", verb: "post", format: "images", recordPath: "creators/nathan.md", createdAt: realNow() - 3_600_000, updatedAt: realNow() }),
+  ...teamReview(id, "s1", title, { roleId: "r1", roleName: "Content Producer", itemCount: 2, thumb: slides[0]!, channels: ["TikTok"], account: "@versed.nathan", verb: "post", format: "images", recordPath: "creators/nathan.md", createdAt: testNow() - 3_600_000, updatedAt: testNow() }),
   items: [0, 1].map((ord) => ({ id: `${id}-i${ord}`, reviewId: id, version: 1, ord, files: slides, body: `caption ${ord + 1} #ad`,
     target: { channel: "TikTok", account: "@versed.nathan" }, contentHash: "h", approvedHash: null, actState: "none" })),
   previous: [], costUsd: 0.84, durationMs: 360_000, runCapUsd: 3, model: "sonnet", recordName: "Nathan Beyenhof",
@@ -30,7 +40,7 @@ const detail = (id: string, title: string, over: Partial<TeamReviewDetail> = {})
 });
 const email = (id: string, title: string, over: Partial<TeamReviewDetail> = {}): TeamReviewDetail => detail(id, title, {
   kind: "replies", itemCount: 1, thumb: null, channels: [], verb: "send", format: "email", roleId: "r2", roleName: "Outreach", account: "me@versed.app", to: "dana@acme.com",
-  recordPath: null, recordName: null, why: null, createdAt: realNow() - 7_200_000,
+  recordPath: null, recordName: null, why: null, createdAt: testNow() - 7_200_000,
   items: [{ id: `${id}-i0`, reviewId: id, version: 1, ord: 0, files: [], body: "Hi Dana, the 14th.", target: null, contentHash: "h", approvedHash: null, actState: "none",
     meta: { Subject: "Pilot" }, action: { connector: "mcp:gmail", verb: "send", account: "me@versed.app", to: "dana@acme.com" } }],
   checks: [{ ok: null, title: "Realm does not send this yet", detail: "Approving marks it ready; do it yourself for now." }], ...over,
@@ -62,7 +72,7 @@ const reading = () => document.querySelector(".rv-title")!.textContent;
 
 describe("the inbox", () => {
   it("puts what waits for you first, then what is under way, then the week's decisions — newest first in each", async () => {
-    const now = realNow();
+    const now = testNow();
     await mount([
       detail("v1", "3 slideshows for Nathan", { createdAt: now - 3_600_000 }),
       email("v2", "Reply to Dana", { createdAt: now - 60_000 }),
@@ -119,7 +129,7 @@ describe("the inbox", () => {
   });
 
   it("names what a role's own close did — replaced, not just put away", async () => {
-    await mount([detail("v1", "Hook test", { state: "dismissed", closedAs: "superseded", note: "The new hooks replace these.", decidedAt: realNow() })]);
+    await mount([detail("v1", "Hook test", { state: "dismissed", closedAs: "superseded", note: "The new hooks replace these.", decidedAt: testNow() })]);
     expect(document.querySelector('[data-review="v1"] .rv-row-line')).toHaveTextContent("Replaced by a newer version");
     expect(document.querySelector(".rv-pill")).toHaveTextContent("Replaced");
     expect(dockNote()).toBe("Content Producer replaced it with a newer version: “The new hooks replace these.”");
@@ -249,7 +259,7 @@ describe("deciding", () => {
 
   it("closes an approved batch that has not all gone out, saying first what it takes back and what it cannot", async () => {
     const { api } = await mount([detail("v1", "3 slideshows for Nathan", approvedBatch([
-      ticket(0, { state: "scheduled", pressedAt: 1 }), ticket(1), ticket(2, { state: "done", actedAt: realNow(), proofUrl: "https://fake-platform.invalid/1" }),
+      ticket(0, { state: "scheduled", pressedAt: 1 }), ticket(1), ticket(2, { state: "done", actedAt: testNow(), proofUrl: "https://fake-platform.invalid/1" }),
     ]))]);
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     const ask = document.querySelector(".rv-dock-ask")!;
@@ -293,7 +303,7 @@ describe("undoing an approval", () => {
     fireEvent.click(screen.getByRole("button", { name: /Approve all 2/ }));
     await waitFor(() => expect(offered(store)).not.toBeNull());
     // The person posts the first one: it goes out, and the window reads the batch again.
-    Object.assign(v1, approvedBatch([ticket(0, { state: "done", actedAt: realNow(), proofUrl: "https://fake-platform.invalid/1" }), ticket(1)]));
+    Object.assign(v1, approvedBatch([ticket(0, { state: "done", actedAt: testNow(), proofUrl: "https://fake-platform.invalid/1" }), ticket(1)]));
     await store.getState().loadTeamReview("v1");
     // THE MUTANT: the offer left standing — an Undo that can only be refused, on a toast saying
     // nothing has posted.
@@ -308,7 +318,7 @@ describe("undoing an approval", () => {
     await waitFor(() => expect(offered(store)).not.toBeNull());
     vi.spyOn(console, "error").mockImplementation(() => {});
     // Out on the platform before the window has heard: the server is the one that says no.
-    v1.tickets = [ticket(0, { state: "done", actedAt: realNow() })];
+    v1.tickets = [ticket(0, { state: "done", actedAt: testNow() })];
     offered(store)!.action!.run();
     await waitFor(() => expect(api.calls).toContain("teamReviewUndoApproval:v1"));
     await waitFor(() => expect(store.getState().toasts.map((t) => [t.tone, t.text])).toContainEqual(["error", "It's too late to undo: a post already went out. Close stops whatever hasn't gone out."]));
@@ -320,12 +330,12 @@ describe("undoing an approval", () => {
 const ticket = (ord: number, over: Partial<ActTicket> = {}): ActTicket => ({
   id: `01M07DEZCTCDT8QKVJ9MBTS6W${ord}`, spaceId: "s1", reviewId: "v1", itemId: `v1-i${ord}`, ord, kind: "post", channel: "TikTok",
   account: "@versed.nathan", to: null, device: "Lab iPhone 2", signin: "tiktok.com/nathan", consent: "contract §4", contentHash: "h".repeat(64),
-  disclosure: "caption", state: "ready", slotAt: realNow() + 2 * 3_600_000, slotWhy: "next", pressedAt: null, actedAt: null, proofUrl: null,
+  disclosure: "caption", state: "ready", slotAt: testNow() + 2 * 3_600_000, slotWhy: "next", pressedAt: null, actedAt: null, proofUrl: null,
   screenshot: null, error: null, todayCount: 0, todayCap: 3, adapter: { connected: true, label: "TikTok (fake, for testing)", why: null },
   createdAt: 0, updatedAt: 0, ...over,
 });
 const approvedBatch = (tickets: ActTicket[]): Partial<TeamReviewDetail> => ({
-  state: "approved", decidedAt: realNow(), actsTotal: tickets.length, actsDone: tickets.filter((t) => t.state === "done").length,
+  state: "approved", decidedAt: testNow(), actsTotal: tickets.length, actsDone: tickets.filter((t) => t.state === "done").length,
   actsWaiting: tickets.filter((t) => t.state === "ready" && !t.error).length, actsFailed: tickets.filter((t) => t.state === "ready" && t.error).length, tickets,
 });
 const sheet = () => screen.getByRole("dialog");
@@ -394,7 +404,7 @@ describe("after the yes", () => {
 
   it("a pressed post says when it goes and can be taken back; one that went out keeps its proof", async () => {
     await mount([detail("v1", "3 slideshows for Nathan", approvedBatch([ticket(0, { state: "scheduled", pressedAt: 1 }),
-      ticket(1, { state: "done", actedAt: realNow(), proofUrl: "https://fake-platform.invalid/tiktok/x/1", screenshot: "/home/team-proof/s1/1.png" })]))]);
+      ticket(1, { state: "done", actedAt: testNow(), proofUrl: "https://fake-platform.invalid/tiktok/x/1", screenshot: "/home/team-proof/s1/1.png" })]))]);
     expect(dockNote()).toMatch(/^Posts .+ today\. You can take it back until then\.$/);
     expect(screen.getByRole("button", { name: "Don't post" })).toBeEnabled();
     fireEvent.click(screen.getByRole("radio", { name: "2" }));
