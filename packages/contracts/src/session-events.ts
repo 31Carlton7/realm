@@ -13,7 +13,9 @@ const P = {
   user_message: z.object({
     text: z.string(),
     attachments: z.array(z.object({ path: z.string(), mime: z.string() })),
-    from: z.object({ sessionId: z.string(), title: z.string() }).optional(),
+    /** Another session's agent wrote it. `teammateId` when that session is a teammate's
+     *  (`team_message`), so the transcript can draw who sent it. */
+    from: z.object({ sessionId: z.string(), title: z.string(), teammateId: z.string().optional() }).optional(),
     /** This turn was written by the session's own goal rather than typed by anyone — a continuation,
      *  or the handover a spent budget asks for. Absent on everything a person sent, including the
      *  objective itself, which the user really did write. The transcript attributes it for `from`'s

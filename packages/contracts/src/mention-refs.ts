@@ -43,10 +43,12 @@ export const MentionRefSchema = z.discriminatedUnion("kind", [
   /** An application. The bundle id is what computer use is granted for; the path is only ever where
    *  main reads the icon from, and main checks it against its own scan before reading anything. */
   z.object({ kind: z.literal("app"), label: LabelSchema, name: z.string().min(1).max(120), bundleId: z.string().regex(BUNDLE_ID_RE), path: AbsolutePathSchema }),
-  /** A role on the space's team. Sending wakes it as this session's sub-agent; the server writes
-   *  `childId` (the sub-agent it started) or `refused` (why it could not) — whatever a client sent in
-   *  either is dropped first. */
+  /** A teammate in the space (`roleId` is its id). Sending passes the message to its home session;
+   *  the server writes `delivered` and that session's id, or `refused` (why it could not) — whatever a
+   *  client sent in any of them is dropped first. `childId` is what the first Teams wrote: the
+   *  sub-agent a mention started, on messages from before teammates had chats. */
   z.object({ kind: z.literal("role"), label: LabelSchema, roleId: z.string().min(1).max(40),
+    sessionId: z.string().min(1).max(40).optional(), delivered: z.literal(true).optional(),
     childId: z.string().min(1).max(40).optional(), refused: z.string().min(1).max(400).optional() }),
   /** One of this session's own sub-agents, by its session id: a teammate the person added, or one the
    *  session's agent started. Sending passes the message to it as well; the server writes `delivered`
@@ -206,10 +208,10 @@ export function mentionRefContext(refs: readonly MentionRef[], opts: {
     }
   }
   if (roles.length > 0) {
-    out += `\n\nTeammates the user mentioned, one per chip above:\n${roles.map((r) => `  ${elementChipToken(r.label)} — ${r.childId
-      ? `Realm started ${r.label} as your sub-agent on this message (handle ${r.childId}); it works from its own brief`
-      : `not started: ${r.refused ?? "Realm could not start it"}`}`).join("\n")}\n`;
-    if (roles.some((r) => r.childId)) out += "Do not start them again. Collect their reports with agent_wait (agent_status lists them), then answer the user.\n";
+    out += `\n\nTeammates the user mentioned, one per chip above:\n${roles.map((r) => `  ${elementChipToken(r.label)} — ${r.delivered
+      ? `Realm passed this message to ${r.label}'s own chat; it answers there`
+      : `not passed on: ${r.refused ?? "Realm could not reach it"}`}`).join("\n")}\n`;
+    if (roles.some((r) => r.delivered)) out += "What the user asked of them is theirs to do: do not redo it. team_message reaches them if you need to add something.\n";
   }
   const agents = refs.filter((r): r is Extract<MentionRef, { kind: "agent" }> => r.kind === "agent");
   if (agents.length > 0) {

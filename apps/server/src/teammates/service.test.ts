@@ -1,0 +1,192 @@
+import { afterEach, describe, expect, it } from "vitest";
+import { tempDir } from "@realm/test-utils";
+import { FakeAdapter, type FakeScript } from "@realm/adapters";
+import type { SessionEvent, StoredSessionEvent } from "@realm/contracts";
+import { createApp, type App } from "../app";
+import { ProfilesStore } from "../store/profiles";
+import { SpacesStore } from "../store/spaces";
+import { waitFor } from "../test-utils";
+
+/**
+ * Teammates over the real app with the scripted agent: each owns a chat that is an ordinary session,
+ * `team_message` is a turn in the other's chat (queued behind a live one, and answered with `wait`),
+ * a wait that could never end is refused at once, and what a teammate starts runs in its mode.
+ */
+
+let app: App;
+afterEach(async () => { await app?.close(); });
+
+const SCRIPT: FakeScript = [
+  { on: "hello there", emit: [{ kind: "text", text: "Hi, I am on it." }] },
+  { on: "tell design", emit: [{ kind: "call", tool: "realm-team__team_message", input: { to: "@design", message: "the icon needs a second colour" } }, { kind: "text", text: "Told design." }] },
+  { on: "ask design", emit: [{ kind: "call", tool: "realm-team__team_message", input: { to: "design", message: "which colour is the icon?", wait: true } }, { kind: "text", text: "Design answered." }] },
+  { on: "which colour is the icon?", emit: [{ kind: "text", text: "Violet, on graphite." }] },
+  { on: "second colour", emit: [{ kind: "text", text: "Noted." }] },
+  { on: "slow work", emit: [{ kind: "text", text: "one two three four five six seven eight nine ten", paceMs: 40 }] },
+  { on: "start a task", emit: [{ kind: "call", tool: "realm-agent__agent_start", input: { goal: "Move search to SQLite", title: "sqlite search" } }, { kind: "text", text: "Started it." }] },
+  { on: "Move search to SQLite", emit: [{ kind: "text", text: "Moved." }] },
+];
+
+async function boot() {
+  const home = tempDir("realm-teammates-");
+  const fake = new FakeAdapter({ script: SCRIPT, delayMs: 2 });
+  app = await createApp({ home, port: 0, adapters: { fake, claude: fake }, agentRun: { fallbackKind: "fake" } });
+  const profile = new ProfilesStore(app.db).create({ name: "P", icon: "x", color: "#000" });
+  const space = new SpacesStore(app.db, home).create({ profileId: profile.id, name: "Realm", icon: "folder" });
+  const make = (name: string, extra: Record<string, unknown> = {}) =>
+    app.team.create({ spaceId: space.id, name, brief: `You are ${name}.`, agentKind: "fake", ...extra });
+  return { spaceId: space.id, make };
+}
+
+const events = (sessionId: string): SessionEvent[] => app.sessions.events(sessionId, 0, 2_000).map((e: StoredSessionEvent) => e.event);
+const userMessages = (sessionId: string) => events(sessionId).flatMap((e) => (e.type === "user_message" ? [e.payload] : []));
+const toolResults = (sessionId: string) => events(sessionId).flatMap((e) => (e.type === "tool_result" ? [e.payload.content] : []));
+const idle = (sessionId: string) => waitFor(() => app.sessions.get(sessionId).status === "idle" && events(sessionId).some((e) => e.type === "assistant_text"));
+
+describe("a teammate", () => {
+  it("is made with its chat: a session in its folder, on its agent and mode, titled with its name and tagged as its home", async () => {
+    const { spaceId, make } = await boot();
+    const cto = make("CTO", { permissionMode: "acceptEdits" });
+    expect(cto).toMatchObject({ handle: "cto", lead: false, state: "idle", archived: false });
+    const home = app.sessions.get(cto.homeSessionId!);
+    expect(home).toMatchObject({ title: "CTO", agentKind: "fake", permissionMode: "acceptEdits", teammateId: cto.id, teammateHome: true });
+    expect(home.cwd).toBe(cto.folder);
+    expect(app.team.list(spaceId).map((t) => t.handle)).toEqual(["cto"]);
+  });
+
+  it("takes the person's message as a turn in its chat, told who it is and who its team is", async () => {
+    const { make } = await boot();
+    make("Design engineer");
+    const cto = make("CTO", { lead: true });
+    const { sessionId } = await app.team.message(cto.id, "hello there");
+    expect(sessionId).toBe(cto.homeSessionId);
+    await idle(sessionId);
+    expect(userMessages(sessionId).map((m) => m.text)).toEqual(["hello there"]);
+    const context = app.team.contextFor(sessionId)!;
+    expect(context).toContain("You are @cto (CTO)");
+    expect(context).toContain("- @design-engineer — Design engineer: You are Design engineer.");
+    expect(context).toContain("You are the Lead.");
+    expect(context).toContain('titled "cto - <task>"');
+  });
+
+  it("keeps one Lead per space, and leaves the list and the tools when archived", async () => {
+    const { spaceId, make } = await boot();
+    const a = make("Ops", { lead: true });
+    const b = make("Research");
+    expect(app.team.setLead(spaceId, b.id).map((t) => [t.handle, t.lead])).toEqual([["research", true], ["ops", false]]);
+    app.team.archive(b.id, true);
+    expect(app.team.list(spaceId).map((t) => [t.handle, t.lead])).toEqual([["ops", false]]);
+    expect(app.team.list(spaceId, true).map((t) => t.handle)).toEqual(["research"]);
+    // Its chat stays a session the person can read.
+    expect(app.sessions.get(b.homeSessionId!).teammateHome).toBe(true);
+    app.team.archive(a.id, true);
+    const s = app.sessions.create({ spaceId, agentKind: "fake", projectId: null, model: null, effort: null, permissionMode: "default" }).session;
+    expect(app.gateway.realmProvidersFor(s.id, spaceId)).not.toContain("realm-team");
+  });
+});
+
+describe("team_message", () => {
+  it("puts a turn in the other teammate's chat, marked as from the sender", async () => {
+    const { make } = await boot();
+    const design = make("Design");
+    const cto = make("CTO");
+    await app.team.message(cto.id, "tell design");
+    await waitFor(() => userMessages(design.homeSessionId!).length === 1);
+    const [got] = userMessages(design.homeSessionId!);
+    expect(got).toMatchObject({ text: "From @cto: the icon needs a second colour", from: { sessionId: cto.homeSessionId, title: "@cto", teammateId: cto.id } });
+    await idle(cto.homeSessionId!);
+    expect(toolResults(cto.homeSessionId!)[0]).toMatch(/^Sent to @design\. You are not waiting/);
+  });
+
+  it("waits behind a turn the other is on, and with wait answers with its reply", async () => {
+    const { make } = await boot();
+    const design = make("Design");
+    const cto = make("CTO");
+    // Design is busy when the question comes.
+    await app.team.message(design.id, "slow work");
+    await waitFor(() => app.sessions.get(design.homeSessionId!).status === "running");
+    await app.team.message(cto.id, "ask design");
+    await waitFor(() => toolResults(cto.homeSessionId!).length === 1, { timeout: 10_000 });
+    const answer = toolResults(cto.homeSessionId!)[0]!;
+    expect(answer).toContain("@design answered");
+    expect(answer).toContain("Violet, on graphite.");
+    // The question went in after the turn it found running: the slow one's answer is not taken for it.
+    expect(answer).not.toContain("one two three");
+    expect(userMessages(design.homeSessionId!).map((m) => m.text)).toEqual(["slow work", "From @cto: which colour is the icon?"]);
+  });
+
+  it("refuses at once a wait on yourself, or on a teammate that is waiting on you", async () => {
+    const { spaceId, make } = await boot();
+    const design = make("Design");
+    const cto = make("CTO");
+    const ctx = (sessionId: string) => ({ sessionId, spaceId });
+    const self = await app.team.teamMessage(ctx(cto.homeSessionId!), { to: "cto", message: "anything", wait: true });
+    expect(self.isError).toBe(true);
+    expect(JSON.stringify(self.content)).toContain("that is you");
+
+    // Design's own task session messaging Design's chat with wait: still Design waiting on itself.
+    const task = app.sessions.create({ spaceId, agentKind: "fake", projectId: null, model: null, effort: null, permissionMode: "default",
+      teammate: { id: design.id, home: false } }).session;
+    const onItself = await app.team.teamMessage(ctx(task.id), { to: "design", message: "anything", wait: true });
+    expect(JSON.stringify(onItself.content)).toContain("waiting on yourself would never end");
+
+    // Design waits on the CTO, who is busy, so the wait stays open…
+    await app.team.message(cto.id, "slow work");
+    await waitFor(() => app.sessions.get(cto.homeSessionId!).status === "running");
+    const designWaits = app.team.teamMessage(ctx(design.homeSessionId!), { to: "cto", message: "which colour is the icon?", wait: true });
+    // …and the CTO waiting on Design now would never end.
+    const started = Date.now();
+    const loop = await app.team.teamMessage(ctx(cto.homeSessionId!), { to: "design", message: "and you?", wait: true });
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(loop.isError).toBe(true);
+    expect(JSON.stringify(loop.content)).toContain("@design is waiting on you");
+    expect((await designWaits).isError).toBe(false);
+  });
+
+  it("names who is here when the handle is wrong, and finds the Lead by \"lead\"", async () => {
+    const { spaceId, make } = await boot();
+    const ops = make("Ops");
+    const cto = make("CTO");
+    const ctx = { sessionId: cto.homeSessionId!, spaceId };
+    expect(JSON.stringify((await app.team.teamMessage(ctx, { to: "lead", message: "hi" })).content)).toContain("no Lead");
+    expect(JSON.stringify((await app.team.teamMessage(ctx, { to: "@nobody", message: "hi" })).content)).toContain("there is no @nobody here. Teammates here: @ops, @cto");
+    app.team.setLead(spaceId, ops.id);
+    expect((await app.team.teamMessage(ctx, { to: "lead", message: "hi" })).isError).toBe(false);
+    await waitFor(() => userMessages(ops.homeSessionId!).length === 1);
+  });
+
+  it("reaches a teammate from the person's own session, and an @ in the person's message passes it on", async () => {
+    const { spaceId, make } = await boot();
+    const cto = make("CTO");
+    const mine = app.sessions.create({ spaceId, agentKind: "fake", projectId: null, model: null, effort: null, permissionMode: "default" }).session;
+    expect(app.gateway.realmProvidersFor(mine.id, spaceId)).toContain("realm-team");
+    const refs = await app.team.passMentioned(mine.id, "@[cto] hello there", [{ kind: "role", label: "cto", roleId: cto.id }]);
+    expect(refs).toEqual([{ kind: "role", label: "cto", roleId: cto.id, sessionId: cto.homeSessionId, delivered: true }]);
+    await waitFor(() => userMessages(cto.homeSessionId!).some((m) => m.text === "@cto hello there"));
+  });
+});
+
+describe("what a teammate starts", () => {
+  it("is never hidden: it carries the teammate, leads with its handle, and runs in the teammate's mode", async () => {
+    const { spaceId, make } = await boot();
+    const cto = make("CTO", { permissionMode: "acceptEdits" });
+    // The person set its chat's chip lower; the task still runs as the teammate does.
+    await app.sessions.setOptions(cto.homeSessionId!, { permissionMode: "default" });
+    await app.team.message(cto.id, "start a task");
+    await waitFor(() => app.sessions.listAll().some((s) => s.dispatchedBy?.sessionId === cto.homeSessionId));
+    const task = app.sessions.listAll().find((s) => s.dispatchedBy?.sessionId === cto.homeSessionId)!;
+    expect(task).toMatchObject({ teammateId: cto.id, teammateHome: false, title: "cto - sqlite search", permissionMode: "acceptEdits" });
+    const view = app.team.get(cto.id);
+    expect(view.taskSessions.map((t) => [t.id, t.title, t.parentId])).toEqual([[task.id, "cto - sqlite search", null]]);
+    expect(app.team.sessions(cto.id).map((t) => t.id)).toEqual([task.id]);
+    void spaceId;
+  });
+
+  it("runs in Full access when the teammate does", async () => {
+    const { make } = await boot();
+    const cto = make("CTO", { permissionMode: "bypassPermissions" });
+    await app.team.message(cto.id, "start a task");
+    await waitFor(() => app.sessions.listAll().some((s) => s.dispatchedBy?.sessionId === cto.homeSessionId));
+    expect(app.sessions.listAll().find((s) => s.dispatchedBy?.sessionId === cto.homeSessionId)).toMatchObject({ permissionMode: "bypassPermissions", teammateId: cto.id });
+  });
+});

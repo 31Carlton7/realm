@@ -33,8 +33,6 @@ const toSchedule = (r: Row): Schedule => ({
 export type ScheduleInsert = {
   spaceId: string; title: string; goal: string; cron: string; enabled: boolean; constraints: RunConstraints | null;
   newSessionPerRun: boolean; archiveSucceeded: boolean;
-  /** The team role whose clock this is (`team/service.ts`). */
-  roleId?: string | null;
 };
 
 export type ScheduleUpdate = {
@@ -59,14 +57,10 @@ export type ScheduleUpdate = {
 export class SchedulesStore {
   constructor(private db: Db, private clock: () => number = now) {}
 
+  /** A space's schedules. The clocks the first Teams' roles ran on (`role_id`) are left in the table
+   *  and out of every list: teammates do not run on a clock. */
   list(spaceId: string): Schedule[] {
-    return (this.db.prepare("SELECT * FROM schedules WHERE space_id = ? ORDER BY created_at DESC, id DESC").all(spaceId) as Row[]).map(toSchedule);
-  }
-
-  /** The clock a team role runs on, if it has one. */
-  forRole(roleId: string): Schedule | null {
-    const r = this.db.prepare("SELECT * FROM schedules WHERE role_id = ? ORDER BY created_at ASC LIMIT 1").get(roleId) as Row | undefined;
-    return r ? toSchedule(r) : null;
+    return (this.db.prepare("SELECT * FROM schedules WHERE space_id = ? AND role_id IS NULL ORDER BY created_at DESC, id DESC").all(spaceId) as Row[]).map(toSchedule);
   }
 
   get(id: string): Schedule | null {
@@ -81,11 +75,11 @@ export class SchedulesStore {
     // nothing ahead. Both are `null`, and the page reads that column to say "paused" / "never".
     const next = input.enabled ? nextFireOf(input.cron, ts) : null;
     this.db.prepare(`INSERT INTO schedules (id, space_id, title, goal, cron, enabled, constraints_json,
-        next_run_at, last_run_at, last_run_id, last_skipped_at, new_session_per_run, archive_succeeded, role_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?)`)
+        next_run_at, last_run_at, last_run_id, last_skipped_at, new_session_per_run, archive_succeeded, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?)`)
       .run(id, input.spaceId, input.title, input.goal, input.cron, input.enabled ? 1 : 0,
         input.constraints ? JSON.stringify(input.constraints) : null, next,
-        input.newSessionPerRun ? 1 : 0, input.archiveSucceeded ? 1 : 0, input.roleId ?? null, ts, ts);
+        input.newSessionPerRun ? 1 : 0, input.archiveSucceeded ? 1 : 0, ts, ts);
     return this.get(id)!;
   }
 
@@ -141,7 +135,7 @@ export class SchedulesStore {
    */
   claimDue(at: number): { schedule: Schedule; dueAt: number }[] {
     const rows = this.db.prepare(
-      "SELECT * FROM schedules WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ? ORDER BY next_run_at",
+      "SELECT * FROM schedules WHERE enabled = 1 AND role_id IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ? ORDER BY next_run_at",
     ).all(at) as Row[];
     const claimed: { schedule: Schedule; dueAt: number }[] = [];
     for (const r of rows) {

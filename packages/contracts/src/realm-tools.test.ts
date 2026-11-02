@@ -11,10 +11,9 @@ describe("REALM_READ_ONLY_TOOLS", () => {
       "realm-agent__agent_peers", "realm-agent__agent_status",
       "realm-schedule__schedule_list",
       "realm-docs__docs_search", "realm-docs__docs_read", "realm-docs__docs_state",
-      "realm-team__record_list", "realm-team__record_types", "realm-team__review_status", "realm-team__policy_read",
+      "realm-team__team_list",
       "realm-memory__memory_index", "realm-memory__memory_read", "realm-memory__memory_search",
       "realm-goal__goal_status",
-      "realm-vault__vault_list",
     ]);
   });
 
@@ -25,10 +24,8 @@ describe("REALM_READ_ONLY_TOOLS", () => {
       "realm-schedule__schedule_create", "realm-docs__docs_open", "realm-docs__docs_list", "realm-docs__docs_progress",
       "realm-goal__update_goal", "realm-browser__browser_fill_credential", "realm-terminal__terminal_write", "realm-ui__ui_ask",
       "realm-workspace__pane_show", "realm-workspace__session_open", "realm-workspace__space_switch", "realm-workspace__settings_set",
-      "realm-team__team_roles", "realm-team__record_read", "realm-team__record_update", "realm-team__review_submit", "realm-team__review_close",
-      "realm-team__team_handoff", "realm-team__team_mention",
+      "realm-team__team_message",
       "realm-memory__memory_save", "realm-memory__memory_remove", "realm-memory__memory_write_file",
-      "realm-vault__vault_http",
     ]) expect(REALM_READ_ONLY_TOOLS).not.toContain(changes);
   });
 

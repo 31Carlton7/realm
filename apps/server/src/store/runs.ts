@@ -44,8 +44,6 @@ export type RunInsert = {
   /** The schedule that fired it, and — continuing that schedule's last session — the session the
    *  first attempt resumes. Both null for a run started by hand. */
   scheduleId?: string | null; sessionId?: string | null;
-  /** The team role it works for, and what woke it. Null for every run that is not a role's. */
-  roleId?: string | null; wokeOn?: string | null;
 };
 
 /** Every field a transition may write. Absent = untouched; `null` is a real value for the nullable
@@ -95,11 +93,11 @@ export class RunsStore {
     try {
       this.db.prepare(
         `INSERT INTO runs (id, space_id, title, goal, agent_kind, environment_id, constraints_json, dedupe_key,
-           state, attempt, max_attempts, session_id, schedule_id, role_id, woke_on, deadline_at, result_text, error, created_at, started_at, settled_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', 0, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, NULL, NULL, ?)`,
+           state, attempt, max_attempts, session_id, schedule_id, deadline_at, result_text, error, created_at, started_at, settled_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', 0, ?, ?, ?, ?, NULL, NULL, ?, NULL, NULL, ?)`,
       ).run(id, input.spaceId, input.title, input.goal, input.agentKind, input.environmentId,
         input.constraints ? JSON.stringify(input.constraints) : null, input.dedupeKey,
-        input.maxAttempts, input.sessionId ?? null, input.scheduleId ?? null, input.roleId ?? null, input.wokeOn ?? null, input.deadlineAt, t, t);
+        input.maxAttempts, input.sessionId ?? null, input.scheduleId ?? null, input.deadlineAt, t, t);
     } catch (e) {
       if (isUniqueViolation(e)) return null;
       throw e;
@@ -179,19 +177,6 @@ export class RunsStore {
   latestForSchedule(scheduleId: string): Run | null {
     const r = this.db.prepare("SELECT * FROM runs WHERE schedule_id = ? ORDER BY created_at DESC, id DESC LIMIT 1").get(scheduleId) as Row | undefined;
     return r ? toRun(r) : null;
-  }
-
-  /** A role's runs, newest first — its page's table. */
-  listForRole(roleId: string, limit: number): Run[] {
-    return (this.db.prepare("SELECT * FROM runs WHERE role_id = ? ORDER BY created_at DESC, id DESC LIMIT ?").all(roleId, limit) as Row[]).map(toRun);
-  }
-
-  /** What a role's runs, or a whole team's, spent since a moment — the week's meter. */
-  spentSince(where: { roleId?: string; spaceId?: string }, since: number): number {
-    const r = where.roleId
-      ? this.db.prepare("SELECT COALESCE(SUM(cost_usd), 0) AS s FROM runs WHERE role_id = ? AND created_at >= ?").get(where.roleId, since)
-      : this.db.prepare("SELECT COALESCE(SUM(cost_usd), 0) AS s FROM runs WHERE space_id = ? AND role_id IS NOT NULL AND created_at >= ?").get(where.spaceId ?? "", since);
-    return (r as { s: number }).s;
   }
 
   /** Every live run, across every space — boot recovery's one scan. */
