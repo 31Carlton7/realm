@@ -68,16 +68,26 @@ describe("createCodexMapper", () => {
     const saved = "/Users/u/.codex/generated_images/01a08390/exec-8c2c614d.png";
     const base64 = "iVBORw0KGgo" + "A".repeat(200_000);
 
-    it("becomes one image_generation call carrying the saved path, and never the base64 picture", () => {
+    it("is a call from the moment it starts, named again with the saved path when it lands, and never carries the base64 picture", () => {
       const m = createCodexMapper();
       const started = m.map("item/started", { item: { type: "imageGeneration", id: "ig_1", status: "inProgress", revisedPrompt: "a logo", result: "", savedPath: null } });
+      // THE mutant: emitting nothing on start, which left the transcript empty for the minute a picture takes.
+      expect(started).toEqual([expect.objectContaining({ type: "tool_call", payload: { toolUseId: "ig_1", name: "image_generation", input: { prompt: "a logo" }, parentToolUseId: null } })]);
       const done = m.map("item/completed", { item: { type: "imageGeneration", id: "ig_1", status: "completed", revisedPrompt: "a logo", result: base64, transparentBackground: true, failure: null, savedPath: saved } });
-      const all = [...started, ...done];
-      expect(types(all)).toEqual(["tool_call", "tool_result"]);
-      expect(all[0]).toMatchObject({ payload: { toolUseId: "ig_1", name: "image_generation", input: { path: saved, prompt: "a logo" } } });
-      expect(all[1]).toMatchObject({ payload: { toolUseId: "ig_1", content: `Saved ${saved}`, isError: false } });
+      expect(types(done)).toEqual(["tool_call", "tool_result"]);
+      expect(done[0]).toMatchObject({ payload: { toolUseId: "ig_1", name: "image_generation", input: { path: saved, prompt: "a logo" } } });
+      expect(done[1]).toMatchObject({ payload: { toolUseId: "ig_1", content: `Saved ${saved}`, isError: false } });
       // THE mutant: the default toolInputFor/toolOutputFor, which spread or stringify the whole item.
-      expect(JSON.stringify(all)).not.toContain("AAAAAAAAAA");
+      expect(JSON.stringify([...started, ...done])).not.toContain("AAAAAAAAAA");
+      // Completed, it is no longer open: the turn's end has nothing left to close.
+      expect(m.map("turn/completed", { turn: { status: "completed" } }).filter((e) => e.type === "tool_result")).toEqual([]);
+    });
+
+    it("closes a generation the turn was interrupted under, as it closes any call", () => {
+      const m = createCodexMapper();
+      m.map("item/started", { item: { type: "imageGeneration", id: "ig_3", status: "inProgress", revisedPrompt: "", result: "", savedPath: null } });
+      const end = m.map("turn/completed", { turn: { status: "interrupted" } });
+      expect(end.filter((e) => e.type === "tool_result")).toEqual([expect.objectContaining({ payload: { toolUseId: "ig_3", content: "interrupted", isError: true } })]);
     });
 
     it("names no path for a generation that failed, so nothing phantom is indexed", () => {

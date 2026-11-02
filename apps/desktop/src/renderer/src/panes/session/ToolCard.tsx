@@ -238,7 +238,8 @@ const ToolCardBody = memo(function ToolCardBody({ block, sessionStatus, enter = 
   const cwd = useContext(ToolCwd);
   /* The generating canvas, on the one call it belongs to: media being made, right now. Bound to
      `state === "running"` — the call's REAL settled state — so the canvas cannot outlive the work,
-     and a failure leaves a failed card rather than a ring still turning. */
+     and a failure leaves a failed card rather than a ring still turning. While it is up it is the
+     call's one loader: the row keeps its glyph rather than turning a second one beside it. */
   const work = state === "running" ? mediaWorkFor(block.name, block.input) : null;
   /* Every other call answers with an empty list on the name alone, before the result is read. */
   const children = delegatedChildIds(block);
@@ -252,7 +253,7 @@ const ToolCardBody = memo(function ToolCardBody({ block, sessionStatus, enter = 
             that state is the news — running, waiting on the person, failed. A settled call wears no
             tick: thirty identical ticks carry nothing. The two layers turn over on the shared icon
             swap; the state layer's glyph is bound to the block's real result, never a clock. */}
-        <span className="tool-status icon-swap" data-on={state === "running" || state === "waiting" || state === "error" || undefined}
+        <span className="tool-status icon-swap" data-on={(state === "running" && !work) || state === "waiting" || state === "error" || undefined}
           role="img" aria-label={STATE_LABEL[state]}>
           <span className="swap-off" data-glyph={glyph}><Icon name={glyph} size={14} /></span>
           <span className="swap-on">

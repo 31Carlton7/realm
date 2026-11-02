@@ -101,6 +101,7 @@ const VERBS: Record<string, string> = {
   WebFetch: "Fetch", WebSearch: "Search web", web_search: "Search web", webSearch: "Search web",
   TodoWrite: "Plan", update_plan: "Plan",
   Task: "Delegate", Agent: "Delegate",
+  image_generation: "Generate image",
 };
 /** ACP's kinds (map-acp.ts), for an agent whose call is named by a sentence rather than a tool. */
 const ACP_VERBS: Record<string, string> = {
@@ -129,6 +130,7 @@ export function toolGlyph(name: string, toolKind?: string): string {
     case "Fetch": case "Search web": return "browser";
     case "Plan": return "checkCircle";
     case "Delegate": return "agents";
+    case "Generate image": return "image";
     case "Read": case "Edit": case "Write": case "Delete": case "Move": return "artifact";
     default: return "tool";
   }

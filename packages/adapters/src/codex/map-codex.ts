@@ -51,14 +51,21 @@ function toolOutputFor(item: Bag): string {
 const isImageGeneration = (item: Bag): boolean =>
   str(item.type) === "imageGeneration" || (str(item.type) === "Extension" && str(item.kind) === "image_gen.generation");
 
-/** The tool_call and tool_result for a finished generation, built field by field so `result` is
- *  never carried. Emitted only on completion: the item has no path until then. */
-function imageGenerationEvents(id: string, item: Bag): SessionEvent[] {
+/** The generation as a call, built field by field so `result` is never carried. Before it finishes
+ *  the item has no path, and the call is only what is being drawn; the call at completion names the
+ *  same item again with its path, which is what the Library indexes and the transcript then shows. */
+function imageGenerationCall(id: string, item: Bag): SessionEvent {
   const path = str(item.savedPath);
   const prompt = str(item.revisedPrompt);
+  return sessionEvent("tool_call", { toolUseId: id, name: "image_generation", input: path ? { path, prompt } : { prompt }, parentToolUseId: null });
+}
+
+/** The tool_call and tool_result for a finished generation. */
+function imageGenerationEvents(id: string, item: Bag): SessionEvent[] {
+  const path = str(item.savedPath);
   const failure = str(item.failure);
   return [
-    sessionEvent("tool_call", { toolUseId: id, name: "image_generation", input: path ? { path, prompt } : { prompt }, parentToolUseId: null }),
+    imageGenerationCall(id, item),
     sessionEvent("tool_result", {
       toolUseId: id,
       content: path ? `Saved ${path}` : failure || "image generation failed",
@@ -141,7 +148,9 @@ export function createCodexMapper() {
           if (type === "agentMessage") { openText.set(id, ""); return out; }
           if (type === "reasoning") { openThought.set(id, ""); return out; }
           if (type === "plan") { openPlan.set(id, ""); return out; }
-          if (isImageGeneration(item)) return out;
+          // Drawn as it starts, so the generating canvas is up for the minute a picture takes; open
+          // until it completes, so an interrupt closes it like any other call.
+          if (isImageGeneration(item)) { openTools.add(id); out.push(imageGenerationCall(id, item)); return out; }
           const name = toolNameFor(item);
           if (name) { openTools.add(id); out.push(sessionEvent("tool_call", { toolUseId: id, name, input: toolInputFor(item), parentToolUseId: null })); }
           return out; // userMessage starts carry no Realm event
@@ -169,7 +178,7 @@ export function createCodexMapper() {
             if (text) out.push(sessionEvent("thinking", { messageId: id, text }));
             return out;
           }
-          if (isImageGeneration(item)) return imageGenerationEvents(id, item);
+          if (isImageGeneration(item)) { openTools.delete(id); return imageGenerationEvents(id, item); }
           if (openTools.has(id)) {
             openTools.delete(id);
             out.push(sessionEvent("tool_result", { toolUseId: id, content: toolOutputFor(item), isError: str(item.status) !== "completed" }));
