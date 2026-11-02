@@ -1265,4 +1265,24 @@ export const migrations: string[] = [
   ALTER TABLE sessions ADD COLUMN asked_by_session_id TEXT;
   CREATE INDEX IF NOT EXISTS sessions_teammate ON sessions(teammate_id) WHERE teammate_id IS NOT NULL;
   `,
+  // The accounts each agent CLI can run on (contracts/accounts.ts), found by its text. An added
+  // account is a folder under Realm's home that the CLI's login signed in; `config_dir` NULL is the
+  // CLI's own folder, seeded here so every CLI has the account it always had and a rename has a row
+  // to land on. `email` and `plan` are what the CLI last reported; whether it is signed in is asked
+  // fresh, never kept. `INSERT OR IGNORE`, so the statement is safe to meet twice.
+  `
+  CREATE TABLE IF NOT EXISTS agent_accounts (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    label TEXT NOT NULL,
+    config_dir TEXT,
+    email TEXT,
+    plan TEXT,
+    created_at INTEGER NOT NULL);
+  INSERT OR IGNORE INTO agent_accounts (id, kind, label, config_dir, created_at) VALUES
+    ('default-claude', 'claude', 'Default', NULL, 0), ('default-codex', 'codex', 'Default', NULL, 0);
+  `,
+  // The account a session runs on. NULL — every session before this — is the CLI's own default
+  // account, and an account's removal puts its sessions back there.
+  `ALTER TABLE sessions ADD COLUMN account_id TEXT REFERENCES agent_accounts(id) ON DELETE SET NULL;`,
 ];

@@ -76,7 +76,9 @@ export type ModelRow = {
  * - **A model no reachable harness can run is marked, with the reason.** `sessions.setAgent` refuses
  *   once a session has any event, because a transcript, a providerSessionId and a resume are all tied
  *   to the agent that produced them. `groupRows` leaves those rows out and the picker says why in one
- *   line, rather than drawing a list of models nobody can choose.
+ *   line, rather than drawing a list of models nobody can choose. Where the session can still move by
+ *   handing over (`handoff`, `sessions.switchAgent`), nothing is marked: every route is offered, and
+ *   the picker asks before a pick changes the agent.
  *
  * Availability (`agentProbe`) is reported but never blocking — picking a missing CLI lands on the
  * install card with the exact command, which is somewhere to go; disabling the row hides the fix.
@@ -98,8 +100,11 @@ export type ModelRow = {
  * still marks a row: the frontier model, which is the first of the kind's list and the one the chip
  * already names via `DEFAULT_MODEL_LABEL` (presets.test.ts pins the two to each other).
  */
-export function modelRows({ kind, model, agentProbe, canSwitchAgent, favorites = [], also = [] }: {
+export function modelRows({ kind, model, agentProbe, canSwitchAgent, handoff = false, favorites = [], also = [] }: {
   kind: AgentKind; model: string | null; agentProbe: AgentProbe[]; canSwitchAgent: boolean;
+  /** The session has run, but can still move to another agent by handing over — a fresh conversation
+   *  briefed with a summary of this one. Every route is offered, as before its first message. */
+  handoff?: boolean;
   /** Canonical keys the user has starred. */
   favorites?: readonly string[];
   /** Kinds offered after the selectable set: the scripted agent, which a session never offers fresh
@@ -171,8 +176,9 @@ export function modelRows({ kind, model, agentProbe, canSwitchAgent, favorites =
 
   // Resolution runs AFTER every harness has been folded in, because "prefer one that is installed"
   // cannot be answered while the row still has routes it has not been told about.
+  const switchable = canSwitchAgent || handoff;
   for (const row of rows) {
-    const harness = resolveHarness(row.harnesses, { kind, canSwitchAgent, noteOf });
+    const harness = resolveHarness(row.harnesses, { kind, canSwitchAgent: switchable, noteOf });
     if (harness === null) {
       row.blockedReason = `${AGENT_META[row.kind].label} can’t be picked — this session has already run, and a session's agent can only change before its first message.`;
     } else {
@@ -184,10 +190,10 @@ export function modelRows({ kind, model, agentProbe, canSwitchAgent, favorites =
       // `ids[kind]` exists only for a harness that offers the model, so this already means "on the
       // session's own harness AND running the pinned id".
       row.selected = row.ids[kind] === selectedId;
-      // Every other route is somewhere the session could go — while it still can. Once it has run,
-      // `sessions.setAgent` refuses, and a route that would refuse is a click whose only outcome is a
-      // rejection.
-      row.alternates = canSwitchAgent ? row.harnesses.filter((h) => h !== harness) : [];
+      // Every other route is somewhere the session could go — while it still can. Once it has run and
+      // cannot hand over, `sessions.setAgent` refuses, and a route that would refuse is a click whose
+      // only outcome is a rejection.
+      row.alternates = switchable ? row.harnesses.filter((h) => h !== harness) : [];
     }
   }
   return rows;

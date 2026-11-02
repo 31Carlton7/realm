@@ -38,7 +38,7 @@ export type Block =
   /** `fix` is the thing to do about it, carried from the server on the failures where Realm knows
    *   one (today: an auth failure it re-probed). Absent on every other error, which is most of
    *   them — a block that invented a remedy would be worse than the bare message. */
-  | { kind: "error"; message: string; fix?: { title: string; hint: string; command: string | null }; ts: number }
+  | { kind: "error"; message: string; fix?: { title: string; hint: string; command: string | null }; accounts?: { id: string; label: string }[]; ts: number }
   /**
    * The session changed agents mid-turn, because the one it was on could not finish (failover).
    *
@@ -47,7 +47,7 @@ export type Block =
    * a reader comparing the two needs to know where the seam is. `attempt` is how many same-agent
    * retries were spent first, which is what explains the gap in the timestamps.
    */
-  | { kind: "handoff"; from: string; to: string; note: string; attempt: number; ts: number }
+  | { kind: "handoff"; from: string; to: string; note: string; attempt: number; summaryPath?: string; ts: number }
   /**
    * A retry is pending. Ephemeral in every sense — the event is not persisted, and the block is
    * REPLACED by the next one rather than stacking, so three attempts leave one line saying what is
@@ -416,10 +416,12 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
     //   retrying → error   the ladder ran out; the failure supersedes the wait, and is final
     case "error":
       return { ...t, blocks: [...dropPending(blocks),
-        { kind: "error", message: e.payload.message, ...(e.payload.fix ? { fix: e.payload.fix } : {}), ts: e.ts }] };
+        { kind: "error", message: e.payload.message, ...(e.payload.fix ? { fix: e.payload.fix } : {}),
+          ...(e.payload.accounts?.length ? { accounts: e.payload.accounts } : {}), ts: e.ts }] };
     case "handoff":
       return { ...t, blocks: [...dropPending(blocks),
-        { kind: "handoff", from: e.payload.from, to: e.payload.to, note: e.payload.note, attempt: e.payload.attempt, ts: e.ts }] };
+        { kind: "handoff", from: e.payload.from, to: e.payload.to, note: e.payload.note, attempt: e.payload.attempt,
+          ...(e.payload.summaryPath ? { summaryPath: e.payload.summaryPath } : {}), ts: e.ts }] };
     case "context_reset":
       return { ...t, blocks: [...dropPending(blocks),
         { kind: "context_reset", note: e.payload.note, reason: e.payload.reason, ts: e.ts }] };

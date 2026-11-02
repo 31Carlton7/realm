@@ -254,7 +254,7 @@ describe("migration v56 — compressed event payloads", () => {
   const V56_AT = migrations.findIndex((m) => m.includes("CREATE TABLE IF NOT EXISTS event_payload_compaction"));
 
   /** A home at the version before v56, by hand: only the tables v56 and the compactor touch, and the
-   *  two the teammates' migration further down the chain adds columns to. */
+   *  two the teammates' and the accounts' migrations further down the chain add columns to. */
   function beforeV56(path: string) {
     const db = new DatabaseSync(path);
     db.exec(`

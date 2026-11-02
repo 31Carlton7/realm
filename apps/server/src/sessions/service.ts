@@ -12,8 +12,9 @@ import type { SpacesStore } from "../store/spaces";
 import type { SettingsStore } from "../store/settings";
 import type { TerminalService } from "../terminals/service";
 import { NotFoundError, RpcError } from "../store/rows";
-import { shouldSurfaceWrite } from "@realm/contracts";
+import { buildHandoffContext, defaultAccountId, hasAccounts, shouldSurfaceWrite, switchNote, type AccountKind } from "@realm/contracts";
 import type { FailoverHooks } from "./failover";
+import { handOver, modeAfterSwitch, modelNameOf } from "./handover";
 import { portEnv, type PortAllocator } from "../workspace/ports";
 import type { WorktreeService } from "../workspace/worktrees";
 import type { CheckpointService } from "../checkpoints/service";
@@ -235,10 +236,25 @@ export class SessionService {
   private secrets = new SecretAnswers();
   /** Set while the daemon is going quiet for a handoff. See `ensureLive` for the rule that matters. */
   private draining = false;
+  /** Sessions changing agents (`switchAgent`). A message sent meanwhile waits for the switch, so it is
+   *  the new agent's first rather than one more for the agent being left. */
+  private switching = new Map<string, Promise<unknown>>();
   constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; settings: SettingsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry; skills: SkillsService; gateway: McpGateway; memory: MemoryService; checkpoints?: CheckpointService;
     /** Failover (fallbacks + forks). Optional so a server built without it behaves exactly as
      *  before: no retries, no handoffs, an error is an error. */
     failover?: FailoverHooks;
+    /** What a switch hands the incoming agent (`sessions/handover.ts`): the hand-off note, written on
+     *  the frontier model and saved under Realm's home. Optional — without it a switch still happens,
+     *  carrying the conversation verbatim, and writes no file. */
+    handoffNotes?: { write(session: Session, sides: { from: string; to: string }): Promise<{ path: string; notes: string }> };
+    /** The accounts an agent runs on (`accounts/service.ts`): the folder variable a session's engine
+     *  starts under, and carrying a conversation between two accounts' folders. Optional — without it
+     *  every session runs on its CLI's own folder. */
+    accounts?: {
+      envFor(kind: AgentKind, accountId: string | null | undefined): Record<string, string>;
+      accountFor(kind: AgentKind, accountId: string | null | undefined): { label: string } | null;
+      carry(kind: AgentKind, providerSessionId: string, fromId: string | null, toId: string | null): Promise<boolean>;
+    };
     /** The Seatbelt policy an agent CLI is spawned under. Optional so a harness built without it
      *  spawns exactly what Realm spawned before this feature existed. */
     sandbox?: ExecutionSandboxService;
@@ -454,6 +470,7 @@ export class SessionService {
    * delegation and run services send into children they have just created — reads the setting.
    */
   async send(id: string, msg: SendMessage, delivery: "auto" | "queue" | "steer" = "auto"): Promise<void> {
+    await this.switching.get(id)?.catch(() => {});
     // `waiting_permission` counts: the turn has not ended, it is blocked on a card the user has not
     // answered. The prompter draws both states the same way for the same reason, and a message typed
     // against an open permission card is the one most likely to be a correction.
@@ -1017,7 +1034,95 @@ export class SessionService {
     if (s.agentKind === agentKind) return s;
     if (!this.d.adapters[agentKind]) throw new RpcError("AGENT_UNAVAILABLE", `${agentKind} is not registered`);
     if (this.d.events.hasAny(id)) throw new RpcError("SESSION_STARTED", "this session has already run; its agent can no longer be changed");
-    return this.d.sessions.update({ id, agentKind, model: null });
+    return this.d.sessions.update({ id, agentKind, model: null, accountId: null });
+  }
+
+  /**
+   * Move a session onto another agent mid-conversation — the picker's switch (`sessions.switchAgent`).
+   *
+   * An untouched session is only re-pointed, as `setAgent` does. One that has run hands over in place,
+   * by the move failover makes (`handOver`) with the person's reason on it: Realm writes a hand-off
+   * note of the conversation (`HandoffNotes`), and the new agent's next start is handed it as system
+   * context with the file's path. The permission mode stays where the new agent can be put in it and
+   * otherwise goes to the default, as a fork's does.
+   *
+   * Refused while a turn is live: a switch is about the next turn, and stopping one mid-write to
+   * change agents under it is what Stop is for, not the picker.
+   */
+  async switchAgent(id: string, o: { agentKind: AgentKind; model?: string | null; effort?: string | null }): Promise<Session> {
+    const s = this.get(id);
+    if (!this.d.adapters[o.agentKind]) throw new RpcError("AGENT_UNAVAILABLE", `${o.agentKind} is not registered`);
+    if (s.agentKind === o.agentKind || !this.d.events.hasAny(id)) {
+      if (s.agentKind !== o.agentKind) this.setAgent(id, o.agentKind);
+      if (o.model || o.effort !== undefined) return this.setOptions(id, { ...(o.model ? { model: o.model } : {}), ...(o.effort !== undefined ? { effort: o.effort } : {}) });
+      return this.get(id);
+    }
+    this.refuseMidTurn(s, "switch");
+    await this.whileSwitching(id, (async () => {
+      const probes = await this.probe();
+      const sides = { from: modelNameOf(s.agentKind, s.model, probes), to: modelNameOf(o.agentKind, o.model ?? null, probes) };
+      // Accounts are an agent's own, so the new one starts on its CLI's own folder.
+      await this.switchOver(s, { agentKind: o.agentKind, model: o.model ?? null, effort: o.effort ?? null, accountId: null }, sides);
+    })());
+    return this.get(id);
+  }
+
+  /**
+   * Run a session on another of its agent's accounts (`sessions.setAccount`).
+   *
+   * The engine is stopped — it was started under the old account's folder — and the provider's own
+   * record of the conversation is copied into the new account's, so the next turn resumes it there as
+   * it was and nothing is said in the transcript, because nothing about the conversation changed.
+   * Where the record cannot be carried the session moves the way a switch of agents does: a fresh
+   * conversation with a hand-off note, and a line saying so.
+   */
+  async setAccount(id: string, accountId: string | null): Promise<Session> {
+    const s = this.get(id);
+    if ((s.accountId ?? null) === accountId) return s;
+    const accounts = this.d.accounts;
+    const to = accounts?.accountFor(s.agentKind, accountId ?? (hasAccounts(s.agentKind) ? defaultAccountId(s.agentKind) : null));
+    if (!accounts || !to) throw new RpcError("BAD_REQUEST", `that account is not one of ${AGENT_META[s.agentKind].label}'s`);
+    this.refuseMidTurn(s, "switch accounts");
+    const carried = async () => {
+      await this.reap(id);
+      if (s.providerSessionId === null || await accounts.carry(s.agentKind, s.providerSessionId, s.accountId ?? null, accountId)) {
+        this.d.sessions.update({ id, accountId });
+        return;
+      }
+      const from = accounts.accountFor(s.agentKind, s.accountId ?? defaultAccountId(s.agentKind as AccountKind))?.label ?? AGENT_META[s.agentKind].label;
+      await this.switchOver(s, { agentKind: s.agentKind, model: s.model, effort: s.effort, accountId }, { from, to: to.label });
+    };
+    await this.whileSwitching(id, carried());
+    return this.get(id);
+  }
+
+  /** A switch waits out a live turn rather than pulling the agent out from under it. */
+  private refuseMidTurn(s: Session, what: string): void {
+    if (s.status === "running" || s.status === "waiting_permission") {
+      throw new RpcError("SESSION_BUSY", `${AGENT_META[s.agentKind].label} is still working on this turn. Stop it or let it finish, then ${what}.`);
+    }
+    if (this.switching.has(s.id)) throw new RpcError("SESSION_SWITCHING", "this session is already switching");
+  }
+
+  /** Held from before the switch's first await, so no message can slip in ahead of it. */
+  private async whileSwitching(id: string, work: Promise<void>): Promise<void> {
+    this.switching.set(id, work);
+    try { await work; } finally { this.switching.delete(id); }
+  }
+
+  private async switchOver(s: Session, o: { agentKind: AgentKind; model: string | null; effort: string | null; accountId: string | null }, sides: { from: string; to: string }): Promise<void> {
+    const written = (await this.d.handoffNotes?.write(s, sides)) ?? null;
+    // Torn down the way an idle engine is (`reap`): the session is as idle as it was, and an engine
+    // leaving is not news a reader needs beside the line that says why.
+    await handOver({ sessions: this.d.sessions, settings: this.d.settings, stop: (id) => this.reap(id), emit: (id, ev) => this.onEvent(id, ev) }, s, {
+      to: o.agentKind, model: o.model, effort: o.effort, accountId: o.accountId,
+      permissionMode: modeAfterSwitch(o.agentKind, s.permissionMode, resolveDefaultPermissionMode(o.agentKind, this.d.settings.get(DEFAULT_PERMISSION_MODE_KEY))),
+      context: () => buildHandoffContext({
+        from: s.agentKind, turns: this.d.events.transcript(s.id, Date.now()),
+        ...(written ? { switched: { notes: written.notes, path: written.path } } : {}),
+      }),
+      event: { from: s.agentKind, to: o.agentKind, reason: "switch", note: switchNote(sides.from, sides.to), attempt: 0, ...(written ? { summaryPath: written.path } : {}) },
+    });
   }
 
   /**
@@ -1804,8 +1909,9 @@ export class SessionService {
       systemContext,
       ...(memoryDir ? { memoryDirectory: memoryDir } : {}),
       // The port block, plus `REALM_SANDBOX*` — a statement of the posture this process was started
-      // under, for a log line or a bug report to read. Nothing reads them back.
-      env: { ...(env ? portEnv(env) : {}), ...this.d.sandbox?.env(s.spaceId) },
+      // under, for a log line or a bug report to read. Nothing reads them back. Then the folder of the
+      // account the session runs on, which is what the CLI signs in with.
+      env: { ...(env ? portEnv(env) : {}), ...this.d.sandbox?.env(s.spaceId), ...this.d.accounts?.envFor(s.agentKind, s.accountId) },
       ...(wrap ? { wrap } : {}),
       ...(fork ? { resumeAt: fork.at, resumeDropsTurn: fork.dropsTurn } : {}),
       onLog: (line) => console.error(`[session ${id.slice(-6)}] ${line}`),

@@ -100,6 +100,9 @@ import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { EnvironmentsStore } from "./store/environments";
 import { SessionService, resolveDefaultPermissionMode } from "./sessions/service";
 import { RECAP_DEBOUNCE_MS, SessionSummaryService } from "./sessions/summary";
+import { HandoffNotes, type HandoffNotesGenerator } from "./sessions/handover";
+import { AccountsService, type AccountsDeps } from "./accounts/service";
+import { AccountsStore } from "./store/accounts";
 import { PlanLimitsService } from "./limits/service";
 import type { MemoryExtractionInput, MemoryTidyInput, ProbeResult } from "@realm/adapters";
 import { SkillsService } from "./skills/service";
@@ -823,6 +826,13 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  derived line and the prompter keeps its deterministic ladder. */
   summaryGenerator?: (input: { asked: string; transcript: string; facts: string })
     => Promise<{ summary: string; hint: string | null }>;
+  /** Asking the CLIs about accounts, signing one out, and where the CLIs keep their own folders
+   *  (`machineAccounts`). Only `main.ts` passes them: every other `createApp` is a test or a script,
+   *  which must never run a CLI against the machine's own logins, so its accounts are never asked. */
+  accounts?: Partial<Pick<AccountsDeps, "probe" | "logout" | "defaults">>;
+  /** The hand-off note a switch of agents writes (`sessions/handover.ts`). Omitted for the same
+   *  reason: without it a switch carries the conversation verbatim. */
+  handoffGenerator?: HandoffNotesGenerator;
   /** Realm learning from quiet sessions for memory, and tidying what it keeps. `extract` and `tidy` are
    *  the billed calls, omitted for `titleGenerator`'s reason: only `main.ts` passes them, and not in a
    *  harness. `sink` stands in for the memory repo's helpers and `idleMs` for the quiet spell, for a test. */
@@ -1125,6 +1135,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // service takes it as a late-bound hook object, the same knot `notifications` and `browserAgents`
   // are tied with.
   let failover: FailoverService | null = null;
+  // Accounts: built beside the sign-in it starts, after `sessions`, which reads it back through a hook.
+  const accountsStore = new AccountsStore(db);
   // MCP Apps: the views servers draw for tool calls. The gateway reports a call that drew one, the
   // session service pairs it with the agent's own record of the call, and the views listener frames
   // it — each mounted view on an origin of its own.
@@ -1325,6 +1337,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
         isIdle: (id) => sessionsStore.get(id)?.status === "idle",
       })
     : undefined;
+  /* What a switch of agents hands the incoming one, written on the frontier model when this build may
+     make that call and the machine can, and verbatim otherwise. */
+  const handoffNotes = new HandoffNotes({
+    home: opts.home, events: sessionEvents, generate: opts.handoffGenerator, available: claudeCanAnswer,
+    onError: (line) => console.error(line),
+  });
   /** The brief a session was started with — a delegated child's, a reviewer's, a fork's carried
    *  context, an unattended worker's — or undefined for a session the person started. A session is a
    *  child of at most one registry. */
@@ -1390,7 +1408,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     },
     log: (line) => console.log(line),
   });
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, agentMemory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, planLimits, documents, goals, views: appViews,
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, agentMemory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, handoffNotes, planLimits,
+    accounts: {
+      envFor: (kind, accountId) => accounts.envFor(kind, accountId),
+      accountFor: (kind, accountId) => accounts.accountFor(kind, accountId),
+      carry: (kind, providerSessionId, fromId, toId) => accounts.carry(kind, providerSessionId, fromId, toId),
+    }, documents, goals, views: appViews,
     // What the idle reaper must leave running between turns. Read at sweep time, long after every
     // service named here exists.
     keepEngine: (sessionId) => goals.get(sessionId)?.status === "active"
@@ -1427,7 +1450,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     },
     browserAgents: {
       parentInterrupted: (id) => browserAgents?.parentInterrupted(id),
-      release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); runs?.release(id); codeReview?.release(id); teammates?.release(id); team?.release(id); },
+      release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); runs?.release(id); codeReview?.release(id); teammates?.release(id); team?.release(id); void handoffNotes.release(id).catch(() => {}); },
       extraSystemContext: agentContextOf,
       skillsFilter: (id) => agentRuns?.skillsFilter(id) ?? runs?.skillsFilter(id) ?? null,
       modeSet: async (id, mode) => { await agentRuns?.cascadeMode(id, mode); },
@@ -1704,6 +1727,17 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      for the reason the installer takes it: a suite's PATH must be the one the test built, so no
      `createApp` in a suite can find — let alone start — the developer's real `codex login`. */
   const agentSignIn = new AgentSignInService({ rpc, probe: (kind) => sessions.probeAgent(kind), env: opts.cli?.env });
+  /* The accounts each agent CLI runs on: folders under this home, signed in by the sign-in above, and
+     the folder variable a session's engine starts under (read back through the hook the sessions hold). */
+  const accounts: AccountsService = new AccountsService({
+    home: opts.home, store: accountsStore, rpc, signIn: agentSignIn,
+    probe: opts.accounts?.probe ?? (async () => ({ signedIn: null, email: null, plan: null })),
+    logout: opts.accounts?.logout, defaults: opts.accounts?.defaults,
+    sessions: {
+      busy: (accountId) => accountsStore.sessionsOn(accountId).some((id) => { const st = sessionsStore.get(id)?.status; return st === "running" || st === "waiting_permission"; }),
+      stopOn: async (accountId) => { await Promise.all(accountsStore.sessionsOn(accountId).map((id) => sessions.stopAgent(id))); },
+    },
+  });
   // Spend and activity for Settings → Usage, and the budget watcher behind it. Reads only; the one
   // thing it writes is the budget row, and the one thing it emits is a threshold notification.
   usage = new UsageService({ db, settings, catalog: modelCatalog, notifications });
@@ -1722,6 +1756,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     resend: (id, msg) => sessions.resendTurn(id, msg),
     stop: (id) => sessions.stopAgent(id),
     probe: (opts) => sessions.probe(opts),
+    accounts: { accountFor: (kind, id) => accounts.accountFor(kind, id), others: (kind, id) => accounts.others(kind, id) },
   });
   // Importing the agent CLIs' own history (transcripts, memory folders, skills). Reads ~/.claude,
   // ~/.codex and ~/.cursor and never writes them; everything it produces lands in this database or
@@ -1796,7 +1831,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
     profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, claudeBackfill, memoryLibrary, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns, teammates,
-    iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, resources: resourceControls, agentSignIn,
+    iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, resources: resourceControls, agentSignIn, accounts,
     libraryFiles, remote, presence,
     access: () => (access ? { url: access.url } : null),
     appViews: new AppViewService({ views: appViews, hub: mcpHub, mcp, servers: mcpServersStore, sessions: sessionsStore, server: appViewServer, gateway: mcpGateway, log: (line) => console.log(line) }),

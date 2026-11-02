@@ -1,6 +1,6 @@
 import { Icon, type IconName } from "@realm/ui";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
-import { AGENT_SKILL_SUPPORT, MAC_SKILL_ID, PLAN_PERMISSION_MODE, basenameOf, offeredModes, sessionModeOf, type Item, type LinkChip, type MentionRef, type UnlabelledRef, type SessionMode, type Skill, runnableCommands, type UserCommand, type TurnChanges } from "@realm/contracts";
+import { AGENT_SKILL_SUPPORT, MAC_SKILL_ID, PLAN_PERMISSION_MODE, basenameOf, defaultAccountId, hasAccounts, offeredModes, sessionModeOf, type Item, type LinkChip, type MentionRef, type UnlabelledRef, type SessionMode, type Skill, runnableCommands, type UserCommand, type TurnChanges } from "@realm/contracts";
 
 /** A stable empty list for the commands selector. A fresh `[]` in the selector is a new reference on
  *  every render, which is how a zustand subscription turns into a render loop. */
@@ -251,6 +251,16 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const openAgentsTabFor = useApp((s) => s.openAgentsTab);
   const setSessionOptions = useApp((s) => s.setSessionOptions);
   const setSessionAgent = useApp((s) => s.setSessionAgent);
+  const switchSessionAgent = useApp((s) => s.switchSessionAgent);
+  const accounts = useApp((s) => s.accounts);
+  const accountSignIns = useApp((s) => s.accountSignIns);
+  const refreshAccounts = useApp((s) => s.refreshAccounts);
+  const addAccount = useApp((s) => s.addAccount);
+  const setSessionAccount = useApp((s) => s.setSessionAccount);
+  const sendAccountSignInCode = useApp((s) => s.sendAccountSignInCode);
+  const cancelAccountSignIn = useApp((s) => s.cancelAccountSignIn);
+  const removeAccount = useApp((s) => s.removeAccount);
+  const agentHasAccounts = useApp((s) => { const k = s.sessions[id]?.agentKind; return k ? hasAccounts(k) : false; });
   const setSessionMode = useApp((s) => s.setSessionMode);
   const planReturn = useApp((s) => s.planReturn[id] ?? null);
   /* Looked at, not opened: a peek keeps the transcript and its cards and gives up the prompter. */
@@ -258,6 +268,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const activeSpaceId = useApp((s) => s.activeSpaceId);
   const openPeek = useApp((s) => s.openPeek);
   const run = useApp((s) => s.run);
+  // The list the picker's foot draws, read once: everything after rides `accounts.changed`.
+  useEffect(() => { if (agentHasAccounts) run(() => refreshAccounts()); }, [agentHasAccounts, run, refreshAccounts]);
   const markSessionSeen = useApp((s) => s.markSessionSeen);
   /* Stable, so the queue's rows are not handed a new set of callbacks on every keystroke of the draft. */
   const queueActions = useMemo<QueueActions>(() => ({
@@ -700,6 +712,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
         mentionIds={liveMentionIds} appIcons={appIcons}
         onDecide={(requestId, d, answers) => run(() => respondPermission(id, requestId, d, answers))}
         onRetry={() => { setSends((n) => n + 1); run(() => retryLastTurn(id)); }}
+        onContinueOn={(accountId) => { setSends((n) => n + 1); run(async () => { await setSessionAccount(id, accountId); await retryLastTurn(id); }); }}
         onRate={(messageId, rating) => run(() => rateMessage(id, messageId, rating))} />
       {peek
         ? <PeekBar spaceName={space?.name ?? "another space"} elsewhere={session.spaceId !== activeSpaceId} onOpen={() => run(() => openPeek())} />
@@ -741,6 +754,17 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
               if (kind !== session.agentKind) await setSessionAgent(id, kind);
               if (modelId !== null) await setSessionOptions(id, { model: modelId });
             })}
+            onSwitchAgent={(kind, modelId) => switchSessionAgent(id, kind, modelId)}
+            account={hasAccounts(session.agentKind) ? {
+              accounts: accounts.filter((a) => a.kind === session.agentKind),
+              current: session.accountId ?? defaultAccountId(session.agentKind),
+              onPick: (accountId) => setSessionAccount(id, accountId === defaultAccountId(session.agentKind as "claude" | "codex") ? null : accountId),
+              onAdd: () => addAccount(session.agentKind),
+              signInOf: (accountId) => accountSignIns[accountId],
+              onCode: (accountId, code) => run(() => sendAccountSignInCode(accountId, code)),
+              onCancel: (accountId) => run(async () => { await cancelAccountSignIn(accountId); await removeAccount(accountId); }),
+              onOpen: () => run(() => refreshAccounts(true)),
+            } : undefined}
             onMode={(mode) => run(() => setSessionMode(id, mode))} planReturn={planReturn}
             onParkPermission={(permissionMode) => run(() => setParkedPermission(id, permissionMode))}
             // The agent's own modes off THIS session's init event (Plan 14 W3): null = handshake not

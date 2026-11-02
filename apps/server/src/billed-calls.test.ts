@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { generateMemoryExtraction, generateMemoryTidyPlan, generateSessionRecap, generateSessionTitle } from "@realm/adapters";
+import { generateHandoffNotes, generateMemoryExtraction, generateMemoryTidyPlan, generateSessionRecap, generateSessionTitle } from "@realm/adapters";
 import { billedGenerators } from "./billed-calls";
 
 describe("the server's billed model calls", () => {
   it("are wired for a real launch", () => {
     expect(billedGenerators({})).toEqual({
-      titleGenerator: generateSessionTitle, summaryGenerator: generateSessionRecap,
+      titleGenerator: generateSessionTitle, summaryGenerator: generateSessionRecap, handoffGenerator: generateHandoffNotes,
       memoryLearning: { extract: generateMemoryExtraction, tidy: generateMemoryTidyPlan },
     });
   });

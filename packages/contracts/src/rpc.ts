@@ -35,6 +35,7 @@ import { ImportResultSchema, ImportScanSchema } from "./import";
 import { GuideProgressSchema, GuideStorageSchema } from "./documents";
 import { UsageBucketSchema, UsageBudgetSchema, UsageDaySchema, UsageRecordsSchema, UsageSummarySchema } from "./usage";
 import { PlanLimitsSchema } from "./plan-limits";
+import { AccountSchema } from "./accounts";
 import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./schedules";
 import { CreateTeammateSchema, ReorderTeammatesSchema, TeammateSchema, TeammateTaskSessionSchema, UpdateTeammateSchema } from "./teammates";
 import { GuestSpecSchema, MachineSchema, MachineSourceSchema, MachineStateSchema, VncEndpointSchema } from "./machine";
@@ -337,6 +338,8 @@ const CliJobStartSchema = z.object({
 export const AgentSignInSchema = z.object({
   id: z.string(),
   kind: AgentKindSchema,
+  /** The account being signed in (`accounts.ts`), where it is not the CLI's own default folder. */
+  accountId: z.string().nullable().optional(),
   state: z.enum(["starting", "browser", "code", "done", "failed", "cancelled"]),
   url: z.string().nullable(),
   detail: z.string().nullable(),
@@ -1093,6 +1096,20 @@ export const Methods = {
   "agentSignIn.code": { params: z.object({ id: z.string(), code: z.string().min(1).max(4096) }), result: z.object({ ok: z.literal(true) }) },
   /** Stop a sign-in that is still running. Idempotent: a finished one is left as it finished. */
   "agentSignIn.cancel": { params: z.object({ id: z.string() }), result: z.object({ ok: z.literal(true) }) },
+  /**
+   * The accounts each agent CLI can run on (`accounts.ts`): the CLI's own folder, and every one added
+   * here. `refresh` asks each CLI again whether its accounts are signed in, and as whom.
+   */
+  "accounts.list": { params: z.object({ refresh: z.boolean().optional() }), result: z.object({ accounts: z.array(AccountSchema) }) },
+  /** Make a folder for a new account under Realm's home and start the CLI's own login in it. Answers
+   *  with the account and the sign-in's first state; the rest arrive as `agentSignIn.changed`. */
+  "accounts.add": { params: z.object({ kind: AgentKindSchema, label: z.string().trim().min(1).max(60).optional() }), result: z.object({ account: AccountSchema, signIn: AgentSignInSchema }) },
+  /** Sign an existing account in again. */
+  "accounts.signIn": { params: z.object({ id: z.string() }), result: AgentSignInSchema },
+  "accounts.rename": { params: z.object({ id: z.string(), label: z.string().trim().min(1).max(60) }), result: AccountSchema },
+  /** Sign an added account out and delete its folder; its sessions go back to the default account.
+   *  Refused for the default account, and while a session on it is working. */
+  "accounts.remove": { params: z.object({ id: z.string() }), result: z.object({ ok: z.literal(true) }) },
   "settings.get": { params: z.object({ key: z.string() }), result: z.object({ value: z.unknown() }) },
   "settings.set": { params: z.object({ key: z.string(), value: z.unknown() }), result: z.object({ ok: z.literal(true) }) },
 
@@ -2154,6 +2171,23 @@ export const Methods = {
    *  model id from the old kind means nothing to the new one. */
   "sessions.setAgent": { params: z.object({ id: IdSchema, agentKind: AgentKindSchema }), result: SessionSchema },
   /**
+   * Move a session that HAS run onto another agent, in place: Realm writes a hand-off note of the
+   * conversation (the ask, decisions, what changed, open questions, the last turns verbatim) on the
+   * frontier model, saves it under its home's `handoffs/`, and the new agent's first start is handed
+   * it as system context with the file's path. A `handoff` event with `reason: "switch"` says so on
+   * the transcript. Refused while a turn is live (SESSION_BUSY) — a switch is about the next turn.
+   * An untouched session is simply re-pointed, as `setAgent` does. `model: null` is the new agent's
+   * own default; `effort` likewise.
+   */
+  /**
+   * Run a session on another account of its agent (`accounts.ts`). The provider's own record of the
+   * conversation is copied into the new account's folder so it resumes there as it was; where that
+   * cannot be done, the conversation is carried as text the way a switch carries it. Refused while a
+   * turn is live (SESSION_BUSY). `accountId: null` is the CLI's own default account.
+   */
+  "sessions.setAccount": { params: z.object({ id: IdSchema, accountId: z.string().nullable() }), result: SessionSchema },
+  "sessions.switchAgent": { params: z.object({ sessionId: IdSchema, agentKind: AgentKindSchema, model: z.string().nullable().optional(), effort: z.string().nullable().optional() }), result: SessionSchema },
+  /**
    * The space's failover policy: whether a stalled turn retries, and which agents it may be handed
    * to when retrying is not the answer (`failover.ts`).
    *
@@ -2222,6 +2256,8 @@ export const Events = {
   /** A space-less agent sign-in moved (`AgentSignInSchema`). Broadcast: the first run in any window
    *  may be the one watching. */
   "agentSignIn.changed": AgentSignInSchema,
+  /** An account was added, renamed, removed, or a CLI said something new about one. */
+  "accounts.changed": z.object({}),
   /** Laya's status changed: an install step moved, the runtime came up or went down, a row was
    *  logged, the log was deleted. Carries the whole status, which is small. */
   "laya.changed": LayaStatusSchema,

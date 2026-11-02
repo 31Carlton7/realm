@@ -279,8 +279,10 @@ function TeammateSender({ from, teammates }: { from: { title: string; teammateId
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null, track = false, saved = NO_SAVED, onSave, reveal = null, onRevealed, onEarlier, requestsOwnEscape = true, brief = null, report = null, teammates = NO_TEAMMATES }: {
+export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null, track = false, saved = NO_SAVED, onSave, reveal = null, onRevealed, onEarlier, requestsOwnEscape = true, brief = null, report = null, teammates = NO_TEAMMATES, onContinueOn }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: AskAnswers) => void; visible?: boolean;
+  /** Take the turn a usage limit stopped onto another of the agent's accounts. Absent draws no offer. */
+  onContinueOn?: (accountId: string) => void;
   /** A message drawn as something other than its bubble: a sub-agent's first message, which carries
    *  the brief its lead wrote, shown as that brief (the sub-agent viewer's `AskedFor`). Matched on the
    *  message's text; every other message stays the user's bubble. */
@@ -650,6 +652,16 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
     if (prev && next && prev.size === next.size && [...next].every((p) => prev.has(p))) return prev;
     return (touchedRef.current = next);
   }, [cwd, transcript.blocks, transcript.changes]);
+  /* The error the last turn ended on, while nothing has been sent since: the one whose offer of
+     another account still means something. */
+  const openError = useMemo(() => {
+    for (let k = transcript.blocks.length - 1; k >= 0; k--) {
+      const b = transcript.blocks[k]!;
+      if (b.kind === "user") return null;
+      if (b.kind === "error") return b;
+    }
+    return null;
+  }, [transcript.blocks]);
   const fileLinks = useMemo<FileLinkContext | undefined>(() => (checkout && cwd && touched
     ? { cwd, root: checkout.root, known: touched, onOpen: checkout.onOpen } : undefined), [checkout, cwd, touched]);
 
@@ -748,6 +760,13 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
               <div className="msg-error-body">
                 <ErrorText text={b.message} />
                 {b.fix?.command && <CommandCopy command={b.fix.command} />}
+                {/* The agent's other accounts, each one click from finishing the turn there. Only on
+                    the error the last turn ended on: an older one's turn has been moved on from. */}
+                {b.accounts && onContinueOn && b === openError && (
+                  <div className="msg-error-actions">
+                    {b.accounts.map((a) => <button key={a.id} type="button" className="btn" onClick={() => onContinueOn(a.id)}>Continue on {a.label}</button>)}
+                  </div>
+                )}
               </div>
             </div>;
             // The shimmer the reader was watching, settled: same verb, past tense, with the wait it
@@ -784,6 +803,12 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
                   which is the one thing a seam must not read as. */}
               <span>{b.note}</span>
               {b.attempt > 0 && <span className="msg-handoff-tries">after {b.attempt} {b.attempt === 1 ? "retry" : "retries"}</span>}
+              {/* What the new agent was handed, opened beside the session as any file it names is. */}
+              {b.summaryPath && checkout && <>
+                <span className="msg-handoff-tries" aria-hidden="true">·</span>
+                <button type="button" className="msg-handoff-link" title={b.summaryPath}
+                  onClick={() => checkout.onOpen(b.summaryPath!, null)}>Summary</button>
+              </>}
             </div>;
             // Present tense, because this one is about right now: it is the only block in the
             // transcript that will be replaced rather than joined by what comes next.

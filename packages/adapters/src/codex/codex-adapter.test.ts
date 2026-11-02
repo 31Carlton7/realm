@@ -881,6 +881,24 @@ describe("CodexAdapter", () => {
     expect(adapter.sessionCount).toBe(0);
   });
 
+  it("gives each account's folder its own process, and shares it among that account's sessions", async () => {
+    const adapter = newAdapter();
+    const work = { CODEX_HOME: "/tmp/realm-codex-account-work" };
+    const own = adapter.start(startOpts());
+    const one = adapter.start(startOpts({ env: work }));
+    const two = adapter.start(startOpts({ env: work }));
+    const drained = [drain(own), drain(one), drain(two)];
+    await waitFor(() => { for (const d of drained) expect(types(d.evs)).toContain("init"); });
+    // One login per process: the default folder's sessions and the Work account's never share one.
+    expect(adapter.processCount).toBe(2);
+    await one.dispose();
+    expect(adapter.processCount).toBe(2);
+    await two.dispose();
+    expect(adapter.processCount).toBe(1);
+    await own.dispose();
+    expect(adapter.processCount).toBe(0);
+  });
+
   it("shares one process across sessions and disposes it with the last one", async () => {
     const adapter = newAdapter();
     const one = adapter.start(startOpts());

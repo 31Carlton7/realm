@@ -10,6 +10,7 @@ export { cleanSummary, SUMMARY_MAX } from "./claude/generate-session-summary";
 export { cleanHint, HINT_MAX } from "./claude/generate-prompt-hint";
 export { generateSessionRecap, splitRecap, type Recap, type RecapInput } from "./claude/generate-session-recap";
 export { BACKGROUND_MODEL } from "./claude/background-model";
+export { generateHandoffNotes, cleanNotes, type HandoffNotesInput } from "./claude/generate-handoff-notes";
 export { generateMemoryExtraction, generateMemoryTidyPlan, type KnownIndex, type MemoryExtractionInput, type MemoryTidyInput, type TidyFile } from "./claude/generate-memory";
 export { StdioJsonRpc, JsonRpcCallError, type JsonRpcId } from "./jsonrpc/stdio";
 export { CodexConnection, type ThreadListener } from "./codex/connection";

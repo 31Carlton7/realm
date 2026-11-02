@@ -107,6 +107,9 @@ const P = {
     message: z.string(),
     failure: z.enum(["usage_limit", "provider_down", "transient", "auth", "fatal"]).optional(),
     fix: z.object({ title: z.string(), hint: z.string(), command: z.string().nullable() }).optional(),
+    /** The agent's other signed-in accounts, offered where this one hit its usage limit — the person
+     *  picks one; nothing moves on its own. */
+    accounts: z.array(z.object({ id: z.string(), label: z.string() })).optional(),
   }),
   /**
    * The next-move suggestion the prompter offers as its hint text, written by a model once per
@@ -141,9 +144,10 @@ const P = {
     detail: z.string().nullable(),
   }),
   /**
-   * The session changed agents mid-flight, because the one it was on could not finish the turn
-   * (`failover.ts` decides when). Persisted, and rendered — a session that changes hands has to say
-   * so, or the reader is left comparing two agents' voices and wondering which of them wrote what.
+   * The session changed agents mid-flight: the one it was on could not finish the turn
+   * (`failover.ts` decides when), or the person switched it (`reason: "switch"`). Persisted, and
+   * rendered — a session that changes hands has to say so, or the reader is left comparing two
+   * agents' voices and wondering which of them wrote what.
    *
    * `attempt` counts the same-agent retries that were spent before the handoff, so the record is
    * complete: "we waited three times, then moved" is a different story to "we moved immediately",
@@ -151,10 +155,12 @@ const P = {
    */
   handoff: z.object({
     from: z.string(), to: z.string(),
-    reason: z.enum(["usage_limit", "provider_down", "transient", "auth", "fatal"]),
+    reason: z.enum(["usage_limit", "provider_down", "transient", "auth", "fatal", "switch"]),
     /** The sentence shown. Built server-side so every surface tells it identically. */
     note: z.string(),
     attempt: z.number().int(),
+    /** The hand-off note a switch wrote under Realm's home — what the incoming agent was handed. */
+    summaryPath: z.string().optional(),
   }),
   /**
    * A same-agent retry is about to happen, after `waitMs`. Ephemeral rather than persisted: it is a

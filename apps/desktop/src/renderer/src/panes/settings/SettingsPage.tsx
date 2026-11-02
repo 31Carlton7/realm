@@ -3,7 +3,7 @@ import { AppIconPicker, canChooseAppIcon } from "../../components/settings/AppIc
 import { CaretSettings } from "../../components/settings/CaretSettings";
 import { TERMINAL_COLOR_SCHEMES, TERMINALS_COLORS_COPY, AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, GENERATED_CREDENTIAL_NOTE, PASSWORDS_IMPORT_NOTE, NOTIFICATION_CATEGORIES, PASSKEY_STORAGE_NOTE,
-  PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_HISTORY_COPY, type AgentKind, type MidTurnMode, type ReducedMotionPref,
+  PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_HISTORY_COPY, hasAccounts, type AgentKind, type MidTurnMode, type ReducedMotionPref,
   EDITOR_NAMES, resolveEditor, type OpenFilesIn, type LinksOpenIn, type TerminalDockEdge,
   FEATURE_REQUEST_URL, REALM_REPO_URL, bugReportUrl, } from "@realm/contracts";
 import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_ALPHA_RANGE, Icon, REALM_SEED,
@@ -22,6 +22,7 @@ import { useApp, type CliJob, type SubmitKey } from "../../state/store";
 import type { PaneProps } from "../registry";
 import { hasWindowMaterial, useResolvedMode, type ThemePref } from "../../theme/useTheme";
 import { ImportPanel } from "../../components/settings/ImportPanel";
+import { EngineAccounts } from "./EngineAccounts";
 import { UsagePanel } from "./usage/UsagePanel";
 import { RamPanel } from "./RamPanel";
 import { FailoverPanel } from "./FailoverPanel";
@@ -432,6 +433,8 @@ function EngineCard({ kind }: { kind: AgentKind }) {
           {chips.map((c) => <span key={c.label} className="engine-chip" data-tone={c.tone}>{c.label}</span>)}
         </div>
       )}
+      {/* The logins it can run on, where its CLI keeps one per folder and is here to sign one in. */}
+      {hasAccounts(kind) && p?.available && <EngineAccounts kind={kind} />}
       {details.length > 0 && (
         <details className="engine-details" open={wantsYou || openDetails || undefined}
           onToggle={(e) => setOpenDetails((e.currentTarget as HTMLDetailsElement).open)}>

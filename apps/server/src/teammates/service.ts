@@ -1,9 +1,9 @@
 import { statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import {
-  AGENT_META, DEFAULT_MODEL_LABEL, TEAMMATE_CLOCK_TURN_MS, TEAM_MESSAGE_WAIT_MS, TeamMessageArgsSchema, fenceAgentOutput, normalizeHandle, sessionLink, teammateHandle, teammateIconFromSeed,
+  AGENT_META, DEFAULT_MODEL_LABEL, TEAMMATE_CLOCK_TURN_MS, TEAMMATE_PERMISSION_MODES, TEAM_MESSAGE_WAIT_MS, TeamMessageArgsSchema, fenceAgentOutput, normalizeHandle, sessionLink, teammateHandle, teammateIconFromSeed,
   type CreateTeammateInput, type MentionRef, type ReorderTeammatesInput, type Schedule, type Session, type SessionEvent, type SessionStatus, type Teammate,
-  type TeammateSchedule, type TeammateState, type TeammateTaskSession, type UpdateTeammateInput,
+  type TeammatePermissionMode, type TeammateSchedule, type TeammateState, type TeammateTaskSession, type UpdateTeammateInput,
 } from "@realm/contracts";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { ProviderCallContext } from "../mcp/gateway";
@@ -329,6 +329,23 @@ export class TeammatesService {
     if (Object.keys(options).length > 0) void this.d.sessions.setOptions(home.id, options).catch((e: unknown) => {
       console.error(`[teammates] ${now.handle}'s chat kept its old options: ${e instanceof Error ? e.message : String(e)}`);
     });
+  }
+
+  /**
+   * A home session switched to another agent mid-conversation (`sessions.switchAgent`). The teammate
+   * goes with its chat: the conversation is the teammate, so its row takes the agent, model, effort and
+   * mode the chat is on now. Written to the row alone — an edit through `update` would read the new
+   * agent as a reason to start a new chat, and the switch already handed this one over.
+   */
+  followSwitch(session: Session): void {
+    if (!session.teammateHome || !session.teammateId) return;
+    const row = this.d.store.get(session.teammateId);
+    if (!row || row.homeSessionId !== session.id) return;
+    this.d.store.update(row.id, {
+      agentKind: session.agentKind, model: session.model, effort: session.effort,
+      ...((TEAMMATE_PERMISSION_MODES as readonly string[]).includes(session.permissionMode) ? { permissionMode: session.permissionMode as TeammatePermissionMode } : {}),
+    });
+    this.changed(row.spaceId);
   }
 
   /** Every window re-reads the space's teammates — once per tick however many things moved. */
