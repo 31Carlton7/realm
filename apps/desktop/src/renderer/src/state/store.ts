@@ -2153,9 +2153,9 @@ export type AppState = TeamSlice & LabSlice & {
    *  waited on the round trip would snap back before it moved — and the server's broadcast, which
    *  follows, is the order that stands. */
   moveQueuedPrompt(sessionId: string, queuedId: string, before: string | null): Promise<void>;
-  /** Create a session, open its item in the main view, and open its transcript. It goes to
-   *  `input.spaceId`, else the current space — the space of the session in focus. When `edge` is
-   *  supplied with a target leaf, it opens there the way a dragged row would. */
+  /** Create a session, open its item in the main view, open its transcript, and give its prompter the
+   *  keyboard. It goes to `input.spaceId`, else the current space — the space of the session in focus.
+   *  When `edge` is supplied with a target leaf, it opens there the way a dragged row would. */
   newSession(input: Omit<CreateSessionInput, "spaceId"> & { spaceId?: string | null }, targetLeafId?: string | null, edge?: DropEdge): Promise<void>;
   /** The one instant-create path behind "+", ⌘N and the palette's plain "New session" (W3): no
    *  questions — last-used agent (else FALLBACK_AGENT), the space's own folder, the model last sent
@@ -6166,12 +6166,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         catch (e) { void get().refreshSessionQueue(sessionId); throw e; }
       },
       async newSession(input, targetLeafId = null, edge) {
-        await makeSession(input, targetLeafId, edge);
+        const id = await makeSession(input, targetLeafId, edge);
+        // Made to be typed in, whichever way it was asked for — ⌘N, the palette's agent rows, a worktree,
+        // a split — so its prompter gets the keyboard, and a list showing it brings it into view.
+        if (id) set({ keyboardFor: { sessionId: id, n: (get().keyboardFor?.n ?? 0) + 1 } });
       },
       async newSessionInstant(targetLeafId = null, edge, spaceId = null) {
-        const id = await makeSession({ ...instantPick(), spaceId }, targetLeafId, edge);
-        // Made to be typed in: ⌘N, a split, an empty pane's button — its prompter gets the keyboard.
-        if (id) set({ keyboardFor: { sessionId: id, n: (get().keyboardFor?.n ?? 0) + 1 } });
+        await get().newSession({ ...instantPick(), spaceId }, targetLeafId, edge);
       },
       async newSessionInWorktree(targetLeafId = null, spaceId = null, named) {
         const sid = spaceFor(spaceId); if (!sid) return;
@@ -6186,11 +6187,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const env = await api.createWorktree(sid, named?.title ?? null, named?.base ?? null);
         if (inProfile(sid)) set({ environments: { ...get().environments, [env.id]: env } });
         await get().newSession({ ...instantPick(), environmentId: env.id, spaceId: sid }, targetLeafId);
-        // Made to be typed in, as a session from "+" is.
-        if (named) {
-          const made = Object.values(get().sessions).find((x) => x.environmentId === env.id);
-          if (made) set({ keyboardFor: { sessionId: made.id, n: (get().keyboardFor?.n ?? 0) + 1 } });
-        }
       },
       requestRename(itemId) { set({ renamingItemId: itemId }); },
       /**
