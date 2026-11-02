@@ -70,7 +70,7 @@ const space = (id: string, name: string, icon: string, profileId = "p1"): Space 
   ({ id, profileId, name, icon, color: "#7c6cff", sortOrder: 0, folderPath: "/tmp", groups: null, layout: null, activeItemId: null, createdAt: 0, updatedAt: 0 });
 const session = (id: string, spaceId: string, extra: Partial<Session> = {}): Session =>
   ({ id, spaceId, projectId: null, agentKind: "claude", model: "claude-opus-5-5", effort: null, fastMode: false, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", cwd: "/tmp", status: "idle",
-    providerSessionId: null, title: "Session", lastEventSeq: 40, seenSeq: 0, terminalItemId: null, dispatchedBy: null, activityAt: 0, createdAt: 0, updatedAt: 1_790_000_000_000, ...extra });
+    providerSessionId: null, title: "Session", lastEventSeq: 40, seenSeq: 0, terminalItemId: null, dispatchedBy: null, teammateId: null, teammateHome: false, activityAt: 0, createdAt: 0, updatedAt: 1_790_000_000_000, ...extra });
 const item = (refId: string, spaceId: string, title: string, extra: Partial<Item> = {}): Item =>
   ({ id: `i-${refId}`, spaceId, kind: "session", title, sortOrder: 0, pinned: false, archived: false, refId, createdAt: 0, updatedAt: 0, ...extra });
 const usageRow = (id: string, title: string, spaceName: string, costUsd: number): UsageSessionRow => ({

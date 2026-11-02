@@ -1243,4 +1243,26 @@ export const migrations: string[] = [
     agent_saved INTEGER NOT NULL DEFAULT 0,
     learned_at INTEGER NOT NULL);
   `,
+  // Teams v2 (contracts/teammates.ts): the first Teams' roles become permanent teammates, in the same
+  // table. A teammate is addressed by its handle, drawn by its icon (a shape and a colour), works in its
+  // folder (NULL: the space's), may be the space's Lead, sits in one of the person's sidebar groups, and
+  // owns one home session. Handles and icons of the roles already here are filled in at boot
+  // (`TeammatesStore.backfill`), because the icon is rolled from the old Realmite's seed in code.
+  //
+  // `sessions.teammate_id` tags a teammate's home session and every session it or its sessions started,
+  // so the sidebar lists them under it rather than hiding them; `asked_by_session_id` is the session
+  // that handed the work over, which the teammate's Sessions list nests it under. Nothing is dropped:
+  // the old Teams' tables and columns stay where they are, unread.
+  `
+  ALTER TABLE team_roles ADD COLUMN handle TEXT;
+  ALTER TABLE team_roles ADD COLUMN icon_json TEXT;
+  ALTER TABLE team_roles ADD COLUMN folder TEXT;
+  ALTER TABLE team_roles ADD COLUMN is_lead INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE team_roles ADD COLUMN group_name TEXT;
+  ALTER TABLE team_roles ADD COLUMN home_session_id TEXT;
+  ALTER TABLE sessions ADD COLUMN teammate_id TEXT;
+  ALTER TABLE sessions ADD COLUMN teammate_home INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE sessions ADD COLUMN asked_by_session_id TEXT;
+  CREATE INDEX IF NOT EXISTS sessions_teammate ON sessions(teammate_id, activity_at DESC) WHERE teammate_id IS NOT NULL;
+  `,
 ];

@@ -37,6 +37,7 @@ import { PlanLimitsSchema } from "./plan-limits";
 import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./schedules";
 import { ActTicketSchema } from "./team-acts";
 import { TeamPoliciesSchema, TeamPolicyInputSchema, TeamPolicyRowSchema, ToolClassInputSchema, ToolClassSetResultSchema } from "./team-policy";
+import { CreateTeammateSchema, ReorderTeammatesSchema, TeammateSchema, TeammateTaskSessionSchema, UpdateTeammateSchema } from "./teammates";
 import { CreateRoleSchema, CustomRoleSchema, RoleRunSchema, TeamActivitySchema, TeamRecordSchema, TeamRecordSummarySchema, TeamReviewDetailSchema, TeamReviewSummarySchema, TeamRoleSchema, TeamSpaceSchema, UpdateRoleSchema } from "./team";
 import { VaultGrantInputSchema, VaultGrantSchema, VaultUseSchema } from "./vault";
 import { SetRoleHandoffsSchema, SetTeamLimitsSchema } from "./team-handoffs";
@@ -1649,6 +1650,25 @@ export const Methods = {
   /** Fire once, now, WITHOUT moving the schedule's own clock — see `ScheduleService.runNow`. Answers
    *  the schedule, whose `lastRunId` now names the run this created. */
   "schedules.runNow": { params: z.object({ id: IdSchema }), result: ScheduleSchema },
+  // Teams v2 (teammates.ts): permanent teammates you message. Every change is broadcast as
+  // `teammates.changed` with the space, and the clients re-read what they hold.
+  "teammates.list": { params: z.object({ spaceId: IdSchema, archived: z.boolean().default(false) }), result: z.array(TeammateSchema) },
+  "teammates.get": { params: z.object({ id: IdSchema }), result: TeammateSchema },
+  /** Makes its home session too, so the page opens onto a composer. */
+  "teammates.create": { params: CreateTeammateSchema, result: TeammateSchema },
+  "teammates.update": { params: UpdateTeammateSchema, result: TeammateSchema },
+  /** Archived teammates leave the Team list and `team_list`; their sessions stay. */
+  "teammates.archive": { params: z.object({ id: IdSchema, archived: z.boolean().default(true) }), result: TeammateSchema },
+  /** Makes `id` the space's Lead, or clears the Lead with null. Answers the space's teammates. */
+  "teammates.setLead": { params: z.object({ spaceId: IdSchema, id: IdSchema.nullable() }), result: z.array(TeammateSchema) },
+  "teammates.reorder": { params: ReorderTeammatesSchema, result: z.array(TeammateSchema) },
+  /** Its home session, made now when it has none — what opening a teammate's page asks for. */
+  "teammates.home": { params: z.object({ id: IdSchema }), result: z.object({ sessionId: IdSchema }) },
+  /** The person's message to a teammate: a turn in its home session (made now when it has none),
+   *  queued behind a live turn. */
+  "teammates.message": { params: z.object({ id: IdSchema, text: z.string().trim().min(1).max(20_000) }), result: z.object({ sessionId: IdSchema }) },
+  /** Every session it started, and the ones handed on from them, newest first — its page's list. */
+  "teammates.sessions": { params: z.object({ id: IdSchema }), result: z.array(TeammateTaskSessionSchema) },
   // Teams (Phase 1): roles, Review, records and the activity log. Every change is broadcast as
   // `team.changed` with the space, and the clients re-read what they hold.
   "team.overview": { params: z.object({}).default({}), result: z.array(TeamSpaceSchema) },
@@ -2441,6 +2461,8 @@ export const Events = {
    *  already documents. */
   "schedules.changed": z.object({ spaceId: IdSchema }),
   "team.changed": z.object({ spaceId: IdSchema }),
+  /** A teammate in the space was made, edited, archived or reordered, or its state moved. */
+  "teammates.changed": z.object({ spaceId: IdSchema }),
   /** The lab's status, devices or update window changed; a held copy is read again. */
   "lab.changed": z.object({}),
   /** The update window has drained: main installs the downloaded update now. */

@@ -6,6 +6,7 @@ import { encodePayload, parsePayload, type StoredPayload } from "./event-payload
 type Row = { id: string; space_id: string; project_id: string | null; agent_kind: AgentKind; model: string | null; effort: string | null; fast_mode: number;
   permission_mode: string; environment_id: string; cwd: string; status: SessionStatus; provider_session_id: string | null; title: string; last_event_seq: number; seen_seq: number;
   terminal_item_id: string | null; dispatched_by_kind: DispatchKind | null; dispatched_by_session_id: string | null;
+  teammate_id: string | null; teammate_home: number;
   provider_cursor: string | null; rewind_fork_json: string | null; rewind_refusal: string | null; activity_at: number; created_at: number; updated_at: number };
 const toSession = (r: Row): Session => ({
   id: r.id, spaceId: r.space_id, projectId: r.project_id, agentKind: r.agent_kind, model: r.model, effort: r.effort,
@@ -13,6 +14,7 @@ const toSession = (r: Row): Session => ({
   permissionMode: r.permission_mode, environmentId: r.environment_id, cwd: r.cwd, status: r.status, providerSessionId: r.provider_session_id, title: r.title,
   lastEventSeq: r.last_event_seq, seenSeq: r.seen_seq, terminalItemId: r.terminal_item_id,
   dispatchedBy: r.dispatched_by_kind ? { kind: r.dispatched_by_kind, sessionId: r.dispatched_by_session_id } : null,
+  teammateId: r.teammate_id, teammateHome: r.teammate_home === 1,
   activityAt: r.activity_at, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 
