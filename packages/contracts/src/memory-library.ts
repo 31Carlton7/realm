@@ -67,8 +67,8 @@ export const MemoryLibraryEntrySchema = z.object({
 });
 export type MemoryLibraryEntry = z.infer<typeof MemoryLibraryEntrySchema>;
 
-/** Who loads a file — an agent ("Claude", or "Every agent") — where ("every space", "Realm and Stora"),
- *  and how, when that is not simply "it loads it" ("through Realm's memory tools"). */
+/** Who loads a file — an agent ("Claude", or "Every agent") — where ("in every space", "in Realm and
+ *  Stora", "outside Realm"), and how, when that is not simply "it loads it" ("through Realm's memory tools"). */
 export const MemoryLibraryReaderSchema = z.object({ who: z.string(), where: z.string(), how: z.string().nullable() });
 export type MemoryLibraryReader = z.infer<typeof MemoryLibraryReaderSchema>;
 

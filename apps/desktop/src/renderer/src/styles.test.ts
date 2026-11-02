@@ -1084,10 +1084,6 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       ".library-row-name",
       ".library-row-time",
       ".memory-doc-status",
-      ".memory-fact-label",
-      ".memory-fact-sub",
-      ".memory-space-here",
-      ".memory-space-size",
       ".onboarding-note",
       ".onboarding-step-head",
       ".onboarding-step-sub",
@@ -2897,7 +2893,7 @@ describe("dividers", () => {
   it("draws no rim round a card, and keeps the line's weight for what divides it", () => {
     expect(css).not.toContain("--rl-card-rim");
     expect(tokensCss).not.toContain("--rl-card-rim");
-    for (const sel of [".settings-row + .settings-row::before", ".memory-fact + .memory-fact", ".sched-card-facts", ".tp-props > div:nth-child(n+3)::before", ".cr-field", ".sched-modal-name"]) {
+    for (const sel of [".settings-row + .settings-row::before", ".sched-card-facts", ".tp-props > div:nth-child(n+3)::before", ".cr-field", ".sched-modal-name"]) {
       const body = bodiesFor(sel).join(" ");
       expect(body, sel).toContain("var(--rl-line)");
       expect(body, sel).not.toContain("--rl-card-rim");
@@ -3163,7 +3159,7 @@ describe("one card", () => {
   /** The card family. A new card joins it here, or the fill check below names it. */
   const CARDS = [".subagent-card", ".subagent-view-result",
     ".edit-summary", ".permission-card", ".question-card", ".question-answered", ".plan-card", ".plan-decision", ".app-view-request",
-    ".settings-row", ".sched-card", ".cr-note", ".library-offer", ".saved-turn-open", ".library-tile", ".agent-card",
+    ".settings-row", ".sched-card", ".cr-note", ".library-offer", ".saved-turn-open", ".library-tile", ".memory-reader", ".agent-card",
     ".tc-card", ".rv-why", ".rv-caption", ".rv-paper", ".rv-post", ".rv-files", ".rv-table .md-scroll", ".ps-rows",
     ".tp-card", ".tp-wait-row", ".tp-props", ".tp-message", ".tp-prose", ".tp-goal",
     ".stat-tile", ".usage-card", ".usage-figures", ".plan-account", ".market-card"];

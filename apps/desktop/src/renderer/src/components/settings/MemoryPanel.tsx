@@ -34,10 +34,28 @@ export function MemoryPanel({ spaceId, editorRef }: { spaceId: string;
     <div className="form settings-panel memory-panel">
       <div className="settings-row scope-doc-row"><SpaceMemoryDoc spaceId={spaceId} editorRef={editorRef} /></div>
       <MemoryReach spaceId={spaceId} />
+      <MemoryLibraryRow />
       {/* The space's own repo, beside the profile's it inherits: a team's, which everyone working in
           this space reads and saves to. Its sessions get both; a save goes here unless told. */}
       <h3 className="settings-head">This space's memory repo</h3>
       <MemoryRepoRow owner={{ scope: "space", id: spaceId }} />
+    </div>
+  );
+}
+
+/** The way to every memory file — Realm's and each agent's own — from a page that edits one of them. */
+export function MemoryLibraryRow() {
+  const openMemoryLibrary = useApp((s) => s.openMemoryLibrary);
+  const run = useApp((s) => s.run);
+  return (
+    <div className="settings-group">
+      <div className="settings-row">
+        <div className="settings-row-main">
+          <span className="settings-row-name">Every memory file</span>
+          <span className="settings-row-desc">Realm's, and the ones Claude, Codex, Cursor and Gemini keep for themselves, in one list.</span>
+        </div>
+        <button type="button" className="btn" onClick={() => run(() => openMemoryLibrary())}>Open in Library</button>
+      </div>
     </div>
   );
 }

@@ -170,16 +170,16 @@ describe("MemoryLibrary — reading", () => {
     const h = await harness();
     const entries = h.library.list(PROFILE);
     const readBy = (sourceId: string, rel: string) => h.library.read(idOf(entries, sourceId, rel), PROFILE).readBy;
-    expect(readBy(`realm-repo-profile-${PROFILE}`, "MEMORY.md")).toEqual([{ who: "Every agent", where: "every space", how: "at the start of every session" }]);
+    expect(readBy(`realm-repo-profile-${PROFILE}`, "MEMORY.md")).toEqual([{ who: "Every agent", where: "in every space", how: "at the start of every session" }]);
     expect(readBy(`realm-repo-profile-${PROFILE}`, "spaces/realm/uses-pnpm.md")).toEqual([
-      { who: "Claude", where: "Realm", how: "as its own memory" }, { who: "Other agents", where: "Realm", how: "through Realm's memory tools" },
+      { who: "Claude", where: "in Realm", how: "as its own memory" }, { who: "Other agents", where: "in Realm", how: "through Realm's memory tools" },
     ]);
-    expect(readBy(`realm-docs-${PROFILE}`, `${STORA}.md`)).toEqual([{ who: "Every agent", where: "Stora", how: "at the start of every session" }]);
-    expect(readBy("claude-user", "CLAUDE.md")).toEqual([{ who: "Claude", where: "every space", how: null }]);
+    expect(readBy(`realm-docs-${PROFILE}`, `${STORA}.md`)).toEqual([{ who: "Every agent", where: "in Stora", how: "at the start of every session" }]);
+    expect(readBy("claude-user", "CLAUDE.md")).toEqual([{ who: "Claude", where: "in every space", how: null }]);
     // THE MUTANT: say every space for a folder's file — only the space working in that folder loads it.
     const folder = h.library.sources(PROFILE).find((s) => s.group === "claude" && s.label === "Realm")!;
-    expect(readBy(folder.id, "CLAUDE.md")).toEqual([{ who: "Claude", where: "Realm", how: null }]);
-    expect(readBy("codex-user", "AGENTS.md")).toEqual([{ who: "Codex", where: "every space", how: null }]);
+    expect(readBy(folder.id, "CLAUDE.md")).toEqual([{ who: "Claude", where: "in Realm", how: null }]);
+    expect(readBy("codex-user", "AGENTS.md")).toEqual([{ who: "Codex", where: "in every space", how: null }]);
     expect(readBy("claude-projects", "-Users-me-code-stora/memory/deploy.md")).toEqual([{ who: "Claude", where: "outside Realm", how: "in that project's sessions" }]);
   });
 

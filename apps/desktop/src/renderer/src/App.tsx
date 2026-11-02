@@ -670,6 +670,7 @@ export function App() {
     // A space's memory document or AGENTS.md changed. Same held-only rule as skills.
     const offMem = rpc().on("memory.changed", ({ spaceId }) => {
       const st = store.getState();
+      st.memoryLibraryChanged();
       if (st.spaceMemory[spaceId]) st.run(() => st.refreshMemory(spaceId));
       // A memory repo is told the same way: a save an agent made, or one made in another window.
       if (st.spaceMemoryRepos[spaceId]) st.run(() => st.refreshSpaceMemoryRepos(spaceId));
@@ -680,6 +681,8 @@ export function App() {
         if (st.memoryRepoLog[memoryRepoKey(owner)]) st.run(() => st.refreshMemoryRepoLog(owner));
       }
     });
+    // A memory file the library wrote — one outside Realm included, which no space's event covers.
+    const offMemLib = rpc().on("memory.library.changed", () => store.getState().memoryLibraryChanged());
     const offB = subscribeAgentPanes(store, (event, fn) => rpc().on(event, fn));
     // Every browser's page — address, title, icon — saved as it changes, shown in a pane or not: an
     // agent driving a browser nobody is looking at keeps its sidebar row true (persist-pages.ts).
@@ -810,7 +813,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offW(); offSh(); offRun(); offSched(); offTeam(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); offSet(); offRm(); offPr(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offBC(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
+      offS(); offI(); offW(); offSh(); offRun(); offSched(); offTeam(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offMemLib(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); offSet(); offRm(); offPr(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offBC(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       offEggs();

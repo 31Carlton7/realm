@@ -4,7 +4,7 @@ import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment,
 import type { AddMcpServerInput, AgentProbe, Api, BranchList, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
 import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, ResourcePolicies, ResourceReport, Schedule, SearchResults, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
-import type { SavedTurn } from "@realm/contracts";
+import type { MemoryLibraryEntry, MemoryLibraryFile, MemoryLibrarySource, SavedTurn } from "@realm/contracts";
 import { PRODUCTION_REMOTE_RELAY, type PairRequest, type PairedPhone, type RemoteStatus } from "@realm/contracts";
 import { RpcError } from "../rpc/client";
 import type { RoleRun, TeamActivity, TeamRecord, TeamRecordType, TeamReviewDetail, TeamReviewSummary, TeamRole, TeamSpace } from "@realm/contracts";
@@ -440,6 +440,11 @@ export type FakeData = {
   /** What `memory.repo.claudeBackfill` answers, by profile id: `last` before "Check now", `next` after
    *  it, `placed` after `memory.repo.setClaudeProject`. Absent = it has not run yet. */
   claudeBackfills?: Record<string, { last: MemoryClaudeBackfill; next?: MemoryClaudeBackfill; placed?: MemoryClaudeBackfill }>;
+  /** The memory library (`memory.library.*`): its sources, and every file whole. A write, a create and a
+   *  delete change `memoryFiles` as the server would; an external file refuses a write or delete with
+   *  MEMORY_EXTERNAL_UNCONFIRMED unless confirmed. */
+  memoryLibrarySources?: MemoryLibrarySource[];
+  memoryFiles?: MemoryLibraryFile[];
   /** The notifications feed `notifications.list` pages over (W5). Unordered on the way in — the fake
    *  sorts (createdAt DESC, id DESC) and pages like the real store, so tests just append. */
   notifications?: Notification[];
@@ -697,6 +702,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     memoryRemoteChecks: overrides.memoryRemoteChecks ?? {},
     claudeImports: overrides.claudeImports ?? {},
     claudeBackfills: overrides.claudeBackfills ?? {},
+    memoryLibrarySources: overrides.memoryLibrarySources ?? [],
+    memoryFiles: overrides.memoryFiles ?? [],
     documentWorkspaces: overrides.documentWorkspaces ?? {},
     documentFiles: overrides.documentFiles ?? {},
     notifications: overrides.notifications ?? [],
@@ -1448,6 +1455,51 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const b = data.claudeBackfills[profileId]!;
       if (b.placed) b.last = b.placed;
       return b.last;
+    },
+    memoryLibrarySources: async (profileId) => {
+      calls.push(`memoryLibrarySources:${profileId}`);
+      return data.memoryLibrarySources.map((src) => ({ ...src, count: data.memoryFiles.filter((f) => f.sourceId === src.id).length }));
+    },
+    memoryLibraryList: async (profileId, o = {}) => {
+      calls.push(`memoryLibraryList:${profileId}:${o.sourceId ?? ""}:${o.query ?? ""}`);
+      const q = (o.query ?? "").trim().toLowerCase();
+      return data.memoryFiles
+        .filter((f) => (o.sourceId === undefined || f.sourceId === o.sourceId) && (q === "" || `${f.title}\n${f.description ?? ""}\n${f.body}`.toLowerCase().includes(q)))
+        .map((f): MemoryLibraryEntry => {
+          const line = q === "" ? null : f.body.split("\n").find((l) => l.toLowerCase().includes(q)) ?? null;
+          return { id: f.id, sourceId: f.sourceId, path: f.path, rel: f.rel, title: f.title, description: f.description, type: f.type, folder: f.folder, updatedAt: f.updatedAt, size: f.size, match: line };
+        });
+    },
+    memoryLibraryRead: async (id) => {
+      calls.push(`memoryLibraryRead:${id}`);
+      const f = data.memoryFiles.find((x) => x.id === id);
+      if (!f) throw new RpcError("MEMORY_FILE_NOT_FOUND", `${id} is not a memory`);
+      return f;
+    },
+    memoryLibraryWrite: async (id, text, confirmExternal) => {
+      calls.push(`memoryLibraryWrite:${id}:${confirmExternal}`);
+      const f = data.memoryFiles.find((x) => x.id === id)!;
+      if (f.external && !confirmExternal) throw new RpcError("MEMORY_EXTERNAL_UNCONFIRMED", `${f.path} is outside Realm`);
+      Object.assign(f, { text, body: text.replace(/^---\n[\s\S]*?\n---\n+/, ""), updatedAt: Date.now() });
+      return f;
+    },
+    memoryLibraryCreate: async (input) => {
+      calls.push(`memoryLibraryCreate:${input.sourceId}:${input.spaceId ?? ""}:${input.name}`);
+      const rel = `${input.spaceId ? `spaces/${input.spaceId}/` : ""}${input.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.md`;
+      const f: MemoryLibraryFile = {
+        id: `${input.sourceId}:${rel}`, sourceId: input.sourceId, path: `/realm-home/memory/repos/profile-p1/${rel}`, rel, title: input.name, description: input.description,
+        type: input.type, folder: null, updatedAt: Date.now(), size: input.body.length, match: null, text: input.body, body: input.body, frontmatter: [],
+        links: [], readBy: [], external: false, writable: true, deletable: true, note: null,
+      };
+      data.memoryFiles.push(f);
+      return f;
+    },
+    memoryLibraryDelete: async (id, confirmExternal) => {
+      calls.push(`memoryLibraryDelete:${id}:${confirmExternal}`);
+      const f = data.memoryFiles.find((x) => x.id === id)!;
+      if (f.external && !confirmExternal) throw new RpcError("MEMORY_EXTERNAL_UNCONFIRMED", `${f.path} is outside Realm`);
+      data.memoryFiles = data.memoryFiles.filter((x) => x.id !== id);
+      return { trashed: f.external };
     },
     memorySources: async (sessionId) => {
       calls.push(`memorySources:${sessionId}`);

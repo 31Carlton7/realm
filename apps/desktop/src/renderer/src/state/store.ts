@@ -21,7 +21,7 @@ import {
   AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, LINKS_OPEN_IN_KEY, type LinksOpenIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
-  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpSignInOptions, type McpServerStatus, type McpTransport, type MemoryClaudeBackfill, type MemoryClaudeImport, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary, type ResourceReport, type ResourcePolicies, type ResourcePolicyKey, type FreeAction,
+  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpSignInOptions, type McpServerStatus, type McpTransport, type MemoryClaudeBackfill, type MemoryClaudeImport, type MemoryLibraryEntry, type MemoryLibraryFile, type MemoryLibrarySource, type MemoryLibraryType, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary, type ResourceReport, type ResourcePolicies, type ResourcePolicyKey, type FreeAction,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves, type Rect } from "./no-overlay";
@@ -670,6 +670,15 @@ export type Api = TeamApi & LabApi & {
   claudeBackfill(profileId: string, run: boolean): Promise<MemoryClaudeBackfill>;
   /** `memory.repo.setClaudeProject` — a Claude project placed by hand (a space's id, or "skip"), then a run. */
   setClaudeProject(profileId: string, project: string, into: string): Promise<MemoryClaudeBackfill>;
+  /** `memory.library.*` — every memory file an agent on this Mac reads, for one profile: the Library's
+   *  Memory page. Returned rather than stored, like `usageSummary`: one page reads them, while it is open. */
+  memoryLibrarySources(profileId: string): Promise<MemoryLibrarySource[]>;
+  memoryLibraryList(profileId: string, o?: { sourceId?: string; query?: string }): Promise<MemoryLibraryEntry[]>;
+  memoryLibraryRead(id: string, profileId: string): Promise<MemoryLibraryFile>;
+  /** Refused with MEMORY_EXTERNAL_UNCONFIRMED for a file outside Realm unless `confirmExternal`. */
+  memoryLibraryWrite(id: string, text: string, confirmExternal: boolean): Promise<MemoryLibraryEntry>;
+  memoryLibraryCreate(input: MemoryLibraryNew): Promise<MemoryLibraryEntry>;
+  memoryLibraryDelete(id: string, confirmExternal: boolean): Promise<{ trashed: boolean }>;
   /** `mcp.tools.list` — triggers a lazy connect. A connect failure comes back as `error`, not a throw:
    *  the list is still a renderable result. */
   mcpToolsList(id: string): Promise<{ tools: McpServer["tools"]; error: string | null }>;
@@ -773,6 +782,8 @@ export type McpCallsFilter = { sessionId?: string; serverId?: string };
 export type ProfileMemoryDoc = { profileId: string; path: string; doc: string };
 /** Whose a memory repo is: a profile's, or one space's own. */
 export type MemoryRepoOwner = { scope: MemoryRepoScope; id: string };
+/** A new memory for `memory.library.create`: into a Realm repo's root, or a space's folder of it. */
+export type MemoryLibraryNew = { sourceId: string; spaceId?: string; name: string; description: string; type: MemoryLibraryType; body: string };
 /** One owner's key in the per-repo maps (`memoryRepoLog`). */
 export const memoryRepoKey = (o: MemoryRepoOwner): string => `${o.scope}:${o.id}`;
 
@@ -940,6 +951,8 @@ export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "sc
   | `records:${string}` | `recordtype:${string}`;
 /** The profile page's rail (Plan 14 W2). */
 export type ProfilePageTab = "general" | "skills" | "connections" | "memory";
+/** The Library page's sections. */
+export type LibraryTab = "files" | "saved" | "skills" | "memory";
 /** The Settings page's tabs, in rail order — the store holds which one is showing so an opener can land
  *  on one (the browser pane's "Browser settings" opens Sign-ins). `settings-index.ts` owns their order
  *  and headings. */
@@ -1744,6 +1757,12 @@ export type AppState = TeamSlice & LabSlice & {
    *  opener lands on a section whether or not the page is already up. One value, not keyed — Settings
    *  are the app's, not a space's. */
   settingsPageTab: SettingsPageTab;
+  /** The Library page's section, per space — in the store for `profilePageTab`'s reason: Profile
+   *  settings ▸ Memory lands on the Library's Memory section whether or not the page is already up. */
+  libraryTab: Record<string, LibraryTab>;
+  /** Moves whenever memory changes anywhere — an agent's save, an edit in another window, a file the
+   *  library wrote outside Realm — so the Library's Memory page reads its list again. */
+  memoryLibraryRev: number;
   /**
    * The skill the Library page is READING, per space — null (or absent) means it is showing its tabs.
    *
@@ -2704,6 +2723,20 @@ export type AppState = TeamSlice & LabSlice & {
   setSettingsPageTab(tab: SettingsPageTab): void;
   /** Which skill the Library page is reading, for `spaceId` — see `librarySkill`. Null closes it. */
   setLibrarySkill(spaceId: string, id: string | null): void;
+  /** The Library page's section, for `spaceId` — see `libraryTab`. */
+  setLibraryTab(spaceId: string, tab: LibraryTab): void;
+  /** Open the Library on its Memory section, from a page that is not the Library — `openSkillPage`'s
+   *  two steps. */
+  openMemoryLibrary(): Promise<void>;
+  /** Memory changed somewhere: see `memoryLibraryRev`. */
+  memoryLibraryChanged(): void;
+  /** The Library's Memory page's reads and writes — `Api`'s, returned rather than stored. */
+  memoryLibrarySources(profileId: string): Promise<MemoryLibrarySource[]>;
+  memoryLibraryList(profileId: string, o?: { sourceId?: string; query?: string }): Promise<MemoryLibraryEntry[]>;
+  memoryLibraryRead(id: string, profileId: string): Promise<MemoryLibraryFile>;
+  memoryLibraryWrite(id: string, text: string, confirmExternal: boolean): Promise<MemoryLibraryEntry>;
+  memoryLibraryCreate(input: MemoryLibraryNew): Promise<MemoryLibraryEntry>;
+  memoryLibraryDelete(id: string, confirmExternal: boolean): Promise<{ trashed: boolean }>;
   /** Open the Library on one skill's page, from a list that is not the Library's own. The same
    *  two-step `openProfilePage` uses: name the destination, then go there. */
   openSkillPage(id: string): Promise<void>;
@@ -4457,7 +4490,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       failover: null,
       laya: null,
       savedTurns: {}, savedTurnsRev: 0, promptFor: null,
-      spacePageTab: {}, spaceSessionsView: {}, sessionReplies: {}, profilePageTab: {}, settingsPageTab: "general", librarySkill: {}, mcpPanelSpaceId: null,
+      spacePageTab: {}, spaceSessionsView: {}, sessionReplies: {}, profilePageTab: {}, settingsPageTab: "general", libraryTab: {}, memoryLibraryRev: 0, librarySkill: {}, mcpPanelSpaceId: null,
       sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionActivityAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, unlockPolicy: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, computerAwaiting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeBranches: {}, worktreeAckStale: null,
@@ -7691,6 +7724,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       setProfilePageTab(profileId, tab) { set({ profilePageTab: { ...get().profilePageTab, [profileId]: tab } }); },
       setLibrarySkill(spaceId, id) { set({ librarySkill: { ...get().librarySkill, [spaceId]: id } }); },
+      setLibraryTab(spaceId, tab) { set({ libraryTab: { ...get().libraryTab, [spaceId]: tab } }); },
+      async openMemoryLibrary() {
+        const spaceId = get().activeSpaceId;
+        if (!spaceId) return;
+        get().setLibrarySkill(spaceId, null);
+        get().setLibraryTab(spaceId, "memory");
+        await get().openDestinationPage("library-page");
+      },
       async openSkillPage(id) {
         // Keyed by the ACTIVE space, which is the space whose Library page `openDestinationPage`
         // will open and the vantage that page reads its skills from.
@@ -7699,6 +7740,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         get().setLibrarySkill(spaceId, id);
         await get().openDestinationPage("library-page");
       },
+      memoryLibraryChanged() { set({ memoryLibraryRev: get().memoryLibraryRev + 1 }); },
+      memoryLibrarySources(profileId) { return api.memoryLibrarySources(profileId); },
+      memoryLibraryList(profileId, o) { return api.memoryLibraryList(profileId, o); },
+      memoryLibraryRead(id, profileId) { return api.memoryLibraryRead(id, profileId); },
+      memoryLibraryWrite(id, text, confirmExternal) { return api.memoryLibraryWrite(id, text, confirmExternal); },
+      memoryLibraryCreate(input) { return api.memoryLibraryCreate(input); },
+      memoryLibraryDelete(id, confirmExternal) { return api.memoryLibraryDelete(id, confirmExternal); },
       async refreshSettingsPrefs() {
         const [rawDisabled, rawMode, rawDesktop, rawSound, rawVolume, rawMidTurn, rawIphone] = await Promise.all([
           api.getSetting(NOTIFICATIONS_DISABLED_KEY), api.getSetting(DEFAULT_PERMISSION_MODE_KEY), api.getSetting(NOTIFICATIONS_DESKTOP_KEY),

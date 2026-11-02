@@ -448,7 +448,7 @@ export class MemoryLibrary {
   private readersOf(s: Source, rel: string, profileId: string | null): MemoryLibraryReader[] {
     const whose = s.profileId ?? (s.spaceId === null ? profileId : this.d.spaces().find((sp) => sp.id === s.spaceId)?.profileId ?? null);
     const spaces = this.d.spaces().filter((sp) => whose === null || sp.profileId === whose);
-    const named = (list: readonly LibrarySpace[]): string => this.whereIn(list, spaces);
+    const named = (list: readonly LibrarySpace[]): string => `in ${this.whereIn(list, spaces)}`;
     if (s.owner) {
       const users = spaces.filter((sp) => this.d.repos.activeFor(sp.id).some((r) => r.path === s.root));
       if (users.length === 0) return [];
@@ -456,8 +456,8 @@ export class MemoryLibrary {
       if (s.owner.scope === "profile" && parts[0] === SPACES_DIR && parts.length >= 3) {
         const sp = this.spaceOfFolder(parts[1]!, s.owner.id, users);
         if (!sp) return [];
-        if (parts.length === 3 && parts[2] === MEMORY_REPO_INDEX_FILE) return [{ who: "Every agent", where: sp.name, how: "at the start of every session" }];
-        return [{ who: "Claude", where: sp.name, how: "as its own memory" }, { who: "Other agents", where: sp.name, how: "through Realm's memory tools" }];
+        if (parts.length === 3 && parts[2] === MEMORY_REPO_INDEX_FILE) return [{ who: "Every agent", where: `in ${sp.name}`, how: "at the start of every session" }];
+        return [{ who: "Claude", where: `in ${sp.name}`, how: "as its own memory" }, { who: "Other agents", where: `in ${sp.name}`, how: "through Realm's memory tools" }];
       }
       return rel === MEMORY_REPO_INDEX_FILE
         ? [{ who: "Every agent", where: named(users), how: "at the start of every session" }]

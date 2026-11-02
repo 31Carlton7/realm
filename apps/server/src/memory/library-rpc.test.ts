@@ -45,7 +45,7 @@ describe("memory.library over RPC", () => {
     const { entries } = await c.call("memory.library.list", { profileId: profile.id });
     expect(entries.map((e: Any) => e.id).sort()).toEqual(["claude-user:CLAUDE.md", "gemini-user:GEMINI.md", `realm-repo-profile-${profile.id}:MEMORY.md`]);
     const read = await c.call("memory.library.read", { id: "claude-user:CLAUDE.md", profileId: profile.id });
-    expect(read).toMatchObject({ title: "House rules", external: true, readBy: [{ who: "Claude", where: "Realm", how: null }] });
+    expect(read).toMatchObject({ title: "House rules", external: true, readBy: [{ who: "Claude", where: "in Realm", how: null }] });
 
     await expect(c.call("memory.library.write", { id: "claude-user:CLAUDE.md", text: "# Mine\n" })).rejects.toMatchObject({ code: "MEMORY_EXTERNAL_UNCONFIRMED" });
     await c.call("memory.library.write", { id: "claude-user:CLAUDE.md", text: "# Mine\n", confirmExternal: true });
