@@ -48,7 +48,13 @@ const MODELS = [
     resolvedModel: "claude-haiku-4-5", supportsEffort: false, supportsAdaptiveThinking: false },
 ];
 
-const arg = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
+/** Both spellings the real CLI parses: SDK 0.3.316 sends `--model=<id>`, older ones `--model <id>`. */
+const arg = (name) => {
+  const joined = argv.find((a) => a.startsWith(`${name}=`));
+  if (joined) return joined.slice(name.length + 1);
+  const i = argv.indexOf(name);
+  return i >= 0 ? argv[i + 1] : undefined;
+};
 const sessionId = randomUUID();
 const muted = new Set((process.env.FAKE_CLAUDE_MUTE ?? "").split(",").filter(Boolean));
 let model = arg("--model") ?? "default";

@@ -3,8 +3,8 @@ import type { AgentKind } from "@realm/contracts";
 import { delegableModels, modelMenu, resolveModelName, type ProbedAgent } from "./models";
 
 /**
- * The model resolver, against a catalog shaped like a real Mac's: Claude on its curated list (its
- * CLI has no enumeration channel), Codex and Cursor on live catalogs, Cursor's labelled with its
+ * The model resolver, against a catalog shaped like a real Mac's: Claude on its curated list (a
+ * probe that could not read the CLI's), Codex and Cursor on live catalogs, Cursor's labelled with its
  * own raw ids the way cursor-agent reports them, and an ACP harness that is not installed.
  *
  * Each `it` names the mutant it exists to kill — a rule that no test can fail is a rule nobody can
@@ -95,9 +95,10 @@ describe("a family name means its newest member", () => {
     expect(choice("Composer 2")).toMatchObject({ kind: "acp:cursor", model: "composer-2" });
   });
 
-  it("Sonnet and Haiku each name their one model", () => {
-    expect(choice("Sonnet").model).toBe("claude-sonnet-5");
-    expect(choice("haiku").model).toBe("claude-haiku-4-5");
+  it("Sonnet and Haiku are the newest of their family — 5.5 over 5 and 4.5", () => {
+    expect(choice("Sonnet").model).toBe("claude-sonnet-5-5");
+    expect(choice("haiku").model).toBe("claude-haiku-5-5");
+    expect(choice("Sonnet 5").model).toBe("claude-sonnet-5");
   });
 
   it("Luna is the newest Luna across versions — GPT-6 over GPT-5.6", () => {
@@ -184,7 +185,7 @@ describe("readiness", () => {
 
   it("an agent nobody has probed yet is not held against it", () => {
     const rows = probes().filter((p) => p.kind !== "claude");
-    expect(choice("Sonnet", { probes: rows })).toMatchObject({ kind: "claude", model: "claude-sonnet-5" });
+    expect(choice("Sonnet", { probes: rows })).toMatchObject({ kind: "claude", model: "claude-sonnet-5-5" });
   });
 });
 

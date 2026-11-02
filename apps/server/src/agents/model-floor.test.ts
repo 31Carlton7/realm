@@ -7,8 +7,8 @@ import { AGENT_MODELS } from "@realm/contracts";
 /**
  * Every curated Claude model id must be one the bundled CLI can actually route.
  *
- * `AGENT_MODELS.claude` is hand-written (see the comment on it) because no channel Realm reads
- * carries a Claude catalog. The cost of that is a failure mode with no symptom: the API answers a
+ * `AGENT_MODELS.claude` is hand-written (see the comment on it): the fallback when the probe cannot
+ * read the CLI's own list, and the list a session on Realm's bundled copy picks from. The cost of that is a failure mode with no symptom: the API answers a
  * model the bundled binary predates with `400 Claude Code X does not support this model`, and the
  * session quietly runs something else. It has happened — `claude-fable-5-1` shipped needing a newer
  * SDK than the pin, and picking it fell back to another model with nothing said.

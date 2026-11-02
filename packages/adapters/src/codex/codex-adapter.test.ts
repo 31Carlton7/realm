@@ -1388,6 +1388,40 @@ describe("CodexAdapter model catalog", () => {
     await handle.dispose();
     expect(adapter.processCount).toBe(0);
   });
+
+  it("retires the shared process when the CLI is upgraded under it", async () => {
+    /* npm replaces the files, not the running program: a session's app-server spawned before the
+       upgrade is still the old build, and its `model/list` is the old catalog. Riding it after the
+       version moved is how GPT-6 Luna stayed out of the picker until Realm was quit. The named
+       mutant: dropping the retirement, which serves the old session's catalog here. */
+    const adapter = newAdapter();
+    expect((await adapter.probe()).models).toHaveLength(2);
+    const old = adapter.start(startOpts());
+    const { evs } = drain(old);
+    await waitFor(() => expect(types(evs)).toContain("init"));
+    const oldConn = await adapter.connection!;
+
+    // The upgrade: a new version, and a new build whose catalog differs (the paged one).
+    process.env.FAKE_CODEX_VERSION = "9.9.9";
+    process.env.FAKE_CODEX_MODEL_PAGES = "1";
+    try {
+      const upgraded = await adapter.probe();
+      expect(upgraded.models!.map((m) => m.id)).toEqual(["gpt-5.6-sol", "gpt-5.4-mini"]);
+      // The old session keeps its process; the next session spawns the new binary beside it.
+      const fresh = adapter.start(startOpts());
+      const next = drain(fresh);
+      await waitFor(() => expect(types(next.evs)).toContain("init"));
+      expect(adapter.processCount).toBe(2);
+      expect(await adapter.connection!).not.toBe(oldConn);
+      await old.dispose();
+      expect(adapter.processCount).toBe(1); // the retired process went with its last session
+      await fresh.dispose();
+      expect(adapter.processCount).toBe(0);
+    } finally {
+      delete process.env.FAKE_CODEX_VERSION;
+      delete process.env.FAKE_CODEX_MODEL_PAGES;
+    }
+  });
 });
 
 describe("a resume Codex refuses", () => {

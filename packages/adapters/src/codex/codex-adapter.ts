@@ -254,6 +254,22 @@ function bootFailureMessage(e: unknown): string {
   return message(e);
 }
 
+/** One `codex app-server`, the sessions riding it, and the skills roots it has been told about. */
+type SharedProcess = {
+  conn: Promise<CodexConnection>;
+  refs: number;
+  /**
+   * Skills roots contributed by live sessions, refcounted by root.
+   *
+   * `skills/extraRoots/set` takes `{ extraRoots }` and **no `threadId`** — it is per-connection, and
+   * CodexAdapter deliberately shares one `codex app-server` across every Realm session. So the roots of
+   * every live session are unioned and the whole set is re-sent on each change; a Work space and a School
+   * space with different skills enabled will each see both sets in Codex. That is the documented trade
+   * (research §2) — the alternative is a process per space, which loses the refcount this class exists for.
+   */
+  roots: Map<string, number>;
+};
+
 /**
  * Codex adapter over one shared `codex app-server` process.
  *
@@ -267,18 +283,10 @@ export class CodexAdapter implements AgentAdapter {
   private readonly args?: string[];
   /** Overridable for tests. Bounds every boot call: initialize, thread/start and thread/resume. */
   private readonly bootTimeoutMs?: number;
-  private conn: Promise<CodexConnection> | null = null;
-  private refs = 0;
-  /**
-   * Skills roots contributed by live sessions, refcounted by root.
-   *
-   * `skills/extraRoots/set` takes `{ extraRoots }` and **no `threadId`** — it is per-connection, and
-   * CodexAdapter deliberately shares one `codex app-server` across every Realm session. So the roots of
-   * every live session are unioned and the whole set is re-sent on each change; a Work space and a School
-   * space with different skills enabled will each see both sets in Codex. That is the documented trade
-   * (research §2) — the alternative is a process per space, which loses the refcount this class exists for.
-   */
-  private readonly extraRoots = new Map<string, number>();
+  /** The process new sessions join, or null when none is up (or the one that was is retired). */
+  private shared: SharedProcess | null = null;
+  /** Every process still holding sessions — the current one plus any retired by a CLI upgrade. */
+  private readonly live = new Set<SharedProcess>();
   /**
    * Feature detection, sticky per adapter. This machine runs a codex preview ahead of the public release;
    * an older binary answers `skills/extraRoots/set` with -32601 and must degrade to "Codex sees no Realm
@@ -303,16 +311,17 @@ export class CodexAdapter implements AgentAdapter {
     this.bootTimeoutMs = deps.bootTimeoutMs;
   }
 
-  /** Visible for tests: 0 or 1 — the whole point of the refcount is that it never exceeds one. */
-  get processCount(): number { return this.conn === null ? 0 : 1; }
-  /** Visible for tests: sessions currently holding the process. A leak here strands the child forever. */
-  get sessionCount(): number { return this.refs; }
+  /** Visible for tests: 0 or 1 — the whole point of the refcount is that it never exceeds one. The one
+   *  exception is the overlap after a CLI upgrade, while sessions on the retired process finish. */
+  get processCount(): number { return this.live.size; }
+  /** Visible for tests: sessions currently holding a process. A leak here strands the child forever. */
+  get sessionCount(): number { return [...this.live].reduce((n, s) => n + s.refs, 0); }
   /**
    * Visible for tests: the shared process itself, once a session has acquired it. Lets tests assert what the
    * refcount alone cannot — that the child is really dead, that a disposed session really detached, and how a
    * still-attached session reacts when the process is deliberately torn down under it.
    */
-  get connection(): Promise<CodexConnection> | null { return this.conn; }
+  get connection(): Promise<CodexConnection> | null { return this.shared?.conn ?? null; }
 
   async probe(): Promise<ProbeResult> {
     // The adapter's OWN args, so the probe runs the command the adapter would run. With no args —
@@ -323,6 +332,11 @@ export class CodexAdapter implements AgentAdapter {
     // A different binary is a different set of capabilities. Both latches are re-armed together —
     // they were learned from the same process and there is no reason one would outlive the other.
     if (p.available && p.version !== this.latchedVersion) {
+      // The shared process is still the binary that was on disk when it spawned — npm replaces the
+      // files, not the running program. Asking it for `model/list` returns the OLD catalog, and a new
+      // session joining it would run a model the picker offers but that build does not know. So it is
+      // retired: its sessions keep it until they end, and everything after spawns the new binary.
+      if (this.latchedVersion !== null) this.shared = null;
       this.latchedVersion = p.version;
       this.modelListSupported = true;
       this.extraRootsSupported = true;
@@ -350,7 +364,7 @@ export class CodexAdapter implements AgentAdapter {
     try {
       // A rejected shared open is a boot problem for the session that caused it, not for this probe:
       // fall through to a transient process rather than inheriting the rejection.
-      const shared = this.conn ? await this.conn.catch(() => null) : null;
+      const shared = this.shared ? await this.shared.conn.catch(() => null) : null;
       const conn = shared ?? (owned = await CodexConnection.open({
         bin: this.bin ?? process.env.REALM_CODEX_BIN ?? "codex",
         args: this.args,
@@ -379,29 +393,37 @@ export class CodexAdapter implements AgentAdapter {
    * `cwd`/`env`/`onLog` only shape the process the *first* session spawns; every later session rides the same
    * one and carries its own `cwd` on `thread/start`, which is the value that actually matters.
    */
-  private async acquire(opts: StartOptions): Promise<CodexConnection> {
-    this.refs += 1;
-    const pending = this.conn ?? (this.conn = CodexConnection.open({
-      bin: this.bin ?? process.env.REALM_CODEX_BIN ?? "codex",
-      args: this.args,
-      cwd: opts.cwd,
-      env: opts.env,
-      onLog: opts.onLog,
-      initializeTimeoutMs: this.bootTimeoutMs,
-    }));
-    try {
-      return await pending;
-    } catch (e) {
-      // A failed open must not pin the refcount (nothing will ever call release for it) nor cache the rejected
-      // promise, or every later session in this process inherits the same failure.
-      this.refs -= 1;
-      if (this.conn === pending) this.conn = null;
-      throw e;
+  private acquire(opts: StartOptions): SharedProcess {
+    let entry = this.shared;
+    if (!entry) {
+      entry = this.shared = {
+        conn: CodexConnection.open({
+          bin: this.bin ?? process.env.REALM_CODEX_BIN ?? "codex",
+          args: this.args,
+          cwd: opts.cwd,
+          env: opts.env,
+          onLog: opts.onLog,
+          initializeTimeoutMs: this.bootTimeoutMs,
+        }),
+        refs: 0,
+        roots: new Map(),
+      };
+      this.live.add(entry);
     }
+    entry.refs += 1;
+    const opened = entry;
+    // A failed open must not pin the refcount (nothing will ever call release for it) nor cache the rejected
+    // promise, or every later session in this process inherits the same failure.
+    entry.conn.catch(() => {
+      opened.refs -= 1;
+      if (opened.refs === 0) this.live.delete(opened);
+      if (this.shared === opened) this.shared = null;
+    });
+    return entry;
   }
 
   /** Visible for tests: the roots currently unioned onto the shared connection. */
-  get extraRootCount(): number { return this.extraRoots.size; }
+  get extraRootCount(): number { return this.shared?.roots.size ?? 0; }
   /** Visible for tests: false once a codex build has answered -32601 to `skills/extraRoots/set`. */
   get skillsSupported(): boolean { return this.extraRootsSupported; }
   /** Visible for tests: false once a codex build has answered -32601 to `model/list`. */
@@ -412,10 +434,10 @@ export class CodexAdapter implements AgentAdapter {
    * not land is a session with fewer skills, not a session that failed to start — and this is awaited on
    * the boot path, where a throw would be reported to the user as a dead agent.
    */
-  private async syncExtraRoots(conn: CodexConnection, onLog?: (line: string) => void): Promise<void> {
+  private async syncExtraRoots(entry: SharedProcess, conn: CodexConnection, onLog?: (line: string) => void): Promise<void> {
     if (!this.extraRootsSupported) return;
     try {
-      await conn.request("skills/extraRoots/set", { extraRoots: [...this.extraRoots.keys()] }, EXTRA_ROOTS_TIMEOUT_MS);
+      await conn.request("skills/extraRoots/set", { extraRoots: [...entry.roots.keys()] }, EXTRA_ROOTS_TIMEOUT_MS);
     } catch (e) {
       if (e instanceof JsonRpcCallError && e.code === METHOD_NOT_FOUND) {
         this.extraRootsSupported = false;
@@ -426,28 +448,24 @@ export class CodexAdapter implements AgentAdapter {
     }
   }
 
-  private async addExtraRoot(conn: CodexConnection, root: string, onLog?: (line: string) => void): Promise<void> {
-    this.extraRoots.set(root, (this.extraRoots.get(root) ?? 0) + 1);
-    await this.syncExtraRoots(conn, onLog);
+  private async addExtraRoot(entry: SharedProcess, conn: CodexConnection, root: string, onLog?: (line: string) => void): Promise<void> {
+    entry.roots.set(root, (entry.roots.get(root) ?? 0) + 1);
+    await this.syncExtraRoots(entry, conn, onLog);
   }
 
-  private async dropExtraRoot(conn: CodexConnection, root: string, onLog?: (line: string) => void): Promise<void> {
-    const next = (this.extraRoots.get(root) ?? 0) - 1;
-    if (next > 0) this.extraRoots.set(root, next);
-    else this.extraRoots.delete(root);
-    await this.syncExtraRoots(conn, onLog);
+  private async dropExtraRoot(entry: SharedProcess, conn: CodexConnection, root: string, onLog?: (line: string) => void): Promise<void> {
+    const next = (entry.roots.get(root) ?? 0) - 1;
+    if (next > 0) entry.roots.set(root, next);
+    else entry.roots.delete(root);
+    await this.syncExtraRoots(entry, conn, onLog);
   }
 
-  private async release(): Promise<void> {
-    this.refs -= 1;
-    if (this.refs > 0) return;
-    const pending = this.conn;
-    this.conn = null;
-    // The roots live on the connection, not on the adapter: a later session gets a fresh process that has
-    // never been told anything, so a leftover entry here would make syncExtraRoots think it already had.
-    this.extraRoots.clear();
-    if (!pending) return;
-    try { await (await pending).dispose(); } catch { /* open() already tore down its own child */ }
+  private async release(entry: SharedProcess): Promise<void> {
+    entry.refs -= 1;
+    if (entry.refs > 0) return;
+    this.live.delete(entry);
+    if (this.shared === entry) this.shared = null;
+    try { await (await entry.conn).dispose(); } catch { /* open() already tore down its own child */ }
   }
 
   start(opts: StartOptions): AgentHandle {
@@ -470,10 +488,10 @@ export class CodexAdapter implements AgentAdapter {
       | { kind: "mcpApproval"; id: JsonRpcId }
       | { kind: "question"; id: JsonRpcId; card: AskCard; accept: (given: AskAnswers) => unknown; decline: () => unknown; cancel: () => unknown };
     const pending = new Map<string, Pending>();
+    let held: SharedProcess | null = null;
     let conn: CodexConnection | null = null;
     let threadId: string | null = null;
     let activeTurnId: string | null = null;
-    let acquired = false;
     let released = false;
     let disposed = false;
     /** Set only once this session's root is counted into the union, so shutdown drops exactly what boot added. */
@@ -489,12 +507,12 @@ export class CodexAdapter implements AgentAdapter {
      *
      * `acquire()` takes the ref synchronously inside `start()`, but this closure only learns it succeeded when
      * the open resolves — and dispose() no longer waits for that. So whichever of shutdown() and boot gets here
-     * once `acquired` is set is the one that releases; the other is a no-op.
+     * once `held` is set is the one that releases; the other is a no-op.
      */
     const releaseOnce = async (): Promise<void> => {
-      if (!acquired || released) return;
+      if (!held || released) return;
       released = true;
-      await this.release();
+      await this.release(held);
     };
 
     /** `cancelled`: nobody answered — the turn was stopped or the session is going — which a question's
@@ -550,7 +568,7 @@ export class CodexAdapter implements AgentAdapter {
       if (conn && threadId) conn.detach(threadId);
       // Before releasing: the process may be about to go, but while other sessions still hold it their
       // union must stop including a root this session is no longer entitled to.
-      if (conn && ownedRoot) { const r = ownedRoot; ownedRoot = null; await this.dropExtraRoot(conn, r, opts.onLog); }
+      if (held && conn && ownedRoot) { const r = ownedRoot; ownedRoot = null; await this.dropExtraRoot(held, conn, r, opts.onLog); }
       for (const e of mapper.closeOpenTools("session closed")) events.push(e);
       events.push(sessionEvent("status", { status: "ended" }));
       events.close();
@@ -720,8 +738,9 @@ export class CodexAdapter implements AgentAdapter {
 
     const boot = (async () => {
       try {
-        const c = await this.acquire(opts);
-        acquired = true;
+        const entry = this.acquire(opts);
+        const c = await entry.conn;
+        held = entry;
         // Disposed while the process was still coming up. shutdown() has already run and found nothing to hand
         // back (it no longer waits for a boot that may never settle), so the ref is returned here instead.
         if (disposed) { await releaseOnce(); return; }
@@ -820,7 +839,7 @@ export class CodexAdapter implements AgentAdapter {
         });
         // After the thread exists, per the protocol's own ordering, and awaited inside boot so that the
         // first send() — which awaits boot — cannot start a turn before Codex knows about the skills.
-        if (opts.skills) { ownedRoot = opts.skills.root; await this.addExtraRoot(c, opts.skills.root, opts.onLog); }
+        if (opts.skills) { ownedRoot = opts.skills.root; await this.addExtraRoot(entry, c, opts.skills.root, opts.onLog); }
       } catch (e) {
         if (disposed) return;
         fail(bootFailureMessage(e));

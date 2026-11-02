@@ -65,9 +65,10 @@ export type AgentModel = {
  *
  * The asymmetry is deliberate, not an accident of neglect:
  *
- *  - **claude** is a curated list that stays hardcoded because no enumeration channel exists — the
- *    Claude Code CLI has no `--list-models`, and the Agent SDK takes a model id on faith. Curation is
- *    the honest option left; keep it in step with the CLI's own picker.
+ *  - **claude** is the fallback for a probe that could not read the CLI's own list. The probe asks
+ *    the CLI sessions run for `supportedModels()` (`ClaudeAdapter.probe`), so an updated `claude`
+ *    brings its new models to the picker by itself; this list only shows before that answers, or
+ *    when it cannot. Keep it to models Realm's bundled copy knows.
  *
  *    "On faith" is the trap: a model id here is only usable if the `claude` binary the Agent SDK
  *    bundles is new enough to know it. Too old and the API rejects the turn with
@@ -84,7 +85,7 @@ export type AgentModel = {
  *  - **acp:gemini** is empty because the kind is no longer offered (see SELECTABLE_AGENT_KINDS).
  */
 export const AGENT_MODELS = {
-  claude: [{ id: "claude-fable-5-1", label: "Claude Fable 5.1" }, { id: "claude-fable-5", label: "Claude Fable 5" }, { id: "claude-opus-5-5", label: "Claude Opus 5.5" }, { id: "claude-opus-5", label: "Claude Opus 5" }, { id: "claude-sonnet-5", label: "Claude Sonnet 5" }, { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" }],
+  claude: [{ id: "claude-fable-5-1", label: "Claude Fable 5.1" }, { id: "claude-fable-5", label: "Claude Fable 5" }, { id: "claude-opus-5-5", label: "Claude Opus 5.5" }, { id: "claude-opus-5", label: "Claude Opus 5" }, { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5" }, { id: "claude-sonnet-5", label: "Claude Sonnet 5" }, { id: "claude-haiku-5-5", label: "Claude Haiku 5.5" }, { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" }],
   codex: [], "acp:gemini": [], "acp:cursor": [],
   // Plan 18's ACP agents: empty for the same reason as Cursor's — where a catalog exists it is
   // enumerated live by the probe (through `configOptions` now, see acpSessionConfig), so a hardcoded

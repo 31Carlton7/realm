@@ -516,8 +516,9 @@ async function owner() {
     await closePicker(c);
 
     // Codex, before any session has run on it: the Fast tier and the levels from the probe's own catalog.
-    check("Codex's default is one click from a Claude session that has not run", await pickRow(c, "GPT-5.6"));
-    await until(() => evalIn(c, `document.querySelector('.composer button[aria-label="Model"]').textContent.includes('GPT-5.6')`), 5000, "codex chip");
+    // The catalog marks Sol its default, so Sol's own row is the default — there is no second row.
+    check("Codex's default is one click from a Claude session that has not run", await pickRow(c, "GPT-5.6-Sol"));
+    await until(() => evalIn(c, `document.querySelector('.composer button[aria-label="Model"]').textContent.includes('GPT-5.6-Sol')`), 5000, "codex chip");
     await openPicker(c);
     const codexDefault = await runCard(c);
     check("Codex's default takes the levels its catalog marks, from its own default", cardIsDrawn(codexDefault) && codexDefault.dots.length === 4 && codexDefault.level === "Medium", codexDefault && { dots: codexDefault.dots.length, level: codexDefault.level });

@@ -38,6 +38,16 @@ describe("modelRows with a probe catalog", () => {
     expect(cursor.filter((r) => r.selected)).toHaveLength(1);
   });
 
+  it("lets a catalog that names its default stand for it, with no second row under the static label", () => {
+    /* THE BUG, seen live: Claude's CLI defaults to Opus 5.5, but the extra row read DEFAULT_MODEL_LABEL
+       ("Fable 5.1"), so the picker listed Fable 5.1 twice and neither was what the session ran. */
+    const claudeCatalog = [{ id: "claude-opus-5-5", label: "Claude Opus 5.5", isDefault: true }, { id: "claude-fable-5-1", label: "Claude Fable 5.1" }];
+    const rows = modelRows({ kind: "claude", model: null, agentProbe: [probe("claude", claudeCatalog)], canSwitchAgent: true });
+    const claude = rows.filter((r) => r.kind === "claude");
+    expect(claude.map((r) => r.modelId)).toEqual(["claude-opus-5-5", "claude-fable-5-1"]);
+    expect(claude.filter((r) => r.selected).map((r) => r.modelId)).toEqual(["claude-opus-5-5"]);
+  });
+
   it("never renders one kind's catalog under another kind", () => {
     // Codex's probe answered without models; only Cursor's carries a catalog. A find() keyed on the
     // wrong entry would offer Cursor's parameterized ids to Codex, which rejects them on the wire.
@@ -53,7 +63,7 @@ describe("modelRows with a probe catalog", () => {
     for (const models of [null, undefined, []] as const) {
       const rows = modelRows({ kind: "claude", model: null, agentProbe: [probe("claude", models as AgentProbe["models"])], canSwitchAgent: true });
       const claude = rows.filter((r) => r.kind === "claude");
-      expect(claude.map((r) => r.modelId)).toEqual(["claude-fable-5-1", "claude-fable-5", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]);
+      expect(claude.map((r) => r.modelId)).toEqual(["claude-fable-5-1", "claude-fable-5", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5", "claude-sonnet-5", "claude-haiku-5-5", "claude-haiku-4-5"]);
       expect(claude[0]!.selected).toBe(true); // static lists pin first row = adapter default (presets.test.ts)
     }
   });

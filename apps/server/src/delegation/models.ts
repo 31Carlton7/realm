@@ -96,7 +96,7 @@ const readyOf = (probe: ProbedAgent | undefined): boolean => !probe || (probe.av
  * Every model a delegated agent could be put on, one entry per model, in harness order.
  *
  * Model lists come from the same two places the picker's do: a harness's live catalog when its probe
- * reported one, the curated static list otherwise (Claude has no enumeration channel at all).
+ * reported one, the curated static list otherwise.
  */
 export function delegableModels(probes: readonly ProbedAgent[], registered: readonly AgentKind[]): DelegableModel[] {
   const byKey = new Map<string, DelegableModel>();
