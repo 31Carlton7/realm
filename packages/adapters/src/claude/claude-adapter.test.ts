@@ -1200,15 +1200,11 @@ describe("read-only gateway allowedTools (Plan 11 W4)", () => {
       "mcp__realm__realm-docs__docs_search",
       "mcp__realm__realm-docs__docs_read",
       "mcp__realm__realm-docs__docs_state",
-      "mcp__realm__realm-team__record_list",
-      "mcp__realm__realm-team__record_types",
-      "mcp__realm__realm-team__review_status",
-      "mcp__realm__realm-team__policy_read",
+      "mcp__realm__realm-team__team_list",
       "mcp__realm__realm-memory__memory_index",
       "mcp__realm__realm-memory__memory_read",
       "mcp__realm__realm-memory__memory_search",
       "mcp__realm__realm-goal__goal_status",
-      "mcp__realm__realm-vault__vault_list",
     ]);
   });
 
@@ -1218,7 +1214,7 @@ describe("read-only gateway allowedTools (Plan 11 W4)", () => {
     for (const mutating of ["browser_open", "browser_navigate", "browser_act", "browser_batch", "browser_fill_credential",
       "pane_show", "session_open", "space_switch", "settings_set",
       "agent_run", "agent_start", "agent_ask", "schedule_create", "docs_open", "update_goal",
-      "record_update", "record_read", "review_submit", "review_close", "memory_save", "memory_write_file", "vault_http"]) {
+      "team_message", "memory_save", "memory_write_file"]) {
       expect(allowed.some((t) => t.endsWith(`__${mutating}`))).toBe(false);
     }
   });
