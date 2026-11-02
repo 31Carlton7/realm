@@ -95,19 +95,10 @@ const BLOCKS: Record<string, string> = {
     "the moment you set.",
 
   "realm-team":
-    "- **This space's team.** `team_roles` lists its standing roles and `policy_read` what a role may do without " +
-    "the person. Facts about the people it works with are records — `record_types`, `record_list`, `record_read`, " +
-    "`record_update` on `creators/<name>.md` — so read the record before acting for someone, and change it when a " +
-    "fact changes. Finished work a person should approve goes to Review with `review_submit` (`review_status` says " +
-    "where it stands — a person may reject it, with a reason to heed, or close it, even after approving; either way " +
-    "nothing of it goes out, so do not send it again); nothing you make is sent or posted by you. A review that is no longer wanted you close with " +
-    "`review_close`, so it stops waiting on the person. A role's run passes work on with `team_handoff`; " +
-    "`team_mention` asks a role for something now, as a sub-agent.",
-
-  "realm-vault":
-    "- **The team's vault.** `vault_list` names the API keys and sign-ins this session may use; `vault_http` makes " +
-    "one request with a key in it (`{{secret}}`) without you seeing the key, and a vault sign-in fills through " +
-    "`browser_fill_credential`. No tool reads a value.",
+    "- **This space's teammates.** `team_list` says who is here — each teammate's handle, what it does, whether it " +
+    "is the Lead, and what it is working on. `team_message` puts a message in a teammate's own chat (`to`: its handle, " +
+    "or `lead`): to ask it something, or to hand it work that is its to do. Add `wait: true` only when you cannot go on " +
+    "without its answer; otherwise carry on, and it answers in its own chat.",
 
   "realm-terminal":
     "- **A terminal that talks back.** `terminal_open` starts a real terminal pane, `terminal_write` types into it, " +
@@ -212,7 +203,7 @@ const FINISH_STOP =
 /** Fixed order, so the same set of providers always produces the same bytes: the blocks are read
  *  top-down and registration order is not a reason for the browser to appear above delegation one
  *  day and below it the next. */
-const ORDER = ["realm-agent", "realm-ui", "realm-browser", "realm-docs", "realm-schedule", "realm-team", "realm-vault", "realm-terminal", "realm-simulator", "realm-goal", "realm-workspace", "realm-memory", "realm-app", "realm-computer", "realm-vm"] as const;
+const ORDER = ["realm-agent", "realm-ui", "realm-browser", "realm-docs", "realm-schedule", "realm-team", "realm-terminal", "realm-simulator", "realm-goal", "realm-workspace", "realm-memory", "realm-app", "realm-computer", "realm-vm"] as const;
 
 const HEADER = "# Realm\n\nThis session runs in Realm, a workspace on the user's Mac.";
 const TOOLS =

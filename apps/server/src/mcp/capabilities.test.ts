@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CHART_POINTS_MAX, CHART_SERIES_MAX, COMPUTER_PROVIDER_NAME, GOAL_PROVIDER_NAME, MACHINE_PROVIDER_NAME, PANE_SHOW_WIRE_NAME, TEAM_PROVIDER_NAME, VAULT_PROVIDER_NAME, WORKSPACE_PROVIDER_NAME, parseUiBlock } from "@realm/contracts";
+import { CHART_POINTS_MAX, CHART_SERIES_MAX, COMPUTER_PROVIDER_NAME, GOAL_PROVIDER_NAME, MACHINE_PROVIDER_NAME, PANE_SHOW_WIRE_NAME, TEAMMATES_PROVIDER_NAME, WORKSPACE_PROVIDER_NAME, parseUiBlock } from "@realm/contracts";
 import { CAPABILITY_PROVIDERS, capabilitiesContext } from "./capabilities";
 import { BROWSER_PROVIDER_NAME } from "../browsers/agent-tools";
 import { REALM_AGENT_PROVIDER_NAME } from "../browsers/browser-agent";
@@ -23,9 +23,9 @@ describe("capabilitiesContext", () => {
     // every session is handed a paragraph about a provider that is never keyed by that name — the
     // preamble goes silent about a capability the session has, with nothing else to notice it.
     expect([...CAPABILITY_PROVIDERS].sort()).toEqual(
-      [REALM_AGENT_PROVIDER_NAME, UI_PROVIDER_NAME, BROWSER_PROVIDER_NAME, DOCS_PROVIDER_NAME, SCHEDULE_PROVIDER_NAME, TEAM_PROVIDER_NAME,
+      [REALM_AGENT_PROVIDER_NAME, UI_PROVIDER_NAME, BROWSER_PROVIDER_NAME, DOCS_PROVIDER_NAME, SCHEDULE_PROVIDER_NAME, TEAMMATES_PROVIDER_NAME,
        TERMINAL_PROVIDER_NAME, SIMULATOR_PROVIDER_NAME, GOAL_PROVIDER_NAME, WORKSPACE_PROVIDER_NAME, APP_PROVIDER_NAME, COMPUTER_PROVIDER_NAME, MACHINE_PROVIDER_NAME,
-       VAULT_PROVIDER_NAME, MEMORY_PROVIDER_NAME].sort());
+       MEMORY_PROVIDER_NAME].sort());
   });
 
   it("describes only the providers it was given — a space with the browser off is never told it has one", () => {
@@ -92,9 +92,9 @@ describe("capabilitiesContext", () => {
     expect(capabilitiesContext([DOCS_PROVIDER_NAME])).not.toContain("realm_capabilities");
   });
 
-  it("tells a session with a vault and a memory repo what each is for", () => {
-    const text = capabilitiesContext([VAULT_PROVIDER_NAME, MEMORY_PROVIDER_NAME]);
-    expect(text).toContain("`vault_http` makes one request with a key in it");
+  it("tells a session with teammates and a memory repo what each is for", () => {
+    const text = capabilitiesContext([TEAMMATES_PROVIDER_NAME, MEMORY_PROVIDER_NAME]);
+    expect(text).toContain("`team_message` puts a message in a teammate's own chat");
     expect(text).toContain("`memory_save` keeps one durable fact (never a secret)");
   });
 

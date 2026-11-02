@@ -83,10 +83,11 @@ describe("the vendor table", () => {
 
 describe("Realm's own tools", () => {
   it("are classed by Realm's table, which the verb floor does not second-guess", () => {
-    expect(classifyTool({ connector: "realm:realm-team", tool: "record_update" })).toMatchObject({ class: "internal-write", source: "realm" });
+    expect(classifyTool({ connector: "realm:realm-team", tool: "team_message" })).toMatchObject({ class: "internal-write", source: "realm" });
     expect(classifyTool({ connector: "realm:realm-memory", tool: "memory_remove" })).toMatchObject({ class: "internal-write", floor: null });
-    expect(classifyTool({ connector: "realm:realm-vault", tool: "vault_http" })).toMatchObject({ class: "irreversible-external" });
-    expect(classifyTool({ connector: "realm:realm-team", tool: "record_read" })).toMatchObject({ class: "read", asksFirst: expect.stringMatching(/activity/) });
+    expect(classifyTool({ connector: "realm:realm-browser", tool: "browser_upload" })).toMatchObject({ class: "irreversible-external" });
+    expect(classifyTool({ connector: "realm:realm-team", tool: "team_list" })).toMatchObject({ class: "read", source: "realm" });
+    expect(classifyTool({ connector: "realm:realm-simulator", tool: "simulator_screenshot" })).toMatchObject({ class: "read", asksFirst: expect.any(String) });
     // A tool Realm's table does not know is not trusted for being Realm's.
     expect(classifyTool({ connector: "realm:realm-team", tool: "brand_new" })).toMatchObject({ class: "irreversible-external", source: "unclassified" });
   });

@@ -12,7 +12,7 @@ export const item = (refId: string, spaceId: string, title: string, extra: Parti
   ({ id: `i-${refId}`, spaceId, kind: "session", title, sortOrder: 0, pinned: false, archived: false, refId, createdAt: 0, updatedAt: 0, ...extra });
 export const session = (id: string, spaceId: string, extra: Partial<Session> = {}): Session =>
   ({ id, spaceId, projectId: null, agentKind: "fake", model: null, effort: null, fastMode: false, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", cwd: "/tmp", status: "idle",
-    providerSessionId: null, title: `${id} (session)`, lastEventSeq: 0, seenSeq: 0, terminalItemId: null, dispatchedBy: null, activityAt: 0, createdAt: 0, updatedAt: 0, ...extra });
+    providerSessionId: null, title: `${id} (session)`, lastEventSeq: 0, seenSeq: 0, terminalItemId: null, dispatchedBy: null, teammateId: null, teammateHome: false, activityAt: 0, createdAt: 0, updatedAt: 0, ...extra });
 
 export const simulator = (id: string, spaceId: string, name: string, extra: Partial<Simulator> = {}): Simulator =>
   ({ id, spaceId, name, udid: `UDID-${id}`, platform: "ios", physical: false, createdAt: 0, updatedAt: 0, ...extra });

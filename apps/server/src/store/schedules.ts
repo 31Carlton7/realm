@@ -33,7 +33,7 @@ const toSchedule = (r: Row): Schedule => ({
 export type ScheduleInsert = {
   spaceId: string; title: string; goal: string; cron: string; enabled: boolean; constraints: RunConstraints | null;
   newSessionPerRun: boolean; archiveSucceeded: boolean;
-  /** The team role whose clock this is (`team/service.ts`). */
+  /** The teammate whose clock this is (`TeammateSchedule`). */
   roleId?: string | null;
 };
 
@@ -59,13 +59,14 @@ export type ScheduleUpdate = {
 export class SchedulesStore {
   constructor(private db: Db, private clock: () => number = now) {}
 
+  /** A space's schedules. A teammate's clock (`role_id`) is its page's to show, not this list's. */
   list(spaceId: string): Schedule[] {
-    return (this.db.prepare("SELECT * FROM schedules WHERE space_id = ? ORDER BY created_at DESC, id DESC").all(spaceId) as Row[]).map(toSchedule);
+    return (this.db.prepare("SELECT * FROM schedules WHERE space_id = ? AND role_id IS NULL ORDER BY created_at DESC, id DESC").all(spaceId) as Row[]).map(toSchedule);
   }
 
-  /** The clock a team role runs on, if it has one. */
+  /** A teammate's clock. The first Teams kept one per role; should there be more, the oldest is it. */
   forRole(roleId: string): Schedule | null {
-    const r = this.db.prepare("SELECT * FROM schedules WHERE role_id = ? ORDER BY created_at ASC LIMIT 1").get(roleId) as Row | undefined;
+    const r = this.db.prepare("SELECT * FROM schedules WHERE role_id = ? ORDER BY created_at, id LIMIT 1").get(roleId) as Row | undefined;
     return r ? toSchedule(r) : null;
   }
 
@@ -138,10 +139,14 @@ export class SchedulesStore {
    * A schedule whose expression no longer has a next occurrence is advanced to `null`: it has fired
    * its last time and will not be seen again, which is the honest end state for `0 9 29 2 *` in the
    * year 2100 and for anything the parser now refuses.
+   *
+   * A teammate's clock is claimed while its teammate is in the list. An archived one's stays where it
+   * was, unclaimed, and is re-armed from now if the teammate comes back (`TeammatesService.archive`).
    */
   claimDue(at: number): { schedule: Schedule; dueAt: number }[] {
     const rows = this.db.prepare(
-      "SELECT * FROM schedules WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ? ORDER BY next_run_at",
+      `SELECT * FROM schedules WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?
+        AND (role_id IS NULL OR role_id IN (SELECT id FROM team_roles WHERE archived = 0)) ORDER BY next_run_at`,
     ).all(at) as Row[];
     const claimed: { schedule: Schedule; dueAt: number }[] = [];
     for (const r of rows) {

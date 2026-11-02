@@ -36,13 +36,7 @@ import { GuideProgressSchema, GuideStorageSchema } from "./documents";
 import { UsageBucketSchema, UsageBudgetSchema, UsageDaySchema, UsageRecordsSchema, UsageSummarySchema } from "./usage";
 import { PlanLimitsSchema } from "./plan-limits";
 import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./schedules";
-import { ActTicketSchema } from "./team-acts";
-import { TeamPoliciesSchema, TeamPolicyInputSchema, TeamPolicyRowSchema, ToolClassInputSchema, ToolClassSetResultSchema } from "./team-policy";
-import { CreateRoleSchema, CustomRoleSchema, RoleRunSchema, TeamActivitySchema, TeamRecordSchema, TeamRecordSummarySchema, TeamReviewDetailSchema, TeamReviewSummarySchema, TeamRoleSchema, TeamSpaceSchema, UpdateRoleSchema } from "./team";
-import { VaultGrantInputSchema, VaultGrantSchema, VaultUseSchema } from "./vault";
-import { SetRoleHandoffsSchema, SetTeamLimitsSchema } from "./team-handoffs";
-import { CreateRecordTypeSchema, TeamRecordTypeSchema, UpdateRecordTypeSchema } from "./team-record-types";
-import { LabAccountSchema, LabDeviceKindSchema, LabDevicesSchema, LabReadinessSchema, LabStatusSchema } from "./lab";
+import { CreateTeammateSchema, ReorderTeammatesSchema, TeammateSchema, TeammateTaskSessionSchema, UpdateTeammateSchema } from "./teammates";
 import { GuestSpecSchema, MachineSchema, MachineSourceSchema, MachineStateSchema, VncEndpointSchema } from "./machine";
 import { MAX_SESSION_REFS, SessionRefSchema } from "./session-refs";
 import { MAX_MENTION_REFS, MENTION_FILES_LIMIT, MentionRefSchema } from "./mention-refs";
@@ -1684,116 +1678,25 @@ export const Methods = {
   /** Fire once, now, WITHOUT moving the schedule's own clock — see `ScheduleService.runNow`. Answers
    *  the schedule, whose `lastRunId` now names the run this created. */
   "schedules.runNow": { params: z.object({ id: IdSchema }), result: ScheduleSchema },
-  // Teams (Phase 1): roles, Review, records and the activity log. Every change is broadcast as
-  // `team.changed` with the space, and the clients re-read what they hold.
-  "team.overview": { params: z.object({}).default({}), result: z.array(TeamSpaceSchema) },
-  "team.space": { params: z.object({ spaceId: IdSchema }), result: TeamSpaceSchema },
-  "team.make": { params: z.object({
-    spaceId: IdSchema, templates: z.array(z.string().max(60)).max(20).default([]),
-    /** Teammates the person wrote, made with the team. */
-    roles: z.array(CustomRoleSchema).max(20).default([]),
-    /** Where the team's memory repo goes, when the person chose a folder. */
-    repoPath: z.string().min(1).max(1_000).optional(),
-    /** The team's week, when the picker raised it to fit the roles chosen. */
-    weekBudgetUsd: z.number().positive().max(100_000).optional(),
-  }), result: TeamSpaceSchema },
-  "team.setBudget": { params: z.object({ spaceId: IdSchema, weekBudgetUsd: z.number().positive().max(100_000) }), result: TeamSpaceSchema },
-  "team.roleCreate": { params: CreateRoleSchema, result: TeamRoleSchema },
-  "team.roleUpdate": { params: UpdateRoleSchema, result: TeamRoleSchema },
-  "team.roleArchive": { params: z.object({ id: IdSchema }), result: z.object({ archived: z.boolean() }) },
-  "team.roleRun": { params: z.object({ id: IdSchema, message: z.string().max(20_000).nullable().default(null) }), result: RunSchema },
-  "team.roleRuns": { params: z.object({ id: IdSchema, limit: z.number().int().min(1).max(200).default(30) }), result: z.array(RoleRunSchema) },
-  /** A person's message to a teammate: the answer to the question its run is parked on, or a new run
-   *  that continues its newest run's session, waiting behind a live one. */
-  "team.roleMessage": { params: z.object({ id: IdSchema, text: z.string().trim().min(1).max(20_000) }), result: RunSchema },
-  "team.review": { params: z.object({ id: IdSchema }), result: TeamReviewDetailSchema },
-  "team.reviewApprove": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
-  /** The yes taken back while nothing of it has left Realm: the same draft waits again, and approving
-   *  pins its hashes again. Refused once a post or a send went out; already waiting, nothing changes. */
-  "team.reviewUndoApproval": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
-  "team.reviewRequestChanges": { params: z.object({ id: IdSchema, note: z.string().min(1).max(5_000) }), result: TeamReviewSummarySchema },
-  "team.reviewDone": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
-  "team.reviewDismiss": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
-  /** No, with an optional reason the role that sent it is told; whatever had not gone out never will. */
-  "team.reviewReject": { params: z.object({ id: IdSchema, reason: z.string().max(5_000).optional() }), result: TeamReviewSummarySchema },
-  /** Closed before it went out — waiting, asked to change, or approved and not yet sent. */
-  "team.reviewClose": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
-  /** The person's edit of an item's text before the yes: the batch's next version (generic deliverables). */
-  "team.reviewEditItem": { params: z.object({ id: IdSchema, itemId: IdSchema, body: z.string().min(1).max(20_000) }), result: TeamReviewSummarySchema },
-  "team.records": { params: z.object({ spaceId: IdSchema, type: z.string().min(1).max(60).optional() }), result: z.array(TeamRecordSummarySchema) },
-  "team.record": { params: z.object({ spaceId: IdSchema, path: z.string().min(1).max(200) }), result: TeamRecordSchema },
-  "team.recordWrite": { params: z.object({ spaceId: IdSchema, path: z.string().min(1).max(200), markdown: z.string().max(100_000) }), result: TeamRecordSchema },
-  "team.recordCreate": { params: z.object({ spaceId: IdSchema, name: z.string().trim().min(1).max(120), type: z.string().min(1).max(60).optional() }), result: TeamRecordSchema },
-  // The kinds of record a team keeps (team-record-types.ts). The person's alone: no agent tool writes
-  // a type. A folder that holds records is never renamed out from under them; archiving hides a type
-  // and leaves its files.
-  "team.recordTypes.list": { params: z.object({ spaceId: IdSchema, archived: z.boolean().default(false) }), result: z.array(TeamRecordTypeSchema) },
-  "team.recordTypes.create": { params: CreateRecordTypeSchema, result: TeamRecordTypeSchema },
-  "team.recordTypes.update": { params: UpdateRecordTypeSchema, result: TeamRecordTypeSchema },
-  "team.recordTypes.archive": { params: z.object({ id: IdSchema, archived: z.boolean().default(true) }), result: TeamRecordTypeSchema },
-  /** The log, newest first; with `roleId`, only the lines by that role or about it — its chat's. */
-  "team.activity": { params: z.object({ spaceId: IdSchema, limit: z.number().int().min(1).max(500).default(100), before: z.number().int().optional(), roleId: IdSchema.optional() }), result: z.array(TeamActivitySchema) },
-  // The team vault (Teams Phase 2). Grants are ids and hosts — no value is ever on this wire, and
-  // there is no method that sets a grant's "use without asking": that is the Vault page's, over
-  // renderer IPC to main, confirmed by macOS. `vaultAllowChanged` only asks main what is true, for
-  // the log.
-  "team.vaultGrants": { params: z.object({ spaceId: IdSchema }), result: z.array(VaultGrantSchema) },
-  "team.vaultGrant": { params: VaultGrantInputSchema, result: VaultGrantSchema },
-  "team.vaultRevoke": { params: z.object({ spaceId: IdSchema, secretId: z.string().min(1).max(64), roleId: IdSchema }), result: z.object({ revoked: z.boolean() }) },
-  "team.vaultUses": { params: z.object({ spaceId: IdSchema, limit: z.number().int().min(1).max(500).default(50) }), result: z.array(VaultUseSchema) },
-  "team.vaultAllowChanged": { params: z.object({ spaceId: IdSchema, secretId: z.string().min(1).max(64), roleId: IdSchema }), result: z.object({ on: z.boolean() }) },
-  // Teams (Phase 4): who a role hands work to and whether a mention wakes it, a goal for a role, how
-  // many runs go at once, and lifting an engine's back-off by hand.
-  "team.roleHandoffs": { params: SetRoleHandoffsSchema, result: TeamRoleSchema },
-  "team.roleGoal": { params: z.object({ id: IdSchema, objective: z.string().trim().min(1).max(4_000) }), result: RunSchema },
-  "team.setLimits": { params: SetTeamLimitsSchema, result: TeamSpaceSchema },
-  "team.liftBackoff": { params: z.object({ agentKind: z.string().min(1).max(40) }), result: z.object({ lifted: z.boolean() }) },
-  // The lab (Teams Phase 5, contracts/lab.ts): this Mac's readiness to be left alone, the devices on
-  // its cables, and the update window. Every change is broadcast as `lab.changed`.
-  "lab.status": { params: z.object({}).default({}), result: LabStatusSchema },
-  "lab.setEnabled": { params: z.object({ enabled: z.boolean() }), result: LabStatusSchema },
-  "lab.setUpdateWindow": { params: z.object({ hour: z.number().int().min(0).max(23), capMinutes: z.number().int().min(5).max(240) }), result: LabStatusSchema },
-  /** Read-only probes of this Mac (pmset, fdesetup, the login window, displays, disk, network). */
-  "lab.readiness": { params: z.object({}).default({}), result: LabReadinessSchema },
-  "lab.devices": { params: z.object({}).default({}), result: LabDevicesSchema },
-  /** Look for what is on the cables now, and stamp every registered device it finds as seen. */
-  "lab.deviceScan": { params: z.object({}).default({}), result: LabDevicesSchema },
-  "lab.deviceAdd": { params: z.object({
-    kind: LabDeviceKindSchema, udid: z.string().trim().min(1).max(100).nullable().default(null),
-    name: z.string().trim().min(1).max(80), spaceId: IdSchema.nullable().default(null),
-    accounts: z.array(LabAccountSchema).max(10).default([]),
-  }), result: LabDevicesSchema },
-  "lab.deviceUpdate": { params: z.object({
-    id: IdSchema, name: z.string().trim().min(1).max(80).optional(), spaceId: IdSchema.nullable().optional(),
-    accounts: z.array(LabAccountSchema).max(10).optional(),
-  }), result: LabDevicesSchema },
-  "lab.deviceRemove": { params: z.object({ id: IdSchema }), result: LabDevicesSchema },
-  /** Main: an update is downloaded and this Mac is a lab, so the window decides when it installs. */
-  "lab.updateReady": { params: z.object({ version: z.string().min(1).max(40), from: z.string().min(1).max(40) }), result: LabStatusSchema },
-  /** Open the window now rather than at its hour. */
-  "lab.updateNow": { params: z.object({}).default({}), result: LabStatusSchema },
-  /** Main, on every connect: the version it runs — how the window learns an install landed. */
-  "lab.appVersion": { params: z.object({ version: z.string().min(1).max(40) }), result: LabStatusSchema },
-  // Approve → act (Teams Phase 3). An approved batch's outward acts are tickets, each paced and bound
-  // to what was approved. `team.ticketPost` acts only on a press main recorded from Realm's own post
-  // sheet (`main/ticket-presses.ts`) — called by anything else, it is refused. Cancelling and holding
-  // only ever take an act back.
-  "team.tickets": { params: z.object({ spaceId: IdSchema, reviewId: IdSchema.optional() }), result: z.array(ActTicketSchema) },
-  "team.ticketPost": { params: z.object({ id: IdSchema }), result: ActTicketSchema },
-  "team.ticketCancel": { params: z.object({ id: IdSchema }), result: ActTicketSchema },
-  "team.actsHold": { params: z.object({ spaceId: IdSchema, held: z.boolean() }), result: z.object({ held: z.boolean() }) },
-  // The team's Policies page, read-only: every tool a role here could call, with its risk class, who
-  // decided it, and whether a call asks first today. Listing a server's tools connects to it, as a
-  // session's own tool list does.
-  "team.policies": { params: z.object({ spaceId: IdSchema }), result: TeamPoliciesSchema },
-  // A team's policy row, written from the Policies page. Tightening is open, as a hold is; a write that
-  // loosens anything holds only with the person's press in Realm's own window, confirmed by macOS and
-  // sealed by main — the server asks main for that press and refuses without one. No agent tool
-  // reaches either method.
-  "team.policySet": { params: TeamPolicyInputSchema, result: TeamPolicyRowSchema },
-  // A person's word on what one tool does ("What does this do?"). Raising a class is open; lowering one
-  // below what Realm derived is a loosening, and takes the same press.
-  "team.toolClassSet": { params: ToolClassInputSchema, result: ToolClassSetResultSchema },
+  // Teams v2 (teammates.ts): permanent teammates you message. Every change is broadcast as
+  // `teammates.changed` with the space, and the clients re-read what they hold.
+  "teammates.list": { params: z.object({ spaceId: IdSchema, archived: z.boolean().default(false) }), result: z.array(TeammateSchema) },
+  "teammates.get": { params: z.object({ id: IdSchema }), result: TeammateSchema },
+  /** Makes its home session too, so the page opens onto a composer. */
+  "teammates.create": { params: CreateTeammateSchema, result: TeammateSchema },
+  "teammates.update": { params: UpdateTeammateSchema, result: TeammateSchema },
+  /** Archived teammates leave the Team list and `team_list`; their sessions stay. */
+  "teammates.archive": { params: z.object({ id: IdSchema, archived: z.boolean().default(true) }), result: TeammateSchema },
+  /** Makes `id` the space's Lead, or clears the Lead with null. Answers the space's teammates. */
+  "teammates.setLead": { params: z.object({ spaceId: IdSchema, id: IdSchema.nullable() }), result: z.array(TeammateSchema) },
+  "teammates.reorder": { params: ReorderTeammatesSchema, result: z.array(TeammateSchema) },
+  /** Its home session, made now when it has none — what opening a teammate's page asks for. */
+  "teammates.home": { params: z.object({ id: IdSchema }), result: z.object({ sessionId: IdSchema }) },
+  /** The person's message to a teammate: a turn in its home session (made now when it has none),
+   *  queued behind a live turn. */
+  "teammates.message": { params: z.object({ id: IdSchema, text: z.string().trim().min(1).max(20_000) }), result: z.object({ sessionId: IdSchema }) },
+  /** Every session it started, and the ones handed on from them, newest first — its page's list. */
+  "teammates.sessions": { params: z.object({ id: IdSchema }), result: z.array(TeammateTaskSessionSchema) },
   /** `scheduleId` narrows to the runs one schedule fired — its history on the Scheduled page. */
   "runs.list": {
     params: z.object({ spaceId: IdSchema, scheduleId: IdSchema.nullable().default(null), states: z.array(RunStateSchema).default([]), cursor: z.string().nullable().default(null), limit: z.number().int().min(1).max(200).default(100) }),
@@ -2478,11 +2381,8 @@ export const Events = {
    *  per event) would have to carry a DELETION as a null and re-introduce the ambiguity `run: null`
    *  already documents. */
   "schedules.changed": z.object({ spaceId: IdSchema }),
-  "team.changed": z.object({ spaceId: IdSchema }),
-  /** The lab's status, devices or update window changed; a held copy is read again. */
-  "lab.changed": z.object({}),
-  /** The update window has drained: main installs the downloaded update now. */
-  "lab.install": z.object({ version: z.string() }),
+  /** A teammate in the space was made, edited, archived or reordered, or its state moved. */
+  "teammates.changed": z.object({ spaceId: IdSchema }),
   /** An environment's persisted review verdict changed (Plan 13 W3): a review settled (`review` is
    *  the fresh result), or was dismissed / cleared by a ship (`review` is null). Diff panes holding
    *  this environment apply the payload directly — no refetch race. */

@@ -60,8 +60,7 @@ import type { UsageService } from "../usage/service";
 import type { GraphifyService } from "../graphify/service";
 import type { RunService } from "../runs/service";
 import type { ScheduleService } from "../schedules/service";
-import type { TeamService } from "../team/service";
-import type { HandoffService } from "../team/handoffs/service";
+import type { TeammatesService } from "../teammates/service";
 import type { ReviewService } from "../delegation/review";
 import type { CodeReviewService } from "../code-review/service";
 import type { DelegationEngine } from "../delegation/engine";
@@ -102,7 +101,7 @@ export type Deps = {
   /** Called once when `daemon.drain` is accepted. `createApp` starts the quiescence watcher here —
    *  the watcher owns the clock and the close, this owns the refusals. */
   onDrain?: () => void;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; memoryRepos: MemoryRepoService; claudeBackfill: ClaudeMemoryBackfill | null; memoryLibrary: MemoryLibrary; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; mentionFiles: MentionFiles; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; team: TeamService; handoffs?: HandoffService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; memoryRepos: MemoryRepoService; claudeBackfill: ClaudeMemoryBackfill | null; memoryLibrary: MemoryLibrary; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; mentionFiles: MentionFiles; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; team: TeammatesService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService; avatar: AvatarStore;
   planLimits: PlanLimitsService;
   delegation: DelegationEngine;
@@ -1060,38 +1059,18 @@ export function registerMethods(d: Deps): void {
   reg("schedules.delete", (p) => ({ deleted: d.schedules.remove(p.id) }));
   reg("schedules.runNow", (p) => d.schedules.runNow(p.id));
 
-  // Teams. The space-scoped reads check the space; the by-id methods let the service raise
-  // NotFoundError, since it loads the row anyway.
-  const space = (id: string) => { if (!d.spaces.get(id)) throw new NotFoundError("space", id); return id; };
-  const handoffs = (): HandoffService => { if (!d.handoffs) throw new RpcError("UNAVAILABLE", "team handoffs are not running"); return d.handoffs; };
-  reg("team.overview", () => d.team.overview());
-  reg("team.space", (p) => d.team.space(space(p.spaceId)));
-  reg("team.make", (p) => d.team.makeTeam(space(p.spaceId), p.templates, { roles: p.roles, ...(p.repoPath ? { repoPath: p.repoPath } : {}), ...(p.weekBudgetUsd !== undefined ? { weekBudgetUsd: p.weekBudgetUsd } : {}) }));
-  reg("team.setBudget", (p) => d.team.setTeamBudget(space(p.spaceId), p.weekBudgetUsd));
-  reg("team.roleCreate", (p) => d.team.createRole({ ...p, spaceId: space(p.spaceId) }));
-  reg("team.roleUpdate", (p) => d.team.updateRole(p));
-  reg("team.roleArchive", (p) => { d.team.archiveRole(p.id); return { archived: true }; });
-  reg("team.roleRun", (p) => { refuseWhileDraining("start a role's run"); return d.team.runRole(p.id, p.message); });
-  reg("team.roleRuns", (p) => d.team.roleRuns(p.id, p.limit));
-  reg("team.roleMessage", (p) => { refuseWhileDraining("message a teammate"); return d.team.messageRole(p.id, p.text); });
-  reg("team.review", (p) => d.team.review(p.id));
-  reg("team.reviewApprove", (p) => d.team.approve(p.id));
-  reg("team.reviewUndoApproval", (p) => d.team.undoApproval(p.id));
-  reg("team.reviewRequestChanges", (p) => d.team.requestChanges(p.id, p.note));
-  reg("team.reviewDone", (p) => d.team.markDone(p.id));
-  reg("team.reviewDismiss", (p) => d.team.dismiss(p.id));
-  reg("team.reviewReject", (p) => d.team.reject(p.id, p.reason ?? null));
-  reg("team.reviewClose", (p) => d.team.closeReview(p.id));
-  reg("team.reviewEditItem", (p) => d.team.editItem(p.id, p.itemId, p.body));
-  reg("team.records", (p) => d.team.records(space(p.spaceId), p.type));
-  reg("team.record", (p) => d.team.record(space(p.spaceId), p.path));
-  reg("team.recordWrite", (p) => d.team.writeRecord(space(p.spaceId), p.path, p.markdown));
-  reg("team.recordCreate", (p) => d.team.createRecord(space(p.spaceId), p.name, p.type));
-  reg("team.activity", (p) => d.team.activity(space(p.spaceId), p.limit, p.before, p.roleId));
-  reg("team.roleHandoffs", (p) => handoffs().setRoleHandoffs(p));
-  reg("team.roleGoal", (p) => { refuseWhileDraining("give a role a goal"); return handoffs().setGoal(p.id, p.objective); });
-  reg("team.setLimits", (p) => { handoffs().setLimits(space(p.spaceId), p); return d.team.space(p.spaceId); });
-  reg("team.liftBackoff", (p) => ({ lifted: handoffs().liftBackoff(p.agentKind) }));
+  // Teams v2: teammates. The space-scoped reads check the space; the by-id methods let the service
+  // raise NotFoundError, since it loads the row anyway.
+  reg("teammates.list", (p) => d.team.list(p.spaceId, p.archived));
+  reg("teammates.get", (p) => d.team.get(p.id));
+  reg("teammates.create", (p) => d.team.create(p));
+  reg("teammates.update", (p) => d.team.update(p));
+  reg("teammates.archive", (p) => d.team.archive(p.id, p.archived));
+  reg("teammates.setLead", (p) => d.team.setLead(p.spaceId, p.id));
+  reg("teammates.reorder", (p) => d.team.reorder(p));
+  reg("teammates.home", (p) => d.team.home(p.id));
+  reg("teammates.message", (p) => { refuseWhileDraining("message a teammate"); return d.team.message(p.id, p.text); });
+  reg("teammates.sessions", (p) => d.team.sessions(p.id));
 
   reg("runs.list", (p) => d.runs.list(p));
   reg("runs.get", (p) => d.runs.get(p.id));
@@ -1227,9 +1206,9 @@ export function registerMethods(d: Deps): void {
   // recorded by the server-side tools that create those children, never over RPC.
   reg("sessions.create", (p) => { refuseWhileDraining("start a session"); return d.sessions.create({ ...p, dispatchedBy: p.userDispatched ? { kind: "user-dispatch", sessionId: null } : null }); });
   reg("sessions.send", async (p) => {
-    // A teammate named in the message is woken first, as this session's sub-agent, so the message the
-    // agent reads already says which sub-agent it is (`HandoffService.wakeMentioned`).
-    const woken = p.mentionRefs?.some((r) => r.kind === "role") && d.handoffs ? await d.handoffs.wakeMentioned(p.id, p.text, p.mentionRefs) : p.mentionRefs;
+    // A teammate named in the message is passed it in its own chat first, so the message this agent
+    // reads already says it was (`TeammatesService.passMentioned`).
+    const woken = p.mentionRefs?.some((r) => r.kind === "role") ? await d.team.passMentioned(p.id, p.text, p.mentionRefs) : p.mentionRefs;
     // And a sub-agent named in it is passed the message too, its chip told whether it was.
     const mentionRefs = woken?.some((r) => r.kind === "agent") && d.teammates ? await d.teammates.passMentioned(p.id, p.text, woken) : woken;
     await d.sessions.send(p.id, { text: p.text, attachments: p.attachments, mentions: p.mentions, elements: p.elements, sessionRefs: p.sessionRefs, mentionRefs }, p.delivery);

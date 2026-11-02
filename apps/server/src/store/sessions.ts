@@ -6,6 +6,7 @@ import { encodePayload, parsePayload, type StoredPayload } from "./event-payload
 type Row = { id: string; space_id: string; project_id: string | null; agent_kind: AgentKind; model: string | null; effort: string | null; fast_mode: number;
   permission_mode: string; environment_id: string; cwd: string; status: SessionStatus; provider_session_id: string | null; title: string; last_event_seq: number; seen_seq: number;
   terminal_item_id: string | null; dispatched_by_kind: DispatchKind | null; dispatched_by_session_id: string | null;
+  teammate_id: string | null; teammate_home: number;
   provider_cursor: string | null; rewind_fork_json: string | null; rewind_refusal: string | null; activity_at: number; created_at: number; updated_at: number };
 const toSession = (r: Row): Session => ({
   id: r.id, spaceId: r.space_id, projectId: r.project_id, agentKind: r.agent_kind, model: r.model, effort: r.effort,
@@ -13,6 +14,7 @@ const toSession = (r: Row): Session => ({
   permissionMode: r.permission_mode, environmentId: r.environment_id, cwd: r.cwd, status: r.status, providerSessionId: r.provider_session_id, title: r.title,
   lastEventSeq: r.last_event_seq, seenSeq: r.seen_seq, terminalItemId: r.terminal_item_id,
   dispatchedBy: r.dispatched_by_kind ? { kind: r.dispatched_by_kind, sessionId: r.dispatched_by_session_id } : null,
+  teammateId: r.teammate_id, teammateHome: r.teammate_home === 1,
   activityAt: r.activity_at, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 
@@ -26,6 +28,9 @@ const SELECT = "SELECT s.*, e.path AS cwd FROM sessions s JOIN environments e ON
 
 export type SessionUpdate = { id: string; status?: SessionStatus; providerSessionId?: string | null; lastEventSeq?: number; title?: string;
   model?: string | null; effort?: string | null; permissionMode?: string; agentKind?: AgentKind; fastMode?: boolean };
+
+/** The dispatch origins whose sessions are another session's sub-agents, and so belong to its teammate. */
+const CHILD_KINDS: ReadonlySet<DispatchKind> = new Set<DispatchKind>(["agent_run", "browser_agent_run", "review"]);
 
 /** Settings key: the one-time read-mark catch-up has run on this home (`catchUpReadMarksOnce`). */
 export const READ_MARKS_CAUGHT_UP = "sessions.readMarksCaughtUp";
@@ -90,7 +95,13 @@ export class SessionsStore {
     const rows = this.db.prepare("SELECT provider_session_id AS id FROM sessions WHERE provider_session_id IS NOT NULL").all() as { id: string }[];
     return new Set(rows.map((r) => r.id));
   }
-  create(input: { spaceId: string; projectId: string | null; agentKind: AgentKind; model: string | null; effort: string | null; permissionMode: string; environmentId: string; title: string; dispatchedBy?: DispatchedBy | null }): Session {
+  /**
+   * `teammate` tags a teammate's home session, or a session a teammate's agent started. A child any
+   * delegation tool starts from a teammate's session is that teammate's too, so the tag is inherited
+   * here, where every such child is made, rather than remembered by each tool.
+   */
+  create(input: { spaceId: string; projectId: string | null; agentKind: AgentKind; model: string | null; effort: string | null; permissionMode: string; environmentId: string; title: string; dispatchedBy?: DispatchedBy | null;
+    teammate?: { id: string; home: boolean; askedBy?: string | null } | null }): Session {
     if (!this.db.prepare("SELECT 1 FROM spaces WHERE id = ?").get(input.spaceId)) throw new NotFoundError("space", input.spaceId);
     const env = this.db.prepare("SELECT space_id FROM environments WHERE id = ?").get(input.environmentId) as { space_id: string } | undefined;
     if (!env) throw new NotFoundError("environment", input.environmentId);
@@ -98,10 +109,15 @@ export class SessionsStore {
     // header another; there is no reading of that which is not a bug.
     if (env.space_id !== input.spaceId) throw new RpcError("ENVIRONMENT_WRONG_SPACE", "that environment belongs to another space");
     const id = newId(); const t = now();
-    this.db.prepare(`INSERT INTO sessions (id, space_id, project_id, agent_kind, model, effort, permission_mode, environment_id, status, provider_session_id, title, last_event_seq, dispatched_by_kind, dispatched_by_session_id, activity_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'idle', NULL, ?, 0, ?, ?, ?, ?, ?)`)
+    const parent = input.dispatchedBy?.sessionId && CHILD_KINDS.has(input.dispatchedBy.kind) ? input.dispatchedBy.sessionId : null;
+    const teammateId = input.teammate?.id
+      ?? (parent ? (this.db.prepare("SELECT teammate_id FROM sessions WHERE id = ?").get(parent) as { teammate_id: string | null } | undefined)?.teammate_id ?? null : null);
+    this.db.prepare(`INSERT INTO sessions (id, space_id, project_id, agent_kind, model, effort, permission_mode, environment_id, status, provider_session_id, title, last_event_seq, dispatched_by_kind, dispatched_by_session_id,
+        teammate_id, teammate_home, asked_by_session_id, activity_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'idle', NULL, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, input.spaceId, input.projectId, input.agentKind, input.model, input.effort, input.permissionMode, input.environmentId, input.title,
-        input.dispatchedBy?.kind ?? null, input.dispatchedBy?.sessionId ?? null, t, t, t);
+        input.dispatchedBy?.kind ?? null, input.dispatchedBy?.sessionId ?? null,
+        teammateId, input.teammate?.home ? 1 : 0, input.teammate?.askedBy ?? null, t, t, t);
     return this.get(id)!;
   }
   update(input: SessionUpdate): Session {

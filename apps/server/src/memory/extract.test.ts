@@ -26,7 +26,7 @@ const exchange = () => [user("Dana owns billing"), assistant("Noted."), user("In
 const session = (over: Partial<Session> = {}): Session => ({
   id: "s1", spaceId: "sp1", projectId: null, agentKind: "claude", model: null, effort: null, permissionMode: "default", fastMode: false,
   environmentId: "e1", cwd: "/work", status: "idle", providerSessionId: null, title: "Billing cleanup", lastEventSeq: seq, seenSeq: 0,
-  terminalItemId: null, dispatchedBy: null, activityAt: 0, createdAt: 0, updatedAt: 0, ...over,
+  terminalItemId: null, dispatchedBy: null, teammateId: null, teammateHome: false, activityAt: 0, createdAt: 0, updatedAt: 0, ...over,
 });
 
 const answer = (memories: unknown[]) => JSON.stringify({ memories });

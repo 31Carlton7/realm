@@ -453,7 +453,7 @@ export class RemoteGateway {
       case "spaces.changed": case "items.changed": case "notifications.changed":
         this.homeChanged();
         return;
-      case "team.changed": case "schedules.changed": case "runs.changed":
+      case "schedules.changed": case "runs.changed":
         this.workChanged();
         return;
       default:

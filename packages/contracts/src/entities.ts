@@ -411,6 +411,11 @@ export const SessionSchema = z.object({
   /** Set when a delegation tool (or W2's dispatch gesture) created this session; null for every
    *  session the user created themselves. Recorded at creation, never rewritten. */
   dispatchedBy: DispatchedBySchema.nullable(),
+  /** The teammate (teammates.ts) this session belongs to: its home session, or a session it or one of
+   *  its sessions started. Null for the person's own sessions. */
+  teammateId: IdSchema.nullable().default(null),
+  /** This is the teammate's home session — its chat — which the sidebar draws as the teammate. */
+  teammateHome: z.boolean().default(false),
   /**
    * When the conversation last moved: a prompt went out, or the agent answered or finished a turn.
    * What every list of sessions is ordered by.
