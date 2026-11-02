@@ -829,7 +829,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /** Asking the CLIs about accounts, signing one out, and where the CLIs keep their own folders
    *  (`machineAccounts`). Only `main.ts` passes them: every other `createApp` is a test or a script,
    *  which must never run a CLI against the machine's own logins, so its accounts are never asked. */
-  accounts?: Pick<AccountsDeps, "probe" | "logout" | "defaults">;
+  accounts?: Partial<Pick<AccountsDeps, "probe" | "logout" | "defaults">>;
   /** The hand-off note a switch of agents writes (`sessions/handover.ts`). Omitted for the same
    *  reason: without it a switch carries the conversation verbatim. */
   handoffGenerator?: HandoffNotesGenerator;

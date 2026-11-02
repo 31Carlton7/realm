@@ -66,10 +66,13 @@ describe("sessions.switchAgent", () => {
 
     const moved = (await c.call("sessions.switchAgent", { sessionId: session.id, agentKind: "codex", model: "gpt-5.6" })).result;
     expect(moved).toMatchObject({ agentKind: "codex", model: "gpt-5.6", providerSessionId: null, permissionMode: "bypassPermissions" });
+    // The old engine leaves quietly: the session is as idle as it was, not ended.
+    expect(moved.status).toBe("idle");
 
     const events = (await c.call("sessions.events", { id: session.id, afterSeq: 0, limit: 500 })).result;
     const handoff = events.find((e: Any) => e.event.type === "handoff").event.payload;
-    const path = join(handoffsRoot(home), session.id, "1.md");
+    expect(events.filter((e: Any) => e.event.type === "status").map((e: Any) => e.event.payload.status)).not.toContain("ended");
+    const path = join(handoffsRoot(home), session.id, "handoff-1.md");
     expect(handoff).toMatchObject({ from: "fake", to: "codex", reason: "switch", note: "Switched from Fake agent to Codex gpt-5.6", summaryPath: path });
     // No generator in a suite, so the note carries the conversation as it was written.
     const notes = readFileSync(path, "utf8");

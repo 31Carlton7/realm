@@ -1080,7 +1080,7 @@ export class SessionService {
     if (!accounts || !to) throw new RpcError("BAD_REQUEST", `that account is not one of ${AGENT_META[s.agentKind].label}'s`);
     this.refuseMidTurn(s, "switch accounts");
     const carried = async () => {
-      await this.stop(id);
+      await this.reap(id);
       if (s.providerSessionId === null || await accounts.carry(s.agentKind, s.providerSessionId, s.accountId ?? null, accountId)) {
         this.d.sessions.update({ id, accountId });
         return;
@@ -1108,7 +1108,9 @@ export class SessionService {
 
   private async switchOver(s: Session, o: { agentKind: AgentKind; model: string | null; effort: string | null; accountId: string | null }, sides: { from: string; to: string }): Promise<void> {
     const written = (await this.d.handoffNotes?.write(s, sides)) ?? null;
-    await handOver({ sessions: this.d.sessions, settings: this.d.settings, stop: (id) => this.stop(id), emit: (id, ev) => this.onEvent(id, ev) }, s, {
+    // Torn down the way an idle engine is (`reap`): the session is as idle as it was, and an engine
+    // leaving is not news a reader needs beside the line that says why.
+    await handOver({ sessions: this.d.sessions, settings: this.d.settings, stop: (id) => this.reap(id), emit: (id, ev) => this.onEvent(id, ev) }, s, {
       to: o.agentKind, model: o.model, effort: o.effort, accountId: o.accountId,
       permissionMode: modeAfterSwitch(o.agentKind, s.permissionMode, resolveDefaultPermissionMode(o.agentKind, this.d.settings.get(DEFAULT_PERMISSION_MODE_KEY))),
       context: () => buildHandoffContext({

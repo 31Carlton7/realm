@@ -258,6 +258,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const setSessionAccount = useApp((s) => s.setSessionAccount);
   const sendAccountSignInCode = useApp((s) => s.sendAccountSignInCode);
   const cancelAccountSignIn = useApp((s) => s.cancelAccountSignIn);
+  const removeAccount = useApp((s) => s.removeAccount);
   const agentHasAccounts = useApp((s) => { const k = s.sessions[id]?.agentKind; return k ? hasAccounts(k) : false; });
   const setSessionMode = useApp((s) => s.setSessionMode);
   const planReturn = useApp((s) => s.planReturn[id] ?? null);
@@ -754,7 +755,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
               onAdd: () => addAccount(session.agentKind),
               signInOf: (accountId) => accountSignIns[accountId],
               onCode: (accountId, code) => run(() => sendAccountSignInCode(accountId, code)),
-              onCancel: (accountId) => run(() => cancelAccountSignIn(accountId)),
+              onCancel: (accountId) => run(async () => { await cancelAccountSignIn(accountId); await removeAccount(accountId); }),
               onOpen: () => run(() => refreshAccounts(true)),
             } : undefined}
             onMode={(mode) => run(() => setSessionMode(id, mode))} planReturn={planReturn}

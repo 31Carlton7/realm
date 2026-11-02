@@ -38,7 +38,7 @@ describe("HandoffNotes", () => {
       generate: async (input) => { asked = input; return "## The ask\nA health endpoint.\n\n## Current state\nDocs next."; } });
     const first = await notes.write(session, sides);
 
-    expect(first.path).toBe(join(handoffsRoot(home), "s1", "1.md"));
+    expect(first.path).toBe(join(handoffsRoot(home), "s1", "handoff-1.md"));
     const text = readFileSync(first.path, "utf8");
     expect(text).toBe(first.notes);
     expect(text.startsWith("# Health endpoint\n\nSwitched from Claude Opus 5.5 to Codex GPT-5.6 on 2026-11-02")).toBe(true);
@@ -51,7 +51,7 @@ describe("HandoffNotes", () => {
     expect(asked!.facts).toContain("health.ts");
     expect(asked!.from).toBe("Claude Opus 5.5");
 
-    expect((await notes.write(session, sides)).path).toBe(join(handoffsRoot(home), "s1", "2.md"));
+    expect((await notes.write(session, sides)).path).toBe(join(handoffsRoot(home), "s1", "handoff-2.md"));
   });
 
   it("carries the conversation verbatim when the call fails — never a cheaper model's account", async () => {

@@ -40,6 +40,9 @@ describe("an engine's accounts", () => {
     await act(async () => { fireEvent.click(within(accounts).getByRole("button", { name: "Add account" })); });
     expect(api.calls).toContain("addAccount:claude");
     await waitFor(() => expect(within(accounts).getByText("Finish signing in to Account 3 in your browser.")).toBeInTheDocument());
+    // Cancelled there, the account Add made was never wanted, and goes with the sign-in.
+    await act(async () => { fireEvent.click(within(accounts).getByRole("button", { name: "Cancel" })); });
+    await waitFor(() => expect(api.calls).toContain("removeAccount:acct-claude-3"));
   });
 
   it("renames in place, and removes only after naming what goes", async () => {

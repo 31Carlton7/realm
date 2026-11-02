@@ -10,8 +10,9 @@ import type { SessionsStore, SessionEventsStore } from "../store/sessions";
 import type { SettingsStore } from "../store/settings";
 import { transcriptForSummary } from "./summary";
 
-/** Where a switch's hand-off notes are kept: `handoffs/<sessionId>/<n>.md`, one per switch, under
- *  Realm's home beside its other folders of its own. */
+/** Where a switch's hand-off notes are kept: `handoffs/<sessionId>/handoff-<n>.md`, one per switch,
+ *  under Realm's home beside its other folders of its own. Named for what they are, because the name
+ *  is what a Documents tab shows. */
 export const handoffsRoot = (home: string): string => join(home, "handoffs");
 
 /** How much of the end of the conversation a hand-off note quotes as it was written: the last few
@@ -147,8 +148,8 @@ export class HandoffNotes {
     const notes = [`# ${session.title}`, ...sections].join("\n\n") + "\n";
     const dir = join(handoffsRoot(this.d.home), session.id);
     await mkdir(dir, { recursive: true });
-    const n = (await readdir(dir)).filter((f) => /^\d+\.md$/.test(f)).length + 1;
-    const path = join(dir, `${n}.md`);
+    const n = (await readdir(dir)).filter((f) => /^handoff-\d+\.md$/.test(f)).length + 1;
+    const path = join(dir, `handoff-${n}.md`);
     await writeFile(path, notes);
     return { path, notes };
   }

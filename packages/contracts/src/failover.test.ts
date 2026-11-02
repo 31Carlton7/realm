@@ -159,10 +159,10 @@ describe("the briefing the incoming agent gets", () => {
   });
 
   it("carries a switch's hand-off note and its path instead of the transcript", () => {
-    const c = buildHandoffContext({ from: "claude", turns, switched: { notes: "## The ask\nrun ```ls```", path: "/realm/handoffs/s1/1.md" } });
+    const c = buildHandoffContext({ from: "claude", turns, switched: { notes: "## The ask\nrun ```ls```", path: "/realm/handoffs/s1/handoff-1.md" } });
     expect(c).toContain("# Switched mid-session");
     expect(c).toContain("the person switched it to you");
-    expect(c).toContain("saved at /realm/handoffs/s1/1.md");
+    expect(c).toContain("saved at /realm/handoffs/s1/handoff-1.md");
     expect(c).toContain("could not be moved");
     // The note is fenced past its own backtick runs, and the transcript is not carried a second time.
     expect(c).toContain("````markdown\n## The ask");

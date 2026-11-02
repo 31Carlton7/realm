@@ -44,6 +44,7 @@ export type AccountControl = {
   onAdd: () => Promise<string>;
   signInOf: (accountId: string) => AgentSignIn | undefined;
   onCode: (accountId: string, code: string) => void;
+  /** Stop the sign-in of an account `onAdd` just made — which takes the account back. */
   onCancel: (accountId: string) => void;
   /** Ask the CLIs again who each account is, when the list is opened. */
   onOpen: () => void;
@@ -585,13 +586,13 @@ function AccountSection({ control, onGrow }: { control: AccountControl; onGrow: 
           ))}
           <button type="button" className="mp-account-row mp-account-add" onMouseDown={(e) => e.preventDefault()}
             onClick={() => void act(async () => { setAdding(await control.onAdd()); })}>
-            <Icon name="plus" size={14} />Add account…
+            <Icon name="add" size={14} />Add account…
           </button>
         </div>
       )}
       {live && adding && (
         <AccountSignInSteps className="mp-account-signin" signIn={live} name={control.accounts.find((a) => a.id === adding)?.label ?? "the new account"}
-          onCode={(code) => control.onCode(adding, code)} onCancel={() => control.onCancel(adding)} />
+          onCode={(code) => control.onCode(adding, code)} onCancel={() => { setAdding(null); control.onCancel(adding); }} />
       )}
       {error && <p className="mp-account-note" data-tone="warning">{error}</p>}
     </div>

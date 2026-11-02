@@ -9,7 +9,7 @@ afterEach(cleanup);
 const model = (blocks: Block[]): TranscriptModel =>
   ({ blocks, run: null, pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 }, init: null, feedback: {}, summary: null, promptHint: null });
 
-const PATH = "/realm/handoffs/s1/1.md";
+const PATH = "/realm/handoffs/s1/handoff-1.md";
 
 describe("the line a switch of agents leaves", () => {
   it("names both models and opens the hand-off note beside the session", () => {
