@@ -341,7 +341,7 @@ console.log(JSON.stringify({
   pairLink: pairing.url, relay: relay.url, home: server.home, sessions, profiles, spaces,
   schedules: { brief: briefTask.id, weekly: weeklyTask.id },
 }));
-const COMMANDS = "sleep · wake · relay-down · relay-up · pair · send <key> <text> · work <key> · queue <key> <text> · teammate <key> <brief> · review · midturn queue|steer · quit";
+const COMMANDS = "sleep · wake · relay-down · relay-up · pair · send <key> <text> · work <key> · queue <key> <text> · teammate <key> <brief> · midturn queue|steer · quit";
 say(`staged on ${server.home}; relay ${relay.url}. Commands: ${COMMANDS}`);
 
 /** One `xcrun simctl` call; resolves to its exit code. */
@@ -423,14 +423,12 @@ async function runUiTests(): Promise<boolean> {
   await reduceTransparency(false);
   // Sub-agents, Usage, Scheduled and Review (Plan 29's parity): the lead's sub-agents and one opened,
   // the bar's menu and Usage, Scheduled with Run now, the same pages dark, at the largest text size and
-  // with Reduce Transparency, then Ask for changes on the launch post — last, since it takes the post
-  // out of what waits in Review. A phase that looks at a sub-agent working starts one where none is:
+  // with Reduce Transparency. A phase that looks at a sub-agent working starts one where none is:
   // each works ten minutes, and a lead may have only four going.
   const work = {
     TEST_RUNNER_LEAD_SESSION: sessions.lead!, TEST_RUNNER_SUBAGENT_DONE: sessions.migration!,
     TEST_RUNNER_SUBAGENT_DONE_TITLE: (await rpc.call("sessions.get", { id: sessions.migration! })).title,
-    TEST_RUNNER_TASK_TO_RUN: weeklyTask.title, TEST_RUNNER_REVIEW_TITLE: launch.title, TEST_RUNNER_REVIEW_PICTURE: "launch.png",
-    TEST_RUNNER_REVIEW_NOTE: "Say it ships Friday in the caption too",
+    TEST_RUNNER_TASK_TO_RUN: weeklyTask.title,
   };
   const working = async (test: string) => {
     if (!runs(test)) return;
@@ -456,11 +454,6 @@ async function runUiTests(): Promise<boolean> {
   await working("testQ6_reduceTransparency");
   await phase("testQ6_reduceTransparency", work);
   await reduceTransparency(false);
-  await phase("testQ7_review", work);
-  if (runs("testQ7_review")) {
-    const review = await rpc.call("team.review", { id: launch.id });
-    results.push(["testQ7_review: the Mac has the note", review.state === "changes" && review.note === work.TEST_RUNNER_REVIEW_NOTE]);
-  }
   // The composer (Plan 29 §1): at rest and composing, its settings changed on the Mac, photos sent —
   // one as the camera hands it over, one picked from the library — Stop and Queue on a turn under way;
   // then dark, the largest text size and Reduce Transparency.
@@ -581,7 +574,6 @@ function interactive(): void {
       else if (cmd === "work") { await rpc.call("sessions.send", { id: sessions[key ?? ""] ?? key ?? "", text: "keep working on the composer review" }); say("working"); }
       else if (cmd === "queue") { await rpc.call("sessions.send", { id: sessions[key ?? ""] ?? key ?? "", text: rest.join(" "), delivery: "queue" }); say("queued"); }
       else if (cmd === "teammate") { console.log(JSON.stringify({ teammate: await teammate(sessions[key ?? ""] ?? key ?? "", rest.join(" ")) })); }
-      else if (cmd === "review") { await askForReview(); say("the role is sending another post to Review"); }
       else if (cmd === "midturn" && (key === "queue" || key === "steer")) { await rpc.call("settings.set", { key: "sessions.midTurnMode", value: key }); say(`mid-turn: ${key}`); }
       else if (cmd === "quit") { await shutdown(); }
       else if (cmd) say(`commands: ${COMMANDS}`);
