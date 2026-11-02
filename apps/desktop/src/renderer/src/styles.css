@@ -4255,6 +4255,13 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
    Inter's running text averages well under: 68ch measured 81–87 characters a line in the window,
    and 58ch holds a line to about seventy. */
 .subagent-brief { display: flex; flex-direction: column; gap: 16px; max-width: 58ch; min-width: 0; font-size: 14px; }
+/* The ask is a card, as the report is: an object the eye rests in, and one with an end. Left loose,
+   the brief ran straight on into the work under it — its last line, then the sub-agent's first tool
+   row, or in the viewer its answer — with nothing to say where the ask stopped. Its name heads it at
+   the report's rung, so the two read as the pair they are. */
+.subagent-view-brief { padding: 14px 16px 18px; border-radius: var(--r-squircle-card); corner-shape: squircle;
+  background: var(--rl-card); box-shadow: var(--card-lift); }
+.subagent-view-brief > .subagent-view-section { margin-bottom: 14px; font-size: 13px; line-height: 18px; color: var(--ink); }
 .subagent-brief-part { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .subagent-brief-part > :not(.subagent-brief-head) { margin-left: 20px; }
 .subagent-brief-part:not(:has(> .subagent-brief-head)) > * { margin-left: 0; }
@@ -6439,6 +6446,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    and lift on a circle of the full radius (each card's own rule). */
 :root[data-squircle] .subagent-card,
 :root[data-squircle] .subagent-view-result,
+:root[data-squircle] .subagent-view-brief,
 :root[data-squircle] .edit-summary,
 :root[data-squircle] .permission-card,
 :root[data-squircle] .question-card,

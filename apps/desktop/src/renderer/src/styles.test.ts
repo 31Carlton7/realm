@@ -3162,7 +3162,7 @@ describe("squircle surfaces", () => {
  *  in the composited window is cards-live.mjs's to measure; this pins what the stylesheet promises. */
 describe("one card", () => {
   /** The card family. A new card joins it here, or the fill check below names it. */
-  const CARDS = [".subagent-card", ".subagent-view-result",
+  const CARDS = [".subagent-card", ".subagent-view-result", ".subagent-view-brief",
     ".edit-summary", ".permission-card", ".question-card", ".question-answered", ".plan-card", ".plan-decision", ".app-view-request",
     ".settings-row", ".sched-card", ".cr-note", ".library-offer", ".saved-turn-open", ".library-tile", ".agent-card",
     ".tc-card", ".rv-why", ".rv-caption", ".rv-paper", ".rv-post", ".rv-files", ".rv-table .md-scroll", ".ps-rows",
