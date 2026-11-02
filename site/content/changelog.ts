@@ -21,6 +21,24 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-6-3",
+    title: "Realm v2.6.3",
+    date: "2026-11-02",
+    version: "v2.6.3",
+    area: "Release",
+    summary:
+      "The model picker follows your CLIs: a Claude or Codex update brings its new models to Realm on its own, with Sonnet 5.5 and Haiku 5.5 there today.",
+    body: [
+      { kind: "h", text: "The model picker follows your CLIs" },
+      { kind: "ul", items: [
+        "**New models show up when the CLI has them.** Realm used to list Claude's models from a list of its own, so a `claude` update could bring new models that Realm didn't show. Now Realm asks the `claude` CLI itself which models it offers, so a CLI update brings its models to the picker with no Realm update. Sonnet 5.5 and Haiku 5.5 are there today.",
+        "**Claude sessions run the `claude` that Settings ▸ Engines shows.** That's your own CLI when it works, otherwise the copy that comes with Realm. Before, sessions always ran Realm's own copy, even after you updated yours.",
+        "**Codex picks up an update without a restart.** Realm used to keep running the Codex it started with after you updated Codex. Now new sessions start on the updated Codex, and ones already running finish on the old one.",
+        "**The picker marks the model each CLI actually runs by default.** Claude's list showed Fable 5.1 twice, as a \"default\" row and as itself, while the CLI was defaulting to Opus 5.5. Now the CLI's real default is the one ticked, and it appears once.",
+      ] },
+    ],
+  },
+  {
     slug: "v2-6-2",
     title: "Realm v2.6.2",
     date: "2026-10-28",
