@@ -8,7 +8,7 @@ export type Block =
    *  W5) still renders a bubble naming its files rather than an empty one. */
   /** `from` is present only when ANOTHER session delivered this message (Plan 20). Absent means the
    *  user typed it — the ordinary case — and the pane must not attribute those to anyone. */
-  | { kind: "user"; text: string; attachments?: { path: string; mime: string }[]; from?: { sessionId: string; title: string }; goal?: "continuation" | "budget";
+  | { kind: "user"; text: string; attachments?: { path: string; mime: string }[]; from?: { sessionId: string; title: string; teammateId?: string }; goal?: "continuation" | "budget";
       /** What the message's `@[…]` chips named, so each keeps its mark in the log. */
       refs?: MentionRef[];
       /** A scheduled task's run began here (the event's `scheduled`). `text` is the task's instructions

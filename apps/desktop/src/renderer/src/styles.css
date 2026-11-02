@@ -3723,6 +3723,8 @@ a.msg-chip:hover { background: color-mix(in oklab, var(--accent-tint), var(--rl-
 .msg-user-row[data-from] { gap: 3px; }
 .msg-user-row[data-from] .msg-user { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rl-accent) 30%, transparent); }
 .msg-user-from { font-size: 11px; font-weight: var(--fw-medium); color: var(--rl-text-faint); padding-right: 2px; }
+/* A teammate's message is signed with the teammate: its icon and its name, at the caption rung. */
+.msg-user-teammate { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--rl-text-dim); }
 /* A scheduled run's name sits as close to its bubble as an attribution does, without the ring: the
    words in it are the person's own, written into the task, and only the clock sent them. */
 .msg-user-row[data-scheduled] { gap: 3px; }

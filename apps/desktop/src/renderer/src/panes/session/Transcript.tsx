@@ -1,6 +1,6 @@
-import { Icon } from "@realm/ui";
+import { Icon, TeammateIcon } from "@realm/ui";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { LINK_SERVICE_META, MAC_SKILL_ID, chipRuns, mediaCandidatesIn, type MentionRef, type SessionMode, type SessionStatus, type AskAnswers, type Checkpoint, type TurnChanges } from "@realm/contracts";
+import { LINK_SERVICE_META, MAC_SKILL_ID, chipRuns, mediaCandidatesIn, type MentionRef, type SessionMode, type Teammate, type SessionStatus, type AskAnswers, type Checkpoint, type TurnChanges } from "@realm/contracts";
 import { AttachmentTile } from "./AttachmentTile";
 import { fileMark } from "./mention-sources";
 import { CommandCopy } from "../../components/CommandCopy";
@@ -255,15 +255,27 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
   );
 }
 
+const NO_TEAMMATES: readonly Teammate[] = [];
+
+/** Who wrote a message another session delivered: a teammate as itself, its icon and its name, and
+ *  any other session by its title. Never drawn as the person's own words. */
+function FromLine({ from, teammates }: { from: { title: string; teammateId?: string }; teammates: readonly Teammate[] }) {
+  const t = from.teammateId ? teammates.find((x) => x.id === from.teammateId) : undefined;
+  if (!t) return <span className="msg-user-from">Asked by {from.title}</span>;
+  return <span className="msg-user-from msg-user-teammate"><TeammateIcon icon={t.icon} size={16} lead={t.lead} />{t.name}</span>;
+}
+
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null, track = false, saved = NO_SAVED, onSave, reveal = null, onRevealed, onEarlier, requestsOwnEscape = true, brief = null }: {
+export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null, track = false, saved = NO_SAVED, onSave, reveal = null, onRevealed, onEarlier, requestsOwnEscape = true, brief = null, teammates = NO_TEAMMATES }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: AskAnswers) => void; visible?: boolean;
   /** A message drawn as something other than its bubble: a sub-agent's first message, which carries
    *  the brief its lead wrote, shown as that brief (the sub-agent viewer's `AskedFor`). Matched on the
    *  message's text; every other message stays the user's bubble. */
   brief?: { text: string; node: ReactNode } | null;
+  /** The space's teammates, so a message one of them sent is drawn as from it. */
+  teammates?: readonly Teammate[];
   /** Read the log further back than the transcript holds (`transcript.earlier`): the stretch before it,
    *  or back to `throughSeq` — a prompt asked for by its seq. Absent leaves the log where it starts. */
   onEarlier?: (throughSeq?: number) => Promise<void> | void;
@@ -668,7 +680,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
                     user bubble would have the user believing they typed it — a lie by omission — so
                     the bubble is attributed and styled apart. The fenced text itself is left exactly
                     as the peer received it: the user should see what the agent was actually handed. */}
-                {b.from && <span className="msg-user-from">Asked by {b.from.title}</span>}
+                {b.from && <FromLine from={b.from} teammates={teammates} />}
                 {/* A scheduled run's first message IS the person's words — the task's instructions — so
                     its bubble stays theirs; it is the clock that sent it, and the line above says so.
                     The note Realm added for the agent is under the pointer, not in the bubble. */}
