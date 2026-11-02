@@ -264,12 +264,15 @@ function scheduledLine(s: { task: string; scheduleId?: string }, ts: number): st
   return s.scheduleId ? `Scheduled · ${dateFormat({ weekday: "short", hour: "numeric", minute: "2-digit" }).format(ts)}` : `Scheduled run · ${s.task}`;
 }
 
-/** Who wrote a message another session delivered: a teammate as itself, its icon and its name, and
- *  any other session by its title. Never drawn as the person's own words. */
-function FromLine({ from, teammates }: { from: { title: string; teammateId?: string }; teammates: readonly Teammate[] }) {
-  const t = from.teammateId ? teammates.find((x) => x.id === from.teammateId) : undefined;
-  if (!t) return <span className="msg-user-from">Asked by {from.title}</span>;
-  return <span className="msg-user-from msg-user-teammate"><TeammateIcon icon={t.icon} size={16} lead={t.lead} />{t.name}</span>;
+/** The words another teammate sent, without the "From @handle: " the server put in front of them for
+ *  the agent: on screen the head above them already says who. */
+export const teammateWords = (text: string): string => text.replace(/^From @[^\s:]+: /, "");
+
+/** Who sent a teammate's message: its icon and its name, or the handle the message carried when the
+ *  teammate is not one this space holds (archived, say). */
+function TeammateSender({ from, teammates }: { from: { title: string; teammateId?: string }; teammates: readonly Teammate[] }) {
+  const t = teammates.find((x) => x.id === from.teammateId);
+  return <span className="msg-teammate-head">{t && <TeammateIcon icon={t.icon} size={16} lead={t.lead} />}{t?.name ?? from.title}</span>;
 }
 
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
@@ -675,6 +678,15 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
           const b = it.block, key = it.key, enter = isEntering(key);
           switch (b.kind) {
             case "user": if (brief && b.text === brief.text) return <div key={key} className="msg-brief" data-prompt={key} data-enter={enter || undefined}>{brief.node}</div>;
+              // Another teammate's message is that teammate talking, so it stands on the agents' side
+              // under its sender, as prose like any reply, never in the person's bubble.
+              if (b.from?.teammateId) return (
+                <div key={key} className="msg-teammate-row" data-prompt={key} data-enter={enter || undefined}>
+                  <TeammateSender from={b.from} teammates={teammates} />
+                  <Markdown className="msg-assistant" text={teammateWords(b.text)} onPath={onPath} files={fileLinks} />
+                  <time className="msg-user-at" dateTime={new Date(b.ts).toISOString()} title={stampTitle(b.ts)}
+                    aria-label={`Sent ${stampTitle(b.ts)}`} tabIndex={0}>{stampLabel(b.ts, now)}</time>
+                </div>);
               return (
               // Attachments sit ABOVE the bubble, not inside it (and not below): what was sent was a
               // stack of files with a note under it, and the tiles are the subject rather than a
@@ -687,7 +699,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
                     user bubble would have the user believing they typed it — a lie by omission — so
                     the bubble is attributed and styled apart. The fenced text itself is left exactly
                     as the peer received it: the user should see what the agent was actually handed. */}
-                {b.from && <FromLine from={b.from} teammates={teammates} />}
+                {b.from && <span className="msg-user-from">Asked by {b.from.title}</span>}
                 {/* A scheduled run's first message IS the person's words — the task's instructions — so
                     its bubble stays theirs; it is the clock that sent it, and the line above says so.
                     The note Realm added for the agent is under the pointer, not in the bubble. */}

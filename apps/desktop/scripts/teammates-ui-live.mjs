@@ -158,7 +158,10 @@ const setMode = (c, mode) => evalIn(c, `(() => { document.documentElement.datase
 const holdAwake = (c) => evalIn(c, `(() => { const r = document.documentElement; r.removeAttribute("data-window-inactive");
   if (!window.__awake) { window.__awake = new MutationObserver(() => r.hasAttribute("data-window-inactive") && r.removeAttribute("data-window-inactive")); window.__awake.observe(r, { attributes: true }); } return true; })()`);
 
-/** A picture, dark and light. The scratch banner steps out of frame for the instant of the capture only. */
+/** A picture, dark and light. The scratch banner steps out of frame for the instant of the capture only.
+ *  A capture holds the DOM's alpha and none of the window's material, so it is laid over the face's
+ *  page colour first: unlaid, a viewer puts the dark face's translucent ground over white, and the
+ *  whole window reads as veiled. */
 async function shots(c, tag, clipJs) {
   for (const mode of ["dark", "light"]) {
     await setMode(c, mode);
@@ -167,8 +170,15 @@ async function shots(c, tag, clipJs) {
     await evalIn(c, `(() => { const b = document.getElementById("live-scratch-banner"); if (b) b.style.display = "none"; return true; })()`);
     const shot = await c.send("Page.captureScreenshot", { format: "png", ...(clip ? { clip: { ...clip, scale: 1 } } : {}) });
     await evalIn(c, `(() => { const b = document.getElementById("live-scratch-banner"); if (b) b.style.display = ""; return true; })()`);
+    const data = await evalIn(c, `(async () => {
+      const img = new Image(); img.src = "data:image/png;base64," + ${JSON.stringify(shot.data)}; await img.decode();
+      const cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height; const g = cv.getContext("2d");
+      g.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--page").trim(); g.fillRect(0, 0, cv.width, cv.height);
+      g.drawImage(img, 0, 0);
+      return cv.toDataURL("image/png").split(",")[1];
+    })()`);
     const file = path.join(OUT_DIR, `${tag}-${mode}.png`);
-    fs.writeFileSync(file, Buffer.from(shot.data, "base64"));
+    fs.writeFileSync(file, Buffer.from(data, "base64"));
     console.log(`SHOT ${file}`);
   }
   await setMode(c, "dark");
@@ -271,6 +281,8 @@ async function main() {
   const ctoSessions = await api.call("teammates.sessions", { id: cto.id });
   check("cto started a task session, titled for the task", ctoSessions.some((s) => s.title === "cto - sqlite search"), ctoSessions.map((s) => s.title));
   await until(() => evalIn(c, `[...document.querySelectorAll('.tm-session-title')].length >= 2`), 20_000, "the computer's sessions");
+  const afterReply = await evalIn(c, `({ placeholder: document.querySelector('.composer textarea').getAttribute('placeholder'), hint: document.querySelector('.composer-hint')?.textContent ?? null })`);
+  check("after its reply the prompter still says \"Message cto\", with no suggestion over it", afterReply.placeholder === "Message cto" && afterReply.hint === null, afterReply);
   const listed = await evalIn(c, `[...document.querySelectorAll('.tm-session')].map((r) => ({ title: r.querySelector('.tm-session-title').textContent, depth: getComputedStyle(r.parentElement).getPropertyValue('--tm-depth').trim(), handoffs: r.querySelector('.tm-handoffs')?.textContent ?? null }))`);
   check("its computer lists what it started, with the hand-off nested under it and counted", listed[0]?.title === "cto - sqlite search" && listed[0]?.handoffs === "↳ 1" && listed[1]?.depth === "1", listed);
   await until(() => evalIn(c, `/needs you/.test(__live.byLabel('.sb-teammate .item-row', 'design engineer')?.getAttribute('aria-label') ?? '')`), 30_000, "design engineer needs you");
@@ -292,9 +304,11 @@ async function main() {
   // The design engineer's chat: a message cto's session sent, signed with cto.
   await clickAt(c, await evalIn(c, `__live.rect(__live.byLabel('.sb-teammate .item-row', 'design engineer'))`));
   await until(() => evalIn(c, `document.querySelector('.tm-head-name')?.textContent === 'design engineer'`), 10_000, "design engineer's page");
-  await until(() => evalIn(c, `!!document.querySelector('.msg-user-teammate')`), 10_000, "a signed message");
-  const signed = await evalIn(c, `document.querySelector('.msg-user-teammate').textContent`);
-  check("a message from cto is signed with cto, not drawn as the person's", signed === "cto", signed);
+  await until(() => evalIn(c, `!!document.querySelector('.msg-teammate-row')`), 10_000, "cto's message");
+  const signed = await evalIn(c, `(() => { const r = document.querySelector('.msg-teammate-row'); const col = r.closest('.transcript-col').getBoundingClientRect();
+    return { head: r.querySelector('.msg-teammate-head').textContent, words: r.querySelector('.msg-assistant').textContent.trim(), bubble: !!r.querySelector('.msg-user'),
+      left: Math.round(r.querySelector('.msg-teammate-head').getBoundingClientRect().left - col.left), icon: Math.round(r.querySelector('.msg-teammate-head svg[data-shape]').getBoundingClientRect().width) }; })()`);
+  check("a message from cto stands on the agents' side under cto's 16px icon and name, without the server's prefix", signed.head === "cto" && !signed.bubble && signed.left < 2 && signed.icon === 16 && signed.words.startsWith("ICON_HANDOFF The search box"), signed);
   await shots(c, "handoff-chat");
 
   // ── The Lead's clock: a weekday check-in, fired now, writes into its chat as the clock ──

@@ -598,7 +598,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   // The prompter's suggested prompt, derived from THIS session (prompt-hint.ts): the last turn, the
   // working tree, the mode. Computed here rather than in Composer because everything it reads is
   // already the pane's — Composer only draws it and fills it in on ⇥.
-  const hint = promptHint({
+  // A teammate's chat is a conversation with it, not a prompt to be finished: its prompter keeps
+  // "Message <name>", and no suggestion stands in for it.
+  const hint = teammate ? null : promptHint({
     blocks: transcript.blocks, gitInfo, status, inPlan: session.permissionMode === PLAN_PERMISSION_MODE,
     generated: transcript.promptHint?.text ?? null,
   });

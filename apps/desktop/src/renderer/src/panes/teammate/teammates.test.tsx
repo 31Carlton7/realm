@@ -174,14 +174,27 @@ describe("a teammate's page", () => {
     expect(within(menu).queryByRole("menuitem", { name: /^Delete/ })).toBeNull();
   });
 
-  it("signs a message another teammate sent with that teammate, not as the person's", async () => {
+  it("draws a message another teammate sent as that teammate talking, not as the person's bubble", async () => {
     await mountChat(reduceAll([
-      sessionEvent("user_message", { text: "Can you take the icon?", attachments: [], from: { sessionId: "home-lead", title: "Lead", teammateId: "lead" } }),
+      sessionEvent("user_message", { text: "From @lead: Can you take the **icon**?", attachments: [], from: { sessionId: "home-lead", title: "@lead", teammateId: "lead" } }),
     ]));
-    const from = document.querySelector(".msg-user-row .msg-user-from")!;
-    expect(from).toHaveClass("msg-user-teammate");
-    expect(from).toHaveTextContent("Lead");
-    expect(from.querySelector("svg[data-shape]")).not.toBeNull();
+    const row = document.querySelector(".msg-teammate-row")!;
+    // THE MUTANTS: the person's right-hand bubble; the server's "From @lead:" left in the words.
+    expect(document.querySelector(".msg-user-row")).toBeNull();
+    expect(row.querySelector(".msg-user")).toBeNull();
+    expect(row.querySelector(".msg-teammate-head")).toHaveTextContent("Lead");
+    expect(row.querySelector(".msg-teammate-head svg[data-shape]")).not.toBeNull();
+    expect(row.querySelector(".msg-assistant")!.textContent!.trim()).toBe("Can you take the icon?");
+    expect(row.querySelector(".msg-assistant strong")).toHaveTextContent("icon");
+  });
+
+  it("keeps the prompter on \"Message <name>\" after a reply, with no suggestion over it", async () => {
+    await mountChat(reduceAll([
+      sessionEvent("user_message", { text: "Status?", attachments: [] }),
+      sessionEvent("assistant_text", { messageId: "m", text: "All green." }),
+    ]));
+    expect(await screen.findByPlaceholderText("Message cto")).toBeInTheDocument();
+    expect(document.querySelector('[id^="prompt-hint-"]')).toBeNull();
   });
 
   it("opens a session it links to beside it", async () => {
