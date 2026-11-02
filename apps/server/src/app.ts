@@ -117,6 +117,8 @@ import type { AgentKind, McpServerStatus } from "@realm/contracts";
 import { MemoryService } from "./memory/service";
 import { CLAUDE_BACKFILL_EVERY_MS, ClaudeMemoryBackfill } from "./memory/claude-backfill";
 import { AgentMemoryFolders } from "./memory/claude-redirect";
+import { MemoryLibrary } from "./memory/library";
+import { moveToTrash } from "./memory/trash";
 import { MemoryRepoService, type RepoOwner } from "./memory/repo";
 import { SessionLearner } from "./memory/extract";
 import { LearnedCursors } from "./memory/extract-cursor";
@@ -1243,6 +1245,30 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     temporaryRoots: opts.claudeTemporaryRoots,
     onChanged: (o) => memoryRepoChanged(o),
   });
+  /* The memory library: every memory file an agent on this Mac reads, Realm's and each agent's own. The
+     agents' folders are read only where this caller named them — the machine's home, or a test's
+     stand-in — so a test that names neither never reads the real ones. */
+  const memoryLibrary = new MemoryLibrary({
+    home: opts.home, userHome: opts.userHome ?? null, settings,
+    claudeDir: claudeConfigDir,
+    codexHome: opts.codexHome ?? (opts.userHome ? join(opts.userHome, ".codex") : null),
+    profiles: () => profiles.list(),
+    spaces: () => spaces.listAll().map((sp) => ({
+      id: sp.id, profileId: sp.profileId, name: sp.name,
+      folders: [...new Set([sp.folderPath, ...environments.list(sp.id).filter((e) => e.kind !== "worktree").map((e) => e.path)].filter((p) => p !== ""))],
+    })),
+    repos: memoryRepos, docs: memory,
+    codexReported: (spaceId) => {
+      const latest = sessionsStore.list(spaceId).filter((x) => x.agentKind === "codex").sort((a, b) => b.updatedAt - a.updatedAt)[0];
+      const ev = latest ? sessionEvents.lastOfType(latest.id, "init") : null;
+      return ev?.type === "init" ? ev.payload.instructionSources ?? null : null;
+    },
+    trash: (path) => moveToTrash(path, opts.userHome ?? homedir()),
+    onChanged: (spaceIds) => {
+      for (const spaceId of spaceIds) rpc.broadcast("memory.changed", { spaceId });
+      rpc.broadcast("memory.library.changed", {});
+    },
+  });
   // The browser agent surface (Plan 11 W3): the main↔server op bridge, the permission broker, and the
   // `realm-browser` provider on the gateway. The broker's callbacks are late-bound to `sessionService`
   // (the checkpoints knot again): nothing in it runs before a session exists to run it for.
@@ -1950,7 +1976,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   let access: Access | null = null;
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
-    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, claudeBackfill, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, handoffs, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
+    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, claudeBackfill, memoryLibrary, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, handoffs, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns, teammates,
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, resources: resourceControls, agentSignIn,
     libraryFiles, remote, presence,
