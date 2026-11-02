@@ -123,6 +123,10 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "prevent-sleep", tab: "general", section: "Power", label: "Keep the Mac awake while agents work", terms: "sleep caffeinate battery idle" },
   { id: "low-power", tab: "general", section: "Power", label: "Low power", terms: "battery animation motion energy" },
   { id: "easter-eggs", tab: "general", section: "Easter eggs", label: "Let Realm mess around", terms: "fun playful" },
+  { id: "report-bug", tab: "general", section: "About", label: "Report a bug", terms: "issue problem crash github feedback" },
+  { id: "request-feature", tab: "general", section: "About", label: "Request a feature", terms: "issue idea suggestion github feedback" },
+  { id: "star-realm", tab: "general", section: "About", label: "Star Realm on GitHub", terms: "repository" },
+  { id: "realm-on-github", tab: "general", section: "About", label: "Realm on GitHub", terms: "repository source code releases open" },
 
   // Appearance
   { id: "theme", tab: "appearance", label: "Theme", terms: "mode dark light system" },
