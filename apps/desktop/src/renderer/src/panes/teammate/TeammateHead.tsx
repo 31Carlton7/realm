@@ -1,7 +1,7 @@
 import { Icon, TeammateIcon } from "@realm/ui";
 import type { Item, Teammate } from "@realm/contracts";
 import { useApp } from "../../state/store";
-import { roleLine, teammateOfHome } from "../../state/teammates-slice";
+import { briefLine, teammateOfHome } from "../../state/teammates-slice";
 import type { MenuItem } from "../../components/Menu";
 
 /** The teammate a pane is the chat of: a `session` item whose session is a teammate's home. */
@@ -15,7 +15,7 @@ export function useTeammateOfItem(item: Item): Teammate | null {
  * teammate's, so it is changed by Edit, never renamed in the bar.
  */
 export function TeammateHead({ teammate: t }: { teammate: Teammate }) {
-  const role = roleLine(t.brief);
+  const role = briefLine(t.brief);
   return (
     <span className="tm-head" title={role || undefined}>
       <TeammateIcon icon={t.icon} size={24} lead={t.lead} />
