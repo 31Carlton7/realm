@@ -57,7 +57,7 @@ const isImageGeneration = (item: Bag): boolean =>
 function imageGenerationCall(id: string, item: Bag): SessionEvent {
   const path = str(item.savedPath);
   const prompt = str(item.revisedPrompt);
-  return sessionEvent("tool_call", { toolUseId: id, name: "image_generation", input: path ? { path, prompt } : { prompt }, parentToolUseId: null });
+  return sessionEvent("tool_call", { toolUseId: id, name: "image_generation", input: { ...(path ? { path } : {}), ...(prompt ? { prompt } : {}) }, parentToolUseId: null });
 }
 
 /** The tool_call and tool_result for a finished generation. */
