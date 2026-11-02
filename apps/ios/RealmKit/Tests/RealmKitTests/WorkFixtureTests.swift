@@ -3,8 +3,8 @@ import Foundation
 import Testing
 
 /// The phone's pages beyond Home as the Mac writes them (`packages/remote/test/fixtures/ts-api.json`):
-/// a lead's sub-agents, the plans' limits and the month's spend, Teams' open reviews, a review and
-/// what deciding it answers, and the scheduled tasks; and the two events that say they changed.
+/// a lead's sub-agents, the plans' limits and the month's spend, an empty Review, and the scheduled
+/// tasks; and the two events that say they changed.
 @Suite("Sub-agents, Usage, Review and Scheduled as the Mac writes them")
 struct WorkFixtureTests {
     static let available = APIFixtureTests.available
@@ -66,50 +66,12 @@ struct WorkFixtureTests {
         #expect(usage.spend.topSessions.first?.title == "Theme column")
     }
 
-    /// The reviews still open, newest first: one sent back with the person's note, one waiting with its
-    /// channels; who each goes to, and the role's session.
+    /// Review batches went with the first Teams: the Mac answers an empty list, so Review shows nothing
+    /// waiting rather than an error.
     @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
-    func theOpenReviewsAreNewestFirst() throws {
+    func theMacHasNoReviewsWaiting() throws {
         struct Answer: Decodable { let reviews: [ReviewSummary] }
-        let reviews = try Self.decode(Answer.self, "reviews.list").reviews
-        #expect(reviews.map(\.updatedAt) == reviews.map(\.updatedAt).sorted(by: >))
-        #expect(reviews.map(\.state) == ["changes", "waiting"])
-        #expect(reviews[0].to == "dana@acme.com" && reviews[0].note == "Shorter, and say when it ships")
-        #expect(reviews[1].roleName == "Content Producer" && reviews[1].spaceName == "Deck")
-        #expect(reviews[1].itemCount == 2 && reviews[1].channels == ["instagram", "email"])
-        #expect(reviews.allSatisfy { $0.sessionId != nil })
-    }
-
-    /// A review's items, in their order: a caption with its picture, by the path `review.file` takes;
-    /// an email with its subject for a title and who it goes to.
-    @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
-    func aReviewsItemsCarryTheirDraftsAndPictures() throws {
-        let detail = try Self.decode(ReviewDetail.self, "review.get")
-        #expect(detail.review.itemCount == detail.items.count)
-        let post = try #require(detail.items.first)
-        #expect(post.channel == "instagram" && post.to == nil && post.title == nil)
-        #expect(post.files == [SentFile(path: "/Users/me/Desktop/Deck/renders/toggle.png", name: "toggle.png", mime: "image/png")])
-        let email = detail.items[1]
-        #expect(email.title == "Dark mode ships Friday" && email.to == "dana@acme.com")
-        #expect(email.body.hasPrefix("Hi Dana,") && email.files.isEmpty)
-        let picture = try Self.decode(FilePreview.self, "review.file")
-        #expect(picture.path == post.files[0].path && picture.name == "toggle.png")
-        guard case .image(let mime, _) = picture.preview else {
-            Issue.record("review.file is not a picture")
-            return
-        }
-        #expect(mime == "image/jpeg")
-    }
-
-    /// What deciding answers: the review as it is now — approved, or sent back with the note.
-    @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
-    func aDecisionAnswersWithTheReviewAsItIsNow() throws {
-        struct Answer: Decodable { let review: ReviewSummary }
-        let approved = try Self.decode(Answer.self, "review.decide").review
-        let changes = try Self.decode(Answer.self, "review.decide:changes").review
-        #expect(approved.state == "approved" && approved.note == nil)
-        #expect(changes.state == "changes" && changes.note == "Say it ships Friday in the caption too")
-        #expect(approved.id == changes.id)
+        #expect(try Self.decode(Answer.self, "reviews.list").reviews.isEmpty)
     }
 
     /// Every task, the next to run first: its cadence in the desktop's words, its last run's state in
