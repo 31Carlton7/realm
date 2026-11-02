@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
+import WebSocket from "ws";
 import { FakeAdapter, type McpServerConfig } from "@realm/adapters";
 import { REALM_READ_ONLY_TOOLS } from "@realm/contracts";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -26,8 +27,14 @@ async function connect() {
   const profile = new ProfilesStore(app.db).create({ name: "P", icon: "x", color: "#000" });
   const space = new SpacesStore(app.db, home).create({ profileId: profile.id, name: "S", icon: "folder" });
   writeFileSync(join(space.folderPath, "notes.md"), "lecture one\nlecture two\n");
-  // The team, vault and memory tools are only listed in a team's space, which has its own memory repo.
-  await app.team.makeTeam(space.id, [], { roles: [{ name: "Writer", brief: "Write.", realmite: { seed: "w" }, agentKind: "fake" }] });
+  // The team tools are only listed in a space with teammates, the memory tools where it has a repo.
+  app.team.create({ spaceId: space.id, name: "Writer", brief: "Write.", agentKind: "fake" });
+  await new Promise<void>((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${app.port}`);
+    ws.once("open", () => ws.send(JSON.stringify({ id: "1", method: "memory.repo.create", params: { scope: "space", ownerId: space.id } })));
+    ws.on("message", (d) => { if ((JSON.parse(d.toString()) as { id?: string }).id === "1") { ws.close(); resolve(); } });
+    ws.once("error", reject);
+  });
   const session = app.sessions.create({ spaceId: space.id, agentKind: "fake", projectId: null, model: null, effort: null, permissionMode: "default" }).session;
   // The goal tools are only listed while a goal is active.
   new GoalsStore(app.db).start({ sessionId: session.id, objective: "ship it", tokenBudget: null });

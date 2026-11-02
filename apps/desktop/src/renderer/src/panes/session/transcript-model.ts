@@ -8,12 +8,12 @@ export type Block =
    *  W5) still renders a bubble naming its files rather than an empty one. */
   /** `from` is present only when ANOTHER session delivered this message (Plan 20). Absent means the
    *  user typed it — the ordinary case — and the pane must not attribute those to anyone. */
-  | { kind: "user"; text: string; attachments?: { path: string; mime: string }[]; from?: { sessionId: string; title: string }; goal?: "continuation" | "budget";
+  | { kind: "user"; text: string; attachments?: { path: string; mime: string }[]; from?: { sessionId: string; title: string; teammateId?: string }; goal?: "continuation" | "budget";
       /** What the message's `@[…]` chips named, so each keeps its mark in the log. */
       refs?: MentionRef[];
       /** A scheduled task's run began here (the event's `scheduled`). `text` is the task's instructions
        *  alone: the note Realm appended for the agent is taken out of it, and kept here. */
-      scheduled?: { task: string; note: string };
+      scheduled?: { task: string; note: string; scheduleId?: string };
       /** The `user_message` event this is, by its seq, when the log was read from the server: what a
        *  saved turn names (saved-turns.ts in contracts). Absent on a transcript built from bare events. */
       seq?: number; ts: number }
@@ -348,6 +348,11 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
         const b = q >= 0 ? blocks[q] : undefined;
         if (b && b.kind === "question") { blocks[q] = { ...b, toolUseId: e.payload.toolUseId }; return { ...t, blocks }; }
       }
+      /* A call named again is the same call, said more fully — Codex's image tool has no path until the
+         picture lands (map-codex.ts). It keeps its place and its start, and takes the newer input. */
+      const known = findLast(blocks, (b) => b.kind === "tool" && b.toolUseId === e.payload.toolUseId);
+      const was = known >= 0 ? blocks[known] : undefined;
+      if (was && was.kind === "tool") { blocks[known] = { ...was, input: e.payload.input }; return { ...t, blocks }; }
       blocks.push({ kind: "tool", toolUseId: e.payload.toolUseId, name: e.payload.name, input: e.payload.input, ...(e.payload.parentToolUseId ? { parentToolUseId: e.payload.parentToolUseId } : {}),
         ...(e.payload.kind ? { toolKind: e.payload.kind } : {}), ...(e.payload.paths?.length ? { paths: e.payload.paths } : {}), result: null, ts: e.ts });
       return { ...t, blocks };

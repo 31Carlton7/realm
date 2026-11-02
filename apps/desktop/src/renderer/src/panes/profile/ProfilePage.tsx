@@ -11,6 +11,7 @@ import { PageRail } from "../../components/page-nav";
 import { PageScroll, useDissolve } from "../../components/ScrollFades";
 import { MemoryDoc } from "../../components/settings/MemoryDoc";
 import { MemoryRepoRow } from "../../components/settings/MemoryRepoRow";
+import { MemoryLibraryRow } from "../../components/settings/MemoryPanel";
 import { MemoryLearningRow } from "../../components/settings/MemoryLearningRow";
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -429,6 +430,7 @@ function ProfileMemoryTab({ profileId, profileName }: { profileId: string; profi
       <h3 className="settings-head">Memory repo</h3>
       <MemoryRepoRow owner={{ scope: "profile", id: profileId }} />
       <MemoryLearningRow profileId={profileId} />
+      <MemoryLibraryRow />
     </div>
   );
 }

@@ -105,13 +105,13 @@ describe("the quick chat", () => {
     const w = within(await openChat());
     fireEvent.click(w.getByRole("button", { name: "Add" }));
     const menu = await screen.findByRole("menu", { name: "Add" });
-    // A teammate is not a fact about where the session runs: it is someone to ask for help, and a
+    // A sub-agent is not a fact about where the session runs: it is someone to ask for help, and a
     // quick question is as good a place to want one as any.
-    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual([expect.stringContaining("Files…"), expect.stringContaining("Add teammate…")]);
+    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual([expect.stringContaining("Files…"), expect.stringContaining("Add sub-agent…")]);
   });
 
   it("names who is working on it above the card — the one strip it carries", async () => {
-    /* A teammate can be added from this "+", so this is where it has to be seen. THE MUTANT: the
+    /* A sub-agent can be added from this "+", so this is where it has to be seen. THE MUTANT: the
        over-strip kept off a compact prompter, as the branch is. */
     const { store } = await mount();
     await openChat();

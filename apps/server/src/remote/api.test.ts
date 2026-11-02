@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import {
   AGENT_MODELS, PERMISSION_MODES, SELECTABLE_AGENT_KINDS, sessionEvent, steerNote, type DelegatedChild, type FileDiff, type Item, type MethodName, type PlanLimits,
-  type QueuedPrompt, type Run, type Schedule, type Session, type StoredSessionEvent, type TeamReviewDetail, type TeamReviewItem, type TeamReviewSummary,
+  type QueuedPrompt, type Run, type Schedule, type Session, type StoredSessionEvent,
   type TurnChanges, type UsageSessionRow,
 } from "@realm/contracts";
 import { HomeSchema, MobileCalls, RECENT_LIMIT, SCREEN_SIDE, SEND_LIMITS } from "@realm/remote";
@@ -122,21 +122,19 @@ describe("session.answer", () => {
 });
 
 describe("home.get lists sessions as the sidebar does", () => {
-  it("lists a sub-agent under nobody but its lead, a team role's run not at all, and a child whose lead is gone as itself", async () => {
+  it("lists a sub-agent under nobody but its lead, and a child whose lead is gone as itself", async () => {
     const lists: Lists = {
       sessions: [
         session("lead", "s1", { activityAt: 10 }),
-        session("teammate", "s1", { activityAt: 30, dispatchedBy: { kind: "agent_run", sessionId: "lead" } }),
+        session("sub-agent", "s1", { activityAt: 30, dispatchedBy: { kind: "agent_run", sessionId: "lead" } }),
         session("orphan", "s1", { activityAt: 20, dispatchedBy: { kind: "agent_run", sessionId: "deleted" } }),
-        session("role-run", "s2", { activityAt: 40 }),
         session("own", "s2", { activityAt: 5 }),
       ],
-      items: ["lead", "teammate", "orphan"].map((id) => item(id, "s1", id)).concat(["role-run", "own"].map((id) => item(id, "s2", id))),
+      items: ["lead", "sub-agent", "orphan"].map((id) => item(id, "s1", id)).concat(["own"].map((id) => item(id, "s2", id))),
     };
-    const rpc = fakeRpc(lists, { "team.overview": (() => [{ spaceId: "s2", runSessionIds: ["role-run"], reviews: [] }]) as never });
-    const h = HomeSchema.parse(await api().handle(channel(rpc), "home.get", {}));
-    // THE MUTANTS: list every session with an item (the teammate and the role's run come back), or drop
-    // every dispatched session (the orphan goes with nothing left to reach it by).
+    const h = HomeSchema.parse(await api().handle(channel(fakeRpc(lists)), "home.get", {}));
+    // THE MUTANTS: list every session with an item (the sub-agent comes back), or drop every dispatched
+    // session (the orphan goes with nothing left to reach it by).
     expect(h.spaces.map((sp) => sp.sessions.map((r) => r.id))).toEqual([["orphan", "lead"], ["own"]]);
     expect(h.recent?.map((r) => r.id)).toEqual(["orphan", "lead", "own"]);
   });
@@ -1128,112 +1126,16 @@ describe("usage.get", () => {
 });
 
 describe("Review", () => {
-  const review = (id: string, spaceId: string, state: TeamReviewSummary["state"], updatedAt: number, extra: Partial<TeamReviewSummary> = {}): TeamReviewSummary => ({
-    id, spaceId, roleId: "role", roleName: "Content Producer", runId: null, sessionId: "role-session", recordPath: null, kind: "slideshows", title: id,
-    state, note: null, version: 1, itemCount: 1, thumb: null, channels: [], account: null, to: null, changedSinceApproval: false, actsTotal: 0, actsDone: 0,
-    createdAt: 0, decidedAt: null, updatedAt, ...extra,
-  });
-  const teams = [
-    { spaceId: "s1", reviews: [review("waiting", "s1", "waiting", 300), review("done", "s1", "done", 900), review("approved", "s1", "approved", 100)] },
-    { spaceId: "s2", reviews: [review("sent-back", "s2", "changes", 200, { note: "Shorter" }), review("rejected", "s2", "rejected", 800),
-      review("closed", "s2", "closed", 700), review("put-away", "s2", "dismissed", 600)] },
-  ];
-
-  it("lists what every team has handed back and is still open, newest first, and nothing that has come to rest", async () => {
-    const rpc = fakeRpc({ sessions: [], items: [] }, { "team.overview": (() => teams) as never });
+  // Review went with the first Teams. The phone's Review screen still asks, and is answered as an empty
+  // Review rather than with an error it would have to explain.
+  it("lists nothing, and finds no review a phone still holds", async () => {
+    const rpc = fakeRpc({ sessions: [], items: [] });
     const got = await attempt(api(), rpc, "reviews.list", {});
     if (!got.ok) throw new Error(got.message);
-    const { reviews } = MobileCalls["reviews.list"].result.parse(got.result);
-    // THE MUTANT: only what waits for a yes, and a batch sent back or approved and not yet posted
-    // vanishes from the phone while the desktop's Review still shows it.
-    expect(reviews.map((r) => [r.id, r.state, r.spaceName])).toEqual([
-      ["waiting", "waiting", "Space s1"], ["sent-back", "changes", "Space s2"], ["approved", "approved", "Space s1"],
-    ]);
-    expect(reviews[1]).toMatchObject({ note: "Shorter", roleName: "Content Producer", sessionId: "role-session" });
-  });
-
-  /** A review in a space folder with a picture, an email and a document, and the calls its decisions make. */
-  function rig() {
-    const root = tempDir("realm-review-");
-    mkdirSync(join(root, "renders"));
-    writeFileSync(join(root, "renders", "toggle.png"), "png");
-    writeFileSync(join(root, "brief.pdf"), "%PDF-1.7");
-    writeFileSync(join(root, "notes.md"), "# Notes\n");
-    const outside = tempDir("realm-review-outside-");
-    writeFileSync(join(outside, "elsewhere.png"), "png");
-    symlinkSync(outside, join(root, "linked"));
-    const items: TeamReviewItem[] = [
-      { id: "email", reviewId: "r1", version: 1, ord: 1, files: [], body: "Hi Dana,\n\nIt ships Friday.", target: null, contentHash: "h", approvedHash: null, actState: "none",
-        meta: { subject: "It ships Friday" }, action: { connector: "mcp:gmail", verb: "email", to: "dana@acme.com" } },
-      { id: "post", reviewId: "r1", version: 1, ord: 0, files: ["renders/toggle.png", "brief.pdf", "linked/elsewhere.png"], body: "Dark mode is here.",
-        target: { channel: "instagram", account: "@realm" }, contentHash: "h", approvedHash: null, actState: "none" },
-      { id: "doc", reviewId: "r1", version: 1, ord: 2, files: ["notes.md"], body: null, target: null, contentHash: "h", approvedHash: null, actState: "none" },
-    ];
-    const detail = { ...review("r1", "s1", "waiting", 300), items, previous: [], costUsd: null, durationMs: null, runCapUsd: null, model: null, recordName: null,
-      checks: [], ledger: [], root, tickets: [], fileTexts: { "notes.md": "# Notes\n" }, why: null } satisfies TeamReviewDetail;
-    const decided = (state: TeamReviewSummary["state"]) => (p: { note?: string; reason?: string }) => ({ ...review("r1", "s1", state, 400), note: p.note ?? p.reason ?? null });
-    const { rpc, asked } = recorded({ sessions: [], items: [] }, {
-      "team.review": ((p: { id: string }) => { if (p.id !== "r1") throw new RpcCallError("NOT_FOUND", `review ${p.id} not found`); return detail; }) as never,
-      "team.reviewApprove": decided("approved") as never, "team.reviewRequestChanges": decided("changes") as never, "team.reviewReject": decided("rejected") as never,
-    });
-    return { rpc, asked, root, outside };
-  }
-
-  it("reads a review's drafts in their order as text, each picture by its path in the space's folder", async () => {
-    const { rpc, root } = rig();
-    const got = await attempt(api(), rpc, "review.get", { id: "r1" });
-    if (!got.ok) throw new Error(got.message);
-    const { review: summary, items } = MobileCalls["review.get"].result.parse(got.result);
-    expect(summary).toMatchObject({ id: "r1", spaceName: "Space s1", state: "waiting" });
-    expect(items.map((i) => [i.id, i.title, i.body, i.channel, i.to])).toEqual([
-      ["post", null, "Dark mode is here.", "instagram", null],
-      // An email's subject is its title, whichever way its key is written; its recipient is its action's.
-      ["email", "It ships Friday", "Hi Dana,\n\nIt ships Friday.", null, "dana@acme.com"],
-      // A document with no words of its own is the text of its file.
-      ["doc", null, "# Notes\n", null, null],
-    ]);
-    // Pictures only: the PDF goes with the post, but a phone is shown its pictures.
-    expect(items[0]!.files).toEqual([
-      { path: join(root, "renders/toggle.png"), name: "toggle.png", mime: "image/png" },
-      { path: join(root, "linked/elsewhere.png"), name: "elsewhere.png", mime: "image/png" },
-    ]);
-  });
-
-  it("decides by the desktop's own calls, and asks for changes only with a note saying what", async () => {
-    const { rpc, asked } = rig();
-    expect(await attempt(api(), rpc, "review.decide", { id: "r1", decision: "approve", note: "ignored" })).toMatchObject({ ok: true, result: { review: { state: "approved", spaceName: "Space s1" } } });
-    // THE MUTANT: hand the desktop an empty note, which it refuses in words meant for a role ("say what should change").
-    for (const note of [undefined, "   "]) {
-      expect(await attempt(api(), rpc, "review.decide", { id: "r1", decision: "changes", ...(note === undefined ? {} : { note }) })).toMatchObject({ ok: false, code: "INVALID_PARAMS" });
-    }
-    expect(await attempt(api(), rpc, "review.decide", { id: "r1", decision: "changes", note: " Shorter, please " })).toMatchObject({ ok: true, result: { review: { state: "changes", note: "Shorter, please" } } });
-    expect(await attempt(api(), rpc, "review.decide", { id: "r1", decision: "reject", note: "Not this week" })).toMatchObject({ ok: true, result: { review: { state: "rejected", note: "Not this week" } } });
-    await attempt(api(), rpc, "review.decide", { id: "r1", decision: "reject" });
-    expect(asked.filter(([m]) => m !== "team.review")).toEqual([
-      ["team.reviewApprove", { id: "r1" }], ["team.reviewRequestChanges", { id: "r1", note: "Shorter, please" }],
-      ["team.reviewReject", { id: "r1", reason: "Not this week" }], ["team.reviewReject", { id: "r1" }],
-    ]);
-  });
-
-  it("passes on, in the Mac's words, a decision the review's state refuses", async () => {
-    const rpc = fakeRpc({ sessions: [], items: [] }, {
-      "team.reviewApprove": (() => { throw new RpcCallError("TEAM_REVIEW_STATE", "this review is approved, not waiting"); }) as never,
-    });
-    expect(await attempt(api(), rpc, "review.decide", { id: "r1", decision: "approve" })).toEqual({ ok: false, code: "FORBIDDEN", message: "this review is approved, not waiting" });
-  });
-
-  it("previews only a picture the review's items carry, and only while it is inside its space's folder", async () => {
-    const { rpc, root, outside } = rig();
-    expect(await attempt(api(async () => Buffer.from("jpeg")), rpc, "review.file", { id: "r1", path: join(root, "renders/toggle.png") }))
-      .toMatchObject({ ok: true, result: { name: "toggle.png", preview: { kind: "image", mime: "image/jpeg" } } });
-    // Not a picture, not one an item carries, nor any other review's.
-    for (const [path, id] of [[join(root, "brief.pdf"), "r1"], [join(root, "notes.md"), "r1"], [join(outside, "elsewhere.png"), "r1"], ["/etc/hosts", "r1"]] as const) {
-      expect(await attempt(api(), rpc, "review.file", { id, path }), path).toMatchObject({ ok: false, code: "FORBIDDEN" });
-    }
-    expect(await attempt(api(), rpc, "review.file", { id: "r2", path: join(root, "renders/toggle.png") })).toMatchObject({ ok: false, code: "NOT_FOUND" });
-    // THE MUTANT: trust the listed path, and a folder linked in since leads the preview out of the space.
-    expect(await attempt(api(async () => { throw new Error("must not be read"); }), rpc, "review.file", { id: "r1", path: join(root, "linked/elsewhere.png") }))
-      .toMatchObject({ ok: false, code: "FORBIDDEN" });
+    expect(MobileCalls["reviews.list"].result.parse(got.result)).toEqual({ reviews: [] });
+    expect(await attempt(api(), rpc, "review.get", { id: "r1" })).toMatchObject({ ok: false, code: "NOT_FOUND" });
+    expect(await attempt(api(), rpc, "review.decide", { id: "r1", decision: "approve" })).toMatchObject({ ok: false, code: "NOT_FOUND" });
+    expect(await attempt(api(), rpc, "review.file", { id: "r1", path: "/tmp/a.png" })).toMatchObject({ ok: false, code: "NOT_FOUND" });
   });
 });
 

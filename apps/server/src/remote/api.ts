@@ -1,6 +1,5 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { realpath } from "node:fs/promises";
-import { join, sep } from "node:path";
+import { join } from "node:path";
 import {
   AGENT_META, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, isSecretPath, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, readEffortSupport,
   resolveMidTurnMode, SELECTABLE_AGENT_KINDS, type AgentKind, type DelegatedChild, type IconAsset, type Item, type Machine, type MethodResult, type ModelInfo,
@@ -23,7 +22,7 @@ import { RpcCallError, type RpcPort } from "./rpc-port";
 import { frameSide, machineScreen, phoneMayWatch, SCREEN_DEADLINE_MS, screenFrame, screenOrder, simulatorScreen } from "./screens";
 import { checkUploads, saveUploads, UploadRefused, type Upload } from "./uploads";
 import { everyPlan, monthStart, spend } from "./usage";
-import { isOpenReview, newestReviewFirst, reviewItem, reviewPictures, reviewSummary, scheduledTask } from "./work";
+import { scheduledTask } from "./work";
 
 /**
  * mobile.v1 on the Mac (PROTOCOL.md §8): each call validated against its schema, then answered by the
@@ -177,8 +176,6 @@ const spaceNames = (spaces: readonly Space[]) => {
   return (id: string): string => names.get(id) ?? "";
 };
 
-/** `path` is `root` or inside it. Both are real paths: no link is left in either to lead out. */
-const inside = (path: string, root: string): boolean => path === root || path.startsWith(root.endsWith(sep) ? root : root + sep);
 
 const GONE = "That message has already gone out.";
 
@@ -220,10 +217,10 @@ export class MobileApi {
         case "session.editQueued": return await this.editQueued(rpc, p as MobileParams<"session.editQueued">);
         case "session.subagents": return await this.subagents(ctx, p.id as string);
         case "usage.get": return await this.usage(rpc);
-        case "reviews.list": return await this.reviews(rpc);
-        case "review.get": return await this.review(rpc, p.id as string);
-        case "review.decide": return await this.decide(rpc, p as MobileParams<"review.decide">);
-        case "review.file": return await this.reviewFile(rpc, p.id as string, p.path as string);
+        // Review went with the first Teams: the phone's Review screen is told there is nothing in it,
+        // and a review it still holds is gone, rather than either being an error it cannot read.
+        case "reviews.list": return { reviews: [] };
+        case "review.get": case "review.decide": case "review.file": throw new MobileError("NOT_FOUND", "That review is no longer in Realm.");
         case "schedules.list": return await this.schedules(rpc);
         case "schedules.runNow": {
           const fired = await rpc.call("schedules.runNow", { id: p.id as string });
@@ -296,12 +293,6 @@ export class MobileApi {
     return { spaces, sessions, items, quickChatId: quickChatIdOf(quickChat.value) };
   }
 
-  /** The sessions teams' roles ran. A Mac that has no teams answers nothing for them. */
-  private async roleRuns(rpc: RpcPort): Promise<Set<string>> {
-    const teams = await rpc.call("team.overview", {}).catch(() => []);
-    return new Set(teams.flatMap((t) => t.runSessionIds));
-  }
-
   /** What the agents' probes last said, for the names of their models — when it answers at once. */
   private async probes(rpc: RpcPort): Promise<Probe> {
     return await within(rpc.call("agents.probe", { force: false }), PROBE_WAIT_MS) ?? [];
@@ -346,16 +337,16 @@ export class MobileApi {
    *  run on the lists the sidebar is seeded from, and the sessions a row lists — every session item that
    *  is not archived — newest first, each made into its row. */
   private async listing(rpc: RpcPort) {
-    const [lists, probe, roleRuns] = await Promise.all([this.lists(rpc), this.probes(rpc), this.roleRuns(rpc)]);
+    const [lists, probe] = await Promise.all([this.lists(rpc), this.probes(rpc)]);
     const spaceById = new Map(lists.spaces.map((s) => [s.id, s]));
     const rows = new Map<string, Item>();
     for (const it of lists.items) if (it.kind === "session") rows.set(it.refId, it);
     const waiting = needsYou(needsYouInput(lists));
     const need = new Set(waiting.map((r) => r.session.id));
-    // The sidebar's rows (`listedSessions`): a sub-agent is its lead's business, and a team role's run is
-    // its role's, so neither is a row of its own — a waiting one is still in Needs you.
+    // The sidebar's rows (`listedSessions`): a sub-agent is its lead's business, so it is not a row of
+    // its own — a waiting one is still in Needs you.
     const nested = nestChildren(lists.sessions.filter((s) => rows.has(s.id)).map((s) => ({ id: s.id, spaceId: s.spaceId, session: s, createdAt: s.createdAt })));
-    const listed = nested.map((n) => n.row.session).filter((s) => !roleRuns.has(s.id)).sort(newestFirst);
+    const listed = nested.map((n) => n.row.session).sort(newestFirst);
     const row = (s: Session, title?: string, spaceId = s.spaceId) => {
       const item = rows.get(s.id);
       return this.row(s, title === undefined ? item : { title, pinned: item?.pinned ?? false }, spaceById.get(spaceId), need, probe);
@@ -572,43 +563,6 @@ export class MobileApi {
     ]);
     const titles = new Map(items.filter((it) => it.kind === "session").map((it) => [it.refId, it.title]));
     return { limits: everyPlan(limits, now), spend: spend(summary, titles) };
-  }
-
-  /** What every team has handed back and is still open, newest first: each team space's reviews, as the
-   *  desktop's Review reads them (`team.overview`). */
-  private async reviews(rpc: RpcPort): Promise<MobileResult<"reviews.list">> {
-    const [teams, spaces] = await Promise.all([rpc.call("team.overview", {}), rpc.call("spaces.list", {})]);
-    const name = spaceNames(spaces);
-    return { reviews: teams.flatMap((t) => t.reviews).filter(isOpenReview).sort(newestReviewFirst).map((r) => reviewSummary(r, name(r.spaceId))) };
-  }
-
-  private async review(rpc: RpcPort, id: string): Promise<MobileResult<"review.get">> {
-    const [detail, spaces] = await Promise.all([rpc.call("team.review", { id }), rpc.call("spaces.list", {})]);
-    return { review: reviewSummary(detail, spaceNames(spaces)(detail.spaceId)), items: [...detail.items].sort((a, b) => a.ord - b.ord).map((it) => reviewItem(it, detail)) };
-  }
-
-  /** Approve, ask for changes, or reject, by the desktop's own calls. Asking for changes says what
-   *  should change, or the role that made it has nothing to go on. */
-  private async decide(rpc: RpcPort, p: MobileParams<"review.decide">): Promise<MobileResult<"review.decide">> {
-    const note = p.note?.trim() ?? "";
-    if (p.decision === "changes" && !note) throw new MobileError("INVALID_PARAMS", "Asking for changes needs a note saying what should change.");
-    const decided = p.decision === "approve" ? await rpc.call("team.reviewApprove", { id: p.id })
-      : p.decision === "changes" ? await rpc.call("team.reviewRequestChanges", { id: p.id, note })
-      : await rpc.call("team.reviewReject", { id: p.id, ...(note ? { reason: note } : {}) });
-    return { review: reviewSummary(decided, spaceNames(await rpc.call("spaces.list", {}))(decided.spaceId)) };
-  }
-
-  /** A preview of one of a review's pictures — and of nothing else: the path must be one its items carry,
-   *  exactly as `review.get` listed it, and still inside its space's folder. */
-  private async reviewFile(rpc: RpcPort, id: string, path: string): Promise<MobileResult<"review.file">> {
-    const detail = await rpc.call("team.review", { id });
-    const listed = new Set(detail.items.flatMap((it) => reviewPictures(it, detail.root).map((f) => f.path)));
-    if (!detail.root || !listed.has(path)) throw new MobileError("FORBIDDEN", "That file is not one of this review's pictures.");
-    if (isSecretPath(path)) throw new MobileError("FORBIDDEN", "That file holds a secret, so Realm does not send it to a phone.");
-    return await this.preview(path, async () => {
-      // The role sent a file from its space's folder; a link put in its way since could lead anywhere.
-      if (!inside(await realpath(path), await realpath(detail.root!))) throw new PreviewRefused("That file is no longer in its space's folder.");
-    });
   }
 
   /** Every space's scheduled tasks, in the Scheduled page's order: what runs next first. */

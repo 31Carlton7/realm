@@ -253,16 +253,17 @@ describe("PayloadCompactor", () => {
 describe("migration v56 — compressed event payloads", () => {
   const V56_AT = migrations.findIndex((m) => m.includes("CREATE TABLE IF NOT EXISTS event_payload_compaction"));
 
-  /** A home at the version before v56, by hand: only the tables v56, the compactor and the migrations
-   *  after it touch — `sessions` for the column a later one adds. */
+  /** A home at the version before v56, by hand: only the tables v56 and the compactor touch, and the
+   *  two the teammates' and the accounts' migrations further down the chain add columns to. */
   function beforeV56(path: string) {
     const db = new DatabaseSync(path);
     db.exec(`
       CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL);
-      CREATE TABLE sessions (id TEXT PRIMARY KEY);
       CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
         ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL);
-      CREATE INDEX session_events_session ON session_events(session_id, seq);`);
+      CREATE INDEX session_events_session ON session_events(session_id, seq);
+      CREATE TABLE sessions (id TEXT PRIMARY KEY);
+      CREATE TABLE team_roles (id TEXT PRIMARY KEY);`);
     for (let v = 1; v <= V56_AT; v++) db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v, 1);
     const ins = db.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES ('s', ?, ?, ?)");
     ins.run(1, "status", JSON.stringify({ status: "idle" }));

@@ -8,10 +8,10 @@ import { SessionPane } from "./SessionPane";
 import { ROW_MAX } from "./ActiveAgents";
 
 /**
- * The prompter's teammates: "+ → Add teammate…", and the row of who is working on the over-strip.
+ * The prompter's sub-agents: "+ → Add sub-agent…", and the row of who is working on the over-strip.
  * The mutants this suite exists to kill:
  *
- *   - the menu row missing, or offered on a sub-agent          → "the + offers Add teammate…"
+ *   - the menu row missing, or offered on a sub-agent          → "the + offers Add sub-agent…"
  *   - the picker sending something other than what was picked   → "adds one with…"
  *   - a worktree offered where there is no git checkout         → "…only where there is a checkout"
  *   - the row's states drawn without the sidebar's marks        → "each agent wears its state"
@@ -63,12 +63,12 @@ const openPlus = () => fireEvent.click(screen.getByRole("button", { name: "Add" 
 
 afterEach(() => cleanup());
 
-describe("the + offers Add teammate…", () => {
+describe("the + offers Add sub-agent…", () => {
   it("adds one with the session's own model, the brief and the checkout picked — through delegation.addTeammate", async () => {
     const { api } = await mount({ git: gi("main") });
     openPlus();
-    fireEvent.click(within(await screen.findByRole("menu", { name: "Add" })).getByRole("menuitem", { name: /^Add teammate…/ }));
-    const pop = await screen.findByRole("dialog", { name: "Add a teammate" });
+    fireEvent.click(within(await screen.findByRole("menu", { name: "Add" })).getByRole("menuitem", { name: /^Add sub-agent…/ }));
+    const pop = await screen.findByRole("dialog", { name: "Add a sub-agent" });
     // The prompter's own picker, opening on the session's model.
     expect(within(pop).getByRole("button", { name: "Model" })).toHaveTextContent("Opus 5.5");
     fireEvent.click(within(pop).getByRole("radio", { name: "Its own worktree" }));
@@ -76,16 +76,16 @@ describe("the + offers Add teammate…", () => {
     fireEvent.change(brief, { target: { value: "  Write the tests " } });
     fireEvent.keyDown(brief, { key: "Enter" });
     await waitFor(() => expect(api.calls).toContain(`addTeammate:${JSON.stringify({ sessionId: "se1", agentKind: "claude", model: "claude-opus-5-5", brief: "Write the tests", newWorktree: true })}`));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add a teammate" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add a sub-agent" })).toBeNull());
   });
 
   it("offers a worktree only where there is a git checkout, and works in this folder otherwise", async () => {
     const { api } = await mount({ git: null });
     openPlus();
-    fireEvent.click(within(await screen.findByRole("menu", { name: "Add" })).getByRole("menuitem", { name: /^Add teammate…/ }));
-    const pop = await screen.findByRole("dialog", { name: "Add a teammate" });
+    fireEvent.click(within(await screen.findByRole("menu", { name: "Add" })).getByRole("menuitem", { name: /^Add sub-agent…/ }));
+    const pop = await screen.findByRole("dialog", { name: "Add a sub-agent" });
     expect(within(pop).queryByRole("radio")).toBeNull();
-    fireEvent.click(within(pop).getByRole("button", { name: "Add teammate" }));
+    fireEvent.click(within(pop).getByRole("button", { name: "Add sub-agent" }));
     await waitFor(() => expect(api.calls).toContain(`addTeammate:${JSON.stringify({ sessionId: "se1", agentKind: "claude", model: "claude-opus-5-5", newWorktree: false })}`));
   });
 
@@ -94,7 +94,7 @@ describe("the + offers Add teammate…", () => {
     openPlus();
     const menu = await screen.findByRole("menu", { name: "Add" });
     expect(within(menu).getByRole("menuitem", { name: /^Files…/ })).toBeInTheDocument();
-    expect(within(menu).queryByRole("menuitem", { name: /^Add teammate…/ })).toBeNull();
+    expect(within(menu).queryByRole("menuitem", { name: /^Add sub-agent…/ })).toBeNull();
   });
 });
 

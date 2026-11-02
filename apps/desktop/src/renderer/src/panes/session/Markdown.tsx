@@ -1,6 +1,6 @@
 import DOMPurify from "dompurify";
-import { brandMarks, type BrandName } from "@realm/ui";
-import { LINK_SERVICE_META, describeLink, type LinkService, type MediaFile } from "@realm/contracts";
+import { brandMarks, iconSvg, type BrandName } from "@realm/ui";
+import { LINK_SERVICE_META, describeLink, sessionIdFromLink, type LinkService, type MediaFile } from "@realm/contracts";
 import { marked } from "marked";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
@@ -10,6 +10,7 @@ import { useRichLibs } from "./rich/rich-libs";
 import { mediaExtension, mediaRefsIn } from "./media/md-media";
 import { MediaFrame } from "./media/MediaView";
 import { useOpenViewer } from "../../components/viewer/open";
+import { useAppStoreMaybe } from "../../state/store";
 import { useMediaByCandidate } from "./media/use-media";
 import { markPaths } from "./file-paths";
 import { markFileRefs, useFileLinks, type FileLinkContext } from "./file-links";
@@ -44,6 +45,10 @@ marked.use(mediaExtension);
 DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   if (node.tagName === "A") { node.setAttribute("target", "_blank"); node.setAttribute("rel", "noopener noreferrer"); }
 });
+
+/* DOMPurify's own list of link schemes, and Realm's link to a session (`realm://session/<id>`) — the one
+   a teammate writes into its report that is not the web's. Any other `realm:` link is still dropped. */
+const ALLOWED_URI = /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|matrix):|realm:\/\/session\/|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i;
 
 const NO_CITATIONS: readonly string[] = [];
 
@@ -95,6 +100,26 @@ function markAppLinks(doc: Document): void {
 }
 
 /**
+ * A link to a session (`realm://session/<id>`, what a teammate writes beside the work it started) is
+ * the session's chip: its glyph and the words the agent gave it, opening that session beside this
+ * one rather than handing an address the OS cannot open to the browser.
+ */
+function markSessionLinks(doc: Document): void {
+  for (const a of Array.from(doc.body.querySelectorAll<HTMLAnchorElement>("a[href]"))) {
+    const id = sessionIdFromLink(a.getAttribute("href") ?? "");
+    if (!id) continue;
+    const said = (a.textContent ?? "").trim();
+    a.className = "msg-chip";
+    a.setAttribute("data-kind", "session");
+    a.setAttribute("data-session", id);
+    a.setAttribute("title", "Open beside this one");
+    a.removeAttribute("target");
+    a.removeAttribute("rel");
+    a.innerHTML = `${iconSvg("session", 12, "msg-chip-mark")}${doc.createElement("span").appendChild(doc.createTextNode(said || "Session")).parentElement!.innerHTML}`;
+  }
+}
+
+/**
  * A numbered marker on a link the agent DID fetch.
  *
  * The numbers are the sources list's own, so `[2]` in the prose and `2` in the disclosure are one
@@ -127,6 +152,7 @@ function decorate(html: string, cite: readonly string[]): string {
   const doc = new DOMParser().parseFromString(html, "text/html");
   markCitations(doc, cite);
   markAppLinks(doc);
+  markSessionLinks(doc);
   for (const quote of Array.from(doc.body.querySelectorAll("blockquote"))) {
     const first = quote.firstElementChild;
     const m = /^\[!(\w+)\]\s*/.exec(first?.textContent ?? "");
@@ -180,7 +206,7 @@ export function renderMarkdown(text: string, cite: readonly string[] = []): stri
    * markup (so the expression can be selected, copied and read aloud) and `<svg>` for the parts CSS
    * cannot draw — surd bars, stretchy braces. With the html profile alone the sanitizer strips both
    * and every formula loses its accessible half and its radicals. */
-  return decorate(DOMPurify.sanitize(html, { USE_PROFILES: { html: true, mathMl: true, svg: true }, ADD_ATTR: ["target"] }), cite);
+  return decorate(DOMPurify.sanitize(html, { USE_PROFILES: { html: true, mathMl: true, svg: true }, ADD_ATTR: ["target"], ALLOWED_URI_REGEXP: ALLOWED_URI }), cite);
 }
 
 /** The sanitized html with its file paths marked (see `file-paths.ts`), and the places a file in the
@@ -231,7 +257,15 @@ export function Markdown({ text, className = "", cite = NO_CITATIONS, onPath, ar
   // is a DOM attribute (the injected nodes are outside React's tree), timers cleared on unmount.
   const timers = useRef(new Map<Element, ReturnType<typeof setTimeout>>());
   useEffect(() => () => { for (const t of timers.current.values()) clearTimeout(t); }, []);
+  const store = useAppStoreMaybe();
   const onClick = (e: ReactMouseEvent) => {
+    const session = e.target instanceof Element ? e.target.closest<HTMLElement>("a[data-session]") : null;
+    if (session) {
+      e.preventDefault();
+      const st = store?.getState();
+      st?.run(() => st.peekSession(session.getAttribute("data-session") ?? ""));
+      return;
+    }
     const file = e.target instanceof Element ? e.target.closest<HTMLElement>(".md-file") : null;
     if (file && files) {
       const line = file.getAttribute("data-line");

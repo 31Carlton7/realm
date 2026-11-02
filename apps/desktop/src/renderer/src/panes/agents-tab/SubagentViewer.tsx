@@ -1,6 +1,6 @@
-import { AGENT_META, sessionModeOf, type AgentKind, type DelegatedChild, type Environment } from "@realm/contracts";
+import { AGENT_META, sessionModeOf, type AgentKind, type DelegatedChild, type Environment, type Session, type SessionStatus } from "@realm/contracts";
 import { Icon } from "@realm/ui";
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useDissolve } from "../../components/ScrollFades";
 import type { FileLinkContext } from "../session/file-links";
 import { useApp } from "../../state/store";
@@ -13,6 +13,7 @@ import { Transcript } from "../session/Transcript";
 import { findToolNode, flattenRun, formatDuration, summarizeToolRun, withEnter, type ToolBlock, type ToolNode } from "../session/tool-group";
 import { emptyTranscript, waitingToolIds, type Block, type UserBlock } from "../session/transcript-model";
 import { useElapsed } from "../session/use-elapsed";
+import { ReportFold } from "./ReportFold";
 import { SubagentBrief } from "./SubagentBrief";
 import { StateMark } from "./StateMark";
 import { STATE_LABEL, childTitle, isLive, modelLabel, subagentElapsed, subagentState, type SubagentState } from "./subagent-state";
@@ -33,9 +34,7 @@ import { STATE_LABEL, childTitle, isLive, modelLabel, subagentElapsed, subagentS
  * Escape goes back to the overview. A request card in the transcript takes Escape as Deny, and a
  * person leaving a view they only looked at must never send one, so the viewer catches it first.
  */
-export function SubagentViewer({ leadId, shown, reportOpen = true, onReportOpen }: { leadId: string; shown: ShownSubagent;
-  /** Whether its report is open — the tab's to remember, per sub-agent, for as long as the tab is up. */
-  reportOpen?: boolean; onReportOpen?: (open: boolean) => void }) {
+export function SubagentViewer({ leadId, shown }: { leadId: string; shown: ShownSubagent }) {
   const showSubagent = useApp((s) => s.showSubagent);
   const onKeyDownCapture = (e: KeyboardEvent<HTMLElement>) => {
     if (e.key !== "Escape" || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
@@ -43,8 +42,8 @@ export function SubagentViewer({ leadId, shown, reportOpen = true, onReportOpen 
     showSubagent(leadId, null);
   };
   return shown.kind === "harness"
-    ? <HarnessView leadId={leadId} agentId={shown.id} onKeyDownCapture={onKeyDownCapture} fold={{ open: reportOpen, onOpen: onReportOpen }} />
-    : <ChildView leadId={shown.leadId} child={shown.child} onKeyDownCapture={onKeyDownCapture} fold={{ open: reportOpen, onOpen: onReportOpen }} />;
+    ? <HarnessView leadId={leadId} agentId={shown.id} onKeyDownCapture={onKeyDownCapture} />
+    : <ChildView leadId={shown.leadId} child={shown.child} onKeyDownCapture={onKeyDownCapture} />;
 }
 
 /** What the tab has been asked to show, resolved: a harness agent of the lead's, or a delegated
@@ -59,6 +58,48 @@ export function findChild(children: readonly DelegatedChild[], id: string, leadI
     if (deeper) return deeper;
   }
   return null;
+}
+
+/**
+ * A sub-agent opened as a session, read as its viewer reads it: its first message as the brief its
+ * lead wrote, and once it has ended, its last as the report its lead collected. Nothing for any other
+ * session. The sub-agent is found by its record among the children of the session that started it,
+ * which a window that has not read that list yet asks for, as a delegation line does.
+ */
+export function useAsSubagent(session: Session | undefined, blocks: readonly Block[], status: SessionStatus): {
+  brief: { text: string; node: ReactNode } | null; report: { id: string; failed: boolean } | null;
+} {
+  const id = session?.id ?? "";
+  const leadId = session?.dispatchedBy?.sessionId ?? null;
+  const children = useApp((s) => (leadId ? s.subagents[leadId] : undefined));
+  const inFlight = useApp((s) => (leadId ? s.delegatedRuns[leadId]?.some((r) => r.sessionId === id) ?? false : false));
+  const refreshSubagents = useApp((s) => s.refreshSubagents);
+  const run = useApp((s) => s.run);
+  const loaded = children !== undefined;
+  useEffect(() => { if (leadId && !loaded) run(() => refreshSubagents(leadId)); }, [leadId, loaded, refreshSubagents, run]);
+  const child = useMemo(() => (leadId && children ? findChild(children, id, leadId)?.child ?? null : null), [leadId, children, id]);
+  const brief = useAskedFor(child?.goal ?? null, blocks, { beside: id, environmentId: session?.environmentId ?? "", cwd: session?.cwd ?? "" });
+  const state = child ? subagentState(child, status, inFlight) : null;
+  const failed = state === "failed" || state === "timeout";
+  const report = useMemo(() => (child?.report && state && !isLive(state) ? { id, failed } : null), [child, state, id, failed]);
+  return { brief, report };
+}
+
+/**
+ * A sub-agent's brief, drawn in place of the message that carried it: the first thing it was sent
+ * holds the goal its lead wrote, inside Realm's two lines round it, and the goal is what a person
+ * came to read. Only that message, and only when it really holds the goal — anything else stays the
+ * bubble. Its files open beside `beside`, in the sub-agent's own checkout.
+ */
+export function useAskedFor(goal: string | null, blocks: readonly Block[] | undefined,
+  at: { beside: string; environmentId: string; cwd: string }): { text: string; node: ReactNode } | null {
+  const files = useCheckoutFiles(at.beside, at.environmentId, at.cwd);
+  const env = useApp((s) => s.environments[at.environmentId]);
+  const first = useMemo(() => blocks?.find((b): b is UserBlock => b.kind === "user") ?? null, [blocks]);
+  const want = goal?.trim() ?? "";
+  return useMemo(() => (want && first?.text.includes(want)
+    ? { text: first.text, node: <AskedFor text={want} files={files} env={env ? { path: env.path, branch: env.branch } : null} /> }
+    : null), [want, first, files, env]);
 }
 
 /**
@@ -143,50 +184,17 @@ function Facts({ state, elapsed, kind, model, where }: {
   );
 }
 
-/**
- * What it came back with, pinned under the head once it has ended: the report is the reason anyone
- * delegated, and it should not be a scroll to the bottom of the agent's whole log away. Capped, and
- * dissolving where it scrolls, so a long report cannot push the log off the panel.
- *
- * Its head is a disclosure, because a person reading the log under it may want the room back. It
- * starts open for every report: a short one has nothing to hide, and a long one is already capped,
- * so closing it is always the reader's choice and never a surprise. Closed, the head keeps the
- * report's first line after its name, so the card still says what came back; the tab remembers the
- * choice per sub-agent while it is open. The body folds on the disclosure rule every other one in
- * the app uses (grid rows, the size rung), which Reduce motion stills with everything else.
- */
-function Result({ text, failed, fold }: { text: string; failed: boolean; fold: Fold }) {
+/** What it came back with, pinned under the head once it has ended: the report is the reason anyone
+ *  delegated, and it should not be a scroll to the bottom of the agent's whole log away. Capped, and
+ *  dissolving where it scrolls, so a long report cannot push the log off the panel. */
+function Result({ id, text, failed }: { id: string; text: string; failed: boolean }) {
   const scroller = useRef<HTMLDivElement>(null);
   useDissolve(scroller);
-  const [own, setOwn] = useState(fold.open);
-  const open = fold.onOpen ? fold.open : own;
-  const toggle = () => (fold.onOpen ? fold.onOpen(!open) : setOwn(!open));
-  const body = useId();
-  const name = failed ? "How it ended" : "What it reported";
   return (
-    <section className="subagent-view-result" data-error={failed || undefined} data-open={open || undefined} aria-label={name}>
-      <h3 className="subagent-view-result-head">
-        <button type="button" className="subagent-view-result-toggle" aria-expanded={open} aria-controls={body}
-          title={open ? "Hide the report" : "Show the report"} onClick={toggle}>
-          <Icon name={failed ? "errorCircle" : "checkCircle"} size={14} />
-          <span className="subagent-view-result-name">{name}</span>
-          {!open && <span className="subagent-view-result-gist" aria-hidden>{gistOf(text)}</span>}
-          <Icon name="chevronRight" size={12} className="subagent-view-result-chevron" />
-        </button>
-      </h3>
-      <div className="subagent-view-result-wrap" id={body} data-open={open || undefined}>
-        <div className="subagent-view-result-clip" inert={!open || undefined}>
-          <div className="subagent-view-result-scroll" ref={scroller}><Markdown text={text} className="subagent-view-prose" /></div>
-        </div>
-      </div>
-    </section>
+    <ReportFold id={id} text={text} failed={failed}>
+      <div className="subagent-view-result-scroll" ref={scroller}><Markdown text={text} className="subagent-view-prose" /></div>
+    </ReportFold>
   );
-}
-
-/** A report's first line as plain words, for the head of a closed card. */
-export function gistOf(text: string): string {
-  const line = text.split("\n").map((l) => l.trim()).find((l) => l !== "" && !/^(```|~~~|---|\*\*\*)/.test(l)) ?? "";
-  return line.replace(/^(#{1,6}\s+|>\s*|[-*+]\s+|\d+[.)]\s+)/, "").replace(/(\*\*|__|`|~~)/g, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").trim();
 }
 
 /** Where a child works: its worktree's branch, or the checkout it shares. Nothing where this window
@@ -198,14 +206,11 @@ export function whereLabel(env: Environment | undefined): { text: string; branch
   return name ? { text: name, branch: env.branch !== null, path: env.path } : null;
 }
 
-/** The report's disclosure, held by the tab. */
-type Fold = { open: boolean; onOpen?: (open: boolean) => void };
-
 const NO_BLOCKS: readonly Block[] = [];
 const NO_REQUESTS = emptyTranscript().pendingPermissions;
 
 /** A delegated child: its own session's transcript, live, with its requests and a foot to act on it. */
-function ChildView({ leadId, child, onKeyDownCapture, fold }: { leadId: string; child: DelegatedChild; onKeyDownCapture: (e: KeyboardEvent<HTMLElement>) => void; fold: Fold }) {
+function ChildView({ leadId, child, onKeyDownCapture }: { leadId: string; child: DelegatedChild; onKeyDownCapture: (e: KeyboardEvent<HTMLElement>) => void }) {
   const id = child.session.id;
   const live = useApp((s) => s.sessionStatus[id]);
   const inFlight = useApp((s) => s.delegatedRuns[leadId]?.some((r) => r.sessionId === id) ?? false);
@@ -215,7 +220,6 @@ function ChildView({ leadId, child, onKeyDownCapture, fold }: { leadId: string; 
   const openSession = useApp((s) => s.openSession);
   const respondPermission = useApp((s) => s.respondPermission);
   const run = useApp((s) => s.run);
-  const files = useCheckoutFiles(leadId, child.session.environmentId, child.session.cwd);
   // A child nobody has opened has no transcript in this window yet; the viewer is what reads it, and
   // from then on its events stream into it as they would into a pane.
   const loaded = transcript !== undefined;
@@ -228,18 +232,11 @@ function ChildView({ leadId, child, onKeyDownCapture, fold }: { leadId: string; 
   const title = childTitle(child);
   const status = live ?? child.session.status;
   const ended = !isLive(state);
-  /* Its brief, in place of the message that carried it: the first thing it was sent holds the goal
-     its lead wrote, inside Realm's two lines round it, and the goal is what a person came to read.
-     Only that message, and only when it really holds the goal — anything else stays the bubble. */
-  const goal = child.goal?.trim() ?? "";
-  const first = useMemo(() => transcript?.blocks.find((b): b is UserBlock => b.kind === "user") ?? null, [transcript]);
-  const brief = goal && first?.text.includes(goal)
-    ? { text: first.text, node: <AskedFor text={goal} files={files} env={env ? { path: env.path, branch: env.branch } : null} /> }
-    : null;
+  const brief = useAskedFor(child.goal, transcript?.blocks, { beside: leadId, environmentId: child.session.environmentId, cwd: child.session.cwd });
   return (
     <Frame title={title} onKeyDownCapture={onKeyDownCapture}
       facts={<Facts state={state} elapsed={elapsed} kind={kind} model={`${modelLabel(kind, child.session.model, probe)} on ${AGENT_META[kind].label}`} where={whereLabel(env)} />}
-      result={ended && child.report ? <Result text={child.report} failed={state === "failed" || state === "timeout"} fold={fold} /> : null}
+      result={ended && child.report ? <Result id={id} text={child.report} failed={state === "failed" || state === "timeout"} /> : null}
       foot={<ChildFoot leadId={leadId} child={child} title={title} state={state} />}>
       {transcript && (
         <Transcript transcript={transcript} sessionStatus={status} visible focused={false} cwd={child.session.cwd || null}
@@ -299,7 +296,7 @@ function ChildFoot({ leadId, child, title, state }: { leadId: string; child: Del
 
 /** One of the lead's own harness agents: the brief it was handed, the calls it has made under its
  *  launching call, the requests among them waiting on you, and its report once it has one. */
-function HarnessView({ leadId, agentId, onKeyDownCapture, fold }: { leadId: string; agentId: string; onKeyDownCapture: (e: KeyboardEvent<HTMLElement>) => void; fold: Fold }) {
+function HarnessView({ leadId, agentId, onKeyDownCapture }: { leadId: string; agentId: string; onKeyDownCapture: (e: KeyboardEvent<HTMLElement>) => void }) {
   const blocks = useApp((s) => s.transcripts[leadId]?.t.blocks ?? NO_BLOCKS);
   const kind = useApp((s) => (s.sessions[leadId] ?? s.allSessions[leadId])?.agentKind ?? "claude");
   const leadStatus = useApp((s) => s.sessionStatus[leadId] ?? "idle");
@@ -318,7 +315,7 @@ function HarnessView({ leadId, agentId, onKeyDownCapture, fold }: { leadId: stri
   return (
     <Frame title={title} onKeyDownCapture={onKeyDownCapture}
       facts={<Facts state={state} elapsed={elapsed} kind={kind} model={`${type} inside ${AGENT_META[kind].label}`} />}
-      result={report && state !== "working" ? <Result text={report.content} failed={report.isError} fold={fold} /> : null}>
+      result={report && state !== "working" ? <Result id={agentId} text={report.content} failed={report.isError} /> : null}>
       {node === null
         // The one honest failure: a call this transcript does not hold — the viewer outlived a
         // compaction that dropped the launching call.

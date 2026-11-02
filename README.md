@@ -84,7 +84,17 @@ realm run ~/code/app --worktree fix-login -- claude -p "fix the login bug"
 realm ps                                        # every terminal: running, exited N, or killed (signal N)
 realm wait --timeout 600                        # exit 0 only if every command exited 0
 realm logs <terminal>; realm kill <terminal>
+realm ship <checkout> --message "Fix the login bug" --pr   # commit it all, push the branch, open a PR
 ```
+
+`realm ship` takes the checkout's id, which `realm run --json` prints as `environmentId` and
+`realm worktree list` prints first. It stages every change in that checkout, as the Changes pane's
+Stage all does, and commits it. `--push` also pushes the branch, setting its upstream when the remote
+has never seen it, and `--pr` pushes it and opens a pull request with `gh`. Where `gh` is missing or
+not signed in, it prints the GitHub link that makes the pull request instead. It is the same commit,
+push and pull request the Changes pane makes, and it lands in the space's History beside theirs. It
+exits 0 only when every step it was asked for happened, so 1 means nothing to commit (and nothing to
+push), a push the remote refused, or a pull request it could only link to.
 
 `--json` makes every command print one JSON document. Every packaged app ships the command at
 `<resources>/bin/realm` and runs it on the app's own binary as Node, so it needs no Node install and

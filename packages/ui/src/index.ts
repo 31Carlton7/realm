@@ -20,5 +20,7 @@ export { allThemes, clampContrast, CONTRAST_RANGE, contrastMisses, DEFAULT_SELEC
   type ThemeDef, type ThemeName, type ThemeOverride, type ThemeOverrides, type ThemeSelection } from "./themes";
 /* A terminal's sixteen and the ink around them, for the hub that hands them to xterm. */
 export { ANSI_NAMES, terminalPalette, type TerminalPalette } from "./terminal-palette";
-/* A team role's creature: the spec a role row stores, the generator, and the drawing. */
+/* The browser runner game's creature: its spec, the generator, and the drawing. */
 export * from "./realmite";
+/* A teammate's mark: a shape and a colour, drawn flat with two eyes. */
+export * from "./teammate-icon";

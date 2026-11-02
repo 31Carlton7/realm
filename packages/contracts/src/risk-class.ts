@@ -72,20 +72,15 @@ const SHOWS_ELSEWHERE = "it shows what is outside this space";
  *   - `schedule_list` — the space's schedules;
  *   - `docs_search`, `docs_read` — the text of files in the space's folder;
  *   - `docs_state` — which files the space's Documents panes have open;
- *   - `record_list` — the team's record files, by name;
- *   - `record_types` — the kinds of record the team keeps: folders, fields and sections;
- *   - `review_status` — where this session's submissions to Review stand;
- *   - `policy_read` — the team's policies in the Policies page's words; it writes nothing;
+ *   - `team_list` — the space's teammates, what each does and what it is working on;
  *   - `memory_index`, `memory_read`, `memory_search` — the memory repo, which refuses a secret's shape
  *     on every write;
- *   - `goal_status` — the session's goal, turns and budget;
- *   - `vault_list` — the vault's secrets by NAME and host; there is no field for a value.
+ *   - `goal_status` — the session's goal, turns and budget.
  *
  * NEVER class `read` (without `asksFirst`) a tool that changes state, sends something, moves the
  * user's screen or reveals a secret value: such a name runs with no prompt from either engine. Classed
  * otherwise on purpose: `docs_open`, `docs_reveal`, `pane_show`, `session_open`, `space_switch` (each changes what is
- * on screen); `team_roles` (re-hashes approved reviews, and sends one back to the person when a file
- * changed under it); `vault_http` (spends a secret).
+ * on screen); `team_message` (puts a turn in a teammate's chat).
  */
 export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   // Promptless reads first, in the order `REALM_READ_ONLY_TOOLS` has always listed them.
@@ -103,15 +98,11 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
   "realm-docs__docs_search": read,
   "realm-docs__docs_read": read,
   "realm-docs__docs_state": read,
-  "realm-team__record_list": read,
-  "realm-team__record_types": read,
-  "realm-team__review_status": read,
-  "realm-team__policy_read": read,
+  "realm-team__team_list": read,
   "realm-memory__memory_index": read,
   "realm-memory__memory_read": read,
   "realm-memory__memory_search": read,
   "realm-goal__goal_status": read,
-  "realm-vault__vault_list": read,
 
   "realm-browser__browser_open": reversible,
   "realm-browser__browser_navigate": reversible,
@@ -188,15 +179,7 @@ export const REALM_TOOL_CLASSES: Readonly<Record<string, RealmToolClass>> = {
 
   "realm-schedule__schedule_create": internal,
 
-  "realm-team__team_roles": internal,
-  "realm-team__record_read": readAsking("it logs the read on the team's activity"),
-  "realm-team__record_update": internal,
-  "realm-team__review_submit": internal,
-  "realm-team__review_close": internal,
-  "realm-team__team_handoff": internal,
-  "realm-team__team_mention": internal,
-
-  "realm-vault__vault_http": irreversible,
+  "realm-team__team_message": internal,
 
   "realm-memory__memory_save": internal,
   "realm-memory__memory_remove": internal,

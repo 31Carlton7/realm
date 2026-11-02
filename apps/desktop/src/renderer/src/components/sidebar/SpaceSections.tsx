@@ -6,7 +6,7 @@ import { Menu, type MenuItem } from "../Menu";
 import { SpaceIcon } from "../SpaceIcon";
 import { reorderWithin, rowsBySpace, sectionView, spaceTally, tallyWords, type ListRow, type SessionRow, type SidebarState, type Tally } from "./model";
 import { ListRowView, TallyMarks } from "./SessionRows";
-import { TeamRows } from "./TeamRows";
+import { TeamSection } from "./TeamSection";
 import { useNewSessionIn, useOpenSpacePage, useOrderedSpaces, useSpaceTint } from "./use-sidebar-model";
 
 /** What a section head carries in a drag, told apart from an item's. */
@@ -61,7 +61,6 @@ type SectionDrag = {
 };
 
 function SpaceSection({ space, rows, tally, onChanged, drag }: { space: Space; rows: ListRow[]; tally: Tally; onChanged: () => void; drag: SectionDrag }) {
-  const team = useApp((s) => s.teams[space.id]);
   const collapsed = useApp((s) => s.sidebarCollapsedSpaces.includes(space.id));
   const setSpaceSectionCollapsed = useApp((s) => s.setSpaceSectionCollapsed);
   const run = useApp((s) => s.run);
@@ -71,6 +70,9 @@ function SpaceSection({ space, rows, tally, onChanged, drag }: { space: Space; r
   const openSessions = (view: "active" | "archived") => { setSpaceSessionsView(space.id, view); openSpacePage(space.id, "sessions"); };
   const newSessionIn = useNewSessionIn();
   const askNewWorktree = useApp((s) => s.askNewWorktree);
+  const openSheet = useApp((s) => s.openSheet);
+  const hasTeam = useApp((s) => (s.teammates[space.id]?.length ?? 0) > 0);
+  const addTeammate = () => openSheet({ kind: "teammate", spaceId: space.id });
   // A plain folder has no worktrees, so its ⋯ offers no session in one (store.ts).
   const plainFolder = useApp((s) => spaceIsPlainFolder(s, space.id));
   const tint = useSpaceTint(space.color);
@@ -95,15 +97,15 @@ function SpaceSection({ space, rows, tally, onChanged, drag }: { space: Space; r
     ...(plainFolder ? [] : [
       // A sheet that asks the name and the branch to start from, and lands in a session there.
       { label: "New session in a worktree…", icon: <Icon name="branch" size={16} />, onSelect: () => run(() => askNewWorktree(space.id)) },
-      { kind: "separator" },
     ] satisfies MenuItem[]),
+    // A permanent agent of the space, that you message; it lands in its chat once made.
+    { label: "Add a teammate…", icon: <Icon name="team" size={16} />, onSelect: addTeammate },
+    { kind: "separator" },
     // Offered only where the desktop bridge has it — a reveal that cannot happen is not offered.
     ...(reveal ? [{ label: "Show in Finder", icon: <Icon name="folder" size={16} />, onSelect: () => { void reveal(space.folderPath); } }] : []),
     { label: "Connections", icon: <Icon name="connections-page" size={16} />, onSelect: () => openSpacePage(space.id, "connections") },
     { label: "Memory", icon: <Icon name="context" size={16} />, onSelect: () => openSpacePage(space.id, "memory") },
     ...(plainFolder ? [] : [{ label: "Worktrees", icon: <Icon name="branch" size={16} />, onSelect: () => openSpacePage(space.id, "worktrees") }]),
-    // A team's home, or where a space becomes one.
-    { label: team?.enabled ? "Team" : "Make this a team…", icon: <Icon name="team" size={16} />, onSelect: () => openSpacePage(space.id, "team") },
     { label: "Archived sessions", icon: <Icon name="archive" size={16} />, onSelect: () => openSessions("archived") },
     { label: "Space settings", icon: <Icon name="settings" size={16} />, onSelect: () => openSpacePage(space.id, "general") },
   ];
@@ -132,15 +134,25 @@ function SpaceSection({ space, rows, tally, onChanged, drag }: { space: Space; r
         <div className="sb-section-wrap" data-open={!collapsed || undefined}>
           <div className="sb-section-clip" inert={collapsed || undefined} aria-hidden={collapsed || undefined}>
             <div className="item-list" id={listId}>
-              {/* The space's team, above its sessions: Review while something waits, then the roles. */}
-              {team?.enabled && <TeamRows team={team} />}
+              {/* The space's teammates head it, above its sessions. */}
+              <TeamSection spaceId={space.id} sessions={rows.length > 0} />
               {rows.length === 0 ? (
-                // An empty space offers the shortest honest path to work in it.
-                <div className="item sb-row" data-nested="" data-actions="0">
-                  <button type="button" className="item-row sb-start" onClick={() => newSessionIn(space.id)}>
-                    <span className="sb-gutter"><Icon name="add" size={12} /></span><span className="item-title">New session</span>
-                  </button>
-                </div>
+                // An empty space offers the shortest honest paths to work in it: a session, or — while
+                // it has none — a teammate.
+                <>
+                  <div className="item sb-row" data-nested="" data-actions="0">
+                    <button type="button" className="item-row sb-start" onClick={() => newSessionIn(space.id)}>
+                      <span className="sb-gutter"><Icon name="add" size={12} /></span><span className="item-title">New session</span>
+                    </button>
+                  </div>
+                  {!hasTeam && (
+                    <div className="item sb-row" data-nested="" data-actions="0">
+                      <button type="button" className="item-row sb-start" onClick={addTeammate}>
+                        <span className="sb-gutter"><Icon name="team" size={12} /></span><span className="item-title">Add a teammate</span>
+                      </button>
+                    </div>
+                  )}
+                </>
               ) : shown.map((r) => <ListRowView key={r.id} row={r} nested onChanged={onChanged} />)}
               {hidden > 0 && (
                 <button type="button" className="agents-more sb-more" title={`Every session in ${space.name}, on its page`}

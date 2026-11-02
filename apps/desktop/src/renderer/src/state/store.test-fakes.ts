@@ -4,12 +4,9 @@ import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment,
 import type { AddMcpServerInput, AgentProbe, Api, BranchList, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
 import type { Account, CliStatus, DelegatedChild, LayaStatus, ModelInfo, ResourcePolicies, ResourceReport, Schedule, SearchResults, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
-import type { SavedTurn } from "@realm/contracts";
+import { TEAMMATE_CLOCK_PROMPT, type MemoryLibraryEntry, type MemoryLibraryFile, type MemoryLibrarySource, type SavedTurn, type Teammate, type TeammateSchedule, type TeammateScheduleInput } from "@realm/contracts";
 import { PRODUCTION_REMOTE_RELAY, type PairRequest, type PairedPhone, type RemoteStatus } from "@realm/contracts";
 import { RpcError } from "../rpc/client";
-import type { RoleRun, TeamActivity, TeamRecord, TeamRecordType, TeamReviewDetail, TeamReviewSummary, TeamRole, TeamSpace } from "@realm/contracts";
-import { recordPreset, recordTemplate } from "@realm/contracts";
-import type { LabCheck, LabDevices, LabSeenDevice, LabStatus } from "@realm/contracts";
 
 /** Zeroed usage totals — the shape every row of a `UsageSummary` carries. */
 export const usageTotals = (extra: Partial<UsageTotals> = {}): UsageTotals =>
@@ -62,7 +59,18 @@ export const item = (id: string, spaceId: string, extra: Partial<Item> = {}): It
   ({ id, spaceId, kind: "terminal", title: "t", sortOrder: 0, pinned: false, archived: false, refId: id, createdAt: 0, updatedAt: 0, ...extra });
 export const session = (id: string, spaceId: string, extra: Partial<Session> = {}): Session =>
   ({ id, spaceId, projectId: null, agentKind: "fake", model: null, effort: null, fastMode: false, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", cwd: "/tmp", status: "idle",
-    providerSessionId: null, title: "Fake agent session", lastEventSeq: 0, seenSeq: 0, terminalItemId: null, dispatchedBy: null, activityAt: 0, createdAt: 0, updatedAt: 0, ...extra });
+    providerSessionId: null, title: "Fake agent session", lastEventSeq: 0, seenSeq: 0, terminalItemId: null, dispatchedBy: null, teammateId: null, teammateHome: false, activityAt: 0, createdAt: 0, updatedAt: 0, ...extra });
+/** A teammate with its chat made, idle, in no group. */
+export const teammate = (id: string, spaceId: string, extra: Partial<Teammate> = {}): Teammate =>
+  ({ id, spaceId, handle: id, name: id, brief: "", icon: { shape: "circle", color: "blue" }, agentKind: "fake", model: null, effort: null,
+    permissionMode: "default", folder: "/tmp", lead: false, group: null, sortOrder: 0, archived: false, homeSessionId: null, createdAt: 0, updatedAt: 0,
+    schedule: null, state: "idle", stateSince: null, unread: false, liveTask: null, taskSessions: [], ...extra });
+
+/** A teammate's clock as the server would hold it after `input`, over the one it had. */
+const clockAfter = (input: TeammateScheduleInput, cur: TeammateSchedule | null): TeammateSchedule => ({
+  id: cur?.id ?? "01ARZ3NDEKTSV4RRFFQ69G5CLK", cron: input.cron ?? cur?.cron ?? "", prompt: input.prompt ?? cur?.prompt ?? TEAMMATE_CLOCK_PROMPT,
+  enabled: input.enabled ?? cur?.enabled ?? true, nextRunAt: null, lastRunAt: null, lastSkippedAt: null,
+});
 
 export const skillRow = (id: string, extra: Partial<Skill> = {}): Skill =>
   ({ id, name: id, description: `does ${id}`, path: `/realm-home/skills/${id}/SKILL.md`, enabled: true, valid: true, reason: null,
@@ -110,33 +118,6 @@ export const mcpCall = (id: string, sessionId: string, extra: Partial<McpCall> =
 export const shipRow = (id: string, spaceId: string, extra: Partial<Ship> = {}): Ship =>
   ({ id, environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", spaceId, branch: "main", sha: `sha-${id}`,
     subject: `shipped ${id}`, prUrl: null, pushState: "pushed", createdAt: 0, ...extra });
-
-/** A team role, idle, with no clock. */
-export const teamRole = (id: string, spaceId: string, name: string, extra: Partial<TeamRole> = {}): TeamRole => ({
-  id, spaceId, name, brief: `${name}'s brief.`, realmite: { seed: id }, template: null, agentKind: "claude", model: "sonnet", effort: null,
-  permissionMode: "default", skills: [], scheduleId: null, cron: null, scheduleEnabled: false, nextRunAt: null, wakeOnReview: true,
-  weekBudgetUsd: null, runCapUsd: 3, runCapMs: 1_200_000, maxConcurrent: 1, archived: false, createdAt: 0, updatedAt: 0,
-  state: "idle", stateSince: null, pausedWhy: null, weekSpendUsd: 0, lastRunAt: null, latestSessionId: null, unread: false,
-  handsOffTo: [], wakeOnMention: true, goal: null, ...extra,
-});
-
-/** A review waiting on a person. */
-export const teamReview = (id: string, spaceId: string, title: string, extra: Partial<TeamReviewSummary> = {}): TeamReviewSummary => ({
-  id, spaceId, roleId: null, roleName: null, runId: null, sessionId: null, recordPath: null, kind: "slideshows", title, state: "waiting",
-  note: null, version: 1, itemCount: 1, thumb: null, channels: [], account: null, changedSinceApproval: false, actsTotal: 0, actsDone: 0, createdAt: 0, decidedAt: null, updatedAt: 0, ...extra,
-});
-
-/** A team's kind of record from a preset — a team made from RC2's creator starters keeps creators. */
-export const recordType = (spaceId: string, preset: string, extra: Partial<TeamRecordType> = {}): TeamRecordType => ({
-  ...recordPreset(preset)!, id: `rt-${spaceId}-${preset}`, spaceId, preset, archived: false, sortOrder: 0, createdAt: 0, updatedAt: 0, count: 0, ...extra,
-});
-
-/** A team space: its roles and reviews. */
-export const teamSpace = (spaceId: string, roles: TeamRole[], reviews: TeamReviewSummary[] = [], extra: Partial<TeamSpace> = {}): TeamSpace => ({
-  spaceId, enabled: true, roles, reviews, weekSpendUsd: 0, weekBudgetUsd: 60, hasRepo: true, recordCount: 0, runSessionIds: [], recordTypes: [recordType(spaceId, "creator")],
-  repoPath: "/realm/memory/repos/space", repoMoved: false, sharesUsd: roles.reduce((n, r) => n + (r.weekBudgetUsd ?? 0), 0), formerRoles: [],
-  limits: { teamMaxLive: 2, realmMaxUnattended: 3, teamRunning: 0, realmRunning: 0, teamQueued: 0, backoff: [] }, handoffs: [], actsHeld: false, ...extra,
-});
 
 /** A durable run. Defaults to a queued run with no attempts yet. */
 export const runRow = (id: string, spaceId: string, extra: Partial<Run> = {}): Run =>
@@ -231,21 +212,6 @@ export type FakeData = {
    *  a new path here as the server would; `clearAvatar` empties it. */
   avatarPath?: string | null;
   schedules?: Schedule[];
-  /** Team spaces as `team.overview` answers, and the detail behind them by id. */
-  teams?: TeamSpace[];
-  teamReviews?: Record<string, TeamReviewDetail>;
-  teamRoleRuns?: Record<string, RoleRun[]>;
-  teamRecords?: Record<string, TeamRecord[]>;
-  teamActivity?: Record<string, TeamActivity[]>;
-  /** `team.make` refuses with this code (and message) until it is given a folder for the team's memory. */
-  teamMakeRefusal?: { code: string; message: string } | null;
-  /** Settings ▸ Lab: the server's status and checks, the device registry, what a scan finds on the
-   *  cable, and main's login item (null: no main to ask). */
-  lab?: LabStatus;
-  labChecks?: LabCheck[];
-  labDevices?: LabDevices;
-  labOnCable?: LabSeenDevice[];
-  labLoginItem?: { openAtLogin: boolean | null; canSet: boolean } | null;
   /** Terminals already created for a session (sessionId → the trio openSessionTerminal returns). */
   sessionTerminals?: Record<string, { terminalId: string; itemId: string }>;
   /** By cwd; absent cwd = not a repo (null). */
@@ -442,6 +408,11 @@ export type FakeData = {
   /** What `memory.repo.claudeBackfill` answers, by profile id: `last` before "Check now", `next` after
    *  it, `placed` after `memory.repo.setClaudeProject`. Absent = it has not run yet. */
   claudeBackfills?: Record<string, { last: MemoryClaudeBackfill; next?: MemoryClaudeBackfill; placed?: MemoryClaudeBackfill }>;
+  /** The memory library (`memory.library.*`): its sources, and every file whole. A write, a create and a
+   *  delete change `memoryFiles` as the server would; an external file refuses a write or delete with
+   *  MEMORY_EXTERNAL_UNCONFIRMED unless confirmed. */
+  memoryLibrarySources?: MemoryLibrarySource[];
+  memoryFiles?: MemoryLibraryFile[];
   /** The notifications feed `notifications.list` pages over (W5). Unordered on the way in — the fake
    *  sorts (createdAt DESC, id DESC) and pages like the real store, so tests just append. */
   notifications?: Notification[];
@@ -454,6 +425,8 @@ export type FakeData = {
   dismissedSubagents?: Record<string, string[]>;
   /** What `delegation.models` answers, for every session. */
   delegableModels?: DelegableModels;
+  /** Every space's teammates, archived ones included; `teammates.list` answers the rest by space. */
+  teammates?: Teammate[];
   /** What `search.query` answers (Plan 16 W2), regardless of query — palette tests script the groups.
    *  Delay it with `delays["search"]` to hold results in flight. */
   searchResults?: SearchResults;
@@ -638,17 +611,6 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     usageRecords: overrides.usageRecords ?? emptyUsageRecords(),
     avatarPath: overrides.avatarPath ?? null,
     schedules: overrides.schedules ?? [],
-    teams: overrides.teams ?? [],
-    teamReviews: overrides.teamReviews ?? {},
-    teamRoleRuns: overrides.teamRoleRuns ?? {},
-    teamRecords: overrides.teamRecords ?? {},
-    teamActivity: overrides.teamActivity ?? {},
-    teamMakeRefusal: overrides.teamMakeRefusal ?? null,
-    lab: overrides.lab ?? { enabled: false, updateHour: 4, updateCapMinutes: 30, update: { kind: "idle" }, hostName: "lab-mini.local" },
-    labChecks: overrides.labChecks ?? [],
-    labDevices: overrides.labDevices ?? { devices: [], unregistered: [], scannedAt: null },
-    labOnCable: overrides.labOnCable ?? [],
-    labLoginItem: overrides.labLoginItem === undefined ? { openAtLogin: false, canSet: true } : overrides.labLoginItem,
     importScan: overrides.importScan ?? { sessions: [], memories: [], skills: [], sources: [] },
     importResult: overrides.importResult ?? { sessions: [], memories: [], skills: [], spacesCreated: [] },
     tccRows: overrides.tccRows ?? [
@@ -703,6 +665,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     memoryRemoteChecks: overrides.memoryRemoteChecks ?? {},
     claudeImports: overrides.claudeImports ?? {},
     claudeBackfills: overrides.claudeBackfills ?? {},
+    memoryLibrarySources: overrides.memoryLibrarySources ?? [],
+    memoryFiles: overrides.memoryFiles ?? [],
     documentWorkspaces: overrides.documentWorkspaces ?? {},
     documentFiles: overrides.documentFiles ?? {},
     notifications: overrides.notifications ?? [],
@@ -711,6 +675,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     delegatedChildren: overrides.delegatedChildren ?? {},
     dismissedSubagents: overrides.dismissedSubagents ?? {},
     delegableModels: overrides.delegableModels ?? { models: [], own: { kind: "claude", label: "Fable 5.1" } },
+    teammates: overrides.teammates ?? [],
     searchResults: overrides.searchResults ?? { sessions: [], items: [], skills: [], memory: [] },
     artifacts: overrides.artifacts ?? [],
     addedProfiles: overrides.addedProfiles ?? {},
@@ -1455,6 +1420,51 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       if (b.placed) b.last = b.placed;
       return b.last;
     },
+    memoryLibrarySources: async (profileId) => {
+      calls.push(`memoryLibrarySources:${profileId}`);
+      return data.memoryLibrarySources.map((src) => ({ ...src, count: data.memoryFiles.filter((f) => f.sourceId === src.id).length }));
+    },
+    memoryLibraryList: async (profileId, o = {}) => {
+      calls.push(`memoryLibraryList:${profileId}:${o.sourceId ?? ""}:${o.query ?? ""}`);
+      const q = (o.query ?? "").trim().toLowerCase();
+      return data.memoryFiles
+        .filter((f) => (o.sourceId === undefined || f.sourceId === o.sourceId) && (q === "" || `${f.title}\n${f.description ?? ""}\n${f.body}`.toLowerCase().includes(q)))
+        .map((f): MemoryLibraryEntry => {
+          const line = q === "" ? null : f.body.split("\n").find((l) => l.toLowerCase().includes(q)) ?? null;
+          return { id: f.id, sourceId: f.sourceId, path: f.path, rel: f.rel, title: f.title, description: f.description, type: f.type, folder: f.folder, index: f.index, updatedAt: f.updatedAt, size: f.size, match: line };
+        });
+    },
+    memoryLibraryRead: async (id) => {
+      calls.push(`memoryLibraryRead:${id}`);
+      const f = data.memoryFiles.find((x) => x.id === id);
+      if (!f) throw new RpcError("MEMORY_FILE_NOT_FOUND", `${id} is not a memory`);
+      return f;
+    },
+    memoryLibraryWrite: async (id, text, confirmExternal) => {
+      calls.push(`memoryLibraryWrite:${id}:${confirmExternal}`);
+      const f = data.memoryFiles.find((x) => x.id === id)!;
+      if (f.external && !confirmExternal) throw new RpcError("MEMORY_EXTERNAL_UNCONFIRMED", `${f.path} is outside Realm`);
+      Object.assign(f, { text, body: text.replace(/^---\n[\s\S]*?\n---\n+/, ""), updatedAt: Date.now() });
+      return f;
+    },
+    memoryLibraryCreate: async (input) => {
+      calls.push(`memoryLibraryCreate:${input.sourceId}:${input.spaceId ?? ""}:${input.name}`);
+      const rel = `${input.spaceId ? `spaces/${input.spaceId}/` : ""}${input.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.md`;
+      const f: MemoryLibraryFile = {
+        id: `${input.sourceId}:${rel}`, sourceId: input.sourceId, path: `/realm-home/memory/repos/profile-p1/${rel}`, displayPath: `/realm-home/memory/repos/profile-p1/${rel}`, rel,
+        title: input.name, description: input.description, type: input.type, folder: null, index: false, updatedAt: Date.now(), size: input.body.length, match: null, text: input.body, body: input.body, frontmatter: [],
+        links: [], readBy: [], external: false, writable: true, deletable: true, note: null,
+      };
+      data.memoryFiles.push(f);
+      return f;
+    },
+    memoryLibraryDelete: async (id, confirmExternal) => {
+      calls.push(`memoryLibraryDelete:${id}:${confirmExternal}`);
+      const f = data.memoryFiles.find((x) => x.id === id)!;
+      if (f.external && !confirmExternal) throw new RpcError("MEMORY_EXTERNAL_UNCONFIRMED", `${f.path} is outside Realm`);
+      data.memoryFiles = data.memoryFiles.filter((x) => x.id !== id);
+      return { trashed: f.external };
+    },
     memorySources: async (sessionId) => {
       calls.push(`memorySources:${sessionId}`);
       const m = data.memorySources[sessionId];
@@ -1831,201 +1841,6 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     clearAvatar: async () => { calls.push("clearAvatar"); data.avatarPath = null; },
     // Copies, as the wire hands over: a store that kept the fake's own objects would see a mutation
     // here as no change at all.
-    labStatus: async () => { calls.push("labStatus"); return structuredClone(data.lab); },
-    labSetEnabled: async (enabled) => { calls.push(`labSetEnabled:${enabled}`); data.lab.enabled = enabled; return structuredClone(data.lab); },
-    labSetUpdateWindow: async (hour, cap) => { calls.push(`labSetUpdateWindow:${hour}:${cap}`); data.lab.updateHour = hour; data.lab.updateCapMinutes = cap; return structuredClone(data.lab); },
-    labUpdateNow: async () => { calls.push("labUpdateNow"); return structuredClone(data.lab); },
-    labReadiness: async () => { calls.push("labReadiness"); return { checks: structuredClone(data.labChecks), checkedAt: 1_000 }; },
-    labDevices: async () => { calls.push("labDevices"); return structuredClone(data.labDevices); },
-    labScan: async () => {
-      calls.push("labScan");
-      const known = new Set(data.labDevices.devices.map((d) => d.udid));
-      data.labDevices = { ...data.labDevices, unregistered: data.labOnCable.filter((d) => !known.has(d.udid)), scannedAt: 2_000 };
-      return structuredClone(data.labDevices);
-    },
-    labDeviceAdd: async (input) => {
-      calls.push(`labDeviceAdd:${input.name}:${input.spaceId ?? "-"}:${input.accounts.map((a) => `${a.service}=${a.handle}`).join(",")}`);
-      if (input.accounts.length > 3) throw new RpcError("LAB_ACCOUNTS", "A phone holds at most 3 accounts. Put the rest on another phone.");
-      data.labDevices.devices.push({ id: `0000000000000000000000DEV${data.labDevices.devices.length}`, kind: input.kind, udid: input.udid, name: input.name,
-        spaceId: input.spaceId, spaceName: data.spaces.find((sp) => sp.id === input.spaceId)?.name ?? null, accounts: input.accounts,
-        lastSeenAt: null, connected: data.labOnCable.some((d) => d.udid === input.udid), createdAt: 3_000 });
-      data.labDevices.unregistered = data.labDevices.unregistered.filter((d) => d.udid !== input.udid);
-      return structuredClone(data.labDevices);
-    },
-    labDeviceUpdate: async (patch) => {
-      calls.push(`labDeviceUpdate:${patch.id}`);
-      const d = data.labDevices.devices.find((x) => x.id === patch.id);
-      if (d) Object.assign(d, patch.name !== undefined ? { name: patch.name } : {}, patch.accounts !== undefined ? { accounts: patch.accounts } : {},
-        patch.spaceId !== undefined ? { spaceId: patch.spaceId, spaceName: data.spaces.find((sp) => sp.id === patch.spaceId)?.name ?? null } : {});
-      return structuredClone(data.labDevices);
-    },
-    labDeviceRemove: async (id) => { calls.push(`labDeviceRemove:${id}`); data.labDevices.devices = data.labDevices.devices.filter((d) => d.id !== id); return structuredClone(data.labDevices); },
-    labLoginItem: async () => { calls.push("labLoginItem"); return data.labLoginItem ? { ...data.labLoginItem } : null; },
-    labSetLoginItem: async (on) => {
-      calls.push(`labSetLoginItem:${on}`);
-      if (data.labLoginItem?.canSet) data.labLoginItem = { ...data.labLoginItem, openAtLogin: on };
-      return data.labLoginItem ? { ...data.labLoginItem } : null;
-    },
-    labOpenSettings: async (pane) => { calls.push(`labOpenSettings:${pane}`); },
-    onLabChanged: () => () => {},
-    teamOverview: async () => { calls.push("teamOverview"); return structuredClone(data.teams.filter((t) => t.enabled)); },
-    teamSpace: async (spaceId) => {
-      calls.push(`teamSpace:${spaceId}`);
-      return structuredClone(data.teams.find((t) => t.spaceId === spaceId))
-        ?? teamSpace(spaceId, [], [], { enabled: false, hasRepo: false, repoPath: null });
-    },
-    teamMake: async (spaceId, templates, o) => {
-      calls.push(`teamMake:${spaceId}:${templates.join(",")}${o?.roles?.length ? `+${o.roles.map((r) => r.name).join(",")}` : ""}${o?.repoPath ? `@${o.repoPath}` : ""}${o?.weekBudgetUsd !== undefined ? `$${o.weekBudgetUsd}` : ""}`);
-      if (data.teamMakeRefusal && !o?.repoPath) throw new RpcError(data.teamMakeRefusal.code, data.teamMakeRefusal.message);
-      let t = data.teams.find((x) => x.spaceId === spaceId);
-      if (!t) { t = teamSpace(spaceId, []); data.teams.push(t); }
-      t.enabled = true;
-      return t;
-    },
-    teamRoleCreate: async (input) => { calls.push(`teamRoleCreate:${input.name}`); throw new Error("not faked"); },
-    teamRoleUpdate: async (input) => {
-      calls.push(`teamRoleUpdate:${input.id}`);
-      for (const t of data.teams) { const r = t.roles.find((x) => x.id === input.id); if (r) { Object.assign(r, input); return r; } }
-      throw new Error("no role");
-    },
-    teamRoleArchive: async (id) => { calls.push(`teamRoleArchive:${id}`); },
-    teamRoleRun: async (id, message) => { calls.push(`teamRoleRun:${id}:${message ?? ""}`); throw new Error("not faked"); },
-    teamRoleRuns: async (id) => { calls.push(`teamRoleRuns:${id}`); return data.teamRoleRuns[id] ?? []; },
-    teamRoleMessage: async (id, text) => {
-      calls.push(`teamRoleMessage:${id}:${text}`);
-      const spaceId = data.teams.find((t) => t.roles.some((r) => r.id === id))?.spaceId ?? "";
-      return runRow(`run-${calls.length}`, spaceId, { roleId: id, wokeOn: "manual" });
-    },
-    teamReview: async (id) => { calls.push(`teamReview:${id}`); const r = data.teamReviews[id]; if (!r) throw new Error("no review"); return structuredClone(r); },
-    teamReviewDecide: async (id, decision) => {
-      calls.push(`teamReviewDecide:${id}:${decision}`);
-      const r = data.teamReviews[id]!;
-      r.state = decision === "approve" ? "approved" : decision === "done" ? "done" : "dismissed";
-      for (const t of data.teams) { const s = t.reviews.find((x) => x.id === id); if (s) s.state = r.state; }
-      return r;
-    },
-    teamReviewUndoApproval: async (id) => {
-      calls.push(`teamReviewUndoApproval:${id}`);
-      const r = data.teamReviews[id]!;
-      if (r.tickets.some((t) => t.state === "done" || t.state === "acting")) {
-        throw new RpcError("TEAM_REVIEW_WENT_OUT", "It's too late to undo: a post already went out. Close stops whatever hasn't gone out.");
-      }
-      const back = { state: "waiting" as const, decidedAt: null, actsTotal: 0, actsDone: 0, actsWaiting: 0, actsFailed: 0, nextActAt: null };
-      Object.assign(r, back, { tickets: [] });
-      for (const t of data.teams) { const s = t.reviews.find((x) => x.id === id); if (s) Object.assign(s, back); }
-      return r;
-    },
-    teamReviewRequestChanges: async (id, note) => {
-      calls.push(`teamReviewRequestChanges:${id}:${note}`);
-      const r = data.teamReviews[id]!;
-      r.state = "changes"; r.note = note;
-      for (const t of data.teams) { const s = t.reviews.find((x) => x.id === id); if (s) { s.state = "changes"; s.note = note; } }
-      return r;
-    },
-    teamReviewReject: async (id, reason) => {
-      calls.push(`teamReviewReject:${id}:${reason ?? ""}`);
-      const r = data.teamReviews[id]!;
-      r.state = "rejected"; r.note = reason;
-      for (const t of data.teams) { const s = t.reviews.find((x) => x.id === id); if (s) { s.state = "rejected"; s.note = reason; } }
-      return r;
-    },
-    teamReviewClose: async (id) => {
-      calls.push(`teamReviewClose:${id}`);
-      const r = data.teamReviews[id]!;
-      r.state = "closed";
-      for (const t of data.teams) { const s = t.reviews.find((x) => x.id === id); if (s) s.state = "closed"; }
-      return r;
-    },
-    teamReviewEditItem: async (id, itemId, body) => {
-      calls.push(`teamReviewEditItem:${id}:${itemId}:${body}`);
-      const r = data.teamReviews[id]!;
-      r.previous = [...r.items, ...r.previous];
-      r.version += 1;
-      r.items = r.items.map((i) => ({ ...i, id: `${i.id}-v${r.version}`, version: r.version, ...(i.id === itemId ? { body, editedBy: "user" } : {}) }));
-      return r;
-    },
-    teamRecords: async (spaceId) => { calls.push(`teamRecords:${spaceId}`); return (data.teamRecords[spaceId] ?? []).map(({ markdown: _m, absPath: _a, lastAuthor: _l, ...rest }) => rest); },
-    teamRecord: async (spaceId, path) => {
-      calls.push(`teamRecord:${spaceId}:${path}`);
-      const r = (data.teamRecords[spaceId] ?? []).find((x) => x.path === path);
-      if (!r) throw new Error("no record");
-      return r;
-    },
-    teamRecordWrite: async (spaceId, path, markdown) => {
-      calls.push(`teamRecordWrite:${spaceId}:${path}`);
-      const r = (data.teamRecords[spaceId] ?? []).find((x) => x.path === path)!;
-      r.markdown = markdown;
-      return r;
-    },
-    teamRecordCreate: async (spaceId, name, type) => {
-      calls.push(`teamRecordCreate:${spaceId}:${name}${type ? `:${type}` : ""}`);
-      const t = data.teams.find((x) => x.spaceId === spaceId)?.recordTypes.find((x) => x.key === type) ?? data.teams.find((x) => x.spaceId === spaceId)?.recordTypes[0];
-      if (!t) throw new Error("no record type");
-      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-      const rec: TeamRecord = { path: `${t.folder}/${slug}.md`, kind: t.key, name, status: t.statuses[0] ?? null, updatedAt: 0, markdown: recordTemplate(t, name), absPath: `/repo/${t.folder}/${slug}.md`, lastAuthor: "You" };
-      (data.teamRecords[spaceId] ??= []).push(rec);
-      t.count++;
-      return rec;
-    },
-    teamRecordTypeCreate: async (input) => {
-      calls.push(`teamRecordTypeCreate:${input.spaceId}:${"preset" in input ? input.preset : input.one}`);
-      const team = data.teams.find((x) => x.spaceId === input.spaceId)!;
-      const made = "preset" in input ? recordType(input.spaceId, input.preset)
-        : recordType(input.spaceId, "creator", { ...input, key: input.key ?? input.one.toLowerCase(), id: `rt-${input.spaceId}-${input.one.toLowerCase()}`, preset: null, glyph: input.glyph ?? "records", titleField: input.titleField ?? "#", statusField: input.statusField ?? null, statuses: input.statuses ?? [], head: input.head ?? [], sections: input.sections ?? [] });
-      team.recordTypes.push(made);
-      return made;
-    },
-    teamRecordTypeUpdate: async (input) => {
-      calls.push(`teamRecordTypeUpdate:${input.id}:${Object.keys(input).filter((k) => k !== "id").sort().join(",")}`);
-      for (const t of data.teams) { const r = t.recordTypes.find((x) => x.id === input.id); if (r) { Object.assign(r, input); return r; } }
-      throw new Error("no record type");
-    },
-    teamRecordTypeArchive: async (id, archived) => {
-      calls.push(`teamRecordTypeArchive:${id}:${archived}`);
-      for (const t of data.teams) { const r = t.recordTypes.find((x) => x.id === id); if (r) { r.archived = archived; t.recordTypes = t.recordTypes.filter((x) => !x.archived); return r; } }
-      throw new Error("no record type");
-    },
-    teamActivity: async (spaceId, _limit, roleId) => {
-      calls.push(`teamActivity:${spaceId}${roleId ? `:${roleId}` : ""}`);
-      return (data.teamActivity[spaceId] ?? []).filter((a) => !roleId || a.actor === `role:${roleId}` || a.detail.roleId === roleId);
-    },
-    teamRoleHandoffs: async (input) => {
-      calls.push(`teamRoleHandoffs:${input.id}:${(input.handsOffTo ?? []).join(",")}:${input.wakeOnMention ?? ""}`);
-      for (const t of data.teams) { const r = t.roles.find((x) => x.id === input.id); if (r) { Object.assign(r, input); return r; } }
-      throw new Error("no role");
-    },
-    teamRoleGoal: async (id, objective) => { calls.push(`teamRoleGoal:${id}:${objective}`); throw new Error("not faked"); },
-    teamSetBudget: async (spaceId, weekBudgetUsd) => {
-      calls.push(`teamSetBudget:${spaceId}:${weekBudgetUsd}`);
-      const t = data.teams.find((x) => x.spaceId === spaceId)!; t.weekBudgetUsd = weekBudgetUsd; return t;
-    },
-    teamSetLimits: async (spaceId, o) => {
-      calls.push(`teamSetLimits:${spaceId}:${o.teamMaxLive ?? ""}:${o.realmMaxUnattended ?? ""}`);
-      const t = data.teams.find((x) => x.spaceId === spaceId)!; Object.assign(t.limits, o); return t;
-    },
-    teamLiftBackoff: async (kind) => { calls.push(`teamLiftBackoff:${kind}`); for (const t of data.teams) t.limits.backoff = []; },
-    teamTicketPress: async (input) => { calls.push(`teamTicketPress:${input.ticketId}:${input.slotAt}:${input.label}`); return true; },
-    teamTicketPost: async (id) => {
-      calls.push(`teamTicketPost:${id}`);
-      for (const r of Object.values(data.teamReviews)) {
-        const t = r.tickets.find((x) => x.id === id);
-        if (t) { t.state = "scheduled"; t.pressedAt = 1; return t; }
-      }
-      throw new Error("no ticket");
-    },
-    teamTicketCancel: async (id) => {
-      calls.push(`teamTicketCancel:${id}`);
-      for (const r of Object.values(data.teamReviews)) {
-        const t = r.tickets.find((x) => x.id === id);
-        if (t) { t.state = "ready"; t.pressedAt = null; return t; }
-      }
-      throw new Error("no ticket");
-    },
-    teamActsHold: async (spaceId, held) => {
-      calls.push(`teamActsHold:${spaceId}:${held}`);
-      const t = data.teams.find((x) => x.spaceId === spaceId); if (t) t.actsHeld = held;
-      return { held };
-    },
     listSchedules: async (spaceId) => { calls.push(`listSchedules:${spaceId}`); return data.schedules.filter((r) => r.spaceId === spaceId); },
     createSchedule: async (input) => {
       calls.push(`createSchedule:${input.spaceId}`);
@@ -2457,6 +2272,48 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       (data.items[spaceId] ??= []).push(it);
       return { itemId: it.id };
     },
+    teammates: async (spaceId) => { calls.push(`teammates:${spaceId}`); return data.teammates.filter((t) => t.spaceId === spaceId && !t.archived); },
+    teammateCreate: async (input) => {
+      calls.push(`teammateCreate:${JSON.stringify(input)}`);
+      const { spaceId, folder, group, schedule, ...rest } = input;
+      const made = teammate(`t${++n}`, spaceId, { ...rest, handle: input.handle ?? input.name.toLowerCase(), folder: folder ?? "/tmp", group: group ?? null,
+        schedule: schedule ? clockAfter(schedule, null) : null,
+        icon: input.icon ?? { shape: "circle", color: "blue" }, homeSessionId: `home${n}` });
+      data.teammates.push(made);
+      return made;
+    },
+    teammateUpdate: async ({ id, ...patch }) => {
+      calls.push(`teammateUpdate:${id}:${JSON.stringify(patch)}`);
+      const i = data.teammates.findIndex((t) => t.id === id);
+      const { folder, group, schedule, ...rest } = patch;
+      const cur = data.teammates[i]!;
+      data.teammates[i] = { ...cur, ...rest, ...(folder !== undefined ? { folder: folder ?? "/tmp" } : {}), ...(group !== undefined ? { group } : {}),
+        ...(schedule !== undefined ? { schedule: schedule && clockAfter(schedule, cur.schedule) } : {}) };
+      return data.teammates[i]!;
+    },
+    teammateArchive: async (id, archived) => {
+      calls.push(`teammateArchive:${id}:${archived}`);
+      const t = data.teammates.find((x) => x.id === id)!;
+      t.archived = archived;
+      return t;
+    },
+    teammateSetLead: async (spaceId, id) => {
+      calls.push(`teammateSetLead:${spaceId}:${id}`);
+      for (const t of data.teammates) if (t.spaceId === spaceId) t.lead = t.id === id;
+      return data.teammates.filter((t) => t.spaceId === spaceId && !t.archived);
+    },
+    teammatesReorder: async (input) => {
+      calls.push(`teammatesReorder:${JSON.stringify(input.order)}`);
+      input.order.forEach(({ id, group }, i) => { const t = data.teammates.find((x) => x.id === id); if (t) Object.assign(t, { sortOrder: i, group }); });
+      return data.teammates.filter((t) => t.spaceId === input.spaceId && !t.archived);
+    },
+    teammateHome: async (id) => {
+      calls.push(`teammateHome:${id}`);
+      const t = data.teammates.find((x) => x.id === id)!;
+      t.homeSessionId ??= `home-${id}`;
+      return { sessionId: t.homeSessionId };
+    },
+    teammateSessions: async (id) => { calls.push(`teammateSessions:${id}`); return data.teammates.find((x) => x.id === id)?.taskSessions ?? []; },
   };
   const wait = (key: string) => new Promise<void>((r) => setTimeout(r, api.delays[key] ?? 0));
   return api;

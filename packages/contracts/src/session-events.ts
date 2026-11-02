@@ -13,7 +13,9 @@ const P = {
   user_message: z.object({
     text: z.string(),
     attachments: z.array(z.object({ path: z.string(), mime: z.string() })),
-    from: z.object({ sessionId: z.string(), title: z.string() }).optional(),
+    /** Another session's agent wrote it. `teammateId` when that session is a teammate's
+     *  (`team_message`), so the transcript can draw who sent it. */
+    from: z.object({ sessionId: z.string(), title: z.string(), teammateId: z.string().optional() }).optional(),
     /** This turn was written by the session's own goal rather than typed by anyone — a continuation,
      *  or the handover a spent budget asks for. Absent on everything a person sent, including the
      *  objective itself, which the user really did write. The transcript attributes it for `from`'s
@@ -23,8 +25,9 @@ const P = {
      *  is what Realm appended for the agent — the unattended rules — and stays in `text`, which is what
      *  the agent was handed; the transcript draws the task's name above the bubble instead and keeps
      *  the note out of it, so the bubble reads as the instructions the person wrote. Optional, so every
-     *  row ever written still parses. */
-    scheduled: z.object({ task: z.string(), note: z.string() }).optional(),
+     *  row ever written still parses. `scheduleId` is on a teammate's clock's turn in its chat, where
+     *  no run is behind the message (contracts/teammates.ts `TeammateSchedule`). */
+    scheduled: z.object({ task: z.string(), note: z.string(), scheduleId: z.string().optional() }).optional(),
     /** What the message's `@[…]` chips named — files, Library items, apps — so the log can draw each
      *  chip with its own mark a week later. Kept apart from `attachments`, which stay the files the
      *  user attached: a mentioned file is a chip in the sentence, and a tile above it would be the

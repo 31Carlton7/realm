@@ -10,7 +10,7 @@ export type SettingsTab =
   | "general" | "appearance" | "keys" | "notifications" | "devices"
   | "engines" | "usage" | "ram"
   | "signins"
-  | "permissions" | "computer-use" | "lab"
+  | "permissions" | "computer-use"
   | "import" | "archived";
 
 /**
@@ -30,20 +30,19 @@ export const SETTINGS_GROUPS: readonly { label: string; tabs: readonly { id: Set
   ] },
   { label: "Engines", tabs: [{ id: "engines", label: "Engines", icon: "cpu" }, { id: "usage", label: "Usage", icon: "gauge" }, { id: "ram", label: "RAM", icon: "ram" }] },
   { label: "Browser", tabs: [{ id: "signins", label: "Passwords", icon: "key" }] },
-  { label: "Computer", tabs: [{ id: "permissions", label: "Permissions", icon: "shield" }, { id: "computer-use", label: "Computer use", icon: "pointer" }, { id: "lab", label: "Lab", icon: "serverStack" }] },
+  { label: "Computer", tabs: [{ id: "permissions", label: "Permissions", icon: "shield" }, { id: "computer-use", label: "Computer use", icon: "pointer" }] },
   { label: "Data", tabs: [{ id: "import", label: "Import", icon: "inboxDownload" }, { id: "archived", label: "Archived", icon: "archive" }] },
 ];
 
 /**
  * Whether this OS has what a page is about. The Computer pages are the Mac's own — Accessibility and
- * Screen Recording, the `mac` CLI's grants, a cabled iPhone — and on Linux and Windows there is
- * nothing on them to set, so they are not drawn rather than drawn empty.
+ * Screen Recording, the `mac` CLI's grants — and on Linux and Windows there is nothing on them to
+ * set, so they are not drawn rather than drawn empty.
  */
 export function tabAvailable(tab: SettingsTab): boolean {
   const caps = capabilities();
   if (tab === "permissions") return caps.macCli || caps.accessibility;
   if (tab === "computer-use") return caps.accessibility;
-  if (tab === "lab") return caps.simulators;
   return true;
 }
 
@@ -123,6 +122,10 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "prevent-sleep", tab: "general", section: "Power", label: "Keep the Mac awake while agents work", terms: "sleep caffeinate battery idle" },
   { id: "low-power", tab: "general", section: "Power", label: "Low power", terms: "battery animation motion energy" },
   { id: "easter-eggs", tab: "general", section: "Easter eggs", label: "Let Realm mess around", terms: "fun playful" },
+  { id: "report-bug", tab: "general", section: "About", label: "Report a bug", terms: "issue problem crash github feedback" },
+  { id: "request-feature", tab: "general", section: "About", label: "Request a feature", terms: "issue idea suggestion github feedback" },
+  { id: "star-realm", tab: "general", section: "About", label: "Star Realm on GitHub", terms: "repository" },
+  { id: "realm-on-github", tab: "general", section: "About", label: "Realm on GitHub", terms: "repository source code releases open" },
 
   // Appearance
   { id: "theme", tab: "appearance", label: "Theme", terms: "mode dark light system" },
@@ -211,14 +214,6 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "computer-spaces", tab: "computer-use", label: "Computer control in each space", terms: "realm-computer apps always allowed bundle switch drive" },
   { id: "mac-apps", tab: "permissions", label: "Apps on this Mac", terms: "calendar reminders contacts mail messages notes automation full disk access grant macos" },
   { id: "realm-access", tab: "permissions", label: "Realm's own access", terms: "files folders full disk grant macos" },
-
-  // Lab
-  { id: "lab-mode", tab: "lab", label: "This Mac is a lab", terms: "mac mini always on unattended headless team phones" },
-  { id: "lab-readiness", tab: "lab", label: "Ready to be left alone", terms: "checklist sleep pmset power failure restart automatic login filevault display dummy hdmi disk space network ups touch id keyboard" },
-  { id: "lab-update-hour", tab: "lab", section: "Update window", label: "Install updates at", terms: "update window drain night hour" },
-  { id: "lab-update-cap", tab: "lab", section: "Update window", label: "Wait for running work", terms: "update drain cap runs" },
-  { id: "lab-devices", tab: "lab", label: "Devices", terms: "iphone phone simulator android udid accounts team registry" },
-  { id: "lab-reach", tab: "lab", section: "Reach this Mac", label: "From your laptop", terms: "screen sharing vnc machine remote bonjour local address" },
 
   // Import
   { id: "import", tab: "import", label: "Import from the agent CLIs", terms: "claude codex cursor transcripts memory skills history", page: true },

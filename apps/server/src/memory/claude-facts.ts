@@ -44,6 +44,13 @@ export function withClaudeIndexLine(index: string, file: string, title: string, 
   return `${lines.join("\n")}\n`;
 }
 
+/** `MEMORY.md` without the line that links `file`, for a fact that is gone. */
+export function withoutClaudeIndexLine(index: string, file: string): string {
+  const lines = index.split("\n");
+  const kept = lines.filter((l) => claudeIndexTarget(l) !== file);
+  return kept.length === lines.length ? index : kept.join("\n");
+}
+
 /**
  * Two Claude `MEMORY.md` files as one: everything `into` has, then each line of `from` it lacks — a
  * link to a file `into` already links is the same fact however it is worded, and any other line

@@ -185,9 +185,18 @@ export class MemorySearch {
    *  `prefer` is a path from a repo's root, such as `spaces/realm/`, whose hits are lifted ×1.5 in every
    *  repo searched. */
   search(repos: readonly string[], query: string, limit: number, prefer?: string): SearchHit[] {
+    return this.rank(repos.flatMap((r) => this.docsOf(r)), query, limit, prefer);
+  }
+
+  /** The same ranking over files named one by one, each with the folder its path is from — the memory
+   *  library's sources, most of which are not repos to walk. */
+  searchFiles(files: readonly { root: string; abs: string }[], query: string, limit: number): SearchHit[] {
+    return this.rank(files.flatMap((f) => this.docsOfFile(f.root, f.abs) ?? []), query, limit);
+  }
+
+  private rank(docs: Doc[], query: string, limit: number, prefer?: string): SearchHit[] {
     const q = parseQuery(query);
     if (q.terms.length === 0) return [];
-    const docs = repos.flatMap((r) => this.docsOf(r));
     if (docs.length === 0) return [];
 
     // Each query term's matches in the vocabulary, with their weight: itself whole, a prefix at half.
@@ -245,19 +254,9 @@ export class MemorySearch {
         const abs = join(dir, e.name);
         if (e.isDirectory()) { walk(abs); continue; }
         if (!e.isFile()) continue;
-        let st;
-        try { st = statSync(abs); } catch { continue; }
-        if (st.size > FILE_MAX) continue;
+        const parsed = this.docsOfFile(repo, abs);
+        if (parsed === null) continue;
         seen.add(abs);
-        const held = this.files.get(abs);
-        if (held && held.mtimeMs === st.mtimeMs && held.size === st.size) { docs.push(...held.docs); continue; }
-        let parsed: Doc[] = [];
-        try {
-          const buf = readFileSync(abs);
-          // Binary is not memory anyone reads as text.
-          if (!buf.subarray(0, 8000).includes(0)) parsed = parseFile(repo, relative(repo, abs).split(sep).join("/"), buf.toString("utf8"));
-        } catch { /* gone between the listing and the read */ }
-        this.files.set(abs, { mtimeMs: st.mtimeMs, size: st.size, docs: parsed });
         docs.push(...parsed);
       }
     };
@@ -266,6 +265,23 @@ export class MemorySearch {
     const root = repo.endsWith(sep) ? repo : `${repo}${sep}`;
     for (const abs of this.files.keys()) if (abs.startsWith(root) && !seen.has(abs)) this.files.delete(abs);
     return docs;
+  }
+
+  /** One file's documents, from the cache where it has not changed; null for a file too large, or gone. */
+  private docsOfFile(root: string, abs: string): Doc[] | null {
+    let st;
+    try { st = statSync(abs); } catch { return null; }
+    if (st.size > FILE_MAX) return null;
+    const held = this.files.get(abs);
+    if (held && held.mtimeMs === st.mtimeMs && held.size === st.size) return held.docs;
+    let parsed: Doc[] = [];
+    try {
+      const buf = readFileSync(abs);
+      // Binary is not memory anyone reads as text.
+      if (!buf.subarray(0, 8000).includes(0)) parsed = parseFile(root, relative(root, abs).split(sep).join("/"), buf.toString("utf8"));
+    } catch { /* gone between the listing and the read */ }
+    this.files.set(abs, { mtimeMs: st.mtimeMs, size: st.size, docs: parsed });
+    return parsed;
   }
 }
 

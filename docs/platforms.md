@@ -68,7 +68,7 @@ The adapters package builds `findExecutable`, `spawnTarget` and `killTree` from 
 - **Menu accelerators** (`app-menu.ts` `acceleratorFor`): `Control`/`Super` off a Mac.
 - **Shortcut display** (`keybindings.ts` `displayKeyChord`): reads "Ctrl+Shift+F" off a Mac. The renderer sets the OS once at boot (`platform.ts` `applyPlatform`). The tooltip chord parser (`tooltips.ts`) and the OS-menu accelerator parser (`components/native-menu.ts`) read that form too.
 - **Not done:** the renderer still checks `metaKey` directly in about 11 places for secondary gestures. On Linux and Windows those are Super/Win-only:
-  - ⌘-click to open beside, in `SessionRows.tsx`, `ActivityCard.tsx`, `TeamRows.tsx` and `SessionsList.tsx`
+  - ⌘-click to open beside, in `SessionRows.tsx`, `ActivityCard.tsx` and `SessionsList.tsx`
   - ⌘F, ⌘⌫ and ⌘1–9 inside `SessionsList.tsx`, `PermissionCard.tsx` and `ModelPicker.tsx`
 
   About 38 hard-coded "⌘" strings in titles still read as Mac glyphs. Both are listed under Open work.

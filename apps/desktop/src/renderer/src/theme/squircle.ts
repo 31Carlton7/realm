@@ -4,8 +4,8 @@
  *  The gate is set only once the worklet module has actually loaded, and that ordering is the whole
  *  point: `background: paint(rl-squircle)` with no registered painter resolves to nothing, so a card
  *  that opted in before the module arrived would render as an invisible box. Everything outside the
- *  gate is the fallback — `border-radius` plus `corner-shape: squircle`, which is a circular corner
- *  today and the real thing once Electron ships Chromium 139. */
+ *  gate is the fallback — `border-radius` plus `corner-shape: squircle`, which Electron 45's
+ *  Chromium 156 draws as the same superellipse. */
 
 /** The CSS Painting API is not in lib.dom. Only the two calls this file makes are declared. */
 declare const CSS: {

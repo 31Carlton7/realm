@@ -46,13 +46,8 @@ import {
   parseMacDoctor, parseMacVersion, resolveMacBin, type MacAccessHost, type MacAccessStatus,
 } from "./mac-access";
 import { RealmUpdater, UPDATE_FEED_LIVE, UPDATER_CACHE_DIR_NAME, pruneInstalledDownload, scheduleUpdateChecks, updaterDecision } from "./updater";
-import { labInstall, labOnConnected, labPreapprovesRestart, labSettingsUrl, labTakesUpdate, loginItemStatus, setLoginItem, type LabUpdateDeps, type LoginItemDeps } from "./lab-host";
 import { asarReplaced, readAsarStamp } from "./bundle-swap";
 import { SecretStore, SecretStoreError } from "./secret-store";
-import { VaultHost } from "./vault-host";
-import { registerVaultIpc } from "./vault-ipc";
-import { TicketPresses } from "./ticket-presses";
-import { PolicyPresses } from "./policy-presses";
 import { canPromptDeviceOwner, machineId, promptDeviceOwner } from "./device-owner";
 import { keychainPolicyStamp, policyStampHelper } from "./policy-stamp";
 import { livePresenceStandIn } from "./live-presence";
@@ -517,6 +512,7 @@ let ownedChords = pageChords(menuRules);
 function installMenu() {
   const template = appMenuTemplate({
     appName: "Realm",
+    version: app.getVersion(),
     rules: menuRules,
     send: (command) => (BrowserWindow.getFocusedWindow() ?? windows.primary())?.webContents.send("app:command", command),
     openExternal: (url) => void shell.openExternal(url),
@@ -1232,8 +1228,6 @@ ipcMain.handle("credentials:set-unlock-policy", async (_e, profileId: unknown, p
   return store.setUnlockPolicy({ kind: "profile", id: owner.id }, parseUnlockPolicy(policy));
 });
 
-/** A team's Vault page: its secrets, and each grant's "use without asking" (`vault-ipc.ts`). Renderer
- *  IPC only, like the unlock policy above — and main's `VaultHost` answers the server's side. */
 registerPasswordsIpc({
   handle: (channel, fn) => ipcMain.handle(channel, (e, ...args: unknown[]) => fn(e.sender, ...args)),
   secrets,
@@ -1267,33 +1261,6 @@ registerPasswordsIpc({
   setTimer: (fn, ms) => { setTimeout(fn, ms).unref?.(); },
   reveal: (path) => shell.showItemInFolder(path),
 });
-registerVaultIpc({
-  handle: (channel, fn) => ipcMain.handle(channel, (_e, ...args: unknown[]) => fn(...args)),
-  secrets,
-  resolveProfile: (id) => profileDirectory.resolve(profileArg(id)),
-});
-const vaultHost = new VaultHost({ store: secrets, fetch: (input, init) => fetch(input, init), now: () => Date.now() });
-
-/** A team's post sheet: the one click that lets an act ticket go out (`ticket-presses.ts`). Taken only
- *  from the top frame of one of Realm's own windows — not a browser pane, not a frame inside the app —
- *  and realm-server asks for it over the bridge (`teamTicketPress`). There is no other way to make one. */
-const ticketPresses = new TicketPresses();
-ipcMain.handle("team:press-ticket", (e, input: unknown): boolean => {
-  const win = BrowserWindow.fromWebContents(e.sender);
-  if (!win || win.webContents !== e.sender || e.senderFrame !== e.sender.mainFrame) return false;
-  return ticketPresses.press(input);
-});
-
-/** A team's Policies page: the person's press on a loosening (`policy-presses.ts`), confirmed by macOS
- *  and sealed here. Taken only from the top frame of one of Realm's own windows, and realm-server asks
- *  for the seal over the bridge (`teamPolicySeal`). There is no other way to make one. */
-const policyPresses = new PolicyPresses(() => secrets());
-ipcMain.handle("team:press-policy", async (e, input: unknown) => {
-  const win = BrowserWindow.fromWebContents(e.sender);
-  if (!win || win.webContents !== e.sender || e.senderFrame !== e.sender.mainFrame) return { ok: false, error: "Only Realm's own window can change a team's policies." };
-  return policyPresses.press(input);
-});
-
 ipcMain.handle("pick-folder", async () => {
   const r = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] });
   return r.canceled ? null : r.filePaths[0] ?? null;
@@ -1644,9 +1611,7 @@ updater = new RealmUpdater({
     const box = { type: "warning" as const, message: "Realm couldn't install the update", detail: message, buttons: ["OK"] };
     void (win ? dialog.showMessageBox(win, box) : dialog.showMessageBox(box));
   },
-  onDownloaded: (version) => void labTakesUpdate(labUpdate(), version).then(async (taken) => {
-    // On a lab the update window installs it between team runs; nobody is there for a dialog.
-    if (taken) return;
+  onDownloaded: (version) => void (async () => {
     // Restarting stops the server, and every agent working in it, before the installer runs — said
     // here, where the choice is made, rather than discovered after.
     const working = (await daemonCounts())?.working ?? 0;
@@ -1664,7 +1629,7 @@ updater = new RealmUpdater({
       defaultId: 0,
       cancelId: 1,
     }).then(({ response }) => { if (response === 0) void updater.install(); });
-  }),
+  })(),
   // Pushed, not polled: a download's progress has to reach the rail's button while the window sits
   // at the front, which is exactly when nothing else would make the renderer ask.
   onChange: (status) => { for (const w of BrowserWindow.getAllWindows()) w.webContents.send("updates:changed", status); },
@@ -1732,33 +1697,6 @@ function relaunchIfBundleReplaced(): boolean {
   app.exit(0);
   return true;
 }
-
-/** What the lab's update window needs from main: the version running, the server, and the updater. */
-function labUpdate(): LabUpdateDeps {
-  return {
-    version: app.getVersion(),
-    call: (method, params) => {
-      if (!bridgeClient) return Promise.reject(new Error("Realm's server is not connected"));
-      return bridgeClient.call(method, params);
-    },
-    updater,
-    log: (line) => console.error(line),
-  };
-}
-
-/* Settings ▸ Lab: Realm's own login item — from the installed app only — and the System Settings
-   panes the checklist links to, named by a closed list (lab-host.ts). */
-const loginItem: LoginItemDeps = {
-  packaged: app.isPackaged,
-  get: () => app.getLoginItemSettings(),
-  set: (s) => app.setLoginItemSettings(s),
-};
-ipcMain.handle("lab:login-item", () => loginItemStatus(loginItem));
-ipcMain.handle("lab:set-login-item", (_e, on: unknown) => setLoginItem(loginItem, on));
-ipcMain.handle("lab:open-settings", (_e, pane: unknown) => {
-  const url = labSettingsUrl(pane);
-  if (url) void shell.openExternal(url);
-});
 
 ipcMain.handle("updates:status", () => updater.status());
 ipcMain.handle("updates:check", () => updater.check());
@@ -2034,10 +1972,8 @@ ipcMain.handle("files:save-copy", async (_e, path: unknown): Promise<string | nu
 async function handOff(running: DaemonState, why: HandoffWhy): Promise<HandoffResult> {
   // Asked together: each waits out its own timeout on a server that will not answer, and one after
   // another they were seconds of an update's relaunch with nothing on screen.
-  const [work, preapproved, mode] = await Promise.all([
-    daemonWork(running), labPreapprovesRestart((method, params) => callDaemon(running, method, params)), handoffMode(running),
-  ]);
-  let decision = decideHandoff({ why, work, preapproved });
+  const [work, mode] = await Promise.all([daemonWork(running), handoffMode(running)]);
+  let decision = decideHandoff({ why, work });
   if (decision.kind === "confirm") {
     const copy = handoffCopy(decision);
     const buttons = decision.keepable ? [copy.restart, copy.keep] : [copy.restart];
@@ -2243,7 +2179,7 @@ app.whenReady().then(async () => {
     agentBridge = startBrowserAgentBridge({
       endpoint: () => serverEndpoint() ?? info,
       hasWindow: () => windows.size > 0,
-      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); void readSleepPreference().then(refreshSleepGuard); void readPairedPhones(); presence.reset(); void profileDirectory.refresh(); void labOnConnected(labUpdate()); },
+      onConnected: (client) => { bridgeClient = client; daemonSupervisor?.onConnected(); void refreshTray(); void readSleepPreference().then(refreshSleepGuard); void readPairedPhones(); presence.reset(); void profileDirectory.refresh(); },
       // Both on the same event: the bridge redials every two seconds, which is exactly the cadence a
       // supervisor watching for a dead pid wants, so it needs no clock of its own.
       onDisconnected: () => { bridgeClient = null; sleepGuard.setWorking(0); sleepGuard.setWaiting(0); daemonSupervisor?.onDisconnected(); daemonSupervisor?.tick(); },
@@ -2258,8 +2194,6 @@ app.whenReady().then(async () => {
           sleepGuard.setPhones(Array.isArray(phones) ? phones.length : 0);
           return;
         }
-        // The lab's update window drained the team's runs: install the update the updater holds.
-        if (event === "lab.install") { labInstall(labUpdate(), payload); return; }
         // And the resident's own toasts, for the case the renderer used to own alone: with no window
         // there is nobody to ask for one, and a toast is the whole of how anything reaches you.
         if (event === "notifications.changed") void residentToast(payload);
@@ -2272,17 +2206,6 @@ app.whenReady().then(async () => {
         if (op === "machineKey") return Promise.resolve({ key: secrets()?.exportMachineKey() ?? null });
         if (op === "eggsKey") return Promise.resolve({ key: secrets()?.exportEggsKey() ?? null });
         if (op === "remoteKey") return Promise.resolve({ key: secrets()?.exportRemoteKey() ?? null });
-        // The team vault's ops need no window either: a key's request is made from main, not a pane.
-        if (op.startsWith("vault")) return vaultHost.handleOp(op, params);
-        // A ticket's press: read and spent, never made, from this side.
-        if (op === "teamTicketPress") {
-          const p = params as { ticketId?: unknown; contentHash?: unknown };
-          return Promise.resolve(ticketPresses.consume(p.ticketId, p.contentHash));
-        }
-        // A policy's seal: spent, checked, or its stamp moved on — never made, from this side.
-        if (op === "teamPolicySeal") return Promise.resolve(policyPresses.consume((params as { text?: unknown }).text));
-        if (op === "teamPolicyVerify") return Promise.resolve(policyPresses.verify((params as { items?: unknown }).items));
-        if (op === "teamPolicyBump") return Promise.resolve(policyPresses.bump((params as { scope?: unknown }).scope));
         // Computer-use ops share this socket but not the browser executor: they need no window and
         // no view, so they are answered before the window check below. A `mac` machine's frame
         // (`machineCaptureOnce`) is held back in 2.6.1 and goes on to the browser host, which refuses

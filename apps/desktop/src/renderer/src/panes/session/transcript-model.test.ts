@@ -62,6 +62,21 @@ describe("an ACP call's own account of itself", () => {
   });
 });
 
+describe("a call named again", () => {
+  it("is the same card, in its place and from its start, with the fuller input", () => {
+    // Codex's image tool: drawn from the moment it starts with only its prompt, then named again with
+    // the picture's path when it lands. THE MUTANT: pushing a second block for the same call.
+    const t = reduceAll([
+      sessionEvent("tool_call", { toolUseId: "ig_1", name: "image_generation", input: { prompt: "a logo" }, parentToolUseId: null }, 10),
+      sessionEvent("assistant_text", { messageId: "m1", text: "Still drawing." }, 20),
+      sessionEvent("tool_call", { toolUseId: "ig_1", name: "image_generation", input: { path: "/g/ig_1.png", prompt: "a logo" }, parentToolUseId: null }, 30),
+      sessionEvent("tool_result", { toolUseId: "ig_1", content: "Saved /g/ig_1.png", isError: false }, 30),
+    ]);
+    expect(t.blocks.map((b) => b.kind)).toEqual(["tool", "assistant"]);
+    expect(t.blocks[0]).toMatchObject({ toolUseId: "ig_1", input: { path: "/g/ig_1.png", prompt: "a logo" }, result: { content: "Saved /g/ig_1.png" }, ts: 10 });
+  });
+});
+
 describe("a tool call a sub-agent made", () => {
   it("carries `parentToolUseId` onto the block, and leaves it absent for a call the agent made itself", () => {
     let t = emptyTranscript();

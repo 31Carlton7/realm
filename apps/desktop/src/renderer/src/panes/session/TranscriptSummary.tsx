@@ -53,13 +53,15 @@ export type SessionRecap = {
   errors: number;
 };
 
-export function recapSession(blocks: readonly Block[]): SessionRecap {
+/** `brief` is a sub-agent's first message, which its lead wrote and the transcript draws as the brief:
+ *  it is a turn, but not something "you asked", and its first line is Realm's own wrapper. */
+export function recapSession(blocks: readonly Block[], brief: string | null = null): SessionRecap {
   let asked = ""; let turns = 0; let commands = 0; let reads = 0; let errors = 0;
   const edited: string[] = [];
   for (const b of blocks) {
     if (b.kind === "user" && !b.from) {
       turns += 1;
-      if (!asked && b.text.trim()) asked = firstLine(b.text, 110);
+      if (!asked && b.text.trim() && b.text !== brief) asked = firstLine(b.text, 110);
     } else if (b.kind === "tool") {
       // A call with no result yet has not DONE anything: it is in flight, or the turn died under
       // it. Counting it as "ran" would claim work the transcript cannot show.
@@ -89,8 +91,8 @@ export function recapSession(blocks: readonly Block[]): SessionRecap {
  * Null when there is nothing to say: no ask and no work. A line under every "hello" would be noise
  * attached to the ordinary case, and that gate is why this can be shown by default at all.
  */
-export function summaryText(blocks: readonly Block[]): string | null {
-  const r = recapSession(blocks);
+export function summaryText(blocks: readonly Block[], brief: string | null = null): string | null {
+  const r = recapSession(blocks, brief);
   const produced = summaryLine(blocks);
   const did: string[] = [];
   if (r.edited.length > 0) {
@@ -122,7 +124,7 @@ export function summaryText(blocks: readonly Block[]): string | null {
  *     it is not a summary of anything. It appears the moment the turn ends.
  *   - **Something to say.** See `summaryText`.
  */
-export function TranscriptSummary({ blocks, status, written = null }: {
+export function TranscriptSummary({ blocks, status, written = null, brief = null }: {
   blocks: readonly Block[];
   status: SessionStatus;
   /** The model's account of this session, when one has been written (`transcript.summary`). It wins
@@ -131,9 +133,11 @@ export function TranscriptSummary({ blocks, status, written = null }: {
    *  will be: a session that has not settled yet, a machine with no model to ask, a call still in
    *  flight. The fold below is what shows then, exactly as it did before any of this existed. */
   written?: string | null;
+  /** The message drawn as a sub-agent's brief (`Transcript`'s `brief`), never quoted as the ask. */
+  brief?: string | null;
 }) {
   if (status === "running" || status === "waiting_permission") return null;
-  const what = written?.trim() || summaryText(blocks);
+  const what = written?.trim() || summaryText(blocks, brief);
   if (!what) return null;
   return (
     // Keyed on the text so the entrance REPLAYS when the summary changes. A CSS animation fires when

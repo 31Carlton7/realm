@@ -1,19 +1,19 @@
 /**
- * Live check for teammates (run with: pnpm build && node apps/desktop/scripts/teammates-live.mjs)
+ * Live check for Add sub-agent… (run with: pnpm build && node apps/desktop/scripts/teammates-live.mjs)
  *
  * Boots the BUILT app on a scratch REALM_HOME with the scripted agent standing in for Claude and Codex,
- * so nothing reaches a real engine or an account. In a session on a git checkout, it adds two teammates
+ * so nothing reaches a real engine or an account. In a session on a git checkout, it adds two sub-agents
  * from the prompter's "+" — one on the session's own model in its folder, one on GPT-6 Luna in a worktree
  * of its own — and watches the row above the prompter:
  *
  *   1. With no agents, the prompter has no row (what changed alone on its strip).
- *   2. "+" offers Add teammate…, whose picker carries the prompter's model chip, a line for the brief and,
+ *   2. "+" offers Add sub-agent…, whose picker carries the prompter's model chip, a line for the brief and,
  *      on a git checkout, where it works.
- *   3. Both teammates appear on the row: one working (the sidebar's ring), one needing you.
+ *   3. Both sub-agents appear on the row: one working (the sidebar's ring), one needing you.
  *   4. Answered, both settle to done, and the row says so; a chip's tooltip names it, its model, its state
  *      and time; its menu stops, messages and dismisses; the `@` list names both.
  *   5. Crowded past three, the row names two and folds the rest into "+N", whose menu lists them.
- *   6. Stop on the lead's turn stops the lead and leaves the teammates the person added working.
+ *   6. Stop on the lead's turn stops the lead and leaves the sub-agents the person added working.
  *
  * Captured dark and light, at a normal and a narrow width. Ports: LIVE_SERVER_PORT (8809), LIVE_CDP_PORT
  * (9249). Screenshots go to LIVE_OUT_DIR. Kills only what listens on its own ports.
@@ -164,23 +164,23 @@ const clickText = (scope, text) => `(() => {
 const rowNow = (c) => evalIn(c, `[...document.querySelectorAll('.composer-overstrip .active-agent')].map((b) => ({ name: b.textContent, state: b.dataset.state,
   ring: b.querySelector('.status-dot')?.dataset.status ?? null, title: b.getAttribute('title') }))`);
 
-async function addTeammate(c, { brief, model, worktree, shots }) {
+async function addSubAgent(c, { brief, model, worktree, shots }) {
   await evalIn(c, `(() => { document.querySelector('.composer-attach').click(); return true; })()`);
   await until(() => evalIn(c, `!!document.querySelector('.plus-menu')`), 5_000, "plus menu");
   if (shots) await shot(c, "2-plus-menu-dark", { pad: 360 });
-  check("+ offers Add teammate…", await evalIn(c, clickText(".plus-menu [role=menuitem]", "Add teammate…")));
-  await until(() => evalIn(c, `!!document.querySelector('.teammate-pop')`), 5_000, "picker");
+  check("+ offers Add sub-agent…", await evalIn(c, clickText(".plus-menu [role=menuitem]", "Add sub-agent…")));
+  await until(() => evalIn(c, `!!document.querySelector('.subagent-pop')`), 5_000, "picker");
   await sleep(400);
   if (model) {
-    await evalIn(c, `(() => { document.querySelector('.teammate-pop .model-chip').click(); return true; })()`);
+    await evalIn(c, `(() => { document.querySelector('.subagent-pop .model-chip').click(); return true; })()`);
     await until(() => evalIn(c, `!!document.querySelector('.mp-row')`), 5_000, "model list");
     check(`the picker lists ${model}`, await evalIn(c, `(() => { const r = [...document.querySelectorAll('.mp-row')].find((x) => (x.getAttribute('aria-label') ?? '').startsWith(${JSON.stringify(model)})); if (!r) return false; r.click(); return true; })()`));
     await sleep(300);
-    await evalIn(c, `(() => { document.querySelector('.teammate-pop .model-chip').click(); return true; })()`);
+    await evalIn(c, `(() => { document.querySelector('.subagent-pop .model-chip').click(); return true; })()`);
     await until(() => evalIn(c, `!document.querySelector('.mp-row')`), 5_000, "model list closed");
   }
-  await evalIn(c, fill(".teammate-pop input[type=text]", brief));
-  if (worktree) check("a git checkout offers its own worktree", await evalIn(c, clickText(".teammate-pop .seg-opt", "Its own worktree")));
+  await evalIn(c, fill(".subagent-pop input[type=text]", brief));
+  if (worktree) check("a git checkout offers its own worktree", await evalIn(c, clickText(".subagent-pop .seg-opt", "Its own worktree")));
   await sleep(300);
   if (shots === true) {
     for (const face of ["dark", "light"]) {
@@ -189,8 +189,8 @@ async function addTeammate(c, { brief, model, worktree, shots }) {
     }
     await mode(c, "dark");
   } else if (shots) await shot(c, shots, { pad: 420 });
-  await evalIn(c, clickText(".teammate-pop button", "Add teammate"));
-  await until(() => evalIn(c, `!document.querySelector('.teammate-pop')`), 10_000, "picker closed");
+  await evalIn(c, clickText(".subagent-pop button", "Add sub-agent"));
+  await until(() => evalIn(c, `!document.querySelector('.subagent-pop')`), 10_000, "picker closed");
 }
 
 async function main() {
@@ -211,7 +211,7 @@ async function main() {
       REALM_DEVTOOLS_PORT: String(CDP_PORT),
       REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"),
       REALM_ENABLE_FAKE_AGENT: "1",
-      // Claude and Codex are the scripted agent: the lead, the onboarding session and both teammates
+      // Claude and Codex are the scripted agent: the lead, the onboarding session and both sub-agents
       // run the script above, and nothing reaches a real engine or an account.
       REALM_FAKE_STANDS_IN: "claude,codex",
       REALM_FAKE_SCRIPT: scriptFile,
@@ -247,7 +247,7 @@ async function main() {
   api = rpc(SERVER_PORT, await daemonToken(home));
   await api.ready;
   const [space] = await api.call("spaces.list", {});
-  // A git checkout, so what changed has a pill and a teammate can have a worktree of its own.
+  // A git checkout, so what changed has a pill and a sub-agent can have a worktree of its own.
   const git = (...args) => execFileSync("git", ["-c", "user.email=live@example.com", "-c", "user.name=live", "-c", "commit.gpgsign=false", ...args], { cwd: space.folderPath, encoding: "utf8" });
   git("init", "-b", "main");
   fs.writeFileSync(path.join(space.folderPath, "parser.ts"), "export const parse = (s: string) => s.split(',');\n");
@@ -263,7 +263,7 @@ async function main() {
   await evalIn(c, `(() => { for (const b of document.querySelectorAll('.panel-bar button[aria-label^="Close"]')) if (!b.closest('.panel').textContent.includes(${JSON.stringify(TITLE)})) b.click(); return true; })()`);
   await sleep(500);
 
-  // ── The lead has a conversation for its teammates to be handed ──────────────────────────────
+  // ── The lead has a conversation for its sub-agents to be handed ─────────────────────────────
   await api.call("sessions.send", { id: lead, text: "Plan the 2.4 release.", attachments: [], mentions: [] });
   await until(async () => (await api.call("sessions.get", { id: lead })).status === "idle" && await evalIn(c, `!!document.querySelector('.msg-assistant')`), 20_000, "lead replied");
   await until(() => evalIn(c, `!!document.querySelector('.composer-overstrip .what-changed')`), 20_000, "what-changed pill").catch(() => null);
@@ -272,9 +272,9 @@ async function main() {
   check("with no agents the prompter has no row", await evalIn(c, `document.querySelectorAll('.active-agents').length === 0`));
   await shot(c, "1-quiet-dark", { pad: 120 });
 
-  // ── Two teammates from the "+" ──────────────────────────────────────────────────────────────
-  await addTeammate(c, { brief: "Write the parser tests", shots: true });
-  await addTeammate(c, { brief: "Check the migration", model: "GPT-6 Luna", worktree: true, shots: "3-picker-luna-worktree-dark" });
+  // ── Two sub-agents from the "+" ─────────────────────────────────────────────────────────────
+  await addSubAgent(c, { brief: "Write the parser tests", shots: true });
+  await addSubAgent(c, { brief: "Check the migration", model: "GPT-6 Luna", worktree: true, shots: "3-picker-luna-worktree-dark" });
   const kids = await until(async () => { const r = await api.call("delegation.children", { sessionId: lead }); return r.children.length === 2 ? r.children : null; }, 15_000, "two children");
   const byTitle = Object.fromEntries(kids.map((k) => [k.session.title, k.session]));
   note("children", kids.map((k) => ({ title: k.session.title, kind: k.session.agentKind, model: k.session.model, mode: k.session.permissionMode, cwd: k.session.cwd, dispatchedBy: k.session.dispatchedBy })));
@@ -324,7 +324,7 @@ async function main() {
     b.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: r.left + 8, clientY: r.top + 4 })); return true; })()`);
   await until(() => evalIn(c, `!!document.querySelector('.menu [role=menuitem]')`), 5_000, "chip menu");
   const items = await evalIn(c, `[...document.querySelectorAll('.menu [role=menuitem] .menu-label')].map((x) => x.textContent)`);
-  check("a finished teammate's menu opens, messages and dismisses it — no Stop", m && JSON.stringify(items) === JSON.stringify(["Open in Agents tab", "Message", "Dismiss"]), items);
+  check("a finished sub-agent's menu opens, messages and dismisses it — no Stop", m && JSON.stringify(items) === JSON.stringify(["Open in Agents tab", "Message", "Dismiss"]), items);
   await shot(c, "7-menu-dark", { pad: 220 });
   await evalIn(c, clickText(".menu [role=menuitem]", "Message"));
   await sleep(400);
@@ -336,7 +336,7 @@ async function main() {
   await until(() => evalIn(c, `!!document.querySelector('[role=listbox]')`), 5_000, "mention list").catch(() => null);
   await sleep(300);
   const listed = await evalIn(c, `[...document.querySelectorAll('[role=listbox] [role=option]')].map((o) => o.textContent).slice(0, 4)`);
-  check("the @ list names both teammates first", listed.filter((x) => x.includes("Write the parser tests") || x.includes("Check the migration")).length === 2, listed);
+  check("the @ list names both sub-agents first", listed.filter((x) => x.includes("Write the parser tests") || x.includes("Check the migration")).length === 2, listed);
   await shot(c, "8-mention-dark", { pad: 300 });
   await evalIn(c, fill(".composer textarea", ""));
   await sleep(200);
@@ -365,7 +365,7 @@ async function main() {
   await evalIn(c, `(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return true; })()`);
   await sleep(300);
 
-  // ── Stop on the lead's turn: the lead stops, the person's teammates keep working ─────────────
+  // ── Stop on the lead's turn: the lead stops, the person's sub-agents keep working ────────────
   await api.call("sessions.send", { id: lead, text: "Keep planning.", attachments: [], mentions: [] });
   await until(async () => (await api.call("sessions.get", { id: lead })).status === "running", 15_000, "lead running");
   const workingBefore = (await rowNow(c)).filter((x) => x.state === "working").map((x) => x.name);
@@ -376,7 +376,7 @@ async function main() {
   const kidsAfter = (await api.call("delegation.children", { sessionId: lead })).children;
   const stillWorking = kidsAfter.filter((k) => k.session.status === "running").map((k) => k.session.title);
   note("after Stop", { workingBefore, stillWorking, row: (await rowNow(c)).map((x) => `${x.name} (${x.state})`) });
-  check("Stop on the lead's turn leaves the person's teammates working", stillWorking.length >= 2 && (await rowNow(c)).every((x) => x.state === "working"), stillWorking);
+  check("Stop on the lead's turn leaves the person's sub-agents working", stillWorking.length >= 2 && (await rowNow(c)).every((x) => x.state === "working"), stillWorking);
   await capture(c, "12-after-stop");
 }
 

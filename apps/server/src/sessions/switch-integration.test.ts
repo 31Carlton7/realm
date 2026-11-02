@@ -52,7 +52,7 @@ async function setup(permissionMode = "bypassPermissions") {
   const p = (await c.call("profiles.create", { name: "W" })).result;
   const sp = (await c.call("spaces.create", { profileId: p.id, name: "S" })).result;
   const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake", permissionMode })).result;
-  return { home, c, session, first, second };
+  return { home, c, sp, session, first, second };
 }
 
 const idle = (c: Awaited<ReturnType<typeof client>>, id: string) =>
@@ -119,6 +119,24 @@ describe("sessions.switchAgent", () => {
     await idle(c, session.id);
     const moved = (await c.call("sessions.switchAgent", { sessionId: session.id, agentKind: "acp:cursor" })).result;
     expect(moved).toMatchObject({ agentKind: "acp:cursor", permissionMode: "default", model: null });
+    c.close();
+  });
+
+  it("takes a teammate with its chat, so the chat stays its own and an edit after does not move it back", async () => {
+    const { c, sp } = await setup();
+    const mate = (await c.call("teammates.create", { spaceId: sp.id, name: "Reviewer", brief: "Reviews.", agentKind: "fake", permissionMode: "default" })).result;
+    const { sessionId } = (await c.call("teammates.home", { id: mate.id })).result;
+    await c.call("sessions.send", { id: sessionId, text: "go" });
+    await idle(c, sessionId);
+
+    await c.call("sessions.switchAgent", { sessionId, agentKind: "codex", model: "gpt-5.6" });
+    expect((await c.call("teammates.get", { id: mate.id })).result).toMatchObject({ agentKind: "codex", model: "gpt-5.6", homeSessionId: sessionId });
+    // The mutant this guards: an edit reading the row's old agent and starting a new chat, or putting
+    // the old model back on this one.
+    await c.call("teammates.update", { id: mate.id, name: "Code reviewer" });
+    expect((await c.call("teammates.get", { id: mate.id })).result.homeSessionId).toBe(sessionId);
+    expect((await c.call("sessions.get", { id: sessionId })).result).toMatchObject({ agentKind: "codex", model: "gpt-5.6" });
+    expect((await c.call("teammates.home", { id: mate.id })).result.sessionId).toBe(sessionId);
     c.close();
   });
 
