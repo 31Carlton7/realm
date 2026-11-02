@@ -427,6 +427,36 @@ export function defaultAdapters(): AdapterRegistry {
       { kind: "text", paceMs: 30, text: "The report card folds now." },
     ],
   }, {
+    // A sub-agent that comes back with a long report, for the fold that starts such a report closed.
+    on: "Hand over a survey of the report surfaces", emit: [
+      { kind: "call", tool: "realm-agent__agent_start", input: { title: "Survey the report surfaces", goal: "Survey every surface that shows a sub-agent's report, and say how each one folds." } },
+      { kind: "call", tool: "realm-agent__agent_wait", input: {} },
+      { kind: "text", paceMs: 30, text: "The survey is in." },
+    ],
+  }, {
+    on: "Survey every surface that shows a sub-agent's report", emit: [
+      { kind: "text", paceMs: 10, text: [
+        "Every surface that shows a sub-agent's report folds under the same head now.",
+        "",
+        "## Where a report is shown",
+        "",
+        "- **The Agents tab's viewer** pins it under the sub-agent's head, capped at most of the panel.",
+        "- **The sub-agent opened as a session** draws its last message as the report, under the same head.",
+        "- **The lead's transcript** says only that the sub-agent finished; a click opens the viewer.",
+        "",
+        "## How each one folds",
+        "",
+        "1. The head is a button with `aria-expanded`, and Enter and Space work it.",
+        "2. A short report starts open, because there is nothing to hide.",
+        "3. A long one starts closed, its first line beside the name.",
+        "4. The choice belongs to the sub-agent, so closing it in one place closes it in the other.",
+        "",
+        "## Checked",
+        "",
+        "The viewer and the session pane were opened in both faces, and the fold moves on the size rung and holds still under Reduce motion.",
+      ].join("\n") },
+    ],
+  }, {
     on: "Make the report card fold away", emit: [
       { kind: "tool", name: "Read", input: { file_path: "src/viewer.tsx" }, result: "export function Viewer() { … }" },
       { kind: "text", paceMs: 40, text: "Made the report card fold. Its head is a button with `aria-expanded`; it opens by default, and the tab remembers the choice per sub-agent.\n\n- Enter and Space toggle it, as any button\n- the body folds on the size rung and holds still under Reduce motion\n\n**Six tests pass.**" },
