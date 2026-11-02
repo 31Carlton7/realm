@@ -1,5 +1,5 @@
 import {
-  AUTH_MAX_RECHECKS, DEFAULT_FAILOVER_POLICY, FailoverPolicySchema, authBackoffFor, authFix, backoffFor,
+  AUTH_MAX_RECHECKS, DEFAULT_FAILOVER_POLICY, FailoverPolicySchema, agentLabel, authBackoffFor, authFix, backoffFor, defaultAccountId, hasAccounts,
   buildHandoffContext, classifyFailure, exhaustedNote, failoverPolicyKey, handoffContextKey, handoffNote,
   isHandoffable, isRetryable, nextInChain, sessionEvent, FAILOVER_MAX_RETRIES,
   type AgentKind, type FailoverPolicy, type FailureKind, type Session, type SessionEvent,
@@ -86,6 +86,12 @@ export type FailoverDeps = {
    * the thirty seconds in which the credential changed.
    */
   probe: (opts: { force: boolean }) => Promise<ProbeResult[]>;
+  /** The agent's accounts (`accounts/service.ts`), so a usage limit names the one that hit it and offers
+   *  the others. Absent, a limit reads as the agent's. */
+  accounts?: {
+    accountFor(kind: AgentKind, accountId: string): { label: string } | null;
+    others(kind: AgentKind, exceptId: string): { id: string; label: string }[];
+  };
   /** Injectable so tests do not spend real seconds on the backoff ladder. */
   setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>;
   clearTimer?: (t: ReturnType<typeof setTimeout>) => void;
@@ -238,7 +244,12 @@ export class FailoverService {
         const fix = authFix(session.agentKind, why);
         this.d.emit(session.id, sessionEvent("error", { message: `${fix.title}. ${fix.hint}`, failure: "auth", fix }));
       } else if (policy.chain.length === 0) {
-        this.d.emit(session.id, sessionEvent("error", { message: exhaustedNote(session.agentKind, kind), failure: kind }));
+        // An agent with another account says which one ran out and offers the rest, for the person to
+        // pick: moving to another login is theirs to decide, as moving to another agent is.
+        const offer = kind === "usage_limit" ? this.accountsOffer(session) : null;
+        this.d.emit(session.id, sessionEvent("error", offer
+          ? { message: `${offer.label} hit its usage limit.`, failure: kind, accounts: offer.others }
+          : { message: exhaustedNote(session.agentKind, kind), failure: kind }));
       }
       return "stop";
     }
@@ -246,6 +257,15 @@ export class FailoverService {
       console.error(`[failover] handoff failed for ${session.id}: ${e instanceof Error ? e.message : String(e)}`);
     });
     return "handoff";
+  }
+
+  /** The account a session ran on, by name, and its agent's others — null where there are none. */
+  private accountsOffer(session: Session): { label: string; others: { id: string; label: string }[] } | null {
+    if (!this.d.accounts || !hasAccounts(session.agentKind)) return null;
+    const current = session.accountId ?? defaultAccountId(session.agentKind);
+    const others = this.d.accounts.others(session.agentKind, current);
+    if (others.length === 0) return null;
+    return { label: this.d.accounts.accountFor(session.agentKind, current)?.label ?? agentLabel(session.agentKind), others };
   }
 
   /**

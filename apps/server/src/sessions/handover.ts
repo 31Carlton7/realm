@@ -49,8 +49,8 @@ export type HandOverDeps = {
  */
 export async function handOver(d: HandOverDeps, session: Session, move: {
   to: AgentKind; model: string | null; effort: string | null;
-  /** Left as it is when absent. */
-  permissionMode?: string;
+  /** Left as they are when absent. */
+  permissionMode?: string; accountId?: string | null;
   /** Built once the old adapter is down, so it reads every event that adapter wrote. */
   context: () => string;
   event: SessionEventPayload<"handoff">;
@@ -61,6 +61,7 @@ export async function handOver(d: HandOverDeps, session: Session, move: {
   d.sessions.update({
     id: session.id, agentKind: move.to, providerSessionId: null, model: move.model, effort: move.effort,
     ...(move.permissionMode !== undefined ? { permissionMode: move.permissionMode } : {}),
+    ...(move.accountId !== undefined ? { accountId: move.accountId } : {}),
   });
   d.emit(session.id, sessionEvent("handoff", move.event));
   return true;

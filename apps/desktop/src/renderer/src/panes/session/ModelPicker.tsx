@@ -1,8 +1,9 @@
-import { AGENT_META, type AgentKind, type ModelInfo } from "@realm/contracts";
+import { AGENT_META, accountName, type Account, type AgentKind, type AgentSignIn, type ModelInfo } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ScrollFades } from "../../components/ScrollFades";
+import { AccountSignInSteps, signInLive } from "../../components/AccountSignIn";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
 import { useAutoHideScrollbar } from "../../components/use-auto-hide-scrollbar";
 import {
@@ -30,6 +31,23 @@ export type OverflowGroup = { label: string; items: { label: string; checked?: b
  *  fresh with a summary of this conversation, so a pick that would change the agent asks first.
  *  `busy` is a turn in flight, which a switch waits out; `onSwitch` throws what went wrong. */
 export type SwitchAgent = { busy: boolean; onSwitch: (kind: AgentKind, modelId: string | null) => Promise<void> };
+
+/** The accounts the session's agent can run on (contracts/accounts.ts), set from the picker's foot:
+ *  which one this session is on, the others, and adding one — its CLI's own sign-in, started from
+ *  here and followed here. `onPick` and `onAdd` throw what went wrong. */
+export type AccountControl = {
+  accounts: Account[];
+  /** The account in force: the session's, or its CLI's own where it names none. */
+  current: string;
+  onPick: (id: string) => Promise<void>;
+  /** Make a new account and start its sign-in; answers with its id. */
+  onAdd: () => Promise<string>;
+  signInOf: (accountId: string) => AgentSignIn | undefined;
+  onCode: (accountId: string, code: string) => void;
+  onCancel: (accountId: string) => void;
+  /** Ask the CLIs again who each account is, when the list is opened. */
+  onOpen: () => void;
+};
 
 /** A sentence with its commands set as code: `AGENT_NOTES` marks them with backticks, which read as
  *  stray punctuation printed raw. The plain form is for a tooltip, which has no code face. */
@@ -107,7 +125,7 @@ function useChipSweep(ref: RefObject<HTMLButtonElement | null>, effort: string |
  * - **Open until you leave it.** A pick changes the model and leaves the card to set its level and its
  *   speed in the same visit; a click outside, the chip again, or Escape put the picker away.
  */
-export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite, onPick, switchAgent, overflow, fast, eggs = false }: {
+export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite, onPick, switchAgent, account, overflow, fast, eggs = false }: {
   kind: AgentKind;
   model: string | null;
   /** The session's reasoning level and what its model takes, or absent where the harness takes none —
@@ -122,6 +140,8 @@ export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite,
   onPick: (kind: AgentKind, modelId: string | null) => void;
   /** Present once the session has run and can still change agents by handing over. */
   switchAgent?: SwitchAgent;
+  /** The session's agent's accounts, where its CLI can hold more than one. */
+  account?: AccountControl;
   /** Fast mode, or absent where Realm cannot ask this harness for it at all. */
   fast?: FastMode;
   overflow?: OverflowGroup[];
@@ -150,7 +170,7 @@ export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite,
         <Icon name="chevronDown" size={12} className="chip-caret" />
       </button>
       {open && <ModelPopover kind={kind} name={label} rows={rows} info={info} anchorRef={btn} onClose={() => setOpen(false)} onPick={onPick}
-        switchAgent={switchAgent} onToggleFavorite={onToggleFavorite} effort={effort} overflow={overflow} fast={fast} eggs={eggs} />}
+        switchAgent={switchAgent} account={account} onToggleFavorite={onToggleFavorite} effort={effort} overflow={overflow} fast={fast} eggs={eggs} />}
     </>
   );
 }
@@ -173,7 +193,7 @@ export function ModelChipText({ kind, label, level, fast }: { kind: AgentKind; l
   );
 }
 
-function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, switchAgent, onToggleFavorite, effort, overflow, fast, eggs }: {
+function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, switchAgent, account, onToggleFavorite, effort, overflow, fast, eggs }: {
   kind: AgentKind;
   /** The current model's name, as the chip shows it — what the fast-mode line talks about. */
   name: string;
@@ -182,6 +202,7 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, swit
   anchorRef: RefObject<HTMLButtonElement | null>;
   onClose: () => void; onPick: (kind: AgentKind, modelId: string | null) => void;
   switchAgent?: SwitchAgent;
+  account?: AccountControl;
   onToggleFavorite: (key: string) => void;
   effort?: EffortControl;
   fast?: FastMode;
@@ -270,14 +291,14 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, swit
 
   /* The box holds its height from here on (`height`), and the list gets room under its last row for
      the part of the box below it that is about to be replaced — at most the whole of it. */
-  const hold = (replaced: string) => {
+  const hold = (replaced?: string) => {
     const box = ref.current?.offsetHeight ?? 0;
     if (height === null && box > 0) {
       setHeight(box);
       setFloor(Math.min(wrap.current?.offsetHeight ?? 0, LIST_FLOOR));
     }
     let below = 0;
-    ref.current?.querySelectorAll<HTMLElement>(replaced).forEach((el) => { below += el.offsetHeight; });
+    if (replaced) ref.current?.querySelectorAll<HTMLElement>(replaced).forEach((el) => { below += el.offsetHeight; });
     const l = list.current;
     if (l && below > 0) setSlack((was) => was + Math.max(0, below - (l.scrollHeight - l.clientHeight - l.scrollTop)));
   };
@@ -360,7 +381,7 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, swit
 
   const harness = AGENT_META[kind].label;
   const runs = (effort?.levels.length ?? 0) > 0 || !!fast;
-  const hasFoot = runs || (overflow?.length ?? 0) > 0;
+  const hasFoot = runs || (overflow?.length ?? 0) > 0 || !!account;
   return createPortal(
     <div ref={ref} className="model-picker" aria-label="Model picker" role="dialog"
       style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999, maxHeight: room ?? undefined,
@@ -454,6 +475,8 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, swit
                 choice are settings on the card you are looking at, and each answers in place. */}
             {runs && <RunCard effort={effort} fast={fast} model={name} />}
             {(overflow ?? []).map((g) => <Segments key={g.label} label={g.label} items={g.items} />)}
+            {/* The box keeps its height as the list opens, and the models above give way to it. */}
+            {account && <AccountSection control={account} onGrow={() => hold()} />}
           </div>
         )}
       </>}
@@ -508,6 +531,69 @@ function SwitchAsk({ agent, from, busy, switching, error, onCancel, onSwitch }: 
         <button type="button" className="btn" onClick={onCancel}>Cancel</button>
         <button type="button" className="btn primary" disabled={busy || switching} onClick={onSwitch}>{switching ? "Switching…" : "Switch"}</button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Which login the session's agent runs on, as one row in the foot: "Account", the one in force and its
+ * email, and a disclosure that opens the agent's accounts as a list, ticked on the current one, with
+ * "Add account…" last. Adding runs the CLI's own sign-in in a new folder and follows it here — the
+ * page, a code if the page shows one — and the list comes back with the account in it.
+ */
+function AccountSection({ control, onGrow }: { control: AccountControl; onGrow: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [adding, setAdding] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const current = control.accounts.find((a) => a.id === control.current) ?? null;
+  const signIn = adding ? control.signInOf(adding) : undefined;
+  const live = signInLive(signIn) ? signIn : null;
+  // A sign-in that ended puts the list back, with what happened said where the row was.
+  useEffect(() => {
+    if (!adding || !signIn || live) return;
+    setAdding(null);
+    setError(signIn.state === "failed" ? "The sign-in didn't finish. Try again from Settings ▸ Engines." : null);
+  }, [adding, signIn, live]);
+  const act = async (work: () => Promise<void>) => {
+    setError(null);
+    try { await work(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+  };
+  const toggle = () => {
+    if (!open) { onGrow(); control.onOpen(); }
+    setOpen(!open);
+  };
+  return (
+    <div className="mp-account" role="group" aria-label="Account">
+      <button type="button" className="mp-account-head" aria-expanded={open} onClick={toggle}
+        title={current ? accountName(current) : undefined}>
+        <span className="mp-seg-label">Account</span>
+        <span className="mp-account-name">{current?.label ?? "Default"}</span>
+        {current?.email && <span className="mp-account-email">{current.email}</span>}
+        <Icon name="chevronDown" size={12} className="mp-account-caret" />
+      </button>
+      {open && !live && (
+        <div className="mp-account-list" role="listbox" aria-label="Accounts">
+          {control.accounts.map((a) => (
+            <div key={a.id} role="option" aria-selected={a.id === control.current} tabIndex={-1} className="mp-account-row"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { if (a.id !== control.current) void act(() => control.onPick(a.id)); }}>
+              <span className="mp-account-name">{a.label}</span>
+              {a.email && <span className="mp-account-email">{a.email}</span>}
+              {a.signedIn === false && <span className="mp-row-hint" data-tone="warning">Signed out</span>}
+              {a.id === control.current && <Icon name="check" size={14} className="mp-check" />}
+            </div>
+          ))}
+          <button type="button" className="mp-account-row mp-account-add" onMouseDown={(e) => e.preventDefault()}
+            onClick={() => void act(async () => { setAdding(await control.onAdd()); })}>
+            <Icon name="plus" size={14} />Add account…
+          </button>
+        </div>
+      )}
+      {live && adding && (
+        <AccountSignInSteps className="mp-account-signin" signIn={live} name={control.accounts.find((a) => a.id === adding)?.label ?? "the new account"}
+          onCode={(code) => control.onCode(adding, code)} onCancel={() => control.onCancel(adding)} />
+      )}
+      {error && <p className="mp-account-note" data-tone="warning">{error}</p>}
     </div>
   );
 }

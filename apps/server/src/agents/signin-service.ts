@@ -43,6 +43,10 @@ import type { RpcServer } from "../rpc/server";
 /** What runs for one agent's login: a binary, resolved, and the table's own subcommand. */
 export type LoginCommand = { file: string; args: string[] };
 
+/** An account's sign-in (`accounts/service.ts`): the CLI's folder variable to run the login under,
+ *  and how to ask that account — not the agent's default — whether the login took. */
+export type SignInAccount = { id: string; dirEnv: Record<string, string>; signedIn: () => Promise<boolean | null> };
+
 export type AgentSignInDeps = {
   rpc: Pick<RpcServer, "broadcast">;
   /** `SessionService.probeAgent` — a fresh probe of the one agent whose login just exited, which
@@ -96,6 +100,7 @@ const RANK: Record<"starting" | "browser" | "code", number> = { starting: 0, bro
 type Run = {
   id: string;
   kind: AgentKind;
+  account: SignInAccount | null;
   state: State;
   url: string | null;
   detail: string | null;
@@ -112,38 +117,40 @@ type Run = {
   lookAgain: boolean;
 };
 
-const snapshot = (r: Run): AgentSignIn => ({ id: r.id, kind: r.kind, state: r.state, url: r.url, detail: r.detail });
+const snapshot = (r: Run): AgentSignIn => ({ id: r.id, kind: r.kind, ...(r.account ? { accountId: r.account.id } : {}), state: r.state, url: r.url, detail: r.detail });
 
 export class AgentSignInService {
   private runs = new Map<string, Run>();
-  /** The one unfinished sign-in per agent. */
-  private live = new Map<AgentKind, Run>();
+  /** The one unfinished sign-in per agent's default account, and per added account. */
+  private live = new Map<string, Run>();
 
   constructor(private readonly d: AgentSignInDeps) {}
 
-  /** Start `kind`'s login and answer with its first state; every later one is broadcast. Refuses an
-   *  agent with no login command, and one whose CLI is not on this Mac. */
-  async start(kind: AgentKind): Promise<AgentSignIn> {
+  /** Start `kind`'s login — in `account`'s folder where one is named — and answer with its first state;
+   *  every later one is broadcast. Refuses an agent with no login command, and one whose CLI is not on
+   *  this Mac. */
+  async start(kind: AgentKind, account: SignInAccount | null = null): Promise<AgentSignIn> {
     if (!AGENT_CLI_COMMANDS[kind].login) {
       // Gemini and DeepSeek: an API key is a sentence, not a line to run. Same answer as the
       // in-space flow gives, because it is the same fact.
       throw new RpcError("BAD_REQUEST", `${agentLabel(kind)} has no sign-in command Realm can run. ${AGENT_LOGIN_HINTS[kind]}`);
     }
-    const env = this.d.env ?? process.env;
+    const env = account ? { ...(this.d.env ?? process.env), ...account.dirEnv } : this.d.env ?? process.env;
     const command = await (this.d.command ?? ((k: AgentKind) => loginCommand(k, env)))(kind);
     if (!command) throw new RpcError("CLI_NOT_INSTALLED", `${agentLabel(kind)} isn't on this Mac yet, so there is nothing to sign in to. Install it first.`);
 
     // After the await, not before it: two starts racing for one agent still leave exactly one
     // running, because whichever resumes second finds the first here and replaces it.
-    const prior = this.live.get(kind);
+    const slot = account?.id ?? kind;
+    const prior = this.live.get(slot);
     if (prior) this.end(prior, "cancelled", null);
 
     const run: Run = {
-      id: newId(), kind, state: "starting", url: null, detail: null, term: null, exited: false,
+      id: newId(), kind, account, state: "starting", url: null, detail: null, term: null, exited: false,
       output: "", typed: [], lookTimer: null, deadline: null, killTimer: null, looking: false, lookAgain: false,
     };
     this.runs.set(run.id, run);
-    this.live.set(kind, run);
+    this.live.set(slot, run);
     try {
       /* Spawned directly, not typed into a login shell the way `signin-flow.ts` does it. That shell
          is a visible pane a person can take over; here nobody is watching, and a shell would only add
@@ -261,8 +268,10 @@ export class AgentSignInService {
     }
     // `end` ignores a run that is already final, so a cancel or a replacement that lands while this
     // probe is out wins — the person asked for that after the CLI finished.
-    const probe = await this.d.probe(run.kind).catch(() => undefined);
-    if (probe?.loggedIn === false) {
+    const loggedIn = run.account
+      ? await run.account.signedIn().catch(() => null)
+      : (await this.d.probe(run.kind).catch(() => undefined))?.loggedIn;
+    if (loggedIn === false) {
       const said = lastWords(screen, run.typed);
       this.end(run, "failed", clip(`${label} finished, but it still says it isn't signed in.${said ? `\n${said}` : ""}`));
       return;
@@ -279,7 +288,8 @@ export class AgentSignInService {
     for (const t of [run.lookTimer, run.deadline]) if (t) clearTimeout(t);
     run.lookTimer = null;
     run.deadline = null;
-    if (this.live.get(run.kind) === run) this.live.delete(run.kind);
+    const slot = run.account?.id ?? run.kind;
+    if (this.live.get(slot) === run) this.live.delete(slot);
     if (run.term && !run.exited) {
       const term = run.term;
       term.kill();

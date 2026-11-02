@@ -21,7 +21,7 @@ import {
   AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, LINKS_OPEN_IN_KEY, type LinksOpenIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
-  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpSignInOptions, type McpServerStatus, type McpTransport, type MemoryClaudeBackfill, type MemoryClaudeImport, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary, type ResourceReport, type ResourcePolicies, type ResourcePolicyKey, type FreeAction,
+  type Account, type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpSignInOptions, type McpServerStatus, type McpTransport, type MemoryClaudeBackfill, type MemoryClaudeImport, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary, type ResourceReport, type ResourcePolicies, type ResourcePolicyKey, type FreeAction,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves, type Rect } from "./no-overlay";
@@ -472,6 +472,14 @@ export type Api = TeamApi & LabApi & {
   agentSignInCode(id: string, code: string): Promise<void>;
   /** `agentSignIn.cancel` — stop a sign-in that is still running. */
   agentSignInCancel(id: string): Promise<void>;
+  /** `accounts.*` — the accounts each agent CLI runs on (contracts/accounts.ts). */
+  listAccounts(refresh: boolean): Promise<Account[]>;
+  addAccount(kind: AgentKind, label?: string): Promise<{ account: Account; signIn: AgentSignIn }>;
+  accountSignIn(id: string): Promise<AgentSignIn>;
+  renameAccount(id: string, label: string): Promise<Account>;
+  removeAccount(id: string): Promise<void>;
+  /** `sessions.setAccount` — run a session on another of its agent's accounts. */
+  setSessionAccount(id: string, accountId: string | null): Promise<Session>;
   /** `models.catalog` — prices, context windows and reasoning efforts for the picker. Never rejects
    *  on a dead network: the server answers with its cache, or with nothing. */
   modelCatalog(force: boolean): Promise<ModelInfo[]>;
@@ -1389,6 +1397,9 @@ export type AppState = TeamSlice & LabSlice & {
   cliJobs: Record<string, CliJob>;
   /** The latest space-less sign-in per agent (`agentSignIn.*`), as the server last reported it. */
   agentSignIns: Partial<Record<AgentKind, AgentSignIn>>;
+  /** Every agent CLI's accounts (`accounts.list`), and the latest sign-in of each one by its id. */
+  accounts: Account[];
+  accountSignIns: Record<string, AgentSignIn>;
   /** The Settings page's App-tab preferences (Plan 12 W6), read from the server's settings rows:
    *  which notification categories are switched OFF (`NOTIFICATIONS_DISABLED_KEY` — default-on
    *  polarity, matching the service), and the permission mode new sessions start in
@@ -2282,6 +2293,17 @@ export type AppState = TeamSlice & LabSlice & {
   cancelAgentSignIn(kind: AgentKind): Promise<void>;
   /** An `agentSignIn.changed` event, or a start's own answer. */
   applyAgentSignIn(s: AgentSignIn): void;
+  /** Re-read the accounts; `ask` has each CLI asked again about the ones not asked lately. */
+  refreshAccounts(ask?: boolean): Promise<void>;
+  /** Make a new account for `kind` and start its CLI's login in its folder. Answers with its id. */
+  addAccount(kind: AgentKind): Promise<string>;
+  signInAccount(id: string): Promise<void>;
+  sendAccountSignInCode(accountId: string, code: string): Promise<void>;
+  cancelAccountSignIn(accountId: string): Promise<void>;
+  renameAccount(id: string, label: string): Promise<void>;
+  removeAccount(id: string): Promise<void>;
+  /** Run a session on another account of its agent — `null` is the CLI's own. */
+  setSessionAccount(id: string, accountId: string | null): Promise<void>;
   /**
    * Whether this SPACE lets Realm finish a sign-in itself, including the click on Authorize.
    *
@@ -4463,7 +4485,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       laya: null,
       savedTurns: {}, savedTurnsRev: 0, promptFor: null,
       spacePageTab: {}, spaceSessionsView: {}, sessionReplies: {}, profilePageTab: {}, settingsPageTab: "general", librarySkill: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionActivityAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, unlockPolicy: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, computerAwaiting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
+      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionActivityAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, accounts: [], accountSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, unlockPolicy: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, computerAwaiting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeBranches: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, dismissedSubagents: {}, agentsAsk: {}, agentsShown: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
@@ -6706,6 +6728,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (s) await api.agentSignInCancel(s.id);
       },
       applyAgentSignIn(s) {
+        // An account's sign-in is that account's, and leaves the agent's own — first run's — alone.
+        if (s.accountId) {
+          const was = get().accountSignIns[s.accountId];
+          if (was && was.id === s.id && SIGN_IN_ORDER[was.state] > SIGN_IN_ORDER[s.state]) return;
+          if (was && was.id !== s.id && s.state === "cancelled") return;
+          set({ accountSignIns: { ...get().accountSignIns, [s.accountId]: s } });
+          if (s.state === "done") get().run(() => get().refreshAccounts(true));
+          return;
+        }
         const now = get().agentSignIns[s.kind];
         // The sign-in a newer one replaced, reporting its cancellation late, says nothing about the
         // newer one — and a start's own answer arriving after its events must not walk them back.
@@ -6717,6 +6748,37 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // That agent alone, fresh — a second or so, where every agent's probe waits on the slowest
         // of them to say nothing about this one.
         if (s.state === "done") get().run(() => get().probeAgent(s.kind));
+      },
+      async refreshAccounts(ask = false) {
+        set({ accounts: await api.listAccounts(ask) });
+      },
+      async addAccount(kind) {
+        const { account, signIn } = await api.addAccount(kind);
+        set({ accounts: [...get().accounts.filter((a) => a.id !== account.id), account] });
+        get().applyAgentSignIn(signIn);
+        return account.id;
+      },
+      async signInAccount(id) {
+        get().applyAgentSignIn(await api.accountSignIn(id));
+      },
+      async sendAccountSignInCode(accountId, code) {
+        const s = get().accountSignIns[accountId];
+        if (s) await api.agentSignInCode(s.id, code);
+      },
+      async cancelAccountSignIn(accountId) {
+        const s = get().accountSignIns[accountId];
+        if (s) await api.agentSignInCancel(s.id);
+      },
+      async renameAccount(id, label) {
+        const row = await api.renameAccount(id, label);
+        set({ accounts: get().accounts.map((a) => (a.id === id ? row : a)) });
+      },
+      async removeAccount(id) {
+        await api.removeAccount(id);
+        set({ accounts: get().accounts.filter((a) => a.id !== id) });
+      },
+      async setSessionAccount(id, accountId) {
+        mergeSession(await api.setSessionAccount(id, accountId));
       },
       async runCliAction(kind, action) {
         const started = await api.runCli(kind, action);

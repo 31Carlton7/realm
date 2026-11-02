@@ -85,6 +85,27 @@ function harness(o: { login: (kind: AgentKind) => LoginCommand | null; loggedIn?
   return { svc, said, probed, asked, latest, reaches };
 }
 
+describe("an account's sign-in", () => {
+  it("runs the login in the account's folder, beside the default one, and asks the account whether it took", async () => {
+    const waiting = program(SHOWS_PAGE);
+    const p = program(String.raw`printf '%s' "$CLAUDE_CONFIG_DIR" > "$(dirname "$0")/dir"`);
+    const logins = [waiting.command, p.command];
+    const h = harness({ login: () => logins.shift() ?? null, loggedIn: true });
+    const own = await h.svc.start("claude");
+    const asked: string[] = [];
+    const account = { id: "work", dirEnv: { CLAUDE_CONFIG_DIR: "/realm/accounts/claude/work" }, signedIn: async () => { asked.push("work"); return false; } };
+    const work = await h.svc.start("claude", account);
+    // Two at once: the default folder's sign-in is not replaced by an account's.
+    expect(h.latest(own.id)?.state).not.toBe("cancelled");
+    expect(work).toMatchObject({ accountId: "work", state: "starting" });
+    await h.reaches(work.id, "failed");
+    expect(readFileSync(join(p.dir, "dir"), "utf8")).toBe("/realm/accounts/claude/work");
+    // The account said no, whatever the agent's own probe would have said.
+    expect(asked).toEqual(["work"]);
+    expect(h.latest(work.id)?.detail).toMatch(/still says it isn't signed in/);
+  });
+});
+
 describe("a sign-in with no space around it", () => {
   it("answers at once, then reports the sign-in page the CLI printed — the consent link, not the docs one", async () => {
     const p = program(SHOWS_PAGE);

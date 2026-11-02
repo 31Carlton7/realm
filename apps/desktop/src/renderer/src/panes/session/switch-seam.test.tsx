@@ -34,3 +34,21 @@ describe("the line a switch of agents leaves", () => {
     expect(screen.queryByRole("button", { name: "Summary" })).toBeNull();
   });
 });
+
+describe("a usage limit on one of the agent's accounts", () => {
+  const limited = (): Block => ({ kind: "error", message: "Personal hit its usage limit.", accounts: [{ id: "work", label: "Work" }], ts: 2 });
+
+  it("offers the agent's other accounts on the error the last turn ended on", () => {
+    const chose: string[] = [];
+    render(<Transcript transcript={model([{ kind: "user", text: "go", ts: 1 } as Block, limited()])} sessionStatus="idle" onDecide={() => {}}
+      onContinueOn={(id) => chose.push(id)} />);
+    fireEvent.click(screen.getByRole("button", { name: "Continue on Work" }));
+    expect(chose).toEqual(["work"]);
+  });
+
+  it("withdraws the offer once something else has been sent", () => {
+    render(<Transcript transcript={model([limited(), { kind: "user", text: "never mind", ts: 3 } as Block])} sessionStatus="idle" onDecide={() => {}}
+      onContinueOn={() => {}} />);
+    expect(screen.queryByRole("button", { name: "Continue on Work" })).toBeNull();
+  });
+});

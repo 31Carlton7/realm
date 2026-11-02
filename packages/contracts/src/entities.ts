@@ -419,6 +419,8 @@ export const SessionSchema = z.object({
    * rename — and so moved a row just for being opened. Nothing a reader does moves this one.
    */
   activityAt: z.number().int(),
+  /** The account its agent runs on (`accounts.ts`); null or absent is the CLI's own default account. */
+  accountId: z.string().nullable().optional(),
   ...Timestamps,
 });
 export type Session = z.infer<typeof SessionSchema>;

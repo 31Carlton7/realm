@@ -38,7 +38,7 @@ export type Block =
   /** `fix` is the thing to do about it, carried from the server on the failures where Realm knows
    *   one (today: an auth failure it re-probed). Absent on every other error, which is most of
    *   them — a block that invented a remedy would be worse than the bare message. */
-  | { kind: "error"; message: string; fix?: { title: string; hint: string; command: string | null }; ts: number }
+  | { kind: "error"; message: string; fix?: { title: string; hint: string; command: string | null }; accounts?: { id: string; label: string }[]; ts: number }
   /**
    * The session changed agents mid-turn, because the one it was on could not finish (failover).
    *
@@ -411,7 +411,8 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
     //   retrying → error   the ladder ran out; the failure supersedes the wait, and is final
     case "error":
       return { ...t, blocks: [...dropPending(blocks),
-        { kind: "error", message: e.payload.message, ...(e.payload.fix ? { fix: e.payload.fix } : {}), ts: e.ts }] };
+        { kind: "error", message: e.payload.message, ...(e.payload.fix ? { fix: e.payload.fix } : {}),
+          ...(e.payload.accounts?.length ? { accounts: e.payload.accounts } : {}), ts: e.ts }] };
     case "handoff":
       return { ...t, blocks: [...dropPending(blocks),
         { kind: "handoff", from: e.payload.from, to: e.payload.to, note: e.payload.note, attempt: e.payload.attempt,

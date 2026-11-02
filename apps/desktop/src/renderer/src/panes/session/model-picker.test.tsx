@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, createEvent, fireEvent, render, screen, within } from "@testing-library/react";
 import { MODEL_NOTES, canonicalModelKey, type AgentKind, type ModelInfo } from "@realm/contracts";
 import { exited } from "../../components/popover-exit.test-fakes";
-import { ModelPicker, type OverflowGroup, type SwitchAgent } from "./ModelPicker";
+import { ModelPicker, type AccountControl, type OverflowGroup, type SwitchAgent } from "./ModelPicker";
+import type { Account, AgentSignIn } from "@realm/contracts";
 import { modelRows, type EffortControl, type FastMode, type ModelRow } from "./model-catalog";
 import type { AgentProbe } from "../../state/store";
 
@@ -26,11 +27,11 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 function mount({ rows = rowsFor(), kind = "claude" as AgentKind, model = "claude-opus-5" as string | null, effort,
-  overflow, fast, info = {}, switchAgent }: { rows?: ModelRow[]; kind?: AgentKind; model?: string | null; effort?: EffortControl;
-  overflow?: OverflowGroup[]; fast?: FastMode; info?: Record<string, ModelInfo>; switchAgent?: SwitchAgent } = {}) {
+  overflow, fast, info = {}, switchAgent, account }: { rows?: ModelRow[]; kind?: AgentKind; model?: string | null; effort?: EffortControl;
+  overflow?: OverflowGroup[]; fast?: FastMode; info?: Record<string, ModelInfo>; switchAgent?: SwitchAgent; account?: AccountControl } = {}) {
   const picked: [AgentKind, string | null][] = [];
   const starred: string[] = [];
-  render(<ModelPicker kind={kind} model={model} effort={effort} rows={rows} info={info} switchAgent={switchAgent}
+  render(<ModelPicker kind={kind} model={model} effort={effort} rows={rows} info={info} switchAgent={switchAgent} account={account}
     onToggleFavorite={(k) => starred.push(k)} onPick={(k, m) => picked.push([k, m])} overflow={overflow} fast={fast} />);
   fireEvent.click(screen.getByRole("button", { name: "Model" }));
   return { picked, starred };
@@ -373,6 +374,65 @@ describe("a session that has run and can hand over", () => {
     fireEvent.click(option(/^GPT-5\.5/));
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Switch" })); });
     expect(screen.getByRole("group", { name: "Switch to Cursor" })).toHaveTextContent("Codex is not signed in");
+  });
+});
+
+describe("the account the agent runs on", () => {
+  const acct = (id: string, label: string, email: string | null, signedIn: boolean | null = true): Account =>
+    ({ id, kind: "claude", label, configDir: id === "default-claude" ? null : `/realm/accounts/claude/${id}`, signedIn, email, plan: null, createdAt: 0 });
+  const control = (over: Partial<AccountControl> = {}) => {
+    const picked: string[] = [];
+    const signIns: Record<string, AgentSignIn> = {};
+    const c: AccountControl = {
+      accounts: [acct("default-claude", "Default", "me@example.com"), acct("work", "Work", "work@example.com")],
+      current: "default-claude",
+      onPick: async (id) => { picked.push(id); },
+      onAdd: async () => { signIns.new = { id: "si", kind: "claude", accountId: "new", state: "browser", url: "https://example.com/oauth", detail: null }; return "new"; },
+      signInOf: (id) => signIns[id], onCode: () => {}, onCancel: () => {}, onOpen: () => {},
+      ...over,
+    };
+    return { c, picked };
+  };
+
+  it("is one row in the foot naming the account in force, and opens to the agent's accounts", () => {
+    const { c } = control();
+    mount({ account: c });
+    const head = screen.getByRole("button", { name: /Account/ });
+    expect(head).toHaveTextContent("AccountDefaultme@example.com");
+    expect(screen.queryByRole("listbox", { name: "Accounts" })).toBeNull();
+    fireEvent.click(head);
+    const list = screen.getByRole("listbox", { name: "Accounts" });
+    const rows = within(list).getAllByRole("option");
+    expect(rows.map((r) => r.textContent)).toEqual(["Defaultme@example.com", "Workwork@example.com"]);
+    expect(rows[0]).toHaveAttribute("aria-selected", "true");
+    expect(within(list).getByRole("button", { name: "Add account…" })).toBeInTheDocument();
+  });
+
+  it("moves the session to the account picked, and says a signed-out one is", async () => {
+    const { c, picked } = control({ accounts: [acct("default-claude", "Default", null), acct("work", "Work", null, false)] });
+    mount({ account: c });
+    fireEvent.click(screen.getByRole("button", { name: /Account/ }));
+    const work = screen.getByRole("option", { name: /Work/ });
+    expect(work).toHaveTextContent("Signed out");
+    await act(async () => { fireEvent.click(work); });
+    expect(picked).toEqual(["work"]);
+  });
+
+  it("starts an account's sign-in on the spot, and follows it in the picker", async () => {
+    const { c } = control();
+    mount({ account: c });
+    fireEvent.click(screen.getByRole("button", { name: /Account/ }));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add account…" })); });
+    expect(document.querySelector(".account-signin")).toHaveTextContent("Finish signing in to the new account in your browser.");
+    expect(screen.getByRole("button", { name: "Open the page again" })).toBeInTheDocument();
+  });
+
+  it("keeps a refusal on the row it answers", async () => {
+    const { c } = control({ onPick: async () => { throw new Error("Claude is still working on this turn. Stop it or let it finish, then switch accounts."); } });
+    mount({ account: c });
+    fireEvent.click(screen.getByRole("button", { name: /Account/ }));
+    await act(async () => { fireEvent.click(screen.getByRole("option", { name: /Work/ })); });
+    expect(document.querySelector(".mp-account-note")).toHaveTextContent(/still working/);
   });
 });
 

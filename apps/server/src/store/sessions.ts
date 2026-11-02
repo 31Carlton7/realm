@@ -6,14 +6,14 @@ import { encodePayload, parsePayload, type StoredPayload } from "./event-payload
 type Row = { id: string; space_id: string; project_id: string | null; agent_kind: AgentKind; model: string | null; effort: string | null; fast_mode: number;
   permission_mode: string; environment_id: string; cwd: string; status: SessionStatus; provider_session_id: string | null; title: string; last_event_seq: number; seen_seq: number;
   terminal_item_id: string | null; dispatched_by_kind: DispatchKind | null; dispatched_by_session_id: string | null;
-  provider_cursor: string | null; rewind_fork_json: string | null; rewind_refusal: string | null; activity_at: number; created_at: number; updated_at: number };
+  provider_cursor: string | null; rewind_fork_json: string | null; rewind_refusal: string | null; activity_at: number; account_id: string | null; created_at: number; updated_at: number };
 const toSession = (r: Row): Session => ({
   id: r.id, spaceId: r.space_id, projectId: r.project_id, agentKind: r.agent_kind, model: r.model, effort: r.effort,
   fastMode: r.fast_mode === 1,
   permissionMode: r.permission_mode, environmentId: r.environment_id, cwd: r.cwd, status: r.status, providerSessionId: r.provider_session_id, title: r.title,
   lastEventSeq: r.last_event_seq, seenSeq: r.seen_seq, terminalItemId: r.terminal_item_id,
   dispatchedBy: r.dispatched_by_kind ? { kind: r.dispatched_by_kind, sessionId: r.dispatched_by_session_id } : null,
-  activityAt: r.activity_at, createdAt: r.created_at, updatedAt: r.updated_at,
+  activityAt: r.activity_at, accountId: r.account_id, createdAt: r.created_at, updatedAt: r.updated_at,
 });
 
 /**
@@ -25,7 +25,7 @@ const toSession = (r: Row): Session => ({
 const SELECT = "SELECT s.*, e.path AS cwd FROM sessions s JOIN environments e ON e.id = s.environment_id";
 
 export type SessionUpdate = { id: string; status?: SessionStatus; providerSessionId?: string | null; lastEventSeq?: number; title?: string;
-  model?: string | null; effort?: string | null; permissionMode?: string; agentKind?: AgentKind; fastMode?: boolean };
+  model?: string | null; effort?: string | null; permissionMode?: string; agentKind?: AgentKind; fastMode?: boolean; accountId?: string | null };
 
 /** Settings key: the one-time read-mark catch-up has run on this home (`catchUpReadMarksOnce`). */
 export const READ_MARKS_CAUGHT_UP = "sessions.readMarksCaughtUp";
@@ -106,7 +106,7 @@ export class SessionsStore {
   }
   update(input: SessionUpdate): Session {
     const cur = this.get(input.id); if (!cur) throw new NotFoundError("session", input.id);
-    this.db.prepare("UPDATE sessions SET status = ?, provider_session_id = ?, last_event_seq = ?, title = ?, model = ?, effort = ?, permission_mode = ?, agent_kind = ?, fast_mode = ?, updated_at = ? WHERE id = ?")
+    this.db.prepare("UPDATE sessions SET status = ?, provider_session_id = ?, last_event_seq = ?, title = ?, model = ?, effort = ?, permission_mode = ?, agent_kind = ?, fast_mode = ?, account_id = ?, updated_at = ? WHERE id = ?")
       .run(input.status ?? cur.status,
         input.providerSessionId === undefined ? cur.providerSessionId : input.providerSessionId,
         input.lastEventSeq ?? cur.lastEventSeq, input.title ?? cur.title,
@@ -115,6 +115,7 @@ export class SessionsStore {
         input.permissionMode ?? cur.permissionMode,
         input.agentKind ?? cur.agentKind,
         (input.fastMode === undefined ? cur.fastMode : input.fastMode) ? 1 : 0,
+        input.accountId === undefined ? cur.accountId ?? null : input.accountId,
         now(), input.id);
     return this.get(input.id)!;
   }

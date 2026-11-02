@@ -22,6 +22,7 @@ import { BOOT_ID, acquireLock, clearState, currentBundleId, newToken, readState,
 import { listenFromEnv } from "./access/listen";
 import { homeKeyFile } from "./remote/home-key";
 import { clearCaptureLeftovers } from "./remote/screens";
+import { machineAccounts } from "./accounts/probe";
 
 const envPort = Number(process.env.REALM_PORT);
 const port = Number.isFinite(envPort) && envPort >= 0 ? envPort : 0;
@@ -78,6 +79,9 @@ try {
     // The machine's own home, where `~/.agents`, `~/.claude`, `~/.codex` and `~/.cursor` live. Realm's
     // home is not it, and scanning there found nothing: this is the only caller that may name it.
     userHome: homedir(), codexHome: process.env.CODEX_HOME || undefined,
+    // The accounts each CLI runs on are asked about, signed out of and carried between only here, for
+    // the probe's reason — and in a harness, only the ones it made in its own scratch home.
+    accounts: machineAccounts(process.env, homedir()),
     // Plan 22: where Plynn's meeting exports are read from. Unset in production (the app's own
     // Application Support folder); live checks point it at a fixture so no real recording is read.
     plynnMeetingsDir: process.env.REALM_PLYNN_MEETINGS_DIR || undefined,

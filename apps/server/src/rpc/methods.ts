@@ -31,6 +31,7 @@ import type { FontsService } from "../fonts/service";
 import type { McpService } from "../mcp/service";
 import type { ComputerAppAllowlist } from "../computer/allowlist";
 import { announceSignIn, type SignInFlow } from "../browsers/signin-flow";
+import type { AccountsService } from "../accounts/service";
 import type { AgentSignInService } from "../agents/signin-service";
 import type { BrowserPermissionBroker } from "../browsers/permissions";
 import type { McpHub } from "../mcp/hub";
@@ -115,6 +116,7 @@ export type Deps = {
   /** What Realm costs this Mac in memory, and the Memory page's controls (`resources/controls.ts`). */
   resources: ResourceControls;
   agentSignIn: AgentSignInService;
+  accounts: AccountsService;
   /** The views MCP servers draw for tool calls (MCP Apps). */
   appViews: AppViewService;
   /** Pull requests through the person's own `gh` (the Code Review page). */
@@ -311,6 +313,12 @@ export function registerMethods(d: Deps): void {
   reg("agentSignIn.start", (p) => { refuseWhileDraining("sign in"); return d.agentSignIn.start(p.kind); });
   reg("agentSignIn.code", (p) => { d.agentSignIn.code(p.id, p.code); return { ok: true as const }; });
   reg("agentSignIn.cancel", (p) => { d.agentSignIn.cancel(p.id); return { ok: true as const }; });
+  // Accounts (`accounts/service.ts`): a sign-in for one runs the same CLI login, in its own folder.
+  reg("accounts.list", async (p) => ({ accounts: await d.accounts.list({ refresh: p.refresh }) }));
+  reg("accounts.add", (p) => { refuseWhileDraining("sign in"); return d.accounts.add(p.kind, p.label); });
+  reg("accounts.signIn", (p) => { refuseWhileDraining("sign in"); return d.accounts.signIn(p.id); });
+  reg("accounts.rename", (p) => d.accounts.rename(p.id, p.label));
+  reg("accounts.remove", async (p) => { await d.accounts.remove(p.id); return { ok: true as const }; });
   reg("settings.get", (p) => ({ value: d.settings.get(p.key) }));
   reg("settings.set", (p) => {
     d.settings.set(p.key, p.value);
@@ -1239,6 +1247,7 @@ export function registerMethods(d: Deps): void {
   reg("sessions.respondPermission", (p) => { d.sessions.respondPermission(p.id, p.requestId, p.decision, p.answers); return { ok: true as const }; });
   reg("sessions.setOptions", (p) => d.sessions.setOptions(p.id, { model: p.model, effort: p.effort, permissionMode: p.permissionMode, fastMode: p.fastMode }));
   reg("sessions.setAgent", (p) => d.sessions.setAgent(p.id, p.agentKind));
+  reg("sessions.setAccount", (p) => d.sessions.setAccount(p.id, p.accountId));
   reg("sessions.switchAgent", (p) => d.sessions.switchAgent(p.sessionId, { agentKind: p.agentKind, model: p.model, effort: p.effort }));
   /* Laya (`laya/service.ts`). The service makes every refusal — an install with no Python to make it
      from, Shadow before an install — so nothing here decides anything. */

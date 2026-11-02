@@ -3,7 +3,7 @@ import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SI
 import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpSignInOptions, McpTool, MemoryClaudeBackfill, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, BranchList, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
-import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, ResourcePolicies, ResourceReport, Schedule, SearchResults, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
+import type { Account, CliStatus, DelegatedChild, LayaStatus, ModelInfo, ResourcePolicies, ResourceReport, Schedule, SearchResults, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
 import type { SavedTurn } from "@realm/contracts";
 import { PRODUCTION_REMOTE_RELAY, type PairRequest, type PairedPhone, type RemoteStatus } from "@realm/contracts";
 import { RpcError } from "../rpc/client";
@@ -218,6 +218,8 @@ export type FakeData = {
   settings?: Record<string, unknown>;
   computerAllowedApps?: Record<string, string[]>;
   sessions?: Session[]; sessionEvents?: Record<string, StoredSessionEvent[]>;
+  /** What `accounts.list` answers: each CLI's own account first, as a fresh home has them. */
+  accounts?: Account[];
   importScan?: ImportScan; importResult?: ImportResult;
   usageSummary?: UsageSummary;
   usageActiveDays?: UsageDay[];
@@ -552,6 +554,10 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     eggWords: overrides.eggWords ?? {},
     eggsUnlocked: overrides.eggsUnlocked ?? [],
     sessions: overrides.sessions ?? [],
+    accounts: overrides.accounts ?? [
+      { id: "default-claude", kind: "claude", label: "Default", configDir: null, signedIn: null, email: null, plan: null, createdAt: 0 },
+      { id: "default-codex", kind: "codex", label: "Default", configDir: null, signedIn: null, email: null, plan: null, createdAt: 0 },
+    ],
     sessionEvents: overrides.sessionEvents ?? {},
     sessionTerminals: overrides.sessionTerminals ?? {},
     gitInfo: overrides.gitInfo ?? {},
@@ -1787,6 +1793,30 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     },
     agentSignInCode: async (id, code) => { calls.push(`agentSignInCode:${id}:${code.length}`); },
     agentSignInCancel: async (id) => { calls.push(`agentSignInCancel:${id}`); },
+    listAccounts: async (refresh) => { calls.push(`listAccounts:${refresh}`); return data.accounts; },
+    addAccount: async (kind, label) => {
+      calls.push(`addAccount:${kind}`);
+      const n = data.accounts.filter((a) => a.kind === kind).length + 1;
+      const account: Account = { id: `acct-${kind}-${n}`, kind, label: label ?? `Account ${n}`, configDir: `/realm/accounts/${kind}/${n}`, signedIn: null, email: null, plan: null, createdAt: n };
+      data.accounts = [...data.accounts, account];
+      return { account, signIn: { id: `si-${account.id}`, kind, accountId: account.id, state: "browser", url: `https://example.com/oauth/authorize?client=${kind}`, detail: null } };
+    },
+    accountSignIn: async (id) => {
+      calls.push(`accountSignIn:${id}`);
+      const a = data.accounts.find((x) => x.id === id)!;
+      return { id: `si-${id}`, kind: a.kind, accountId: id, state: "browser", url: null, detail: null };
+    },
+    renameAccount: async (id, label) => {
+      calls.push(`renameAccount:${id}:${label}`);
+      data.accounts = data.accounts.map((a) => (a.id === id ? { ...a, label } : a));
+      return data.accounts.find((a) => a.id === id)!;
+    },
+    removeAccount: async (id) => { calls.push(`removeAccount:${id}`); data.accounts = data.accounts.filter((a) => a.id !== id); },
+    setSessionAccount: async (id, accountId) => {
+      calls.push(`setSessionAccount:${id}=${accountId}`);
+      const i = data.sessions.findIndex((x) => x.id === id); if (i < 0) throw new Error(`no session ${id}`);
+      const s = { ...data.sessions[i]!, accountId }; data.sessions[i] = s; return s;
+    },
     modelCatalog: async (force) => {
       calls.push(`modelCatalog:${force}`);
       await wait("modelCatalog");

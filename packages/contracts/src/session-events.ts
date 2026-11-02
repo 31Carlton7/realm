@@ -104,6 +104,9 @@ const P = {
     message: z.string(),
     failure: z.enum(["usage_limit", "provider_down", "transient", "auth", "fatal"]).optional(),
     fix: z.object({ title: z.string(), hint: z.string(), command: z.string().nullable() }).optional(),
+    /** The agent's other signed-in accounts, offered where this one hit its usage limit — the person
+     *  picks one; nothing moves on its own. */
+    accounts: z.array(z.object({ id: z.string(), label: z.string() })).optional(),
   }),
   /**
    * The next-move suggestion the prompter offers as its hint text, written by a model once per

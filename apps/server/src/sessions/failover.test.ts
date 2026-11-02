@@ -16,6 +16,8 @@ const msg: SendMessage = { text: "do the thing", attachments: [] };
 
 function harness(opts: {
   policy?: unknown; agentKind?: AgentKind; available?: boolean;
+  /** The agent's other accounts, as the accounts service would offer them. */
+  accounts?: { id: string; label: string }[];
   /** What each agent's CLI says about being signed in. A function so a test can have one agent
    *  signed out and the next one signed in, which is the only way to tell a carried verdict from a
    *  fresh one. */
@@ -60,6 +62,7 @@ function harness(opts: {
     },
     setTimer: (fn) => { pending = fn; return 0 as never; },
     clearTimer: () => { pending = null; },
+    ...(opts.accounts ? { accounts: { accountFor: () => ({ label: "Personal" }), others: () => opts.accounts! } } : {}),
   });
 
   return {
@@ -139,6 +142,24 @@ describe("what failover does with an error", () => {
     const h = harness({ policy: RETRY_CHAIN });
     expect(h.svc.onError(h.session(), "usage limit reached")).toBe("stop");
     expect(h.resent).toEqual([]);
+  });
+});
+
+describe("a usage limit on an agent with other accounts", () => {
+  it("names the account that ran out and offers the others, moving nothing on its own", () => {
+    const h = harness({ policy: DEFAULT_FAILOVER_POLICY, accounts: [{ id: "work", label: "Work" }] });
+    h.svc.turnStarted("se1", msg);
+    expect(h.svc.onError(h.session(), "Claude AI usage limit reached|1788555903")).toBe("stop");
+    expect(h.emitted.at(-1)).toMatchObject({ type: "error", payload: { message: "Personal hit its usage limit.", failure: "usage_limit", accounts: [{ id: "work", label: "Work" }] } });
+    expect(h.session().accountId).toBeUndefined();
+    expect(h.resent).toEqual([]);
+  });
+
+  it("says what it always said where the agent has no other account", () => {
+    const h = harness({ policy: DEFAULT_FAILOVER_POLICY, accounts: [] });
+    h.svc.turnStarted("se1", msg);
+    h.svc.onError(h.session(), "usage limit reached");
+    expect(h.emitted.at(-1)).toMatchObject({ type: "error", payload: { message: "Claude hit its usage limit, and no fallback agent is configured for this space." } });
   });
 });
 

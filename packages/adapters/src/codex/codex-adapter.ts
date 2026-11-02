@@ -216,8 +216,8 @@ export function codexThreadConfig(servers: readonly McpServerConfig[], roleRun: 
 }
 
 /** The user's Codex config, read only, or "" when there is none to read. */
-function readUserCodexConfig(): string {
-  const home = process.env.CODEX_HOME || join(homedir(), ".codex");
+function readUserCodexConfig(codexHome?: string): string {
+  const home = codexHome || process.env.CODEX_HOME || join(homedir(), ".codex");
   try { return readFileSync(join(home, "config.toml"), "utf8"); } catch { return ""; }
 }
 
@@ -258,6 +258,9 @@ function bootFailureMessage(e: unknown): string {
 type SharedProcess = {
   conn: Promise<CodexConnection>;
   refs: number;
+  /** The `CODEX_HOME` it was started under, "" for the CLI's own: an account's folder (accounts.ts) is
+   *  the whole of its login, and one process can hold only one. */
+  home: string;
   /**
    * Skills roots contributed by live sessions, refcounted by root.
    *
@@ -283,8 +286,9 @@ export class CodexAdapter implements AgentAdapter {
   private readonly args?: string[];
   /** Overridable for tests. Bounds every boot call: initialize, thread/start and thread/resume. */
   private readonly bootTimeoutMs?: number;
-  /** The process new sessions join, or null when none is up (or the one that was is retired). */
-  private shared: SharedProcess | null = null;
+  /** The process new sessions join, one per account folder (`SharedProcess.home`) — none for a
+   *  folder with nothing up, or whose process was retired. */
+  private readonly shared = new Map<string, SharedProcess>();
   /** Every process still holding sessions — the current one plus any retired by a CLI upgrade. */
   private readonly live = new Set<SharedProcess>();
   /**
@@ -311,8 +315,9 @@ export class CodexAdapter implements AgentAdapter {
     this.bootTimeoutMs = deps.bootTimeoutMs;
   }
 
-  /** Visible for tests: 0 or 1 — the whole point of the refcount is that it never exceeds one. The one
-   *  exception is the overlap after a CLI upgrade, while sessions on the retired process finish. */
+  /** Visible for tests: one per account folder in use — the whole point of the refcount is that it never
+   *  exceeds that. The one exception is the overlap after a CLI upgrade, while sessions on the retired
+   *  process finish. */
   get processCount(): number { return this.live.size; }
   /** Visible for tests: sessions currently holding a process. A leak here strands the child forever. */
   get sessionCount(): number { return [...this.live].reduce((n, s) => n + s.refs, 0); }
@@ -321,7 +326,7 @@ export class CodexAdapter implements AgentAdapter {
    * refcount alone cannot — that the child is really dead, that a disposed session really detached, and how a
    * still-attached session reacts when the process is deliberately torn down under it.
    */
-  get connection(): Promise<CodexConnection> | null { return this.shared?.conn ?? null; }
+  get connection(): Promise<CodexConnection> | null { return this.shared.get("")?.conn ?? null; }
 
   async probe(): Promise<ProbeResult> {
     // The adapter's OWN args, so the probe runs the command the adapter would run. With no args —
@@ -336,7 +341,7 @@ export class CodexAdapter implements AgentAdapter {
       // files, not the running program. Asking it for `model/list` returns the OLD catalog, and a new
       // session joining it would run a model the picker offers but that build does not know. So it is
       // retired: its sessions keep it until they end, and everything after spawns the new binary.
-      if (this.latchedVersion !== null) this.shared = null;
+      if (this.latchedVersion !== null) this.shared.clear();
       this.latchedVersion = p.version;
       this.modelListSupported = true;
       this.extraRootsSupported = true;
@@ -364,7 +369,8 @@ export class CodexAdapter implements AgentAdapter {
     try {
       // A rejected shared open is a boot problem for the session that caused it, not for this probe:
       // fall through to a transient process rather than inheriting the rejection.
-      const shared = this.shared ? await this.shared.conn.catch(() => null) : null;
+      const own = this.shared.get("");
+      const shared = own ? await own.conn.catch(() => null) : null;
       const conn = shared ?? (owned = await CodexConnection.open({
         bin: this.bin ?? process.env.REALM_CODEX_BIN ?? "codex",
         args: this.args,
@@ -391,12 +397,15 @@ export class CodexAdapter implements AgentAdapter {
 
   /**
    * `cwd`/`env`/`onLog` only shape the process the *first* session spawns; every later session rides the same
-   * one and carries its own `cwd` on `thread/start`, which is the value that actually matters.
+   * one and carries its own `cwd` on `thread/start`, which is the value that actually matters. The one
+   * exception is the account: a session on another account's folder (`CODEX_HOME`) gets that folder's
+   * process, so each login stays in the process that signed it in.
    */
   private acquire(opts: StartOptions): SharedProcess {
-    let entry = this.shared;
+    const home = opts.env?.CODEX_HOME ?? "";
+    let entry = this.shared.get(home);
     if (!entry) {
-      entry = this.shared = {
+      entry = {
         conn: CodexConnection.open({
           bin: this.bin ?? process.env.REALM_CODEX_BIN ?? "codex",
           args: this.args,
@@ -406,8 +415,10 @@ export class CodexAdapter implements AgentAdapter {
           initializeTimeoutMs: this.bootTimeoutMs,
         }),
         refs: 0,
+        home,
         roots: new Map(),
       };
+      this.shared.set(home, entry);
       this.live.add(entry);
     }
     entry.refs += 1;
@@ -417,13 +428,13 @@ export class CodexAdapter implements AgentAdapter {
     entry.conn.catch(() => {
       opened.refs -= 1;
       if (opened.refs === 0) this.live.delete(opened);
-      if (this.shared === opened) this.shared = null;
+      if (this.shared.get(opened.home) === opened) this.shared.delete(opened.home);
     });
     return entry;
   }
 
   /** Visible for tests: the roots currently unioned onto the shared connection. */
-  get extraRootCount(): number { return this.shared?.roots.size ?? 0; }
+  get extraRootCount(): number { return this.shared.get("")?.roots.size ?? 0; }
   /** Visible for tests: false once a codex build has answered -32601 to `skills/extraRoots/set`. */
   get skillsSupported(): boolean { return this.extraRootsSupported; }
   /** Visible for tests: false once a codex build has answered -32601 to `model/list`. */
@@ -464,7 +475,7 @@ export class CodexAdapter implements AgentAdapter {
     entry.refs -= 1;
     if (entry.refs > 0) return;
     this.live.delete(entry);
-    if (this.shared === entry) this.shared = null;
+    if (this.shared.get(entry.home) === entry) this.shared.delete(entry.home);
     try { await (await entry.conn).dispose(); } catch { /* open() already tore down its own child */ }
   }
 
@@ -746,7 +757,7 @@ export class CodexAdapter implements AgentAdapter {
         if (disposed) { await releaseOnce(); return; }
         conn = c;
         const { approvalPolicy, sandbox } = codexPolicyFor(opts.permissionMode);
-        const config = codexThreadConfig(opts.mcpServers, opts.roleRun ? { userServers: codexUserMcpServers(readUserCodexConfig()) } : null, { memoriesOff: Boolean(opts.memoryDirectory) });
+        const config = codexThreadConfig(opts.mcpServers, opts.roleRun ? { userServers: codexUserMcpServers(readUserCodexConfig(opts.env?.CODEX_HOME)) } : null, { memoriesOff: Boolean(opts.memoryDirectory) });
         // No `effort` here: Codex takes reasoning effort per turn, and `effortParam` sends it on `turn/start`.
         const common = {
           cwd: opts.cwd,
