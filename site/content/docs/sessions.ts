@@ -41,10 +41,10 @@ export default page({
     h2("Over the prompter"),
     h3("Agents at work"),
     p(
-      "While other agents work in the session, a row over the prompter shows each one: the sub-agents its agent started, the teammates you added, and any agent it asked a question. Each wears its own agent's mark with its state on the corner, a dot while it works and a check once it's done, beside its name. Whoever needs you comes first, and past three the last place reads **+N** and lists the rest. Finished ones stay until your next message. Point at one for its model, its state and its task.",
+      "While other agents work in the session, a row over the prompter shows each one: the sub-agents its agent started, the ones you added, and any agent it asked a question. Each wears its own agent's mark with its state on the corner, a dot while it works and a check once it's done, beside its name. Whoever needs you comes first, and past three the last place reads **+N** and lists the rest. Finished ones stay until your next message. Point at one for its model, its state and its task.",
     ),
     p(
-      "Click one to open it in the side panel's **Agents** tab. Right-click it for **Open in Agents tab** and **Dismiss**, which takes it off the row and leaves it working; a sub-agent started through Realm, teammates included, also has **Message**, which names it in the prompter, and **Stop** while it works. See [Sub-agents](/docs/sub-agents).",
+      "Click one to open it in the side panel's **Agents** tab. Right-click it for **Open in Agents tab** and **Dismiss**, which takes it off the row and leaves it working; a sub-agent started through Realm, including one you added, also has **Message**, which names it in the prompter, and **Stop** while it works. See [Sub-agents](/docs/sub-agents).",
     ),
     h3("What changed"),
     p(
@@ -67,7 +67,11 @@ export default page({
       "Picking a model leaves the picker open, so you can set the effort in the same visit. [[Esc]], a click outside or the chip closes it.",
     ),
     p(
-      "Once a session has sent its first message, the picker only offers the models of the agent it's running on: the conversation can't move to another agent. To carry work across, use **Implement with other models** under an answer, or start a [sub-agent](/docs/sub-agents) on the other model.",
+      "A session can move to another agent after it has run. Pick a model of another agent and the picker asks first: the new agent starts fresh with a summary of the conversation. Realm writes that summary to a file, hands it to the new agent with your next message, and the transcript says **Switched from … to … · Summary**, where **Summary** opens it. It waits while a turn is running.",
+    ),
+    h3("Accounts"),
+    p(
+      "With more than one Claude or Codex account, the picker's **Account** row says which one the session runs on and lists the others. **Add account…** there, or in **Settings ▸ Engines**, signs in to another one in the agent's own sign-in, and it gets a folder of its own. Moving a session to another account of the same agent keeps the conversation. When an account reaches its usage limit, the message offers to continue on another; Realm never switches on its own.",
     ),
     h3("Effort and fast mode"),
     p(
@@ -101,7 +105,7 @@ export default page({
       ["**Select in Realm** [[⌘⇧C]]", "Point at any part of Realm's window, and attach a picture of it"],
       ["**Skills**", "Turn a skill on for this space, or mention it"],
       ["**Goal…**", "Keep working toward an objective across turns"],
-      ["**Add teammate…**", "Another agent, to help this one. See [Add a teammate](/docs/sessions#add-a-teammate)."],
+      ["**Add sub-agent…**", "Another agent, to help this one. See [Add a sub-agent](/docs/sessions#add-a-sub-agent)."],
       ["**Mode**", "Build, Plan or Ask"],
       ["**Connectors**", "Each connection enabled in this space and its state, and **Manage connections…**"],
     ),
@@ -121,16 +125,16 @@ export default page({
       "A **file** in the checkout or the Library is handed over the way an attached file is.",
       "A **skill** is mentioned by name for this message.",
       "An **app** on your Mac gives this session computer use for that app alone. Its first action still asks you. See [Computer use and Laya](/docs/computer-use).",
-      "An **agent** in this session, a sub-agent or a teammate you added, gets the message too, once it finishes what it's doing.",
+      "An **agent** in this session, a sub-agent the agent started or one you added, gets the message too, once it finishes what it's doing.",
       "A role of the space's [team](/docs/teams-and-review), in a space with one, starts as a sub-agent of this session.",
     ),
     careful(
       "Realm never offers files that usually hold secrets in the `@` list, such as `.env`, `id_rsa`, `*.pem` or anything under `~/.ssh`, `~/.aws` or `~/.gnupg`, and holds them back if you name one anyway.",
     ),
 
-    h2("Add a teammate"),
+    h2("Add a sub-agent"),
     p(
-      "**Add teammate…** in the **+** menu brings another agent into the session to help its own. A small card asks for:",
+      "**Add sub-agent…** in the **+** menu brings another agent into the session to help its own. A small card asks for:",
     ),
     ul(
       "**Runs on**: any model of any agent you have installed, in the same picker as the prompter's. It starts on this session's own.",
@@ -138,7 +142,7 @@ export default page({
       "**Works in**: **This folder** or **Its own worktree**, when the session's folder is a git checkout.",
     ),
     p(
-      "**Add teammate** starts it. The session's agent is told it joined along with your next message, and gets its report when it's done. A teammate is a [sub-agent](/docs/sub-agents) that you started instead of the session's agent, so it has a sub-agent's limits and runs in the session's permission mode. It shows on the row over the prompter, `@` sends it a message, and stopping your turn leaves it running. A sub-agent's own session doesn't offer it.",
+      "**Add sub-agent** starts it. The session's agent is told it joined along with your next message, and gets its report when it's done. It is a [sub-agent](/docs/sub-agents) that you started instead of the session's agent, so it has a sub-agent's limits and runs in the session's permission mode. It shows on the row over the prompter, `@` sends it a message, and stopping your turn leaves it running. A sub-agent's own session doesn't offer it.",
     ),
 
     h2("Slash commands"),
@@ -195,7 +199,7 @@ Write release notes for $1 from the merged pull requests since the previous tag.
 
     h2("Stop a turn"),
     p(
-      "While the agent works, the send button becomes **Stop**. [[Esc]] stops it too. After a stop, queued messages stay in the tray until you send them, and a goal doesn't carry on by itself. Sub-agents the agent started are stopped with the turn; teammates you added keep working.",
+      "While the agent works, the send button becomes **Stop**. [[Esc]] stops it too. After a stop, queued messages stay in the tray until you send them, and a goal doesn't carry on by itself. Sub-agents the agent started are stopped with the turn; ones you added keep working.",
     ),
 
     h2("Undo what a turn changed"),

@@ -78,7 +78,7 @@ export default page({
       ["**Files**", "Every file a session wrote or was given. Tabs narrow it by kind (**All**, **Images**, **Documents**, **Code**, **Data**), and the filter narrows it by space or by who made it."],
       ["**Saved**", "The turns you saved from a session's track (see [Sessions](/docs/sessions#find-your-place-in-a-long-session))"],
       ["**Skills**", "The skills your agents can use. See [Connections and skills](/docs/connections-and-skills#skills)."],
-      ["**Memory**", "The memory documents your agents read, and exactly which files each agent loads"],
+      ["**Memory**", "Every memory file your agents read, from Realm, Claude, Codex, Cursor and Gemini, to search, read, edit, add and delete"],
     ),
     ul(
       "**Add** puts files from your Mac in the Library, or drop them on the page. Realm keeps its own copy of each, in `~/Realm/library/`.",
@@ -91,7 +91,13 @@ export default page({
       "Memory is what your agents read before they start. A space's memory document (its page's **Memory** tab) is read by every session in that space; write conventions, links and standing instructions there, anything you'd otherwise retype at the start of every session. No agent edits it; only an import you run adds to it.",
     ),
     p(
-      "**Library ▸ Memory** shows the memory at each level (the space, the profile) and, session by session, the exact files each agent loads. **Also write AGENTS.md** puts the space's memory into an `AGENTS.md` in its folder, for agents that read that file.",
+      "**Library ▸ Memory** lists every memory file your agents read, grouped by where it is kept: Realm's memory repo and memory documents, Claude's `CLAUDE.md` files and project memory, Codex's `AGENTS.md`, Cursor's rules and Gemini's `GEMINI.md`. One search covers their names, descriptions and text.",
+    ),
+    ul(
+      "Open a memory to read it. It says which agents read it, and its `[[links]]` open the memory they name.",
+      "**Edit** opens the file. Saving a memory in Realm's repo makes one commit and keeps its line in `MEMORY.md`; Realm asks once before it writes into an agent's own file, such as Claude's `CLAUDE.md`.",
+      "**New memory** writes one into Realm's memory repo, and **Delete…** says what it will do first: a memory in the repo is removed with a commit, and an agent's own file moves to the Trash.",
+      "**Also write AGENTS.md**, on the space page's **Memory** tab, puts the space's memory into an `AGENTS.md` in its folder, for agents that read that file.",
     ),
     note(
       "Agents can use the Library and your space's files too: Realm's document tools let them list, search, open and read files, and reveal one in the Finder.",

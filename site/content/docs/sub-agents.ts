@@ -30,7 +30,7 @@ export default page({
       "From the session's **Agents** tab you can also ask for this without typing the request yourself. **Build with** lists models; pick one or more, describe the plan or feature, and send it to the session's agent. **Split by model** gives each model its own part to write. The request still goes to your agent, which does the splitting.",
     ),
     p(
-      "Or start one yourself: **+ ▸ Add teammate…** in the prompter adds a sub-agent on the model you pick, with a brief, in the session's folder or a worktree of its own. Your agent is told it joined and gets its report, and stopping your turn leaves it running. See [Add a teammate](/docs/sessions#add-a-teammate).",
+      "Or start one yourself: **+ ▸ Add sub-agent…** in the prompter adds a sub-agent on the model you pick, with a brief, in the session's folder or a worktree of its own. Your agent is told it joined and gets its report, and stopping your turn leaves it running. See [Add a sub-agent](/docs/sessions#add-a-sub-agent).",
     ),
 
     h2("Watching them work"),
@@ -72,7 +72,7 @@ export default page({
       "One kind of sub-agent only browses. When a task is a sequence of steps on websites, the lead can hand it to a browser agent: a session whose only tools are Realm's browser tools, guided by Realm's browsing playbook, and limited to the sites the lead names if it names any. It opens its own pages in the side panel, which you can watch, and reports back when it's done. Like any sub-agent it can't start sub-agents, and it can't type a password, only ask to fill a [saved one](/docs/browser#saved-passwords).",
     ),
     tip(
-      "Mentioning a teammate with `@` in a space that has a [team](/docs/teams-and-review) starts that role as a sub-agent of your session.",
+      "Mentioning a [teammate](/docs/teams-and-review) with `@` passes your message to that teammate's own chat; it answers there, not as a sub-agent of your session.",
     ),
   ],
 })

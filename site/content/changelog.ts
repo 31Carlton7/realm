@@ -21,6 +21,47 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-7-0",
+    title: "Realm v2.7.0",
+    date: "2026-11-02",
+    version: "v2.7.0",
+    area: "Release",
+    summary:
+      "Teammates you message: agents that stay, start their own sessions, talk to each other and check in on a schedule. Plus every agent's memory in one place, and switching agents and accounts mid-conversation.",
+    body: [
+      { kind: "h", text: "Teammates you message" },
+      { kind: "ul", items: [
+        "**A teammate is an agent that stays.** Give it a name, what it does, an icon, a model and a folder, and it keeps one chat you come back to. Its chat is a real session: replies stream, and its questions and permission cards are answered in place.",
+        "**Teammates start their own sessions for the work** and tell you in a sentence or two, with a link. Those sessions are listed under the teammate in the sidebar and in its Computer panel, never hidden, and a piece of work one teammate hands to another sits under the session that asked for it.",
+        "**Teammates talk to each other.** Any agent in the space can see who is on the team and message a teammate, and wait for its answer. Type `@cto` in any prompter to pass a message to that teammate.",
+        "**A Lead routes the work.** Make one teammate the Lead and it hands each ask to the teammate who fits, so you are not the one in the middle.",
+        "**Teammates can check in on a schedule.** The message lands in the teammate's chat, unread, and its answer waits there for you.",
+        "**Each teammate has its own Computer panel:** the Mac it runs on and whether it is working, its Files, Terminal and Simulator, and every session it started, newest first.",
+        "**New icons.** A teammate wears one flat colour in one of eight shapes, with two small eyes. Pick them when you add it.",
+        "**What changed from the first Teams.** Your teammates and their schedules come across as they were, and keep Full access, as their runs had. The first Teams' Review batches, posting tickets, record pages, policies, team vault and Lab are gone; their data stays on disk. \"Add teammate…\" in the prompter's + menu, which adds a sub-agent to a session, is now called \"Add sub-agent…\".",
+      ] },
+      { kind: "h", text: "Every agent's memory in one place" },
+      { kind: "ul", items: [
+        "**Library ▸ Memory lists every memory file your agents read:** Realm's memory repo and documents, Claude's `CLAUDE.md` files and project memory, Codex's `AGENTS.md`, Cursor's rules and Gemini's `GEMINI.md`. Search them all at once.",
+        "**Read, edit, add and delete them there.** Each memory says which agents read it, and its `[[links]]` open the memory they name. An edit in Realm's memory repo is one commit; Realm asks once before it writes into an agent's own file.",
+      ] },
+      { kind: "h", text: "Switch agents and accounts mid-conversation" },
+      { kind: "ul", items: [
+        "**Move a conversation to another agent.** Pick a Codex model in a Claude session, or the other way round. Realm writes a summary of the conversation to a file, hands it to the new agent, and the transcript shows \"Switched from … to … · Summary\".",
+        "**More than one Claude or Codex account.** Add accounts in Settings ▸ Engines or from the prompter's model menu, and pick which one a session runs on. When an account hits its usage limit, Realm offers to continue on another.",
+      ] },
+      { kind: "h", text: "Smaller fixes" },
+      { kind: "ul", items: [
+        "**A sub-agent's report opens and closes** wherever it is shown, and a long one starts closed.",
+        "**A sub-agent's brief reads in parts** (where it works, what to read first, what to build) when the sub-agent is opened as its own session, too.",
+        "**A new session made in the Activity view** is selected, scrolled into view and ready to type in, however you made it.",
+        "**Codex's image generation shows the calm loader** while it draws.",
+        "**Help ▸ Report a Bug** and Settings ▸ General ▸ About link to Realm on GitHub.",
+        "**`realm ship`** commits a finished run's changes from the command line, and with `--push` or `--pr` pushes them and opens a pull request.",
+      ] },
+    ],
+  },
+  {
     slug: "v2-6-3",
     title: "Realm v2.6.3",
     date: "2026-11-02",
