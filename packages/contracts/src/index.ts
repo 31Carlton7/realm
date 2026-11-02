@@ -73,6 +73,7 @@ export * from "./link-open";
 export * from "./terminals";
 export * from "./terminal-programs";
 export * from "./schedules";
+export * from "./teammates";
 export * from "./team";
 export * from "./team-record-types";
 export * from "./team-acts";
