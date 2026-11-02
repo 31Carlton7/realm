@@ -4,7 +4,7 @@ import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment,
 import type { AddMcpServerInput, AgentProbe, Api, BranchList, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
 import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, ResourcePolicies, ResourceReport, Schedule, SearchResults, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
-import type { SavedTurn, Teammate } from "@realm/contracts";
+import { TEAMMATE_CLOCK_PROMPT, type SavedTurn, type Teammate, type TeammateSchedule, type TeammateScheduleInput } from "@realm/contracts";
 import { PRODUCTION_REMOTE_RELAY, type PairRequest, type PairedPhone, type RemoteStatus } from "@realm/contracts";
 import { RpcError } from "../rpc/client";
 
@@ -64,7 +64,13 @@ export const session = (id: string, spaceId: string, extra: Partial<Session> = {
 export const teammate = (id: string, spaceId: string, extra: Partial<Teammate> = {}): Teammate =>
   ({ id, spaceId, handle: id, name: id, brief: "", icon: { shape: "circle", color: "blue" }, agentKind: "fake", model: null, effort: null,
     permissionMode: "default", folder: "/tmp", lead: false, group: null, sortOrder: 0, archived: false, homeSessionId: null, createdAt: 0, updatedAt: 0,
-    state: "idle", stateSince: null, unread: false, liveTask: null, taskSessions: [], ...extra });
+    schedule: null, state: "idle", stateSince: null, unread: false, liveTask: null, taskSessions: [], ...extra });
+
+/** A teammate's clock as the server would hold it after `input`, over the one it had. */
+const clockAfter = (input: TeammateScheduleInput, cur: TeammateSchedule | null): TeammateSchedule => ({
+  id: cur?.id ?? "01ARZ3NDEKTSV4RRFFQ69G5CLK", cron: input.cron ?? cur?.cron ?? "", prompt: input.prompt ?? cur?.prompt ?? TEAMMATE_CLOCK_PROMPT,
+  enabled: input.enabled ?? cur?.enabled ?? true, nextRunAt: null, lastRunAt: null, lastSkippedAt: null,
+});
 
 export const skillRow = (id: string, extra: Partial<Skill> = {}): Skill =>
   ({ id, name: id, description: `does ${id}`, path: `/realm-home/skills/${id}/SKILL.md`, enabled: true, valid: true, reason: null,
@@ -2182,8 +2188,9 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     teammates: async (spaceId) => { calls.push(`teammates:${spaceId}`); return data.teammates.filter((t) => t.spaceId === spaceId && !t.archived); },
     teammateCreate: async (input) => {
       calls.push(`teammateCreate:${JSON.stringify(input)}`);
-      const { spaceId, folder, group, ...rest } = input;
+      const { spaceId, folder, group, schedule, ...rest } = input;
       const made = teammate(`t${++n}`, spaceId, { ...rest, handle: input.handle ?? input.name.toLowerCase(), folder: folder ?? "/tmp", group: group ?? null,
+        schedule: schedule ? clockAfter(schedule, null) : null,
         icon: input.icon ?? { shape: "circle", color: "blue" }, homeSessionId: `home${n}` });
       data.teammates.push(made);
       return made;
@@ -2191,8 +2198,10 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     teammateUpdate: async ({ id, ...patch }) => {
       calls.push(`teammateUpdate:${id}:${JSON.stringify(patch)}`);
       const i = data.teammates.findIndex((t) => t.id === id);
-      const { folder, group, ...rest } = patch;
-      data.teammates[i] = { ...data.teammates[i]!, ...rest, ...(folder !== undefined ? { folder: folder ?? "/tmp" } : {}), ...(group !== undefined ? { group } : {}) };
+      const { folder, group, schedule, ...rest } = patch;
+      const cur = data.teammates[i]!;
+      data.teammates[i] = { ...cur, ...rest, ...(folder !== undefined ? { folder: folder ?? "/tmp" } : {}), ...(group !== undefined ? { group } : {}),
+        ...(schedule !== undefined ? { schedule: schedule && clockAfter(schedule, cur.schedule) } : {}) };
       return data.teammates[i]!;
     },
     teammateArchive: async (id, archived) => {

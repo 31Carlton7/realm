@@ -17,7 +17,7 @@ import { ToolCard, ToolCwd, ToolGroup, ToolWaiting } from "./ToolCard";
 import { LeadSessionContext } from "./DelegationLine";
 import { formatDuration, groupTranscript, withEnter } from "./tool-group";
 import { blockKey, goalTurnLabel, lastUserMessage, waitingToolIds, type Block, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
-import { stampLabel, stampTitle, useNow } from "./timestamps";
+import { dateFormat, stampLabel, stampTitle, useNow } from "./timestamps";
 import { touchedFiles, type FileLinkContext } from "./file-links";
 import { EditSummary } from "./EditSummary";
 import { turnEdits, undoOffer, type TurnEdits } from "./turn-edits";
@@ -256,6 +256,13 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
 }
 
 const NO_TEAMMATES: readonly Teammate[] = [];
+
+/** What sent a message from a clock. A scheduled task's run is named by its task; a teammate's clock
+ *  writes into its chat on its own cadence, so its turn says only that, and when — quietly, since
+ *  the clock is the teammate's routine and not news. */
+function scheduledLine(s: { task: string; scheduleId?: string }, ts: number): string {
+  return s.scheduleId ? `Scheduled · ${dateFormat({ weekday: "short", hour: "numeric", minute: "2-digit" }).format(ts)}` : `Scheduled run · ${s.task}`;
+}
 
 /** Who wrote a message another session delivered: a teammate as itself, its icon and its name, and
  *  any other session by its title. Never drawn as the person's own words. */
@@ -684,7 +691,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
                 {/* A scheduled run's first message IS the person's words — the task's instructions — so
                     its bubble stays theirs; it is the clock that sent it, and the line above says so.
                     The note Realm added for the agent is under the pointer, not in the bubble. */}
-                {b.scheduled && <span className="msg-user-from" title={b.scheduled.note}>Scheduled run · {b.scheduled.task}</span>}
+                {b.scheduled && <span className="msg-user-from" title={b.scheduled.note}>{scheduledLine(b.scheduled, b.ts)}</span>}
                 {b.attachments && <UserAttachments attachments={b.attachments} />}
                 {/* An attachment-only message has no text at all, and an empty bubble would read as a
                     send that lost its words rather than one that carried only files. */}

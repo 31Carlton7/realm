@@ -142,35 +142,46 @@ const hm = (time: string): [number, number] => { const [h, m] = time.split(":").
 /** A new task's starting point: every day at nine — an agent should start when someone is awake to
  *  answer it, which is why `@daily` points there too — in the space the page was opened from. */
 export function blankDraft(spaceId: string, agentKind: AgentKind, now = Date.now()): Draft {
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
   return {
-    title: "", goal: "", repeat: true, every: "daily", time: "09:00", minute: 0,
-    weekday: new Date(now).getDay(), monthDay: 1, cron: "0 9 * * *",
-    date: momentInputValue(tomorrow.getTime()).slice(0, 10),
+    title: "", goal: "", ...blankWhen(now),
     newSessionPerRun: true, archiveSucceeded: false, spaceId, agentKind, model: null, effort: null, fastMode: false,
   };
 }
 
-/** The draft a saved task opens as — the same fields the modal wrote, read back off its expression. */
-export function draftOf(s: Schedule, fallbackKind: AgentKind, now = Date.now()): Draft {
-  const base = blankDraft(s.spaceId, s.constraints?.agentKind ?? fallbackKind, now);
-  const shared = {
-    ...base, title: s.title, goal: s.goal, cron: s.cron, newSessionPerRun: s.newSessionPerRun, archiveSucceeded: s.archiveSucceeded,
-    model: s.constraints?.model ?? null, effort: s.constraints?.effort ?? null, fastMode: s.constraints?.fastMode === true,
+/** WHEN, on its own: every day at nine. */
+export function blankWhen(now = Date.now()): When {
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return {
+    repeat: true, every: "daily", time: "09:00", minute: 0, weekday: new Date(now).getDay(), monthDay: 1, cron: "0 9 * * *",
+    date: momentInputValue(tomorrow.getTime()).slice(0, 10),
   };
-  const once = parseOnce(s.cron);
+}
+
+/** WHEN, read back off an expression — the fields that would write it again. */
+export function whenOf(cron: string, now = Date.now()): When {
+  const base = { ...blankWhen(now), cron };
+  const once = parseOnce(cron);
   if (once !== null) {
     const local = momentInputValue(once);
-    return { ...shared, repeat: false, date: local.slice(0, 10), time: local.slice(11, 16) };
+    return { ...base, repeat: false, date: local.slice(0, 10), time: local.slice(11, 16) };
   }
-  const c = cadenceOf(s.cron);
-  if (!c) return { ...shared, every: "custom" };
-  if (c.repeat === "hourly") return { ...shared, every: "hourly", minute: c.minute };
+  const c = cadenceOf(cron);
+  if (!c) return { ...base, every: "custom" };
+  if (c.repeat === "hourly") return { ...base, every: "hourly", minute: c.minute };
   const time = timeOf(c.hour, c.minute);
-  if (c.repeat === "weekly") return { ...shared, every: "weekly", time, weekday: c.weekday };
-  if (c.repeat === "monthly") return { ...shared, every: "monthly", time, monthDay: c.day };
-  return { ...shared, every: c.repeat, time };
+  if (c.repeat === "weekly") return { ...base, every: "weekly", time, weekday: c.weekday };
+  if (c.repeat === "monthly") return { ...base, every: "monthly", time, monthDay: c.day };
+  return { ...base, every: c.repeat, time };
+}
+
+/** The draft a saved task opens as — the same fields the modal wrote, read back off its expression. */
+export function draftOf(s: Schedule, fallbackKind: AgentKind, now = Date.now()): Draft {
+  return {
+    ...blankDraft(s.spaceId, s.constraints?.agentKind ?? fallbackKind, now), ...whenOf(s.cron, now),
+    title: s.title, goal: s.goal, newSessionPerRun: s.newSessionPerRun, archiveSucceeded: s.archiveSucceeded,
+    model: s.constraints?.model ?? null, effort: s.constraints?.effort ?? null, fastMode: s.constraints?.fastMode === true,
+  };
 }
 
 /** The expression a draft writes — the single thing the server is told about WHEN. Null for a single

@@ -199,6 +199,45 @@ describe("a teammate's page", () => {
   });
 });
 
+describe("a teammate's clock", () => {
+  it("is set from the sheet with Schedule a task's rows, and says when it next checks in", async () => {
+    const api = fakeApi(team());
+    const store = createAppStore(api); await store.getState().boot();
+    await act(() => store.getState().refreshTeammates());
+    render(<StoreContext.Provider value={store}><TeammateSheet spaceId="s1" id="cto" /></StoreContext.Provider>);
+    fireEvent.click(screen.getByRole("switch", { name: "Check in on a schedule" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Repeat" }), { target: { value: "weekdays" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "What it is told" }), { target: { value: "Check the overnight builds." } });
+    expect(screen.getByText(/^Next check-in /)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(api.calls.some((c) => c.startsWith("teammateUpdate:cto:"))).toBe(true));
+    const sent = JSON.parse(api.calls.find((c) => c.startsWith("teammateUpdate:cto:"))!.slice("teammateUpdate:cto:".length));
+    expect(sent.schedule).toEqual({ cron: "0 9 * * 1-5", prompt: "Check the overnight builds.", enabled: true });
+  });
+
+  it("pauses a clock it had when switched off, keeping its cadence", async () => {
+    const schedule = { id: ID(9), cron: "0 9 * * 1", prompt: "Weekly review.", enabled: true, nextRunAt: null, lastRunAt: null, lastSkippedAt: null };
+    const api = fakeApi(team({ teammates: [teammate("cto", "s1", { name: "cto", schedule })] }));
+    const store = createAppStore(api); await store.getState().boot();
+    await act(() => store.getState().refreshTeammates());
+    render(<StoreContext.Provider value={store}><TeammateSheet spaceId="s1" id="cto" /></StoreContext.Provider>);
+    expect(screen.getByRole("combobox", { name: "Repeat" })).toHaveValue("weekly");
+    fireEvent.click(screen.getByRole("switch", { name: "Check in on a schedule" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(api.calls.some((c) => c.startsWith("teammateUpdate:cto:"))).toBe(true));
+    expect(JSON.parse(api.calls.find((c) => c.startsWith("teammateUpdate:cto:"))!.slice("teammateUpdate:cto:".length)).schedule).toEqual({ enabled: false });
+  });
+
+  it("writes into the chat quietly, as the clock and when, never as the person", async () => {
+    const ts = new Date(2026, 10, 2, 9, 0).getTime();
+    await mountChat(reduceAll([{ ...sessionEvent("user_message", { text: "Do your scheduled work.", attachments: [],
+      scheduled: { task: "cto", note: "[Realm] Your schedule sent this", scheduleId: ID(9) } }), ts }]));
+    const line = document.querySelector(".msg-user-row .msg-user-from")!;
+    expect(line.textContent).toMatch(/^Scheduled · Mon 9:00/);
+    expect(document.querySelector(".msg-user-row .msg-user")).toHaveTextContent("Do your scheduled work.");
+  });
+});
+
 describe("a session link in prose", () => {
   it("survives sanitizing only for a session, and any other realm: link is dropped", () => {
     const html = renderMarkdown(`[a](${sessionLink(ID(1))}) and [b](realm://settings/x)`);
@@ -280,7 +319,7 @@ describe("the New teammate sheet", () => {
     const { api } = await mountSheet("cto");
     expect(screen.getByRole("dialog", { name: "Edit cto" })).toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "Quick starts" })).toBeNull();
-    fireEvent.click(screen.getByRole("switch"));
+    fireEvent.click(screen.getByRole("switch", { name: /Make this the Lead/ }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(api.calls.some((c) => c.startsWith("teammateUpdate:cto:") && c.includes('"lead":true'))).toBe(true));
   });

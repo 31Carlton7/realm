@@ -10774,3 +10774,6 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
   background: var(--field); color: var(--rl-text-bright); font: inherit; outline: none; }
 .tm-group::placeholder { color: var(--rl-text-faint); }
 .tm-group:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
+/* Its check-in, a card of its own in Schedule a task's rows: the switch, WHEN, then what it is told. */
+.tm-clock .settings-row-main { flex-direction: column; align-items: flex-start; gap: 2px; }
+.tm-clock-prompt > textarea { flex: 1; min-height: 52px; }

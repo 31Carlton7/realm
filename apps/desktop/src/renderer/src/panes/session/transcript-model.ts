@@ -13,7 +13,7 @@ export type Block =
       refs?: MentionRef[];
       /** A scheduled task's run began here (the event's `scheduled`). `text` is the task's instructions
        *  alone: the note Realm appended for the agent is taken out of it, and kept here. */
-      scheduled?: { task: string; note: string };
+      scheduled?: { task: string; note: string; scheduleId?: string };
       /** The `user_message` event this is, by its seq, when the log was read from the server: what a
        *  saved turn names (saved-turns.ts in contracts). Absent on a transcript built from bare events. */
       seq?: number; ts: number }

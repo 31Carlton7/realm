@@ -1,4 +1,4 @@
-import { PERMISSION_MODES, TEAMMATE_COLORS, TEAMMATE_SHAPES, teammateIconFromSeed, type AgentKind, type Teammate, type TeammateIcon as IconSpec, type TeammatePermissionMode } from "@realm/contracts";
+import { PERMISSION_MODES, TEAMMATE_CLOCK_PROMPT, TEAMMATE_COLORS, TEAMMATE_SHAPES, teammateIconFromSeed, type AgentKind, type Teammate, type TeammateIcon as IconSpec, type TeammatePermissionMode } from "@realm/contracts";
 import { Icon, TEAMMATE_PALETTE, TEAMMATE_SHAPE_LABELS, TeammateIcon, teammateFill } from "@realm/ui";
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { FALLBACK_AGENT, useApp } from "../../state/store";
@@ -6,6 +6,8 @@ import { Sheet } from "../../components/Sheet";
 import { Spinner } from "../../components/Spinner";
 import { useFileDrop } from "../../components/use-file-drop";
 import { useRunCatalog } from "../schedules/ScheduleRunPicker";
+import { WhenRows } from "../schedules/ScheduleWhen";
+import { blankWhen, exprOf, firstRun, whenOf, whenPhrase, type When } from "../schedules/schedule-model";
 import { ModelPicker } from "../session/ModelPicker";
 import type { EffortControl } from "../session/model-catalog";
 import { permissionMark } from "../session/Composer";
@@ -16,6 +18,14 @@ type Fields = {
   name: string; brief: string; icon: IconSpec; agentKind: AgentKind; model: string | null; effort: string | null;
   permissionMode: TeammatePermissionMode; folder: string | null; lead: boolean; group: string;
 };
+
+/** Its clock: whether it checks in on its own, when, and what it is told then. */
+type Clock = { on: boolean; when: When; prompt: string };
+
+function clockOf(t: Teammate | undefined): Clock {
+  const s = t?.schedule;
+  return { on: !!s?.enabled, when: s ? { ...whenOf(s.cron), repeat: true } : blankWhen(), prompt: s?.prompt ?? TEAMMATE_CLOCK_PROMPT };
+}
 
 /** The three rungs the prompter's permission control offers. Plan and Ask are ways of working a
  *  session is switched into, not how freely a teammate may act. */
@@ -58,6 +68,8 @@ export function TeammateSheet({ spaceId, id }: { spaceId: string; id?: string })
     permissionMode: "default", folder: null, lead: false, group: "",
   });
   const [modeTouched, setModeTouched] = useState(!!editing);
+  const [clock, setClock] = useState<Clock>(() => clockOf(editing));
+  const nextCheckIn = clock.on ? firstRun(clock.when) : null;
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -75,13 +87,16 @@ export function TeammateSheet({ spaceId, id }: { spaceId: string; id?: string })
     name: v.name.trim() === "" || QUICK_STARTS.some((o) => o.name === v.name) ? q.name : v.name,
   }));
 
-  const ready = f.name.trim() !== "";
+  const ready = f.name.trim() !== "" && (!clock.on || nextCheckIn !== null);
   const submit = () => {
     if (!ready || busy) return;
     setBusy(true); setFailure(null);
     const body = {
       name: f.name.trim(), brief: f.brief, icon: f.icon, agentKind: f.agentKind, model: f.model, effort: f.effort,
       permissionMode: shownMode, folder: f.folder, lead: f.lead, group: f.group.trim() || null,
+      // Off keeps a clock it had, paused, so turning it back on finds its cadence where it was.
+      ...(clock.on ? { schedule: { cron: exprOf(clock.when)!, prompt: clock.prompt.trim() || TEAMMATE_CLOCK_PROMPT, enabled: true } }
+        : editing?.schedule ? { schedule: { enabled: false } } : {}),
     };
     (editing ? updateTeammate({ id: editing.id, ...body }) : createTeammate({ spaceId, ...body }))
       .then(async (t) => { closeSheet(); if (!editing) await openTeammate(t.id); })
@@ -156,6 +171,28 @@ export function TeammateSheet({ spaceId, id }: { spaceId: string; id?: string })
               <input type="checkbox" role="switch" className="switch tm-lead" checked={f.lead} onChange={(e) => put({ lead: e.target.checked })} />
             </label>
           </div>
+          <ul className="settings-list tm-clock">
+            <li className="settings-row">
+              <span className="settings-row-main">
+                <span className="settings-row-name">Check in on a schedule</span>
+                <span className="settings-row-desc">Its chat gets the message below at these times, and it reports there.</span>
+              </span>
+              <input type="checkbox" role="switch" className="switch" aria-label="Check in on a schedule" checked={clock.on}
+                onChange={(e) => setClock((c) => ({ ...c, on: e.target.checked }))} />
+            </li>
+            {clock.on && <WhenRows d={clock.when} patch={(p) => setClock((c) => ({ ...c, when: { ...c.when, ...p } }))} />}
+            {clock.on && (
+              <li className="settings-row tm-clock-prompt">
+                <textarea className="new-space-memory" aria-label="What it is told" rows={2} value={clock.prompt} placeholder={TEAMMATE_CLOCK_PROMPT}
+                  onChange={(e) => { const prompt = e.target.value; setClock((c) => ({ ...c, prompt })); }} />
+              </li>
+            )}
+          </ul>
+          {clock.on && (
+            <p className="sched-modal-when" data-invalid={nextCheckIn === null || undefined}>
+              {nextCheckIn !== null ? `Next check-in ${whenPhrase(nextCheckIn)}.` : "That expression will never run — check the five fields (minute, hour, day, month, weekday)."}
+            </p>
+          )}
         </fieldset>
         <div className="new-space-foot">
           {failure
