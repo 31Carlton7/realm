@@ -153,5 +153,16 @@ export const TeamMessageArgsSchema = z.object({
 });
 export type TeamMessageArgs = z.infer<typeof TeamMessageArgsSchema>;
 
+/** A link to a session, as a teammate writes it in its report: `[cto - sqlite search](realm://session/<id>)`.
+ *  The transcript opens the session it names. */
+export const SESSION_LINK_PREFIX = "realm://session/";
+export const sessionLink = (sessionId: string): string => `${SESSION_LINK_PREFIX}${sessionId}`;
+/** The session a link names, or null for any other link. */
+export function sessionIdFromLink(href: string): string | null {
+  if (!href.startsWith(SESSION_LINK_PREFIX)) return null;
+  const id = href.slice(SESSION_LINK_PREFIX.length).replace(/[/?#].*$/, "");
+  return IdSchema.safeParse(id).success ? id : null;
+}
+
 /** How long `team_message` with `wait` holds before it gives up on a reply. */
 export const TEAM_MESSAGE_WAIT_MS = 20 * 60_000;

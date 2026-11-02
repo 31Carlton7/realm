@@ -30,15 +30,18 @@ async function rpc(port: number) {
 }
 
 /** A space with every provider listing — the opt-in three on, a simulator toolchain said to be
- *  present, a team (which brings the vault and a memory repo) and a goal running. `team: false` is
- *  the ordinary space beside it. */
+ *  present, a teammate, a memory repo of its own and a goal running. `team: false` is the ordinary
+ *  space beside it. */
 async function boot(o: { team: boolean } = { team: true }) {
   app = await createApp({ home: tempDir("realm-catalog-"), port: 0, adapters: { fake: new FakeAdapter({ script: [] }) }, simulatorToolchain: async () => true });
   const c = await rpc(app.port);
   const profile = (await c.call("profiles.create", { name: "P" })).result;
   const space = (await c.call("spaces.create", { profileId: profile.id, name: "S" })).result;
   for (const name of ["realm-computer", "realm-vm", "realm-app"]) await c.call("mcp.setProviderEnabled", { spaceId: space.id, name, enabled: true });
-  if (o.team) await app.team.makeTeam(space.id, [], { roles: [{ name: "Writer", brief: "Write.", realmite: { seed: "w" }, agentKind: "fake" }] });
+  if (o.team) {
+    app.team.create({ spaceId: space.id, name: "Writer", brief: "Write.", agentKind: "fake" });
+    await c.call("memory.repo.create", { scope: "space", ownerId: space.id });
+  }
   const session = app.sessions.create({ spaceId: space.id, agentKind: "fake", projectId: null, model: null, effort: null, permissionMode: "default" }).session;
   new GoalsStore(app.db).start({ sessionId: session.id, objective: "ship it", tokenBudget: null });
   const cfg = app.gateway.register(session.id, space.id) as Extract<McpServerConfig, { url: string }>;
@@ -103,7 +106,7 @@ describe("realm_capabilities", () => {
     expect(catalog).toContain("- realm-browser — off in this space — the user switches it on under \"Realm's own tools\" on the space's Connections page");
     expect(catalog).not.toContain("- browser_open — ");
     // Not a team, so no team tools — and the reason is said, not left to guess.
-    expect(catalog).toMatch(/- realm-team — nothing to list in this space \(team tools only in a team's space/);
+    expect(catalog).toMatch(/- realm-team — nothing to list in this space \(team tools only in a space with teammates/);
     expect(catalog).toContain("- linear — on, connects on first use");
     await client.close();
     c.close();
@@ -132,23 +135,22 @@ describe("realm_capabilities", () => {
 });
 
 describe("what a space IS decides what its sessions are told", () => {
-  it("tells a session in an ordinary space nothing about a team, a vault or a memory repo it does not have", async () => {
+  it("tells a session in an ordinary space nothing about teammates or a memory repo it does not have", async () => {
     const { c, client, spaceId, sessionId } = await boot({ team: false });
     // THE MUTANT: `realmProvidersFor` ignoring `listsIn`. Every session in every space is then told
-    // "the space has standing roles" and handed tools that refuse with "this space has no team".
+    // about teammates it does not have, and handed tools with nobody to reach.
     const providers = app.gateway.realmProvidersFor(sessionId, spaceId);
     expect(providers).not.toContain("realm-team");
-    expect(providers).not.toContain("realm-vault");
     expect(providers).not.toContain("realm-memory");
-    expect(capabilitiesContext(providers)).not.toContain("team_roles");
+    expect(capabilitiesContext(providers)).not.toContain("team_list");
     await client.close();
     c.close();
   });
 
-  it("and tells a team's session about its team", async () => {
+  it("and tells a session in a space with teammates about them", async () => {
     const { c, client, spaceId, sessionId } = await boot();
     const providers = app.gateway.realmProvidersFor(sessionId, spaceId);
-    expect(providers).toEqual(expect.arrayContaining(["realm-team", "realm-vault", "realm-memory"]));
+    expect(providers).toEqual(expect.arrayContaining(["realm-team", "realm-memory"]));
     await client.close();
     c.close();
   });

@@ -2029,6 +2029,8 @@ describe("migration — the boot permission scan's index", () => {
 const BEFORE_REMOTE_DEVICES = `
 CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT NOT NULL);
+-- Every home has it (v43); the teammates' migration further down the chain adds to it.
+CREATE TABLE team_roles (id TEXT PRIMARY KEY);
 CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL);
 CREATE INDEX session_events_session ON session_events(session_id, seq);
@@ -2151,6 +2153,8 @@ describe("the remote_devices relay column — where each paired phone dials (PRO
 const BEFORE_MEMORY_LEARNED = `
 CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT NOT NULL);
+-- Every home has it (v43); the teammates' migration further down the chain adds to it.
+CREATE TABLE team_roles (id TEXT PRIMARY KEY);
 CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL);
 CREATE INDEX session_events_session ON session_events(session_id, seq);

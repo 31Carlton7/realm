@@ -1263,6 +1263,6 @@ export const migrations: string[] = [
   ALTER TABLE sessions ADD COLUMN teammate_id TEXT;
   ALTER TABLE sessions ADD COLUMN teammate_home INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE sessions ADD COLUMN asked_by_session_id TEXT;
-  CREATE INDEX IF NOT EXISTS sessions_teammate ON sessions(teammate_id, activity_at DESC) WHERE teammate_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS sessions_teammate ON sessions(teammate_id) WHERE teammate_id IS NOT NULL;
   `,
 ];

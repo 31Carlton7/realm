@@ -149,6 +149,10 @@ export class AgentRunService {
      * is nothing to resolve it against.
      */
     models?: { known(): { rows: readonly ProbedAgent[]; at: number } | null; refresh(): Promise<readonly ProbedAgent[]>; kinds: readonly AgentKind[] };
+    /** A child started from a teammate's session is that teammate's task: it runs in the teammate's
+     *  mode, its title leads with the teammate's handle, and it nests under the session that asked for
+     *  the work (`teammates/service.ts`). Null for every other parent. */
+    teammates?: { childOf(parentId: string): { teammateId: string; handle: string; permissionMode: string; askedBy: string | null } | null };
   }) {}
 
   /* ------------------------------ the seams other code consults ------------------------------ */
@@ -433,9 +437,12 @@ export class AgentRunService {
     const parsed = RunArgs.safeParse(rawArgs ?? {});
     if (!parsed.success) return err(`invalid arguments: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
     const { goal, constraints } = parsed.data;
+    const teammate = this.d.teammates?.childOf(ctx.sessionId) ?? null;
     // What the child is called — in the sidebar, the Agents tab, and its worktree's branch. The
-    // caller's own name when it gave one; otherwise the task read out of the goal (`taskName`).
-    const title = parsed.data.title ?? taskName(goal);
+    // caller's own name when it gave one; otherwise the task read out of the goal (`taskName`). A
+    // teammate's task reads "cto - sqlite search" wherever it is listed.
+    const named = parsed.data.title ?? taskName(goal);
+    const title = teammate && !named.startsWith(`${teammate.handle} - `) ? `${teammate.handle} - ${named}` : named;
     // Recursion guard, innermost of three (gateway toolset shape, provider child check, here): even a
     // child that somehow names this tool is checked server-side. A browser-agent or reviewer child is
     // refused outright — those two shapes stay depth-1 — while an agent_run child is refused only
@@ -465,8 +472,10 @@ export class AgentRunService {
 
     // The child's mode: the lead's, unless the caller asked for less — min(parent, requested), Full
     // access included. Decided after the harness, because a harness Realm cannot set a mode on is
-    // refused a read-only child and written as `default` otherwise (`childPermissionMode`).
-    const granted = childPermissionMode(parent.permissionMode, constraints?.permissionMode, agentKind);
+    // refused a read-only child and written as `default` otherwise (`childPermissionMode`). A
+    // teammate's task runs in the teammate's mode, whatever its chat's chip was left on.
+    const leadMode = teammate?.permissionMode ?? parent.permissionMode;
+    const granted = childPermissionMode(leadMode, constraints?.permissionMode, agentKind);
     if (!granted.ok) return err(granted.message);
     const permissionMode = granted.mode;
 
@@ -492,6 +501,7 @@ export class AgentRunService {
         spaceId: ctx.spaceId, agentKind, projectId: null, environmentId, model, effort: null, permissionMode,
         title,
         dispatchedBy: { sessionId: ctx.sessionId, kind: "agent_run" },
+        teammate: teammate ? { id: teammate.teammateId, home: false, askedBy: teammate.askedBy } : null,
       });
     } catch (e) {
       await cleanupWorktree(createdWorktree, this.d.environments);
@@ -503,7 +513,7 @@ export class AgentRunService {
     const budgetMs = constraints?.timeoutMs ?? (t.baseMs + maxTurns * t.perTurnMs);
     // A name read out of the goal is a guess; a title generator, where one is wired, gets to improve
     // on it the way it improves a session's first-message title. A caller's own title is kept.
-    if (parsed.data.title === undefined) this.d.sessions.suggestTitle(childId, title, goal);
+    if (parsed.data.title === undefined && !teammate) this.d.sessions.suggestTitle(childId, title, goal);
     // Persisted BEFORE the first send: `ensureLive` reads the skill narrowing and the preamble off
     // this record when it starts the adapter, and the gateway reads the exclusion off it on the
     // child's first tools/list — the record must exist first.
@@ -540,7 +550,7 @@ export class AgentRunService {
       this.d.engine.end(ctx.sessionId, run);
       return err(`could not send the goal to the delegated session: ${errorMessage(e)}`);
     }
-    return { spawned: true, run, childId, title: created.session.title, budgetMs, mode: modeSentence(granted, parent.permissionMode, constraints?.permissionMode, agentKind), on: `${AGENT_META[agentKind].label} · ${modelLabel}` };
+    return { spawned: true, run, childId, title: created.session.title, budgetMs, mode: modeSentence(granted, leadMode, constraints?.permissionMode, agentKind), on: `${AGENT_META[agentKind].label} · ${modelLabel}` };
   }
 
   /* ---------------------------------------- agent_run ---------------------------------------- */
