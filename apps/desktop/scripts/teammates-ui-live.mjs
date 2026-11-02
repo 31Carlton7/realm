@@ -49,6 +49,9 @@ const SCRIPT = [
     { kind: "text", text: "On it — starting a session for the icon." },
     { kind: "call", tool: "realm-agent__agent_start", input: { title: "search icon", goal: "ICON_TASK Draw the search icon in the house style." } },
   ] },
+  { on: "Check in on the team", emit: [
+    { kind: "text", text: "cto is moving search onto SQLite, and the design engineer is waiting on you to run the UI tests for the new icon. Nothing else is in flight." },
+  ] },
   { on: "ICON_TASK", emit: [
     { kind: "tool", name: "Bash", input: { command: "pnpm --filter @realm/ui test" }, needsPermission: true, result: "ok" },
   ] },
@@ -230,7 +233,7 @@ async function main() {
 
   const brief = (line) => `${line}\nFor real work, start a session for the task and keep the chat for decisions.`;
   const make = (input) => api.call("teammates.create", { spaceId, agentKind: "claude", ...input });
-  await make({ name: "Lead", lead: true, icon: { shape: "circle", color: "graphite" }, brief: brief("You lead this team: route each ask to the teammate who fits.") });
+  const lead = await make({ name: "Lead", lead: true, icon: { shape: "circle", color: "graphite" }, brief: brief("You lead this team: route each ask to the teammate who fits.") });
   const cto = await make({ name: "cto", handle: "cto", icon: { shape: "hexagon", color: "blue" }, brief: brief("You own the architecture, the data and performance.") });
   const design = await make({ name: "design engineer", handle: "design-engineer", group: "Strat", icon: { shape: "flower", color: "pink" }, brief: brief("You build and polish the interface.") });
   await make({ name: "research", group: "Strat", icon: { shape: "cloud", color: "teal" }, brief: brief("You find things out and cite where.") });
@@ -293,6 +296,30 @@ async function main() {
   const signed = await evalIn(c, `document.querySelector('.msg-user-teammate').textContent`);
   check("a message from cto is signed with cto, not drawn as the person's", signed === "cto", signed);
   await shots(c, "handoff-chat");
+
+  // ── The Lead's clock: a weekday check-in, fired now, writes into its chat as the clock ──
+  const clocked = await api.call("teammates.update", { id: lead.id, schedule: { cron: "0 9 * * 1-5", prompt: "Check in on the team and tell me what is moving." } });
+  check("a clock set through teammates.update comes back on the teammate", clocked.schedule?.cron === "0 9 * * 1-5" && clocked.schedule.enabled, clocked.schedule);
+  await api.call("schedules.runNow", { id: clocked.schedule.id });
+  await clickAt(c, await evalIn(c, `__live.rect(__live.byLabel('.sb-teammate .item-row', 'Lead'))`));
+  await until(() => evalIn(c, `document.querySelector('.tm-head-name')?.textContent === 'Lead'`), 10_000, "the Lead's page");
+  const stamp = await until(() => evalIn(c, `[...document.querySelectorAll('.msg-user-from')].map((e) => e.textContent).find((t) => t.startsWith('Scheduled · ')) ?? null`), 20_000, "the clock's turn");
+  check("the clock's turn says it came from the schedule, and when", /^Scheduled · \w+ /.test(stamp), stamp);
+  await until(() => evalIn(c, `/Nothing else is in flight/.test(document.querySelector('.transcript')?.textContent ?? '')`), 20_000, "the Lead's report");
+  await shots(c, "clock-turn");
+
+  // The Lead's Edit sheet, opened from its bar's menu, with the check-in it now has.
+  await evalIn(c, `(() => { document.querySelector('.panel-bar button[aria-label^="Pane menu for"]').click(); return true; })()`);
+  await until(() => evalIn(c, `!![...document.querySelectorAll('[role=menuitem]')].find((m) => m.textContent.includes('Edit…'))`), 5_000, "the bar's menu");
+  await evalIn(c, `(() => { [...document.querySelectorAll('[role=menuitem]')].find((m) => m.textContent.includes('Edit…')).click(); return true; })()`);
+  await until(() => evalIn(c, `!!document.querySelector('.tm-clock')`), 5_000, "the Edit sheet");
+  const clockRows = await evalIn(c, `({ on: document.querySelector('.tm-clock input[role=switch]').checked, repeat: document.querySelector('.tm-clock select[aria-label=Repeat]')?.value, next: document.querySelector('.sched-modal-when')?.textContent })`);
+  check("the Edit sheet opens on its check-in: weekdays, and when the next one is", clockRows.on && clockRows.repeat === "weekdays" && /^Next check-in /.test(clockRows.next ?? ""), clockRows);
+  await evalIn(c, `(() => { document.querySelector('.sheet .sheet-body').scrollTop = 10000; return true; })()`);
+  await sleep(300);
+  await shots(c, "edit-teammate", `(() => { const r = document.querySelector('.sheet').getBoundingClientRect(); return { x: r.x - 24, y: r.y - 24, width: r.width + 48, height: r.height + 48 }; })()`);
+  await evalIn(c, `(() => { document.querySelector('.sheet .sheet-head .icon-btn').click(); return true; })()`);
+  await sleep(200);
 
   // ── New teammate ──
   await evalIn(c, `(() => { const add = document.querySelector('.sb-caption-row .item-act[aria-label="Add a teammate"]'); add.click(); return true; })()`);
