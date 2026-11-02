@@ -116,17 +116,6 @@ export class RunService {
    *  the drain's quiescence test both read it. */
   activeCount(): number { return this.d.store.listLive().length; }
 
-  /** Whether this session is a run's worker. NOTE what this is NOT used for: depth-1 exclusion. A
-   *  run's worker is a top-level agent and MAY delegate — `agent_run` and `browser_agent_run` are
-   *  the point of giving it a real session. Only a DELEGATED child is depth-capped. */
-  isWorker(sessionId: string): boolean { return this.workerRecord(sessionId) !== null; }
-
-  /** The run this session is the worker of, settled or not — null for a session no run started. */
-  workerRun(sessionId: string): Run | null {
-    const w = this.workerRecord(sessionId);
-    return w ? this.get(w.runId)?.run ?? null : null;
-  }
-
   /** `SessionService.ensureLive`'s narrowing seam — the subset of the space's enabled skills this
    *  worker is staged, or null for no narrowing. */
   skillsFilter(sessionId: string): string[] | null { return this.workerRecord(sessionId)?.skills ?? null; }
