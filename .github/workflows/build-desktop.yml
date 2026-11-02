@@ -99,7 +99,7 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           hugeicons-token: ${{ secrets.HUGEICONS_TOKEN }}
-      - run: pnpm vitest run --shard=${{ matrix.shard }}/3
+      - run: pnpm vitest run --shard=${{ matrix.shard }}/3 --no-isolate
 
   test-informational:
     name: Test (${{ matrix.os }} ${{ matrix.shard }}/${{ matrix.shards }}, informational)
