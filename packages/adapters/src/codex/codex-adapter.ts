@@ -691,16 +691,6 @@ export class CodexAdapter implements AgentAdapter {
         if (method === "mcpServer/elicitation/request") {
           const toolApproval = codexMcpToolApproval(params);
           if (toolApproval) {
-            // A team's policy answers for its gateway's tools itself, drawing the one card owed: Codex
-            // approves without a card of its own. Never `persist`, as below.
-            if (opts.gatewayDecides) {
-              const decides = opts.gatewayDecides;
-              void decides(toolApproval.toolName).catch(() => false).then((yes) => {
-                if (yes) conn?.respond(id, { action: "accept", content: {}, _meta: null });
-                else cardFor(id, toolApproval);
-              });
-              return;
-            }
             cardFor(id, toolApproval);
             return;
           }

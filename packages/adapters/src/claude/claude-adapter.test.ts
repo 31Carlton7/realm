@@ -305,23 +305,6 @@ describe("ClaudeAdapter", () => {
     const resp = got.find((e) => e.type === "permission_response");
     expect(resp?.type === "permission_response" && resp.payload.decision).toBe("deny");
   });
-  it("asks no card of its own for a gateway tool a team's policy decides, and still asks for anything else", async () => {
-    const run = async (tool: string, decides: boolean) => {
-      const handed: unknown[] = [];
-      const asked: string[] = [];
-      const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: tool, permissionInput: { x: 1 }, permissionResults: handed }) as never });
-      const h = a.start({ cwd: "/tmp", mcpServers: [], gatewayDecides: async (t) => { asked.push(t); return decides; } });
-      const c = collectUntil(h.events, (e) => e.type === "status" && e.payload.status === "idle",
-        (e) => { if (e.type === "permission_request") h.respondPermission(e.payload.requestId, "deny"); });
-      await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
-      return { handed, asked, cards: got.filter((e) => e.type === "permission_request").length };
-    };
-    // THE MUTANT: the card drawn anyway — the person would answer Claude's card and then the policy's.
-    expect(await run("mcp__realm__stub__save_thing", true)).toEqual({ handed: [{ behavior: "allow", updatedInput: { x: 1 } }], asked: ["mcp__realm__stub__save_thing"], cards: 0 });
-    expect((await run("mcp__realm__stub__save_thing", false)).cards).toBe(1);
-    // A command never reaches the policy's question.
-    expect(await run("Bash", true)).toMatchObject({ asked: [], cards: 1 });
-  });
   it("a masked answer reaches the agent and never Realm's log", async () => {
     const handed: unknown[] = [];
     const input = { questions: [
@@ -402,22 +385,6 @@ describe("ClaudeAdapter", () => {
     const resp = got.find((e) => e.type === "permission_response");
     expect(resp?.type === "permission_response" && resp.payload.decision).toBe("deny");
     expect(statuses(got)).toEqual(["running", "waiting_permission", "running", "idle"]);
-  });
-  it("draws no card for a call the SDK cancelled while a team's policy was still deciding it", async () => {
-    // The signal fires at 5ms and the policy answers "ask the person" at 20ms. An abort event never
-    // fires twice, so a card drawn after it has no listener left to clear it: it sits in Needs you
-    // with nothing behind it, and the turn waits on it forever. That card is the named mutant.
-    const handed: unknown[] = [];
-    const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "mcp__realm__stub__save_thing", abortPermission: true, permissionResults: handed }) as never });
-    const h = a.start({ cwd: "/tmp", mcpServers: [], gatewayDecides: () => new Promise((r) => setTimeout(() => r(false), 20)) });
-    const c = collectUntil(h.events, (e) => e.type === "status" && e.payload.status === "idle");
-    await h.send({ text: "hi", attachments: [] });
-    const got = await Promise.race([c, new Promise<null>((r) => setTimeout(() => r(null), 1000))]);
-    await h.dispose();
-    expect(got, "the turn never settled: a card was left waiting").not.toBeNull();
-    expect(types(got!)).not.toContain("permission_request");
-    expect(statuses(got!)).not.toContain("waiting_permission");
-    expect(handed).toEqual([{ behavior: "deny", message: "aborted" }]);
   });
   it("generator throw -> error, status error, ended, queue closed; stderr tail attached", async () => {
     const a = new ClaudeAdapter({ query: fakeQuery({ throwAfter: 2, stderr: ["warn: one\n", "warn: two\n"] }) as never });

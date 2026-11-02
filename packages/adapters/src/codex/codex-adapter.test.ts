@@ -653,28 +653,6 @@ describe("CodexAdapter", () => {
       await handle.dispose();
     });
 
-    it("is answered with no card of Codex's own when a team's policy decides the gateway's tool", async () => {
-      const asked: string[] = [];
-      const { handle, evs } = await booted({ gatewayDecides: async (t) => { asked.push(t); return true; } });
-      await handle.send({ text: "ELICITTOOL", attachments: [] });
-      await waitFor(() => expect(texts(evs)).toHaveLength(1));
-      // THE MUTANT: the card drawn anyway — the person would answer the engine's card and then the policy's.
-      expect(asked).toEqual(["mcp__realm__realm-agent__agent_peers"]);
-      expect(of(evs, "permission_request")).toEqual([]);
-      expect(reply(evs)).toEqual({ action: "accept", content: {}, _meta: null });
-      await handle.dispose();
-    });
-
-    it("still draws the card when the policy does not decide, or asking it fails", async () => {
-      for (const gatewayDecides of [async () => false, async () => { throw new Error("gone"); }]) {
-        const { handle, evs } = await booted({ gatewayDecides });
-        await handle.send({ text: "ELICITTOOL", attachments: [] });
-        await waitFor(() => expect(of(evs, "permission_request")).toHaveLength(1));
-        expect(texts(evs)).toEqual([]);
-        await handle.dispose();
-      }
-    });
-
     it("never asks Codex to remember the grant, even for Always allow", async () => {
       const { handle, evs } = await booted();
       await handle.send({ text: "ELICITTOOL", attachments: [] });
