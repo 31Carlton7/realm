@@ -10,9 +10,9 @@
  * waiting), with sessions last active today, yesterday, earlier this week and weeks ago, so every way
  * Home lists them has rows; and Plan 29's parity: a pinned session, a turn with two messages queued
  * behind it, a lead with a finished and a working sub-agent, Claude's plan limits and a month's spend
- * against a budget, a team's post with its picture waiting in Review, and two scheduled tasks, one run.
+ * against a budget, and two scheduled tasks, one run.
  * Then it prints one JSON line, `{"pairLink", "sessions": {...}, "profiles": {...}, "spaces": {...},
- * "roles": {...}, "reviews": {...}, "schedules": {...}}`, and takes commands on stdin:
+ * "schedules": {...}}`, and takes commands on stdin:
  *
  *   sleep        the Mac goes quiet: the gateway stops, and the relay tells the phone it is offline
  *   wake         it comes back
@@ -104,14 +104,6 @@ const SCRIPT = [
     { kind: "text", text: "Two teammates: one writes the migration, one backfills the column. I'll fold their work in when both report." },
   ] },
   { on: "Hold the queue", emit: [{ kind: "text", paceMs: 3_000, text: slowly(30) }] },
-  { on: "Send the launch post for review", emit: [
-    { kind: "usage", costUsd: 0.84 },
-    { kind: "call", tool: "realm-team__review_submit", input: { kind: "launch", title: "Dark mode launch", note: "The toggle shipped today; this says so where people will see it.", items: [
-      { files: ["renders/launch.png"], body: "Dark mode is here: Settings ▸ App ▸ Theme.", target: { channel: "instagram", account: "@realm" } },
-      { body: "Hi Dana,\n\nDark mode ships on Friday, and the beta has it now.\n\nCarlton", meta: { Subject: "Dark mode ships Friday" } },
-    ] } },
-    { kind: "text", text: "Sent the launch post and the note to Dana to Review." },
-  ] },
   { on: "Write the morning brief", emit: [{ kind: "text", text: "Three commits since yesterday, all on the theme work; nothing is blocked." }] },
   { on: "Summarise the compilers lecture", emit: [{ kind: "text", text: "Today was **register allocation** by graph colouring:\n\n"
     + "1. Build the interference graph from the live ranges.\n2. Simplify: set aside each node with fewer than *k* neighbours.\n"
@@ -339,25 +331,6 @@ const weeklyTask = await rpc.call("schedules.create", { spaceId: appSpace.id, ti
   goal: "Look back over this week in this space, and write a short status update: what shipped, what is in progress, what is blocked." });
 const fired = await rpc.call("schedules.runNow", { id: briefTask.id });
 await waitFor("the morning brief's run", async () => (await rpc.call("runs.get", { id: fired.lastRunId! }))?.run.state === "succeeded", 60_000);
-const studioFolder = (studio as { folderPath: string }).folderPath;
-mkdirSync(join(studioFolder, "renders"), { recursive: true });
-execFileSync("sips", ["-s", "format", "png", join(repoRoot, "site/public/product/connections-1440.webp"), "--out", join(studioFolder, "renders/launch.png")], { stdio: "pipe" });
-await rpc.call("team.make", { spaceId: studio.id, templates: [] });
-const producer = await rpc.call("team.roleCreate", { spaceId: studio.id, name: "Content Producer", brief: "Make the launch posts, and send each to Review.",
-  realmite: { seed: "content-producer-32" }, agentKind: "claude", permissionMode: "acceptEdits" });
-// The cards a team's policy draws for its run are the person's, answered here as they would be at the Mac.
-const answering = rpc.onEvent((event, payload) => {
-  const p = payload as { sessionId?: string; event?: { type: string; payload: { requestId?: string } } };
-  if (event !== "session.event" || p.event?.type !== "permission_request" || !p.sessionId) return;
-  void rpc.call("sessions.get", { id: p.sessionId }).then((s) => {
-    if (s.spaceId === studio.id) return rpc.call("sessions.respondPermission", { id: p.sessionId!, requestId: p.event!.payload.requestId!, decision: "allow" });
-  }).catch(() => {});
-});
-const askForReview = () => rpc.call("team.roleRun", { id: producer.id, message: "Send the launch post for review" });
-await askForReview();
-await waitFor("the launch post in Review", async () => (await rpc.call("team.space", { spaceId: studio.id })).reviews.some((r) => r.state === "waiting"), 60_000);
-answering();
-const launch = (await rpc.call("team.space", { spaceId: studio.id })).reviews.find((r) => r.state === "waiting")!;
 await rpc.call("usage.setBudget", { monthlyUsd: 50, thresholds: [0.5, 0.8, 1], includeEstimated: true });
 
 await waitFor("the relay link", async () => gw.state === "connected");
@@ -366,7 +339,7 @@ const profiles = { Work: work.id, School: school.id, Personal: personal.id };
 const spaces = Object.fromEntries([realm, site, laya, lectures, problems, trip, kitchen, appSpace, studio].map((sp) => [sp.name, sp.id]));
 console.log(JSON.stringify({
   pairLink: pairing.url, relay: relay.url, home: server.home, sessions, profiles, spaces,
-  roles: { producer: producer.id }, reviews: { launch: launch.id }, schedules: { brief: briefTask.id, weekly: weeklyTask.id },
+  schedules: { brief: briefTask.id, weekly: weeklyTask.id },
 }));
 const COMMANDS = "sleep · wake · relay-down · relay-up · pair · send <key> <text> · work <key> · queue <key> <text> · teammate <key> <brief> · review · midturn queue|steer · quit";
 say(`staged on ${server.home}; relay ${relay.url}. Commands: ${COMMANDS}`);
