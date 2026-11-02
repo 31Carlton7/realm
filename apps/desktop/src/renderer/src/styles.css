@@ -2088,6 +2088,7 @@ kbd { font: 11px var(--font-mono); }
 .ip-generate-prompt { min-height: 56px; resize: vertical; padding: 8px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
   background: var(--rl-panel); color: var(--rl-text-bright); font: inherit; font-size: 13px; }
 .ip-generate .ip-grid { padding: 0; border-top: var(--hairline-w) solid var(--rl-hairline); padding-top: 10px; }
+.ip-pending .gen-mark { --gen-ring: 26px; }
 .ip-error { color: var(--rl-warning); font-size: 12px; }
 
 /* ── Realmite maker ──────────────────────────────────────────────────────────
@@ -10008,12 +10009,16 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
    stops preserving the ratio, which turned a 9:16 canvas square. The width is computed from the
    ratio in `genWidthPx`; `max-width` alone lets a narrow column shrink it with the shape intact. */
 .gen-canvas {
-  --gen-ring: 44px; --gen-ring-w: 1.5px; --gen-turn: 1.8s; --gen-arc: var(--ink);
   position: relative; max-width: 100%; overflow: hidden;
   display: grid; place-items: center;
   border-radius: var(--r-row); background: var(--rl-frame); box-shadow: var(--shadow-hairline);
 }
-.gen-mark { position: relative; display: grid; place-items: center; width: var(--gen-ring); height: var(--gen-ring); color: var(--ink-3); }
+/* The mark carries the ring's numbers, so it is the same loader wherever a picture is on its way —
+   the canvas's centre, or the icon picker's tile (`--gen-ring` set smaller there). */
+.gen-mark {
+  --gen-ring: 44px; --gen-ring-w: 1.5px; --gen-turn: 1.8s; --gen-arc: var(--ink);
+  position: relative; display: grid; place-items: center; width: var(--gen-ring); height: var(--gen-ring); color: var(--ink-3);
+}
 .gen-glyph { grid-area: 1 / 1; }
 /* The ring: a faint track on the fill rung (`--mark`, so it holds on both faces) with a third of a
    turn fading in behind the arc's head. One element, masked to a ring and turned by `rotate`, so the loop
@@ -10029,19 +10034,16 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
 /* The arc's head is a rung brighter on the dark face: light ink on a near-black well loses more of
    its fading tail than dark ink on near-white, and at the light face's rung the dark ring read as
    standing still (the coordinator, 10-23). The track stays on `--mark` in both. */
-:root[data-mode="light"] .gen-canvas { --gen-arc: var(--ink-2); }
+:root[data-mode="light"] .gen-mark { --gen-arc: var(--ink-2); }
 /* Simply drawn: a ring frozen mid-turn reads as a hang (A-L5), so it goes and the glyph stays — the
    still form that carries the same state. The global `* { animation: none }` alone would leave it. */
 @media (prefers-reduced-motion: reduce) { .gen-spin { display: none; } }
-/* The frame size, when the command actually stated one. Machine state, so mono and tabular; pinned
-   to the corner opposite the reveal's resting position so the two are never on top of each other.
-   Raised rather than a step on the neutral ladder: the well under it is already `--rl-frame`, so a
-   chip taking the same token would be a shape nobody can see, and its whole job here is to OCCLUDE
-   the lattice running under the number rather than to decorate the corner. */
+/* The frame size, when the command actually stated one. Machine state, so mono and tabular, and
+   plain words in the corner: nothing runs under it to stand clear of. */
 .gen-res {
-  position: absolute; top: 8px; right: 8px; z-index: 1;
+  position: absolute; top: 8px; right: 10px;
   font-family: var(--font-mono); font-size: 11px; font-variant-numeric: tabular-nums;
-  color: var(--rl-text-faint); background: var(--rl-raised); padding: 2px 7px; border-radius: 999px;
+  color: var(--rl-text-faint);
 }
 .gen-meta { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 12px; }
 .gen-label { flex: none; }

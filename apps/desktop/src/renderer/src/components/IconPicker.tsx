@@ -2,9 +2,9 @@ import { SPACE_ICONS } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { GeneratingMark } from "../panes/session/media/MediaView";
 import { useApp } from "../state/store";
 import { SpaceIcon } from "./SpaceIcon";
-import { Spinner } from "./Spinner";
 import { useAnchoredPopover } from "./use-anchored-popover";
 import { useFileDrop } from "./use-file-drop";
 import { useDissolve } from "./ScrollFades";
@@ -199,10 +199,12 @@ function IconPickerPopover({ icon, profileId, anchorRef, onClose, onPick }: {
               generation in flight — for the reader and for the stylesheet, which must not grey the
               button out from under the press that started the work. */}
           <button type="button" className="btn primary" aria-busy={generating} disabled={!prompt.trim() || generating} onClick={submitGenerate}>
-            {generating ? <><Spinner size={14} /> Generating…</> : <><Icon name="sparkles" size={14} /> Generate</>}
+            {generating ? "Generating…" : <><Icon name="sparkles" size={14} /> Generate</>}
           </button>
           {genError && <p className="ip-error">{genError}</p>}
           <div className="ip-grid" ref={grid}>
+            {/* Where the icon will land, turning the transcript's own ring for a picture on its way. */}
+            {generating && <span className="icon-choice ip-pending" role="img" aria-label="Generating an icon"><GeneratingMark size={14} /></span>}
             {generated.map((a) => (
               <button key={a.id} type="button" role="radio" aria-checked={icon === `asset:${a.id}`} aria-label={a.prompt ?? "Generated icon"}
                 title={a.prompt ?? undefined} className="icon-choice" data-selected={icon === `asset:${a.id}` || undefined}

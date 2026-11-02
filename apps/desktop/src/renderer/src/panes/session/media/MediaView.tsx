@@ -161,10 +161,7 @@ export function GeneratingCanvas({ kind = "image", label, detail, aspect = "1 / 
           and lets the HEIGHT follow, rather than squashing the shape. */}
       <div className="gen-canvas" data-kind={kind} style={{ aspectRatio: aspect, width: genWidthPx(aspect) }} role="img" aria-label={label}>
         {/* Decorative: the caption below is what a screen reader is given. */}
-        <span className="gen-mark" aria-hidden="true">
-          <span className="gen-spin" />
-          <Icon name={kind} size={20} className="gen-glyph" />
-        </span>
+        <GeneratingMark kind={kind} />
         {resolution && <span className="gen-res">{resolution}</span>}
       </div>
       <div className="gen-meta">
@@ -172,6 +169,18 @@ export function GeneratingCanvas({ kind = "image", label, detail, aspect = "1 / 
         {detail && <span className="gen-detail" title={detail}>{detail}</span>}
       </div>
     </div>
+  );
+}
+
+/** The kind's glyph with one slow ring turning round it: the canvas's centre, and the whole of the
+ *  loader where a picture on its way has no canvas of its own (the icon picker's tile). Decorative —
+ *  whatever holds it says what is being made. */
+export function GeneratingMark({ kind = "image", size = 20 }: { kind?: "image" | "video"; size?: number }) {
+  return (
+    <span className="gen-mark" aria-hidden="true">
+      <span className="gen-spin" />
+      <Icon name={kind} size={size} className="gen-glyph" />
+    </span>
   );
 }
 
