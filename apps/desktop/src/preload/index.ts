@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils, type IpcRendererEvent } from "electron";
 import type { BrowserCredentialEdit, KeychainPasswordsStatus, PasswordFillAllow, PasswordImportResult, PasswordPaneEvent, PasswordRevealResult, PasswordSaveAnswer } from "@realm/contracts";
-import type { BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, UnlockPolicy, UnlockPolicyStatus, VaultAllow, VaultKey, VaultKeyInput, VaultSecrets, ReducedMotionPref, EditorId, InstalledEditor, InstalledApp } from "@realm/contracts";
+import type { BlockedDownload, BrowserAnnotateResult, BrowserCredential, BrowserLoadError, BrowserCredentialInput, BrowserDownloadResult, BrowserFindResult, BrowserMenuState, BrowserPickedElement, BrowserScreenshotSaved, BrowserSignInShare, MediaFile, Passkey, PasskeyNotice, UnlockPolicy, UnlockPolicyStatus, ReducedMotionPref, EditorId, InstalledEditor, InstalledApp } from "@realm/contracts";
 import { platformCapabilities } from "@realm/contracts/src/platform";
 import type { NativeMenuItem } from "../main/native-menu";
 import type { TccRow } from "../main/tcc";
@@ -218,13 +218,6 @@ contextBridge.exposeInMainWorld("realm", {
   phoneScreen: {
     showLive: (): Promise<string> => ipcRenderer.invoke("phone:show-live"),
   },
-  /** Settings ▸ Lab: Realm's own login item (installed app only; main says whether it can be set) and
-   *  the System Settings pane a check names — a pane id, never a URL (main/lab-host.ts). */
-  lab: {
-    loginItem: (): Promise<{ openAtLogin: boolean | null; canSet: boolean }> => ipcRenderer.invoke("lab:login-item"),
-    setLoginItem: (on: boolean): Promise<{ openAtLogin: boolean | null; canSet: boolean }> => ipcRenderer.invoke("lab:set-login-item", on),
-    openSettings: (pane: string): Promise<void> => ipcRenderer.invoke("lab:open-settings", pane),
-  },
   /** The `mac` CLI's access (Permissions tab, "Apps on this Mac"). `status` is a `mac doctor` read —
    *  documented never to prompt. `grant` DOES prompt, on purpose: it runs the one read-only command
    *  that raises that capability's macOS dialog and resolves the re-read audit once the user answers,
@@ -387,35 +380,6 @@ contextBridge.exposeInMainWorld("realm", {
     fillAllows: (profileId: string): Promise<PasswordFillAllow[]> => ipcRenderer.invoke("credentials:fill-allows", profileId),
     clearFillAllow: (profileId: string, credentialId: string, origin: string): Promise<boolean> =>
       ipcRenderer.invoke("credentials:clear-fill-allow", profileId, credentialId, origin),
-  },
-  /**
-   * A team's post sheet (`main/ticket-presses.ts`): the person's one click on "Post at …", recorded in
-   * main for realm-server to ask about. Returns whether main took it.
-   */
-  team: {
-    pressTicket: (input: { ticketId: string; contentHash: string; slotAt: number; label: boolean }): Promise<boolean> =>
-      ipcRenderer.invoke("team:press-ticket", input),
-    /** A team's Policies page (`main/policy-presses.ts`): the person's press on a loosening — a rule,
-     *  or a tool's class — confirmed by macOS and sealed in main for realm-server to spend. */
-    pressPolicy: (input: unknown): Promise<{ ok: true } | { ok: false; error: string }> =>
-      ipcRenderer.invoke("team:press-policy", input),
-  },
-  /**
-   * A team's Vault page (`main/vault-ipc.ts`). Same one-way rule as `credentials`: `addSignin` and
-   * `addKey` take a value and answer with metadata, and nothing here returns one. `setAllow` is the
-   * only way a grant is let through without asking, and main asks macOS to confirm the user first;
-   * `clearAllow` puts the question back and is never confirmed.
-   */
-  vault: {
-    list: (profileId: string, spaceId: string): Promise<{ available: boolean; secrets: VaultSecrets; allows: VaultAllow[]; profileUnattended: boolean }> =>
-      ipcRenderer.invoke("vault:list", profileId, spaceId),
-    addSignin: (profileId: string, spaceId: string, input: BrowserCredentialInput): Promise<BrowserCredential> =>
-      ipcRenderer.invoke("vault:add-signin", profileId, spaceId, input),
-    addKey: (profileId: string, spaceId: string, input: VaultKeyInput): Promise<VaultKey> => ipcRenderer.invoke("vault:add-key", profileId, spaceId, input),
-    remove: (profileId: string, spaceId: string, secretId: string): Promise<boolean> => ipcRenderer.invoke("vault:remove", profileId, spaceId, secretId),
-    setAllow: (profileId: string, input: { spaceId: string; secretId: string; roleId: string; hosts: string[]; grantAt: number; roleName: string; secretName: string }):
-      Promise<{ ok: true; allow: VaultAllow } | { ok: false; error: string }> => ipcRenderer.invoke("vault:set-allow", profileId, input),
-    clearAllow: (secretId: string, roleId: string): Promise<boolean> => ipcRenderer.invoke("vault:clear-allow", secretId, roleId),
   },
   /** Settings → Sign-ins, the passkey half. Read, forget and share only: there is no `add`, because a
    *  passkey is created by a site asking for one and the user answering Touch ID. */

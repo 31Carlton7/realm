@@ -91,9 +91,9 @@ export type RealmToolProvider = {
   needs?: string;
   /**
    * Whether this provider lists anything in this space, for one whose `tools()` answers by what the
-   * space IS rather than by its switch: a team's tools only in a team, the memory tools only where a
-   * repo is attached. Synchronous for the same reason as `offered`. Omitted means it lists wherever it
-   * is switched on — and without it, a space with no team was told about its team's roles.
+   * space IS rather than by its switch: the team tools only where the space has teammates, the memory
+   * tools only where a repo is attached. Synchronous for the same reason as `offered`. Omitted means it
+   * lists wherever it is switched on — and without it, a space with no teammates was told about them.
    */
   listsIn?(spaceId: string): boolean;
 };

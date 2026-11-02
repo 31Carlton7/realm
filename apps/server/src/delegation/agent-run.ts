@@ -613,10 +613,10 @@ export class AgentRunService {
 
   /* --------------------------------------- agent_start --------------------------------------- */
 
-  /** `agent_start` for Realm itself rather than an agent: a team role woken by a mention is started
-   *  as the mentioning session's sub-agent by exactly this path, and the answer is the child's id or
-   *  the refusal's words. `byPerson` marks one the person started themselves — a teammate — which the
-   *  stop of the session's turn leaves running. */
+  /** `agent_start` for Realm itself rather than an agent: a sub-agent the person adds from the
+   *  prompter is started by exactly this path, and the answer is the child's id or the refusal's
+   *  words. `byPerson` marks one the person started themselves, which the stop of the session's turn
+   *  leaves running. */
   async startChild(ctx: ProviderCallContext, args: { goal: string; title?: string; constraints?: AgentRunConstraints },
     opts: { byPerson?: boolean } = {}): Promise<{ ok: true; childId: string } | { ok: false; message: string }> {
     const spawned = await this.spawn(ctx, args, true, opts.byPerson ?? false);

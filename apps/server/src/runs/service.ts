@@ -62,8 +62,7 @@ export type CreateRunInput = {
  * **The human gate.** A run stops at `blocked` when its worker asks for a person, and only
  * `approve` moves it on. Unattended automation that can never stop and ask is the failure mode this
  * state exists to make impossible. `bypassPermissions` is not in a run's vocabulary (contracts/runs.ts),
- * and the runs that get it are a scheduled task's and a team role's, which Realm puts there itself
- * (`runPermissionMode`).
+ * and the runs that get it are a scheduled task's, which Realm puts there itself (`runPermissionMode`).
  */
 export class RunService {
   /** Shutdown latch. A dispatch is an async chain of DB writes that can outlive `close()`; without
@@ -115,17 +114,6 @@ export class RunService {
    *  nobody is watching is exactly what must not be stopped by accident, so the quit confirmation and
    *  the drain's quiescence test both read it. */
   activeCount(): number { return this.d.store.listLive().length; }
-
-  /** Whether this session is a run's worker. NOTE what this is NOT used for: depth-1 exclusion. A
-   *  run's worker is a top-level agent and MAY delegate — `agent_run` and `browser_agent_run` are
-   *  the point of giving it a real session. Only a DELEGATED child is depth-capped. */
-  isWorker(sessionId: string): boolean { return this.workerRecord(sessionId) !== null; }
-
-  /** The run this session is the worker of, settled or not — null for a session no run started. */
-  workerRun(sessionId: string): Run | null {
-    const w = this.workerRecord(sessionId);
-    return w ? this.get(w.runId)?.run ?? null : null;
-  }
 
   /** `SessionService.ensureLive`'s narrowing seam — the subset of the space's enabled skills this
    *  worker is staged, or null for no narrowing. */

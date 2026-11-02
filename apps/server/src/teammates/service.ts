@@ -62,7 +62,7 @@ export class TeammatesService {
     sessions: Pick<SessionService, "create" | "get" | "send" | "setOptions" | "events" | "retitleIf">;
     engine: Pick<DelegationEngine, "begin" | "end" | "awaitAnswer">;
     rpc: Pick<RpcServer, "broadcast">;
-    /** The mode a new session starts in on `kind` when nobody named one — the space's default. */
+    /** The mode a new session starts in on `kind` when nobody named one (Settings' default). */
     defaultMode: (kind: Session["agentKind"]) => string;
     /** The team tools came or went in a space: sessions re-read their tool lists. */
     toolsChanged?: () => void;
@@ -308,15 +308,18 @@ export class TeammatesService {
    */
   handleSessionEvent(session: Session, ev: SessionEvent): void {
     if (!session.teammateId) return;
-    if (ev.type === "user_message" && session.teammateHome) this.askedBy.set(session.id, ev.payload.from?.sessionId ?? null);
-    if (ev.type !== "status" && ev.type !== "user_message") return;
-    if (ev.type === "status") {
+    if (ev.type === "user_message") {
+      if (session.teammateHome) this.askedBy.set(session.id, ev.payload.from?.sessionId ?? null);
+    } else if (ev.type === "status") {
+      // Read before the event is written, so this session's own row still holds the status it leaves.
       const row = this.d.store.get(session.teammateId);
       if (row) {
         const state = this.d.store.sessions(row.spaceId).filter((s) => s.teammateId === row.id)
           .reduce<TeammateState>((acc, s) => louder(acc, stateOf(s.id === session.id ? ev.payload.status : s.status)), "idle");
         if (this.since.get(row.id)?.state !== state) this.since.set(row.id, { state, at: Date.now() });
       }
+    } else {
+      return;
     }
     this.changed(session.spaceId);
   }
