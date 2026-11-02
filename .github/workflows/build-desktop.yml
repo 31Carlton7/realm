@@ -85,21 +85,23 @@ jobs:
   # the Mac. Linux and Windows are gated on the tests that exercise their branches with the platform
   # injected (in Build), and run the rest for information until it is made portable.
   test:
-    name: Test (macOS ${{ matrix.shard }}/3)
+    name: Test (macOS ${{ matrix.shard }}/4)
     needs: changes
     if: needs.changes.outputs.desktop == 'true'
     runs-on: ${{ vars.RUNNER_MACOS || 'macos-latest' }}
     timeout-minutes: 30
+    # Four shards and Build (macOS) are five Mac jobs, as many as GitHub runs at once for an account on any
+    # plan. More shards would queue behind each other.
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
         with:
           hugeicons-token: ${{ secrets.HUGEICONS_TOKEN }}
-      - run: pnpm vitest run --shard=${{ matrix.shard }}/3
+      - run: pnpm vitest run --shard=${{ matrix.shard }}/4
 
   test-informational:
     name: Test (${{ matrix.os }} ${{ matrix.shard }}/${{ matrix.shards }}, informational)
