@@ -299,7 +299,7 @@ export class SessionService {
       forget(sessionId: string): void;
     };
     /** Whether something other than a turn is counting on this session's engine staying up — an
-     *  active goal, a durable run (schedule, team role), a delegation either end of it. The idle
+     *  active goal, a durable run, a delegation either end of it. The idle
      *  reaper never stops an engine this answers true for. */
     keepEngine?: (sessionId: string) => boolean;
     /** The idle window as memory pressure leaves it (`adaptIdleMinutes`): shorter when the Mac is

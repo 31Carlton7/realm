@@ -62,8 +62,7 @@ export type CreateRunInput = {
  * **The human gate.** A run stops at `blocked` when its worker asks for a person, and only
  * `approve` moves it on. Unattended automation that can never stop and ask is the failure mode this
  * state exists to make impossible. `bypassPermissions` is not in a run's vocabulary (contracts/runs.ts),
- * and the runs that get it are a scheduled task's and a team role's, which Realm puts there itself
- * (`runPermissionMode`).
+ * and the runs that get it are a scheduled task's, which Realm puts there itself (`runPermissionMode`).
  */
 export class RunService {
   /** Shutdown latch. A dispatch is an async chain of DB writes that can outlive `close()`; without
