@@ -251,25 +251,6 @@ describe("§6 motion table", () => {
     expect(bodiesFor(".subagent-view-result .subagent-view-prose").join(" ")).toMatch(/font-size:\s*14px;\s*color:\s*var\(--ink\)/);
   });
 
-  it("hangs the team note's New role pill outside the note's text edge", () => {
-    // Mutant: the old `padding-left: 0` that `.page .btn-quiet` outranked — the words sat 10px in.
-    expect(bodiesFor(".tp-card-note .tp-card-new").join(" ")).toMatch(/margin-left:\s*-10px/);
-  });
-
-  it("sets a record's path in mono and the words after it in the interface's face", () => {
-    // Mutant: the whole line in mono — "team memory · last changed by Carlton" read as machine output.
-    expect(bodiesFor(".tp-file").join(" ")).not.toMatch(/font-family/);
-    expect(bodiesFor(".tp-file code").join(" ")).toContain("var(--font-mono)");
-  });
-
-  it("lets a role card's state yield to the role's name, not the other way round", () => {
-    // Mutant: the state at its full width — the name ellipsizes beside a sentence that had room to give.
-    const state = bodiesFor(".tp-card-head .tp-state").join(" ");
-    expect(state).toMatch(/flex:\s*0 1000 auto/);
-    expect(state).toMatch(/min-width:\s*0/);
-    expect(bodiesFor(".tp-state-text").join(" ")).toMatch(/text-overflow:\s*ellipsis/);
-  });
-
   it("draws a to-do's state in marks that hold on both faces, not in softened edges", () => {
     // A done step's strike is in its own ink, and a pending step's ring is a mark. Mutants: the strike
     // back at a mark's alpha (invisible on light), the ring back on the softened edge token.
@@ -2897,7 +2878,7 @@ describe("dividers", () => {
   it("draws no rim round a card, and keeps the line's weight for what divides it", () => {
     expect(css).not.toContain("--rl-card-rim");
     expect(tokensCss).not.toContain("--rl-card-rim");
-    for (const sel of [".settings-row + .settings-row::before", ".memory-fact + .memory-fact", ".sched-card-facts", ".tp-props > div:nth-child(n+3)::before", ".cr-field", ".sched-modal-name"]) {
+    for (const sel of [".settings-row + .settings-row::before", ".memory-fact + .memory-fact", ".sched-card-facts", ".cr-field", ".sched-modal-name"]) {
       const body = bodiesFor(sel).join(" ");
       expect(body, sel).toContain("var(--rl-line)");
       expect(body, sel).not.toContain("--rl-card-rim");
@@ -3164,8 +3145,6 @@ describe("one card", () => {
   const CARDS = [".subagent-card", ".subagent-view-result",
     ".edit-summary", ".permission-card", ".question-card", ".question-answered", ".plan-card", ".plan-decision", ".app-view-request",
     ".settings-row", ".sched-card", ".cr-note", ".library-offer", ".saved-turn-open", ".library-tile", ".agent-card",
-    ".tc-card", ".rv-why", ".rv-caption", ".rv-paper", ".rv-post", ".rv-files", ".rv-table .md-scroll", ".ps-rows",
-    ".tp-card", ".tp-wait-row", ".tp-props", ".tp-message", ".tp-prose", ".tp-goal",
     ".stat-tile", ".usage-card", ".usage-figures", ".plan-account", ".market-card"];
   /** Cards made of a run of boxes, one card a list long: each box takes its share of the corners. */
   const RUNS = [".settings-row", ".engine-card"];
@@ -3245,8 +3224,8 @@ describe("one card", () => {
      a place to type), a mark the size of a glyph, and a hover state. THE MUTANT: a card added with a
      card's fill and a plain corner, which renders a round rect next to the strip's superellipse. */
   it("holds every rule that fills a box as a card to the family", () => {
-    const NOT_CARDS = [".cr-field", ".sched-modal-name", ".sched-modal-goal", ".tp-brief", ".tp-record-source",
-      ".library-row-mark", ".docs-home-glyph[data-type]", ".tp-card-custom:hover"];
+    const NOT_CARDS = [".cr-field", ".sched-modal-name", ".sched-modal-goal",
+      ".library-row-mark", ".docs-home-glyph[data-type]"];
     const filled = RULES.filter((r) => /background(-color)?: var\(--(rl-card|rl-tile|chart-surface)\)/.test(r.body))
       .flatMap(partsOf).filter((sel) => !sel.startsWith(":root"));
     expect(filled.filter((sel) => !CARDS.includes(sel) && !RUNS.includes(sel) && !NOT_CARDS.includes(sel)).sort()).toEqual([]);
