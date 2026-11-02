@@ -471,8 +471,8 @@ export const ScheduleSchema = z.object({
   /** Put a run's session away once the run SUCCEEDS. A failed or interrupted run stays where the
    *  sidebar shows it, because that is the one a person has to come back to. */
   archiveSucceeded: z.boolean(),
-  /** The first Teams' role whose clock this was, or null. Such a clock no longer fires or lists:
-   *  teammates do not run on a clock. */
+  /** The teammate whose clock this is, or null (contracts/teammates.ts `TeammateSchedule`). Its page
+   *  edits it and the Scheduled page does not list it; it fires into the teammate's chat, not a run. */
   roleId: z.string().nullable(),
   createdAt: z.number().int(),
   updatedAt: z.number().int(),

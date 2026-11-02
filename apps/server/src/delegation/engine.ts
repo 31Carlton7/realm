@@ -198,10 +198,13 @@ export class DelegationEngine {
    *  `sparePeople` is the stop of the parent's TURN: a run a person started (a teammate added from the
    *  prompter) is theirs rather than the turn's, has a Stop of its own on the prompter's row, and is
    *  left running. A parent that is deleted spares nothing — there is no session left to help. */
-  parentInterrupted(sessionId: string, opts: { sparePeople?: boolean } = {}): void {
+  parentInterrupted(sessionId: string, opts: { sparePeople?: boolean; spareDetached?: boolean } = {}): void {
     for (const run of this.list(sessionId)) {
       if (run.cancelled) continue;
       if (opts.sparePeople && run.byPerson) continue;
+      // `agent_start`'s children, which nobody is blocked on: the work goes on when only the turn that
+      // started it is stopped.
+      if (opts.spareDetached && run.detached) continue;
       run.cancelled = true;
       // A delegated CHILD is ours to stop. A PEER being asked a question is not: it was doing its own
       // work before the question arrived and is still doing it, and stopping it because the ASKER was

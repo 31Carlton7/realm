@@ -61,6 +61,44 @@ export function teammateIconFromSeed(seed: string): TeammateIcon {
   return { shape: TEAMMATE_SHAPES[h % TEAMMATE_SHAPES.length]!, color: TEAMMATE_COLORS[Math.floor(h / TEAMMATE_SHAPES.length) % TEAMMATE_COLORS.length]! };
 }
 
+/** What a teammate's clock says when it fires, unless the person wrote something else. */
+export const TEAMMATE_CLOCK_PROMPT = "Do your scheduled work.";
+
+/** How long a turn a teammate's clock started may run in its chat before Realm stops it. Only that turn
+ *  is stopped: task sessions it started go on, under their own limits. */
+export const TEAMMATE_CLOCK_TURN_MS = 60 * 60_000;
+
+/**
+ * A teammate's clock: an ordinary row in `schedules`, tagged with the teammate (`roleId`) and kept out
+ * of the Scheduled page's list. When it fires, `prompt` is a turn in the teammate's home session,
+ * marked as the clock's (`user_message.scheduled.scheduleId`), queued behind a turn the chat is on, in
+ * the teammate's mode. It opens no pane and lands unread. An occurrence is skipped (`lastSkippedAt`)
+ * when the clock's previous turn has not ended, or when the Mac woke too late for it.
+ */
+export const TeammateScheduleSchema = z.object({
+  /** The `schedules` row: `schedules.runNow` takes it, and the clock's turns in the chat name it. */
+  id: IdSchema,
+  cron: z.string(),
+  prompt: z.string(),
+  enabled: z.boolean(),
+  /** Null while it is paused, or while its teammate is archived. */
+  nextRunAt: z.number().int().nullable(),
+  /** When it last put a turn in the chat. */
+  lastRunAt: z.number().int().nullable(),
+  /** When it last came due and did not. */
+  lastSkippedAt: z.number().int().nullable(),
+});
+export type TeammateSchedule = z.infer<typeof TeammateScheduleSchema>;
+
+/** Set or change a teammate's clock. `cron` is needed when it has none; anything left out keeps its
+ *  value, and a new clock is enabled and says `TEAMMATE_CLOCK_PROMPT`. */
+export const TeammateScheduleInputSchema = z.object({
+  cron: z.string().trim().min(1).max(200).optional(),
+  prompt: z.string().trim().min(1).max(20_000).optional(),
+  enabled: z.boolean().optional(),
+});
+export type TeammateScheduleInput = z.infer<typeof TeammateScheduleInputSchema>;
+
 /** A session a teammate started, as its sidebar row and its page's Sessions list draw it. */
 export const TeammateTaskSessionSchema = z.object({
   id: IdSchema,
@@ -98,6 +136,8 @@ export const TeammateSchema = z.object({
   archived: z.boolean(),
   /** Its chat. Null until the first message, or for a teammate carried over from the first Teams. */
   homeSessionId: IdSchema.nullable(),
+  /** Its clock, or null when it has none. */
+  schedule: TeammateScheduleSchema.nullable(),
   createdAt: z.number().int(),
   updatedAt: z.number().int(),
   /* ── derived, never stored ── */
@@ -129,6 +169,8 @@ const TeammateFieldsSchema = z.object({
   folder: z.string().min(1).max(4_096).nullable().optional(),
   lead: z.boolean().optional(),
   group: z.string().trim().min(1).max(60).nullable().optional(),
+  /** Its clock: set or changed, or null to remove it. */
+  schedule: TeammateScheduleInputSchema.nullable().optional(),
 });
 
 export const CreateTeammateSchema = TeammateFieldsSchema.extend({ spaceId: IdSchema });

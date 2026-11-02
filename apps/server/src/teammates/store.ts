@@ -57,8 +57,9 @@ export type TeammateSessionRow = {
 
 /**
  * Teammates, in the `team_roles` table the first Teams made. Rows only: which change is allowed is the
- * service's. Columns the old roles used and teammates do not (skills, budgets, clocks) are left as they
- * are, and a new teammate writes their defaults.
+ * service's. Columns the old roles used and teammates do not (skills, budgets) are left as they are, and
+ * a new teammate writes their defaults. A teammate's clock is a `schedules` row tagged with its id, as a
+ * role's was.
  */
 export class TeammatesStore {
   constructor(private db: Db, private clock: () => number = now) {}
@@ -138,6 +139,11 @@ export class TeammatesStore {
     vals.push(id);
     this.db.prepare(`UPDATE team_roles SET ${sets.join(", ")} WHERE id = ?`).run(...vals);
     return this.get(id);
+  }
+
+  /** Gone for good — only a teammate whose making was refused half way, before it had a session. */
+  remove(id: string): void {
+    this.db.prepare("DELETE FROM team_roles WHERE id = ?").run(id);
   }
 
   /** Make `id` the space's one Lead, or clear the Lead with null. */

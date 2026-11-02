@@ -6,6 +6,7 @@ import { teammateIconFromSeed } from "@realm/contracts";
 import { openDatabase } from "../db/database";
 import { migrations } from "../db/migrations";
 import { registerPayloadFunction } from "../store/event-payload";
+import { SchedulesStore } from "../store/schedules";
 import { TeammatesStore } from "./store";
 
 /** Found by its own text, never by number: at merge it goes last, after whatever lands beside it. */
@@ -31,9 +32,24 @@ function homeWithRoles(): string {
   role.run("R2", "versed", "Content Producer", "You make short-form slideshows.", JSON.stringify({ v: 1, seed: "content-producer-32" }), "content-producer", "sonnet", "acceptEdits", 1, 11, 11);
   role.run("R3", "versed", "Viral Video Studier", "You study what went viral.", "{}", null, "claude-opus-5-5", "plan", 2, 12, 12);
   role.run("R4", "general", "Ops", "You keep this team's admin in order.", JSON.stringify({ v: 1, seed: "ops-914" }), "ops", "sonnet", "default", 0, 13, 13);
+  // The clocks those roles ran on, as the owner's database holds them: a run per occurrence, each in a
+  // new session, on the goal the first Teams wrote from the brief.
+  const clock = db.prepare(`INSERT INTO schedules (id, space_id, title, goal, cron, enabled, constraints_json, next_run_at, last_run_at,
+      last_run_id, last_skipped_at, new_session_per_run, archive_succeeded, created_at, updated_at, role_id)
+    VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, NULL, NULL, 1, 0, 10, 10, ?)`);
+  for (const [id, space, role, name, cron, next, last] of CLOCKS) {
+    clock.run(id, space, name, goalOf(name), cron, JSON.stringify({ agentKind: "claude", model: "sonnet", permissionMode: "default" }), next, last, role);
+  }
   db.close();
   return path;
 }
+
+const goalOf = (name: string) => `${name}'s scheduled run. Do what your brief says is due now.\n\nYour brief:\n\nYou do ${name}'s work.`;
+const CLOCKS = [
+  ["C1", "versed", "R1", "Creator Manager", "0 9 * * 1-5", 1793638800000, 1793376013391],
+  ["C2", "versed", "R2", "Content Producer", "0 9 * * 1,4", 1793638800000, 1793289653326],
+  ["C4", "general", "R4", "Ops", "0 8 * * 1", 1793635200000, 1793026801373],
+] as const;
 
 describe("teammates from the first Teams' roles", () => {
   it("brings every role through as a teammate, with its name, brief and model, and keeps the old columns", () => {
@@ -69,6 +85,25 @@ describe("teammates from the first Teams' roles", () => {
     expect(new TeammatesStore(again).backfill()).toBe(0);
     expect(Object.fromEntries(new TeammatesStore(again).list("versed").map((t) => [t.id, t.icon]))).toEqual(icons);
     again.close();
+  });
+
+  it("keeps each role's clock as its teammate's, with its expression, its switch, its goal and its next time", () => {
+    const path = homeWithRoles();
+    const raw = new DatabaseSync(path);
+    raw.exec("UPDATE team_roles SET archived = 1 WHERE id = 'R2'");
+    raw.close();
+    const db = openDatabase(path);
+    new TeammatesStore(db).backfill();
+    const clocks = new SchedulesStore(db);
+    for (const [id, , role, name, cron, next, last] of CLOCKS) {
+      expect(clocks.forRole(role)).toMatchObject({ id, roleId: role, title: name, cron, enabled: true, goal: goalOf(name), nextRunAt: next, lastRunAt: last });
+    }
+    // The teammate's page shows it; the Scheduled page does not.
+    expect(clocks.list("versed")).toEqual([]);
+    // Due, it is claimed like any schedule — but not while its teammate is archived.
+    expect(clocks.claimDue(1793638800000 + 1).map((c) => c.schedule.id).sort()).toEqual(["C1", "C4"]);
+    expect(clocks.forRole("R2")!.nextRunAt).toBe(1793638800000);
+    db.close();
   });
 
   it("gives two roles of one name in a space handles of their own", () => {
