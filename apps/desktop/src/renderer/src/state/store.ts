@@ -2619,9 +2619,9 @@ export type AppState = {
   applyDelegationChanged(payload: { sessionId: string; running: DelegatedRun[] }): void;
   /** Re-read a lead's sub-agents into `subagents`. */
   refreshSubagents(sessionId: string): Promise<void>;
-  /** Add a teammate to a session from its prompter's "+". The new sub-agent arrives in `subagents`
+  /** Add a sub-agent to a session from its prompter's "+". It arrives in `subagents`
    *  by the `delegation.changed` its start announces. */
-  addTeammate(input: AddTeammate): Promise<void>;
+  addSubAgent(input: AddTeammate): Promise<void>;
   /** Take a sub-agent off its lead's prompter row, here at once and in every window by the
    *  `delegation.changed` the server sends. */
   dismissSubagent(leadId: string, id: string): Promise<void>;
@@ -7463,7 +7463,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const { children, dismissed } = await api.listDelegatedChildren(sessionId);
         set({ subagents: { ...get().subagents, [sessionId]: children }, dismissedSubagents: { ...get().dismissedSubagents, [sessionId]: dismissed } });
       },
-      async addTeammate(input) {
+      async addSubAgent(input) {
         await api.addTeammate(input);
       },
       async dismissSubagent(leadId, id) {

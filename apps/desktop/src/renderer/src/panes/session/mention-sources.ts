@@ -25,8 +25,8 @@ export type MentionOption =
   | { kind: "app"; key: string; name: string; app: InstalledApp }
   /** A role on the space's team: sending wakes it as this session's sub-agent. */
   | { kind: "role"; key: string; name: string; role: TeamRole }
-  /** One of this session's own sub-agents — a teammate, or one its agent started: sending passes it
-   *  the message. */
+  /** One of this session's own sub-agents — one the person added, or one its agent started: sending
+   *  passes it the message. */
   | { kind: "agent"; key: string; name: string; sessionId: string; state: SubagentState; agentKind: AgentKind | null };
 
 /** One row as the picker draws it: the option, the quiet line after its name, and — in the tour —

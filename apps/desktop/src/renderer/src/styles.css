@@ -5913,17 +5913,17 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    agent alone keeps its name. */
 @container (max-width: 520px) { .active-agents:has(> .active-agent + .active-agent) .active-agent .chip-label { display: none; } }
 
-/* ── "+ → Add teammate…" ──
+/* ── "+ → Add sub-agent…" ──
    A popover off the "+", in the code review sheet's anatomy at the prompter's scale: a title, the
    model picker's own chip, one line for the brief, where it works, and the action. */
-.teammate-pop { z-index: 100; width: 360px; max-width: calc(100vw - 24px); display: flex; flex-direction: column; gap: 12px; padding: 16px;
+.subagent-pop { z-index: 100; width: 360px; max-width: calc(100vw - 24px); display: flex; flex-direction: column; gap: 12px; padding: 16px;
   background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-float); box-shadow: var(--shadow-overlay);
   animation: rl-menu-in var(--dur-pop) var(--spring-smooth); }
-.teammate-pop[data-closing] { animation: rl-menu-out var(--dur-press) var(--ease-out-strong) forwards; pointer-events: none; }
-.teammate-pop-title { margin: 0; font-size: 14px; line-height: 20px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
-.teammate-pop-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--rl-text-dim); }
-.teammate-pop-note { margin: -4px 0 0; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
-.teammate-pop-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.subagent-pop[data-closing] { animation: rl-menu-out var(--dur-press) var(--ease-out-strong) forwards; pointer-events: none; }
+.subagent-pop-title { margin: 0; font-size: 14px; line-height: 20px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.subagent-pop-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--rl-text-dim); }
+.subagent-pop-note { margin: -4px 0 0; font-size: 12px; line-height: 16px; color: var(--rl-text-faint); }
+.subagent-pop-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 /* ── Under-strip (§4 + Plan 12 W1): machine label + workspace selector, one size quieter than the
    control row (11px on faint vs 12px on dim), on a frame fill sliding out from beneath the card
