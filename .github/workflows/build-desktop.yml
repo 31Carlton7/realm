@@ -18,7 +18,8 @@
 #
 # Runners: each job runs on the repository variable RUNNER_MACOS, RUNNER_LINUX or RUNNER_WINDOWS when it
 # is set, and on GitHub's own runner when it is not, so moving to other machines needs no edit here.
-# Test workers follow the runner's cores (--maxWorkers=100%).
+# Vitest runs one worker fewer than the runner has cores, its default: on the Mac's three, a third
+# worker starved the main process and made the suite no faster.
 name: Build desktop
 
 on:
@@ -98,7 +99,7 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           hugeicons-token: ${{ secrets.HUGEICONS_TOKEN }}
-      - run: pnpm vitest run --shard=${{ matrix.shard }}/3 --maxWorkers=100%
+      - run: pnpm vitest run --shard=${{ matrix.shard }}/3
 
   test-informational:
     name: Test (${{ matrix.os }} ${{ matrix.shard }}/${{ matrix.shards }}, informational)
@@ -126,7 +127,7 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           hugeicons-token: ${{ secrets.HUGEICONS_TOKEN }}
-      - run: pnpm vitest run --shard=${{ matrix.shard }}/${{ matrix.shards }} --maxWorkers=100%
+      - run: pnpm vitest run --shard=${{ matrix.shard }}/${{ matrix.shards }}
 
   build:
     name: Build (${{ matrix.os }})
