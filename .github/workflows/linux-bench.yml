@@ -197,13 +197,13 @@ jobs:
           json.dump({"realm_serve_ready_s": [r["realm_serve_ready_s"] for r in runs], "idle_rss_mb": [r["idle_rss_mb"] for r in runs]}, open("runs/F-realm/serve-ready.json", "w"))
           EOF
 
-      - name: Realm criterion C (realm ship on each finished run, to a bare remote)
-        working-directory: ${{ runner.temp }}/bench
-        run: env -u DISPLAY BENCH=$PWD OUT=$PWD/runs/F-realm-ship python3 harness/realm_ship.py
-
       - name: Orca lane A (orca-ide serve on Xvfb)
         working-directory: ${{ runner.temp }}/bench
         run: python3 harness/orca_suite.py
+
+      - name: Realm criterion C (realm ship on each finished run, to a bare remote)
+        working-directory: ${{ runner.temp }}/bench
+        run: env -u DISPLAY BENCH=$PWD OUT=$PWD/runs/F-realm-ship python3 harness/realm_ship.py
 
       - name: Summary
         if: always()

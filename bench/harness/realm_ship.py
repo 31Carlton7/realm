@@ -10,8 +10,10 @@ import subprocess, json, os, sys, time, shutil, tempfile, threading
 BENCH = os.path.abspath(os.environ["BENCH"]); CLI = [os.path.abspath(os.environ["REALM_BIN"])]
 OUT = os.path.abspath(os.environ.get("OUT", f"{BENCH}/runs/F-realm-ship")); os.makedirs(OUT, exist_ok=True)
 HOME_ = tempfile.mkdtemp(prefix="realm-ship-home-")
-# No `gh` on the server's PATH: the --pr row must not reach GitHub, and without gh it never tries.
-path = os.pathsep.join(p for p in os.environ["PATH"].split(os.pathsep) if not os.path.exists(os.path.join(p, "gh")))
+# A `gh` that always fails, first on the server's PATH: the --pr row must not reach GitHub, and with gh signed out
+# Realm only prints the link. (Dropping the directories gh lives in would drop /usr/bin with it on Ubuntu.)
+shim = tempfile.mkdtemp(prefix="realm-ship-gh-"); open(f"{shim}/gh", "w").write("#!/bin/sh\nexit 1\n"); os.chmod(f"{shim}/gh", 0o755)
+path = shim + os.pathsep + os.environ["PATH"]
 env = {**os.environ, "PATH": path, "REALM_HOME": HOME_, "REALM_PORT": os.environ.get("REALM_PORT", "8796"), "REALM_ENABLE_FAKE_AGENT": "1"}
 tasks = json.load(open(f"{BENCH}/fixture/tasks.json")); names = ["t1","t2","t3","t4","t5a","t5b"]
 G = ["git", "-c", "commit.gpgsign=false"]
