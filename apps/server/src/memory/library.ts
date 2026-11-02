@@ -6,6 +6,7 @@ import {
   withoutIndexLink, type MemoryLibraryEntry, type MemoryLibraryFile, type MemoryLibraryReader, type MemoryLibrarySource, type MemoryLibraryType,
 } from "@realm/contracts";
 import { decodeClaudeProjectSlug } from "../import/sources";
+import { tildify } from "../skills/discovery";
 import { RpcError } from "../store/rows";
 import type { SettingsStore } from "../store/settings";
 import { claudeFact, claudeFactFile, claudeIndexTarget, withClaudeIndexLine, withoutClaudeIndexLine } from "./claude-facts";
@@ -468,19 +469,13 @@ export class MemoryLibrary {
     const entry = this.describe(s, rel, abs, text, st.mtimeMs, st.size);
     const { fields, body } = readFrontmatter(text);
     const managed = s.group === "codex" && s.spaceId !== null && this.managedAgentsFile(abs);
-    const rules = this.rulesOf(s, rel);
+    const undeletable = s.docs !== undefined || (s.owner !== null && rel === MEMORY_REPO_INDEX_FILE);
     return {
-      ...entry, displayPath: this.d.userHome && within(abs, this.d.userHome) ? `~/${relative(this.d.userHome, abs)}` : abs,
+      ...entry, displayPath: this.d.userHome ? tildify(abs, this.d.userHome) : abs,
       text, body, frontmatter: fields, links: this.linksOf(s, rel, body), readBy: this.readersOf(s, rel, profileId),
-      external: s.external, writable: !managed && rules.writable, deletable: !managed && rules.deletable,
-      note: managed ? "Realm writes this file from the space's memory document, so edit that instead." : rules.note,
+      external: s.external, writable: !managed, deletable: !managed && !undeletable,
+      note: managed ? "Realm writes this file from the space's memory document, so edit that instead." : null,
     };
-  }
-
-  private rulesOf(s: Source, rel: string): { writable: boolean; deletable: boolean; note: string | null } {
-    if (s.docs) return { writable: true, deletable: false, note: null };
-    if (s.owner && rel === MEMORY_REPO_INDEX_FILE) return { writable: true, deletable: false, note: null };
-    return { writable: true, deletable: true, note: null };
   }
 
   /** Each `[[link]]` (from the source's root, as the repo's index writes them) and each relative `.md`
