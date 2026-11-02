@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { generatePassword, SecretStore, SecretStoreError, type SecretStoreDeps } from "./secret-store";
 import { GENERATED_PASSWORD_LENGTH, GENERATED_PASSWORD_MAX_LENGTH, GENERATED_PASSWORD_MIN_LENGTH } from "@realm/contracts";
+import { newSecretKey, seal } from "@realm/contracts/src/secret-box";
 
 /**
  * The store's mutants:
@@ -968,6 +969,22 @@ describe("SecretStore — a profile's own", () => {
     expect(store.listCredentials(WORK)).toEqual([]);
     expect(store.listPasskeys(WORK)).toEqual([]);
     expect(store.listCredentials(P)).toHaveLength(1);
+  });
+
+  it("keeps the first Teams' keys and allows as they were written, until their profile is deleted", () => {
+    const { store, disk } = makeStore();
+    store.addCredential(P, input());
+    const written = JSON.parse(disk.file!) as Record<string, unknown>;
+    const old = newSecretKey();
+    const key = { id: "key-1", profileId: WORK, spaceId: "sp", name: "RevenueCat", label: "", allowedHosts: ["api.revenuecat.com"], createdAt: 1, sealed: seal(old, "vault-key", "rc_live") };
+    const allow = { "key-1|R1": seal(old, "vault-allow", "{}") };
+    disk.file = JSON.stringify({ ...written, keys: [key], allow });
+    const reopened = makeStore({ readFile: () => disk.file, writeFile: (t) => { disk.file = t; } });
+    // THE MUTANT: a reader that drops what it no longer understands, and the next save loses them.
+    reopened.store.addCredential(P, input({ origin: "https://other.com" }));
+    expect(JSON.parse(disk.file!)).toMatchObject({ keys: [key], allow });
+    reopened.store.forgetProfile(WORK);
+    expect(JSON.parse(disk.file!).keys).toEqual([]);
   });
 });
 
