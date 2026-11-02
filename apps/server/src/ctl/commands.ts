@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
-import type { Environment, PairingWindow, PairRequest, Project, RemoteStatus, Space, TerminalStatus } from "@realm/contracts";
+import type { Environment, PairingWindow, PairRequest, Project, RemoteStatus, ShipResult, Space, TerminalStatus } from "@realm/contracts";
 import { checkListen, classifyAddress, parseListenAddress, type ListenConfig } from "../access/listen";
 import { createToken, listTokens, revokeToken } from "../access/tokens";
 import { checkServerUrl, CtlError, type CtlClient, type Target } from "./client";
@@ -14,9 +14,10 @@ import { tailnetName, tailscaleServe, type Exec } from "./tailscale";
  * `realm`: Realm's server, driven from a shell.
  *
  * Everything here is a thin composition of RPC methods the app itself uses — `projects.open`,
- * `environments.createWorktree`, `terminals.create`/`list`/`read`/`close` — so a script and the window
- * see the same spaces, worktrees and terminals. A command started with `realm run` shows up in
- * Realm's sidebar as a terminal, and a worktree made here is one the Changes pane can review.
+ * `environments.createWorktree`, `terminals.create`/`list`/`read`/`close`, `workspace.ship` — so a
+ * script and the window see the same spaces, worktrees and terminals. A command started with
+ * `realm run` shows up in Realm's sidebar as a terminal, a worktree made here is one the Changes pane
+ * can review, and a commit `realm ship` makes is in the space's History beside the pane's own.
  *
  * The server can be this machine's or another's: `--server` dials one elsewhere, at the listener
  * `realm serve --listen` opens, with an access token `realm token create` made there.
@@ -43,6 +44,10 @@ export const USAGE = `usage: realm <command> [options]
   wait [<terminal>...] [--timeout S]     block until they exit (default: every terminal)
   logs <terminal>                        what a terminal printed
   kill <terminal>                        stop a terminal and close it
+  ship <checkout> --message MSG [--push] [--pr]
+                                         commit every change in a checkout (its id, from run --json
+                                         or worktree list); --push also pushes its branch, and
+                                         --pr pushes it and opens a pull request
   pair                                   pair an iPhone with this server: a code to scan
   phones [list] | phones remove <id|name>
                                          the phones paired with it; remove one to revoke it
@@ -101,7 +106,7 @@ export type CtlIo = {
 type Parsed = { positionals: string[]; flags: Map<string, string | true>; command: string[] | null };
 
 /** Flags that take a value; every other `--flag` is a switch. */
-const VALUED = new Set(["home", "base", "worktree", "timeout", "port", "server", "token", "ca", "listen", "tls-cert", "tls-key", "tailscale-port"]);
+const VALUED = new Set(["home", "base", "worktree", "timeout", "port", "server", "token", "ca", "listen", "tls-cert", "tls-key", "tailscale-port", "message"]);
 
 export function parseArgs(argv: string[]): Parsed {
   const dash = argv.indexOf("--");
@@ -142,6 +147,32 @@ export function describeState(t: TerminalStatus): string {
 }
 
 const succeeded = (t: TerminalStatus): boolean => !t.running && t.exitCode === 0 && t.signal === null;
+
+/** Whether every step `realm ship` was asked for landed. A clean checkout counts only when the point
+ *  was the push: sending a commit made earlier is a ship, and committing nothing is not. */
+export function shipped(r: ShipResult, asked: { push: boolean; openPr: boolean }): boolean {
+  const committed = r.commit.state === "committed" || (asked.push && r.commit.state === "nothing-to-commit");
+  const pushed = !asked.push || r.push.state === "pushed" || r.push.state === "up-to-date";
+  const opened = !asked.openPr || r.pr.state === "created" || r.pr.state === "existing";
+  return committed && pushed && opened;
+}
+
+/** A ship as `realm ship` prints it: a line for each step that ran, and the reason for each that
+ *  did not, in the words the Changes pane uses. */
+export function shipReport({ commit, push, pr }: ShipResult): string[] {
+  const lines: string[] = [];
+  if (commit.state === "committed") lines.push(`committed ${commit.sha?.slice(0, 7)} ${commit.subject}`);
+  else if (commit.state === "nothing-to-commit") lines.push("nothing to commit: the checkout has no changes");
+  else if (commit.state !== "skipped") lines.push(`not committed: ${commit.reason}`);
+  if (push.state === "pushed") lines.push(`pushed ${push.branch} to ${push.remote}`);
+  else if (push.state === "up-to-date") lines.push(`${push.branch} is already on ${push.remote}`);
+  else if (push.reason) lines.push(`not pushed: ${push.reason}`);
+  if (pr.state === "created") lines.push(`opened ${pr.url}`);
+  else if (pr.state === "existing") lines.push(`already open: ${pr.url}`);
+  else if (pr.state === "compare") lines.push(`no pull request opened: ${pr.reason}. Open one at ${pr.url}`);
+  else if (pr.reason) lines.push(`no pull request opened: ${pr.reason}`);
+  return lines;
+}
 
 type Opened = { space: Space; project: Project; environment: Environment };
 
@@ -441,6 +472,25 @@ export async function runCtl(argv: string[], io: CtlIo): Promise<number | null> 
         await c.call("terminals.close", { terminalId: id });
         print({ ok: true }, `closed ${id}`);
         return 0;
+      }
+      case "ship": {
+        const id = need(0, "<checkout>");
+        const message = flag("message") ?? "";
+        // Refused here rather than by the server, which would refuse it only after the stage below
+        // had put the whole tree in the index for nothing.
+        if (message.trim() === "") throw new CtlError("USAGE", "ship: a commit needs a message (--message)");
+        const env = await c.call<Environment>("environments.get", { id });
+        const openPr = p.flags.has("pr");
+        const push = openPr || p.flags.has("push");
+        // Every change, as the Changes pane's Stage all takes them: `.` at the checkout's root is new,
+        // edited and deleted files alike, and nothing .gitignore keeps out.
+        await c.call("workspace.stage", { cwd: env.path, paths: ["."] });
+        // Naming the checkout files the ship in its space's History, as the pane's does. `--push` is the
+        // yes the pane asks for separately before a branch's first push — and a worktree's branch is
+        // always new.
+        const r = await c.call<ShipResult>("workspace.ship", { cwd: env.path, environmentId: env.id, commit: true, message, push, setUpstream: push, openPr });
+        print({ environmentId: env.id, path: env.path, branch: env.branch, ...r }, shipReport(r).join("\n"));
+        return shipped(r, { push, openPr }) ? 0 : 1;
       }
       case "pair":
         return await pair(c, io, json, print);
