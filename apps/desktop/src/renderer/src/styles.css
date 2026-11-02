@@ -5430,9 +5430,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    of the box here against 21% there — for no reason either rule stated. */
 .attach-tile { --attach-tile: 44px; position: relative; display: inline-block;
   width: var(--attach-tile); height: var(--attach-tile); flex: none; vertical-align: middle; }
-/* The well. `corner-shape` joins the 103 other surfaces that declare it: a circular corner in this
-   Chromium, the real superellipse the moment Electron reaches 139 — and the whole app turns over at
-   once rather than this tile becoming the one that curves differently. `overflow: hidden` is what
+/* The well. `corner-shape` joins the 103 other surfaces that declare it, so this tile curves as they
+   do rather than becoming the one that curves differently. `overflow: hidden` is what
    makes the thumbnail take the corner too, which is the point for MEDIA: the glyph tiles would look
    the same either way, an image would not. */
 /* A file is an object wherever it is shown, and here too it stands under the object's border and
@@ -6213,8 +6212,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    rule below mirrors one `background` declaration above, in the same order, so the cascade that
    decided which fill wins up there decides it down here too.
 
-   Everything else button-shaped keeps `corner-shape: squircle` and its border-radius fallback: the
-   declaration is already correct and lands for free when Chromium 139 reaches Electron. */
+   Everything else button-shaped keeps `corner-shape: squircle` over its border-radius, which this
+   Chromium draws as the curve itself. */
 :root[data-squircle] .btn,
 :root[data-squircle] .ghost-chip,
 :root[data-squircle] .palette-opt {
@@ -6541,10 +6540,9 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
  * that through a paint would mean re-declaring every state as a worklet input, and a state anyone
  * forgot would come out as an invisible button.
  *
- * The cost of declaring only is nil at this size. `corner-shape` is inert in this Chromium, so a
- * 30px button renders an 11px rounded rect — which is what a squircle at that radius looks like to
- * a human eye. The signature is the 36px surfaces, where the difference IS visible and the paint is
- * worth its complexity. These get the shape for free when Chromium 139 lands.
+ * Declaring is enough: `corner-shape` draws the superellipse in this Chromium, so a button takes the
+ * curve with no paint at all. The signature is the 36px surfaces, where the paint was worth its
+ * complexity before the declaration drew anything.
  */
 /* Focus is still PromptBar's border-brighten, now traced on the curve instead of around it. */
 :root[data-squircle] .composer:focus-within, :root[data-squircle] .commit-card:focus-within {
