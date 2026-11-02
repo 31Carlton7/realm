@@ -5,8 +5,9 @@ import { MENU_LAYOUT, acceleratorFor, appMenuTemplate, pageChords, shouldPageOwn
 
 const build = (over: Partial<Parameters<typeof appMenuTemplate>[0]> = {}) => {
   const send = vi.fn();
-  const template = appMenuTemplate({ appName: "Realm", rules: DEFAULT_KEYBINDINGS, send, openExternal: vi.fn(), developer: false, darwin: true, ...over });
-  return { template, send };
+  const openExternal = vi.fn();
+  const template = appMenuTemplate({ appName: "Realm", version: "2.6.3", rules: DEFAULT_KEYBINDINGS, send, openExternal, developer: false, darwin: true, ...over });
+  return { template, send, openExternal };
 };
 /** Every item in the menu bar, depth first. */
 const all = (items: MenuItemConstructorOptions[]): MenuItemConstructorOptions[] =>
@@ -71,6 +72,19 @@ describe("the menu bar", () => {
     (find(template, "What's New")!.click as () => void)();
     expect(send).toHaveBeenCalledWith("app.whatsNew");
     expect(KEY_COMMANDS.map((c) => c.id)).toContain("app.whatsNew");
+  });
+
+  it("opens Realm's repository from Help: a bug report with the version filled in, an idea, and the page itself", () => {
+    const { template, openExternal } = build();
+    const help = template.find((m) => m.role === "help")!.submenu as MenuItemConstructorOptions[];
+    expect(help.map((i) => i.label ?? i.type)).toEqual([
+      "Realm Website", "What's New", "separator", "Report a Bug", "Request a Feature", "separator", "Star Realm on GitHub", "Realm on GitHub",
+    ]);
+    const opened = (label: string) => { openExternal.mockClear(); (find(template, label)!.click as () => void)(); return openExternal.mock.calls[0]?.[0]; };
+    expect(opened("Report a Bug")).toBe("https://github.com/31Carlton7/realm/issues/new?template=bug.yml&version=2.6.3");
+    expect(opened("Request a Feature")).toBe("https://github.com/31Carlton7/realm/issues/new?template=feature.yml");
+    expect(opened("Star Realm on GitHub")).toBe("https://github.com/31Carlton7/realm");
+    expect(opened("Realm on GitHub")).toBe("https://github.com/31Carlton7/realm");
   });
 });
 

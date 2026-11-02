@@ -1,0 +1,50 @@
+name: Report a bug
+description: Something in Realm doesn't work the way it says it does.
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what Realm did instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen again
+      description: The steps from a fresh window, if you know them. A screenshot or a recording helps.
+      placeholder: |
+        1. Open a space on a git checkout
+        2. Start a Claude session and send a message
+        3. …
+  - type: input
+    id: version
+    attributes:
+      label: Realm version
+      description: Help ▸ Report a Bug fills this in. Otherwise it's under Settings ▸ General ▸ Updates.
+      placeholder: "2.6.3"
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: System
+      description: Your operating system and its version, and the chip.
+      placeholder: macOS 26.1 on an M4, Ubuntu 24.04 on x86_64, Windows 11
+    validations:
+      required: true
+  - type: input
+    id: agent
+    attributes:
+      label: Agent and model
+      description: If the bug is in a session, which agent and model it ran.
+      placeholder: Claude Code with Opus 5.5, Codex with GPT-5.5
+  - type: textarea
+    id: logs
+    attributes:
+      label: Server log
+      description: >-
+        The lines around the bug from `~/Realm/logs/server.log` (`server.log.1` is the run before).
+        Read them before you paste them: they name your folders and sessions.
+      render: text
