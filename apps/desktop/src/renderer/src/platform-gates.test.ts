@@ -19,14 +19,14 @@ afterEach(() => { delete (window as { realm?: unknown }).realm; });
 describe("what Linux and Windows are not offered", () => {
   it("keeps every Mac page on a Mac", () => {
     onOs("darwin");
-    expect(visibleSettingsGroups().flatMap((g) => g.tabs.map((t) => t.id))).toEqual(expect.arrayContaining(["permissions", "computer-use", "lab"]));
+    expect(visibleSettingsGroups().flatMap((g) => g.tabs.map((t) => t.id))).toEqual(expect.arrayContaining(["permissions", "computer-use"]));
     expect(sideToolOffered("simulator")).toBe(true);
     expect(canQuickLook() && canShare() && canChooseAppIcon()).toBe(true);
   });
 
   it.each(["linux", "win32"])("on %s, drops the Computer pages, the simulator, Quick Look, Share and the Dock icon", (platform) => {
     onOs(platform);
-    for (const tab of ["permissions", "computer-use", "lab"] as const) expect(tabAvailable(tab), tab).toBe(false);
+    for (const tab of ["permissions", "computer-use"] as const) expect(tabAvailable(tab), tab).toBe(false);
     // The heading goes with its last page rather than standing over nothing.
     expect(visibleSettingsGroups().map((g) => g.label)).not.toContain("Computer");
     expect(visibleSettingsGroups().map((g) => g.label)).toContain("Engines");

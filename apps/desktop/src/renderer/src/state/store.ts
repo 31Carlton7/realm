@@ -54,7 +54,6 @@ import type { SettingsTab } from "../panes/settings/settings-index";
 import type { AskAnswers } from "@realm/contracts";
 import { NOTIFICATIONS_IPHONE_KEY, type PairRequest, type PairingWindow, type RemoteStatus } from "@realm/contracts";
 import { teamSlice, type TeamApi, type TeamSlice } from "./team-slice";
-import { labSlice, type LabApi, type LabSlice } from "./lab-slice";
 
 export type CreateSpaceInput = { name: string; icon: string; profileId: string; color?: string };
 /** What the New space sheet hands over: the row, and what is made WITH it — the folder its sessions
@@ -165,7 +164,7 @@ export type ShareResult = { ok: true; profileName: string } | { ok: false; error
 
 /** Everything the store needs from the outside world: realm-server RPC plus what main provides over
  *  the preload bridge. Tests substitute a fake. */
-export type Api = TeamApi & LabApi & {
+export type Api = TeamApi & {
   listProfiles(): Promise<Profile[]>;
   /** Icon/color left out are the server's defaults (`user` / grey) — the New space sheet's inline
    *  add asks only for a name; the New profile sheet asks for all three. */
@@ -981,7 +980,7 @@ export type Sheet =
   /** A session as a web page: what the page includes, its size, and Save (share/ShareSheet.tsx). */
   | { kind: "share-session"; sessionId: string };
 
-export type AppState = TeamSlice & LabSlice & {
+export type AppState = TeamSlice & {
   /** False until `boot()` has finished once. First-run onboarding keys off "no spaces" — which is also
    *  what an unbooted store looks like, so without this the sheet would flash on every launch. */
   booted: boolean;
@@ -4446,7 +4445,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       ...teamSlice(api, get, set),
-      ...labSlice(api, get, set),
       booted: false,
       sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], installedFonts: [], localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, confirmDelete: true, items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarOnPage: null, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
       allItems: [], archivedSessions: null, lastAgentKind: null, lastModels: {}, renamingItemId: null,

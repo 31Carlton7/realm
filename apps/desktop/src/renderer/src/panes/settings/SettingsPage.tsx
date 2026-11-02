@@ -26,7 +26,6 @@ import { RamPanel } from "./RamPanel";
 import { FailoverPanel } from "./FailoverPanel";
 import { LayaSection } from "./LayaSection";
 import { DevicesPanel } from "./DevicesPanel";
-import { LabSection } from "./LabSection";
 import { Signature } from "./Signature";
 import { KeybindingsPanel } from "../../components/settings/KeybindingsPanel";
 import { SpaceIcon } from "../../components/SpaceIcon";
@@ -149,7 +148,6 @@ export function SettingsPage(_props: PaneProps) {
               {tab === "signins" && <SignInsTab />}
               {tab === "permissions" && <PermissionsTab />}
               {tab === "computer-use" && <ComputerUseTab />}
-              {tab === "lab" && <LabSection />}
               {tab === "import" && <ImportPanel />}
               {tab === "archived" && <ArchivedTab />}
             </>
