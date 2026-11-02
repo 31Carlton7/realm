@@ -6,6 +6,7 @@
   "engines": { "node": ">=22.13" },
   "pnpm": { "onlyBuiltDependencies": ["node-pty", "esbuild", "electron"] },
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks || exit 0",
     "build": "pnpm -r build",
     "test": "vitest run",
     "test:watch": "vitest",

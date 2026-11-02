@@ -39,6 +39,11 @@ feature followed through them.
   while.
 - **Typecheck:** `pnpm typecheck`, which runs each package's own `tsc --noEmit`. Don't run `tsc -b` on
   `apps/desktop/tsconfig.json`: it writes `.js` and `.d.ts` files next to the sources.
+- **Lint:** `pnpm lint` runs Oxlint, which CI also runs.
+- **Before a push,** a hook in `.githooks/` (which `pnpm install` turns on) checks the commits you're
+  pushing for whitespace errors and conflict markers, lints, and typechecks each package they change. It
+  takes a few seconds. Skip it for one push with `git push --no-verify`, or for all of them with
+  `REALM_SKIP_PRE_PUSH=1`.
 - **For anything you can see,** read [design.md](design.md) first. Check the change in the built app, in
   both the dark and the light theme, and put screenshots of both in the pull request.
 - **One change per pull request,** with a title that says what changes for someone using Realm.
