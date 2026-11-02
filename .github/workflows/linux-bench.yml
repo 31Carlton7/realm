@@ -23,8 +23,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  REALM_VERSION: 2.5.0
-  REALM_RELEASE: https://github.com/31Carlton7/realm/releases/download/v2.5.0
+  REALM_VERSION: 2.7.0
+  REALM_RELEASE: https://github.com/31Carlton7/realm/releases/download/v2.7.0
 
 jobs:
   bench:
@@ -32,9 +32,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      # The sha256 GitHub records for each v2.5.0 asset.
-      REALM_APPIMAGE_SHA256: 61ecf73c7cf37640243b7ed8f0320cebf1890b5810722277a92b416c9a4e43c0
-      REALM_DEB_SHA256: 59c5f1d7d6149e7ea84ea3d05872a89cbda95eaf458835b9c2206910cc45a8e7
+      # The sha256 of each v2.7.0 asset as published.
+      REALM_APPIMAGE_SHA256: e12776638319253b68d807291ce2275e5b53261921d0ef6719a797e7ded8e278
+      REALM_DEB_SHA256: c64cfbd65e2a8e16c22116fbbea86b983a4a3bf367a626a09bd5a23e4b03e472
       ORCA_VERSION: 1.4.230
       # What Orca's own latest-linux.yml says orca-linux.AppImage's sha512 is at that version.
       ORCA_SHA512: rO+0nFfDnsN8xoR3jjIrMhMfiTSkon23sMPL97Oko0EJCkJAEu4ImcVt8V+qoD7YkDVvan1wEb/ABmJ2IZbC6w==
@@ -197,6 +197,10 @@ jobs:
           json.dump({"realm_serve_ready_s": [r["realm_serve_ready_s"] for r in runs], "idle_rss_mb": [r["idle_rss_mb"] for r in runs]}, open("runs/F-realm/serve-ready.json", "w"))
           EOF
 
+      - name: Realm criterion C (realm ship on each finished run, to a bare remote)
+        working-directory: ${{ runner.temp }}/bench
+        run: env -u DISPLAY BENCH=$PWD OUT=$PWD/runs/F-realm-ship python3 harness/realm_ship.py
+
       - name: Orca lane A (orca-ide serve on Xvfb)
         working-directory: ${{ runner.temp }}/bench
         run: python3 harness/orca_suite.py
@@ -248,23 +252,19 @@ jobs:
             ${{ runner.temp }}/out
 
   packaged-cli:
-    name: realm from the v2.5.0 release (${{ matrix.os }})
+    name: realm from the v2.7.0 release (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: macos-latest
-            asset: Realm-2.5.0-arm64.dmg
-            sha256: b39367e00298b10b6f2f67a0aabaf5ffbb149806fbe9b2a255ef723598ab08a2
+            asset: Realm-2.7.0-arm64.dmg
+            sha256: 7a046f7fe786e74257f611e11238cc8488b01e3387c9681ab10752e632cdb4d8
           - os: windows-latest
-            asset: Realm-Setup-2.5.0.exe
-            sha256: 3b25272740d96d30f641cd00a29474ce745ca77e432f98edb32a5237a41d1705
+            asset: Realm-Setup-2.7.0.exe
+            sha256: 70ff062b0ccbcd5289b967a2bb31d3bde30de8c3f98b02954ff4130d5ba14c50
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
-    # v2.5.0's Windows installer ships a server that cannot start: Node cannot find pkce-challenge from the
-    # MCP SDK under resources\server\node_modules (run 40113534907). Kept here, visible but not blocking,
-    # until a release fixes it.
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     steps:
       - name: Download
         shell: bash
