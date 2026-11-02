@@ -230,7 +230,7 @@ async function main() {
 
   const brief = (line) => `${line}\nFor real work, start a session for the task and keep the chat for decisions.`;
   const make = (input) => api.call("teammates.create", { spaceId, agentKind: "claude", ...input });
-  const lead = await make({ name: "Lead", lead: true, icon: { shape: "circle", color: "graphite" }, brief: brief("You lead this team: route each ask to the teammate who fits.") });
+  await make({ name: "Lead", lead: true, icon: { shape: "circle", color: "graphite" }, brief: brief("You lead this team: route each ask to the teammate who fits.") });
   const cto = await make({ name: "cto", handle: "cto", icon: { shape: "hexagon", color: "blue" }, brief: brief("You own the architecture, the data and performance.") });
   const design = await make({ name: "design engineer", handle: "design-engineer", group: "Strat", icon: { shape: "flower", color: "pink" }, brief: brief("You build and polish the interface.") });
   await make({ name: "research", group: "Strat", icon: { shape: "cloud", color: "teal" }, brief: brief("You find things out and cite where.") });
@@ -310,7 +310,6 @@ async function main() {
 
   const errs = c.errors.filter((e) => !/Autofill|ResizeObserver/.test(e));
   check("no renderer errors", errs.length === 0, errs.slice(0, 5));
-  void lead;
   c.close(); mainC.close();
 }
 

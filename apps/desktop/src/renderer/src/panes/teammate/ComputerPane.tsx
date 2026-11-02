@@ -39,7 +39,7 @@ export function ComputerPane({ item }: PaneProps) {
   if (!teammate) return <div className="tm-computer" ref={scroller}><p className="tm-empty">This teammate was archived.</p></div>;
   const home = teammate.homeSessionId;
   const list = sessionTree(sessions ?? teammate.taskSessions);
-  const live = (sessions ?? teammate.taskSessions).filter((s) => s.state === "working" && s.teammateId === teammate.id);
+  const live = (sessions ?? teammate.taskSessions).filter((s) => s.state !== "idle" && s.teammateId === teammate.id);
   const mark = teammateMark(teammate.state, false);
   const stop = () => run(async () => {
     await Promise.all([...(home ? [home] : []), ...live.map((s) => s.id)].map((id) => interruptSession(id)));

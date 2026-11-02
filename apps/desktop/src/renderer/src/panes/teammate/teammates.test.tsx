@@ -123,6 +123,19 @@ describe("the sidebar's Team list", () => {
     expect(store.getState().layout && JSON.stringify(store.getState().layout)).toContain("i-home-cto");
   });
 
+  it("moves a teammate dragged onto a group's head into that group, keeping everyone else's order", async () => {
+    const { api } = await mountSidebar();
+    const row = (await screen.findByRole("button", { name: /^cto — working/ })).closest(".sb-teammate")!;
+    const group = screen.getByRole("button", { name: /^Strat,/ }).closest(".sb-team-group")!;
+    const dataTransfer = { setData: () => {}, effectAllowed: "" };
+    fireEvent.dragStart(row, { dataTransfer });
+    fireEvent.dragOver(group, { dataTransfer });
+    fireEvent.drop(group, { dataTransfer });
+    await waitFor(() => expect(api.calls.some((c) => c.startsWith("teammatesReorder:"))).toBe(true));
+    const order = JSON.parse(api.calls.find((c) => c.startsWith("teammatesReorder:"))!.slice("teammatesReorder:".length));
+    expect(order).toEqual([{ id: "lead", group: null }, { id: "research", group: "Strat" }, { id: "cto", group: "Strat" }]);
+  });
+
   it("offers the first teammate from an empty space, beside a new session", async () => {
     const { store } = await mountSidebar({ items: { s1: [] }, sessions: [], teammates: [] });
     fireEvent.click(await screen.findByRole("button", { name: "Add a teammate" }));
