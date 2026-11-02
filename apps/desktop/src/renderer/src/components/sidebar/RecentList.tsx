@@ -27,15 +27,22 @@ export function RecentList({ rows, onChanged }: { rows: SessionRow[]; onChanged:
     return new Map<string, AgentKind | null>([...bySpace].map(([id, list]) => [id, spaceUsualAgent(list)]));
   }, [rows]);
   /* The session handed the keyboard has its card brought into view. Mostly that is one just made — by
-     the header's button, ⌘N or the palette — which is the newest card, at the very top, while the list
-     may be scrolled days down: left there, the card you were on went dark and nothing in the list said
-     where the new one went. A session opened from a list elsewhere is handed it too, and is found the
-     same way; one opened from its own card is already in view, and nothing moves. */
+     the header's button, ⌘N, the palette or a worktree — which is the newest card, at the very top,
+     while the list may be scrolled days down: left there, the card you were on went dark and nothing in
+     the list said where the new one went. A session opened from a list elsewhere is handed it too, and
+     is found the same way; one opened from its own card is already in view, and nothing moves.
+     A new card arrives with the next read of every space's items, a beat after its pane has taken the
+     keyboard and spent the request, so the session is held here until its card is drawn. */
   const list = useRef<HTMLDivElement>(null);
   const handed = useApp((s) => s.keyboardFor);
+  const wanted = useRef<string | null>(null);
+  useLayoutEffect(() => { if (handed) wanted.current = handed.sessionId; }, [handed]);
   useLayoutEffect(() => {
-    if (handed) list.current?.querySelector(`.sb-card[data-session="${handed.sessionId}"]`)?.scrollIntoView?.({ block: "nearest" });
-  }, [handed]);
+    const card = wanted.current ? list.current?.querySelector(`.sb-card[data-session="${wanted.current}"]`) : null;
+    if (!card) return;
+    wanted.current = null;
+    card.scrollIntoView?.({ block: "nearest" });
+  });
   if (rows.length === 0) {
     return (
       <div className="sb-empty">

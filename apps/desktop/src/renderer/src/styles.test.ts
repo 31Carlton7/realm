@@ -618,8 +618,8 @@ describe("Ara refresh §3/§4 geometry", () => {
   });
 
   it("the bubble keeps the circular fallback AND the painted form, like every other squircle surface", () => {
-    // `corner-shape` is a no-op until Chromium 139, and `paint()` with no registered painter renders
-    // nothing at all — so dropping either half strands the bubble as a square card or an invisible one.
+    // `paint()` with no registered painter renders nothing at all, and the circular fallback is what a
+    // failed load lands on — so dropping either half strands the bubble as an invisible card or a square one.
     const painted = bodiesFor(":root[data-squircle] .msg-user").join(" ");
     expect(painted).toContain("background: paint(rl-squircle)");
     expect(painted).toContain("border-radius: 0");
@@ -1783,10 +1783,11 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
   });
 
   it("every surface on the prompter's curve is also PAINTED on it", () => {
-    /* `corner-shape: squircle` is inert in the Chromium this app ships on, so a surface that
-       declares the curve without appearing in the paint-worklet rule renders a plain rounded rect
-       next to a composer wearing a real squircle — which is worse than not having asked. design.md
-       states the rule; this is what makes it hold.
+    /* The signature curve is the paint worklet's, so a surface that declares it without appearing in
+       the paint-worklet rule wears Chromium's own `corner-shape` beside a composer wearing the
+       painter's — two drawings of one curve that agree only until someone tunes the painter, and a
+       plain rounded rect wherever `corner-shape` is not drawn. design.md states the rule; this is
+       what makes it hold.
 
        Scoped to `--r-squircle` deliberately. The chip and control rungs also carry `corner-shape`,
        and at 8-10px the difference between a squircle and a round rect is not visible — those are
@@ -1800,7 +1801,7 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
        scope: the worklet draws a surface's fill, a button has four of them (resting, hover, primary,
        danger) and they change under the pointer — routing that through a paint would make any state
        someone forgot an invisible button. At 8-11px a squircle and a rounded rect are the same
-       picture, so those declare only and get the shape free when Chromium 139 lands. */
+       picture, so those declare only, and Chromium's `corner-shape` draws them. */
     const declared = RULES
       .filter((r) => /corner-shape:\s*squircle/.test(r.body) && /border-radius:[^;]*--r-squircle\b/.test(r.body))
       .flatMap((r) => r.selectors)
@@ -2220,8 +2221,8 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
     expect(art).toContain("box-shadow: var(--rl-object-shadow)");
     /* The corner is a proportion of the tile, not a flat length, and it is the squircle ratio rather
        than the control one — `--sq-ratio-ctl` would spend the whole 44px box and render the circular
-       fallback as a disc (see the token's own note). `corner-shape` makes it a true superellipse on
-       Chromium 139 at the same moment as every other surface that declares it. */
+       fallback as a disc (see the token's own note). `corner-shape` makes it the same superellipse
+       every other surface that declares it wears. */
     expect(art).toContain("border-radius: calc(var(--attach-tile) * var(--sq-ratio-media))");
     expect(art).toContain("corner-shape: squircle");
     // One corner for both sizes: a sent attachment used to take a flat `--r-row`, which is what made
@@ -3161,7 +3162,7 @@ describe("squircle surfaces", () => {
  *  in the composited window is cards-live.mjs's to measure; this pins what the stylesheet promises. */
 describe("one card", () => {
   /** The card family. A new card joins it here, or the fill check below names it. */
-  const CARDS = [".subagent-card", ".subagent-view-result",
+  const CARDS = [".subagent-card", ".subagent-view-result", ".subagent-view-brief",
     ".edit-summary", ".permission-card", ".question-card", ".question-answered", ".plan-card", ".plan-decision", ".app-view-request",
     ".settings-row", ".sched-card", ".cr-note", ".library-offer", ".saved-turn-open", ".library-tile", ".agent-card",
     ".tc-card", ".rv-why", ".rv-caption", ".rv-paper", ".rv-post", ".rv-files", ".rv-table .md-scroll", ".ps-rows",
@@ -3694,11 +3695,12 @@ describe("§6 do-NOT-animate list", () => {
     const spin = bodiesFor(".gen-spin").join(" ");
     expect(spin).toMatch(/animation: gen-turn var\(--gen-turn\) linear infinite/);
     expect(css).toMatch(/@keyframes gen-turn \{\s*to \{ rotate: 1turn; \}\s*\}/);
-    expect(bodiesFor(".gen-canvas").join(" ")).toMatch(/--gen-turn: 1\.8s/);
+    // On the mark, not the canvas: the icon picker's tile turns the same ring with no canvas round it.
+    expect(bodiesFor(".gen-mark").join(" ")).toMatch(/--gen-turn: 1\.8s/);
     // The arc's head is one custom property, a rung brighter on the dark face so the turn is seen.
     expect(spin).toContain("var(--gen-arc) 360deg");
-    expect(bodiesFor(".gen-canvas").join(" ")).toContain("--gen-arc: var(--ink)");
-    expect(bodiesFor(':root[data-mode="light"] .gen-canvas').join(" ")).toContain("--gen-arc: var(--ink-2)");
+    expect(bodiesFor(".gen-mark").join(" ")).toContain("--gen-arc: var(--ink)");
+    expect(bodiesFor(':root[data-mode="light"] .gen-mark').join(" ")).toContain("--gen-arc: var(--ink-2)");
     // Nothing of the lattice is left to repaint.
     expect(css).not.toMatch(/\.gen-(dots|glow)\b|gen-morph/);
     // Under Reduce motion the ring goes rather than freezing mid-turn, and the glyph stays.

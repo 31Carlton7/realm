@@ -348,6 +348,11 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
         const b = q >= 0 ? blocks[q] : undefined;
         if (b && b.kind === "question") { blocks[q] = { ...b, toolUseId: e.payload.toolUseId }; return { ...t, blocks }; }
       }
+      /* A call named again is the same call, said more fully — Codex's image tool has no path until the
+         picture lands (map-codex.ts). It keeps its place and its start, and takes the newer input. */
+      const known = findLast(blocks, (b) => b.kind === "tool" && b.toolUseId === e.payload.toolUseId);
+      const was = known >= 0 ? blocks[known] : undefined;
+      if (was && was.kind === "tool") { blocks[known] = { ...was, input: e.payload.input }; return { ...t, blocks }; }
       blocks.push({ kind: "tool", toolUseId: e.payload.toolUseId, name: e.payload.name, input: e.payload.input, ...(e.payload.parentToolUseId ? { parentToolUseId: e.payload.parentToolUseId } : {}),
         ...(e.payload.kind ? { toolKind: e.payload.kind } : {}), ...(e.payload.paths?.length ? { paths: e.payload.paths } : {}), result: null, ts: e.ts });
       return { ...t, blocks };

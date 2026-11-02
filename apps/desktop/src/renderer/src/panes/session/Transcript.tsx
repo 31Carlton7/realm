@@ -26,6 +26,7 @@ import { runLabelFor, type RunLabel } from "./run-label";
 import { formatTokens } from "./SessionUsage";
 import { useEnterTracker } from "./transcript-enter";
 import { TranscriptSummary } from "./TranscriptSummary";
+import { ReportFold } from "../agents-tab/ReportFold";
 import { MediaStrip } from "./media/MediaView";
 import { useMediaFiles } from "./media/use-media";
 import { NEAR_END_PX, SETTLE_MS, applyScrollTop, markOf, recallScroll, rememberScroll, type ScrollMark } from "../scroll-memory";
@@ -258,12 +259,15 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null, track = false, saved = NO_SAVED, onSave, reveal = null, onRevealed, onEarlier, requestsOwnEscape = true, brief = null }: {
+export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null, track = false, saved = NO_SAVED, onSave, reveal = null, onRevealed, onEarlier, requestsOwnEscape = true, brief = null, report = null }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: AskAnswers) => void; visible?: boolean;
   /** A message drawn as something other than its bubble: a sub-agent's first message, which carries
    *  the brief its lead wrote, shown as that brief (the sub-agent viewer's `AskedFor`). Matched on the
    *  message's text; every other message stays the user's bubble. */
   brief?: { text: string; node: ReactNode } | null;
+  /** This log is a sub-agent's, and it has ended: its last message is the report its lead collected,
+   *  drawn inside the report's fold (`ReportFold`) under the sub-agent's id, as its viewer draws it. */
+  report?: { id: string; failed: boolean } | null;
   /** Read the log further back than the transcript holds (`transcript.earlier`): the stretch before it,
    *  or back to `throughSeq` — a prompt asked for by its seq. Absent leaves the log where it starts. */
   onEarlier?: (throughSeq?: number) => Promise<void> | void;
@@ -685,12 +689,17 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
                 <time className="msg-user-at" dateTime={new Date(b.ts).toISOString()} title={stampTitle(b.ts)}
                   aria-label={`Sent ${stampTitle(b.ts)}`} tabIndex={0}>{stampLabel(b.ts, now)}</time>
               </div>);
-            case "assistant": return <AssistantMessage key={key} text={b.text} streaming={b.streaming} enter={enter} cwd={cwd}
-              actions={settled && key === lastAssistantKey} onPath={onPath} onImplementWith={onImplementWith} fileLinks={fileLinks}
-              onRetry={key === retryKey ? onRetry : undefined} retryBusy={busy}
-              rating={transcript.feedback[b.messageId] ?? null}
-              onRate={onRate && ((r) => onRate(b.messageId, r))}
-              sources={sourcesByKey.get(key)} />;
+            case "assistant": {
+              const message = <AssistantMessage key={key} text={b.text} streaming={b.streaming} enter={enter} cwd={cwd}
+                actions={settled && key === lastAssistantKey} onPath={onPath} onImplementWith={onImplementWith} fileLinks={fileLinks}
+                onRetry={key === retryKey ? onRetry : undefined} retryBusy={busy}
+                rating={transcript.feedback[b.messageId] ?? null}
+                onRate={onRate && ((r) => onRate(b.messageId, r))}
+                sources={sourcesByKey.get(key)} />;
+              return report && settled && key === lastAssistantKey
+                ? <ReportFold key={key} id={report.id} text={b.text} failed={report.failed} className="msg-report">{message}</ReportFold>
+                : message;
+            }
             case "thinking": return <Thinking key={key} text={b.text} enter={enter} live={busy && i === items.length - 1} />;
             case "tool": return <ToolCard key={key} block={b} sessionStatus={sessionStatus} enter={enter} nested={withEnter(it.nested, isEntering)} />;
             case "plan": return <PlanCard key={key} text={b.text} steps={b.steps} enter={enter}
@@ -792,7 +801,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
         {/* Last in the column, so it reads as the closing line of the session rather than as another
             message in it. Draws nothing while a turn is live, and nothing on a session with nothing
             to count. */}
-        <TranscriptSummary blocks={transcript.blocks} status={sessionStatus} written={transcript.summary?.text ?? null} />
+        <TranscriptSummary blocks={transcript.blocks} status={sessionStatus} written={transcript.summary?.text ?? null} brief={brief?.text ?? null} />
         </ToolWaiting.Provider>
         </ToolCwd.Provider>
         </div>

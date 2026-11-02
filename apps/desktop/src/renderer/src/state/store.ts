@@ -1587,6 +1587,11 @@ export type AppState = TeamSlice & LabSlice & {
    *  agent's launching call id or a delegated child's session id. Absent: the tab's overview.
    *  Persisted (`SETTING_AGENTS_SHOWN`), so a restored tab opens where it was left. */
   agentsShown: Record<string, string>;
+  /** Whether a sub-agent's report is open, by the sub-agent's id, where the reader chose — the viewer
+   *  and the sub-agent's own transcript fold the same report, so they keep one answer. Absent: as its
+   *  length decides (`ReportFold`). Kept while the app runs. */
+  reportsOpen: Record<string, boolean>;
+  setReportOpen(id: string, open: boolean): void;
   /** The checkpoint the sheet is asking about, as the preview it is showing. Null = the list state;
    *  the preview carries its own `checkpointId`, so there is nothing else to remember. */
   checkpointPreview: RestorePreview | null;
@@ -2153,9 +2158,9 @@ export type AppState = TeamSlice & LabSlice & {
    *  waited on the round trip would snap back before it moved — and the server's broadcast, which
    *  follows, is the order that stands. */
   moveQueuedPrompt(sessionId: string, queuedId: string, before: string | null): Promise<void>;
-  /** Create a session, open its item in the main view, and open its transcript. It goes to
-   *  `input.spaceId`, else the current space — the space of the session in focus. When `edge` is
-   *  supplied with a target leaf, it opens there the way a dragged row would. */
+  /** Create a session, open its item in the main view, open its transcript, and give its prompter the
+   *  keyboard. It goes to `input.spaceId`, else the current space — the space of the session in focus.
+   *  When `edge` is supplied with a target leaf, it opens there the way a dragged row would. */
   newSession(input: Omit<CreateSessionInput, "spaceId"> & { spaceId?: string | null }, targetLeafId?: string | null, edge?: DropEdge): Promise<void>;
   /** The one instant-create path behind "+", ⌘N and the palette's plain "New session" (W3): no
    *  questions — last-used agent (else FALLBACK_AGENT), the space's own folder, the model last sent
@@ -4461,7 +4466,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionActivityAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, unlockPolicy: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, computerAwaiting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeBranches: {}, worktreeAckStale: null,
-      checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, dismissedSubagents: {}, agentsAsk: {}, agentsShown: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
+      checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, dismissedSubagents: {}, agentsAsk: {}, agentsShown: {}, reportsOpen: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
       sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null, viewer: null,
       machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
@@ -6166,12 +6171,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         catch (e) { void get().refreshSessionQueue(sessionId); throw e; }
       },
       async newSession(input, targetLeafId = null, edge) {
-        await makeSession(input, targetLeafId, edge);
+        const id = await makeSession(input, targetLeafId, edge);
+        // Made to be typed in, whichever way it was asked for — ⌘N, the palette's agent rows, a worktree,
+        // a split — so its prompter gets the keyboard, and a list showing it brings it into view.
+        if (id) set({ keyboardFor: { sessionId: id, n: (get().keyboardFor?.n ?? 0) + 1 } });
       },
       async newSessionInstant(targetLeafId = null, edge, spaceId = null) {
-        const id = await makeSession({ ...instantPick(), spaceId }, targetLeafId, edge);
-        // Made to be typed in: ⌘N, a split, an empty pane's button — its prompter gets the keyboard.
-        if (id) set({ keyboardFor: { sessionId: id, n: (get().keyboardFor?.n ?? 0) + 1 } });
+        await get().newSession({ ...instantPick(), spaceId }, targetLeafId, edge);
       },
       async newSessionInWorktree(targetLeafId = null, spaceId = null, named) {
         const sid = spaceFor(spaceId); if (!sid) return;
@@ -6186,11 +6192,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const env = await api.createWorktree(sid, named?.title ?? null, named?.base ?? null);
         if (inProfile(sid)) set({ environments: { ...get().environments, [env.id]: env } });
         await get().newSession({ ...instantPick(), environmentId: env.id, spaceId: sid }, targetLeafId);
-        // Made to be typed in, as a session from "+" is.
-        if (named) {
-          const made = Object.values(get().sessions).find((x) => x.environmentId === env.id);
-          if (made) set({ keyboardFor: { sessionId: made.id, n: (get().keyboardFor?.n ?? 0) + 1 } });
-        }
       },
       requestRename(itemId) { set({ renamingItemId: itemId }); },
       /**
@@ -7519,6 +7520,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)) { await get().openItem(itemId); return; }
         await adoptItem(sid, itemId, null, { sessionId });
       },
+      setReportOpen(id, open) { set({ reportsOpen: { ...get().reportsOpen, [id]: open } }); },
       showSubagent(leadId, id) {
         if (!agentsShownLoaded) { void get().hydrateAgentsShown().then(() => get().showSubagent(leadId, id)); return; }
         if ((get().agentsShown[leadId] ?? null) === id) return;
