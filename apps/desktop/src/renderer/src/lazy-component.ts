@@ -2,7 +2,7 @@ import { createElement, type ComponentType } from "react";
 
 /**
  * A component whose code is its own chunk, for the parts of the app nobody needs before the window
- * is up: Settings, code review, the runner on a browser's error page, the Realmite maker.
+ * is up: Settings, code review, the runner on a browser's error page.
  *
  * Not `React.lazy`, for one reason: `React.lazy` suspends on its first render even when the chunk is
  * already here, so a pane opened after the chunk was preloaded would still flash its fallback for a

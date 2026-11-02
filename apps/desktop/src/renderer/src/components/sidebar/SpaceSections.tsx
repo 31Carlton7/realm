@@ -6,7 +6,6 @@ import { Menu, type MenuItem } from "../Menu";
 import { SpaceIcon } from "../SpaceIcon";
 import { reorderWithin, rowsBySpace, sectionView, spaceTally, tallyWords, type ListRow, type SessionRow, type SidebarState, type Tally } from "./model";
 import { ListRowView, TallyMarks } from "./SessionRows";
-import { TeamRows } from "./TeamRows";
 import { useNewSessionIn, useOpenSpacePage, useOrderedSpaces, useSpaceTint } from "./use-sidebar-model";
 
 /** What a section head carries in a drag, told apart from an item's. */
@@ -61,7 +60,6 @@ type SectionDrag = {
 };
 
 function SpaceSection({ space, rows, tally, onChanged, drag }: { space: Space; rows: ListRow[]; tally: Tally; onChanged: () => void; drag: SectionDrag }) {
-  const team = useApp((s) => s.teams[space.id]);
   const collapsed = useApp((s) => s.sidebarCollapsedSpaces.includes(space.id));
   const setSpaceSectionCollapsed = useApp((s) => s.setSpaceSectionCollapsed);
   const run = useApp((s) => s.run);
@@ -102,8 +100,6 @@ function SpaceSection({ space, rows, tally, onChanged, drag }: { space: Space; r
     { label: "Connections", icon: <Icon name="connections-page" size={16} />, onSelect: () => openSpacePage(space.id, "connections") },
     { label: "Memory", icon: <Icon name="context" size={16} />, onSelect: () => openSpacePage(space.id, "memory") },
     ...(plainFolder ? [] : [{ label: "Worktrees", icon: <Icon name="branch" size={16} />, onSelect: () => openSpacePage(space.id, "worktrees") }]),
-    // A team's home, or where a space becomes one.
-    { label: team?.enabled ? "Team" : "Make this a team…", icon: <Icon name="team" size={16} />, onSelect: () => openSpacePage(space.id, "team") },
     { label: "Archived sessions", icon: <Icon name="archive" size={16} />, onSelect: () => openSessions("archived") },
     { label: "Space settings", icon: <Icon name="settings" size={16} />, onSelect: () => openSpacePage(space.id, "general") },
   ];
@@ -132,8 +128,6 @@ function SpaceSection({ space, rows, tally, onChanged, drag }: { space: Space; r
         <div className="sb-section-wrap" data-open={!collapsed || undefined}>
           <div className="sb-section-clip" inert={collapsed || undefined} aria-hidden={collapsed || undefined}>
             <div className="item-list" id={listId}>
-              {/* The space's team, above its sessions: Review while something waits, then the roles. */}
-              {team?.enabled && <TeamRows team={team} />}
               {rows.length === 0 ? (
                 // An empty space offers the shortest honest path to work in it.
                 <div className="item sb-row" data-nested="" data-actions="0">

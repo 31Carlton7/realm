@@ -545,15 +545,13 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const ensureIcons = useCallback((paths: readonly string[]) => { void ensureAppIcons(paths); }, [ensureAppIcons]);
   const addRef = useCallback((ref: UnlabelledRef, candidates: readonly string[]) => addMentionRef(id, ref, candidates), [id, addMentionRef]);
   const cwd = session?.cwd ?? "";
-  // A team space's roles: `@Creator Manager` wakes one as this session's sub-agent.
-  const teamRoles = useApp((st) => (session ? st.teams[session.spaceId]?.roles : undefined));
   // Its own sub-agents that are sessions: `@Write the tests` passes the message to that one too.
   const subagents = useSessionSubagents(id);
   const children = useApp((st) => st.subagents[id]);
   const mentionAgents = useMemo(() => orchestratorOrder(subagents.filter((a) => a.source === "delegated"), (a) => a.state)
     .map((a) => ({ id: a.id, title: a.title, state: a.state, agentKind: children?.find((c) => c.session.id === a.id)?.session.agentKind ?? null })), [subagents, children]);
-  const mentionSources = useMemo(() => ({ cwd, mac: macSkill, apps: installedApps, appIcons, accessibility, accessibilityAction, files: mentionFiles, library: mentionLibrary, onOpen: onMentionOpen, ensureIcons, addRef, roles: teamRoles ?? [], agents: mentionAgents }),
-    [cwd, macSkill, installedApps, appIcons, accessibility, accessibilityAction, mentionFiles, mentionLibrary, onMentionOpen, ensureIcons, addRef, teamRoles, mentionAgents]);
+  const mentionSources = useMemo(() => ({ cwd, mac: macSkill, apps: installedApps, appIcons, accessibility, accessibilityAction, files: mentionFiles, library: mentionLibrary, onOpen: onMentionOpen, ensureIcons, addRef, roles: [], agents: mentionAgents }),
+    [cwd, macSkill, installedApps, appIcons, accessibility, accessibilityAction, mentionFiles, mentionLibrary, onMentionOpen, ensureIcons, addRef, mentionAgents]);
   /* The apps the log's own messages named keep their icons after a relaunch: asked for once each,
      when the transcript first carries them. */
   const loggedApps = useMemo(() => [...new Set(transcript.blocks.flatMap((b) => (b.kind === "user" && b.refs ? b.refs.flatMap((r) => (r.kind === "app" ? [r.path] : [])) : [])))].join("\n"),

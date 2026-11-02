@@ -4,4 +4,3 @@ export { customize, parseRealmiteSpec, PART_IDS, randomSeed, realmiteFromSeed, R
   type RealmitePatch, type RealmiteSpec, type RealmiteState } from "./spec";
 export { animatesAt, detailFor, realmiteSvg } from "./draw";
 export { REALMITE_CSS } from "./css";
-export { Realmite } from "./Realmite";
