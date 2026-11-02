@@ -1,10 +1,8 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tempDir } from "@realm/test-utils";
 import { HIDDEN_ANSWER, type SessionEvent, type SessionEventOf, type SessionEventType } from "@realm/contracts";
-import { CODEX_SANDBOX_REFUSAL, CodexAdapter, GATEWAY_TOOL_TIMEOUT_SEC, REALM_APPLICATION_CONTEXT, codexMcpConfig, codexPolicyFor, codexUserMcpServers, pickCodexDecision } from "./codex-adapter";
+import { CODEX_SANDBOX_REFUSAL, CodexAdapter, GATEWAY_TOOL_TIMEOUT_SEC, REALM_APPLICATION_CONTEXT, codexMcpConfig, codexPolicyFor, pickCodexDecision } from "./codex-adapter";
 import { GATEWAY_TOOL_TIMEOUT_MS, type AgentHandle, type StartOptions } from "../types";
 
 /**
@@ -1256,23 +1254,11 @@ describe("CodexAdapter memory", () => {
   });
 });
 
-describe("a team role's run", () => {
+describe("a thread's config", () => {
   const reflected = (evs: SessionEvent[]) => JSON.parse(of(evs, "init")[0]!.payload.model) as Record<string, unknown>;
   const gateway = { name: "realm", transport: "http" as const, url: "http://127.0.0.1:1/mcp", headers: {} };
-  afterEach(() => { vi.unstubAllEnvs(); });
 
-  it("pins the sandbox's network off and turns off every server of the user's own config, for its thread only", async () => {
-    const home = tempDir("realm-codex-home-");
-    writeFileSync(join(home, "config.toml"), 'model = "x"\n[mcp_servers.userstub]\ncommand = "node"\n[mcp_servers.userstub.env]\nA = "1"\n[sandbox_workspace_write]\nnetwork_access = true\n');
-    vi.stubEnv("CODEX_HOME", home);
-    const { evs } = await booted({ model: "reflect", roleRun: true, mcpServers: [gateway] });
-    const config = reflected(evs).config as Record<string, Record<string, unknown>>;
-    // THE MUTANT: the pin dropped — a role's `curl` reaches the world past the gateway's policy.
-    expect(config.sandbox_workspace_write).toEqual({ network_access: false });
-    expect(config.mcp_servers).toEqual({ userstub: { enabled: false }, realm: expect.objectContaining({ url: gateway.url }) });
-  });
-
-  it("leaves the person's own session as it was", async () => {
+  it("names only Realm's servers and leaves the sandbox as the person set it", async () => {
     const { evs } = await booted({ model: "reflect", mcpServers: [gateway] });
     const config = reflected(evs).config as Record<string, unknown>;
     expect(config.sandbox_workspace_write).toBeUndefined();
@@ -1287,11 +1273,6 @@ describe("a team role's run", () => {
     const own = await booted({ model: "reflect", mcpServers: [gateway] });
     expect("features" in (reflected(own.evs).config as object)).toBe(false);
     expect("memories" in (reflected(own.evs).config as object)).toBe(false);
-  });
-
-  it("reads the user's server names from the config's table headers", () => {
-    expect(codexUserMcpServers('[mcp_servers.a]\n[mcp_servers.a.env]\n[mcp_servers."b c"]\n  [ mcp_servers.d-e ]\n[other]\nmcp_servers = 1\n')).toEqual(["a", "b c", "d-e"]);
-    expect(codexUserMcpServers("")).toEqual([]);
   });
 });
 

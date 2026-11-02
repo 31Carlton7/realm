@@ -92,11 +92,6 @@ export type StartOptions = {
    * rather than merely equivalent to what it was.
    */
   wrap?: (command: string, args: string[]) => { command: string; args: string[] };
-  /**
-   * A team role's run (team/policies). Codex pins its sandbox's network off for it, so a command cannot
-   * reach the world past the gateway's policy; an engine with no such knob ignores it.
-   */
-  roleRun?: boolean;
   /** Diagnostic sink for provider stderr / log lines. */
   onLog?: (line: string) => void;
 };
