@@ -1,9 +1,10 @@
 import { PERMISSION_MODES, TEAMMATE_CLOCK_PROMPT, TEAMMATE_COLORS, TEAMMATE_SHAPES, teammateIconFromSeed, type AgentKind, type Teammate, type TeammateIcon as IconSpec, type TeammatePermissionMode } from "@realm/contracts";
 import { Icon, TEAMMATE_PALETTE, TEAMMATE_SHAPE_LABELS, TeammateIcon, teammateFill } from "@realm/ui";
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { FALLBACK_AGENT, useApp } from "../../state/store";
 import { Sheet } from "../../components/Sheet";
 import { Spinner } from "../../components/Spinner";
+import { useRadioKeys } from "../../components/space-fields";
 import { useFileDrop } from "../../components/use-file-drop";
 import { useRunCatalog } from "../schedules/ScheduleRunPicker";
 import { WhenRows } from "../schedules/ScheduleWhen";
@@ -205,20 +206,6 @@ export function TeammateSheet({ spaceId, id }: { spaceId: string; id?: string })
       </form>
     </Sheet>
   );
-}
-
-/** A choice of `n` as one radio group: a single stop for Tab, and the arrows move the choice. */
-function useRadioKeys<T>(options: readonly T[], at: number, pick: (v: T) => void) {
-  const buttons = useRef<(HTMLButtonElement | null)[]>([]);
-  const onKeyDown = (e: KeyboardEvent) => {
-    const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
-    if (step === 0) return;
-    e.preventDefault();
-    const next = (at + step + options.length) % options.length;
-    pick(options[next]!);
-    buttons.current[next]?.focus();
-  };
-  return { buttons, onKeyDown };
 }
 
 function ShapeChoices({ icon, onIcon }: { icon: IconSpec; onIcon: (icon: IconSpec) => void }) {
