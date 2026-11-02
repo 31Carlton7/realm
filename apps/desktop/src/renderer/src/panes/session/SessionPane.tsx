@@ -550,8 +550,12 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const children = useApp((st) => st.subagents[id]);
   const mentionAgents = useMemo(() => orchestratorOrder(subagents.filter((a) => a.source === "delegated"), (a) => a.state)
     .map((a) => ({ id: a.id, title: a.title, state: a.state, agentKind: children?.find((c) => c.session.id === a.id)?.session.agentKind ?? null })), [subagents, children]);
-  const mentionSources = useMemo(() => ({ cwd, mac: macSkill, apps: installedApps, appIcons, accessibility, accessibilityAction, files: mentionFiles, library: mentionLibrary, onOpen: onMentionOpen, ensureIcons, addRef, roles: [], agents: mentionAgents }),
-    [cwd, macSkill, installedApps, appIcons, accessibility, accessibilityAction, mentionFiles, mentionLibrary, onMentionOpen, ensureIcons, addRef, mentionAgents]);
+  // The space's teammates, for `@`: every one but the teammate whose chat this is.
+  const spaceTeammates = useApp((st) => st.teammates[item.spaceId]);
+  const teammate = spaceTeammates?.find((t) => t.homeSessionId === id) ?? null;
+  const mentionTeammates = useMemo(() => (spaceTeammates ?? []).filter((t) => t.homeSessionId !== id), [spaceTeammates, id]);
+  const mentionSources = useMemo(() => ({ cwd, mac: macSkill, apps: installedApps, appIcons, accessibility, accessibilityAction, files: mentionFiles, library: mentionLibrary, onOpen: onMentionOpen, ensureIcons, addRef, teammates: mentionTeammates, agents: mentionAgents }),
+    [cwd, macSkill, installedApps, appIcons, accessibility, accessibilityAction, mentionFiles, mentionLibrary, onMentionOpen, ensureIcons, addRef, mentionTeammates, mentionAgents]);
   /* The apps the log's own messages named keep their icons after a relaunch: asked for once each,
      when the transcript first carries them. */
   const loggedApps = useMemo(() => [...new Set(transcript.blocks.flatMap((b) => (b.kind === "user" && b.refs ? b.refs.flatMap((r) => (r.kind === "app" ? [r.path] : [])) : [])))].join("\n"),
@@ -703,6 +707,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onSignIn={() => run(() => startSignIn(session.agentKind, session.spaceId, session.id))}
             onDismissJob={() => dismissCliJob(session.agentKind)} />
         : <DraftedComposer session={session} status={status} gitInfo={gitInfo} changes={changes} todos={todos} quote={quote}
+            placeholder={teammate ? `Message ${teammate.name}` : undefined}
             onOpenDiff={() => run(() => openDiff(session.environmentId))}
             attachments={attachments}
             onAttachPick={() => run(() => attachFromPicker(id))}

@@ -772,7 +772,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
   const mentionMatches = useMemo((): MentionRow[] => {
     if (!mentionToken) return [];
     const options = mentionOptions({ mac: macSkill, skills: mentionSkills, files: answers.files, cwd: mentions?.cwd ?? session.cwd,
-      library: answers.library, apps: mentions?.apps ?? [], roles: mentions?.roles ?? [], agents: mentions?.agents ?? [] });
+      library: answers.library, apps: mentions?.apps ?? [], teammates: mentions?.teammates ?? [], agents: mentions?.agents ?? [] });
     return mentionRows(options, mentionToken.query, { accessibility: mentions?.accessibility ?? null });
   }, [mentionToken, macSkill, mentionSkills, answers, mentions, session.cwd]);
   /* The icons the list and the draft's chips are about to draw, fetched once each. Keyed on the

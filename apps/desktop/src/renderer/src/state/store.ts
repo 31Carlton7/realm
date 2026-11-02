@@ -30,6 +30,7 @@ import { libraryAddNotices } from "./library-add";
 import { libraryRemoveNotice, libraryRestoreNotice } from "./library-remove";
 import { forgetThumbnails } from "../components/use-thumbnail";
 import { closeIntent } from "./close-intent";
+import { teammatesSlice, type TeammatesApi, type TeammatesSlice } from "./teammates-slice";
 import { panelPlace, splitRefusal } from "./view-room";
 import type { LibraryAddInput, LibraryAddResult, LibraryRemoveInput, LibraryRemoveResult, LibraryRestoreInput, LibraryRestoreResult } from "@realm/contracts";
 import { getMachineHub } from "../panes/machine/machine-hub";
@@ -163,7 +164,7 @@ export type ShareResult = { ok: true; profileName: string } | { ok: false; error
 
 /** Everything the store needs from the outside world: realm-server RPC plus what main provides over
  *  the preload bridge. Tests substitute a fake. */
-export type Api = {
+export type Api = TeammatesApi & {
   listProfiles(): Promise<Profile[]>;
   /** Icon/color left out are the server's defaults (`user` / grey) — the New space sheet's inline
    *  add asks only for a name; the New profile sheet asks for all three. */
@@ -969,9 +970,11 @@ export type Sheet =
    *  the revision, not the snapshot that was taken when the row was clicked. */
   | { kind: "session-plan"; sessionId: string; planId: string }
   /** A session as a web page: what the page includes, its size, and Save (share/ShareSheet.tsx). */
-  | { kind: "share-session"; sessionId: string };
+  | { kind: "share-session"; sessionId: string }
+  /** New teammate in a space, or — with `id` — the same sheet editing that one (TeammateSheet.tsx). */
+  | { kind: "teammate"; spaceId: string; id?: string };
 
-export type AppState = {
+export type AppState = TeammatesSlice & {
   /** False until `boot()` has finished once. First-run onboarding keys off "no spaces" — which is also
    *  what an unbooted store looks like, so without this the sheet would flash on every launch. */
   booted: boolean;
@@ -2637,6 +2640,11 @@ export type AppState = {
   /** A view an MCP server drew for one of the session's tool calls, as a tab of the session's side
    *  pane — the one it has, or a new one. Never a split: a view is the session's, not the layout's. */
   openAppView(sessionId: string, view: AppViewRef): Promise<void>;
+  /** A teammate's page: its chat (the home session, made now when it has none) wherever it is, with
+   *  its computer beside it the first time it is opened. */
+  openTeammate(id: string): Promise<void>;
+  /** A teammate's computer, as a tab of its chat's side pane — the one it has, or a new one. */
+  showTeammateComputer(id: string): Promise<void>;
   /** The tab has taken what it was asked for; a remount must not take it again. */
   clearAgentsAsk(sessionId: string): void;
   /** `delegation.models`, for the composer. Not held in the store: it is read when the tab mounts. */
@@ -4434,6 +4442,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     return {
       booted: false,
       sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], installedFonts: [], localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, confirmDelete: true, items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarOnPage: null, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
+      ...teammatesSlice(api, get, set),
       allItems: [], archivedSessions: null, lastAgentKind: null, lastModels: {}, renamingItemId: null,
       connectionState: "connected",
       appPick: null,
@@ -5667,6 +5676,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // Realm Mobile's status, if anything here has read it: a phone added or a window closed while
         // the socket was down went unannounced, and a held pair request may be over.
         if (get().remote !== null || get().remoteError !== null) void get().refreshRemote();
+        get().run(() => get().refreshTeammates());
       },
       // One overlay slot (U-M4/V-F5): sheets and the palette never stack — opening either closes the other.
       setKeybindings(rules) { set({ keybindings: rules }); },
@@ -7503,6 +7513,27 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         }
         if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)) { await get().openItem(itemId); return; }
         await adoptItem(sid, itemId, null, { sessionId });
+      },
+      async openTeammate(id) {
+        const t = Object.values(get().teammates).flat().find((x) => x.id === id);
+        if (!t) return;
+        const home = t.homeSessionId ?? (await api.teammateHome(id)).sessionId;
+        if (!get().items.some((i) => i.kind === "session" && i.refId === home)) await loadSpaceItems(t.spaceId);
+        if (!(await get().revealSession(home, t.spaceId))) return;
+        if (!get().items.some((i) => i.kind === "computer" && i.refId === id)) await get().showTeammateComputer(id);
+      },
+      async showTeammateComputer(id) {
+        const t = Object.values(get().teammates).flat().find((x) => x.id === id);
+        const home = t?.homeSessionId ?? (t ? (await api.teammateHome(id)).sessionId : null);
+        if (!t || !home) return;
+        let itemId = get().items.find((i) => i.kind === "computer" && i.refId === id)?.id;
+        if (!itemId) {
+          itemId = (await api.createItem(t.spaceId, "computer", "Computer", id)).id;
+          await loadSpaceItems(t.spaceId);
+        }
+        if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)) { await get().openItem(itemId); return; }
+        // Shown beside the chat, with the keyboard left in its prompter: the person came to talk to it.
+        await get().openInSidePane(home, itemId, { show: true });
       },
       showSubagent(leadId, id) {
         if (!agentsShownLoaded) { void get().hydrateAgentsShown().then(() => get().showSubagent(leadId, id)); return; }

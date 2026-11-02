@@ -15,6 +15,8 @@ import { AgentsTab } from "./agents-tab/AgentsTab";
 registerPane("agents", AgentsTab);
 import { AppViewPane } from "./app-view/AppViewPane";
 registerPane("app-view", AppViewPane);
+import { ComputerPane } from "./teammate/ComputerPane";
+registerPane("computer", ComputerPane);
 import { SpacePage } from "./space/SpacePage";
 registerPane("space-page", SpacePage);
 import { LibraryPage } from "./library/LibraryPage";

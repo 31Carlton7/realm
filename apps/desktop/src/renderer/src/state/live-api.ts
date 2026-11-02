@@ -322,4 +322,12 @@ export const liveApi = (): Api => ({
   dismissSubagent: (sessionId, id) => rpc().call("delegation.dismiss", { sessionId, id }),
   delegableModels: (sessionId) => rpc().call("delegation.models", { sessionId }),
   agentsTab: (sessionId) => rpc().call("delegation.tab", { sessionId }),
+  teammates: (spaceId) => rpc().call("teammates.list", { spaceId, archived: false }),
+  teammateCreate: (input) => rpc().call("teammates.create", input),
+  teammateUpdate: (input) => rpc().call("teammates.update", input),
+  teammateArchive: (id, archived) => rpc().call("teammates.archive", { id, archived }),
+  teammateSetLead: (spaceId, id) => rpc().call("teammates.setLead", { spaceId, id }),
+  teammatesReorder: (input) => rpc().call("teammates.reorder", input),
+  teammateHome: (id) => rpc().call("teammates.home", { id }),
+  teammateSessions: (id) => rpc().call("teammates.sessions", { id }),
 });

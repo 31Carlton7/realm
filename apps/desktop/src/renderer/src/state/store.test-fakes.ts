@@ -4,7 +4,7 @@ import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment,
 import type { AddMcpServerInput, AgentProbe, Api, BranchList, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
 import type { CliStatus, DelegatedChild, LayaStatus, ModelInfo, ResourcePolicies, ResourceReport, Schedule, SearchResults, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
-import type { SavedTurn } from "@realm/contracts";
+import type { SavedTurn, Teammate } from "@realm/contracts";
 import { PRODUCTION_REMOTE_RELAY, type PairRequest, type PairedPhone, type RemoteStatus } from "@realm/contracts";
 import { RpcError } from "../rpc/client";
 
@@ -60,6 +60,11 @@ export const item = (id: string, spaceId: string, extra: Partial<Item> = {}): It
 export const session = (id: string, spaceId: string, extra: Partial<Session> = {}): Session =>
   ({ id, spaceId, projectId: null, agentKind: "fake", model: null, effort: null, fastMode: false, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", cwd: "/tmp", status: "idle",
     providerSessionId: null, title: "Fake agent session", lastEventSeq: 0, seenSeq: 0, terminalItemId: null, dispatchedBy: null, teammateId: null, teammateHome: false, activityAt: 0, createdAt: 0, updatedAt: 0, ...extra });
+/** A teammate with its chat made, idle, in no group. */
+export const teammate = (id: string, spaceId: string, extra: Partial<Teammate> = {}): Teammate =>
+  ({ id, spaceId, handle: id, name: id, brief: "", icon: { shape: "circle", color: "blue" }, agentKind: "fake", model: null, effort: null,
+    permissionMode: "default", folder: "/tmp", lead: false, group: null, sortOrder: 0, archived: false, homeSessionId: null, createdAt: 0, updatedAt: 0,
+    state: "idle", stateSince: null, unread: false, liveTask: null, taskSessions: [], ...extra });
 
 export const skillRow = (id: string, extra: Partial<Skill> = {}): Skill =>
   ({ id, name: id, description: `does ${id}`, path: `/realm-home/skills/${id}/SKILL.md`, enabled: true, valid: true, reason: null,
@@ -407,6 +412,8 @@ export type FakeData = {
   dismissedSubagents?: Record<string, string[]>;
   /** What `delegation.models` answers, for every session. */
   delegableModels?: DelegableModels;
+  /** Every space's teammates, archived ones included; `teammates.list` answers the rest by space. */
+  teammates?: Teammate[];
   /** What `search.query` answers (Plan 16 W2), regardless of query — palette tests script the groups.
    *  Delay it with `delays["search"]` to hold results in flight. */
   searchResults?: SearchResults;
@@ -649,6 +656,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     delegatedChildren: overrides.delegatedChildren ?? {},
     dismissedSubagents: overrides.dismissedSubagents ?? {},
     delegableModels: overrides.delegableModels ?? { models: [], own: { kind: "claude", label: "Fable 5.1" } },
+    teammates: overrides.teammates ?? [],
     searchResults: overrides.searchResults ?? { sessions: [], items: [], skills: [], memory: [] },
     artifacts: overrides.artifacts ?? [],
     addedProfiles: overrides.addedProfiles ?? {},
@@ -2171,6 +2179,45 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       (data.items[spaceId] ??= []).push(it);
       return { itemId: it.id };
     },
+    teammates: async (spaceId) => { calls.push(`teammates:${spaceId}`); return data.teammates.filter((t) => t.spaceId === spaceId && !t.archived); },
+    teammateCreate: async (input) => {
+      calls.push(`teammateCreate:${JSON.stringify(input)}`);
+      const { spaceId, folder, group, ...rest } = input;
+      const made = teammate(`t${++n}`, spaceId, { ...rest, handle: input.handle ?? input.name.toLowerCase(), folder: folder ?? "/tmp", group: group ?? null,
+        icon: input.icon ?? { shape: "circle", color: "blue" }, homeSessionId: `home${n}` });
+      data.teammates.push(made);
+      return made;
+    },
+    teammateUpdate: async ({ id, ...patch }) => {
+      calls.push(`teammateUpdate:${id}:${JSON.stringify(patch)}`);
+      const i = data.teammates.findIndex((t) => t.id === id);
+      const { folder, group, ...rest } = patch;
+      data.teammates[i] = { ...data.teammates[i]!, ...rest, ...(folder !== undefined ? { folder: folder ?? "/tmp" } : {}), ...(group !== undefined ? { group } : {}) };
+      return data.teammates[i]!;
+    },
+    teammateArchive: async (id, archived) => {
+      calls.push(`teammateArchive:${id}:${archived}`);
+      const t = data.teammates.find((x) => x.id === id)!;
+      t.archived = archived;
+      return t;
+    },
+    teammateSetLead: async (spaceId, id) => {
+      calls.push(`teammateSetLead:${spaceId}:${id}`);
+      for (const t of data.teammates) if (t.spaceId === spaceId) t.lead = t.id === id;
+      return data.teammates.filter((t) => t.spaceId === spaceId && !t.archived);
+    },
+    teammatesReorder: async (input) => {
+      calls.push(`teammatesReorder:${JSON.stringify(input.order)}`);
+      input.order.forEach(({ id, group }, i) => { const t = data.teammates.find((x) => x.id === id); if (t) Object.assign(t, { sortOrder: i, group }); });
+      return data.teammates.filter((t) => t.spaceId === input.spaceId && !t.archived);
+    },
+    teammateHome: async (id) => {
+      calls.push(`teammateHome:${id}`);
+      const t = data.teammates.find((x) => x.id === id)!;
+      t.homeSessionId ??= `home-${id}`;
+      return { sessionId: t.homeSessionId };
+    },
+    teammateSessions: async (id) => { calls.push(`teammateSessions:${id}`); return data.teammates.find((x) => x.id === id)?.taskSessions ?? []; },
   };
   const wait = (key: string) => new Promise<void>((r) => setTimeout(r, api.delays[key] ?? 0));
   return api;

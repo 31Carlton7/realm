@@ -6839,6 +6839,8 @@ select { appearance: none; padding-right: 22px;
   /* a session's Agents tab: its list of sub-agents and the composer's model chooser — and its viewer:
      a harness agent's log, and the pinned report */
   .subagents-scroll, .subagents-chooser-list, .subagent-view-log, .subagent-view-result-scroll,
+  /* a teammate's computer, as a tab of its chat's side pane */
+  .tm-computer,
   /* the Google Fonts browser's result list */
   .font-results,
   /* a blank browser tab's tools, in a pane short enough to need it, and the page a failed load leaves */
@@ -10688,3 +10690,85 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .unlock-unattended-note { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .unlock-confirm p { margin: 0; line-height: 1.55; }
 .unlock-confirm-list { margin: 0; padding-left: 18px; list-style: disc; display: flex; flex-direction: column; gap: 6px; line-height: 1.5; color: var(--rl-text-dim); }
+
+/* ── Teammates (Teams v2): the sidebar's Team list, a teammate's chat head, its computer, its sheet ──
+   A space's teammates head its section: a caption, the Lead and the rest with their icons on the
+   gutter under the space's (so every name stands on the titles' column), the groups the person made,
+   then a "Sessions" caption over the sessions. Captions are the caption rung in the secondary ink,
+   and a row shorter than a session's, so the list reads as one column with two labels in it. */
+.sb-team { display: flex; flex-direction: column; }
+.sb-caption-row { min-height: 26px; }
+.sb-caption-row > .item-row { padding-top: 6px; padding-bottom: 2px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+/* A teammate's disclosure stands just left of its icon, in the nested row's own indent — the column
+   the space's caret uses one level up — and only on a row that has sessions to show. */
+.sb-teammate > .sb-team-caret { position: absolute; z-index: 1; left: 9px; top: 50%; translate: 0 -50%; width: 16px; height: 22px;
+  border-radius: var(--r-chip); }
+.sb-teammate > .sb-team-caret:hover { color: var(--rl-text-bright); }
+.sb-team-members .sb-row > .item-row { padding-left: 42px; }
+.sb-team-members .sb-teammate > .sb-team-caret { left: 25px; }
+.sb-team-group > .item-row { color: var(--rl-text-dim); }
+/* What a teammate started sits one step in under it, and what was handed on from that, a step more
+   (`--sb-depth`, set on the row). */
+.sb-team-sessions .sb-row { --sb-depth: 0; }
+.sb-team-sessions .sb-row > .item-row { padding-left: calc(42px + var(--sb-depth) * 16px); }
+.sb-team-members .sb-team-sessions .sb-row > .item-row { padding-left: calc(58px + var(--sb-depth) * 16px); }
+.sb-teammate[data-dragging] { opacity: .5; }
+.sb-teammate[data-drag-over], .sb-team-group[data-drag-over] { box-shadow: inset 0 2px 0 var(--rl-accent); }
+
+/* A teammate's chat is headed by the teammate: its icon, its name, and what it does in one line,
+   which is the part that gives way when the bar is narrow. */
+.tm-head { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+.tm-head-name { flex: none; font-weight: var(--fw-title); color: var(--rl-text-bright); white-space: nowrap; }
+.tm-head-role { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--rl-text-dim); }
+
+/* Its computer: quiet rows on the panel's ground, as Reason draws its right panel — no boxes. */
+.tm-computer { height: 100%; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 12px 12px 20px; }
+.tm-machine { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 0 8px; color: var(--rl-text-dim); }
+.tm-machine-name { font-weight: var(--fw-label); color: var(--rl-text-bright); }
+.tm-machine-state { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.tm-stop { margin-left: auto; gap: 6px; }
+.tm-tools { display: flex; flex-direction: column; }
+.tm-tool { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 0 8px; border-radius: var(--r-ctl); color: var(--rl-text-dim);
+  font-weight: var(--fw-label); text-align: left; }
+.tm-tool:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+.tm-caption { margin: 14px 0 4px; padding: 0 8px; font-size: 12px; line-height: 16px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
+.tm-sessions { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
+/* How far in a session's line stands: one step for each hand-off above it (`--tm-depth`, on the item). */
+.tm-sessions > li { --tm-depth: 0; }
+/* A session's line: its title takes the slack and gives it back first; the hand-off count, the age
+   and the dot keep fixed slots, so every row's age and dot stand in one column. */
+.tm-session { width: 100%; display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 8px 0 calc(8px + var(--tm-depth) * 16px);
+  border-radius: var(--r-ctl); text-align: left; font-size: 13px; color: var(--rl-text-dim); }
+.tm-session:hover { background: var(--rl-hover); }
+.tm-session[data-unread] .tm-session-title { color: var(--rl-text-bright); font-weight: var(--fw-title); }
+.tm-session-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-handoff-mark { flex: none; color: var(--rl-text-faint); }
+.tm-handoffs, .tm-age { flex: none; font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.tm-age { min-width: 24px; text-align: right; }
+.tm-dot { flex: none; width: 6px; display: grid; place-items: center; }
+.tm-empty { margin: 4px 8px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+
+/* New teammate: the icon maker as Grok draws it — the big preview, the eight shapes in the chosen
+   colour, the twelve colours — beside the name, then what it does, then one card of the rest. */
+.tm-sheet { gap: 16px; }
+.tm-identity { display: flex; align-items: flex-start; gap: 16px; }
+.tm-preview { margin-top: 22px; }
+.tm-identity-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.tm-identity-main > .space-name { flex: none; }
+.tm-shapes { display: flex; flex-wrap: wrap; gap: 2px; }
+.tm-shape { display: grid; place-items: center; width: 34px; height: 34px; border-radius: var(--r-ctl); }
+.tm-shape:hover { background: var(--rl-hover); }
+.tm-shape[data-selected] { background: var(--rl-active); }
+.tm-colors { gap: 6px; }
+.tm-brief { display: flex; flex-direction: column; gap: 6px; }
+.tm-brief-head { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
+.tm-starts { display: flex; flex-wrap: wrap; gap: 2px; margin-left: auto; }
+.tm-start { height: 24px; padding: 0 8px; border-radius: var(--r-chip); font-size: 12px; color: var(--rl-text-dim); }
+.tm-start:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
+.tm-brief-text { min-height: 112px; }
+.new-space-row > .tm-modes, .new-space-row > .tm-group, .new-space-row > .tm-lead { justify-self: end; }
+.tm-modes .seg-opt { display: inline-flex; align-items: center; gap: 6px; }
+.tm-group { width: 180px; height: 30px; padding: 0 9px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
+  background: var(--field); color: var(--rl-text-bright); font: inherit; outline: none; }
+.tm-group::placeholder { color: var(--rl-text-faint); }
+.tm-group:focus { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }

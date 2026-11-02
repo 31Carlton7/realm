@@ -1,7 +1,7 @@
 import { Icon } from "@realm/ui";
 import { useRef, useState } from "react";
 import type { Item } from "@realm/contracts";
-import { paneActions, paneMeta, usePaneMenuItems } from "../panes/registry";
+import { paneActions, paneMeta, usePaneHead, usePaneMenuItems } from "../panes/registry";
 import { useApp } from "../state/store";
 import { Menu } from "./Menu";
 import { DELETES_ON_CLOSE, PAGE_KINDS } from "./pane-close";
@@ -71,6 +71,7 @@ export function PanelBar({ item, leafId, tabs, owners, onSplit, splitRefusal, on
      offers where the prompter would be. Layout rows — split, focus, close — still apply to the tab. */
   const peek = useApp((s) => s.peek?.item.id === item.id);
   const kindItems = usePaneMenuItems(item, keep);
+  const head = usePaneHead(item);
   /* A session's bar names the space it works in before its title — `Homework › Wants a yes` — in
      the space's colour, so the window always says which space a session works in now that the space
      is not a room you switch to (Plan 27). The space's name opens its page. */
@@ -124,23 +125,27 @@ export function PanelBar({ item, leafId, tabs, owners, onSplit, splitRefusal, on
     <div className="panel-bar" ref={bar}>
       {/* No arrows of its own: the window's one pair is in the sidebar's head row (WindowNav), and the
           pane's own trail is walked from the keyboard, ⌘[ and ⌘]. */}
-      {!tabs && (space ? (
+      {head && !tabs ? head : (
         <>
-          <button type="button" className="panel-crumb" aria-label={`Open ${space.name}`} title="Open the space's page"
-            onClick={() => openSpacePage(space.id)}>
-            <span className="panel-crumb-icon" style={tint ? { color: tint } : undefined}><SpaceIcon icon={space.icon} size={14} /></span>
-            <span className="panel-crumb-name">{space.name}</span>
-          </button>
-          <span className="panel-crumb-sep" aria-hidden="true">›</span>
+          {!tabs && (space ? (
+            <>
+              <button type="button" className="panel-crumb" aria-label={`Open ${space.name}`} title="Open the space's page"
+                onClick={() => openSpacePage(space.id)}>
+                <span className="panel-crumb-icon" style={tint ? { color: tint } : undefined}><SpaceIcon icon={space.icon} size={14} /></span>
+                <span className="panel-crumb-name">{space.name}</span>
+              </button>
+              <span className="panel-crumb-sep" aria-hidden="true">›</span>
+            </>
+          ) : <span className="panel-icon"><ItemIcon item={item} size={14} /></span>)}
+          {(renaming || renameArmed)
+            ? <span className="panel-rename"><RenameInput item={item} onDone={() => { setRenaming(false); if (renameArmed) requestRename(null); }} /></span>
+            : tabs ? <PaneTabs leafId={leafId} tabs={tabs} activeId={item.id} owners={owners} onRename={() => setRenaming(true)} />
+            : (
+              <button className="panel-title" title="Click to rename" aria-label={`Rename ${item.title}`}
+                onClick={() => setRenaming(true)}>{shownTitle}</button>
+            )}
         </>
-      ) : <span className="panel-icon"><ItemIcon item={item} size={14} /></span>)}
-      {(renaming || renameArmed)
-        ? <span className="panel-rename"><RenameInput item={item} onDone={() => { setRenaming(false); if (renameArmed) requestRename(null); }} /></span>
-        : tabs ? <PaneTabs leafId={leafId} tabs={tabs} activeId={item.id} owners={owners} onRename={() => setRenaming(true)} />
-        : (
-          <button className="panel-title" title="Click to rename" aria-label={`Rename ${item.title}`}
-            onClick={() => setRenaming(true)}>{shownTitle}</button>
-        )}
+      )}
       <span className="panel-meta">{Meta ? <Meta item={item} /> : null}</span>
       <span className="panel-actions">
         {Actions && !peek ? <Actions item={item} keep={keep} /> : null}
@@ -191,7 +196,7 @@ export function PanelBar({ item, leafId, tabs, owners, onSplit, splitRefusal, on
              trailing control shows. A menu whose icons were invented here would teach a second
              vocabulary for the one it is a shortcut to. */
           ...(peek ? [] : [
-            { label: "Rename", icon: <Icon name="edit" size={14} />, onSelect: () => setRenaming(true) },
+            ...(head ? [] : [{ label: "Rename", icon: <Icon name="edit" size={14} />, onSelect: () => setRenaming(true) }]),
             /* The pane kind's own rows, above the layout ones every pane shares — a machine's Send key
                and Clipboard belong with the thing they act on rather than under Split right. */
             ...kindItems,
@@ -217,7 +222,7 @@ export function PanelBar({ item, leafId, tabs, owners, onSplit, splitRefusal, on
               title: "Takes this session out of the split; it stays in the sidebar", onSelect: onUnsplit }] : []),
           // Delete lives in the bar for those kinds; repeating it here would be two controls for
           // one action, and only one of them would ever wear the armed state.
-          ...(deletesOnClose || peek ? [] : [
+          ...(deletesOnClose || peek || head ? [] : [
             { kind: "separator" as const },
             confirmingDelete
               ? { label: <strong>Really delete?</strong>, icon: <Icon name="trash" size={14} />, danger: true, onSelect: () => run(() => deleteItem(item.id)) }

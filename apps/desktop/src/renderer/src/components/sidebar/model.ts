@@ -175,7 +175,8 @@ export function agentsWaiting(s: SidebarState, listed: ReadonlySet<string> = lis
  * row's, because a rename in the sidebar changes the item and not the session.
  */
 export function listedSessions(s: SidebarState): SessionRow[] {
-  return nestChildren(sessionRows(s)).map((n) => n.row).filter((r) => !r.item.archived);
+  // A teammate's chat and the sessions it started are listed under the teammate (TeamSection), once.
+  return nestChildren(sessionRows(s)).map((n) => n.row).filter((r) => !r.item.archived && !r.session?.teammateId);
 }
 
 /** A session item as a row, with the live facts laid over it. `waiting` is `agentsWaiting`'s answer,

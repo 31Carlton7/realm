@@ -6,6 +6,7 @@ import { SessionMeta, SessionPanelActions, useSessionMenuItems } from "./session
 import { MachineMeta, MachinePanelActions, useMachineMenuItems } from "./machine/MachineBar";
 import { TerminalMeta } from "./TerminalMeta";
 import { useDocumentsMenuItems } from "./documents/shown-file";
+import { TeammateHead, useTeammateMenu, useTeammateOfItem } from "./teammate/TeammateHead";
 
 /** `focused`: the pane sits in the focused leaf (keyboard target — e.g. permission autofocus). */
 export type PaneProps = { item: Item; visible: boolean; focused?: boolean };
@@ -60,7 +61,18 @@ export function usePaneMenuItems(item: Item, keep: number): MenuItem[] {
   const session = useSessionMenuItems(item, keep);
   const machine = useMachineMenuItems(item, keep);
   const documents = useDocumentsMenuItems(item);
-  if (item.kind === "session") return session;
+  const teammate = useTeammateMenu(useTeammateOfItem(item));
+  if (item.kind === "session") return teammate.length > 0 ? [...teammate, { kind: "separator" }, ...session] : session;
   if (item.kind === "documents") return documents;
   return item.kind === "machine" ? machine : [];
+}
+
+/**
+ * What heads a pane's bar in place of its crumb and title, when the pane stands for something its item
+ * does not name: a teammate's chat is headed by the teammate. Null for every other pane. That thing
+ * is changed from its own rows in the menu, so a bar with a head offers no Rename and no Delete.
+ */
+export function usePaneHead(item: Item): JSX.Element | null {
+  const teammate = useTeammateOfItem(item);
+  return teammate ? <TeammateHead teammate={teammate} /> : null;
 }
