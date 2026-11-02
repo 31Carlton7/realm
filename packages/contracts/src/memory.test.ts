@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { SELECTABLE_AGENT_KINDS } from "./presets";
 import {
   AGENT_MEMORY_CHANNEL, MEMORY_REPO_INITIAL_INDEX, amrRepoSourceLink, applyMemoryEdit, formatMemoryEntry, githubRepoOf, memoryEntryProblem, memorySupportNote,
-  parseMemoryEntry, wikiLinkFor, wikiLinkTarget, withIndexLink,
+  parseMemoryEntry, wikiLinkFor, wikiLinkTarget, withIndexLink, withoutIndexLink,
 } from "./memory";
 
 describe("memorySupportNote", () => {
@@ -78,6 +78,14 @@ describe("cross-links", () => {
     expect(once).toBe("# Memory\n\n- a fact\n\n## Index\n- [[team]]\n- [[projects/payments]]\n");
     expect(withIndexLink(once, "projects/payments.md")).toBe(once);
     expect(withIndexLink("# Memory\n", "a.md")).toBe("# Memory\n\n## Index\n- [[a]]\n");
+  });
+
+  it("drops the index line that links a file, and only that one", () => {
+    const index = "# Memory\n\n- a fact about [[team]]\n\n## Index\n- [[team]]\n- [[projects/payments]] — how we bill\n- [[projects/payments-old]]\n";
+    // THE MUTANT: drop every line that mentions the link — the fact above the index went with it.
+    expect(withoutIndexLink(index, "team.md")).toBe("# Memory\n\n- a fact about [[team]]\n\n## Index\n- [[projects/payments]] — how we bill\n- [[projects/payments-old]]\n");
+    expect(withoutIndexLink(index, "projects/payments.md")).toBe("# Memory\n\n- a fact about [[team]]\n\n## Index\n- [[team]]\n- [[projects/payments-old]]\n");
+    expect(withoutIndexLink(index, "nowhere.md")).toBe(index);
   });
 });
 

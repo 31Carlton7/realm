@@ -39,6 +39,7 @@ import { oauthSecretBox, type McpOauth } from "../mcp/oauth";
 import { spaceDownloadDir, spaceScreenshotDir } from "../browsers/agent-tools";
 import type { McpCallLogStore } from "../store/mcp";
 import type { MemoryService } from "../memory/service";
+import type { MemoryLibrary } from "../memory/library";
 import { NEVER_RUN, type ClaudeMemoryBackfill } from "../memory/claude-backfill";
 import type { MemoryRepoService, RepoOwner } from "../memory/repo";
 import type { TerminalService } from "../terminals/service";
@@ -101,7 +102,7 @@ export type Deps = {
   /** Called once when `daemon.drain` is accepted. `createApp` starts the quiescence watcher here —
    *  the watcher owns the clock and the close, this owns the refusals. */
   onDrain?: () => void;
-  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; memoryRepos: MemoryRepoService; claudeBackfill: ClaudeMemoryBackfill | null; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; mentionFiles: MentionFiles; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; team: TeamService; handoffs?: HandoffService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService;
+  profiles: ProfilesStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; envService: EnvironmentService; items: ItemsStore; settings: SettingsStore; skills: SkillsService; themes: ThemesService; fonts: FontsService; mcp: McpService; hub: McpHub; gateway: McpGateway; oauth: McpOauth; calls: McpCallLogStore; memory: MemoryService; memoryRepos: MemoryRepoService; claudeBackfill: ClaudeMemoryBackfill | null; memoryLibrary: MemoryLibrary; terminals: TerminalService; browsers: BrowserService; machines: MachineService; simulators: SimulatorService; goals: GoalService; eggs: EggService; browserBridge: BrowserHostBridge; documents: DocumentService; sessions: SessionService; gitInfo: GitInfoService; gitDiff: GitDiffService; projectSearch: ProjectSearchService; mentionFiles: MentionFiles; gitWrite: GitWriteService; ships: ShipsStore; ports: PortAllocator; checkpoints: CheckpointService; notifications: NotificationsService; usage: UsageService; graphify: GraphifyService; runs: RunService; schedules: ScheduleService; team: TeamService; handoffs?: HandoffService; reviews: ReviewService; search: SearchService; artifacts: ArtifactsStore; forks: ForkService; failover: FailoverService; imports: ImportService; lectures: LectureService; plynn: PlynnService; modelCatalog: ModelCatalogService; computerAllowlist: ComputerAppAllowlist; signIn: SignInFlow; browserPermissions: BrowserPermissionBroker; cli: CliService; cliInstaller: CliInstaller; userCommands: UserCommandsService; scripts: ScriptService; keybindings: KeybindingsService; sandbox: ExecutionSandboxService;
   iconAssets: IconAssetsStore; iconGeneration: IconGenerationService; avatar: AvatarStore;
   planLimits: PlanLimitsService;
   delegation: DelegationEngine;
@@ -714,6 +715,20 @@ export function registerMethods(d: Deps): void {
     if (r.sha !== null) repoChanged(o);
     return r;
   });
+
+  // The memory library. Every call is checked against the files its sources list (`MemoryLibrary`);
+  // a write tells every space whose memory changed, and the library pages, itself.
+  const profileOf = (profileId: string): string => {
+    if (!d.profiles.get(profileId)) throw new NotFoundError("profile", profileId);
+    return profileId;
+  };
+  reg("memory.library.sources", (p) => ({ sources: d.memoryLibrary.sources(profileOf(p.profileId)) }));
+  reg("memory.library.list", (p) => ({ entries: d.memoryLibrary.list(profileOf(p.profileId), { sourceId: p.sourceId, query: p.query }) }));
+  reg("memory.library.search", (p) => ({ entries: d.memoryLibrary.list(profileOf(p.profileId), { query: p.query }) }));
+  reg("memory.library.read", (p) => d.memoryLibrary.read(p.id, p.profileId === undefined ? null : profileOf(p.profileId)));
+  reg("memory.library.write", (p) => d.memoryLibrary.write(p.id, p.text, p.confirmExternal === true));
+  reg("memory.library.create", (p) => d.memoryLibrary.create(p));
+  reg("memory.library.delete", (p) => d.memoryLibrary.delete(p.id, p.confirmExternal === true));
 
   reg("projects.list", (p) => d.projects.list(p.spaceId));
   reg("projects.create", (p) => { const r = d.projects.create(p); rpc.broadcast("items.changed", { spaceId: r.spaceId }); return r; });

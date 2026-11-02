@@ -24,6 +24,7 @@ export * from "./mcp";
 export * from "./mcp-apps";
 export * from "./memory";
 export * from "./memory-learning";
+export * from "./memory-library";
 export * from "./session-events";
 export * from "./session-facts";
 export * from "./notifications";

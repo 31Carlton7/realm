@@ -21,6 +21,7 @@ import { CatalogFontSchema, InstalledFontSchema, StoredThemeSchema } from "./the
 import { McpCallSchema, McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, McpOauthStatusSchema, McpSignInOptionsSchema } from "./mcp";
 import { AppViewSchema } from "./mcp-apps";
 import { CLAUDE_PROJECT_LEFT_OUT, MEMORY_DOC_MAX, MemoryClaudeBackfillSchema, MemoryClaudeImportSchema, MemoryRemoteCheckSchema, MemoryRepoCommitSchema, MemoryRepoScopeSchema, MemoryRepoStateSchema, MemorySourcesSchema, MemoryStateSchema } from "./memory";
+import { MemoryLibraryEntrySchema, MemoryLibraryFileSchema, MemoryLibrarySourceSchema, MemoryLibraryTypeSchema } from "./memory-library";
 import { NotificationSchema } from "./notifications";
 import { RunAttemptSchema, RunConstraintsSchema, RunSchema, RunStateSchema } from "./runs";
 import { ReviewResultSchema } from "./review";
@@ -1489,6 +1490,40 @@ export const Methods = {
    */
   "memory.repo.setClaudeProject": { params: z.object({ profileId: IdSchema, project: z.string().regex(/^[A-Za-z0-9-]{1,255}$/), into: z.union([IdSchema, z.literal(CLAUDE_PROJECT_LEFT_OUT)]) }), result: MemoryClaudeBackfillSchema },
 
+  /**
+   * The memory library: every Markdown memory file an agent on this Mac reads, for one profile — its
+   * memory repos and documents, and each agent's own files for every space of the profile. Only
+   * sources that exist are listed, each with whether Realm's agents read it and how.
+   */
+  "memory.library.sources": { params: z.object({ profileId: IdSchema }), result: z.object({ sources: z.array(MemoryLibrarySourceSchema) }) },
+  /** Every memory file of one source, or of all of them, newest first; with `query`, the files that
+   *  match it, best first, each with its best line. */
+  "memory.library.list": { params: z.object({ profileId: IdSchema, sourceId: z.string().optional(), query: z.string().max(500).optional() }), result: z.object({ entries: z.array(MemoryLibraryEntrySchema) }) },
+  /** One file, whole: its body, frontmatter, links and who reads it — in `profileId`'s spaces, for a file
+   *  every profile shares. Refuses any id that is not a file a source lists (MEMORY_FILE_NOT_FOUND): the
+   *  library reads nothing else. */
+  "memory.library.read": { params: z.object({ id: z.string().min(3).max(2000), profileId: IdSchema.optional() }), result: MemoryLibraryFileSchema },
+  /**
+   * Replace a file's text. A Realm repo's file is one commit, as an agent's save is; a memory document
+   * is the document's own save. A file outside Realm is refused (MEMORY_EXTERNAL_UNCONFIRMED) unless
+   * `confirmExternal` carries the person's yes.
+   */
+  "memory.library.write": { params: z.object({ id: z.string().min(3).max(2000), text: z.string().max(MEMORY_DOC_MAX), confirmExternal: z.boolean().optional() }), result: MemoryLibraryEntrySchema },
+  /** A new memory in a Realm repo — at its root, or in a space's folder of the profile's repo — in the
+   *  frontmatter the repo's folders use, linked from `MEMORY.md`, as one commit. */
+  "memory.library.create": {
+    params: z.object({
+      sourceId: z.string().min(1).max(200), spaceId: IdSchema.optional(),
+      name: z.string().min(1).max(200), description: z.string().min(1).max(500), type: MemoryLibraryTypeSchema, body: z.string().max(MEMORY_DOC_MAX),
+    }),
+    result: MemoryLibraryEntrySchema,
+  },
+  /** Delete a file. From a Realm repo it is removed, with its index line, in a commit; outside Realm it
+   *  goes to the Trash, and only with `confirmExternal`. */
+  "memory.library.delete": { params: z.object({ id: z.string().min(3).max(2000), confirmExternal: z.boolean().optional() }), result: z.object({ trashed: z.boolean() }) },
+  /** `memory.library.list` with a query across every source: names, descriptions and bodies. */
+  "memory.library.search": { params: z.object({ profileId: IdSchema, query: z.string().min(1).max(500) }), result: z.object({ entries: z.array(MemoryLibraryEntrySchema) }) },
+
   /** `machineName` is the Mac's user-facing ComputerName ("Carlton's M4 MacBook Pro"), falling back to
    *  the hostname stripped of `.local`. Display-only (the prompter's under-strip machine label, Plan 12
    *  W1): Realm runs agents on this machine and no other, so there is nothing to select. */
@@ -2332,6 +2367,9 @@ export const Events = {
   /** A space's Realm memory document or its managed `AGENTS.md` changed. Clients holding the memory
    *  pane re-fetch; sessions already running keep the context they started with. */
   "memory.changed":   z.object({ spaceId: IdSchema }),
+  /** A memory file was written, made or deleted through the library — one outside Realm included, which
+   *  no space's `memory.changed` covers. Clients showing the library re-read it. */
+  "memory.library.changed": z.object({}),
   /** Realm itself changed a working tree (stage, unstage, commit, push). Carries the cwd the write
    *  went through; clients refresh every diff they hold, because two panes on the same repository may
    *  have asked from two different subdirectories and only the server knows they are the same tree. */

@@ -412,6 +412,18 @@ export function withIndexLink(index: string, path: string): string {
   return `${lines.join("\n")}\n`;
 }
 
+/** `MEMORY.md` without the index line that links `path` — the line `withIndexLink` adds, and any line
+ *  that is that link and a note after it. Nothing else changes. */
+export function withoutIndexLink(index: string, path: string): string {
+  const link = wikiLinkFor(path);
+  const lines = index.split("\n");
+  const kept = lines.filter((l) => {
+    const m = /^\s*[-*+]\s+(\[\[[^\]]*\]\])(?:\s.*)?$/.exec(l);
+    return !m || m[1] !== link;
+  });
+  return kept.length === lines.length ? index : kept.join("\n");
+}
+
 /** The `source` an agent's save is stamped with. AMR keys are open and Realm registers no URL scheme,
  *  so this names the session in Realm's own terms rather than pretending to be a link. */
 export function amrRepoSourceLink(sessionId: string): string {
