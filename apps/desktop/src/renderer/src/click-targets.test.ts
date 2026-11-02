@@ -50,6 +50,7 @@ const NOT_A_CONTROL: Record<string, string> = {
   "resize-handle": "the side panel's edge, which takes the resize cursor of its own, as the sidebar's does",
   "hero-greeting": "the greeting's hidden nod, which nothing announces and nothing depends on",
   "selection-bar": "a toolbar whose press only keeps the text selection it acts on; its buttons point",
+  "mp-switch-actions": "the switch question's button row, whose press only keeps the keyboard in the picker's search; its buttons point",
   "sim-screen": "a device's own screen, where the pointer stands in for a finger",
   "browser-runner-canvas": "the runner game's field on the can't-be-reached page, where a press is a jump, not a click on a control; its Play button points",
   "media-el": "a video's picture, which its play control sits over",
