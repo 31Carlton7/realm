@@ -1695,7 +1695,7 @@ export const Methods = {
   /** Fire once, now, WITHOUT moving the schedule's own clock — see `ScheduleService.runNow`. Answers
    *  the schedule, whose `lastRunId` now names the run this created. */
   "schedules.runNow": { params: z.object({ id: IdSchema }), result: ScheduleSchema },
-  // Teams v2 (teammates.ts): permanent teammates you message. Every change is broadcast as
+  // Teammates (teammates.ts): permanent agents you message. Every change is broadcast as
   // `teammates.changed` with the space, and the clients re-read what they hold.
   "teammates.list": { params: z.object({ spaceId: IdSchema, archived: z.boolean().default(false) }), result: z.array(TeammateSchema) },
   "teammates.get": { params: z.object({ id: IdSchema }), result: TeammateSchema },

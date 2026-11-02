@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { FALLBACK_AGENT, folderName, useApp } from "../state/store";
 import { agentAvailability, type AgentAvailability } from "../state/agent-availability";
 import { capabilities } from "../platform";
+import { signInLive } from "./AccountSignIn";
 import { Spinner } from "./Spinner";
 import { useDissolve } from "./ScrollFades";
 import { DEFAULT_SPACE_ICON, SpaceFolderField, SpaceIdentityField } from "./space-fields";
@@ -232,7 +233,7 @@ function AgentCard({ kind, selected, onPick }: { kind: LeadAgent; selected: bool
   const copy = LEAD_COPY[kind];
   const a = standing(kind, probe, probedAll);
   const loggedIn = probe.find((p) => p.kind === kind)?.loggedIn ?? null;
-  const live = signIn && (signIn.state === "starting" || signIn.state === "browser" || signIn.state === "code") ? signIn : null;
+  const live = signInLive(signIn) ? signIn : null;
 
   const signInNow = () => { onPick(); setCode(""); run(() => startAgentSignIn(kind)); };
   const sendCode = () => {

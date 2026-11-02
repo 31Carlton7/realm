@@ -112,30 +112,3 @@ export function customize(spec: RealmiteSpec, patch: RealmitePatch): RealmiteSpe
   if (typeof patch.cheeks === "boolean") next.cheeks = patch.cheeks;
   return next;
 }
-
-/** A spec read back from storage. Whatever part is missing or unknown — a row written by a later
- *  version, or hand-edited — comes from the seed rather than failing the whole creature, and with no
- *  usable seed the fallback is the caller's own (the role's id, say), so the same row always draws
- *  the same Realmite. */
-export function parseRealmiteSpec(value: unknown, fallbackSeed: string): RealmiteSpec {
-  const raw = (typeof value === "string" ? safeJson(value) : value) as Record<string, unknown> | null;
-  const seed = raw && typeof raw.seed === "string" && raw.seed ? raw.seed : fallbackSeed;
-  const base = realmiteFromSeed(seed);
-  if (!raw || typeof raw !== "object") return base;
-  return customize(base, raw as RealmitePatch);
-}
-
-function safeJson(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}
-
-/** A fresh seed for the maker's shuffle. Not derived from anything: a shuffle is a new creature. */
-export function randomSeed(): string {
-  const bytes = new Uint8Array(8);
-  globalThis.crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-}

@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { ASK_PERMISSION_MODE, AskCardSchema, askCardFromElicitation, elicitationContent, loggableAnswers, normalizeAnswers, requiredAnswered, sessionEvent, type AskAnswers, type AskCard, type SessionEvent } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { JsonRpcCallError, isRpcTimeout, type JsonRpcId } from "../jsonrpc/stdio";
@@ -182,43 +179,18 @@ export function codexMcpConfig(servers: readonly McpServerConfig[]): Bag | undef
 }
 
 /**
- * The MCP servers the user's own Codex config names (`[mcp_servers.NAME]` and its sub-tables), read
- * from the TOML's table headers. Codex merges these with a thread's `config.mcp_servers`, so a role
- * run turns each one off by name in its own config. Read only; Realm never writes the user's config.
- */
-export function codexUserMcpServers(toml: string): string[] {
-  const names = new Set<string>();
-  for (const m of toml.matchAll(/^\s*\[\s*mcp_servers\.(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_-]+))/gm)) names.add((m[1] ?? m[2] ?? m[3])!);
-  return [...names];
-}
-
-/**
  * Codex's own memories, off for one thread: the feature (`[features] memories`, 0.163) and both halves
  * of it — reading memories into the thread and mining the thread for new ones (`[memories]`). Sent
  * where Realm keeps the session's memory, so Codex never grows a second store beside the repo.
  */
 export const CODEX_MEMORIES_OFF = { features: { memories: false }, memories: { generate_memories: false, use_memories: false } } as const;
 
-/**
- * `thread/start`'s `config` for one session. A team role's run reaches the world only through Realm's
- * gateway, where its team's policy decides: the sandbox's network is pinned off (over a user's
- * `network_access = true`, verified against 0.154), and every server the user's own config names is
- * turned off for this thread, so the gateway is the only MCP server it has. Where Realm keeps the
- * session's memory, Codex's own memories are off for the thread.
- */
-export function codexThreadConfig(servers: readonly McpServerConfig[], roleRun: { userServers: readonly string[] } | null, o: { memoriesOff?: boolean } = {}): Bag | undefined {
+/** `thread/start`'s `config` for one session: Realm's MCP servers, and — where Realm keeps the
+ *  session's memory — Codex's own memories off for the thread. */
+export function codexThreadConfig(servers: readonly McpServerConfig[], o: { memoriesOff?: boolean } = {}): Bag | undefined {
   const mcp = codexMcpConfig(servers);
   const memory = o.memoriesOff ? CODEX_MEMORIES_OFF : {};
-  if (!roleRun) return (mcp || o.memoriesOff) ? { ...mcp, ...memory } : undefined;
-  const own = obj(mcp?.mcp_servers);
-  const off = Object.fromEntries(roleRun.userServers.filter((n) => !(n in own)).map((n) => [n, { enabled: false }]));
-  return { mcp_servers: { ...off, ...own }, sandbox_workspace_write: { network_access: false }, ...memory };
-}
-
-/** The user's Codex config, read only, or "" when there is none to read. */
-function readUserCodexConfig(codexHome?: string): string {
-  const home = codexHome || process.env.CODEX_HOME || join(homedir(), ".codex");
-  try { return readFileSync(join(home, "config.toml"), "utf8"); } catch { return ""; }
+  return (mcp || o.memoriesOff) ? { ...mcp, ...memory } : undefined;
 }
 
 /**
@@ -691,16 +663,6 @@ export class CodexAdapter implements AgentAdapter {
         if (method === "mcpServer/elicitation/request") {
           const toolApproval = codexMcpToolApproval(params);
           if (toolApproval) {
-            // A team's policy answers for its gateway's tools itself, drawing the one card owed: Codex
-            // approves without a card of its own. Never `persist`, as below.
-            if (opts.gatewayDecides) {
-              const decides = opts.gatewayDecides;
-              void decides(toolApproval.toolName).catch(() => false).then((yes) => {
-                if (yes) conn?.respond(id, { action: "accept", content: {}, _meta: null });
-                else cardFor(id, toolApproval);
-              });
-              return;
-            }
             cardFor(id, toolApproval);
             return;
           }
@@ -757,7 +719,7 @@ export class CodexAdapter implements AgentAdapter {
         if (disposed) { await releaseOnce(); return; }
         conn = c;
         const { approvalPolicy, sandbox } = codexPolicyFor(opts.permissionMode);
-        const config = codexThreadConfig(opts.mcpServers, opts.roleRun ? { userServers: codexUserMcpServers(readUserCodexConfig(opts.env?.CODEX_HOME)) } : null, { memoriesOff: Boolean(opts.memoryDirectory) });
+        const config = codexThreadConfig(opts.mcpServers, { memoriesOff: Boolean(opts.memoryDirectory) });
         // No `effort` here: Codex takes reasoning effort per turn, and `effortParam` sends it on `turn/start`.
         const common = {
           cwd: opts.cwd,

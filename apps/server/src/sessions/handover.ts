@@ -2,7 +2,7 @@ import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { join, relative, isAbsolute } from "node:path";
 import {
   AGENT_MODELS, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, ASK_PERMISSION_MODE, DEFAULT_MODEL_LABEL,
-  HANDOFF_CONTEXT_MAX, PERMISSION_MODES, PLAN_PERMISSION_MODE, agentModelName, carriedTranscript, factLines, handoffContextKey,
+  HANDOFF_CONTEXT_MAX, PERMISSION_MODES, PLAN_PERMISSION_MODE, agentModelName, carriedTranscript, factLines, handoffContextKey, momentInputValue,
   sessionEvent, sessionFacts, type AgentKind, type Session, type SessionEvent, type SessionEventPayload,
 } from "@realm/contracts";
 import type { HandoffNotesInput, ProbeResult } from "@realm/adapters";
@@ -128,7 +128,7 @@ export class HandoffNotes {
       title: session.title, asked: facts.asked, transcript: transcriptForSummary(events), facts: factLines(facts), ...sides,
     });
     const files = facts.edited.map((p) => `- \`${inside(session.cwd, p)}\``);
-    const head = `Switched from ${sides.from} to ${sides.to} on ${stamp(now)}, in \`${session.cwd}\`.`;
+    const head = `Switched from ${sides.from} to ${sides.to} on ${momentInputValue(now).replace("T", " ")}, in \`${session.cwd}\`.`;
     let sections: string[];
     if (written) {
       const last = carriedTranscript(turns.slice(lastIndexOfNth(turns, "user", LAST_TURNS) ?? 0), LAST_TURNS_MAX);
@@ -189,11 +189,4 @@ function inside(cwd: string, path: string): string {
   if (!isAbsolute(path)) return path;
   const r = relative(cwd, path);
   return r && !r.startsWith("..") && !isAbsolute(r) ? r : path;
-}
-
-/** `2026-11-02 14:03`, in the Mac's own time. */
-function stamp(ms: number): string {
-  const d = new Date(ms);
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }

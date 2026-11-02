@@ -39,11 +39,14 @@ function SourceGlyph({ source }: { source: MemoryLibrarySource }) {
   return <Icon name={name} size={16} className="page-rail-glyph" />;
 }
 
+/** A source as a line names it: "Memory repo", "Claude · User memory". */
+const sourceName = (s: MemoryLibrarySource): string => (s.group === "realm" ? s.label : `${MEMORY_LIBRARY_GROUP_LABEL[s.group]} · ${s.label}`);
+
 /** Where a memory sits, in the list's few words: its source (unless the list is that source's), the
  *  folder inside it — unless the title already says it, as an index's does — and how long ago it changed. */
 function whereOf(e: MemoryLibraryEntry, source: MemoryLibrarySource | undefined, filtered: boolean): string {
   const parts: string[] = [];
-  if (!filtered && source) parts.push(source.group === "realm" ? source.label : `${MEMORY_LIBRARY_GROUP_LABEL[source.group]} · ${source.label}`);
+  if (!filtered && source) parts.push(sourceName(source));
   if (e.folder && !e.index) parts.push(e.folder);
   return parts.join(" · ");
 }
@@ -335,7 +338,7 @@ function MemoryReader({ file, source, onOpen, onEdit, onDeleted }: {
         <div className="memory-reader-heading">
           <h2 className="memory-reader-title">{file.title}</h2>
           <p className="memory-reader-where">
-            {source ? (source.group === "realm" ? source.label : `${MEMORY_LIBRARY_GROUP_LABEL[source.group]} · ${source.label}`) : ""}
+            {source ? sourceName(source) : ""}
             {file.folder && !file.index ? ` · ${file.folder}` : ""}
             {" · "}<time dateTime={new Date(file.updatedAt).toISOString()} title={stampTitle(file.updatedAt)}>Edited {ago(file.updatedAt, now)}</time>
           </p>

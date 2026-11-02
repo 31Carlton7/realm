@@ -106,6 +106,6 @@ export function teammateOfHome(teammates: Record<string, Teammate[]>, sessionId:
 }
 
 /** The first line of what a teammate does, for the one line under its name. */
-export function roleLine(brief: string): string {
+export function briefLine(brief: string): string {
   return brief.split("\n").map((l) => l.replace(/^[#>*\-\s]+/, "").trim()).find(Boolean) ?? "";
 }

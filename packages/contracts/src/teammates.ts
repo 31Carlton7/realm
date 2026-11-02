@@ -2,7 +2,7 @@ import { z } from "zod";
 import { AgentKindSchema, IdSchema } from "./entities";
 
 /**
- * Teams v2: a teammate is a permanent agent in a space that you message.
+ * A teammate is a permanent agent in a space that you message.
  *
  * Each teammate owns one HOME session — an ordinary Realm session whose transcript is the chat with it,
  * flagged `teammateHome` so the sidebar draws it as the teammate rather than as a loose session. Real

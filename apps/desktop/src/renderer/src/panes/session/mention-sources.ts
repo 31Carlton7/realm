@@ -2,7 +2,7 @@ import { MAC_SKILL_ID, basenameOf, documentKindFor, fileLabelCandidates, isImage
 import type { IconName } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { STATE_LABEL, type SubagentState } from "../agents-tab/subagent-state";
-import { roleLine } from "../../state/teammates-slice";
+import { briefLine } from "../../state/teammates-slice";
 
 /**
  * The prompter's one `@` list: files in the session's workspace, the Library, skills, the apps on
@@ -138,7 +138,7 @@ const HEAD: Record<Exclude<MentionOption["kind"], "mac">, string> = { agent: "In
 
 /** A teammate's line in the list: what it does, and that naming it hands it the message. */
 function teammateDetail(t: Teammate): string {
-  const role = roleLine(t.brief);
+  const role = briefLine(t.brief);
   return role ? `Gets the message · ${role}` : "Gets the message in its own chat";
 }
 
