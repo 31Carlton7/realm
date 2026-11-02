@@ -1067,7 +1067,7 @@ export function registerMethods(d: Deps): void {
   reg("schedules.delete", (p) => ({ deleted: d.schedules.remove(p.id) }));
   reg("schedules.runNow", (p) => d.schedules.runNow(p.id));
 
-  // Teams v2: teammates. The space-scoped reads check the space; the by-id methods let the service
+  // Teammates. The space-scoped reads check the space; the by-id methods let the service
   // raise NotFoundError, since it loads the row anyway.
   reg("teammates.list", (p) => d.team.list(p.spaceId, p.archived));
   reg("teammates.get", (p) => d.team.get(p.id));

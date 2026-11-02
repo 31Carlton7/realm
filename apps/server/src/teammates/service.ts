@@ -45,7 +45,7 @@ type Wait = { from: string; to: string };
 type ClockTurn = { scheduleId: string; sending: boolean; timer: ReturnType<typeof setTimeout> | null };
 
 /**
- * Teams v2: teammates, their home sessions, and the two tools they talk to each other with.
+ * Teammates, their home sessions, and the two tools they talk to each other with.
  *
  * A teammate's chat is an ordinary session (`teammateHome`), made the first time anyone needs it and
  * told who it is on every start (`contextFor`). Its work is the sessions its agent starts with
