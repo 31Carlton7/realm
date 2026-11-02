@@ -40,11 +40,11 @@ function SourceGlyph({ source }: { source: MemoryLibrarySource }) {
 }
 
 /** Where a memory sits, in the list's few words: its source (unless the list is that source's), the
- *  folder inside it, and how long ago it changed. */
+ *  folder inside it — unless the title already says it, as an index's does — and how long ago it changed. */
 function whereOf(e: MemoryLibraryEntry, source: MemoryLibrarySource | undefined, filtered: boolean): string {
   const parts: string[] = [];
   if (!filtered && source) parts.push(source.group === "realm" ? source.label : `${MEMORY_LIBRARY_GROUP_LABEL[source.group]} · ${source.label}`);
-  if (e.folder) parts.push(e.folder);
+  if (e.folder && !e.index) parts.push(e.folder);
   return parts.join(" · ");
 }
 
@@ -62,6 +62,18 @@ export function linkWikiLinks(body: string): string {
 export function withoutTitle(body: string, title: string): string {
   const m = /^\s*#{1,6}\s+(.+?)\s*\n/.exec(body.endsWith("\n") ? body : `${body}\n`);
   return m && m[1] === title ? body.slice(m[0].length).replace(/^\n+/, "") : body;
+}
+
+/** A file's path on one line, cut in the middle so its name stays whole: the folders give way first.
+ *  The whole of it is the tooltip, and the folder icon above shows it in the Finder. */
+function FilePath({ file }: { file: MemoryLibraryFile }) {
+  const cut = file.displayPath.lastIndexOf("/") + 1;
+  return (
+    <code className="memory-path" title={file.path}>
+      <span className="memory-path-dir">{file.displayPath.slice(0, cut)}</span>
+      <span className="memory-path-name">{file.displayPath.slice(cut)}</span>
+    </code>
+  );
 }
 
 type Mode = { kind: "read" } | { kind: "edit"; draft: string } | { kind: "new" };
@@ -324,7 +336,7 @@ function MemoryReader({ file, source, onOpen, onEdit, onDeleted }: {
           <h2 className="memory-reader-title">{file.title}</h2>
           <p className="memory-reader-where">
             {source ? (source.group === "realm" ? source.label : `${MEMORY_LIBRARY_GROUP_LABEL[source.group]} · ${source.label}`) : ""}
-            {file.folder ? ` · ${file.folder}` : ""}
+            {file.folder && !file.index ? ` · ${file.folder}` : ""}
             {" · "}<time dateTime={new Date(file.updatedAt).toISOString()} title={stampTitle(file.updatedAt)}>Edited {ago(file.updatedAt, now)}</time>
           </p>
         </div>
@@ -359,7 +371,7 @@ function MemoryReader({ file, source, onOpen, onEdit, onDeleted }: {
           {file.type && <><dt>Type</dt><dd>{TYPES.find((t) => t.id === file.type)?.label ?? file.type}</dd></>}
           <dt>Read by</dt><dd className="memory-readers"><Readers file={file} /></dd>
           {props.map((p) => <PropRow key={p.key} k={p.key} v={p.value} />)}
-          <dt>File</dt><dd><code className="memory-path" title={file.path}>{file.path}</code></dd>
+          <dt>File</dt><dd><FilePath file={file} /></dd>
         </dl>
         {file.note && <p className="memory-reader-note">{file.note}</p>}
         <div className="memory-reader-body" data-selectable onClickCapture={follow}>

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync, type Dirent } from "node:fs";
+import { closeSync, existsSync, lstatSync, openSync, readFileSync, readSync, readdirSync, realpathSync, statSync, writeFileSync, type Dirent } from "node:fs";
 import { basename, dirname, isAbsolute, join, posix, relative } from "node:path";
 import {
   MEMORY_DOC_MAX, MEMORY_EXTERNAL_UNCONFIRMED, MEMORY_LIBRARY_GROUP_LABEL, MEMORY_REPO_INDEX_FILE, memoryLibraryId, parseMemoryLibraryId, wikiLinkTarget, withIndexLink,
@@ -156,6 +156,63 @@ function firstProse(body: string): string | null {
 const fieldOf = (fields: { key: string; value: string }[], ...keys: string[]): string | null =>
   keys.map((k) => fields.find((f) => f.key === k)?.value).find((v) => v !== undefined && v !== "") ?? null;
 
+/** What an index lists, by its link lines — `- [[x]]` in the repo's root, `- [X](x.md) — …` in a folder's
+ *  and Claude's. A line that leads to another index is not a memory of its own. */
+function memoriesListed(body: string): string {
+  const n = body.split("\n").filter((l) => /^\s*[-*+]\s+\[/.test(l) && !/(?:^|[/[(])MEMORY(?:\.md)?(?:\]\]|\))/.test(l)).length;
+  return n === 0 ? "No memories yet" : n === 1 ? "1 memory" : `${n} memories`;
+}
+
+/** An index after the memories of its own source and folder, the rest left in the order they came. */
+function indexesAfterTheirMemories(entries: MemoryLibraryEntry[]): MemoryLibraryEntry[] {
+  const out = entries.filter((e) => !e.index);
+  for (const ix of entries.filter((e) => e.index)) {
+    let last = -1;
+    out.forEach((e, i) => { if (!e.index && e.sourceId === ix.sourceId && e.folder === ix.folder) last = i; });
+    const at = last >= 0 ? last + 1 : out.findIndex((e) => e.updatedAt < ix.updatedAt);
+    out.splice(at < 0 ? out.length : at, 0, ix);
+  }
+  return out;
+}
+
+/**
+ * A Claude project folder's name as a person knows it: the last part of the path it was made for.
+ * Found on disk when the folder is still there; else from a transcript beside it, which records the
+ * path whole; else from the name alone, `-` read back as `/`. That last can only be trusted when the
+ * final part kept every character — `-a-b-` lost the end of its name and `-a--b` the mark before it
+ * (`.b`, `a_.b`) — and otherwise the raw name stands, rather than a confident wrong one.
+ */
+export function claudeProjectLabel(slug: string, childrenOf: (dir: string) => string[], recordedCwd: () => string | null): string {
+  const onDisk = decodeClaudeProjectSlug(slug, childrenOf);
+  if (onDisk) return basename(onDisk);
+  const cwd = recordedCwd();
+  if (cwd && cwd.replace(/[^a-zA-Z0-9]/g, "-") === slug) return basename(cwd) || slug;
+  const parts = slug.split("-");
+  const last = parts.at(-1)!;
+  return slug.startsWith("-") && last !== "" && (parts.length === 2 || parts.at(-2) !== "") ? last : slug;
+}
+
+/** The working folder a Claude project's transcripts record, read from the head of the first that says. */
+function transcriptCwd(project: string): string | null {
+  let logs: string[];
+  try { logs = readdirSync(project).filter((n) => n.endsWith(".jsonl")).sort(); } catch { return null; }
+  for (const log of logs.slice(0, 3)) {
+    const m = /"cwd"\s*:\s*("(?:[^"\\]|\\.)*")/.exec(fileHead(join(project, log), 64 * 1024));
+    if (!m) continue;
+    try { return JSON.parse(m[1]!) as string; } catch { /* a line cut off mid-string — try the next log */ }
+  }
+  return null;
+}
+
+function fileHead(path: string, bytes: number): string {
+  let fd: number | null = null;
+  try {
+    fd = openSync(path, "r");
+    const buf = Buffer.alloc(bytes);
+    return buf.toString("utf8", 0, readSync(fd, buf, 0, bytes, 0));
+  } catch { return ""; } finally { if (fd !== null) closeSync(fd); }
+}
+
 /**
  * The memory library: every Markdown memory file an agent on this Mac reads, listed by where it is
  * kept, and read, written, made and deleted through the rules of the place it is kept in.
@@ -255,7 +312,7 @@ export class MemoryLibrary {
       add({ id: "claude-user", group: "claude", label: "User memory", path: join(claude, "CLAUDE.md"), spaceId: null, pointed: true,
         by: "Claude Code loads it in every session.", root: claude, files: () => present(claude, ["CLAUDE.md"]) });
       const projects = join(claude, "projects");
-      const decoded = new Map<string, string | null>();
+      const decoded = new Map<string, string>();
       add({
         id: "claude-projects", group: "claude", label: "Project memory", path: projects, spaceId: null, pointed: false,
         by: "What Claude keeps when it runs outside Realm. In Realm, Claude keeps its memory in the memory repo, and Realm brings these in.",
@@ -267,9 +324,10 @@ export class MemoryLibrary {
         },
         folderOf: (rel) => {
           const project = rel.split("/")[0]!;
-          if (!decoded.has(project)) decoded.set(project, decodeClaudeProjectSlug(project, (dir) => { try { return readdirSync(dir); } catch { return []; } }));
-          const path = decoded.get(project);
-          return path ? basename(path) : project;
+          if (!decoded.has(project)) {
+            decoded.set(project, claudeProjectLabel(project, (dir) => { try { return readdirSync(dir); } catch { return []; } }, () => transcriptCwd(join(projects, project))));
+          }
+          return decoded.get(project)!;
         },
       });
     }
@@ -347,7 +405,7 @@ export class MemoryLibrary {
     const sources = this.sourcesOf(profileId).filter((s) => o.sourceId === undefined || s.id === o.sourceId);
     const entries = sources.flatMap((s) => s.files().map((rel) => this.entryOf(s, rel)).filter((e): e is MemoryLibraryEntry => e !== null));
     const query = o.query?.trim() ?? "";
-    if (query === "") return entries.sort((a, b) => b.updatedAt - a.updatedAt || a.title.localeCompare(b.title));
+    if (query === "") return indexesAfterTheirMemories(entries.sort((a, b) => b.updatedAt - a.updatedAt || a.title.localeCompare(b.title)));
     const byPath = new Map(entries.map((e) => [e.path, e]));
     const out: MemoryLibraryEntry[] = [];
     const seen = new Set<string>();
@@ -381,15 +439,17 @@ export class MemoryLibrary {
     const doc = s.docs?.get(rel);
     const heading = /^#{1,6}\s+(.+)$/m.exec(body)?.[1]?.trim() ?? null;
     const name = basename(rel);
+    const folder = doc ? null : s.folderOf?.(rel) ?? null;
+    // Every folder's index is a MEMORY.md, so the name alone would draw them as one file many times.
+    const index = !doc && name === MEMORY_REPO_INDEX_FILE;
     const title = doc ? this.docTitle(doc)
-      : name === MEMORY_REPO_INDEX_FILE ? MEMORY_REPO_INDEX_FILE
+      : index ? (folder ? `Index · ${folder}` : "Index")
       : fieldOf(fields, "name") ?? heading ?? name.replace(/\.mdc?$/i, "");
     return {
       id: memoryLibraryId(s.id, rel), sourceId: s.id, path: abs, rel, title,
-      description: fieldOf(fields, "description") ?? (s.owner && rel === MEMORY_REPO_INDEX_FILE ? "The index every session here starts with" : firstProse(body)),
+      description: fieldOf(fields, "description") ?? (index ? memoriesListed(body) : firstProse(body)),
       type: fieldOf(fields, "type", "metadata.type"),
-      folder: doc ? null : s.folderOf?.(rel) ?? null,
-      updatedAt, size, match: null,
+      folder, index, updatedAt, size, match: null,
     };
   }
 
@@ -410,7 +470,8 @@ export class MemoryLibrary {
     const managed = s.group === "codex" && s.spaceId !== null && this.managedAgentsFile(abs);
     const rules = this.rulesOf(s, rel);
     return {
-      ...entry, text, body, frontmatter: fields, links: this.linksOf(s, rel, body), readBy: this.readersOf(s, rel, profileId),
+      ...entry, displayPath: this.d.userHome && within(abs, this.d.userHome) ? `~/${relative(this.d.userHome, abs)}` : abs,
+      text, body, frontmatter: fields, links: this.linksOf(s, rel, body), readBy: this.readersOf(s, rel, profileId),
       external: s.external, writable: !managed && rules.writable, deletable: !managed && rules.deletable,
       note: managed ? "Realm writes this file from the space's memory document, so edit that instead." : rules.note,
     };

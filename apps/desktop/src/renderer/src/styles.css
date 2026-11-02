@@ -8836,7 +8836,10 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .memory-props > dd { min-width: 0; margin: 0; color: var(--rl-text-dim); overflow-wrap: anywhere; }
 .memory-readers { display: flex; flex-direction: column; }
 .memory-prop-quiet { color: var(--rl-text-faint); }
-.memory-path { font-family: var(--font-mono); font-size: 12px; color: var(--rl-text-dim); word-break: break-all; }
+/* One line, cut in the middle: the folders shrink to an ellipsis before the file's own name does. */
+.memory-path { display: flex; min-width: 0; font-family: var(--font-mono); font-size: 12px; color: var(--rl-text-dim); white-space: nowrap; }
+.memory-path-dir { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.memory-path-name { flex-shrink: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .memory-reader-note { margin: 0 0 16px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
 /* The body, rendered by the documents pane's own editor, read-only and as tall as it is: the sheet's
    scroller is the one that scrolls. */

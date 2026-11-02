@@ -6,7 +6,7 @@ import { tempDir } from "@realm/test-utils";
 import { MEMORY_EXTERNAL_UNCONFIRMED, type Environment } from "@realm/contracts";
 import { openDatabase } from "../db/database";
 import { SettingsStore } from "../store/settings";
-import { MemoryLibrary, readFrontmatter, type LibrarySpace } from "./library";
+import { MemoryLibrary, claudeProjectLabel, readFrontmatter, type LibrarySpace } from "./library";
 import { MemoryRepoService } from "./repo";
 import { AGENTS_FILE_MARKER, MemoryService } from "./service";
 
@@ -141,13 +141,56 @@ describe("MemoryLibrary — discovery", () => {
     expect(pnpm).toMatchObject({ title: "uses-pnpm", description: "The repo uses pnpm", type: "project", folder: "Realm" });
     expect(entries.find((e) => e.rel === "contacts.md")).toMatchObject({ title: "Contacts", description: "Maya runs partnerships", type: null, folder: null });
     expect(entries.find((e) => e.rel === `${STORA}.md`)).toMatchObject({ title: "Stora", description: "Stora ships on Fridays.", folder: null });
-    expect(entries.find((e) => e.rel === "MEMORY.md")).toMatchObject({ title: "MEMORY.md", description: "The index every session here starts with" });
-    expect(entries.find((e) => e.sourceId === "claude-projects")).toMatchObject({ rel: "-Users-me-code-stora/memory/deploy.md", title: "deploy" });
+    expect(entries.find((e) => e.sourceId === "claude-projects")).toMatchObject({ rel: "-Users-me-code-stora/memory/deploy.md", title: "deploy", folder: "stora" });
     // Only Markdown: the project's `notes.txt` and Claude's `settings.json` are not memory.
     expect(entries.some((e) => e.rel.endsWith(".txt") || e.rel.endsWith(".json"))).toBe(false);
-    const times = entries.map((e) => e.updatedAt);
+    const times = entries.filter((e) => !e.index).map((e) => e.updatedAt);
     expect(times).toEqual([...times].sort((a, b) => b - a));
     expect(h.library.list(PROFILE, { sourceId: "codex-user" }).map((e) => e.title)).toEqual(["AGENTS"]);
+  });
+});
+
+describe("MemoryLibrary — indexes", () => {
+  it("draws each MEMORY.md as its folder's index, by how many memories it lists, after those memories", async () => {
+    const h = await harness();
+    put(join(h.claudeDir, "projects", "-Users-me-code-stora", "memory", "MEMORY.md"), "- [deploy](deploy.md) — how Stora deploys\n");
+    put(join(h.repo, "MEMORY.md"), "# Memory\n\n## Index\n- [[creators]]\n- [[contacts]]\n- [[spaces/realm/MEMORY]]\n");
+    const entries = h.library.list(PROFILE);
+    const repoId = `realm-repo-profile-${PROFILE}`;
+    expect(entries.find((e) => e.sourceId === repoId && e.rel === "MEMORY.md")).toMatchObject({ title: "Index", description: "2 memories", index: true });
+    expect(entries.find((e) => e.rel === "spaces/realm/MEMORY.md")).toMatchObject({ title: "Index · Realm", description: "1 memory", folder: "Realm", index: true });
+    expect(entries.find((e) => e.sourceId === "claude-projects" && e.index)).toMatchObject({ title: "Index · stora", description: "1 memory" });
+    // Written last, the indexes are the newest files; still each comes after the memories it sits beside.
+    const at = (sourceId: string, rel: string) => entries.findIndex((e) => e.sourceId === sourceId && e.rel === rel);
+    expect(at(repoId, "MEMORY.md")).toBeGreaterThan(Math.max(at(repoId, "creators.md"), at(repoId, "contacts.md")));
+    expect(at(repoId, "spaces/realm/MEMORY.md")).toBeGreaterThan(at(repoId, "spaces/realm/uses-pnpm.md"));
+    expect(at("claude-projects", "-Users-me-code-stora/memory/MEMORY.md")).toBeGreaterThan(at("claude-projects", "-Users-me-code-stora/memory/deploy.md"));
+    expect(entries.filter((e) => !e.index).every((e) => !e.title.includes("MEMORY"))).toBe(true);
+  });
+});
+
+describe("claudeProjectLabel", () => {
+  const tree: Record<string, string[]> = { "/": ["Users"], "/Users": ["me"], "/Users/me": ["code"], "/Users/me/code": ["my-app", "stora"] };
+  const childrenOf = (dir: string) => tree[dir] ?? [];
+  const none = () => null;
+
+  it("names a folder still on disk by its own name, dashes and all", () => {
+    expect(claudeProjectLabel("-Users-me-code-my-app", childrenOf, none)).toBe("my-app");
+  });
+
+  it("names a folder that is gone from what its transcripts recorded, else from the name read back", () => {
+    expect(claudeProjectLabel("-Users-carlton-code-new-app", childrenOf, () => "/Users/carlton/code/new-app")).toBe("new-app");
+    // A transcript of somewhere else is not this project's.
+    expect(claudeProjectLabel("-Users-carlton-code-stora", childrenOf, () => "/Users/carlton/elsewhere")).toBe("stora");
+    expect(claudeProjectLabel("-Users-carlton-code-stora", childrenOf, none)).toBe("stora");
+  });
+
+  it("keeps the raw name where reading it back would guess", () => {
+    // `.verify` or `_verify`: the mark before the name is gone.
+    expect(claudeProjectLabel("-Users-carlton--verify", childrenOf, none)).toBe("-Users-carlton--verify");
+    // A name that ended in a mark lost its end.
+    expect(claudeProjectLabel("-Users-carlton-notes-", childrenOf, none)).toBe("-Users-carlton-notes-");
+    expect(claudeProjectLabel("not-a-path", childrenOf, none)).toBe("not-a-path");
   });
 });
 
@@ -165,6 +208,14 @@ describe("MemoryLibrary — reading", () => {
       { target: "team.md", id: null },
     ]);
     expect(f).toMatchObject({ external: false, writable: true, deletable: true });
+  });
+
+  it("shows a path under the home folder from it, and any other whole", async () => {
+    const h = await harness();
+    const entries = h.library.list(PROFILE);
+    expect(h.library.read(idOf(entries, "claude-user", "CLAUDE.md")).displayPath).toBe("~/.claude/CLAUDE.md");
+    const repoFile = h.library.read(idOf(entries, `realm-repo-profile-${PROFILE}`, "creators.md"));
+    expect(repoFile.displayPath).toBe(repoFile.path);
   });
 
   it("says who reads each file, from the model a session's sources come from", async () => {

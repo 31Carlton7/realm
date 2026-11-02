@@ -23,7 +23,7 @@ const SOURCES = [
   source({ id: "claude-user", group: "claude", label: "User memory", path: "/home/.claude/CLAUDE.md", by: "Claude Code loads it in every session." }),
 ];
 const memory = (o: Partial<MemoryLibraryFile> & Pick<MemoryLibraryFile, "sourceId" | "rel" | "title">): MemoryLibraryFile => ({
-  id: `${o.sourceId}:${o.rel}`, path: `/x/${o.rel}`, description: null, type: null, folder: null, updatedAt: Date.now() - 3_600_000, size: 10, match: null,
+  id: `${o.sourceId}:${o.rel}`, path: `/x/${o.rel}`, displayPath: `/x/${o.rel}`, description: null, type: null, folder: null, index: false, updatedAt: Date.now() - 3_600_000, size: 10, match: null,
   text: o.body ?? "", body: "", frontmatter: [], links: [], readBy: [], external: false, writable: true, deletable: true, note: null, ...o,
 });
 const files = (): MemoryLibraryFile[] => [
@@ -37,7 +37,7 @@ const files = (): MemoryLibraryFile[] => [
   }),
   memory({ sourceId: REPO, rel: "contacts.md", title: "Contacts", description: "Maya runs partnerships", body: "- Maya runs partnerships\n" }),
   memory({ sourceId: "claude-user", rel: "CLAUDE.md", title: "House rules", description: "Prefer small PRs.", body: "Prefer small PRs.\n", text: "# House rules\n\nPrefer small PRs.\n",
-    external: true, readBy: [{ who: "Claude", where: "in every space", how: null }], updatedAt: Date.now() - 86_400_000 }),
+    path: "/Users/me/.claude/CLAUDE.md", displayPath: "~/.claude/CLAUDE.md", external: true, readBy: [{ who: "Claude", where: "in every space", how: null }], updatedAt: Date.now() - 86_400_000 }),
 ];
 
 async function mount(data: FakeData = {}) {
@@ -90,6 +90,20 @@ describe("the Library's Memory section", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Memory" }));
     expect(await screen.findByRole("heading", { name: "Memory", level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Memory" }).closest("label")).toHaveAttribute("data-selected");
+  });
+
+  it("names an index by its folder once, and shows a file's path from the home folder with the whole of it a hover away", async () => {
+    await mount({ memoryFiles: [...files(), memory({ sourceId: REPO, rel: "spaces/stora/MEMORY.md", title: "Index · Stora", description: "2 memories", folder: "Stora", index: true, updatedAt: Date.now() - 172_800_000 })] });
+    const row = within(list()).getAllByRole("button").find((b) => b.querySelector(".memory-row-title")?.textContent === "Index · Stora")!;
+    expect(row.querySelector(".memory-row-line")!.textContent).toBe("2 memories");
+    // THE MUTANT: "Memory repo · Stora" under a title that already says Stora.
+    expect(row.querySelector(".memory-row-place")!.textContent).toBe("Memory repo");
+    fireEvent.click(within(list()).getByText("House rules"));
+    await screen.findByRole("heading", { name: "House rules", level: 2 });
+    const path = reader().querySelector(".memory-path")!;
+    expect(path.textContent).toBe("~/.claude/CLAUDE.md");
+    expect(path).toHaveAttribute("title", "/Users/me/.claude/CLAUDE.md");
+    expect(path.querySelector(".memory-path-name")!.textContent).toBe("CLAUDE.md");
   });
 
   it("searches as it is typed, shows the line that matched, and says when nothing does", async () => {

@@ -1467,7 +1467,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
         .filter((f) => (o.sourceId === undefined || f.sourceId === o.sourceId) && (q === "" || `${f.title}\n${f.description ?? ""}\n${f.body}`.toLowerCase().includes(q)))
         .map((f): MemoryLibraryEntry => {
           const line = q === "" ? null : f.body.split("\n").find((l) => l.toLowerCase().includes(q)) ?? null;
-          return { id: f.id, sourceId: f.sourceId, path: f.path, rel: f.rel, title: f.title, description: f.description, type: f.type, folder: f.folder, updatedAt: f.updatedAt, size: f.size, match: line };
+          return { id: f.id, sourceId: f.sourceId, path: f.path, rel: f.rel, title: f.title, description: f.description, type: f.type, folder: f.folder, index: f.index, updatedAt: f.updatedAt, size: f.size, match: line };
         });
     },
     memoryLibraryRead: async (id) => {
@@ -1487,8 +1487,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       calls.push(`memoryLibraryCreate:${input.sourceId}:${input.spaceId ?? ""}:${input.name}`);
       const rel = `${input.spaceId ? `spaces/${input.spaceId}/` : ""}${input.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.md`;
       const f: MemoryLibraryFile = {
-        id: `${input.sourceId}:${rel}`, sourceId: input.sourceId, path: `/realm-home/memory/repos/profile-p1/${rel}`, rel, title: input.name, description: input.description,
-        type: input.type, folder: null, updatedAt: Date.now(), size: input.body.length, match: null, text: input.body, body: input.body, frontmatter: [],
+        id: `${input.sourceId}:${rel}`, sourceId: input.sourceId, path: `/realm-home/memory/repos/profile-p1/${rel}`, displayPath: `/realm-home/memory/repos/profile-p1/${rel}`, rel,
+        title: input.name, description: input.description, type: input.type, folder: null, index: false, updatedAt: Date.now(), size: input.body.length, match: null, text: input.body, body: input.body, frontmatter: [],
         links: [], readBy: [], external: false, writable: true, deletable: true, note: null,
       };
       data.memoryFiles.push(f);

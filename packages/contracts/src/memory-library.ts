@@ -60,6 +60,9 @@ export const MemoryLibraryEntrySchema = z.object({
   type: z.string().nullable(),
   /** Where in its source it sits, when that says something: a space's folder of the repo, a Claude project. */
   folder: z.string().nullable(),
+  /** A folder's index of memories (its `MEMORY.md`): titled "Index", described by how many it lists, and
+   *  listed after the memories beside it. */
+  index: z.boolean(),
   updatedAt: z.number(),
   size: z.number().int(),
   /** A search's best line in the file, when the list was searched. */
@@ -74,6 +77,8 @@ export type MemoryLibraryReader = z.infer<typeof MemoryLibraryReaderSchema>;
 
 /** One memory file, read whole. */
 export const MemoryLibraryFileSchema = MemoryLibraryEntrySchema.extend({
+  /** `path` from the home folder (`~/…`) when it is under it — how the reader shows it. */
+  displayPath: z.string(),
   /** The whole file, frontmatter included — what the editor edits. */
   text: z.string(),
   /** The file after its frontmatter — what the reader renders. */
