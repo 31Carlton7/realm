@@ -12,13 +12,13 @@ import { ProfileWindowBridge } from "./components/profiles/ProfileWindowBridge";
 import { NewLectureSheet, WrapUpLectureSheet } from "./components/LectureSheets";
 import { SessionPlanSheet } from "./panes/session/SessionSummary";
 import { ShareSheet } from "./panes/session/share/ShareSheet";
+import { TeammateSheet } from "./panes/teammate/TeammateSheet";
 import { PlynnImportSheet } from "./components/PlynnImportSheet";
 import { RemoveWorktreeSheet } from "./components/RemoveWorktreeSheet";
 import { NewWorktreeSheet } from "./components/NewWorktreeSheet";
 import { CheckpointsSheet } from "./components/CheckpointsSheet";
 import { ActivitySheet } from "./components/ActivitySheet";
 import { WhatsNewBridge, WhatsNewSheet } from "./components/WhatsNewSheet";
-import { AddTeammatesSheet } from "./panes/team/TeamPicker";
 import { CommandPalette } from "./components/CommandPalette";
 import { Toasts } from "./components/Toasts";
 import { AppPickerBridge } from "./app-pick/AppPicker";
@@ -419,12 +419,12 @@ function SheetHost() {
   if (sheet.kind === "checkpoints") return <CheckpointsSheet environmentId={sheet.environmentId} sessionId={sheet.sessionId} />;
   if (sheet.kind === "activity") return <ActivitySheet />;
   if (sheet.kind === "whats-new") return <WhatsNewSheet />;
-  if (sheet.kind === "add-teammates") return <AddTeammatesSheet spaceId={sheet.spaceId} />;
   if (sheet.kind === "new-lecture") return <NewLectureSheet />;
   if (sheet.kind === "wrap-up-lecture") return <WrapUpLectureSheet />;
   if (sheet.kind === "plynn-import") return <PlynnImportSheet />;
   if (sheet.kind === "session-plan") return <SessionPlanSheet sessionId={sheet.sessionId} planId={sheet.planId} />;
   if (sheet.kind === "share-session") return <ShareSheet sessionId={sheet.sessionId} />;
+  if (sheet.kind === "teammate") return <TeammateSheet spaceId={sheet.spaceId} id={sheet.id} />;
   return null;
 }
 
@@ -468,6 +468,13 @@ export function Main() {
   // mount: this component renders an empty shell for as long as `boot()` is in flight. Declared
   // above the early returns below, because a hook after a `return` is a hook that stops running.
   useEffect(() => { if (booted) dismissBootSplash(); }, [booted]);
+  // Every space's teammates, once the spaces are known and again when they change (a space made, a
+  // profile switched); `teammates.changed` keeps each one current after that.
+  const refreshTeammates = useApp((s) => s.refreshTeammates);
+  const hydrateTeamGroupFolds = useApp((s) => s.hydrateTeamGroupFolds);
+  const spaceIds = spaces.map((sp) => sp.id).join(" ");
+  useEffect(() => { if (booted) run(() => refreshTeammates()); }, [booted, spaceIds, run, refreshTeammates]);
+  useEffect(() => { if (booted) run(() => hydrateTeamGroupFolds()); }, [booted, run, hydrateTeamGroupFolds]);
   // First run (W4): no spaces at all — the onboarding sheet, not a sentence pointing at a "+". It is
   // gated on `booted` because an unbooted store also has zero spaces, and on the space COUNT rather than
   // `activeSpaceId`, so it can never come back for someone who already has spaces.
@@ -614,17 +621,15 @@ export function App() {
     // A schedule was created, edited, deleted or fired. Held-only like ships: the payload carries no
     // row (a schedule changes rarely, and a deletion has no row to carry), so a page already showing
     // this space re-lists and everyone else does nothing.
-    // A team moved: a role woke or settled, work arrived in Review, a decision was made. The space's
-    // snapshot is re-read (the sidebar's Review row and Team fold read it) along with whatever of its
-    // detail is on screen. Read once at start too, for every team space.
-    const offTeam = rpc().on("team.changed", ({ spaceId }) => {
-      const st = store.getState();
-      st.run(() => st.refreshTeam(spaceId));
-    });
-    { const st = store.getState(); st.run(() => Promise.all([st.refreshTeams(), st.hydrateTeamFolds()])); }
     const offSched = rpc().on("schedules.changed", ({ spaceId }) => {
       const st = store.getState();
       if (st.schedules[spaceId]) st.run(() => st.refreshSchedules(spaceId));
+    });
+    // A teammate was made, edited, archived or reordered, or its state moved. Every space's Team list
+    // is held — the sidebar draws them all — so the space named is read again whoever is looking.
+    const offTeammates = rpc().on("teammates.changed", ({ spaceId }) => {
+      const st = store.getState();
+      st.run(() => st.refreshTeammates(spaceId));
     });
     // A checkpoint was taken, restored or pruned. Only re-listed when the sheet is actually showing
     // that environment: this fires on every turn, and a store holding a list nobody is looking at is
@@ -813,7 +818,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offW(); offSh(); offRun(); offSched(); offTeam(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offMemLib(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); offSet(); offRm(); offPr(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offBC(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
+      offS(); offI(); offW(); offSh(); offRun(); offSched(); offTeammates(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offMemLib(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); offSet(); offRm(); offPr(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offBC(); offDel(); offM(); offMS(); offASI(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       offEggs();

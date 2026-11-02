@@ -51,7 +51,6 @@ describe("the boot chunk", () => {
     "panes/settings/SettingsPage.tsx",
     "panes/code-review/CodeReviewPage.tsx",
     "panes/browser/runner/RunnerGame.tsx",
-    "components/RealmiteMaker.tsx",
     "panes/session/rich/highlight-grammars.ts",
     "panes/session/rich/katex-lib.ts",
   ])("does not reach %s", (file) => {

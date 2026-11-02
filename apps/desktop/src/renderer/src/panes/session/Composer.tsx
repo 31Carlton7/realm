@@ -16,7 +16,7 @@ import { effortOptions, fastModeAvailability, fastModeTip, modelRows, type Effor
 import { SkillPicker } from "./SkillPicker";
 import { ModelPicker } from "./ModelPicker";
 import { ActiveAgents, useRowAgents } from "./ActiveAgents";
-import { AddTeammate } from "./AddTeammate";
+import { AddSubAgent } from "./AddSubAgent";
 import { CHILD_ORIGINS } from "../session-labels";
 import { heroGreeting } from "./greeting";
 import { appendQuote, chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, isChipKind, removeChip, stepOverChip, toggleList, type DraftEdit } from "./draft-format";
@@ -277,7 +277,7 @@ export function connectorState(s: McpServer): { tone: "ok" | "warning" | "muted"
  * Plugins section: Realm has no plugin system, and parity with Codex's menu is not a reason to
  * invent one.
  */
-function PlusMenu({ onAttachPick, onAddFolder, selectInRealm, onSkills, canSkills, onGoal, onAddTeammate, connectors, onOpened, onManageConnections, modeRows, btnRef, compact = false }: {
+function PlusMenu({ onAttachPick, onAddFolder, selectInRealm, onSkills, canSkills, onGoal, onAddSubAgent, connectors, onOpened, onManageConnections, modeRows, btnRef, compact = false }: {
   onAttachPick: () => void; onAddFolder: () => void;
   /** Point at a part of Realm and add it to this message, and the chord that does it too — the
    *  person's own, so a rebinding in Settings ▸ Keys is the hint here. Absent, there is no row. */
@@ -293,9 +293,9 @@ function PlusMenu({ onAttachPick, onAddFolder, selectInRealm, onSkills, canSkill
   /** Arm the box with `/goal `, or null when this prompter has no goal command to arm — the gate is
    *  the command list itself, so this row can never offer something the `/` picker does not. */
   onGoal: (() => void) | null;
-  /** Open the teammate picker, or null for a session that cannot take one — a sub-agent, which may
+  /** Open the sub-agent picker, or null for a session that cannot take one — a sub-agent, which may
    *  not start agents of its own. */
-  onAddTeammate: (() => void) | null;
+  onAddSubAgent: (() => void) | null;
   /** The space's servers, or null when the cache has never been fetched (rendered as loading). */
   connectors: McpServer[] | null;
   /** Fired on open — the store re-reads its cache (a row read, never a probe). */
@@ -324,7 +324,7 @@ function PlusMenu({ onAttachPick, onAddFolder, selectInRealm, onSkills, canSkill
        nothing to pick from — which is the same gesture `/goal` already is, reached by someone who
        does not know the command exists. */
     ...(onGoal ? [{ label: "Goal…", icon: <Icon name="target" size={16} />, detail: "Keep working toward an objective", onSelect: onGoal } as MenuItem] : []),
-    ...(onAddTeammate ? [{ label: "Add teammate…", icon: <Icon name="team" size={16} />, detail: "Another agent, to help this one", onSelect: onAddTeammate } as MenuItem] : []),
+    ...(onAddSubAgent ? [{ label: "Add sub-agent…", icon: <Icon name="team" size={16} />, detail: "Another agent, to help this one", onSelect: onAddSubAgent } as MenuItem] : []),
   ];
   if (!compact) items.push(
     { kind: "header", label: "Mode" },
@@ -402,7 +402,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
    * mode chips, the machine, the workspace, the meter, the agents in flight. A quick chat is a
    * question you ask in a corner of the screen; none of those are the question, and a row of them
    * under a 280px card would be most of the window. What stays is what the ask still needs: the
-   * model, attachments, and send — and who is working on it, since a teammate can be added from
+   * model, attachments, and send — and who is working on it, since a sub-agent can be added from
    * this prompter's "+" too, and the row above the card is where it is seen.
    */
   compact?: boolean;
@@ -751,7 +751,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
   const [mentionActive, setMentionActive] = useState(0);
   // The "+ → Skills" picker. Anchored on the plus itself, so it opens over the button the user pressed.
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
-  const [teammateOpen, setTeammateOpen] = useState(false);
+  const [subAgentOpen, setSubAgentOpen] = useState(false);
   const rowAgents = useRowAgents(session.id);
   // The over-strip: what the checkout changed, which a compact prompter does not carry, or who is working.
   const showOverstrip = (!compact && hasChanges(changes)) || rowAgents.length > 0;
@@ -772,7 +772,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
   const mentionMatches = useMemo((): MentionRow[] => {
     if (!mentionToken) return [];
     const options = mentionOptions({ mac: macSkill, skills: mentionSkills, files: answers.files, cwd: mentions?.cwd ?? session.cwd,
-      library: answers.library, apps: mentions?.apps ?? [], roles: mentions?.roles ?? [], agents: mentions?.agents ?? [] });
+      library: answers.library, apps: mentions?.apps ?? [], teammates: mentions?.teammates ?? [], agents: mentions?.agents ?? [] });
     return mentionRows(options, mentionToken.query, { accessibility: mentions?.accessibility ?? null });
   }, [mentionToken, macSkill, mentionSkills, answers, mentions, session.cwd]);
   /* The icons the list and the draft's chips are about to draw, fetched once each. Keyed on the
@@ -1330,7 +1330,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
             onPick={pickMention} onHover={setMentionActive}
             onClose={() => setMentionDismissed(mentionToken.start)} />
         )}
-        {teammateOpen && <AddTeammate session={session} anchorRef={plusRef} canWorktree={gitInfo !== null} onClose={() => setTeammateOpen(false)} />}
+        {subAgentOpen && <AddSubAgent session={session} anchorRef={plusRef} canWorktree={gitInfo !== null} onClose={() => setSubAgentOpen(false)} />}
         {skillPickerOpen && (
           <SkillPicker skills={allSkills} anchorRef={plusRef}
             onToggle={(sk, enabled) => onToggleSkill?.(sk.id, enabled)}
@@ -1347,7 +1347,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
             <PlusMenu onAttachPick={onAttachPick} onAddFolder={() => onAddFolder?.()} selectInRealm={selectInRealm}
               onSkills={() => setSkillPickerOpen(true)} canSkills={allSkills.length > 0}
               onGoal={slashCommands.some((c) => c.id === "goal") ? armGoal : null}
-              onAddTeammate={session.dispatchedBy && CHILD_ORIGINS.has(session.dispatchedBy.kind) ? null : () => setTeammateOpen(true)}
+              onAddSubAgent={session.dispatchedBy && CHILD_ORIGINS.has(session.dispatchedBy.kind) ? null : () => setSubAgentOpen(true)}
               connectors={connectors} onOpened={() => onConnectorsOpened?.()}
               onManageConnections={() => onManageConnections?.()}
               modeRows={modeRows} btnRef={plusRef} compact={compact} />

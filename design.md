@@ -442,9 +442,9 @@ rule a squircled panel's own head off from its body — a language label and a c
 for the panel, not a section beside it.
 
 Every card wears it too, at the card rung — the strip under a message, a request, a group of
-settings, a file's tile, a draft the team made. A card on a circular corner next to the prompter's
-superellipse is the "normal rounding" the owner called cheap (10-19); a card is a panel the eye rests
-in, and it gets the same considered corner.
+settings, a file's tile. A card on a circular corner next to the prompter's superellipse is the
+"normal rounding" the owner called cheap (10-19); a card is a panel the eye rests in, and it gets the
+same considered corner.
 
 A painted card keeps a circular `border-radius` of half its curve, and that number is geometry, not
 taste: a circle of radius R/2 holds the superellipse of radius R and never sits more than 0.024R
@@ -991,13 +991,14 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   well-formed: each model by the name the server resolves, the tools that do it named too. The agent
   stays the one who splits the work, reads the reports and answers for them, and the transcript holds
   the ask beside everything done about it.
-- A teammate is the one door beside the agent, and the owner opened it (10-18): "+ → Add teammate…"
+- A sub-agent is the one door beside the agent, and the owner opened it (10-18): "+ → Add sub-agent…"
   takes a model from the prompter's own picker, a line of brief and a checkout, and starts the agent
   by the path the agent's own `agent_start` takes — its mode, its caps, its place in the Agents tab.
-  It is still the session's sub-agent rather than a second lead: the agent is told on its next
-  message, by handle, and can wait on it, ask it and plan around it. Who is working is said on the
-  prompter's over-strip, a chip each with the sidebar's still dot, the one that needs you first and
-  the rest folded past three; a person addresses one by its `@`, which passes it the message too.
+  It is the session's sub-agent rather than a second lead: the agent is told on its next message, by
+  handle, and can wait on it, ask it and plan around it. The row said "Add teammate…" until a teammate
+  became something else; one word means one thing. Who is working is said on the prompter's
+  over-strip, a chip each with the sidebar's still dot, the one that needs you first and the rest
+  folded past three; a person addresses one by its `@`, which passes it the message too.
 - Who is working is said in that one place (the owner, 10-19). The same agents were also a count in
   the session's bar and a strip under the last message — three surfaces saying one thing, two of them
   in the corner of the eye while the person read the third. The transcript keeps each agent's own
@@ -1071,13 +1072,36 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   connector's full name, `mcp__realm__realm-agent__agent_start` — widened the column, and every row
   and the composer under them slid off the screen's left edge. The verb yields last but can still be
   cut, and the column holds each row to its width (`keepsToOfferedWidth`).
-- A team role wears a Realmite (`packages/ui/src/realmite/`), at the owner's ask (10-08): a small
-  creature, generated from a seed and customisable, in place of a glyph. It is a mark, not a persona.
-  Its face reports the role's run and nothing else — idle, working, needs you, asleep — never a mood,
-  never a reaction to what was said, and no line of the interface is written in its voice: the role
-  still speaks through its transcript and its Review items, like any session. It is drawn at the
-  sizes a glyph would take (16 in a row or a log line, 32 on a card, 160 as a role page's hero),
-  nothing moves below 24px, idle breathes only from 48px, and Reduce motion stills it.
+- A teammate is a permanent agent in a space that you message (the owner, 11-02: different teammates
+  for different things, rather than a new session for everything). Its chat IS a session — its home
+  session — so its page is that session's pane, headed by the teammate instead of a crumb: its icon,
+  its name, the one line of what it does, and its own rows at the top of the menu. Everything a
+  session does, the chat does — streaming, tool calls, questions, permissions — because it is the
+  same pane. The first Teams assembled a chat out of run reports and drew none of that, and a page
+  that imitates a conversation cannot hold one.
+- A teammate's work happens in sessions it starts, titled `<handle> - <task>`, and they are listed
+  under it — on its sidebar row's disclosure and on its computer — never hidden, and never loose in
+  the space's session list as well: a thing reached two ways is listed once. Work handed to another
+  teammate nests under the session that asked for it, counted with a ↳ on that session's row.
+- A teammate's computer is a tab of its chat's side panel, as Reason draws its right panel: the
+  machine and its state in words with Stop beside it while anything runs; Files, Terminal and
+  Simulator, which open in its folder as the panel's own "+" would; then Sessions, newest first, each
+  with its age and its dot. Quiet rows on the panel's ground — no boxes, no cards, no chips. A session
+  opens beside the chat as a peek, and opens properly from there.
+- The Lead stands first in the Team list and wears a small star, and is otherwise one of the team.
+  What a teammate needs from you is said on its row and in Needs you, as for any session; a question
+  it asks is Realm's one question card, which already says who asks.
+- A teammate wears an icon made as Grok's bots are (the owner, 11-02: "very simple static single
+  color icons… clean and professional but still cool and cute"): one flat shape in one colour and two
+  short slanted eye strokes, and nothing else — no outline, gradient, shading, motion or mood. A
+  Lead's star is cut into the corner with a gap round it rather than ringed. The colours sit at one
+  lightness per face and as near one chroma as the screen can show, so only the hue moves and the set
+  reads as one family; that lightness is the one where the body clears 3 : 1 on every ground and the
+  white eyes hold about 3 : 1 on the body. The icon says who, never how it is doing: state is the
+  row's dot beside it. Its colour is the teammate's signature, as a file's mark is the file's, so the
+  state hues may appear in it. It is drawn at 16 in a row, 24 in a head and 64 in the maker, with the
+  eyes laid on each size's pixel grid, because a stroke two pixels wide that straddles a boundary is a
+  smudge. The Realmite stays only where the browser's error page plays its game.
 
 ## Documents, diffs, terminals, and data
 
@@ -1120,7 +1144,8 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   hexagon, by the name first and then the extension, and Realm's coarse glyph only where the set has
   none (the owner, 10-13). One component draws it (`file-icon.tsx`) for the Library, the documents list
   and the prompter, so a file is the same shape in all three. Its colour is the file's signature, not
-  a state, which is the one place a hue from the state palette may stand for something else.
+  a state, which with a teammate's icon is the only place a hue from the state palette may stand
+  for something else.
 - A text file is looked at as text. QuickLook's picture of a page of source is black type on a grey
   sheet in both faces; the viewer draws it with the documents pane's own read-only editors instead —
   Markdown rendered, source highlighted with its line numbers — on a sheet as tall as the file. Code

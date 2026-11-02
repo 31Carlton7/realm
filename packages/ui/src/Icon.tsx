@@ -189,6 +189,9 @@ export const icons = {
   /* A monitor on a stand, and deliberately not `laptop`, which is taken and means THIS Mac — the one
      Realm is running on, in the computer-use surfaces. A machine is a screen somewhere else. */
   machine: ComputerIcon,
+  /* A teammate's computer is THIS Mac, where its sessions run: the laptop the computer-use surfaces
+     already mean that by. */
+  computer: LaptopIcon,
   /* Settings' pages, as the column lists them. An engine is the CLI a session runs on, so a chip; what
      it costs is a gauge, the meter Codex puts beside its own usage page; an agent driving this Mac's
      apps is the plain arrow it moves (the pack's `CursorPointer` rings the arrow with a filled ripple

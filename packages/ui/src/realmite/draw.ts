@@ -1,9 +1,9 @@
 import { colours, type Colours, type Face } from "./parts";
 import { hashSeed, type RealmiteSpec, type RealmiteState } from "./spec";
 
-/** One drawing, two outputs. The geometry is built once as a small element tree; `Realmite.tsx`
- *  turns it into React elements and `realmiteSvg` into markup (for a gallery, a mock, or a test that
- *  runs without a DOM). Nothing here fetches or references an outside asset.
+/** The geometry is built once as a small element tree and `realmiteSvg` turns it into markup (for the
+ *  browser runner, a gallery, or a test that runs without a DOM). Nothing here fetches or references
+ *  an outside asset.
  *
  *  Everything is laid out on a 64-unit square: the ground line at y 58, the body centred on x 32,
  *  and the band above the body left for what it wears. */

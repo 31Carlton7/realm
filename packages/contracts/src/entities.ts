@@ -73,8 +73,11 @@ export type Project = z.infer<typeof ProjectSchema>;
  *  item is still the one `findByRefId` answers for the id (`ItemsStore` skips this kind), so nothing
  *  that looks a session's item up can be handed its tab instead.
  *  `app-view` (v2) is a view an MCP server drew for one tool call (MCP Apps), opened as a tab of its
- *  session's side pane. Its `refId` is the VIEW's id — an `app_views` row, which names the session. */
-export const ItemKindSchema = z.enum(["session", "terminal", "browser", "machine", "simulator", "artifact", "context", "diff", "documents", "agents", "app-view", "space-page", "library-page", "connections-page", "code-review-page", "settings-page", "profile-page", "schedules-page", "you-page", "review"]);
+ *  session's side pane. Its `refId` is the VIEW's id — an `app_views` row, which names the session.
+ *  `computer` (Teams v2) is a teammate's computer: where it works, its state, and the sessions it
+ *  started, as a tab of its home session's side pane. Its `refId` is the TEAMMATE's id, never the home
+ *  session's, so `findByRefId` on a session id can never be handed this tab. */
+export const ItemKindSchema = z.enum(["session", "terminal", "browser", "machine", "simulator", "artifact", "context", "diff", "documents", "agents", "app-view", "space-page", "library-page", "connections-page", "code-review-page", "settings-page", "profile-page", "schedules-page", "you-page", "review", "computer"]);
 export type ItemKind = z.infer<typeof ItemKindSchema>;
 
 /**

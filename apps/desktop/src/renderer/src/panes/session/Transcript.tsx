@@ -1,6 +1,6 @@
-import { Icon } from "@realm/ui";
+import { Icon, TeammateIcon } from "@realm/ui";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { LINK_SERVICE_META, MAC_SKILL_ID, chipRuns, mediaCandidatesIn, type MentionRef, type SessionMode, type SessionStatus, type AskAnswers, type Checkpoint, type TurnChanges } from "@realm/contracts";
+import { LINK_SERVICE_META, MAC_SKILL_ID, chipRuns, mediaCandidatesIn, type MentionRef, type SessionMode, type Teammate, type SessionStatus, type AskAnswers, type Checkpoint, type TurnChanges } from "@realm/contracts";
 import { AttachmentTile } from "./AttachmentTile";
 import { fileMark } from "./mention-sources";
 import { CommandCopy } from "../../components/CommandCopy";
@@ -17,7 +17,7 @@ import { ToolCard, ToolCwd, ToolGroup, ToolWaiting } from "./ToolCard";
 import { LeadSessionContext } from "./DelegationLine";
 import { formatDuration, groupTranscript, withEnter } from "./tool-group";
 import { blockKey, goalTurnLabel, lastUserMessage, waitingToolIds, type Block, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
-import { stampLabel, stampTitle, useNow } from "./timestamps";
+import { dateFormat, stampLabel, stampTitle, useNow } from "./timestamps";
 import { touchedFiles, type FileLinkContext } from "./file-links";
 import { EditSummary } from "./EditSummary";
 import { turnEdits, undoOffer, type TurnEdits } from "./turn-edits";
@@ -256,10 +256,30 @@ function AssistantMessage({ text, streaming, enter, cwd, actions = false, onRetr
   );
 }
 
+const NO_TEAMMATES: readonly Teammate[] = [];
+
+/** What sent a message from a clock. A scheduled task's run is named by its task; a teammate's clock
+ *  writes into its chat on its own cadence, so its turn says only that, and when — quietly, since
+ *  the clock is the teammate's routine and not news. */
+function scheduledLine(s: { task: string; scheduleId?: string }, ts: number): string {
+  return s.scheduleId ? `Scheduled · ${dateFormat({ weekday: "short", hour: "numeric", minute: "2-digit" }).format(ts)}` : `Scheduled run · ${s.task}`;
+}
+
+/** The words another teammate sent, without the "From @handle: " the server put in front of them for
+ *  the agent: on screen the head above them already says who. */
+export const teammateWords = (text: string): string => text.replace(/^From @[^\s:]+: /, "");
+
+/** Who sent a teammate's message: its icon and its name, or the handle the message carried when the
+ *  teammate is not one this space holds (archived, say). */
+function TeammateSender({ from, teammates }: { from: { title: string; teammateId?: string }; teammates: readonly Teammate[] }) {
+  const t = teammates.find((x) => x.id === from.teammateId);
+  return <span className="msg-teammate-head">{t && <TeammateIcon icon={t.icon} size={16} lead={t.lead} />}{t?.name ?? from.title}</span>;
+}
+
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null, track = false, saved = NO_SAVED, onSave, reveal = null, onRevealed, onEarlier, requestsOwnEscape = true, brief = null, report = null }: {
+export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null, track = false, saved = NO_SAVED, onSave, reveal = null, onRevealed, onEarlier, requestsOwnEscape = true, brief = null, report = null, teammates = NO_TEAMMATES }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: AskAnswers) => void; visible?: boolean;
   /** A message drawn as something other than its bubble: a sub-agent's first message, which carries
    *  the brief its lead wrote, shown as that brief (the sub-agent viewer's `AskedFor`). Matched on the
@@ -268,6 +288,8 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
   /** This log is a sub-agent's, and it has ended: its last message is the report its lead collected,
    *  drawn inside the report's fold (`ReportFold`) under the sub-agent's id, as its viewer draws it. */
   report?: { id: string; failed: boolean } | null;
+  /** The space's teammates, so a message one of them sent is drawn as from it. */
+  teammates?: readonly Teammate[];
   /** Read the log further back than the transcript holds (`transcript.earlier`): the stretch before it,
    *  or back to `throughSeq` — a prompt asked for by its seq. Absent leaves the log where it starts. */
   onEarlier?: (throughSeq?: number) => Promise<void> | void;
@@ -660,6 +682,15 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
           const b = it.block, key = it.key, enter = isEntering(key);
           switch (b.kind) {
             case "user": if (brief && b.text === brief.text) return <div key={key} className="msg-brief" data-prompt={key} data-enter={enter || undefined}>{brief.node}</div>;
+              // Another teammate's message is that teammate talking, so it stands on the agents' side
+              // under its sender, as prose like any reply, never in the person's bubble.
+              if (b.from?.teammateId) return (
+                <div key={key} className="msg-teammate-row" data-prompt={key} data-enter={enter || undefined}>
+                  <TeammateSender from={b.from} teammates={teammates} />
+                  <Markdown className="msg-assistant" text={teammateWords(b.text)} onPath={onPath} files={fileLinks} />
+                  <time className="msg-user-at" dateTime={new Date(b.ts).toISOString()} title={stampTitle(b.ts)}
+                    aria-label={`Sent ${stampTitle(b.ts)}`} tabIndex={0}>{stampLabel(b.ts, now)}</time>
+                </div>);
               return (
               // Attachments sit ABOVE the bubble, not inside it (and not below): what was sent was a
               // stack of files with a note under it, and the tiles are the subject rather than a
@@ -676,7 +707,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
                 {/* A scheduled run's first message IS the person's words — the task's instructions — so
                     its bubble stays theirs; it is the clock that sent it, and the line above says so.
                     The note Realm added for the agent is under the pointer, not in the bubble. */}
-                {b.scheduled && <span className="msg-user-from" title={b.scheduled.note}>Scheduled run · {b.scheduled.task}</span>}
+                {b.scheduled && <span className="msg-user-from" title={b.scheduled.note}>{scheduledLine(b.scheduled, b.ts)}</span>}
                 {b.attachments && <UserAttachments attachments={b.attachments} />}
                 {/* An attachment-only message has no text at all, and an empty bubble would read as a
                     send that lost its words rather than one that carried only files. */}

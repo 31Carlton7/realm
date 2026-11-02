@@ -547,15 +547,17 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const ensureIcons = useCallback((paths: readonly string[]) => { void ensureAppIcons(paths); }, [ensureAppIcons]);
   const addRef = useCallback((ref: UnlabelledRef, candidates: readonly string[]) => addMentionRef(id, ref, candidates), [id, addMentionRef]);
   const cwd = session?.cwd ?? "";
-  // A team space's roles: `@Creator Manager` wakes one as this session's sub-agent.
-  const teamRoles = useApp((st) => (session ? st.teams[session.spaceId]?.roles : undefined));
   // Its own sub-agents that are sessions: `@Write the tests` passes the message to that one too.
   const subagents = useSessionSubagents(id);
   const children = useApp((st) => st.subagents[id]);
   const mentionAgents = useMemo(() => orchestratorOrder(subagents.filter((a) => a.source === "delegated"), (a) => a.state)
     .map((a) => ({ id: a.id, title: a.title, state: a.state, agentKind: children?.find((c) => c.session.id === a.id)?.session.agentKind ?? null })), [subagents, children]);
-  const mentionSources = useMemo(() => ({ cwd, mac: macSkill, apps: installedApps, appIcons, accessibility, accessibilityAction, files: mentionFiles, library: mentionLibrary, onOpen: onMentionOpen, ensureIcons, addRef, roles: teamRoles ?? [], agents: mentionAgents }),
-    [cwd, macSkill, installedApps, appIcons, accessibility, accessibilityAction, mentionFiles, mentionLibrary, onMentionOpen, ensureIcons, addRef, teamRoles, mentionAgents]);
+  // The space's teammates, for `@`: every one but the teammate whose chat this is.
+  const spaceTeammates = useApp((st) => st.teammates[item.spaceId]);
+  const teammate = spaceTeammates?.find((t) => t.homeSessionId === id) ?? null;
+  const mentionTeammates = useMemo(() => (spaceTeammates ?? []).filter((t) => t.homeSessionId !== id), [spaceTeammates, id]);
+  const mentionSources = useMemo(() => ({ cwd, mac: macSkill, apps: installedApps, appIcons, accessibility, accessibilityAction, files: mentionFiles, library: mentionLibrary, onOpen: onMentionOpen, ensureIcons, addRef, teammates: mentionTeammates, agents: mentionAgents }),
+    [cwd, macSkill, installedApps, appIcons, accessibility, accessibilityAction, mentionFiles, mentionLibrary, onMentionOpen, ensureIcons, addRef, mentionTeammates, mentionAgents]);
   /* The apps the log's own messages named keep their icons after a relaunch: asked for once each,
      when the transcript first carries them. */
   const loggedApps = useMemo(() => [...new Set(transcript.blocks.flatMap((b) => (b.kind === "user" && b.refs ? b.refs.flatMap((r) => (r.kind === "app" ? [r.path] : [])) : [])))].join("\n"),
@@ -598,7 +600,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   // The prompter's suggested prompt, derived from THIS session (prompt-hint.ts): the last turn, the
   // working tree, the mode. Computed here rather than in Composer because everything it reads is
   // already the pane's — Composer only draws it and fills it in on ⇥.
-  const hint = promptHint({
+  // A teammate's chat is a conversation with it, not a prompt to be finished: its prompter keeps
+  // "Message <name>", and no suggestion stands in for it.
+  const hint = teammate ? null : promptHint({
     blocks: transcript.blocks, gitInfo, status, inPlan: session.permissionMode === PLAN_PERMISSION_MODE,
     generated: transcript.promptHint?.text ?? null,
   });
@@ -679,7 +683,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
     <div ref={setPane} className="session-pane" data-visible={visible || undefined} data-focused={focused || undefined} data-composer={hero ? "hero" : "docked"}
       data-peek={peek || undefined}
       data-dropping={fileDrop.dropping || undefined} {...(peek ? {} : fileDrop.handlers)}>
-      <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused} cwd={session.cwd} track
+      <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused} cwd={session.cwd} track teammates={spaceTeammates}
         saved={savedSeqs} onSave={onSaveTurn} reveal={promptFor} onRevealed={promptTaken} onEarlier={onEarlier}
         onExpandPlan={(planId) => openSheet({ kind: "session-plan", sessionId: id, planId })}
         // A plan, or an answer, handed to other models: this session's Agents tab, with it as the work.
@@ -707,6 +711,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onSignIn={() => run(() => startSignIn(session.agentKind, session.spaceId, session.id))}
             onDismissJob={() => dismissCliJob(session.agentKind)} />
         : <DraftedComposer session={session} status={status} gitInfo={gitInfo} changes={changes} todos={todos} quote={quote}
+            placeholder={teammate ? `Message ${teammate.name}` : undefined}
             onOpenDiff={() => run(() => openDiff(session.environmentId))}
             attachments={attachments}
             onAttachPick={() => run(() => attachFromPicker(id))}
