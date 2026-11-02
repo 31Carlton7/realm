@@ -4,7 +4,8 @@ import { CaretSettings } from "../../components/settings/CaretSettings";
 import { TERMINAL_COLOR_SCHEMES, TERMINALS_COLORS_COPY, AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, GENERATED_CREDENTIAL_NOTE, PASSWORDS_IMPORT_NOTE, NOTIFICATION_CATEGORIES, PASSKEY_STORAGE_NOTE,
   PERMISSION_MODES, SELECTABLE_AGENT_KINDS, TERMINALS_HISTORY_COPY, type AgentKind, type MidTurnMode, type ReducedMotionPref,
-  EDITOR_NAMES, resolveEditor, type OpenFilesIn, type LinksOpenIn, type TerminalDockEdge, } from "@realm/contracts";
+  EDITOR_NAMES, resolveEditor, type OpenFilesIn, type LinksOpenIn, type TerminalDockEdge,
+  FEATURE_REQUEST_URL, REALM_REPO_URL, bugReportUrl, } from "@realm/contracts";
 import { CONTRAST_RANGE, DEFAULT_GROUND_ALPHA, FONT_FACES, FONT_WEIGHTS, GROUND_ALPHA_RANGE, Icon, REALM_SEED,
   THEMES, contrastMisses, derivationFor, exportTheme, importTheme, isHexColour, isOverridden, overrideKey,
   allThemes, paletteFor, seedFor, themeModes, themeSwatches,
@@ -1457,8 +1458,39 @@ function GeneralTab() {
       <p className="settings-hint">Off by default. None of it changes what an agent does.</p>
       <FriendPacks />
 
+      <AboutLinks />
       <Attribution />
     </div>
+  );
+}
+
+/**
+ * Where Realm is made, in the browser: a bug report with this version filled in, a feature request,
+ * and the repository, whose own page is where it is starred. The Help menu opens the same four
+ * (`realm-repo.ts` holds the URLs for both). Each row is the link, so the whole row is the target.
+ */
+function AboutLinks() {
+  const version = useApp((s) => s.updateStatus?.version ?? "");
+  const links = [
+    { id: "report-bug", label: "Report a bug", url: bugReportUrl(version), title: "Opens a bug report on GitHub with this version filled in." },
+    { id: "request-feature", label: "Request a feature", url: FEATURE_REQUEST_URL, title: "Opens a feature request on GitHub." },
+    { id: "star-realm", label: "Star Realm on GitHub", url: REALM_REPO_URL, title: "Opens Realm's repository on GitHub, where the Star button is." },
+    { id: "realm-on-github", label: "Realm on GitHub", url: REALM_REPO_URL, title: "Opens Realm's repository on GitHub: its source, releases and issues." },
+  ];
+  return (
+    <>
+      <h3 className="settings-head">About</h3>
+      <ul className="settings-list">
+        {links.map((l) => (
+          <li key={l.id} className="settings-row settings-link-row" data-setting={l.id}>
+            <a className="settings-row-link" href={l.url} target="_blank" rel="noreferrer" title={l.title}>
+              <span className="settings-row-name">{l.label}</span>
+              <Icon name="external" size={14} />
+            </a>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 

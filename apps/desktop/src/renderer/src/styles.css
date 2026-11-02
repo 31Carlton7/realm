@@ -6502,6 +6502,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 :root[data-squircle] .usage-figures,
 :root[data-squircle] .plan-account { --sq-fill: var(--chart-surface); }
 :root[data-squircle] .saved-turn-open:hover { --sq-fill: var(--rl-card-hover); }
+:root[data-squircle] .settings-link-row:hover { --sq-fill: var(--rl-card-hover); }
 :root[data-squircle] .library-tile:hover { --sq-fill: var(--rl-tile-hover); }
 :root[data-squircle] .library-tile:is([data-pressed], :active:focus-visible) { --sq-fill: var(--rl-tile-press); }
 :root[data-squircle] button.tp-card:hover { --sq-fill: var(--rl-card-hover); }
@@ -7871,6 +7872,16 @@ select { appearance: none; padding-right: 22px;
    page it is three lines per card. A DETAIL is the same line by another name (a row's one sentence
    under its label), and it had no rule at all — it ran on beside the label at the label's size. */
 .settings-row-desc, .settings-row-detail { flex-basis: 100%; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+/* A row that only leaves for a page (Settings ▸ General ▸ About). The link IS the row — it takes the
+   row's padding, so the whole row is the target — and the row's fill answers the pointer the way a
+   card that is a control does (`.saved-turn-open`). The arrow at its end says the page opens in the
+   browser, not here. */
+.settings-link-row { padding: 0; transition: background-color var(--dur-hover) ease, --sq-fill var(--dur-hover) ease; }
+.settings-link-row:hover { background: var(--rl-card-hover); transition-duration: 0s; }
+.settings-row-link { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 14px 16px;
+  border-radius: inherit; color: var(--rl-text-faint); text-decoration: none; }
+.settings-row-link > .settings-row-name { flex: 1; min-width: 0; }
+.settings-row-link:focus-visible { outline-offset: -2px; }
 /* An invalid skill is SHOWN, reason and all — the silence W1 designed against would start here. */
 .settings-row-problem { flex-basis: 100%; display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--rl-warning); }
 .settings-chip { padding: 1px 7px; border-radius: 999px; font: 12px var(--font-mono); color: var(--rl-text-dim); background: var(--rl-hover); white-space: nowrap; }

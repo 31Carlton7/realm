@@ -1,5 +1,5 @@
 import type { Input, MenuItemConstructorOptions } from "electron";
-import { chordFromEvent, chordsForCommand, normalizeKeyChord, parseKeyChord, type Keybinding } from "@realm/contracts";
+import { FEATURE_REQUEST_URL, REALM_REPO_URL, bugReportUrl, chordFromEvent, chordsForCommand, normalizeKeyChord, parseKeyChord, type Keybinding } from "@realm/contracts";
 
 /**
  * The menu bar.
@@ -105,6 +105,8 @@ export function shouldPageOwn(input: Pick<Input, "type" | "key" | "code" | "meta
 
 export type MenuDeps = {
   appName: string;
+  /** The running version, which Report a Bug fills in on the form. */
+  version: string;
   /** The person's keybindings, as the renderer last reported them (the shipped table until then). */
   rules: readonly Keybinding[];
   /** Run a catalog command in the focused window's renderer. */
@@ -118,7 +120,7 @@ export type MenuDeps = {
 export const WEBSITE_URL = "https://realm.computer";
 export const CHANGELOG_URL = "https://realm.computer/changelog";
 
-export function appMenuTemplate({ appName, rules, send, openExternal, developer, darwin }: MenuDeps): MenuItemConstructorOptions[] {
+export function appMenuTemplate({ appName, version, rules, send, openExternal, developer, darwin }: MenuDeps): MenuItemConstructorOptions[] {
   const sep: MenuItemConstructorOptions = { type: "separator" };
   const items = (rows: readonly (CommandRow | null)[]): MenuItemConstructorOptions[] => rows.map((r) => {
     if (r === null) return sep;
@@ -168,6 +170,13 @@ export function appMenuTemplate({ appName, rules, send, openExternal, developer,
         { label: `${appName} Website`, click: () => openExternal(WEBSITE_URL) },
         // The sheet, which carries this version's notes and the link to the rest (whats-new.ts).
         { label: "What's New", click: () => send("app.whatsNew") },
+        sep,
+        { label: "Report a Bug", click: () => openExternal(bugReportUrl(version)) },
+        { label: "Request a Feature", click: () => openExternal(FEATURE_REQUEST_URL) },
+        sep,
+        // The repository's own page is where its Star button is: GitHub has no link that stars.
+        { label: "Star Realm on GitHub", click: () => openExternal(REALM_REPO_URL) },
+        { label: "Realm on GitHub", click: () => openExternal(REALM_REPO_URL) },
       ],
     },
   ];

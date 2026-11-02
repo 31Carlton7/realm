@@ -66,6 +66,8 @@ import {
   TiktokIcon, InstagramIcon, YoutubeIcon,
   // Code review: a request's state, a fold of unchanged lines, a link to copy, a check still running.
   GitMergeIcon, GitPullRequestClosedIcon, GitPullRequestDraftIcon, UnfoldMoreIcon, Link01Icon, Comment01Icon, ViewOffIcon, DashedLineCircleIcon,
+  // A row that leaves the app for a page in the browser (Settings ▸ General ▸ About).
+  ArrowUpRight01Icon,
   // A turn saved from the scroll track's card (ScrollTrack.tsx), and the Library's list of them: the
   // plain ribbon, which fills when the turn is saved. `bookmark` stays the space icon it already is.
   Bookmark02Icon,
@@ -242,6 +244,7 @@ export const icons = {
   /* Lines a diff folded away, opened in place: the two chevrons pulling apart. */
   unfold: UnfoldMoreIcon,
   link: Link01Icon, comment: Comment01Icon, hide: ViewOffIcon,
+  external: ArrowUpRight01Icon,
   /* A check still running: the circle not yet drawn closed. */
   pending: DashedLineCircleIcon,
   /* The plain ribbon, outlined until the turn is saved and filled once it is (the model picker's star

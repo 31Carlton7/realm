@@ -517,6 +517,7 @@ let ownedChords = pageChords(menuRules);
 function installMenu() {
   const template = appMenuTemplate({
     appName: "Realm",
+    version: app.getVersion(),
     rules: menuRules,
     send: (command) => (BrowserWindow.getFocusedWindow() ?? windows.primary())?.webContents.send("app:command", command),
     openExternal: (url) => void shell.openExternal(url),
