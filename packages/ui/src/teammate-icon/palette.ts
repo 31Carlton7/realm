@@ -1,7 +1,7 @@
-import { css, type Oklch } from "@realm/contracts";
+import { css, type Oklch, type TeammateColor } from "@realm/contracts";
 
-/** A teammate's colour, by stable name. A teammate stores the name, never the value, so the set can be
- *  retuned without a migration.
+/** A teammate's colour by its stable name (the contract's twelve). A teammate stores the name, never
+ *  the value, so the set can be retuned without a migration.
  *
  *  The twelve sit at ONE lightness per face and as near one chroma as sRGB allows there (teal, sky,
  *  yellow and amber run out of gamut first, so they take what fits on both faces), which is what makes
@@ -15,7 +15,7 @@ import { css, type Oklch } from "@realm/contracts";
  *  Red, orange and green are here although they also carry state elsewhere: an icon's colour is the
  *  teammate's signature, as a file's mark is the file's, and state is said by the row's dot beside it,
  *  never by the icon. */
-export const TEAMMATE_COLORS = {
+export const TEAMMATE_PALETTE: Record<TeammateColor, { label: string; hue: number; chroma: number }> = {
   red: { label: "Red", hue: 25, chroma: 0.15 },
   orange: { label: "Orange", hue: 50, chroma: 0.15 },
   amber: { label: "Amber", hue: 72, chroma: 0.13 },
@@ -28,15 +28,14 @@ export const TEAMMATE_COLORS = {
   violet: { label: "Violet", hue: 296, chroma: 0.15 },
   pink: { label: "Pink", hue: 350, chroma: 0.15 },
   graphite: { label: "Graphite", hue: 264, chroma: 0.014 },
-} as const satisfies Record<string, { label: string; hue: number; chroma: number }>;
+};
 
-export type TeammateColor = keyof typeof TEAMMATE_COLORS;
 export type Face = "dark" | "light";
 
 const LIGHTNESS: Record<Face, number> = { dark: 0.645, light: 0.605 };
 
 export function bodyOklch(color: TeammateColor, face: Face): Oklch {
-  const { hue, chroma } = TEAMMATE_COLORS[color];
+  const { hue, chroma } = TEAMMATE_PALETTE[color];
   return { l: LIGHTNESS[face], c: chroma, h: hue };
 }
 

@@ -1,3 +1,5 @@
+import type { TeammateShape } from "@realm/contracts";
+
 /** The eight silhouettes, on a 64-unit square, and where on each the eyes sit.
  *
  *  A shape is flat primitives in one fill — circles and closed paths — so a union of them is drawn by
@@ -5,7 +7,7 @@
  *  optical mass as the circle, not to the same box: a triangle filling the square would read twice as
  *  heavy as the pill beside it. `face` is the point the pair of eyes is centred on, set up and to the
  *  right of the mass's middle, where the recipe puts it. */
-export const TEAMMATE_SHAPES = {
+export const TEAMMATE_SHAPE_LABELS: Record<TeammateShape, string> = {
   circle: "Circle",
   flower: "Flower",
   squircle: "Rounded square",
@@ -14,9 +16,7 @@ export const TEAMMATE_SHAPES = {
   hexagon: "Hexagon",
   cloud: "Cloud",
   drop: "Drop",
-} as const;
-
-export type TeammateShape = keyof typeof TEAMMATE_SHAPES;
+};
 
 export type Prim = { circle: [cx: number, cy: number, r: number] } | { d: string };
 export type ShapeGeo = { prims: Prim[]; face: [number, number] };

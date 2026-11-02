@@ -1,8 +1,7 @@
 import { useId } from "react";
-import { BADGE_OKLCH, bodyOklch, bothFaces, EYE_OKLCH, type TeammateColor } from "./palette";
-import { SHAPE_GEO, type TeammateShape } from "./shapes";
-
-export type TeammateIconSpec = { shape: TeammateShape; color: TeammateColor };
+import type { TeammateIcon as TeammateIconSpec } from "@realm/contracts";
+import { BADGE_OKLCH, bodyOklch, bothFaces, EYE_OKLCH } from "./palette";
+import { SHAPE_GEO } from "./shapes";
 
 /** The eyes in the 64-unit square, laid on the pixel grid of the size they are drawn at.
  *

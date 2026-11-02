@@ -1,3 +1,3 @@
-export { TEAMMATE_COLORS, type TeammateColor } from "./palette";
-export { TEAMMATE_SHAPES, type TeammateShape } from "./shapes";
-export { TeammateIcon, type TeammateIconSpec } from "./TeammateIcon";
+export { TEAMMATE_PALETTE } from "./palette";
+export { TEAMMATE_SHAPE_LABELS } from "./shapes";
+export { TeammateIcon } from "./TeammateIcon";

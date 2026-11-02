@@ -1,20 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { contrast, hexToOklch, oklchToHex, parseOklch } from "@realm/contracts";
+import { contrast, hexToOklch, oklchToHex, parseOklch, TEAMMATE_COLORS, TEAMMATE_SHAPES } from "@realm/contracts";
 import { deriveVars, REALM_SEED } from "../themes";
-import { BADGE_OKLCH, bodyOklch, EYE_OKLCH, TEAMMATE_COLORS, type Face, type TeammateColor } from "./palette";
-import { SHAPE_GEO, TEAMMATE_SHAPES, type TeammateShape } from "./shapes";
+import { BADGE_OKLCH, bodyOklch, EYE_OKLCH, TEAMMATE_PALETTE, type Face } from "./palette";
+import { SHAPE_GEO, TEAMMATE_SHAPE_LABELS } from "./shapes";
 import { eyeStrokes, leadStar } from "./TeammateIcon";
 
 const FACES: Face[] = ["dark", "light"];
-const COLORS = Object.keys(TEAMMATE_COLORS) as TeammateColor[];
-const SHAPES = Object.keys(TEAMMATE_SHAPES) as TeammateShape[];
+const COLORS = TEAMMATE_COLORS;
+const SHAPES = TEAMMATE_SHAPES;
 const GROUNDS = ["--page", "--canvas", "--surface", "--inset", "--hover", "--hover-2"];
 const SIZES = [16, 20, 24, 32, 64];
 
 describe("teammate colours", () => {
-  it("are the twelve the contract names", () => {
-    expect(COLORS).toEqual(["red", "orange", "amber", "yellow", "lime", "green", "teal", "sky", "blue", "violet", "pink", "graphite"]);
-    expect(SHAPES).toEqual(["circle", "flower", "squircle", "pill", "triangle", "hexagon", "cloud", "drop"]);
+  it("are listed in the contract's order, so a picker draws them as the contract names them", () => {
+    expect(Object.keys(TEAMMATE_PALETTE)).toEqual([...TEAMMATE_COLORS]);
+    expect(Object.keys(TEAMMATE_SHAPE_LABELS)).toEqual([...TEAMMATE_SHAPES]);
   });
 
   it("are drawable in sRGB on both faces, so no display clips one into its neighbour", () => {

@@ -39,8 +39,8 @@ const desktopRequire = createRequire(path.join(repoRoot, "apps/desktop/package.j
 const React = desktopRequire("react");
 const Server = desktopRequire("react-dom/server");
 
-const SHAPES = Object.keys(I.TEAMMATE_SHAPES);
-const COLORS = Object.keys(I.TEAMMATE_COLORS);
+const SHAPES = Object.keys(I.TEAMMATE_SHAPE_LABELS);
+const COLORS = Object.keys(I.TEAMMATE_PALETTE);
 const icon = (shape, color, size, lead = false) =>
   Server.renderToStaticMarkup(React.createElement(I.TeammateIcon, { icon: { shape, color }, size, lead }));
 
@@ -67,8 +67,8 @@ p{margin:0 0 14px;color:var(--ink-2)}
 
 /** Every shape × colour, at the three sizes the app draws: the 64 maker, the 24 head and the 16 row. */
 function setPage(mode) {
-  const head = `<div></div>${COLORS.map((c) => `<div class="lab">${I.TEAMMATE_COLORS[c].label}</div>`).join("")}`;
-  const rows = SHAPES.map((shape) => `<div class="lab" style="align-self:center;text-align:right">${I.TEAMMATE_SHAPES[shape]}</div>${
+  const head = `<div></div>${COLORS.map((c) => `<div class="lab">${I.TEAMMATE_PALETTE[c].label}</div>`).join("")}`;
+  const rows = SHAPES.map((shape) => `<div class="lab" style="align-self:center;text-align:right">${I.TEAMMATE_SHAPE_LABELS[shape]}</div>${
     COLORS.map((color) => `<div class="cell">${icon(shape, color, 64)}<div class="row">${icon(shape, color, 24)}${icon(shape, color, 16)}</div></div>`).join("")}`).join("");
   return page(mode, "set", `<h1>Teammate icons · 8 shapes × 12 colours</h1><p>64, 24 and 16px on the canvas.</p>
 <div class="grid" style="grid-template-columns:90px repeat(12,minmax(0,1fr))">${head}${rows}</div>`);
@@ -79,7 +79,7 @@ function sizesPage(mode) {
   const sizes = [16, 20, 24, 32, 64];
   const rows = SHAPES.map((shape, i) => {
     const color = COLORS[(i * 5) % COLORS.length];
-    return `<div class="row" style="gap:18px;margin-bottom:14px"><span class="lab" style="width:90px;text-align:right">${I.TEAMMATE_SHAPES[shape]}</span>${
+    return `<div class="row" style="gap:18px;margin-bottom:14px"><span class="lab" style="width:90px;text-align:right">${I.TEAMMATE_SHAPE_LABELS[shape]}</span>${
       sizes.map((s) => icon(shape, color, s)).join("")}<span style="width:24px"></span>${sizes.map((s) => icon(shape, color, s, true)).join("")}</div>`;
   }).join("");
   return page(mode, "sizes", `<h1>16, 20, 24, 32, 64px · plain, then Lead</h1>${rows}`);
