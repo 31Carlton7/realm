@@ -1,4 +1,4 @@
-import { AGENT_META, AddTeammateSchema, DEFAULT_MODEL_LABEL, type AgentRunConstraints, type Goal, type MentionRef, type Session } from "@realm/contracts";
+import { AGENT_META, AddTeammateSchema, DEFAULT_MODEL_LABEL, carriedTranscript, type AgentRunConstraints, type Goal, type MentionRef, type Session } from "@realm/contracts";
 import type { z } from "zod";
 import { clip } from "../mcp/tool-result";
 import type { SessionService } from "../sessions/service";
@@ -86,8 +86,7 @@ export class Teammates {
     const goal = this.d.goals.get(lead.id);
     const summary = this.d.events.lastOfType(lead.id, "summary");
     const turns = this.d.events.transcript(lead.id, Date.now());
-    const conversation = tail(turns.map((t) => `${t.role === "user" ? "User" : "Assistant"}: ${t.text}`).join("\n\n"), CONVERSATION_MAX);
-    const fence = "`".repeat(Math.max(3, ...(conversation.match(/`+/g) ?? []).map((r) => r.length + 1)));
+    const { body: conversation, fence } = carriedTranscript(turns, CONVERSATION_MAX);
     return [
       brief || "Help with the work in this session wherever you can.",
       "",
@@ -190,12 +189,4 @@ export class Teammates {
     if (this.d.settings.get(joinedKey(sessionId)) != null) this.d.settings.set(joinedKey(sessionId), null);
     if (this.d.settings.get(dismissedKey(sessionId)) != null) this.d.settings.set(dismissedKey(sessionId), null);
   }
-}
-
-/** The end of `text`, at most `max` characters, opening on a turn boundary when one is in reach. */
-function tail(text: string, max: number): string {
-  if (text.length <= max) return text;
-  const end = text.slice(text.length - max);
-  const boundary = end.indexOf("\n\n");
-  return boundary === -1 ? end : end.slice(boundary + 2);
 }

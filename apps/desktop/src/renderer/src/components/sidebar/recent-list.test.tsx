@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { Session } from "@realm/contracts";
 import { Sidebar } from "./Sidebar";
 import { StoreContext, createAppStore } from "../../state/store";
@@ -15,11 +15,12 @@ const DAY = 86_400_000;
 const chat = (id: string, spaceId: string, at: number, over: Partial<Session> = {}): Session =>
   session(id, spaceId, { title: `chat ${id}`, activityAt: at, createdAt: at, ...over });
 
-async function mount(sessions: Session[], extra: { archived?: string[] } = {}) {
+async function mount(sessions: Session[], extra: { archived?: string[]; repo?: boolean } = {}) {
   const spaces = [space("s1", "p1", "Work"), space("s2", "p1", "Homework"), space("s3", "p2", "Lectures")];
   const items: Record<string, ReturnType<typeof item>[]> = {};
   for (const s of sessions) (items[s.spaceId] ??= []).push(item(`i-${s.id}`, s.spaceId, { kind: "session", refId: s.id, title: s.title, archived: extra.archived?.includes(s.id) ?? false }));
-  const api = fakeApi({ profiles: [profile("p1", "Work"), profile("p2", "School")], spaces, items, sessions, settings: { "ui.sidebarLens": "recent" } });
+  const api = fakeApi({ profiles: [profile("p1", "Work"), profile("p2", "School")], spaces, items, sessions, settings: { "ui.sidebarLens": "recent" },
+    ...(extra.repo ? { gitInfo: { "/tmp": { branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0 } } } : {}) });
   const store = createAppStore(api);
   await store.getState().boot();
   const r = render(<StoreContext.Provider value={store}><Sidebar /></StoreContext.Provider>);
@@ -97,6 +98,58 @@ describe("Recent", () => {
     fireEvent.click(screen.getByRole("button", { name: "New session" }));
     const made = await within(recent(container)).findByRole("button", { name: "Fake agent session in Work" });
     await waitFor(() => expect(scrolled.at(-1)).toBe(made.closest(".sb-card")));
+  });
+
+  /** Every element asked to be shown, in order — jsdom has no layout, so no scrollIntoView of its own. */
+  function recordScrolls(): Element[] {
+    const scrolled: Element[] = [];
+    const original = Element.prototype.scrollIntoView;
+    onTestFinished(() => { Element.prototype.scrollIntoView = original; });
+    Element.prototype.scrollIntoView = vi.fn(function (this: Element) { scrolled.push(this); });
+    return scrolled;
+  }
+
+  // The same, for every other way a session is made: the palette's "New Claude session" and "New session
+  // in a worktree", and ⌘⇧N. Each landed selected but scrolled out of sight, with nothing holding the
+  // keyboard. THE MUTANT: `newSession` and the worktree path making a session without handing it the
+  // keyboard, which is what the list follows.
+  for (const [way, make] of [
+    ["the palette's agent rows", (store: ReturnType<typeof createAppStore>) => store.getState().newSession({ agentKind: "claude" })],
+    ["New session in a worktree", (store: ReturnType<typeof createAppStore>) => store.getState().newSessionInWorktree()],
+  ] as const) {
+    it(`brings a session made from ${way} into view, with its prompter holding the keyboard`, async () => {
+      const scrolled = recordScrolls();
+      const now = Date.now();
+      const { container, store, api } = await mount([chat("a", "s1", now - 1000), chat("old", "s1", now - 9 * DAY)], { repo: true });
+      fireEvent.click(await within(recent(container)).findByRole("button", { name: "chat old in Work" }));
+      await make(store);
+      const id = Object.keys(store.getState().sessions).find((x) => x !== "a" && x !== "old")!;
+      expect(store.getState().keyboardFor?.sessionId).toBe(id);
+      // In the space of the session that was in front.
+      expect(store.getState().sessions[id]!.spaceId).toBe("s1");
+      if (way === "New session in a worktree") expect(api.calls).toContain("createWorktree:s1");
+      await waitFor(() => expect(scrolled.at(-1)).toBe(recent(container).querySelector(`.sb-card[data-session="${id}"]`)));
+    });
+  }
+
+  it("brings the card into view when it is drawn after its pane has already taken the keyboard", async () => {
+    // A new card arrives with the next read of every space's items, a beat after the prompter has taken
+    // the keyboard and spent the request. THE MUTANT: a scroll keyed to the request alone, which has
+    // gone by the time the card is there to scroll to.
+    const scrolled = recordScrolls();
+    const now = Date.now();
+    // Its row exists but is not listed yet: put away, standing in for a row the list has not read.
+    const { container, store } = await mount([chat("a", "s1", now - 1000), chat("late", "s1", now)], { archived: ["late"] });
+    await within(recent(container)).findByRole("button", { name: "chat a in Work" });
+    expect(recent(container).querySelector('.sb-card[data-session="late"]')).toBeNull();
+    act(() => store.setState({ keyboardFor: { sessionId: "late", n: 7 } }));
+    act(() => store.getState().keyboardTaken(7));
+    expect(store.getState().keyboardFor).toBeNull();
+    const listed = <T extends { id: string; archived: boolean }>(list: T[]) => list.map((i) => (i.id === "i-late" ? { ...i, archived: false } : i));
+    act(() => store.setState({ items: listed(store.getState().items), allItems: listed(store.getState().allItems) }));
+    const card = recent(container).querySelector('.sb-card[data-session="late"]');
+    expect(card).not.toBeNull();
+    expect(scrolled.at(-1)).toBe(card);
   });
 
   it("says the list is empty rather than drawing nothing", async () => {

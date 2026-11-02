@@ -4,7 +4,7 @@ import { deriveVars, REALM_SEED } from "../themes";
 import { REALMITE_CSS } from "./css";
 import { animatesAt, detailFor, drawRealmite, realmiteSvg, type SvgNode } from "./draw";
 import { bodyOklch, colours, inkOklch, PALETTES, type Face, type PaletteId } from "./parts";
-import { customize, parseRealmiteSpec, PART_IDS, realmiteFromSeed, REALMITE_STATES, type RealmiteSpec } from "./spec";
+import { customize, PART_IDS, realmiteFromSeed, REALMITE_STATES, type RealmiteSpec } from "./spec";
 
 const seeds = (n: number) => Array.from({ length: n }, (_, i) => `seed-${i}`);
 
@@ -74,21 +74,6 @@ describe("customize", () => {
   it("does not reroll the parts when only the seed changes", () => {
     const base = realmiteFromSeed("one");
     expect(customize(base, { seed: "two" })).toEqual({ ...base, seed: "two" });
-  });
-});
-
-describe("parseRealmiteSpec", () => {
-  it("reads back what was stored, string or object", () => {
-    const s = customize(realmiteFromSeed("stored"), { eyes: "cyclops", accessory: "cap" });
-    expect(parseRealmiteSpec(JSON.stringify(s), "x")).toEqual(s);
-    expect(parseRealmiteSpec(s, "x")).toEqual(s);
-  });
-
-  it("fills an unknown part from the seed, and garbage from the fallback seed", () => {
-    const s = realmiteFromSeed("stored");
-    expect(parseRealmiteSpec({ ...s, mouth: "beak" }, "x")).toEqual(s);
-    expect(parseRealmiteSpec("{not json", "role-7")).toEqual(realmiteFromSeed("role-7"));
-    expect(parseRealmiteSpec(null, "role-7")).toEqual(realmiteFromSeed("role-7"));
   });
 });
 

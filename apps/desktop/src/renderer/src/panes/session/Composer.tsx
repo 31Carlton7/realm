@@ -14,9 +14,9 @@ import { SlashPicker } from "./SlashPicker";
 import { filterSlashCommands, slashCallIn, slashQueryAt, type SlashCommand } from "./slash-commands";
 import { effortOptions, fastModeAvailability, fastModeTip, modelRows, type EffortControl, type FastMode } from "./model-catalog";
 import { SkillPicker } from "./SkillPicker";
-import { ModelPicker } from "./ModelPicker";
+import { ModelPicker, type AccountControl } from "./ModelPicker";
 import { ActiveAgents, useRowAgents } from "./ActiveAgents";
-import { AddTeammate } from "./AddTeammate";
+import { AddSubAgent } from "./AddSubAgent";
 import { CHILD_ORIGINS } from "../session-labels";
 import { heroGreeting } from "./greeting";
 import { appendQuote, chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, isChipKind, removeChip, stepOverChip, toggleList, type DraftEdit } from "./draft-format";
@@ -277,7 +277,7 @@ export function connectorState(s: McpServer): { tone: "ok" | "warning" | "muted"
  * Plugins section: Realm has no plugin system, and parity with Codex's menu is not a reason to
  * invent one.
  */
-function PlusMenu({ onAttachPick, onAddFolder, selectInRealm, onSkills, canSkills, onGoal, onAddTeammate, connectors, onOpened, onManageConnections, modeRows, btnRef, compact = false }: {
+function PlusMenu({ onAttachPick, onAddFolder, selectInRealm, onSkills, canSkills, onGoal, onAddSubAgent, connectors, onOpened, onManageConnections, modeRows, btnRef, compact = false }: {
   onAttachPick: () => void; onAddFolder: () => void;
   /** Point at a part of Realm and add it to this message, and the chord that does it too — the
    *  person's own, so a rebinding in Settings ▸ Keys is the hint here. Absent, there is no row. */
@@ -293,9 +293,9 @@ function PlusMenu({ onAttachPick, onAddFolder, selectInRealm, onSkills, canSkill
   /** Arm the box with `/goal `, or null when this prompter has no goal command to arm — the gate is
    *  the command list itself, so this row can never offer something the `/` picker does not. */
   onGoal: (() => void) | null;
-  /** Open the teammate picker, or null for a session that cannot take one — a sub-agent, which may
+  /** Open the sub-agent picker, or null for a session that cannot take one — a sub-agent, which may
    *  not start agents of its own. */
-  onAddTeammate: (() => void) | null;
+  onAddSubAgent: (() => void) | null;
   /** The space's servers, or null when the cache has never been fetched (rendered as loading). */
   connectors: McpServer[] | null;
   /** Fired on open — the store re-reads its cache (a row read, never a probe). */
@@ -324,7 +324,7 @@ function PlusMenu({ onAttachPick, onAddFolder, selectInRealm, onSkills, canSkill
        nothing to pick from — which is the same gesture `/goal` already is, reached by someone who
        does not know the command exists. */
     ...(onGoal ? [{ label: "Goal…", icon: <Icon name="target" size={16} />, detail: "Keep working toward an objective", onSelect: onGoal } as MenuItem] : []),
-    ...(onAddTeammate ? [{ label: "Add teammate…", icon: <Icon name="team" size={16} />, detail: "Another agent, to help this one", onSelect: onAddTeammate } as MenuItem] : []),
+    ...(onAddSubAgent ? [{ label: "Add sub-agent…", icon: <Icon name="team" size={16} />, detail: "Another agent, to help this one", onSelect: onAddSubAgent } as MenuItem] : []),
   ];
   if (!compact) items.push(
     { kind: "header", label: "Mode" },
@@ -391,7 +391,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
+export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onSwitchAgent, account, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** The checkout's changed files (`workspace.diff`), for the pill over the card. */
   changes?: DiffSummary | null;
@@ -402,7 +402,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
    * mode chips, the machine, the workspace, the meter, the agents in flight. A quick chat is a
    * question you ask in a corner of the screen; none of those are the question, and a row of them
    * under a 280px card would be most of the window. What stays is what the ask still needs: the
-   * model, attachments, and send — and who is working on it, since a teammate can be added from
+   * model, attachments, and send — and who is working on it, since a sub-agent can be added from
    * this prompter's "+" too, and the row above the card is where it is seen.
    */
   compact?: boolean;
@@ -442,6 +442,11 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
   onParkPermission?: (permissionMode: string) => void;
   /** Sets agent AND model in one action — the picker's rows are (agent, model) pairs. */
   onPickModel: (kind: AgentKind, modelId: string | null) => void;
+  /** Moves a session that has run onto another agent with a summary of this one (`sessions.switchAgent`).
+   *  Absent where a prompter cannot, which leaves other agents' models unoffered once it has run. */
+  onSwitchAgent?: (kind: AgentKind, modelId: string | null) => Promise<void>;
+  /** The accounts the session's agent runs on, set from the picker's foot. Absent where it has none. */
+  account?: AccountControl;
   /** Build ⇄ Plan. The store parks and restores the permission mode around the trip. */
   onMode: (mode: SessionMode) => void;
   /** ACP sessions only (Plan 14 W3): the agent's OWN modes as the session's init event carried them —
@@ -751,7 +756,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
   const [mentionActive, setMentionActive] = useState(0);
   // The "+ → Skills" picker. Anchored on the plus itself, so it opens over the button the user pressed.
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
-  const [teammateOpen, setTeammateOpen] = useState(false);
+  const [subAgentOpen, setSubAgentOpen] = useState(false);
   const rowAgents = useRowAgents(session.id);
   // The over-strip: what the checkout changed, which a compact prompter does not carry, or who is working.
   const showOverstrip = (!compact && hasChanges(changes)) || rowAgents.length > 0;
@@ -772,7 +777,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
   const mentionMatches = useMemo((): MentionRow[] => {
     if (!mentionToken) return [];
     const options = mentionOptions({ mac: macSkill, skills: mentionSkills, files: answers.files, cwd: mentions?.cwd ?? session.cwd,
-      library: answers.library, apps: mentions?.apps ?? [], roles: mentions?.roles ?? [], agents: mentions?.agents ?? [] });
+      library: answers.library, apps: mentions?.apps ?? [], teammates: mentions?.teammates ?? [], agents: mentions?.agents ?? [] });
     return mentionRows(options, mentionToken.query, { accessibility: mentions?.accessibility ?? null });
   }, [mentionToken, macSkill, mentionSkills, answers, mentions, session.cwd]);
   /* The icons the list and the draft's chips are about to draw, fetched once each. Keyed on the
@@ -1086,12 +1091,13 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
         detail: acpModesPending ? "Waiting for the agent's modes" : "The one mode this agent offers",
         title: acpModesPending ? "Waiting for the agent's modes" : modeTitleFor(mode) }];
 
+  const handsOver = !canSwitchAgent && !!onSwitchAgent;
   // Built HERE rather than inside ModelPicker so the chip, the list, the effort levels and the
   // fast-mode answer all read the same rows: two independent `modelRows` calls could disagree about
   // which harness a model resolved to.
   const rows = useMemo(
-    () => modelRows({ kind, model: session.model, agentProbe, canSwitchAgent, favorites: modelFavorites }),
-    [kind, session.model, agentProbe, canSwitchAgent, modelFavorites]);
+    () => modelRows({ kind, model: session.model, agentProbe, canSwitchAgent, handoff: handsOver, favorites: modelFavorites }),
+    [kind, session.model, agentProbe, canSwitchAgent, handsOver, modelFavorites]);
   /* The active model's context window, joined through the SAME canonical key the picker's rows use —
      the session stores a per-harness wire id (`gpt-5.3-codex[reasoning=medium]`), which no catalog is
      keyed by, so the selected ROW is the only thing that can bridge the two. Null whenever the
@@ -1330,7 +1336,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
             onPick={pickMention} onHover={setMentionActive}
             onClose={() => setMentionDismissed(mentionToken.start)} />
         )}
-        {teammateOpen && <AddTeammate session={session} anchorRef={plusRef} canWorktree={gitInfo !== null} onClose={() => setTeammateOpen(false)} />}
+        {subAgentOpen && <AddSubAgent session={session} anchorRef={plusRef} canWorktree={gitInfo !== null} onClose={() => setSubAgentOpen(false)} />}
         {skillPickerOpen && (
           <SkillPicker skills={allSkills} anchorRef={plusRef}
             onToggle={(sk, enabled) => onToggleSkill?.(sk.id, enabled)}
@@ -1347,7 +1353,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
             <PlusMenu onAttachPick={onAttachPick} onAddFolder={() => onAddFolder?.()} selectInRealm={selectInRealm}
               onSkills={() => setSkillPickerOpen(true)} canSkills={allSkills.length > 0}
               onGoal={slashCommands.some((c) => c.id === "goal") ? armGoal : null}
-              onAddTeammate={session.dispatchedBy && CHILD_ORIGINS.has(session.dispatchedBy.kind) ? null : () => setTeammateOpen(true)}
+              onAddSubAgent={session.dispatchedBy && CHILD_ORIGINS.has(session.dispatchedBy.kind) ? null : () => setSubAgentOpen(true)}
               connectors={connectors} onOpened={() => onConnectorsOpened?.()}
               onManageConnections={() => onManageConnections?.()}
               modeRows={modeRows} btnRef={plusRef} compact={compact} />
@@ -1394,7 +1400,8 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
                 harness's mark, so nothing a harness chip said is lost. */}
             <ModelPicker kind={kind} model={session.model} effort={effort} rows={rows} info={modelInfo}
               onToggleFavorite={onToggleModelFavorite}
-              onPick={onPickModel} fast={fast} eggs={eggs} />
+              onPick={onPickModel} fast={fast} eggs={eggs} account={account}
+              switchAgent={handsOver && onSwitchAgent ? { busy: status === "running" || status === "waiting_permission", onSwitch: onSwitchAgent } : undefined} />
             {/* Send↔stop morph (§6): both icons stay in the DOM; data-state cross-fades them (160ms,
                 opacity + scale .25→1 + 4px blur). ⌘↵ still sends while running — only the button morphs. */}
             {/* Attachments the agent will receive can go alone (Plan 14 W5 relaxed sessions.send's

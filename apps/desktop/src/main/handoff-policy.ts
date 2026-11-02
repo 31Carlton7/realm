@@ -29,10 +29,7 @@ export type HandoffDecision =
   /** Refuse to work against it: the wire is incompatible, so there is nothing to keep. */
   | { kind: "blocked" };
 
-export function decideHandoff(d: { why: "bundle" | "protocol" | "replaced"; work: DaemonWork; preapproved?: boolean }): HandoffDecision {
-  // The lab's update window drained this daemon and asked for the install: the person said yes when
-  // they made this Mac a lab, and a dialog here would wait for someone who is not there.
-  if (d.preapproved) return { kind: "restart" };
+export function decideHandoff(d: { why: "bundle" | "protocol" | "replaced"; work: DaemonWork }): HandoffDecision {
   // The Realm.app this daemon runs from was replaced under it, which is what installing an update
   // does. The person already said yes to the restart — "Restart and update" is the button that got
   // here — and there is no "Keep working" to offer: the files it runs are gone, and what it loads next

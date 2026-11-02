@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import {
   normalizeAnswers, sessionEvent, type AskCard, type DelegatedChild, type FileDiff, type Item, type PlanLimits, type QueuedPrompt, type Run, type Schedule,
-  type Session, type SessionEvent, type Space, type StoredSessionEvent, type TeamReviewDetail, type TeamReviewItem, type TeamReviewSummary, type UsageSessionRow,
+  type Session, type SessionEvent, type Space, type StoredSessionEvent, type UsageSessionRow,
 } from "@realm/contracts";
 import { tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
 import { MobileCalls, MobileEvents, RowSchema, type MobileEvent } from "@realm/remote";
@@ -17,9 +17,8 @@ import { channel, fakeRpc, jpegHeader, machine, machineState, pngHeader, profile
  * holds every row kind (its first message with files sent with it) and two messages waiting in its
  * queue, the turn's changes and a page of its diff, each preview `session.file` makes, a space's
  * picture, three agents' session options and a change to them, every agent a new session can have;
- * the queue, the lead's sub-agents (one working, two ended), the plans and the month's spend, the
- * reviews still open and one read, a decision and a picture of it, the scheduled tasks and one run
- * now, the screens the theme column's space has open and a frame of one, a rename with a pin and an
+ * the queue, the lead's sub-agents (one working, two ended), the plans and the month's spend, an empty
+ * Review (it went with the first Teams), the scheduled tasks and one run now, the screens the theme column's space has open and a frame of one, a rename with a pin and an
  * archive; and every event but `session.rows` and `session.status` —
  * every one made by the real projector and the real `MobileApi`, over a fake of the desktop's RPC.
  * Generated, not hand-written, so this test also proves the committed file is what the code produces
@@ -42,10 +41,6 @@ const OLDER = Array.from({ length: 6 }, (_, i) => `01JREALM00000000000000000${i 
 const WORKER = "01JWORKER00000000000000000";
 const MIGRATOR = "01JMIGRATOR000000000000000";
 const PROFILER = "01JPROFILER000000000000000";
-/** The Deck team's reviews: one waiting with a post and an email, one sent back, one done. */
-const REVIEW = "01JREVIEW00000000000000001";
-const SENT_BACK = "01JREVIEW00000000000000002";
-const DONE = "01JREVIEW00000000000000003";
 /** Scheduled tasks: a brief whose run finished unread, a weekly review never run, and a paused one whose run failed. */
 const BRIEF = "01JSCHEDULE000000000000001";
 const WEEKLY = "01JSCHEDULE000000000000002";
@@ -70,7 +65,7 @@ const space = (id: string, name: string, icon: string, profileId = "p1"): Space 
   ({ id, profileId, name, icon, color: "#7c6cff", sortOrder: 0, folderPath: "/tmp", groups: null, layout: null, activeItemId: null, createdAt: 0, updatedAt: 0 });
 const session = (id: string, spaceId: string, extra: Partial<Session> = {}): Session =>
   ({ id, spaceId, projectId: null, agentKind: "claude", model: "claude-opus-5-5", effort: null, fastMode: false, permissionMode: "default", environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", cwd: "/tmp", status: "idle",
-    providerSessionId: null, title: "Session", lastEventSeq: 40, seenSeq: 0, terminalItemId: null, dispatchedBy: null, activityAt: 0, createdAt: 0, updatedAt: 1_790_000_000_000, ...extra });
+    providerSessionId: null, title: "Session", lastEventSeq: 40, seenSeq: 0, terminalItemId: null, dispatchedBy: null, teammateId: null, teammateHome: false, activityAt: 0, createdAt: 0, updatedAt: 1_790_000_000_000, ...extra });
 const item = (refId: string, spaceId: string, title: string, extra: Partial<Item> = {}): Item =>
   ({ id: `i-${refId}`, spaceId, kind: "session", title, sortOrder: 0, pinned: false, archived: false, refId, createdAt: 0, updatedAt: 0, ...extra });
 const usageRow = (id: string, title: string, spaceName: string, costUsd: number): UsageSessionRow => ({
@@ -79,14 +74,6 @@ const usageRow = (id: string, title: string, spaceName: string, costUsd: number)
 });
 const limits = (agentKind: string, extra: Partial<PlanLimits> = {}): PlanLimits =>
   ({ agentKind, subscriptionType: null, organization: null, windows: [], alert: "none", alertWindow: null, unavailable: null, detail: null, ts: 0, ...extra });
-const summary = (id: string, extra: Partial<TeamReviewSummary> = {}): TeamReviewSummary => ({
-  id, spaceId: "sp2", roleId: "01JROLE0000000000000000000", roleName: "Content Producer", runId: null, sessionId: CODEX, recordPath: null,
-  kind: "launch", title: "Dark mode launch", state: "waiting", note: null, version: 1, itemCount: 2, thumb: "renders/toggle.png",
-  channels: ["instagram"], account: "@realm", to: null, format: "images", verb: "post", changedSinceApproval: false, actsTotal: 0, actsDone: 0,
-  createdAt: 1_790_000_000_000, decidedAt: null, updatedAt: 1_790_000_000_000, ...extra,
-});
-const reviewItem = (id: string, ord: number, extra: Partial<TeamReviewItem>): TeamReviewItem =>
-  ({ id, reviewId: REVIEW, version: 1, ord, files: [], body: null, target: null, contentHash: `h${ord}`, approvedHash: null, actState: "none", ...extra });
 const schedule = (id: string, spaceId: string, title: string, cron: string, extra: Partial<Schedule> = {}): Schedule => ({
   id, spaceId, title, goal: `${title}, as the task says.`, cron, enabled: true, constraints: null, nextRunAt: null, lastRunAt: null, lastRunId: null,
   lastSkippedAt: null, newSessionPerRun: true, archiveSucceeded: false, roleId: null, createdAt: 1_789_000_000_000, updatedAt: 1_789_000_000_000, ...extra,
@@ -129,10 +116,6 @@ async function generate(): Promise<Record<string, unknown>> {
     { id: "01JQUEUED00000000000000001", text: "Then rename the column to theme_mode", attachments: [], ts: 1_790_000_060_000, held: true },
     { id: "01JQUEUED00000000000000002", text: "Use this sketch for the toggle", attachments: [{ path: sketch, mime: "image/png" }], ts: 1_790_000_070_000, held: false },
   ];
-  // The picture the Deck team's post goes out with, in the space's folder.
-  mkdirSync(join(dir, "renders"), { recursive: true });
-  const picture = join(dir, "renders/toggle.png");
-  writeFileSync(picture, "png");
 
   const evs: SessionEvent[] = [
     sessionEvent("user_message", { text: "File the issue, then plan the column", attachments: sent }),
@@ -223,23 +206,6 @@ async function generate(): Promise<Record<string, unknown>> {
       usageRow(OLDER[2]!, "Session", "Realm", 0)],
     budget: { budget: { monthlyUsd: 150, thresholds: [0.5, 0.8, 1], includeEstimated: true }, monthSpendUsd: 61.38, monthStart: 0, projectedUsd: 95.4 },
   };
-  const open = summary(REVIEW, { title: "Dark mode launch: the post, and a note to Dana", channels: ["instagram", "email"] });
-  const reviews = [
-    open,
-    summary(SENT_BACK, { title: "Reply to Dana about the beta", kind: "message", format: "email", verb: "email", itemCount: 1, thumb: null, channels: ["email"],
-      account: "carlton@realm.computer", to: "dana@acme.com", state: "changes", note: "Shorter, and say when it ships", decidedAt: 1_790_000_200_000, updatedAt: 1_790_000_200_000 }),
-    summary(DONE, { title: "Last week's posts", state: "done", decidedAt: 1_789_900_000_000, updatedAt: 1_789_900_000_000 }),
-  ];
-  const detail: TeamReviewDetail = {
-    ...open, previous: [], costUsd: 0.84, durationMs: 120_000, runCapUsd: 3, model: null, recordName: null, checks: [], ledger: [], root: dir, tickets: [],
-    fileTexts: {}, why: "The toggle shipped today; this says so where people will see it.",
-    items: [
-      reviewItem("01JITEM0000000000000000001", 0, { files: ["renders/toggle.png"], body: "Dark mode is here: Settings ▸ App ▸ Theme.",
-        target: { channel: "instagram", account: "@realm" }, format: "images", action: { connector: "channel:instagram", verb: "post", account: "@realm" } }),
-      reviewItem("01JITEM0000000000000000002", 1, { body: "Hi Dana,\n\nDark mode ships on Friday. The beta has it now.\n\nCarlton",
-        meta: { Subject: "Dark mode ships Friday" }, format: "email", action: { connector: "mcp:gmail", verb: "email", account: "carlton@realm.computer", to: "dana@acme.com" } }),
-    ],
-  };
   const tasks: Record<string, Schedule[]> = {
     sp1: [
       schedule(WEEKLY, "sp1", "Weekly review", "0 16 * * 5", { nextRunAt: 1_790_100_000_000 }),
@@ -302,10 +268,6 @@ async function generate(): Promise<Record<string, unknown>> {
     "delegation.running": ((p: { sessionId: string }) => ({ running: p.sessionId === S ? [{ sessionId: WORKER, startedAt: 1_789_999_500_000, detached: true, owned: true }] : [] })) as never,
     "limits.get": (() => ({ limits: plans })) as never,
     "usage.summary": (() => month) as never,
-    "team.overview": (() => [{ spaceId: "sp2", reviews }]) as never,
-    "team.review": ((p: { id: string }) => { if (p.id !== REVIEW) throw new Error(`no review ${p.id}`); return detail; }) as never,
-    "team.reviewApprove": (() => ({ ...open, state: "approved", decidedAt: 1_790_000_300_000, updatedAt: 1_790_000_300_000 })) as never,
-    "team.reviewRequestChanges": ((p: { note: string }) => ({ ...open, state: "changes", note: p.note, decidedAt: 1_790_000_300_000, updatedAt: 1_790_000_300_000 })) as never,
     "schedules.list": ((p: { spaceId: string }) => tasks[p.spaceId] ?? []) as never,
     "schedules.runNow": ((p: { id: string }) => ({ ...tasks.sp1!.find((t) => t.id === p.id)!, lastRunAt: 1_790_000_400_000, lastRunId: NOW_RUN })) as never,
     "runs.get": ((p: { id: string }) => (runs[p.id] ? { run: runs[p.id], attempts: [] } : null)) as never,
@@ -356,10 +318,6 @@ async function generate(): Promise<Record<string, unknown>> {
       "session.subagents": await call("session.subagents", { id: S }),
       "usage.get": await call("usage.get", {}),
       "reviews.list": await call("reviews.list", {}),
-      "review.get": await call("review.get", { id: REVIEW }),
-      "review.file": await call("review.file", { id: REVIEW, path: picture }),
-      "review.decide": await call("review.decide", { id: REVIEW, decision: "approve" }),
-      "review.decide:changes": await call("review.decide", { id: REVIEW, decision: "changes", note: "Say it ships Friday in the caption too" }),
       "schedules.list": await call("schedules.list", {}),
       "schedules.runNow": await call("schedules.runNow", { id: WEEKLY }),
       "session.screens": await call("session.screens", { id: S }),
@@ -422,7 +380,9 @@ describe("mobile.v1 fixtures for RealmKit (PROTOCOL.md §9)", () => {
     const calls = new Set(Object.keys((await generate()).calls as Record<string, unknown>).map((k) => k.split(":")[0]));
     // These answer `{ok: true}`, `{at}` or `{id}`: there is nothing in them for a phone to decode wrongly.
     const plain = ["ping", "session.close", "session.send", "session.answer", "session.stop", "session.seen", "session.create", "debug.report",
-      "session.sendQueuedNow", "session.removeQueued", "session.holdQueued", "session.editQueued"];
+      "session.sendQueuedNow", "session.removeQueued", "session.holdQueued", "session.editQueued",
+      // Review went with the first Teams: these answer only that a review is not found.
+      "review.get", "review.decide", "review.file"];
     expect(Object.keys(MobileCalls).filter((m) => !plain.includes(m) && !calls.has(m))).toEqual([]);
   });
 });

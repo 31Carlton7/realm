@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type AddressInfo } from "node:net";
 import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -49,14 +49,6 @@ const fake = () => new FakeAdapter({ script: [
   ] },
   // A turn that takes a few seconds, so messages sent during it wait in the queue.
   { on: "take your time", emit: [{ kind: "text", text: Array.from({ length: 30 }, (_, i) => `word${i}`).join(" "), paceMs: 120 }] },
-  // A team's role sending its work to Review: a post with its picture, and an email.
-  { on: "send for review", emit: [
-    { kind: "call", tool: "realm-team__review_submit", input: { kind: "launch", title: "Dark mode launch", items: [
-      { files: ["renders/toggle.png"], body: "Dark mode is here.", target: { channel: "instagram", account: "@realm" } },
-      { body: "Hi Dana, it ships Friday.", meta: { Subject: "It ships Friday" } },
-    ] } },
-    { kind: "text", text: "Sent to Review." },
-  ] },
   // The edit changes the file's size: one of the same size, made in the second git last looked at it,
   // can read as unchanged to git's stat check ("racy git"), and the turn would not count it.
   { on: "edit", emit: [
@@ -845,51 +837,11 @@ describe("Plan 29's parity: the queue, sub-agents and Review on a paired phone",
     phone.close();
   });
 
-  it("reads a team's open review on the phone, previews its picture, and decides it through the desktop's Review", async () => {
+  it("answers the phone's Review with nothing in it, now that Review is gone", async () => {
     const r = await boot();
-    const [profile] = await r.mac.call("profiles.list", {});
-    const deck = await r.mac.call("spaces.create", { profileId: profile!.id, name: "Deck" });
-    mkdirSync(join(deck.folderPath, "renders"), { recursive: true });
-    writeFileSync(join(deck.folderPath, "renders", "toggle.png"), png);
-    await r.mac.call("team.make", { spaceId: deck.id, templates: [] });
-    const role = await r.mac.call("team.roleCreate", { spaceId: deck.id, name: "Content Producer", brief: "Make posts.", realmite: { seed: "cp" }, agentKind: "fake", permissionMode: "acceptEdits" });
-    // A card the team's policy draws is the person's to answer, as they would at the Mac.
-    r.mac.onEvent((event, payload) => {
-      if (event !== "session.event") return;
-      const p = payload as EventPayload<"session.event">;
-      if (p.event.type === "permission_request") void r.mac.call("sessions.respondPermission", { id: p.sessionId, requestId: p.event.payload.requestId, decision: "allow" }).catch(() => {});
-    });
-    await r.mac.call("team.roleRun", { id: role.id, message: "send for review" });
-    await waitFor(async () => (await r.mac.call("team.space", { spaceId: deck.id })).reviews.length > 0, { timeout: 15_000 });
     const phone = await pairPhone(r);
-
-    const listed = MobileCalls["reviews.list"].result.parse(await phone.call("reviews.list"));
-    expect(listed.reviews.map((v) => [v.title, v.state, v.spaceName, v.itemCount, v.roleName])).toEqual([["Dark mode launch", "waiting", "Deck", 2, "Content Producer"]]);
-    const id = listed.reviews[0]!.id;
-    const detail = MobileCalls["review.get"].result.parse(await phone.call("review.get", { id }));
-    expect(detail.items.map((i) => [i.title, i.body, i.channel])).toEqual([[null, "Dark mode is here.", "instagram"], ["It ships Friday", "Hi Dana, it ships Friday.", null]]);
-    const [picture] = detail.items[0]!.files;
-    expect(picture).toMatchObject({ name: "toggle.png", mime: "image/png" });
-    expect(await phone.call("review.file", { id, path: picture!.path })).toMatchObject({ name: "toggle.png", preview: { kind: "image", mime: "image/jpeg" } });
-    for (const path of [join(deck.folderPath, "renders"), join(r.home, "realm.db"), "/etc/hosts"]) {
-      await expect(phone.call("review.file", { id, path }), path).rejects.toMatchObject({ code: "FORBIDDEN" });
-    }
-
-    // Asking for changes says what should change; the desktop's Review then shows it sent back, and
-    // the phone hears that its work changed.
-    await expect(phone.call("review.decide", { id, decision: "changes" })).rejects.toMatchObject({ code: "INVALID_PARAMS" });
-    const work = phone.waitFor("work.changed", () => true);
-    const sentBack = MobileCalls["review.decide"].result.parse(await phone.call("review.decide", { id, decision: "changes", note: "Say it ships Friday in the caption too" }));
-    expect(sentBack.review).toMatchObject({ id, state: "changes", note: "Say it ships Friday in the caption too" });
-    expect(await r.mac.call("team.review", { id })).toMatchObject({ state: "changes", note: "Say it ships Friday in the caption too" });
-    await work;
-    expect(MobileCalls["review.decide"].result.parse(await phone.call("review.decide", { id, decision: "approve" })).review.state).toBe("approved");
-    // A yes already given is not given twice: the Mac's own words say why.
-    await expect(phone.call("review.decide", { id, decision: "approve" })).rejects.toMatchObject({ code: "FORBIDDEN", message: expect.stringContaining("approved") });
-    expect(MobileCalls["review.decide"].result.parse(await phone.call("review.decide", { id, decision: "reject", note: "Not this week" })).review).toMatchObject({ state: "rejected", note: "Not this week" });
-    // Rejected, it has come to rest, and leaves the phone's list of what is open.
-    expect(MobileCalls["reviews.list"].result.parse(await phone.call("reviews.list")).reviews).toEqual([]);
-    expect((await r.mac.call("team.review", { id })).state).toBe("rejected");
+    expect(MobileCalls["reviews.list"].result.parse(await phone.call("reviews.list"))).toEqual({ reviews: [] });
+    await expect(phone.call("review.get", { id: "01JREVIEW00000000000000001" })).rejects.toMatchObject({ code: "NOT_FOUND" });
     phone.close();
   });
 });
@@ -983,17 +935,16 @@ describe("Plan 29's parity: what a phone hears, at the moment it hears it", () =
     phone.close();
   });
 
-  it("says once that reviews or scheduled tasks changed, however many of their changes come together", async () => {
+  it("says once that scheduled tasks changed, however many of their changes come together", async () => {
     const { phone, broadcast } = await fakeMac({ sessions: [], items: [] });
     let heard = 0;
     phone.on("work.changed", () => { heard += 1; });
-    broadcast("team.changed", { spaceId: "s1" });
     broadcast("schedules.changed", { spaceId: "s1" });
     broadcast("runs.changed", { spaceId: "s1", run: null });
     broadcast("runs.changed", { spaceId: "s2", run: null });
     await waitFor(() => heard > 0, { timeout: 3_000 });
     await new Promise((res) => setTimeout(res, 1_300));
-    // THE MUTANT: say it for each, and a run's every step has the phone read Review and Scheduled again.
+    // THE MUTANT: say it for each, and a run's every step has the phone read Scheduled again.
     expect(heard).toBe(1);
     phone.close();
   });

@@ -73,8 +73,11 @@ export type Project = z.infer<typeof ProjectSchema>;
  *  item is still the one `findByRefId` answers for the id (`ItemsStore` skips this kind), so nothing
  *  that looks a session's item up can be handed its tab instead.
  *  `app-view` (v2) is a view an MCP server drew for one tool call (MCP Apps), opened as a tab of its
- *  session's side pane. Its `refId` is the VIEW's id — an `app_views` row, which names the session. */
-export const ItemKindSchema = z.enum(["session", "terminal", "browser", "machine", "simulator", "artifact", "context", "diff", "documents", "agents", "app-view", "space-page", "library-page", "connections-page", "code-review-page", "settings-page", "profile-page", "schedules-page", "you-page", "review"]);
+ *  session's side pane. Its `refId` is the VIEW's id — an `app_views` row, which names the session.
+ *  `computer` (Teams v2) is a teammate's computer: where it works, its state, and the sessions it
+ *  started, as a tab of its home session's side pane. Its `refId` is the TEAMMATE's id, never the home
+ *  session's, so `findByRefId` on a session id can never be handed this tab. */
+export const ItemKindSchema = z.enum(["session", "terminal", "browser", "machine", "simulator", "artifact", "context", "diff", "documents", "agents", "app-view", "space-page", "library-page", "connections-page", "code-review-page", "settings-page", "profile-page", "schedules-page", "you-page", "review", "computer"]);
 export type ItemKind = z.infer<typeof ItemKindSchema>;
 
 /**
@@ -411,6 +414,11 @@ export const SessionSchema = z.object({
   /** Set when a delegation tool (or W2's dispatch gesture) created this session; null for every
    *  session the user created themselves. Recorded at creation, never rewritten. */
   dispatchedBy: DispatchedBySchema.nullable(),
+  /** The teammate (teammates.ts) this session belongs to: its home session, or a session it or one of
+   *  its sessions started. Null for the person's own sessions. */
+  teammateId: IdSchema.nullable().default(null),
+  /** This is the teammate's home session — its chat — which the sidebar draws as the teammate. */
+  teammateHome: z.boolean().default(false),
   /**
    * When the conversation last moved: a prompt went out, or the agent answered or finished a turn.
    * What every list of sessions is ordered by.
@@ -419,6 +427,8 @@ export const SessionSchema = z.object({
    * rename — and so moved a row just for being opened. Nothing a reader does moves this one.
    */
   activityAt: z.number().int(),
+  /** The account its agent runs on (`accounts.ts`); null or absent is the CLI's own default account. */
+  accountId: z.string().nullable().optional(),
   ...Timestamps,
 });
 export type Session = z.infer<typeof SessionSchema>;

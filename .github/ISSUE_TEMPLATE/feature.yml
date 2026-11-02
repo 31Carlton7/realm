@@ -1,0 +1,21 @@
+name: Request a feature
+description: Something Realm doesn't do yet, or does in a way that gets in your way.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: work
+    attributes:
+      label: What you're trying to do
+      description: The work you're doing when Realm gets in the way, in your own words.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+      description: What you'd want Realm to do. Another app that does it well is worth naming.
+  - type: textarea
+    id: today
+    attributes:
+      label: What you do today
+      description: How you get it done now, if you do.

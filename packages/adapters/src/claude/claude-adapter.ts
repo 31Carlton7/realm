@@ -399,13 +399,8 @@ export class ClaudeAdapter implements AgentAdapter {
       if (permissionMode === ASK_PERMISSION_MODE && !askTools.has(toolName)) {
         return { behavior: "deny", message: `This session is in Ask mode: read-only. ${toolName} cannot run. Reading, searching (Grep, Glob) and web lookups are available; to change files or run commands, the user has to leave Ask.` };
       }
-      // A team's policy answers for its gateway's tools itself, drawing the one card owed (one card,
-      // not two). Only an MCP tool reaches it; a command or an edit asks as it always has.
-      if (toolName.startsWith("mcp__") && opts.gatewayDecides && await opts.gatewayDecides(toolName).catch(() => false)) {
-        return { behavior: "allow", updatedInput: toolInput };
-      }
-      // Cancelled while the policy decided: the abort has already fired, and the listener below
-      // would never hear it, so a card drawn now could never be cleared.
+      // Already cancelled: the abort has fired, and the listener below would never hear it, so a card
+      // drawn now could never be cleared.
       if (o.signal.aborted) return { behavior: "deny", message: "aborted" };
       const requestId = newId();
       const suggestions = o.suggestions ?? [];
@@ -688,7 +683,7 @@ export class ClaudeAdapter implements AgentAdapter {
         // Here rather than beside the `env` above because `start` is synchronous and the helper is a
         // child process; the first prompt waits on the input queue either way. ONLY the skills case:
         // everyone else's CLI reads the file itself, and their env must stay byte-for-byte what it was.
-        if (opts.skills) options.env = { ...process.env, ...(await carrySettingsAuth({ env: process.env, overrides: opts.env, cwd: opts.cwd, onLog: onStderr })), ...opts.env };
+        if (opts.skills) options.env = { ...process.env, ...(await carrySettingsAuth({ env: { ...process.env, ...opts.env }, overrides: opts.env, cwd: opts.cwd, onLog: onStderr })), ...opts.env };
         if (disposed) return; // dispose stopped waiting mid-carry; a dead session must not spawn a CLI
         q = this.queryFn({ prompt: input, options });
         qSpawned();

@@ -374,7 +374,7 @@ describe("a session's row", () => {
     // (Closing the room's last pane lands in a fresh session, which is the store's rule, not the row's.)
     await waitFor(() => expect(rowsIn("Versed")).not.toContain("Alpha"));
     fireEvent.click(within(section("Homework")).getByRole("button", { name: "Archive Wants a yes" }));
-    await waitFor(() => expect(rowsIn("Homework")).toEqual(["New session"])); // an empty space's one row
+    await waitFor(() => expect(rowsIn("Homework")).toEqual(["New session", "Add a teammate"])); // an empty space's two ways in
     expect(api.data.items.s2![0]!.archived).toBe(true);
   });
 

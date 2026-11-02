@@ -26,7 +26,7 @@ channel carries every feature below that touches a native view.
 1. [A turn, from the prompter to the transcript](#a-turn-from-the-prompter-to-the-transcript)
 2. [Permission prompts and modes](#permission-prompts-and-modes)
 3. [Sub-agents and delegation](#sub-agents-and-delegation)
-4. [Teams, roles and Review](#teams-roles-and-review)
+4. [Teammates](#teammates)
 5. [Scheduled tasks, runs and goals](#scheduled-tasks-runs-and-goals)
 6. [The browser pane, the browser agent and saved passwords](#the-browser-pane-the-browser-agent-and-saved-passwords)
 7. [Documents and the Library](#documents-and-the-library)
@@ -212,48 +212,46 @@ child.
 - `apps/server/src/delegation/children.ts:DelegatedChildren`
 - `apps/desktop/src/renderer/src/panes/agents-tab/AgentsTab.tsx:AgentsTab`, `apps/desktop/src/renderer/src/panes/agents-tab/SubagentViewer.tsx:SubagentViewer`
 
-## Teams, roles and Review
+## Teammates
 
-A team is a space with at least one role. A role is a saved agent: a brief, an agent and model,
-skills, a clock and its budgets. The team code never starts a session itself. A role is woken by its
-schedule, by Run now, by a handoff or mention, or by your answer in Review, and every wake becomes a
-run. A run is admitted only if it fits (one per role, two per team, three unattended across Realm)
-and is dispatched into a session in Full access, with the team's policies enforced at the gateway
-instead of by cards. The role hands work back with `review_submit`, which lands in Review. Approving
-records what you approved and issues a ticket per outward act; requesting changes or rejecting wakes
-the role again in its own session.
+A teammate is a permanent agent in a space that you message. It has a name, a brief, an icon (a
+shape and a colour), an agent and model, a permission mode, a working folder and, for one per space,
+the Lead flag. Each teammate owns one home session, an ordinary session flagged `teammateHome`, and
+its transcript is the chat. Real work happens in task sessions the teammate starts with
+`agent_start`. They are ordinary delegated children carrying the teammate's id, they run in its
+permission mode, and they are titled `<handle> - <task>`. Teammates reach each other with two tools
+every session in a space with teammates is given: `team_list` and `team_message {to, message, wait}`.
+A message lands in the target's home session as a turn signed by the sender, queued behind a live
+turn. With `wait` the call returns the reply. An `@handle` in any prompter passes the message the
+same way.
 
 ```mermaid
 flowchart TD
-  clock["Schedule tick<br/>(the role's cron)"] --> wake
-  runNow["Run now"] --> wake
-  handoff["Handoff, mention or goal"] --> wake
-  wake["TeamService.wake"] --> run["RunService.create"]
-  run --> admit{"admit: 1 per role,<br/>2 per team, 3 unattended"}
-  admit -- "no room" --> queued["stays queued"]
-  admit -- "fits" --> dispatch["RunService.dispatch<br/>session in Full access,<br/>role preamble"]
-  dispatch --> session["Role session"]
-  session -- "every call to the gateway" --> gate["PolicyGate.check"]
-  session -- "review_submit" --> submit["TeamService.submit<br/>items with content hashes"]
-  submit --> review["ReviewPane<br/>Needs you"]
-  review -- "Approve" --> act["ActService.issue<br/>one ticket per outward act"]
-  review -- "Request changes or Reject" --> wake
-  act --> press["PostSheet press<br/>main's TicketPresses"]
+  row["Sidebar row (TeamSection)"] --> open["openTeammate<br/>teammates.home"]
+  open --> chat["Home session pane<br/>headed by the teammate"]
+  open --> computer["Computer tab<br/>(computer item)"]
+  chat -- "message" --> home["Home session turn"]
+  home -- "agent_start" --> task["Task session<br/>teammateId, its mode"]
+  task -- "team_message" --> other["Another teammate's<br/>home session"]
+  other -- "agent_start" --> handoff["Hand-off task<br/>nested under the asker"]
+  computer -- "teammates.sessions" --> list["Sessions, nested, ↳ counted"]
 ```
 
-Posting is gated twice: the ticket exists only after approval, and the act happens only when you
-press it in the post sheet, which asks Electron main over the host bridge. The adapter that would
-post outward is `NotConnectedAdapter` in 2.3.0, so that last step is built up to the press and no
-further.
+In the window, a teammate's page is its home session's pane. `usePaneHead` puts the teammate in
+the bar, `useTeammateMenu` adds Edit, Lead and Archive to the menu, and the prompter reads "Message
+<name>". Its computer is a `computer` item, whose refId is the teammate, opened as a tab of the home
+session's side panel. The sidebar lists teammates at the top of their space, and leaves their home
+and task sessions out of the loose session list.
 
 **Key files**
 
-- `packages/contracts/src/team.ts:TeamRoleSchema`
-- `apps/server/src/team/service.ts:TeamService` (`wake`, `admit`, `submit`, `approve`, `requestChanges`, `reject`)
-- `apps/server/src/runs/service.ts:RunService`, `runPermissionMode`
-- `apps/server/src/team/policies/gate.ts:PolicyGate`
-- `apps/server/src/team/acts/service.ts:ActService`, `apps/server/src/team/acts/adapters.ts:NotConnectedAdapter`
-- `apps/desktop/src/renderer/src/panes/team/ReviewPane.tsx:ReviewPane`, `apps/desktop/src/renderer/src/panes/team/TeamPages.tsx:TeamPage`
+- `packages/contracts/src/teammates.ts:TeammateSchema`, `sessionLink`
+- `apps/server/src/teammates/service.ts:TeammatesService` (`create`, `home`, `message`, `sessions`, `teamMessage`, `homePreamble`)
+- `apps/server/src/teammates/agent-tools.ts:createTeammatesProvider`
+- `apps/desktop/src/renderer/src/state/teammates-slice.ts:teammatesSlice`
+- `apps/desktop/src/renderer/src/components/sidebar/TeamSection.tsx:TeamSection`
+- `apps/desktop/src/renderer/src/panes/teammate/ComputerPane.tsx:ComputerPane`, `TeammateHead.tsx:TeammateHead`, `TeammateSheet.tsx:TeammateSheet`
+- `packages/ui/src/teammate-icon/TeammateIcon.tsx:TeammateIcon`
 
 ## Scheduled tasks, runs and goals
 

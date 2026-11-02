@@ -12,8 +12,9 @@ import type { SpacesStore } from "../store/spaces";
 import type { SettingsStore } from "../store/settings";
 import type { TerminalService } from "../terminals/service";
 import { NotFoundError, RpcError } from "../store/rows";
-import { shouldSurfaceWrite } from "@realm/contracts";
+import { buildHandoffContext, defaultAccountId, hasAccounts, shouldSurfaceWrite, switchNote, type AccountKind } from "@realm/contracts";
 import type { FailoverHooks } from "./failover";
+import { handOver, modeAfterSwitch, modelNameOf } from "./handover";
 import { portEnv, type PortAllocator } from "../workspace/ports";
 import type { WorktreeService } from "../workspace/worktrees";
 import type { CheckpointService } from "../checkpoints/service";
@@ -44,11 +45,15 @@ export type SendMessage = { text: string; attachments: { path: string; mime: str
    *  else: what the AGENT is handed is the same prompt either way. */
   goal?: "continuation" | "budget";
   /** A scheduled task's run, and the note the run appended to the task's instructions — the same
-   *  transcript-only ride as `goal`: the agent is handed the text, note and all. */
-  scheduled?: { task: string; note: string };
+   *  transcript-only ride as `goal`: the agent is handed the text, note and all. `scheduleId` names
+   *  a teammate's clock, which writes into its chat with no run behind it. */
+  scheduled?: { task: string; note: string; scheduleId?: string };
+  /** The mode this turn runs in, set on the session as the turn goes out — after any turn it was
+   *  queued behind has ended, so that one keeps the mode it ran in. It stays, as the chip's would. */
+  permissionMode?: string;
   /** Written by another session's agent (`session_open`'s first message) — transcript-only, as `goal`
    *  is, so the pane never shows an agent's words as something the user typed. */
-  from?: { sessionId: string; title: string };
+  from?: { sessionId: string; title: string; teammateId?: string };
   /** Realm's word to the agent about what changed around it since its last message — the teammates it
    *  was given. On the wire after the user's text, and never on the transcript, which keeps what the
    *  user typed. */
@@ -81,6 +86,8 @@ export type CreateSessionInput = { spaceId: string; agentKind: AgentKind; projec
   /** Plan 13 W1: the dispatch origin recorded on the row when a delegation tool (or W2's dispatch
    *  gesture) creates the session. Absent/null for every user-created session — never defaulted. */
   dispatchedBy?: import("@realm/contracts").DispatchedBy | null;
+  /** A teammate's home session, or a session its agent started (`teammates/service.ts`). */
+  teammate?: { id: string; home: boolean; askedBy?: string | null } | null;
   /** No item row, and so no place in any list — see `sessions.create`'s schema. */
   unlisted?: boolean };
 
@@ -229,10 +236,25 @@ export class SessionService {
   private secrets = new SecretAnswers();
   /** Set while the daemon is going quiet for a handoff. See `ensureLive` for the rule that matters. */
   private draining = false;
+  /** Sessions changing agents (`switchAgent`). A message sent meanwhile waits for the switch, so it is
+   *  the new agent's first rather than one more for the agent being left. */
+  private switching = new Map<string, Promise<unknown>>();
   constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; settings: SettingsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry; skills: SkillsService; gateway: McpGateway; memory: MemoryService; checkpoints?: CheckpointService;
     /** Failover (fallbacks + forks). Optional so a server built without it behaves exactly as
      *  before: no retries, no handoffs, an error is an error. */
     failover?: FailoverHooks;
+    /** What a switch hands the incoming agent (`sessions/handover.ts`): the hand-off note, written on
+     *  the frontier model and saved under Realm's home. Optional — without it a switch still happens,
+     *  carrying the conversation verbatim, and writes no file. */
+    handoffNotes?: { write(session: Session, sides: { from: string; to: string }): Promise<{ path: string; notes: string }> };
+    /** The accounts an agent runs on (`accounts/service.ts`): the folder variable a session's engine
+     *  starts under, and carrying a conversation between two accounts' folders. Optional — without it
+     *  every session runs on its CLI's own folder. */
+    accounts?: {
+      envFor(kind: AgentKind, accountId: string | null | undefined): Record<string, string>;
+      accountFor(kind: AgentKind, accountId: string | null | undefined): { label: string } | null;
+      carry(kind: AgentKind, providerSessionId: string, fromId: string | null, toId: string | null): Promise<boolean>;
+    };
     /** The Seatbelt policy an agent CLI is spawned under. Optional so a harness built without it
      *  spawns exactly what Realm spawned before this feature existed. */
     sandbox?: ExecutionSandboxService;
@@ -296,12 +318,8 @@ export class SessionService {
       claim(sessionId: string, toolUseId: string): AppViewRef | null;
       forget(sessionId: string): void;
     };
-    /** A team's policies (team/policies/gate.ts). Where the gate at Realm's gateway answers for a call
-     *  itself, the engine's own MCP approval is answered before it draws a card, so the person sees one
-     *  card — the policy's. And a role's run is told it is one, so Codex pins its sandbox's network
-     *  off. Optional: without it every session starts as it always did. */
     /** Whether something other than a turn is counting on this session's engine staying up — an
-     *  active goal, a durable run (schedule, team role), a delegation either end of it. The idle
+     *  active goal, a durable run, a delegation either end of it. The idle
      *  reaper never stops an engine this answers true for. */
     keepEngine?: (sessionId: string) => boolean;
     /** The idle window as memory pressure leaves it (`adaptIdleMinutes`): shorter when the Mac is
@@ -311,13 +329,12 @@ export class SessionService {
      *  server, a watcher — read off the process table (`resources/`). Asked only when an engine is
      *  about to be reaped; absent, no engine is assumed to hold one. */
     backgroundShells?: () => Promise<ReadonlySet<string> | null>;
-    teamPolicy?: {
-      decides(sessionId: string, spaceId: string, gatewayTool: string): Promise<boolean>;
-      isRoleRun(sessionId: string): boolean;
-    };
     /** Teammates the person added (`delegation/teammates.ts`): what this session's agent is told about
      *  them on its next message, spent by asking. Optional — without it nothing is ever added. */
     teammates?: { joinedNote(sessionId: string): string };
+    /** A teammate's home session is told who it is and who its team is on every start
+     *  (`teammates/service.ts`). Undefined for every other session. */
+    teammateHome?: { contextFor(sessionId: string): string | undefined };
     /** Where a session's engine keeps its own memory (`memory/claude-redirect.ts`): the space's folder
      *  of the user's memory repo, and what is committed when a Claude turn settles. Optional — without
      *  it every engine keeps its memory where it always has. */
@@ -417,7 +434,7 @@ export class SessionService {
     const title = input.title?.trim() || DEFAULT_TITLE;
     // A named mode travels verbatim; null (the instant-create paths) is the user's configured default.
     const permissionMode = input.permissionMode ?? resolveDefaultPermissionMode(input.agentKind, this.d.settings.get(DEFAULT_PERMISSION_MODE_KEY));
-    const session = this.d.sessions.create({ spaceId: input.spaceId, projectId: project?.id ?? null, agentKind: input.agentKind, model: input.model, effort: input.effort, permissionMode, environmentId: env.id, title, dispatchedBy: input.dispatchedBy ?? null });
+    const session = this.d.sessions.create({ spaceId: input.spaceId, projectId: project?.id ?? null, agentKind: input.agentKind, model: input.model, effort: input.effort, permissionMode, environmentId: env.id, title, dispatchedBy: input.dispatchedBy ?? null, teammate: input.teammate ?? null });
     /* An UNLISTED session gets no item, and so appears in no list anywhere — see `sessions.create`'s
        schema for what that is for. No broadcast either: nothing about this space's items changed,
        and telling every client otherwise would have them all re-fetch to find that out. */
@@ -453,6 +470,7 @@ export class SessionService {
    * delegation and run services send into children they have just created — reads the setting.
    */
   async send(id: string, msg: SendMessage, delivery: "auto" | "queue" | "steer" = "auto"): Promise<void> {
+    await this.switching.get(id)?.catch(() => {});
     // `waiting_permission` counts: the turn has not ended, it is blocked on a card the user has not
     // answered. The prompter draws both states the same way for the same reason, and a message typed
     // against an open permission card is the one most likely to be a correction.
@@ -719,6 +737,7 @@ export class SessionService {
     // An app the message mentions is granted BEFORE the handle starts, so a session that starts on
     // this message lists the computer tools from its first read of them.
     await this.grantMentionedApps(id, msg);
+    if (msg.permissionMode !== undefined && msg.permissionMode !== this.get(id).permissionMode) await this.setOptions(id, { permissionMode: msg.permissionMode });
     // Stopped the way the idle sweep stops an engine, so this message starts a fresh one that resumes
     // the conversation in the mode the old one could not switch to.
     if (this.restartOwed.delete(id)) void this.reap(id);
@@ -732,7 +751,7 @@ export class SessionService {
     // The teammates this session was given since its last message, told on this one — before the
     // failover keeps the message, so a retry of the turn says it again.
     const joined = this.d.teammates?.joinedNote(id);
-    if (joined) msg = { ...msg, note: joined };
+    if (joined) msg = { ...msg, note: `${msg.note ?? ""}${joined}` };
     // Recorded BEFORE the message goes out, because the failure this enables recovery from can
     // arrive on the very first event back. A new turn also clears the previous one's retry budget
     // and chain position — those are per-turn, not per-session.
@@ -916,13 +935,15 @@ export class SessionService {
     return { interrupted };
   }
 
-  async interrupt(id: string): Promise<void> {
+  /** `keepDelegated`: the caller has settled this session's delegated runs itself, and only the turn
+   *  is stopped (a teammate's clock running past its time keeps the task sessions it started). */
+  async interrupt(id: string, opts: { keepDelegated?: boolean } = {}): Promise<void> {
     this.get(id);
     // Interrupting a session also cancels its delegated browser-agent run (W5): the child is
     // interrupted and the blocked `browser_agent_run` call resolves as cancelled. BEFORE the handle
     // interrupt, and unconditional — the run wait lives in the gateway, not the adapter, so it must
     // be cancelled even when the parent's adapter process is already gone.
-    this.d.browserAgents?.parentInterrupted(id);
+    if (!opts.keepDelegated) this.d.browserAgents?.parentInterrupted(id);
     // A scheduled retry dies with the turn it belonged to. Resuming work somebody just cancelled is
     // the rudest thing failover could do, and the one that would make people turn it off.
     this.d.failover?.cancel(id);
@@ -1013,7 +1034,95 @@ export class SessionService {
     if (s.agentKind === agentKind) return s;
     if (!this.d.adapters[agentKind]) throw new RpcError("AGENT_UNAVAILABLE", `${agentKind} is not registered`);
     if (this.d.events.hasAny(id)) throw new RpcError("SESSION_STARTED", "this session has already run; its agent can no longer be changed");
-    return this.d.sessions.update({ id, agentKind, model: null });
+    return this.d.sessions.update({ id, agentKind, model: null, accountId: null });
+  }
+
+  /**
+   * Move a session onto another agent mid-conversation — the picker's switch (`sessions.switchAgent`).
+   *
+   * An untouched session is only re-pointed, as `setAgent` does. One that has run hands over in place,
+   * by the move failover makes (`handOver`) with the person's reason on it: Realm writes a hand-off
+   * note of the conversation (`HandoffNotes`), and the new agent's next start is handed it as system
+   * context with the file's path. The permission mode stays where the new agent can be put in it and
+   * otherwise goes to the default, as a fork's does.
+   *
+   * Refused while a turn is live: a switch is about the next turn, and stopping one mid-write to
+   * change agents under it is what Stop is for, not the picker.
+   */
+  async switchAgent(id: string, o: { agentKind: AgentKind; model?: string | null; effort?: string | null }): Promise<Session> {
+    const s = this.get(id);
+    if (!this.d.adapters[o.agentKind]) throw new RpcError("AGENT_UNAVAILABLE", `${o.agentKind} is not registered`);
+    if (s.agentKind === o.agentKind || !this.d.events.hasAny(id)) {
+      if (s.agentKind !== o.agentKind) this.setAgent(id, o.agentKind);
+      if (o.model || o.effort !== undefined) return this.setOptions(id, { ...(o.model ? { model: o.model } : {}), ...(o.effort !== undefined ? { effort: o.effort } : {}) });
+      return this.get(id);
+    }
+    this.refuseMidTurn(s, "switch");
+    await this.whileSwitching(id, (async () => {
+      const probes = await this.probe();
+      const sides = { from: modelNameOf(s.agentKind, s.model, probes), to: modelNameOf(o.agentKind, o.model ?? null, probes) };
+      // Accounts are an agent's own, so the new one starts on its CLI's own folder.
+      await this.switchOver(s, { agentKind: o.agentKind, model: o.model ?? null, effort: o.effort ?? null, accountId: null }, sides);
+    })());
+    return this.get(id);
+  }
+
+  /**
+   * Run a session on another of its agent's accounts (`sessions.setAccount`).
+   *
+   * The engine is stopped — it was started under the old account's folder — and the provider's own
+   * record of the conversation is copied into the new account's, so the next turn resumes it there as
+   * it was and nothing is said in the transcript, because nothing about the conversation changed.
+   * Where the record cannot be carried the session moves the way a switch of agents does: a fresh
+   * conversation with a hand-off note, and a line saying so.
+   */
+  async setAccount(id: string, accountId: string | null): Promise<Session> {
+    const s = this.get(id);
+    if ((s.accountId ?? null) === accountId) return s;
+    const accounts = this.d.accounts;
+    const to = accounts?.accountFor(s.agentKind, accountId ?? (hasAccounts(s.agentKind) ? defaultAccountId(s.agentKind) : null));
+    if (!accounts || !to) throw new RpcError("BAD_REQUEST", `that account is not one of ${AGENT_META[s.agentKind].label}'s`);
+    this.refuseMidTurn(s, "switch accounts");
+    const carried = async () => {
+      await this.reap(id);
+      if (s.providerSessionId === null || await accounts.carry(s.agentKind, s.providerSessionId, s.accountId ?? null, accountId)) {
+        this.d.sessions.update({ id, accountId });
+        return;
+      }
+      const from = accounts.accountFor(s.agentKind, s.accountId ?? defaultAccountId(s.agentKind as AccountKind))?.label ?? AGENT_META[s.agentKind].label;
+      await this.switchOver(s, { agentKind: s.agentKind, model: s.model, effort: s.effort, accountId }, { from, to: to.label });
+    };
+    await this.whileSwitching(id, carried());
+    return this.get(id);
+  }
+
+  /** A switch waits out a live turn rather than pulling the agent out from under it. */
+  private refuseMidTurn(s: Session, what: string): void {
+    if (s.status === "running" || s.status === "waiting_permission") {
+      throw new RpcError("SESSION_BUSY", `${AGENT_META[s.agentKind].label} is still working on this turn. Stop it or let it finish, then ${what}.`);
+    }
+    if (this.switching.has(s.id)) throw new RpcError("SESSION_SWITCHING", "this session is already switching");
+  }
+
+  /** Held from before the switch's first await, so no message can slip in ahead of it. */
+  private async whileSwitching(id: string, work: Promise<void>): Promise<void> {
+    this.switching.set(id, work);
+    try { await work; } finally { this.switching.delete(id); }
+  }
+
+  private async switchOver(s: Session, o: { agentKind: AgentKind; model: string | null; effort: string | null; accountId: string | null }, sides: { from: string; to: string }): Promise<void> {
+    const written = (await this.d.handoffNotes?.write(s, sides)) ?? null;
+    // Torn down the way an idle engine is (`reap`): the session is as idle as it was, and an engine
+    // leaving is not news a reader needs beside the line that says why.
+    await handOver({ sessions: this.d.sessions, settings: this.d.settings, stop: (id) => this.reap(id), emit: (id, ev) => this.onEvent(id, ev) }, s, {
+      to: o.agentKind, model: o.model, effort: o.effort, accountId: o.accountId,
+      permissionMode: modeAfterSwitch(o.agentKind, s.permissionMode, resolveDefaultPermissionMode(o.agentKind, this.d.settings.get(DEFAULT_PERMISSION_MODE_KEY))),
+      context: () => buildHandoffContext({
+        from: s.agentKind, turns: this.d.events.transcript(s.id, Date.now()),
+        ...(written ? { switched: { notes: written.notes, path: written.path } } : {}),
+      }),
+      event: { from: s.agentKind, to: o.agentKind, reason: "switch", note: switchNote(sides.from, sides.to), attempt: 0, ...(written ? { summaryPath: written.path } : {}) },
+    });
   }
 
   /**
@@ -1757,6 +1866,9 @@ export class SessionService {
     // text. LAST, so it is the most recent thing the incoming agent reads — and re-injected on every
     // start rather than sent once, because the adapter it is briefing can be restarted at any time.
     const handoffContext = this.d.failover?.extraSystemContext(id);
+    // A teammate's chat: who it is, its team as it is now, and how it works. Beside the capabilities
+    // rather than in place of them, because a teammate works with every tool a session has.
+    const teammateContext = this.d.teammateHome?.contextFor(id);
     // What Realm's own tools are for, named while the agent is still planning rather than left to be
     // discovered in a tool list it may never read (capabilities.ts). FIRST in the join: it is the most
     // general thing in the prompt, and the user's memory documents must be able to overrule it.
@@ -1778,7 +1890,7 @@ export class SessionService {
     // leave realm-server — an agent reaches them only by proxy, through the Bearer token below, which
     // `onLog` (like every other log line here) never sees.
     const mcpServers = [this.d.gateway.register(id, s.spaceId, noChannel ? preamble : undefined)];
-    const joined = [capabilities, baseContext, agentContext, handoffContext].filter((p): p is string => Boolean(p)).join("\n\n");
+    const joined = [capabilities, baseContext, teammateContext, agentContext, handoffContext].filter((p): p is string => Boolean(p)).join("\n\n");
     const systemContext = joined.length > 0 ? joined : undefined;
     // The fork a checkpoint restore armed, if one is still waiting. Read off the ROW and not from
     // memory: a restore is refused while any handle in the checkout is live, so the arm is by
@@ -1797,14 +1909,11 @@ export class SessionService {
       systemContext,
       ...(memoryDir ? { memoryDirectory: memoryDir } : {}),
       // The port block, plus `REALM_SANDBOX*` — a statement of the posture this process was started
-      // under, for a log line or a bug report to read. Nothing reads them back.
-      env: { ...(env ? portEnv(env) : {}), ...this.d.sandbox?.env(s.spaceId) },
+      // under, for a log line or a bug report to read. Nothing reads them back. Then the folder of the
+      // account the session runs on, which is what the CLI signs in with.
+      env: { ...(env ? portEnv(env) : {}), ...this.d.sandbox?.env(s.spaceId), ...this.d.accounts?.envFor(s.agentKind, s.accountId) },
       ...(wrap ? { wrap } : {}),
       ...(fork ? { resumeAt: fork.at, resumeDropsTurn: fork.dropsTurn } : {}),
-      ...(this.d.teamPolicy ? {
-        gatewayDecides: (toolName: string) => this.gatewayDecides(id, s.spaceId, mcpServers[0]!.name, toolName),
-        roleRun: this.d.teamPolicy.isRoleRun(id),
-      } : {}),
       onLog: (line) => console.error(`[session ${id.slice(-6)}] ${line}`),
     };
     let handle: AgentHandle;
@@ -1991,17 +2100,6 @@ export class SessionService {
     if (ev.type !== "tool_result" || ev.payload.view) return ev;
     const view = this.d.views.claim(id, ev.payload.toolUseId);
     return view ? { ...ev, payload: { ...ev.payload, view } } : ev;
-  }
-
-  /**
-   * Whether the engine's own approval for this MCP tool is already answered: a call to Realm's gateway
-   * (`mcp__<gateway>__<tool>`) that the team's policy decides itself. Any other server's tool, or an
-   * error asking, is the engine's to ask about as it always has.
-   */
-  private async gatewayDecides(id: string, spaceId: string, gateway: string, toolName: string): Promise<boolean> {
-    const prefix = `mcp__${gateway}__`;
-    if (!this.d.teamPolicy || !toolName.startsWith(prefix)) return false;
-    try { return await this.d.teamPolicy.decides(id, spaceId, toolName.slice(prefix.length)); } catch { return false; }
   }
 
   /** Keep `turnSeen` for the turn in flight: a `user_message` opens it, each tool call counts, and the

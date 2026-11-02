@@ -21,6 +21,7 @@ import { CatalogFontSchema, InstalledFontSchema, StoredThemeSchema } from "./the
 import { McpCallSchema, McpSecretsSchema, McpServerNameSchema, McpServerSchema, McpServerStatusSchema, McpToolSchema, McpTransportSchema, McpOauthStatusSchema, McpSignInOptionsSchema } from "./mcp";
 import { AppViewSchema } from "./mcp-apps";
 import { CLAUDE_PROJECT_LEFT_OUT, MEMORY_DOC_MAX, MemoryClaudeBackfillSchema, MemoryClaudeImportSchema, MemoryRemoteCheckSchema, MemoryRepoCommitSchema, MemoryRepoScopeSchema, MemoryRepoStateSchema, MemorySourcesSchema, MemoryStateSchema } from "./memory";
+import { MemoryLibraryEntrySchema, MemoryLibraryFileSchema, MemoryLibrarySourceSchema, MemoryLibraryTypeSchema } from "./memory-library";
 import { NotificationSchema } from "./notifications";
 import { RunAttemptSchema, RunConstraintsSchema, RunSchema, RunStateSchema } from "./runs";
 import { ReviewResultSchema } from "./review";
@@ -34,14 +35,9 @@ import { ImportResultSchema, ImportScanSchema } from "./import";
 import { GuideProgressSchema, GuideStorageSchema } from "./documents";
 import { UsageBucketSchema, UsageBudgetSchema, UsageDaySchema, UsageRecordsSchema, UsageSummarySchema } from "./usage";
 import { PlanLimitsSchema } from "./plan-limits";
+import { AccountSchema } from "./accounts";
 import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./schedules";
-import { ActTicketSchema } from "./team-acts";
-import { TeamPoliciesSchema, TeamPolicyInputSchema, TeamPolicyRowSchema, ToolClassInputSchema, ToolClassSetResultSchema } from "./team-policy";
-import { CreateRoleSchema, CustomRoleSchema, RoleRunSchema, TeamActivitySchema, TeamRecordSchema, TeamRecordSummarySchema, TeamReviewDetailSchema, TeamReviewSummarySchema, TeamRoleSchema, TeamSpaceSchema, UpdateRoleSchema } from "./team";
-import { VaultGrantInputSchema, VaultGrantSchema, VaultUseSchema } from "./vault";
-import { SetRoleHandoffsSchema, SetTeamLimitsSchema } from "./team-handoffs";
-import { CreateRecordTypeSchema, TeamRecordTypeSchema, UpdateRecordTypeSchema } from "./team-record-types";
-import { LabAccountSchema, LabDeviceKindSchema, LabDevicesSchema, LabReadinessSchema, LabStatusSchema } from "./lab";
+import { CreateTeammateSchema, ReorderTeammatesSchema, TeammateSchema, TeammateTaskSessionSchema, UpdateTeammateSchema } from "./teammates";
 import { GuestSpecSchema, MachineSchema, MachineSourceSchema, MachineStateSchema, VncEndpointSchema } from "./machine";
 import { MAX_SESSION_REFS, SessionRefSchema } from "./session-refs";
 import { MAX_MENTION_REFS, MENTION_FILES_LIMIT, MentionRefSchema } from "./mention-refs";
@@ -342,6 +338,8 @@ const CliJobStartSchema = z.object({
 export const AgentSignInSchema = z.object({
   id: z.string(),
   kind: AgentKindSchema,
+  /** The account being signed in (`accounts.ts`), where it is not the CLI's own default folder. */
+  accountId: z.string().nullable().optional(),
   state: z.enum(["starting", "browser", "code", "done", "failed", "cancelled"]),
   url: z.string().nullable(),
   detail: z.string().nullable(),
@@ -1098,6 +1096,20 @@ export const Methods = {
   "agentSignIn.code": { params: z.object({ id: z.string(), code: z.string().min(1).max(4096) }), result: z.object({ ok: z.literal(true) }) },
   /** Stop a sign-in that is still running. Idempotent: a finished one is left as it finished. */
   "agentSignIn.cancel": { params: z.object({ id: z.string() }), result: z.object({ ok: z.literal(true) }) },
+  /**
+   * The accounts each agent CLI can run on (`accounts.ts`): the CLI's own folder, and every one added
+   * here. `refresh` asks each CLI again whether its accounts are signed in, and as whom.
+   */
+  "accounts.list": { params: z.object({ refresh: z.boolean().optional() }), result: z.object({ accounts: z.array(AccountSchema) }) },
+  /** Make a folder for a new account under Realm's home and start the CLI's own login in it. Answers
+   *  with the account and the sign-in's first state; the rest arrive as `agentSignIn.changed`. */
+  "accounts.add": { params: z.object({ kind: AgentKindSchema, label: z.string().trim().min(1).max(60).optional() }), result: z.object({ account: AccountSchema, signIn: AgentSignInSchema }) },
+  /** Sign an existing account in again. */
+  "accounts.signIn": { params: z.object({ id: z.string() }), result: AgentSignInSchema },
+  "accounts.rename": { params: z.object({ id: z.string(), label: z.string().trim().min(1).max(60) }), result: AccountSchema },
+  /** Sign an added account out and delete its folder; its sessions go back to the default account.
+   *  Refused for the default account, and while a session on it is working. */
+  "accounts.remove": { params: z.object({ id: z.string() }), result: z.object({ ok: z.literal(true) }) },
   "settings.get": { params: z.object({ key: z.string() }), result: z.object({ value: z.unknown() }) },
   "settings.set": { params: z.object({ key: z.string(), value: z.unknown() }), result: z.object({ ok: z.literal(true) }) },
 
@@ -1489,6 +1501,40 @@ export const Methods = {
    */
   "memory.repo.setClaudeProject": { params: z.object({ profileId: IdSchema, project: z.string().regex(/^[A-Za-z0-9-]{1,255}$/), into: z.union([IdSchema, z.literal(CLAUDE_PROJECT_LEFT_OUT)]) }), result: MemoryClaudeBackfillSchema },
 
+  /**
+   * The memory library: every Markdown memory file an agent on this Mac reads, for one profile — its
+   * memory repos and documents, and each agent's own files for every space of the profile. Only
+   * sources that exist are listed, each with whether Realm's agents read it and how.
+   */
+  "memory.library.sources": { params: z.object({ profileId: IdSchema }), result: z.object({ sources: z.array(MemoryLibrarySourceSchema) }) },
+  /** Every memory file of one source, or of all of them, newest first; with `query`, the files that
+   *  match it, best first, each with its best line. */
+  "memory.library.list": { params: z.object({ profileId: IdSchema, sourceId: z.string().optional(), query: z.string().max(500).optional() }), result: z.object({ entries: z.array(MemoryLibraryEntrySchema) }) },
+  /** One file, whole: its body, frontmatter, links and who reads it — in `profileId`'s spaces, for a file
+   *  every profile shares. Refuses any id that is not a file a source lists (MEMORY_FILE_NOT_FOUND): the
+   *  library reads nothing else. */
+  "memory.library.read": { params: z.object({ id: z.string().min(3).max(2000), profileId: IdSchema.optional() }), result: MemoryLibraryFileSchema },
+  /**
+   * Replace a file's text. A Realm repo's file is one commit, as an agent's save is; a memory document
+   * is the document's own save. A file outside Realm is refused (MEMORY_EXTERNAL_UNCONFIRMED) unless
+   * `confirmExternal` carries the person's yes.
+   */
+  "memory.library.write": { params: z.object({ id: z.string().min(3).max(2000), text: z.string().max(MEMORY_DOC_MAX), confirmExternal: z.boolean().optional() }), result: MemoryLibraryEntrySchema },
+  /** A new memory in a Realm repo — at its root, or in a space's folder of the profile's repo — in the
+   *  frontmatter the repo's folders use, linked from `MEMORY.md`, as one commit. */
+  "memory.library.create": {
+    params: z.object({
+      sourceId: z.string().min(1).max(200), spaceId: IdSchema.optional(),
+      name: z.string().min(1).max(200), description: z.string().min(1).max(500), type: MemoryLibraryTypeSchema, body: z.string().max(MEMORY_DOC_MAX),
+    }),
+    result: MemoryLibraryEntrySchema,
+  },
+  /** Delete a file. From a Realm repo it is removed, with its index line, in a commit; outside Realm it
+   *  goes to the Trash, and only with `confirmExternal`. */
+  "memory.library.delete": { params: z.object({ id: z.string().min(3).max(2000), confirmExternal: z.boolean().optional() }), result: z.object({ trashed: z.boolean() }) },
+  /** `memory.library.list` with a query across every source: names, descriptions and bodies. */
+  "memory.library.search": { params: z.object({ profileId: IdSchema, query: z.string().min(1).max(500) }), result: z.object({ entries: z.array(MemoryLibraryEntrySchema) }) },
+
   /** `machineName` is the Mac's user-facing ComputerName ("Carlton's M4 MacBook Pro"), falling back to
    *  the hostname stripped of `.local`. Display-only (the prompter's under-strip machine label, Plan 12
    *  W1): Realm runs agents on this machine and no other, so there is nothing to select. */
@@ -1649,116 +1695,25 @@ export const Methods = {
   /** Fire once, now, WITHOUT moving the schedule's own clock — see `ScheduleService.runNow`. Answers
    *  the schedule, whose `lastRunId` now names the run this created. */
   "schedules.runNow": { params: z.object({ id: IdSchema }), result: ScheduleSchema },
-  // Teams (Phase 1): roles, Review, records and the activity log. Every change is broadcast as
-  // `team.changed` with the space, and the clients re-read what they hold.
-  "team.overview": { params: z.object({}).default({}), result: z.array(TeamSpaceSchema) },
-  "team.space": { params: z.object({ spaceId: IdSchema }), result: TeamSpaceSchema },
-  "team.make": { params: z.object({
-    spaceId: IdSchema, templates: z.array(z.string().max(60)).max(20).default([]),
-    /** Teammates the person wrote, made with the team. */
-    roles: z.array(CustomRoleSchema).max(20).default([]),
-    /** Where the team's memory repo goes, when the person chose a folder. */
-    repoPath: z.string().min(1).max(1_000).optional(),
-    /** The team's week, when the picker raised it to fit the roles chosen. */
-    weekBudgetUsd: z.number().positive().max(100_000).optional(),
-  }), result: TeamSpaceSchema },
-  "team.setBudget": { params: z.object({ spaceId: IdSchema, weekBudgetUsd: z.number().positive().max(100_000) }), result: TeamSpaceSchema },
-  "team.roleCreate": { params: CreateRoleSchema, result: TeamRoleSchema },
-  "team.roleUpdate": { params: UpdateRoleSchema, result: TeamRoleSchema },
-  "team.roleArchive": { params: z.object({ id: IdSchema }), result: z.object({ archived: z.boolean() }) },
-  "team.roleRun": { params: z.object({ id: IdSchema, message: z.string().max(20_000).nullable().default(null) }), result: RunSchema },
-  "team.roleRuns": { params: z.object({ id: IdSchema, limit: z.number().int().min(1).max(200).default(30) }), result: z.array(RoleRunSchema) },
-  /** A person's message to a teammate: the answer to the question its run is parked on, or a new run
-   *  that continues its newest run's session, waiting behind a live one. */
-  "team.roleMessage": { params: z.object({ id: IdSchema, text: z.string().trim().min(1).max(20_000) }), result: RunSchema },
-  "team.review": { params: z.object({ id: IdSchema }), result: TeamReviewDetailSchema },
-  "team.reviewApprove": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
-  /** The yes taken back while nothing of it has left Realm: the same draft waits again, and approving
-   *  pins its hashes again. Refused once a post or a send went out; already waiting, nothing changes. */
-  "team.reviewUndoApproval": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
-  "team.reviewRequestChanges": { params: z.object({ id: IdSchema, note: z.string().min(1).max(5_000) }), result: TeamReviewSummarySchema },
-  "team.reviewDone": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
-  "team.reviewDismiss": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
-  /** No, with an optional reason the role that sent it is told; whatever had not gone out never will. */
-  "team.reviewReject": { params: z.object({ id: IdSchema, reason: z.string().max(5_000).optional() }), result: TeamReviewSummarySchema },
-  /** Closed before it went out — waiting, asked to change, or approved and not yet sent. */
-  "team.reviewClose": { params: z.object({ id: IdSchema }), result: TeamReviewSummarySchema },
-  /** The person's edit of an item's text before the yes: the batch's next version (generic deliverables). */
-  "team.reviewEditItem": { params: z.object({ id: IdSchema, itemId: IdSchema, body: z.string().min(1).max(20_000) }), result: TeamReviewSummarySchema },
-  "team.records": { params: z.object({ spaceId: IdSchema, type: z.string().min(1).max(60).optional() }), result: z.array(TeamRecordSummarySchema) },
-  "team.record": { params: z.object({ spaceId: IdSchema, path: z.string().min(1).max(200) }), result: TeamRecordSchema },
-  "team.recordWrite": { params: z.object({ spaceId: IdSchema, path: z.string().min(1).max(200), markdown: z.string().max(100_000) }), result: TeamRecordSchema },
-  "team.recordCreate": { params: z.object({ spaceId: IdSchema, name: z.string().trim().min(1).max(120), type: z.string().min(1).max(60).optional() }), result: TeamRecordSchema },
-  // The kinds of record a team keeps (team-record-types.ts). The person's alone: no agent tool writes
-  // a type. A folder that holds records is never renamed out from under them; archiving hides a type
-  // and leaves its files.
-  "team.recordTypes.list": { params: z.object({ spaceId: IdSchema, archived: z.boolean().default(false) }), result: z.array(TeamRecordTypeSchema) },
-  "team.recordTypes.create": { params: CreateRecordTypeSchema, result: TeamRecordTypeSchema },
-  "team.recordTypes.update": { params: UpdateRecordTypeSchema, result: TeamRecordTypeSchema },
-  "team.recordTypes.archive": { params: z.object({ id: IdSchema, archived: z.boolean().default(true) }), result: TeamRecordTypeSchema },
-  /** The log, newest first; with `roleId`, only the lines by that role or about it — its chat's. */
-  "team.activity": { params: z.object({ spaceId: IdSchema, limit: z.number().int().min(1).max(500).default(100), before: z.number().int().optional(), roleId: IdSchema.optional() }), result: z.array(TeamActivitySchema) },
-  // The team vault (Teams Phase 2). Grants are ids and hosts — no value is ever on this wire, and
-  // there is no method that sets a grant's "use without asking": that is the Vault page's, over
-  // renderer IPC to main, confirmed by macOS. `vaultAllowChanged` only asks main what is true, for
-  // the log.
-  "team.vaultGrants": { params: z.object({ spaceId: IdSchema }), result: z.array(VaultGrantSchema) },
-  "team.vaultGrant": { params: VaultGrantInputSchema, result: VaultGrantSchema },
-  "team.vaultRevoke": { params: z.object({ spaceId: IdSchema, secretId: z.string().min(1).max(64), roleId: IdSchema }), result: z.object({ revoked: z.boolean() }) },
-  "team.vaultUses": { params: z.object({ spaceId: IdSchema, limit: z.number().int().min(1).max(500).default(50) }), result: z.array(VaultUseSchema) },
-  "team.vaultAllowChanged": { params: z.object({ spaceId: IdSchema, secretId: z.string().min(1).max(64), roleId: IdSchema }), result: z.object({ on: z.boolean() }) },
-  // Teams (Phase 4): who a role hands work to and whether a mention wakes it, a goal for a role, how
-  // many runs go at once, and lifting an engine's back-off by hand.
-  "team.roleHandoffs": { params: SetRoleHandoffsSchema, result: TeamRoleSchema },
-  "team.roleGoal": { params: z.object({ id: IdSchema, objective: z.string().trim().min(1).max(4_000) }), result: RunSchema },
-  "team.setLimits": { params: SetTeamLimitsSchema, result: TeamSpaceSchema },
-  "team.liftBackoff": { params: z.object({ agentKind: z.string().min(1).max(40) }), result: z.object({ lifted: z.boolean() }) },
-  // The lab (Teams Phase 5, contracts/lab.ts): this Mac's readiness to be left alone, the devices on
-  // its cables, and the update window. Every change is broadcast as `lab.changed`.
-  "lab.status": { params: z.object({}).default({}), result: LabStatusSchema },
-  "lab.setEnabled": { params: z.object({ enabled: z.boolean() }), result: LabStatusSchema },
-  "lab.setUpdateWindow": { params: z.object({ hour: z.number().int().min(0).max(23), capMinutes: z.number().int().min(5).max(240) }), result: LabStatusSchema },
-  /** Read-only probes of this Mac (pmset, fdesetup, the login window, displays, disk, network). */
-  "lab.readiness": { params: z.object({}).default({}), result: LabReadinessSchema },
-  "lab.devices": { params: z.object({}).default({}), result: LabDevicesSchema },
-  /** Look for what is on the cables now, and stamp every registered device it finds as seen. */
-  "lab.deviceScan": { params: z.object({}).default({}), result: LabDevicesSchema },
-  "lab.deviceAdd": { params: z.object({
-    kind: LabDeviceKindSchema, udid: z.string().trim().min(1).max(100).nullable().default(null),
-    name: z.string().trim().min(1).max(80), spaceId: IdSchema.nullable().default(null),
-    accounts: z.array(LabAccountSchema).max(10).default([]),
-  }), result: LabDevicesSchema },
-  "lab.deviceUpdate": { params: z.object({
-    id: IdSchema, name: z.string().trim().min(1).max(80).optional(), spaceId: IdSchema.nullable().optional(),
-    accounts: z.array(LabAccountSchema).max(10).optional(),
-  }), result: LabDevicesSchema },
-  "lab.deviceRemove": { params: z.object({ id: IdSchema }), result: LabDevicesSchema },
-  /** Main: an update is downloaded and this Mac is a lab, so the window decides when it installs. */
-  "lab.updateReady": { params: z.object({ version: z.string().min(1).max(40), from: z.string().min(1).max(40) }), result: LabStatusSchema },
-  /** Open the window now rather than at its hour. */
-  "lab.updateNow": { params: z.object({}).default({}), result: LabStatusSchema },
-  /** Main, on every connect: the version it runs — how the window learns an install landed. */
-  "lab.appVersion": { params: z.object({ version: z.string().min(1).max(40) }), result: LabStatusSchema },
-  // Approve → act (Teams Phase 3). An approved batch's outward acts are tickets, each paced and bound
-  // to what was approved. `team.ticketPost` acts only on a press main recorded from Realm's own post
-  // sheet (`main/ticket-presses.ts`) — called by anything else, it is refused. Cancelling and holding
-  // only ever take an act back.
-  "team.tickets": { params: z.object({ spaceId: IdSchema, reviewId: IdSchema.optional() }), result: z.array(ActTicketSchema) },
-  "team.ticketPost": { params: z.object({ id: IdSchema }), result: ActTicketSchema },
-  "team.ticketCancel": { params: z.object({ id: IdSchema }), result: ActTicketSchema },
-  "team.actsHold": { params: z.object({ spaceId: IdSchema, held: z.boolean() }), result: z.object({ held: z.boolean() }) },
-  // The team's Policies page, read-only: every tool a role here could call, with its risk class, who
-  // decided it, and whether a call asks first today. Listing a server's tools connects to it, as a
-  // session's own tool list does.
-  "team.policies": { params: z.object({ spaceId: IdSchema }), result: TeamPoliciesSchema },
-  // A team's policy row, written from the Policies page. Tightening is open, as a hold is; a write that
-  // loosens anything holds only with the person's press in Realm's own window, confirmed by macOS and
-  // sealed by main — the server asks main for that press and refuses without one. No agent tool
-  // reaches either method.
-  "team.policySet": { params: TeamPolicyInputSchema, result: TeamPolicyRowSchema },
-  // A person's word on what one tool does ("What does this do?"). Raising a class is open; lowering one
-  // below what Realm derived is a loosening, and takes the same press.
-  "team.toolClassSet": { params: ToolClassInputSchema, result: ToolClassSetResultSchema },
+  // Teammates (teammates.ts): permanent agents you message. Every change is broadcast as
+  // `teammates.changed` with the space, and the clients re-read what they hold.
+  "teammates.list": { params: z.object({ spaceId: IdSchema, archived: z.boolean().default(false) }), result: z.array(TeammateSchema) },
+  "teammates.get": { params: z.object({ id: IdSchema }), result: TeammateSchema },
+  /** Makes its home session too, so the page opens onto a composer. */
+  "teammates.create": { params: CreateTeammateSchema, result: TeammateSchema },
+  "teammates.update": { params: UpdateTeammateSchema, result: TeammateSchema },
+  /** Archived teammates leave the Team list and `team_list`; their sessions stay. */
+  "teammates.archive": { params: z.object({ id: IdSchema, archived: z.boolean().default(true) }), result: TeammateSchema },
+  /** Makes `id` the space's Lead, or clears the Lead with null. Answers the space's teammates. */
+  "teammates.setLead": { params: z.object({ spaceId: IdSchema, id: IdSchema.nullable() }), result: z.array(TeammateSchema) },
+  "teammates.reorder": { params: ReorderTeammatesSchema, result: z.array(TeammateSchema) },
+  /** Its home session, made now when it has none — what opening a teammate's page asks for. */
+  "teammates.home": { params: z.object({ id: IdSchema }), result: z.object({ sessionId: IdSchema }) },
+  /** The person's message to a teammate: a turn in its home session (made now when it has none),
+   *  queued behind a live turn. */
+  "teammates.message": { params: z.object({ id: IdSchema, text: z.string().trim().min(1).max(20_000) }), result: z.object({ sessionId: IdSchema }) },
+  /** Every session it started, and the ones handed on from them, newest first — its page's list. */
+  "teammates.sessions": { params: z.object({ id: IdSchema }), result: z.array(TeammateTaskSessionSchema) },
   /** `scheduleId` narrows to the runs one schedule fired — its history on the Scheduled page. */
   "runs.list": {
     params: z.object({ spaceId: IdSchema, scheduleId: IdSchema.nullable().default(null), states: z.array(RunStateSchema).default([]), cursor: z.string().nullable().default(null), limit: z.number().int().min(1).max(200).default(100) }),
@@ -2216,6 +2171,23 @@ export const Methods = {
    *  model id from the old kind means nothing to the new one. */
   "sessions.setAgent": { params: z.object({ id: IdSchema, agentKind: AgentKindSchema }), result: SessionSchema },
   /**
+   * Move a session that HAS run onto another agent, in place: Realm writes a hand-off note of the
+   * conversation (the ask, decisions, what changed, open questions, the last turns verbatim) on the
+   * frontier model, saves it under its home's `handoffs/`, and the new agent's first start is handed
+   * it as system context with the file's path. A `handoff` event with `reason: "switch"` says so on
+   * the transcript. Refused while a turn is live (SESSION_BUSY) — a switch is about the next turn.
+   * An untouched session is simply re-pointed, as `setAgent` does. `model: null` is the new agent's
+   * own default; `effort` likewise.
+   */
+  /**
+   * Run a session on another account of its agent (`accounts.ts`). The provider's own record of the
+   * conversation is copied into the new account's folder so it resumes there as it was; where that
+   * cannot be done, the conversation is carried as text the way a switch carries it. Refused while a
+   * turn is live (SESSION_BUSY). `accountId: null` is the CLI's own default account.
+   */
+  "sessions.setAccount": { params: z.object({ id: IdSchema, accountId: z.string().nullable() }), result: SessionSchema },
+  "sessions.switchAgent": { params: z.object({ sessionId: IdSchema, agentKind: AgentKindSchema, model: z.string().nullable().optional(), effort: z.string().nullable().optional() }), result: SessionSchema },
+  /**
    * The space's failover policy: whether a stalled turn retries, and which agents it may be handed
    * to when retrying is not the answer (`failover.ts`).
    *
@@ -2284,6 +2256,8 @@ export const Events = {
   /** A space-less agent sign-in moved (`AgentSignInSchema`). Broadcast: the first run in any window
    *  may be the one watching. */
   "agentSignIn.changed": AgentSignInSchema,
+  /** An account was added, renamed, removed, or a CLI said something new about one. */
+  "accounts.changed": z.object({}),
   /** Laya's status changed: an install step moved, the runtime came up or went down, a row was
    *  logged, the log was deleted. Carries the whole status, which is small. */
   "laya.changed": LayaStatusSchema,
@@ -2332,6 +2306,9 @@ export const Events = {
   /** A space's Realm memory document or its managed `AGENTS.md` changed. Clients holding the memory
    *  pane re-fetch; sessions already running keep the context they started with. */
   "memory.changed":   z.object({ spaceId: IdSchema }),
+  /** A memory file was written, made or deleted through the library — one outside Realm included, which
+   *  no space's `memory.changed` covers. Clients showing the library re-read it. */
+  "memory.library.changed": z.object({}),
   /** Realm itself changed a working tree (stage, unstage, commit, push). Carries the cwd the write
    *  went through; clients refresh every diff they hold, because two panes on the same repository may
    *  have asked from two different subdirectories and only the server knows they are the same tree. */
@@ -2440,11 +2417,8 @@ export const Events = {
    *  per event) would have to carry a DELETION as a null and re-introduce the ambiguity `run: null`
    *  already documents. */
   "schedules.changed": z.object({ spaceId: IdSchema }),
-  "team.changed": z.object({ spaceId: IdSchema }),
-  /** The lab's status, devices or update window changed; a held copy is read again. */
-  "lab.changed": z.object({}),
-  /** The update window has drained: main installs the downloaded update now. */
-  "lab.install": z.object({ version: z.string() }),
+  /** A teammate in the space was made, edited, archived or reordered, or its state moved. */
+  "teammates.changed": z.object({ spaceId: IdSchema }),
   /** An environment's persisted review verdict changed (Plan 13 W3): a review settled (`review` is
    *  the fresh result), or was dismissed / cleared by a ship (`review` is null). Diff panes holding
    *  this environment apply the payload directly — no refetch race. */

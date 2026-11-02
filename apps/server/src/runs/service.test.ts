@@ -66,16 +66,14 @@ const create = (spaceId: string, over: Partial<Parameters<App["runs"]["create"]>
   app.runs.create({ spaceId, goal: "Draft the week 3 essay", constraints: null, dedupeKey: null, maxAttempts: 1, deadlineAt: null, ...over });
 
 describe("durable runs — the permission a run works in", () => {
-  /* THE MUTANTS: a scheduled task's or a team role's run left on its stored permission, and Full
-     access leaking to a run started by hand. */
-  it("is Full access for a scheduled task and a team role, and what was asked for otherwise", () => {
+  /* THE MUTANTS: a scheduled task's run left on its stored permission, and Full access leaking to a
+     run started by hand. */
+  it("is Full access for a scheduled task, and what was asked for otherwise", () => {
     const acceptEdits = { permissionMode: "acceptEdits" as const };
-    expect(runPermissionMode({ scheduleId: "sch", roleId: null, constraints: acceptEdits })).toBe("bypassPermissions");
-    expect(runPermissionMode({ scheduleId: "sch", roleId: null, constraints: null })).toBe("bypassPermissions");
-    expect(runPermissionMode({ scheduleId: null, roleId: null, constraints: acceptEdits })).toBe("acceptEdits");
-    expect(runPermissionMode({ scheduleId: null, roleId: null, constraints: null })).toBe("default");
-    expect(runPermissionMode({ scheduleId: "sch", roleId: "role", constraints: acceptEdits })).toBe("bypassPermissions");
-    expect(runPermissionMode({ scheduleId: null, roleId: "role", constraints: { permissionMode: "plan" } })).toBe("bypassPermissions");
+    expect(runPermissionMode({ scheduleId: "sch", constraints: acceptEdits })).toBe("bypassPermissions");
+    expect(runPermissionMode({ scheduleId: "sch", constraints: null })).toBe("bypassPermissions");
+    expect(runPermissionMode({ scheduleId: null, constraints: acceptEdits })).toBe("acceptEdits");
+    expect(runPermissionMode({ scheduleId: null, constraints: null })).toBe("default");
   });
 });
 
@@ -318,6 +316,20 @@ describe("durable runs — surviving a restart", () => {
     await boot({ home, script: blocking });
     expect(runOf(runId).state).toBe("blocked");
     expect(attemptsOf(runId)).toHaveLength(attemptsBefore); // recovery did not re-dispatch it
+  });
+
+  it("ends a run of the first Teams' roles left live, rather than starting it again", async () => {
+    const { home, spaceId } = await boot({ script: DONE_SCRIPT });
+    const { run } = create(spaceId);
+    await settled(run.id);
+    // As the first Teams left one: queued for its role, waiting on a slot that will never free.
+    app.db.prepare("UPDATE runs SET state = 'queued', role_id = 'R1', settled_at = NULL WHERE id = ?").run(run.id);
+    const attemptsBefore = attemptsOf(run.id).length;
+    await app.close();
+
+    await boot({ home, script: DONE_SCRIPT });
+    expect(runOf(run.id).state).toBe("cancelled");
+    expect(attemptsOf(run.id)).toHaveLength(attemptsBefore);
   });
 
   it("expires a run whose deadline passed while the server was down", async () => {

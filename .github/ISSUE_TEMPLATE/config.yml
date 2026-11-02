@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Known limitations
+    url: https://realm.computer/docs/status
+    about: What Realm doesn't do yet, and what has and hasn't run on Linux and Windows. Worth a look before you report a bug.
+  - name: Realm's docs
+    url: https://realm.computer/docs
+    about: How each part of Realm works, the command line included.

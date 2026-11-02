@@ -8,12 +8,12 @@ export type Block =
    *  W5) still renders a bubble naming its files rather than an empty one. */
   /** `from` is present only when ANOTHER session delivered this message (Plan 20). Absent means the
    *  user typed it — the ordinary case — and the pane must not attribute those to anyone. */
-  | { kind: "user"; text: string; attachments?: { path: string; mime: string }[]; from?: { sessionId: string; title: string }; goal?: "continuation" | "budget";
+  | { kind: "user"; text: string; attachments?: { path: string; mime: string }[]; from?: { sessionId: string; title: string; teammateId?: string }; goal?: "continuation" | "budget";
       /** What the message's `@[…]` chips named, so each keeps its mark in the log. */
       refs?: MentionRef[];
       /** A scheduled task's run began here (the event's `scheduled`). `text` is the task's instructions
        *  alone: the note Realm appended for the agent is taken out of it, and kept here. */
-      scheduled?: { task: string; note: string };
+      scheduled?: { task: string; note: string; scheduleId?: string };
       /** The `user_message` event this is, by its seq, when the log was read from the server: what a
        *  saved turn names (saved-turns.ts in contracts). Absent on a transcript built from bare events. */
       seq?: number; ts: number }
@@ -38,7 +38,7 @@ export type Block =
   /** `fix` is the thing to do about it, carried from the server on the failures where Realm knows
    *   one (today: an auth failure it re-probed). Absent on every other error, which is most of
    *   them — a block that invented a remedy would be worse than the bare message. */
-  | { kind: "error"; message: string; fix?: { title: string; hint: string; command: string | null }; ts: number }
+  | { kind: "error"; message: string; fix?: { title: string; hint: string; command: string | null }; accounts?: { id: string; label: string }[]; ts: number }
   /**
    * The session changed agents mid-turn, because the one it was on could not finish (failover).
    *
@@ -47,7 +47,7 @@ export type Block =
    * a reader comparing the two needs to know where the seam is. `attempt` is how many same-agent
    * retries were spent first, which is what explains the gap in the timestamps.
    */
-  | { kind: "handoff"; from: string; to: string; note: string; attempt: number; ts: number }
+  | { kind: "handoff"; from: string; to: string; note: string; attempt: number; summaryPath?: string; ts: number }
   /**
    * A retry is pending. Ephemeral in every sense — the event is not persisted, and the block is
    * REPLACED by the next one rather than stacking, so three attempts leave one line saying what is
@@ -348,6 +348,11 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
         const b = q >= 0 ? blocks[q] : undefined;
         if (b && b.kind === "question") { blocks[q] = { ...b, toolUseId: e.payload.toolUseId }; return { ...t, blocks }; }
       }
+      /* A call named again is the same call, said more fully — Codex's image tool has no path until the
+         picture lands (map-codex.ts). It keeps its place and its start, and takes the newer input. */
+      const known = findLast(blocks, (b) => b.kind === "tool" && b.toolUseId === e.payload.toolUseId);
+      const was = known >= 0 ? blocks[known] : undefined;
+      if (was && was.kind === "tool") { blocks[known] = { ...was, input: e.payload.input }; return { ...t, blocks }; }
       blocks.push({ kind: "tool", toolUseId: e.payload.toolUseId, name: e.payload.name, input: e.payload.input, ...(e.payload.parentToolUseId ? { parentToolUseId: e.payload.parentToolUseId } : {}),
         ...(e.payload.kind ? { toolKind: e.payload.kind } : {}), ...(e.payload.paths?.length ? { paths: e.payload.paths } : {}), result: null, ts: e.ts });
       return { ...t, blocks };
@@ -411,10 +416,12 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
     //   retrying → error   the ladder ran out; the failure supersedes the wait, and is final
     case "error":
       return { ...t, blocks: [...dropPending(blocks),
-        { kind: "error", message: e.payload.message, ...(e.payload.fix ? { fix: e.payload.fix } : {}), ts: e.ts }] };
+        { kind: "error", message: e.payload.message, ...(e.payload.fix ? { fix: e.payload.fix } : {}),
+          ...(e.payload.accounts?.length ? { accounts: e.payload.accounts } : {}), ts: e.ts }] };
     case "handoff":
       return { ...t, blocks: [...dropPending(blocks),
-        { kind: "handoff", from: e.payload.from, to: e.payload.to, note: e.payload.note, attempt: e.payload.attempt, ts: e.ts }] };
+        { kind: "handoff", from: e.payload.from, to: e.payload.to, note: e.payload.note, attempt: e.payload.attempt,
+          ...(e.payload.summaryPath ? { summaryPath: e.payload.summaryPath } : {}), ts: e.ts }] };
     case "context_reset":
       return { ...t, blocks: [...dropPending(blocks),
         { kind: "context_reset", note: e.payload.note, reason: e.payload.reason, ts: e.ts }] };

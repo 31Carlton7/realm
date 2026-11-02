@@ -18,7 +18,7 @@ function home(over: Partial<SidebarState> = {}): SidebarState {
     activeProfileId: "p1",
     activeSpaceId: "hw",
     items: [], allItems: [], sessions: {}, allSessions: {}, sessionStatus: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionActivityAt: {},
-    quickChatId: null, teams: {},
+    quickChatId: null,
     ...over,
   };
 }

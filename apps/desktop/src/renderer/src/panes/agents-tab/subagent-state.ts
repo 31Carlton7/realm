@@ -85,3 +85,10 @@ export function reportSummary(report: string): string {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+/** A report past what a reader takes in at a glance — a dozen lines, or a long paragraph — which its
+ *  fold starts closed on, its first line in the head. A short one starts open: closing it would hide
+ *  the two lines that are the whole answer. */
+export function longReport(report: string): boolean {
+  return report.length > 700 || report.split("\n").filter((l) => l.trim() !== "").length > 12;
+}

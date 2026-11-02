@@ -26,7 +26,7 @@ export type RowAgent = Omit<SessionSubagent, "source"> & { source: SessionSubage
 
 /**
  * The agents the row shows, most urgent first: every one still going, and the ones the latest turn
- * started — so a finished teammate stays to be read and goes with the next message — less the ones
+ * started — so a finished one stays to be read and goes with the next message — less the ones
  * the person dismissed, and the peers still answering a question. What needs you leads, so the fold
  * can never hide it.
  */
@@ -48,7 +48,7 @@ export function useRowAgents(sessionId: string): RowAgent[] {
   const refreshSubagents = useApp((s) => s.refreshSubagents);
   const refreshDelegatedRuns = useApp((s) => s.refreshDelegatedRuns);
   const run = useApp((s) => s.run);
-  // The list is otherwise read on demand (the Agents tab, a delegation line), and a teammate that
+  // The list is otherwise read on demand (the Agents tab, a delegation line), and a sub-agent that
   // finished before a relaunch is still one the row owes the person until their next message.
   useEffect(() => { if (!loaded) run(() => refreshSubagents(sessionId)); }, [loaded, sessionId, refreshSubagents, run]);
   // The runs in flight, which no table holds: the ones that began before this window connected — a
@@ -63,8 +63,8 @@ export function useRowAgents(sessionId: string): RowAgent[] {
 }
 
 /**
- * Who is working in this session, on the prompter's over-strip: the teammates the person added and the
- * sub-agents the session's agent started, each as its state's mark and its name. Nothing at all when
+ * Who is working in this session, on the prompter's over-strip: the sub-agents the person added and the
+ * ones the session's agent started, each as its state's mark and its name. Nothing at all when
  * there are none.
  *
  * A click opens one in the session's Agents tab, as its line in the transcript does. Its menu (a

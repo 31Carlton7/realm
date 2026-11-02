@@ -46,7 +46,7 @@ function whyNone(p: ProviderCatalogEntry): string {
   if (!p.enabled) return "off in this space — the user switches it on under \"Realm's own tools\" on the space's Connections page";
   if (p.offered === false) return `this Mac cannot offer it — it needs ${p.needs ?? "something this Mac lacks"}`;
   if (p.offered === null) return "still checking whether this Mac can offer it";
-  return "nothing to list in this space (team tools only in a team's space, memory tools only where a memory repo is attached, goal tools only while a goal runs)";
+  return "nothing to list in this space (team tools only in a space with teammates, memory tools only where a memory repo is attached, goal tools only while a goal runs)";
 }
 
 function connectionLine(s: McpServer): string {

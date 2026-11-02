@@ -108,3 +108,20 @@ describe("Open links in", () => {
     expect(store.getState().linksOpenIn).toBe("default");
   });
 });
+
+describe("About", () => {
+  it("opens Realm's repository: a bug report with the running version filled in, an idea, and the page itself", async () => {
+    await general({ updateStatus: { version: "2.7.0", state: { kind: "up-to-date" } } });
+    // THE mutant: a report that leaves the version for the person to look up. Filled in once the
+    // updater has said which version this is.
+    await waitFor(() => expect(screen.getByRole("link", { name: "Report a bug" }))
+      .toHaveAttribute("href", "https://github.com/31Carlton7/realm/issues/new?template=bug.yml&version=2.7.0"));
+    expect(screen.getByRole("link", { name: "Request a feature" })).toHaveAttribute("href", "https://github.com/31Carlton7/realm/issues/new?template=feature.yml");
+    for (const name of ["Star Realm on GitHub", "Realm on GitHub"]) {
+      const link = screen.getByRole("link", { name });
+      expect(link).toHaveAttribute("href", "https://github.com/31Carlton7/realm");
+      // A link leaves through main's window-open handler, which takes it to the browser Links names.
+      expect(link).toHaveAttribute("target", "_blank");
+    }
+  });
+});

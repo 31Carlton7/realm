@@ -47,20 +47,26 @@ export function SpaceIdentityField({ name, onName, placeholder, icon, onIcon, co
   );
 }
 
-/** The palette as one radio group: a single stop for Tab, and the arrows move the choice. */
-export function SpaceColorSwatches({ color, onColor }: { color: string; onColor: (color: string) => void }) {
+/** A choice of `n` as one radio group: a single stop for Tab, and the arrows move the choice. */
+export function useRadioKeys<T>(options: readonly T[], at: number, pick: (v: T) => void) {
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
-  // A colour from outside the palette (typed as hex on the space's page) checks nothing; the first
-  // swatch is still where Tab lands.
-  const at = Math.max(0, SPACE_COLORS.findIndex((c) => c === color));
   const onKeyDown = (e: KeyboardEvent) => {
     const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
     if (step === 0) return;
     e.preventDefault();
-    const next = (at + step + SPACE_COLORS.length) % SPACE_COLORS.length;
-    onColor(SPACE_COLORS[next]!);
+    const next = (at + step + options.length) % options.length;
+    pick(options[next]!);
     buttons.current[next]?.focus();
   };
+  return { buttons, onKeyDown };
+}
+
+/** The palette as one radio group. */
+export function SpaceColorSwatches({ color, onColor }: { color: string; onColor: (color: string) => void }) {
+  // A colour from outside the palette (typed as hex on the space's page) checks nothing; the first
+  // swatch is still where Tab lands.
+  const at = Math.max(0, SPACE_COLORS.findIndex((c) => c === color));
+  const { buttons, onKeyDown } = useRadioKeys(SPACE_COLORS, at, onColor);
   return (
     <div className="swatches" role="radiogroup" aria-label="Color" onKeyDown={onKeyDown}>
       {SPACE_COLORS.map((c, i) => (

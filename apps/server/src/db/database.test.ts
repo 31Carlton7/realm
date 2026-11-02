@@ -2029,6 +2029,8 @@ describe("migration — the boot permission scan's index", () => {
 const BEFORE_REMOTE_DEVICES = `
 CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT NOT NULL);
+-- Every home has it (v43); the teammates' migration further down the chain adds to it.
+CREATE TABLE team_roles (id TEXT PRIMARY KEY);
 CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL);
 CREATE INDEX session_events_session ON session_events(session_id, seq);
@@ -2151,6 +2153,8 @@ describe("the remote_devices relay column — where each paired phone dials (PRO
 const BEFORE_MEMORY_LEARNED = `
 CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
 CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT NOT NULL);
+-- Every home has it (v43); the teammates' migration further down the chain adds to it.
+CREATE TABLE team_roles (id TEXT PRIMARY KEY);
 CREATE TABLE session_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   ts INTEGER NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL);
 CREATE INDEX session_events_session ON session_events(session_id, seq);
@@ -2215,6 +2219,76 @@ describe("the memory_learned migration — how far Realm has read each session f
     expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
     expect(() => again.exec(migrations[MEMORY_LEARNED_AT]!)).not.toThrow();
     expect(again.prepare("SELECT session_id, through_seq FROM memory_learned").all()).toEqual([{ session_id: "sess1", through_seq: 1 }]);
+    again.close();
+  });
+});
+
+const TEAMMATES_AT = migrations.findIndex((m) => m.includes("ALTER TABLE team_roles ADD COLUMN handle"));
+const ACCOUNTS_AT = migrations.findIndex((m) => m.includes("CREATE TABLE IF NOT EXISTS agent_accounts"));
+const SESSION_ACCOUNT_AT = migrations.findIndex((m) => m.includes("ALTER TABLE sessions ADD COLUMN account_id"));
+
+describe("the accounts migrations — a 2.6.3 home through Teams v2 and on to accounts", () => {
+  /**
+   * A home as Realm 2.6.3 left it: every migration that release shipped (its last made `memory_learned`),
+   * run the way `openDatabase` runs them, with a session and a role in it. Real migrations rather than a
+   * hand-written schema, because the point is the whole chain from there, in order.
+   */
+  const v263 = () => {
+    const p = join(tempDir("realm-db-"), "realm.db");
+    const db = new DatabaseSync(p);
+    db.exec("PRAGMA foreign_keys = ON;");
+    db.exec("CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+    for (let v = 0; v <= MEMORY_LEARNED_AT; v++) {
+      db.exec(migrations[v]!);
+      db.prepare("INSERT INTO schema_version (version, applied_at) VALUES (?, ?)").run(v + 1, 1);
+    }
+    db.exec(`
+      INSERT INTO profiles (id, name, icon, color, sort_order, created_at, updated_at) VALUES ('p1', 'Work', 'x', '#000000', 0, 1, 1);
+      INSERT INTO spaces (id, profile_id, name, icon, sort_order, folder_path, created_at, updated_at) VALUES ('sp1', 'p1', 'API', 'f', 0, '/tmp/api', 1, 1);
+      INSERT INTO environments (id, space_id, path, kind, created_at, updated_at) VALUES ('e1', 'sp1', '/tmp/api', 'primary', 1, 1);
+      INSERT INTO sessions (id, space_id, environment_id, agent_kind, status, title, created_at, updated_at) VALUES ('s1', 'sp1', 'e1', 'claude', 'idle', 'Billing', 1, 1);
+      INSERT INTO team_roles (id, space_id, name, brief, realmite_json, agent_kind, created_at, updated_at) VALUES ('r1', 'sp1', 'Reviewer', 'Reviews.', '{}', 'codex', 1, 1);`);
+    db.close();
+    return p;
+  };
+
+  it("comes after Teams v2's, in that order, and right after the last migration 2.6.3 shipped", () => {
+    expect(TEAMMATES_AT).toBe(MEMORY_LEARNED_AT + 1);
+    expect(ACCOUNTS_AT).toBe(TEAMMATES_AT + 1);
+    expect(SESSION_ACCOUNT_AT).toBe(ACCOUNTS_AT + 1);
+  });
+
+  it("brings a 2.6.3 home to the end of the chain: teammates' columns, each CLI's own account, every session on it", () => {
+    const db = openDatabase(v263());
+    expect((db.prepare("SELECT MAX(version) AS v FROM schema_version").get() as { v: number }).v).toBe(migrations.length);
+    // Teams v2 ran first: its columns are there for the role and the session.
+    expect(db.prepare("SELECT id, handle, is_lead FROM team_roles").all()).toEqual([{ id: "r1", handle: null, is_lead: 0 }]);
+    expect(db.prepare("SELECT teammate_id, teammate_home, account_id FROM sessions").all()).toEqual([{ teammate_id: null, teammate_home: 0, account_id: null }]);
+    // Each CLI's own folder, as the account every session already ran on.
+    expect(db.prepare("SELECT id, kind, label, config_dir FROM agent_accounts ORDER BY id").all()).toEqual([
+      { id: "default-claude", kind: "claude", label: "Default", config_dir: null },
+      { id: "default-codex", kind: "codex", label: "Default", config_dir: null },
+    ]);
+    db.close();
+  });
+
+  it("puts a session back on the default account when its account goes", () => {
+    const db = openDatabase(v263());
+    db.exec(`INSERT INTO agent_accounts (id, kind, label, config_dir, created_at) VALUES ('work', 'claude', 'Work', '/tmp/realm/accounts/claude/work', 2);
+      UPDATE sessions SET account_id = 'work' WHERE id = 's1';`);
+    expect(() => db.exec("UPDATE sessions SET account_id = 'no-such-account' WHERE id = 's1'")).toThrow(/FOREIGN KEY/);
+    db.exec("DELETE FROM agent_accounts WHERE id = 'work'");
+    expect(db.prepare("SELECT account_id FROM sessions WHERE id = 's1'").get()).toEqual({ account_id: null });
+    db.close();
+  });
+
+  it("is idempotent: reopening re-runs nothing, and the accounts table can meet a home that already has it", () => {
+    const p = v263();
+    openDatabase(p).close();
+    const again = openDatabase(p);
+    expect((again.prepare("SELECT COUNT(*) AS n FROM schema_version").get() as { n: number }).n).toBe(migrations.length);
+    expect(() => again.exec(migrations[ACCOUNTS_AT]!)).not.toThrow();
+    expect(again.prepare("SELECT COUNT(*) AS n FROM agent_accounts").get()).toEqual({ n: 2 });
     again.close();
   });
 });

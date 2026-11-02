@@ -176,13 +176,10 @@ export type BrowserAgentHostDeps = {
   readFile?(path: string): Promise<Uint8Array>;
 };
 
-/** Who a fill was for, as realm-server named it: the team, its role and the role's run. Empty for a
- *  person's own session. */
-type FillWho = { spaceId?: string; roleId?: string; runId?: string };
+/** Who a fill was for, as realm-server named it: the asking session's space. */
+type FillWho = { spaceId?: string };
 function fillWho(params: Record<string, unknown>): FillWho {
-  const out: FillWho = {};
-  for (const k of ["spaceId", "roleId", "runId"] as const) if (typeof params[k] === "string" && params[k]) out[k] = params[k] as string;
-  return out;
+  return typeof params.spaceId === "string" && params.spaceId ? { spaceId: params.spaceId } : {};
 }
 
 /** Executor refusals → audit outcomes. `password` is absent because a fill cannot produce it (that
@@ -701,8 +698,8 @@ export class BrowserAgentHost {
       case "fillCredential": {
         const ref = Number(params.ref);
         const profileId = typeof params.profileId === "string" ? params.profileId : "";
-        // The calling session's space, and — for a team's role — the role and its run, as realm-server
-        // resolved them. A team's sign-in fills only in its own space; the rest is for the audit line.
+        // The calling session's space, as realm-server resolved it. A team's sign-in fills only in its
+        // own space; the audit line names it too.
         const spaceId = typeof params.spaceId === "string" && params.spaceId ? params.spaceId : null;
         const who = fillWho(params);
         const store = this.d.secrets;

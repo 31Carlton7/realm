@@ -100,6 +100,9 @@ import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { EnvironmentsStore } from "./store/environments";
 import { SessionService, resolveDefaultPermissionMode } from "./sessions/service";
 import { RECAP_DEBOUNCE_MS, SessionSummaryService } from "./sessions/summary";
+import { HandoffNotes, type HandoffNotesGenerator } from "./sessions/handover";
+import { AccountsService, type AccountsDeps } from "./accounts/service";
+import { AccountsStore } from "./store/accounts";
 import { PlanLimitsService } from "./limits/service";
 import type { MemoryExtractionInput, MemoryTidyInput, ProbeResult } from "@realm/adapters";
 import { SkillsService } from "./skills/service";
@@ -117,6 +120,8 @@ import type { AgentKind, McpServerStatus } from "@realm/contracts";
 import { MemoryService } from "./memory/service";
 import { CLAUDE_BACKFILL_EVERY_MS, ClaudeMemoryBackfill } from "./memory/claude-backfill";
 import { AgentMemoryFolders } from "./memory/claude-redirect";
+import { MemoryLibrary } from "./memory/library";
+import { moveToTrash } from "./memory/trash";
 import { MemoryRepoService, type RepoOwner } from "./memory/repo";
 import { SessionLearner } from "./memory/extract";
 import { LearnedCursors } from "./memory/extract-cursor";
@@ -170,39 +175,14 @@ import { AppViewService } from "./apps/service";
 import { ExecutionSandboxService } from "./sandbox/service";
 import { machineName } from "./machine-name";
 import { userFirstName } from "./user-name";
-import { TeamService } from "./team/service";
-import { HandoffService } from "./team/handoffs/service";
-import { HandoffStore } from "./team/handoffs/store";
-import { createHandoffTools } from "./team/handoffs/agent-tools";
-import { TeamStore } from "./team/store";
-import { createTeamAgentProvider } from "./team/agent-tools";
-import { VaultService } from "./team/vault/service";
-import { VaultStore } from "./team/vault/store";
-import { createVaultAgentProvider } from "./team/vault/agent-tools";
-import { registerVaultMethods } from "./team/vault/rpc";
-import { LabService } from "./lab/service";
-import { LabDevicesStore } from "./lab/devices-store";
-import { registerLabMethods } from "./lab/methods";
-import { evaluate, macProbeDeps, probeFacts, runCommand } from "./lab/readiness";
-import { ActService, type TicketPress } from "./team/acts/service";
-import { ActStore } from "./team/acts/store";
-import { FakeActAdapter, NotConnectedAdapter, type ActAdapter } from "./team/acts/adapters";
-import { registerActMethods } from "./team/acts/rpc";
-import { RecordTypeStore } from "./team/record-types/store";
-import { RecordTypeService } from "./team/record-types/service";
-import { adoptRecordTypes } from "./team/record-types/adopt";
-import { registerRecordTypeMethods } from "./team/record-types/rpc";
-import { PoliciesService } from "./team/policies/service";
-import { PolicyGate } from "./team/policies/gate";
-import { registerPolicyMethods } from "./team/policies/rpc";
-import { SealChecker, type SealBridge } from "./team/policies/seals";
-import { PolicyStore } from "./team/policies/store";
-import { ToolClassesStore } from "./team/policies/tool-classes";
+import { TeammatesService } from "./teammates/service";
+import { TeammatesStore } from "./teammates/store";
+import { createTeammatesProvider } from "./teammates/agent-tools";
 
 /** `gateway` is exposed for tests and live checks that must speak MCP AS a given session (the
  *  per-session toolset shapes are wired in this file's closures — only a real list/call through the
  *  gateway proves them). Production callers use it via sessions, never directly. */
-export type App = { port: number; access: { port: number; url: string } | null; db: Db; rpc: RpcServer; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; teammates: Teammates; reviews: ReviewService; asks: AskService; runs: RunService; schedules: ScheduleService; team: TeamService; lab: LabService; acts: ActService; codeReview: CodeReviewService; gateway: McpGateway; close(): Promise<void> };
+export type App = { port: number; access: { port: number; url: string } | null; db: Db; rpc: RpcServer; terminals: TerminalService; sessions: SessionService; browserAgents: BrowserAgentService; agentRuns: AgentRunService; teammates: Teammates; reviews: ReviewService; asks: AskService; runs: RunService; schedules: ScheduleService; team: TeammatesService; codeReview: CodeReviewService; gateway: McpGateway; close(): Promise<void> };
 declare const __REALM_VERSION__: string | undefined;
 /** The Realm release this server belongs to, as `system.info` and a paired phone report it: the desktop
  *  app's version, which tsup.config.ts bakes into the bundle. Unbundled (the suite, tsx scripts) there is no
@@ -425,6 +405,36 @@ export function defaultAdapters(): AdapterRegistry {
       ].join("\n") } },
       { kind: "call", tool: "realm-agent__agent_wait", input: {} },
       { kind: "text", paceMs: 30, text: "The report card folds now." },
+    ],
+  }, {
+    // A sub-agent that comes back with a long report, for the fold that starts such a report closed.
+    on: "Hand over a survey of the report surfaces", emit: [
+      { kind: "call", tool: "realm-agent__agent_start", input: { title: "Survey the report surfaces", goal: "Survey every surface that shows a sub-agent's report, and say how each one folds." } },
+      { kind: "call", tool: "realm-agent__agent_wait", input: {} },
+      { kind: "text", paceMs: 30, text: "The survey is in." },
+    ],
+  }, {
+    on: "Survey every surface that shows a sub-agent's report", emit: [
+      { kind: "text", paceMs: 10, text: [
+        "Every surface that shows a sub-agent's report folds under the same head now.",
+        "",
+        "## Where a report is shown",
+        "",
+        "- **The Agents tab's viewer** pins it under the sub-agent's head, capped at most of the panel.",
+        "- **The sub-agent opened as a session** draws its last message as the report, under the same head.",
+        "- **The lead's transcript** says only that the sub-agent finished; a click opens the viewer.",
+        "",
+        "## How each one folds",
+        "",
+        "1. The head is a button with `aria-expanded`, and Enter and Space work it.",
+        "2. A short report starts open, because there is nothing to hide.",
+        "3. A long one starts closed, its first line beside the name.",
+        "4. The choice belongs to the sub-agent, so closing it in one place closes it in the other.",
+        "",
+        "## Checked",
+        "",
+        "The viewer and the session pane were opened in both faces, and the fold moves on the size rung and holds still under Reduce motion.",
+      ].join("\n") },
     ],
   }, {
     on: "Make the report card fold away", emit: [
@@ -758,13 +768,6 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   /** Where the Claude memory brought into space folders is passed over as a test run's. A test names
    *  its own; the app takes this Mac's temporary folders. */
   claudeTemporaryRoots?: readonly string[];
-  /** Teams Phase 3 test knobs: the platform every channel acts on, and main's answer about a press.
-   *  Production passes neither — the platform is the fake only under REALM_FAKE_ACT_ADAPTER=1 (live
-   *  checks), not connected otherwise, and a press is asked of Electron main over the bridge. */
-  acts?: { adapter?: ActAdapter; presses?: { consume(ticketId: string, contentHash: string): Promise<TicketPress> } };
-  /** A team's policies' test knob: main's side of the seals (verify, spend a press, move a stamp).
-   *  Production passes none — they are asked of Electron main over the bridge. */
-  policySeals?: SealBridge;
   /** The RPC token every client must offer as its `realm.<token>` subprotocol. Undefined leaves the
    *  socket open to anything on loopback, which is what the suite's several hundred `createApp` calls
    *  want — production mints one in `main.ts` and writes it to the 0600 state file. */
@@ -773,11 +776,11 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  child agent when the parent's kind has no skills-injection route; `timeouts` shrinks the settle
    *  budget so suites don't wait minutes. Production callers pass neither. */
   browserAgent?: { fallbackKind?: import("@realm/contracts").AgentKind; timeouts?: { baseMs: number; perActMs: number; pollMs: number } };
-  /** The lab's probes of this Mac, replaced in tests so a suite never reads the machine it runs on. */
-  lab?: { probe?: () => Promise<import("@realm/contracts").LabCheck[]>; hostName?: () => Promise<string | null>; now?: () => number };
   /** Plan 13 W1: the same knobs for `agent_run`. `fallbackKind` falls back to `browserAgent`'s when
    *  unset (test harnesses configure the fake once); `timeouts` shrinks the settle budget. */
   agentRun?: { fallbackKind?: import("@realm/contracts").AgentKind; timeouts?: { baseMs: number; perTurnMs: number; pollMs: number }; maxDepth?: number; caps?: { perParent?: number; total?: number } };
+  /** How long a teammate's clock turn may run before it is stopped (`TEAMMATE_CLOCK_TURN_MS`), shortened by suites. */
+  teammates?: { clockTurnMs?: number };
   /** Plan 13 W3: the same knobs for the reviewer recipe. `fallbackKind` (the reviewer's kind when the
    *  requester's has no read-only plan mode, or the user clicked) falls back to `agentRun`'s, then
    *  `browserAgent`'s. */
@@ -823,6 +826,13 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  derived line and the prompter keeps its deterministic ladder. */
   summaryGenerator?: (input: { asked: string; transcript: string; facts: string })
     => Promise<{ summary: string; hint: string | null }>;
+  /** Asking the CLIs about accounts, signing one out, and where the CLIs keep their own folders
+   *  (`machineAccounts`). Only `main.ts` passes them: every other `createApp` is a test or a script,
+   *  which must never run a CLI against the machine's own logins, so its accounts are never asked. */
+  accounts?: Partial<Pick<AccountsDeps, "probe" | "logout" | "defaults">>;
+  /** The hand-off note a switch of agents writes (`sessions/handover.ts`). Omitted for the same
+   *  reason: without it a switch carries the conversation verbatim. */
+  handoffGenerator?: HandoffNotesGenerator;
   /** Realm learning from quiet sessions for memory, and tidying what it keeps. `extract` and `tidy` are
    *  the billed calls, omitted for `titleGenerator`'s reason: only `main.ts` passes them, and not in a
    *  harness. `sink` stands in for the memory repo's helpers and `idleMs` for the quiet spell, for a test. */
@@ -1116,20 +1126,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // Declared alongside `runs` and for the same reason: `close()` below runs on a boot that may have
   // failed before this was constructed, so the handle has to exist as null from the top.
   let schedules: ScheduleService | null = null;
-  // Teams: read back through the session-event hook and the run seams below, like `runs`.
-  let team: TeamService | null = null;
-  let acts: ActService | null = null;
-  /* The team vault (team/vault/service.ts): made beside the team below, and read lazily by the browser
-     tools — a role's sign-in fill passes its grant check — which are registered before either exists. */
-  let vault: VaultService | null = null;
-  // Teams, Phase 4: handoffs, mentions, role goals and the back-off — read through the same hooks.
-  let handoffs: HandoffService | null = null;
-  /* A team's policies (team/policies): the one gate at the gateway every Realm and server tool call
-     passes, made once the team exists below and read lazily by the gateway and the sessions, which are
-     made before it. */
-  let policyGate: PolicyGate | null = null;
-  // The lab's update window holds team runs while an update waits to install (lab/service.ts).
-  let lab: LabService | null = null;
+  // Teammates: read back through the session-event hook and the delegation seams below, like `runs`.
+  let team: TeammatesService | null = null;
   // Plan 16 W3: forked sessions carry ancestor context through the same extraSystemContext seam the
   // delegation children use. Late-bound for the same knot: ForkService needs SessionService.create.
   let forks: ForkService | null = null;
@@ -1137,6 +1135,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // service takes it as a late-bound hook object, the same knot `notifications` and `browserAgents`
   // are tied with.
   let failover: FailoverService | null = null;
+  // Accounts: built beside the sign-in it starts, after `sessions`, which reads it back through a hook.
+  const accountsStore = new AccountsStore(db);
   // MCP Apps: the views servers draw for tool calls. The gateway reports a call that drew one, the
   // session service pairs it with the agent's own record of the call, and the views listener frames
   // it — each mounted view on an origin of its own.
@@ -1163,8 +1163,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       return spentChild || reviews?.isChild(sessionId) || codeReview?.isReviewer(sessionId) ? { exclude: [REALM_AGENT_PROVIDER_NAME] } : null;
     },
     // Activity keeps no masked answer: what a session was told in secret is scrubbed from its calls.
-    redact: (sessionId, text) => sessionService?.scrubSecrets(sessionId, text) ?? text,
-    policy: { check: (ctx, call) => (policyGate ? policyGate.check(ctx, call) : Promise.resolve({ ok: true as const, answered: false })) } });
+    redact: (sessionId, text) => sessionService?.scrubSecrets(sessionId, text) ?? text });
   gateway = mcpGateway;
   /* The profile's memory repo (Agent Memory Repo): what agents write. The memory documents stay the
      user's standing instructions; this is the memory agents save into and read back, through the
@@ -1212,6 +1211,30 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     profileIds: () => profiles.list().map((p) => p.id),
     temporaryRoots: opts.claudeTemporaryRoots,
     onChanged: (o) => memoryRepoChanged(o),
+  });
+  /* The memory library: every memory file an agent on this Mac reads, Realm's and each agent's own. The
+     agents' folders are read only where this caller named them — the machine's home, or a test's
+     stand-in — so a test that names neither never reads the real ones. */
+  const memoryLibrary = new MemoryLibrary({
+    home: opts.home, userHome: opts.userHome ?? null, settings,
+    claudeDir: claudeConfigDir,
+    codexHome: opts.codexHome ?? (opts.userHome ? join(opts.userHome, ".codex") : null),
+    profiles: () => profiles.list(),
+    spaces: () => spaces.listAll().map((sp) => ({
+      id: sp.id, profileId: sp.profileId, name: sp.name,
+      folders: [...new Set([sp.folderPath, ...environments.list(sp.id).filter((e) => e.kind !== "worktree").map((e) => e.path)].filter((p) => p !== ""))],
+    })),
+    repos: memoryRepos, docs: memory,
+    codexReported: (spaceId) => {
+      const latest = sessionsStore.list(spaceId).filter((x) => x.agentKind === "codex").sort((a, b) => b.updatedAt - a.updatedAt)[0];
+      const ev = latest ? sessionEvents.lastOfType(latest.id, "init") : null;
+      return ev?.type === "init" ? ev.payload.instructionSources ?? null : null;
+    },
+    trash: (path) => moveToTrash(path, opts.userHome ?? homedir()),
+    onChanged: (spaceIds) => {
+      for (const spaceId of spaceIds) rpc.broadcast("memory.changed", { spaceId });
+      rpc.broadcast("memory.library.changed", {});
+    },
   });
   // The browser agent surface (Plan 11 W3): the main↔server op bridge, the permission broker, and the
   // `realm-browser` provider on the gateway. The broker's callbacks are late-bound to `sessionService`
@@ -1314,6 +1337,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
         isIdle: (id) => sessionsStore.get(id)?.status === "idle",
       })
     : undefined;
+  /* What a switch of agents hands the incoming one, written on the frontier model when this build may
+     make that call and the machine can, and verbatim otherwise. */
+  const handoffNotes = new HandoffNotes({
+    home: opts.home, events: sessionEvents, generate: opts.handoffGenerator, available: claudeCanAnswer,
+    onError: (line) => console.error(line),
+  });
   /** The brief a session was started with — a delegated child's, a reviewer's, a fork's carried
    *  context, an unattended worker's — or undefined for a session the person started. A session is a
    *  child of at most one registry. */
@@ -1378,10 +1407,13 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       return s && mcpGateway.realmProvidersFor(sessionId, s.spaceId).includes(GOAL_PROVIDER_NAME) ? goalToolWireName(s.agentKind) : null;
     },
     log: (line) => console.log(line),
-    // A team role's goal run settles when its goal stops, not after its first turn.
-    onChanged: (sessionId, goal) => handoffs?.goalChanged(sessionId, goal),
   });
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, agentMemory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, planLimits, documents, goals, views: appViews,
+  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, agentMemory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, handoffNotes, planLimits,
+    accounts: {
+      envFor: (kind, accountId) => accounts.envFor(kind, accountId),
+      accountFor: (kind, accountId) => accounts.accountFor(kind, accountId),
+      carry: (kind, providerSessionId, fromId, toId) => accounts.carry(kind, providerSessionId, fromId, toId),
+    }, documents, goals, views: appViews,
     // What the idle reaper must leave running between turns. Read at sweep time, long after every
     // service named here exists.
     keepEngine: (sessionId) => goals.get(sessionId)?.status === "active"
@@ -1390,22 +1422,14 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // Sooner when memory is short; never for an engine holding a command its agent backgrounded.
     adaptIdle,
     backgroundShells: () => resourcesLate?.backgroundShells() ?? Promise.resolve(new Set<string>()),
-    // A team's policy answers for its gateway's calls itself: the engine's own MCP card is answered
-    // before it is drawn wherever the policy decides (team/policies/gate.ts `decides`).
-    teamPolicy: {
-      decides: async (sessionId, spaceId, tool) => {
-        if (!policyGate) return false;
-        return policyGate.decides(sessionId, spaceId, await mcpGateway.route(sessionId, spaceId, tool));
-      },
-      isRoleRun: (sessionId) => roleRunOf(sessionId) !== null,
-    },
     teammates: { joinedNote: (id) => teammates?.joinedNote(id) ?? "" },
+    teammateHome: { contextFor: (id) => team?.contextFor(id) },
     // The session-event rail, fanned out: the notifications feed AND the durable-run supervisor read
     // the SAME event off the same hook, so a run settles off exactly the status transition the feed
     // reports rather than off a poll of its own (runs/service.ts).
     notifications: {
       handleSessionEvent: (session, ev) => {
-        notifications.handleSessionEvent(session, ev); runs?.handleSessionEvent(session, ev); team?.handleSessionEvent(session, ev); handoffs?.handleSessionEvent(session, ev);
+        notifications.handleSessionEvent(session, ev); runs?.handleSessionEvent(session, ev); team?.handleSessionEvent(session, ev);
         memoryLearner?.handleSessionEvent(session, ev);
         // The usage hook reads the month's spend back from the saved events, and this runs BEFORE the
         // event is saved — in the same call, so a microtask later it is there.
@@ -1426,7 +1450,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     },
     browserAgents: {
       parentInterrupted: (id) => browserAgents?.parentInterrupted(id),
-      release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); runs?.release(id); codeReview?.release(id); teammates?.release(id); },
+      release: (id) => { browserAgents?.release(id); agentRuns?.release(id); reviews?.release(id); asks?.release(id); forks?.release(id); runs?.release(id); codeReview?.release(id); teammates?.release(id); team?.release(id); void handoffNotes.release(id).catch(() => {}); },
       extraSystemContext: agentContextOf,
       skillsFilter: (id) => agentRuns?.skillsFilter(id) ?? runs?.skillsFilter(id) ?? null,
       modeSet: async (id, mode) => { await agentRuns?.cascadeMode(id, mode); },
@@ -1448,7 +1472,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     // draws, so "GPT-6 Luna" in a tool call and "GPT-6 Luna" in the picker are the same model.
     // `refresh` is only reached once the rows are too old to trust a "no such model", so it forces:
     // an unforced read would hand back those same rows and refresh behind the refusal.
-    models: { known: () => sessions.probeCached(), refresh: () => sessions.probe({ force: true }), kinds: Object.keys(adapterRegistry) as AgentKind[] } });
+    models: { known: () => sessions.probeCached(), refresh: () => sessions.probe({ force: true }), kinds: Object.keys(adapterRegistry) as AgentKind[] },
+    // A teammate's task runs in the teammate's mode and is listed under it (teammates/service.ts).
+    teammates: { childOf: (parentId) => team?.childOf(parentId) ?? null } });
   // Children named before they were named by their task wear "Agent: <first line>"; renamed once,
   // here, wherever that string is still exactly what both rows say.
   agentRuns.retitleLegacyChildren();
@@ -1489,15 +1515,6 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     documents: { rootForSpace: (spaceId) => { try { return documents.rootForSpace(spaceId); } catch { return null; } } },
     // Saved sign-ins are a profile's own: the credential tools name the session's profile to main.
     profileOf: (spaceId) => spaces.get(spaceId)?.profileId ?? null,
-    // A team's role fills a sign-in only under a grant, and without its card only under an allow.
-    vault: {
-      check: (ctx, secret, host) => vault ? vault.check(ctx, secret, host) : Promise.resolve({ unattended: false, roleId: null, runId: null, hosts: null }),
-      note: (ctx, use, who) => vault?.note(ctx, use, who),
-      grantedSignins: (sessionId) => {
-        const owner = vault?.roleOf(sessionId);
-        return owner ? vault!.grantsForRole(owner.role.id).filter((g) => g.kind === "signin").map((g) => g.secretId) : null;
-      },
-    },
   }));
   // Plan 20's interjection. `delegated` fans across all THREE registries: a delegated child of any
   // kind is never a valid asker, and a target only for the session that started it once its run is
@@ -1641,17 +1658,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   runs = new RunService({ store: new RunsStore(db), settings, sessions, rpc, environments: envService, skills, notifications,
     // A run a schedule fired may owe its schedule something once it is over (archiving a success).
     // Read through the variable, which is assigned on the next statement and before any run settles.
-    onSettled: (run) => { schedules?.runSettled(run); team?.runSettled(run); },
-    // A team role's run waits for a slot, wears its role's preamble, and arms its minutes cap when it
-    // starts — all decided by the team service, read through the variable assigned below.
-    admit: (run) => !(lab?.holding ?? false) && (team?.admit(run) ?? true),
-    rolePreamble: (run) => {
-      const base = team?.rolePreamble(run) ?? null;
-      const more = handoffs?.preamble(run) ?? null;
-      return base && more ? `${base}\n${more}` : base;
-    },
-    onChanged: (run) => { team?.runChanged(run); handoffs?.runChanged(run); },
-    holdSettle: (run) => handoffs?.holdSettle(run) ?? false,
+    onSettled: (run) => { schedules?.runSettled(run); },
     fallbackKind: opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind });
   // Scheduled tasks: the clock in front of the runs above. It owns a timer and they deliberately do
   // not — every fact this one acts on is a column, so a restart replays from the row rather than
@@ -1660,7 +1667,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   schedules = new ScheduleService({
     store: new SchedulesStore(db), runs, rpc,
     spaceExists: (id) => Boolean(spaces.get(id)),
-    refuse: (schedule) => team?.refuseSchedule(schedule) ?? handoffs?.refuseSchedule(schedule) ?? null,
+    // A teammate's clock writes into its chat (made just below), not into a run.
+    teammates: { clockFired: (schedule) => team?.clockFired(schedule) ?? "gone" },
     // The session's sidebar row: an item, archived the way the row's own Archive does it.
     archiveSession: (sessionId, archived) => {
       const item = items.findByRefId(sessionId);
@@ -1674,128 +1682,17 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      because it wraps the service declared on the line above; the gateway's per-space enablement is
      what decides whether a session actually sees the tools. */
   mcpGateway.registerProvider(createScheduleAgentProvider({ schedules, mcp, sessions }));
-  /* Teams: roles whose work is the runs above, Review, records in the space's memory repo, and the
-     activity log (team/service.ts). `realm-team` is listed only in a space that is a team. */
-  const teamStore = new TeamStore(db);
-  /* Approve → act (team/acts): a yes issues one paced ticket per outward act, and each acts only on
-     the person's press on its sheet, which main holds and the bridge asks about. The platform is
-     never real in a check: REALM_FAKE_ACT_ADAPTER=1 posts nowhere and logs each act to the home. */
-  const actAdapter: ActAdapter = opts.acts?.adapter
-    ?? (process.env.REALM_FAKE_ACT_ADAPTER === "1" ? new FakeActAdapter(join(opts.home, "fake-acts.jsonl")) : new NotConnectedAdapter());
-  acts = new ActService({
-    store: new ActStore(db), team: teamStore,
-    rootForSpace: (id) => { try { return documents.rootForSpace(id); } catch { return null; } },
-    record: (spaceId, path) => team?.recordFor(spaceId, path) ?? null,
-    presses: opts.acts?.presses ?? {
-      consume: async (ticketId, contentHash) => {
-        if (!browserBridge.connected) return { pressed: false, label: false, slotAt: null };
-        return (await browserBridge.call("teamTicketPress", { ticketId, contentHash })) as TicketPress;
-      },
-    },
-    adapter: () => actAdapter,
-    proofDir: join(opts.home, "team-proof"),
-    rpc,
+  /* Teammates (teammates/service.ts): permanent agents in a space, each with its own chat, kept in the
+     table the first Teams' roles were. `realm-team` is listed in every session of a space that has one. */
+  const teammatesStore = new TeammatesStore(db);
+  { const filled = teammatesStore.backfill(); if (filled > 0) console.log(`[teammates] ${filled} role(s) from the first Teams brought through as teammates`); }
+  team = new TeammatesService({
+    store: teammatesStore, spaces, environments, sessions, engine: delegationEngine, rpc, schedules,
+    ...(opts.teammates?.clockTurnMs ? { clockTurnMs: opts.teammates.clockTurnMs } : {}),
+    defaultMode: (kind) => resolveDefaultPermissionMode(kind, settings.get(DEFAULT_PERMISSION_MODE_KEY)),
+    toolsChanged: () => mcpGateway.notifyToolsChanged(),
   });
-  /* The kinds of record each team keeps (team/record-types). Their words reach the record tools'
-     descriptions, so a change re-lists the space's sessions; the tool list itself never changes. */
-  const recordTypeStore = new RecordTypeStore(db);
-  const recordTypes = new RecordTypeService({
-    store: recordTypeStore,
-    repoPath: (id) => team?.repoPath(id) ?? null,
-    spaceExists: (id) => Boolean(spaces.get(id)),
-    log: (spaceId, actor, verb, object, detail) => { teamStore.appendActivity({ spaceId, actor, verb, object, detail }); },
-    changed: (spaceId) => { rpc.broadcast("team.changed", { spaceId }); mcpGateway.notifyPolicyChanged(spaceId); },
-  });
-  team = new TeamService({
-    store: teamStore, runs, schedules, sessions, repos: memoryRepos, acts: acts, recordTypes,
-    rootForSpace: (id) => { try { return documents.rootForSpace(id); } catch { return null; } },
-    spaceExists: (id) => Boolean(spaces.get(id)),
-    enabledSkills: (id) => skills.list(id).skills.filter((s) => s.enabled && s.valid).map((s) => s.id),
-    settings, rpc,
-    defaultKind: opts.agentRun?.fallbackKind ?? opts.browserAgent?.fallbackKind,
-    preambleExtra: (roleId) => vault?.preambleLines(roleId) ?? [],
-  });
-  handoffs = new HandoffService({
-    store: new HandoffStore(db), teamStore, team, runs, goals: { get: (id) => goals.get(id), adopt: (id, o, b) => goals.adopt(id, o, b), set: (id, st, note) => goals.set(id, st, note) },
-    agentRuns, sessions, settings, rpc,
-    rootForSpace: (id) => { try { return documents.rootForSpace(id); } catch { return null; } },
-  });
-  team.attach(handoffs);
-  mcpGateway.registerProvider(createTeamAgentProvider({ team, types: recordTypes, mcp, more: createHandoffTools({ handoffs, teamStore }), policies: { describe: (id) => policies.describe(id) } }));
-  const teamFinal = team;
-  vault = new VaultService({
-    store: new VaultStore(db), team: teamStore, runs, bridge: browserBridge,
-    profileOf: (id) => spaces.get(id)?.profileId ?? null, isTeam: (id) => teamFinal.isTeam(id), rpc,
-  });
-  mcpGateway.registerProvider(createVaultAgentProvider({
-    vault, bridge: browserBridge, broker: browserBroker, mcp,
-    profileOf: (id) => spaces.get(id)?.profileId ?? null, isTeam: (id) => teamFinal.isTeam(id),
-  }));
-  /* A team's policies (team/policies, the dynamic-Teams plan §4): its rows, the seals main keeps on
-     the looser ones, and the gate at the gateway. Main makes a seal only at the person's press on the
-     Policies page, confirmed by macOS; this side reads a seal, spends one, and moves a stamp on, and
-     with no main every looser row reads as the floor. */
-  const policyStore = new PolicyStore(db);
-  const policies = new PoliciesService({
-    profileIdOf: (spaceId) => spaces.get(spaceId)?.profileId ?? null,
-    spaceName: (spaceId) => spaces.get(spaceId)?.name ?? "This team",
-    isTeam: (spaceId) => teamFinal.isTeam(spaceId),
-    realmProviders: (spaceId) => mcpGateway.realmProvidersFor("", spaceId),
-    serverIds: (spaceId) => mcp.effectiveServerIds(spaceId),
-    server: (id) => mcpServersStore.get(id),
-    allowedTools: (spaceId, id) => mcp.allowedTools(spaceId, id),
-    liveTools: (id) => mcpHub.tools(id),
-    overrides: new ToolClassesStore(db),
-    store: policyStore,
-    seals: new SealChecker(opts.policySeals ?? {
-      connected: () => browserBridge.connected,
-      verify: (items) => browserBridge.call("teamPolicyVerify", { items }),
-      consume: (text) => browserBridge.call("teamPolicySeal", { text }),
-      bump: (scope) => browserBridge.call("teamPolicyBump", { scope }),
-    }),
-    log: (spaceId, verb, object, detail) => { teamStore.appendActivity({ spaceId, actor: "user", verb, object, detail }); },
-    changed: (spaceId) => { rpc.broadcast("team.changed", { spaceId }); mcpGateway.notifyPolicyChanged(spaceId); },
-  });
-  policyGate = new PolicyGate({
-    policies, store: policyStore,
-    roleRunOf: (sessionId) => roleRunOf(sessionId),
-    permissionMode: (sessionId) => sessionsStore.get(sessionId)?.permissionMode ?? "default",
-    broker: browserBroker,
-    log: (spaceId, actor, verb, object, detail, run) => { teamStore.appendActivity({ spaceId, actor, verb, object, detail, runId: run?.runId ?? null, sessionId: run?.sessionId ?? null }); },
-    now: () => Date.now(),
-  });
-  /** The role run a session works for: a run's own worker session, or a session delegated from one —
-   *  a sub-agent of a role is bound as its role is. Null for the person's own sessions. */
-  const roleRunOf = (sessionId: string): { roleId: string; runId: string | null; sessionId: string } | null => {
-    let id: string | null = sessionId;
-    for (let depth = 0; id && depth < 8; depth++) {
-      const run = runs?.workerRun(id) ?? null;
-      if (run?.roleId) return { roleId: run.roleId, runId: run.id, sessionId: id };
-      id = agentRuns?.record(id)?.parentSessionId ?? browserAgents?.parentOf(id) ?? null;
-    }
-    return null;
-  };
-  /* The lab: this Mac's readiness, the devices on its cables, and the update window that holds team
-     runs while an update waits to install. Realm-wide — one Mac serves every team on it. */
-  lab = new LabService({
-    store: new LabDevicesStore(db), settings, rpc,
-    spaceName: (id) => spaces.get(id)?.name ?? null,
-    devices: () => simulators.devices(),
-    probe: opts.lab?.probe ?? (async () => evaluate(await probeFacts(macProbeDeps(opts.home)))),
-    hostName: opts.lab?.hostName ?? (async () => {
-      const r = await runCommand("/usr/sbin/scutil", ["--get", "LocalHostName"], 3_000);
-      return r.code === 0 && r.stdout.trim() ? `${r.stdout.trim()}.local` : null;
-    }),
-    // Work the window waits for: runs that are running, and turns in sessions no run owns.
-    busy: () => {
-      const running = runs!.listLive().filter((r) => r.state === "running");
-      const workers = new Set(running.map((r) => r.sessionId).filter(Boolean));
-      const sessionsWorking = sessionsStore.listAll().filter((s) => s.status === "running" && !workers.has(s.id) && !runs!.isWorker(s.id)).length;
-      return { runs: running.length, sessions: sessionsWorking };
-    },
-    pump: () => runs?.pump(),
-    ...(opts.lab?.now ? { now: opts.lab.now } : {}),
-  });
+  mcpGateway.registerProvider(createTeammatesProvider({ store: teammatesStore, teammates: team, mcp }));
   /* `realm-memory`: the memory repo's tools, on by default and listed only where the space's profile
      has a repo — which every profile has unless its repo was detached. Every engine saves and searches
      through them; the index itself travels in each session's context. A save repaints every open memory
@@ -1830,6 +1727,17 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
      for the reason the installer takes it: a suite's PATH must be the one the test built, so no
      `createApp` in a suite can find — let alone start — the developer's real `codex login`. */
   const agentSignIn = new AgentSignInService({ rpc, probe: (kind) => sessions.probeAgent(kind), env: opts.cli?.env });
+  /* The accounts each agent CLI runs on: folders under this home, signed in by the sign-in above, and
+     the folder variable a session's engine starts under (read back through the hook the sessions hold). */
+  const accounts: AccountsService = new AccountsService({
+    home: opts.home, store: accountsStore, rpc, signIn: agentSignIn,
+    probe: opts.accounts?.probe ?? (async () => ({ signedIn: null, email: null, plan: null })),
+    logout: opts.accounts?.logout, defaults: opts.accounts?.defaults,
+    sessions: {
+      busy: (accountId) => accountsStore.sessionsOn(accountId).some((id) => { const st = sessionsStore.get(id)?.status; return st === "running" || st === "waiting_permission"; }),
+      stopOn: async (accountId) => { await Promise.all(accountsStore.sessionsOn(accountId).map((id) => sessions.stopAgent(id))); },
+    },
+  });
   // Spend and activity for Settings → Usage, and the budget watcher behind it. Reads only; the one
   // thing it writes is the budget row, and the one thing it emits is a threshold notification.
   usage = new UsageService({ db, settings, catalog: modelCatalog, notifications });
@@ -1848,6 +1756,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     resend: (id, msg) => sessions.resendTurn(id, msg),
     stop: (id) => sessions.stopAgent(id),
     probe: (opts) => sessions.probe(opts),
+    accounts: { accountFor: (kind, id) => accounts.accountFor(kind, id), others: (kind, id) => accounts.others(kind, id) },
   });
   // Importing the agent CLIs' own history (transcripts, memory folders, skills). Reads ~/.claude,
   // ~/.codex and ~/.cursor and never writes them; everything it produces lands in this database or
@@ -1920,9 +1829,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   let access: Access | null = null;
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
-    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, claudeBackfill, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, handoffs, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
+    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, claudeBackfill, memoryLibrary, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns, teammates,
-    iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, resources: resourceControls, agentSignIn,
+    iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, resources: resourceControls, agentSignIn, accounts,
     libraryFiles, remote, presence,
     access: () => (access ? { url: access.url } : null),
     appViews: new AppViewService({ views: appViews, hub: mcpHub, mcp, servers: mcpServersStore, sessions: sessionsStore, server: appViewServer, gateway: mcpGateway, log: (line) => console.log(line) }),
@@ -1944,11 +1853,6 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       drain.tick();
     },
   });
-  registerVaultMethods(rpc, vault, (id) => Boolean(spaces.get(id)));
-  registerLabMethods(rpc, lab);
-  registerActMethods(rpc, acts!, (id) => Boolean(spaces.get(id)));
-  registerRecordTypeMethods(rpc, recordTypes, (id) => Boolean(spaces.get(id)));
-  registerPolicyMethods(rpc, policies, (id) => Boolean(spaces.get(id)));
   sessions.markStaleOnBoot();
   // AFTER markStaleOnBoot, which is what turns a session that was mid-turn back into a resumable
   // row — recovery reconciles each live run against that reconciled world, not the pre-boot one.
@@ -1957,15 +1861,6 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   // this first tick, and it must not race the recovery that decides which runs are still alive.
   schedules.start();
   memoryTidier?.start();
-  team.start();
-  // A folder of records that no type claims — a team made from "any" roles that a person later gave
-  // creators/ files — is adopted here, once: what migration v51 could not see from SQL.
-  try {
-    adoptRecordTypes({ teamSpaceIds: () => teamStore.teamSpaceIds().filter((id) => Boolean(spaces.get(id))), repoPath: (id) => teamFinal.repoPath(id), store: recordTypeStore, types: recordTypes });
-  } catch (e) { console.error(`[team] record types reconcile failed: ${e instanceof Error ? e.message : String(e)}`); }
-  handoffs.start();
-  lab.start();
-  acts!.start();
   // The pre-v15 event history reaches the search index here: chunked, yielding, resumable across
   // boots (SearchService.runBackfill's doc comment states the design). Fire-and-forget — search over
   // the not-yet-covered range is merely incomplete while it runs, and a failure only pauses it.
@@ -2058,11 +1953,8 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     search.stop(); // before db.close: the backfill loop must not start a chunk on a closing handle
     claudeBackfill?.stop(); // likewise for Claude's memory: no run starts on a closing handle
     payloadCompactor.stop(); // likewise its batches
-    team?.close();
-    handoffs?.close();
-    lab?.close();
-    acts?.close();
     schedules?.close(); // before runs: a tick must not create a run on a service that is stopping
+    team?.close(); // and a teammate's clock turn must not stop a session on one
     runs?.close(); // likewise: an in-flight dispatch must not write to a closing handle
     codeReview?.close(); // and a reviewer settling now must not write its findings to one
     summaries?.close(); // a debounced recap must not fire onto a closing handle, or outlive the process
@@ -2113,7 +2005,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   }
 
   return {
-    port, access: access ? { port: access.port, url: access.url } : null, db, rpc, terminals, sessions, browserAgents, agentRuns, teammates, reviews, asks, runs, schedules, team, lab, acts: acts!, codeReview, gateway: mcpGateway,
+    port, access: access ? { port: access.port, url: access.url } : null, db, rpc, terminals, sessions, browserAgents, agentRuns, teammates, reviews, asks, runs, schedules, team, codeReview, gateway: mcpGateway,
     close: closeApp,
   };
 }

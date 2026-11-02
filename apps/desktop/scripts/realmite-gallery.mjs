@@ -15,7 +15,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
 import { createServer } from "vite";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -24,20 +23,15 @@ const CHROME = process.env.CHROME ?? "/Applications/Google Chrome.app/Contents/M
 fs.mkdirSync(out, { recursive: true });
 
 const vite = await createServer({
-  root: repoRoot, configFile: false, logLevel: "error", appType: "custom", server: { middlewareMode: true }, esbuild: { jsx: "automatic" },
+  root: repoRoot, configFile: false, logLevel: "error", appType: "custom", server: { middlewareMode: true },
 });
-let R, T, M, React, Server;
+let R, T;
 try {
   R = await vite.ssrLoadModule("/packages/ui/src/realmite/index.ts");
   T = await vite.ssrLoadModule("/packages/ui/src/themes.ts");
-  M = await vite.ssrLoadModule("/apps/desktop/src/renderer/src/components/RealmiteMaker.tsx");
 } finally {
   await vite.close();
 }
-// The desktop app's own React, which is the copy the SSR-loaded maker resolves to as well.
-const desktopRequire = createRequire(path.join(repoRoot, "apps/desktop/package.json"));
-React = desktopRequire("react");
-Server = desktopRequire("react-dom/server");
 
 const SEEDS = Array.from({ length: 48 }, (_, i) => `role-${i + 1}`);
 let uid = 0;
@@ -104,23 +98,11 @@ function partsPage(mode) {
   return page(mode, "parts", `<h1>Every part on one base</h1>${groups}`);
 }
 
-/** The maker as it would sit in a sheet, drawn by React from the real component with the app's own
- *  stylesheet linked in (no paint worklet here, so its squircles fall back to plain rounding). */
-function makerPage(mode) {
-  const css = ["theme/tokens.css", "styles.css"].map((f) => `<link rel="stylesheet" href="file://${path.join(repoRoot, "apps/desktop/src/renderer/src", f)}">`).join("");
-  const maker = (seed, name) => Server.renderToStaticMarkup(React.createElement(M.RealmiteMaker, { spec: R.realmiteFromSeed(seed), name, onChange() {} }));
-  return page(mode, "maker", `${css}<h1>Realmite maker</h1><p>What a person sees making a team role. Every choice is the creature with that part on.</p>
-<div style="display:flex;flex-direction:column;gap:16px">
-<div style="background:var(--surface);border-radius:16px;padding:20px 24px">${maker("role-12", "Creator Manager")}</div>
-<div style="background:var(--surface);border-radius:16px;padding:20px 24px">${maker("role-21", "Content Producer")}</div></div>`);
-}
-
 const pages = [
   ["sizes", sizesPage, 1500, 940],
   ["hero", heroPage, 1700, 1700],
   ["states", statesPage, 1500, 1330],
   ["parts", partsPage, 1500, 1240],
-  ["maker", makerPage, 1100, 1060],
 ];
 
 /** Headless Chrome with its own profile; when it is done, or past `ms`, everything that profile

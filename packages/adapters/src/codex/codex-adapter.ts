@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { ASK_PERMISSION_MODE, AskCardSchema, askCardFromElicitation, elicitationContent, loggableAnswers, normalizeAnswers, requiredAnswered, sessionEvent, type AskAnswers, type AskCard, type SessionEvent } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { JsonRpcCallError, isRpcTimeout, type JsonRpcId } from "../jsonrpc/stdio";
@@ -182,43 +179,18 @@ export function codexMcpConfig(servers: readonly McpServerConfig[]): Bag | undef
 }
 
 /**
- * The MCP servers the user's own Codex config names (`[mcp_servers.NAME]` and its sub-tables), read
- * from the TOML's table headers. Codex merges these with a thread's `config.mcp_servers`, so a role
- * run turns each one off by name in its own config. Read only; Realm never writes the user's config.
- */
-export function codexUserMcpServers(toml: string): string[] {
-  const names = new Set<string>();
-  for (const m of toml.matchAll(/^\s*\[\s*mcp_servers\.(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_-]+))/gm)) names.add((m[1] ?? m[2] ?? m[3])!);
-  return [...names];
-}
-
-/**
  * Codex's own memories, off for one thread: the feature (`[features] memories`, 0.163) and both halves
  * of it — reading memories into the thread and mining the thread for new ones (`[memories]`). Sent
  * where Realm keeps the session's memory, so Codex never grows a second store beside the repo.
  */
 export const CODEX_MEMORIES_OFF = { features: { memories: false }, memories: { generate_memories: false, use_memories: false } } as const;
 
-/**
- * `thread/start`'s `config` for one session. A team role's run reaches the world only through Realm's
- * gateway, where its team's policy decides: the sandbox's network is pinned off (over a user's
- * `network_access = true`, verified against 0.154), and every server the user's own config names is
- * turned off for this thread, so the gateway is the only MCP server it has. Where Realm keeps the
- * session's memory, Codex's own memories are off for the thread.
- */
-export function codexThreadConfig(servers: readonly McpServerConfig[], roleRun: { userServers: readonly string[] } | null, o: { memoriesOff?: boolean } = {}): Bag | undefined {
+/** `thread/start`'s `config` for one session: Realm's MCP servers, and — where Realm keeps the
+ *  session's memory — Codex's own memories off for the thread. */
+export function codexThreadConfig(servers: readonly McpServerConfig[], o: { memoriesOff?: boolean } = {}): Bag | undefined {
   const mcp = codexMcpConfig(servers);
   const memory = o.memoriesOff ? CODEX_MEMORIES_OFF : {};
-  if (!roleRun) return (mcp || o.memoriesOff) ? { ...mcp, ...memory } : undefined;
-  const own = obj(mcp?.mcp_servers);
-  const off = Object.fromEntries(roleRun.userServers.filter((n) => !(n in own)).map((n) => [n, { enabled: false }]));
-  return { mcp_servers: { ...off, ...own }, sandbox_workspace_write: { network_access: false }, ...memory };
-}
-
-/** The user's Codex config, read only, or "" when there is none to read. */
-function readUserCodexConfig(): string {
-  const home = process.env.CODEX_HOME || join(homedir(), ".codex");
-  try { return readFileSync(join(home, "config.toml"), "utf8"); } catch { return ""; }
+  return (mcp || o.memoriesOff) ? { ...mcp, ...memory } : undefined;
 }
 
 /**
@@ -258,6 +230,9 @@ function bootFailureMessage(e: unknown): string {
 type SharedProcess = {
   conn: Promise<CodexConnection>;
   refs: number;
+  /** The `CODEX_HOME` it was started under, "" for the CLI's own: an account's folder (accounts.ts) is
+   *  the whole of its login, and one process can hold only one. */
+  home: string;
   /**
    * Skills roots contributed by live sessions, refcounted by root.
    *
@@ -283,8 +258,9 @@ export class CodexAdapter implements AgentAdapter {
   private readonly args?: string[];
   /** Overridable for tests. Bounds every boot call: initialize, thread/start and thread/resume. */
   private readonly bootTimeoutMs?: number;
-  /** The process new sessions join, or null when none is up (or the one that was is retired). */
-  private shared: SharedProcess | null = null;
+  /** The process new sessions join, one per account folder (`SharedProcess.home`) — none for a
+   *  folder with nothing up, or whose process was retired. */
+  private readonly shared = new Map<string, SharedProcess>();
   /** Every process still holding sessions — the current one plus any retired by a CLI upgrade. */
   private readonly live = new Set<SharedProcess>();
   /**
@@ -311,8 +287,9 @@ export class CodexAdapter implements AgentAdapter {
     this.bootTimeoutMs = deps.bootTimeoutMs;
   }
 
-  /** Visible for tests: 0 or 1 — the whole point of the refcount is that it never exceeds one. The one
-   *  exception is the overlap after a CLI upgrade, while sessions on the retired process finish. */
+  /** Visible for tests: one per account folder in use — the whole point of the refcount is that it never
+   *  exceeds that. The one exception is the overlap after a CLI upgrade, while sessions on the retired
+   *  process finish. */
   get processCount(): number { return this.live.size; }
   /** Visible for tests: sessions currently holding a process. A leak here strands the child forever. */
   get sessionCount(): number { return [...this.live].reduce((n, s) => n + s.refs, 0); }
@@ -321,7 +298,7 @@ export class CodexAdapter implements AgentAdapter {
    * refcount alone cannot — that the child is really dead, that a disposed session really detached, and how a
    * still-attached session reacts when the process is deliberately torn down under it.
    */
-  get connection(): Promise<CodexConnection> | null { return this.shared?.conn ?? null; }
+  get connection(): Promise<CodexConnection> | null { return this.shared.get("")?.conn ?? null; }
 
   async probe(): Promise<ProbeResult> {
     // The adapter's OWN args, so the probe runs the command the adapter would run. With no args —
@@ -336,7 +313,7 @@ export class CodexAdapter implements AgentAdapter {
       // files, not the running program. Asking it for `model/list` returns the OLD catalog, and a new
       // session joining it would run a model the picker offers but that build does not know. So it is
       // retired: its sessions keep it until they end, and everything after spawns the new binary.
-      if (this.latchedVersion !== null) this.shared = null;
+      if (this.latchedVersion !== null) this.shared.clear();
       this.latchedVersion = p.version;
       this.modelListSupported = true;
       this.extraRootsSupported = true;
@@ -364,7 +341,8 @@ export class CodexAdapter implements AgentAdapter {
     try {
       // A rejected shared open is a boot problem for the session that caused it, not for this probe:
       // fall through to a transient process rather than inheriting the rejection.
-      const shared = this.shared ? await this.shared.conn.catch(() => null) : null;
+      const own = this.shared.get("");
+      const shared = own ? await own.conn.catch(() => null) : null;
       const conn = shared ?? (owned = await CodexConnection.open({
         bin: this.bin ?? process.env.REALM_CODEX_BIN ?? "codex",
         args: this.args,
@@ -391,12 +369,15 @@ export class CodexAdapter implements AgentAdapter {
 
   /**
    * `cwd`/`env`/`onLog` only shape the process the *first* session spawns; every later session rides the same
-   * one and carries its own `cwd` on `thread/start`, which is the value that actually matters.
+   * one and carries its own `cwd` on `thread/start`, which is the value that actually matters. The one
+   * exception is the account: a session on another account's folder (`CODEX_HOME`) gets that folder's
+   * process, so each login stays in the process that signed it in.
    */
   private acquire(opts: StartOptions): SharedProcess {
-    let entry = this.shared;
+    const home = opts.env?.CODEX_HOME ?? "";
+    let entry = this.shared.get(home);
     if (!entry) {
-      entry = this.shared = {
+      entry = {
         conn: CodexConnection.open({
           bin: this.bin ?? process.env.REALM_CODEX_BIN ?? "codex",
           args: this.args,
@@ -406,8 +387,10 @@ export class CodexAdapter implements AgentAdapter {
           initializeTimeoutMs: this.bootTimeoutMs,
         }),
         refs: 0,
+        home,
         roots: new Map(),
       };
+      this.shared.set(home, entry);
       this.live.add(entry);
     }
     entry.refs += 1;
@@ -417,13 +400,13 @@ export class CodexAdapter implements AgentAdapter {
     entry.conn.catch(() => {
       opened.refs -= 1;
       if (opened.refs === 0) this.live.delete(opened);
-      if (this.shared === opened) this.shared = null;
+      if (this.shared.get(opened.home) === opened) this.shared.delete(opened.home);
     });
     return entry;
   }
 
   /** Visible for tests: the roots currently unioned onto the shared connection. */
-  get extraRootCount(): number { return this.shared?.roots.size ?? 0; }
+  get extraRootCount(): number { return this.shared.get("")?.roots.size ?? 0; }
   /** Visible for tests: false once a codex build has answered -32601 to `skills/extraRoots/set`. */
   get skillsSupported(): boolean { return this.extraRootsSupported; }
   /** Visible for tests: false once a codex build has answered -32601 to `model/list`. */
@@ -464,7 +447,7 @@ export class CodexAdapter implements AgentAdapter {
     entry.refs -= 1;
     if (entry.refs > 0) return;
     this.live.delete(entry);
-    if (this.shared === entry) this.shared = null;
+    if (this.shared.get(entry.home) === entry) this.shared.delete(entry.home);
     try { await (await entry.conn).dispose(); } catch { /* open() already tore down its own child */ }
   }
 
@@ -680,16 +663,6 @@ export class CodexAdapter implements AgentAdapter {
         if (method === "mcpServer/elicitation/request") {
           const toolApproval = codexMcpToolApproval(params);
           if (toolApproval) {
-            // A team's policy answers for its gateway's tools itself, drawing the one card owed: Codex
-            // approves without a card of its own. Never `persist`, as below.
-            if (opts.gatewayDecides) {
-              const decides = opts.gatewayDecides;
-              void decides(toolApproval.toolName).catch(() => false).then((yes) => {
-                if (yes) conn?.respond(id, { action: "accept", content: {}, _meta: null });
-                else cardFor(id, toolApproval);
-              });
-              return;
-            }
             cardFor(id, toolApproval);
             return;
           }
@@ -746,7 +719,7 @@ export class CodexAdapter implements AgentAdapter {
         if (disposed) { await releaseOnce(); return; }
         conn = c;
         const { approvalPolicy, sandbox } = codexPolicyFor(opts.permissionMode);
-        const config = codexThreadConfig(opts.mcpServers, opts.roleRun ? { userServers: codexUserMcpServers(readUserCodexConfig()) } : null, { memoriesOff: Boolean(opts.memoryDirectory) });
+        const config = codexThreadConfig(opts.mcpServers, { memoriesOff: Boolean(opts.memoryDirectory) });
         // No `effort` here: Codex takes reasoning effort per turn, and `effortParam` sends it on `turn/start`.
         const common = {
           cwd: opts.cwd,

@@ -1,6 +1,6 @@
 import { Icon, type IconName } from "@realm/ui";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
-import { AGENT_SKILL_SUPPORT, MAC_SKILL_ID, PLAN_PERMISSION_MODE, basenameOf, offeredModes, sessionModeOf, type Item, type LinkChip, type MentionRef, type UnlabelledRef, type SessionMode, type Skill, runnableCommands, type UserCommand, type TurnChanges } from "@realm/contracts";
+import { AGENT_SKILL_SUPPORT, MAC_SKILL_ID, PLAN_PERMISSION_MODE, basenameOf, defaultAccountId, hasAccounts, offeredModes, sessionModeOf, type Item, type LinkChip, type MentionRef, type UnlabelledRef, type SessionMode, type Skill, runnableCommands, type UserCommand, type TurnChanges } from "@realm/contracts";
 
 /** A stable empty list for the commands selector. A fresh `[]` in the selector is a new reference on
  *  every render, which is how a zustand subscription turns into a render loop. */
@@ -26,6 +26,7 @@ import { SessionFilesHost } from "./SessionFiles";
 import { GoalStrip } from "./GoalStrip";
 import { useSessionSubagents } from "./session-subagents";
 import { orchestratorOrder } from "../agents-tab/subagent-state";
+import { useAsSubagent } from "../agents-tab/SubagentViewer";
 import { useSelectInRealm } from "../../app-pick/start";
 import { PathMenu, asRef } from "./PathMenu";
 import { useSpaceTint } from "../../components/sidebar/use-sidebar-model";
@@ -250,6 +251,16 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const openAgentsTabFor = useApp((s) => s.openAgentsTab);
   const setSessionOptions = useApp((s) => s.setSessionOptions);
   const setSessionAgent = useApp((s) => s.setSessionAgent);
+  const switchSessionAgent = useApp((s) => s.switchSessionAgent);
+  const accounts = useApp((s) => s.accounts);
+  const accountSignIns = useApp((s) => s.accountSignIns);
+  const refreshAccounts = useApp((s) => s.refreshAccounts);
+  const addAccount = useApp((s) => s.addAccount);
+  const setSessionAccount = useApp((s) => s.setSessionAccount);
+  const sendAccountSignInCode = useApp((s) => s.sendAccountSignInCode);
+  const cancelAccountSignIn = useApp((s) => s.cancelAccountSignIn);
+  const removeAccount = useApp((s) => s.removeAccount);
+  const agentHasAccounts = useApp((s) => { const k = s.sessions[id]?.agentKind; return k ? hasAccounts(k) : false; });
   const setSessionMode = useApp((s) => s.setSessionMode);
   const planReturn = useApp((s) => s.planReturn[id] ?? null);
   /* Looked at, not opened: a peek keeps the transcript and its cards and gives up the prompter. */
@@ -257,6 +268,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const activeSpaceId = useApp((s) => s.activeSpaceId);
   const openPeek = useApp((s) => s.openPeek);
   const run = useApp((s) => s.run);
+  // The list the picker's foot draws, read once: everything after rides `accounts.changed`.
+  useEffect(() => { if (agentHasAccounts) run(() => refreshAccounts()); }, [agentHasAccounts, run, refreshAccounts]);
   const markSessionSeen = useApp((s) => s.markSessionSeen);
   /* Stable, so the queue's rows are not handed a new set of callbacks on every keystroke of the draft. */
   const queueActions = useMemo<QueueActions>(() => ({
@@ -268,6 +281,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
     onMove: (queuedId, before) => run(() => moveQueuedPrompt(id, queuedId, before)),
   }), [id, run, releaseQueuedPrompt, dequeuePrompt, beginQueuedEdit, saveQueuedEdit, cancelQueuedEdit, moveQueuedPrompt]);
   const transcript = entry?.t ?? emptyTranscript();
+  const { brief, report } = useAsSubagent(session, transcript.blocks, status);
   /* Having the pane with the keyboard IS reading it. `applySessionEvent` stamps what arrives while the
      pane is focused; this stamps what was already here when the focus did. Without it a session
      opened to read its news kept the unread ring — and its row in every list of what needs you —
@@ -545,15 +559,17 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const ensureIcons = useCallback((paths: readonly string[]) => { void ensureAppIcons(paths); }, [ensureAppIcons]);
   const addRef = useCallback((ref: UnlabelledRef, candidates: readonly string[]) => addMentionRef(id, ref, candidates), [id, addMentionRef]);
   const cwd = session?.cwd ?? "";
-  // A team space's roles: `@Creator Manager` wakes one as this session's sub-agent.
-  const teamRoles = useApp((st) => (session ? st.teams[session.spaceId]?.roles : undefined));
   // Its own sub-agents that are sessions: `@Write the tests` passes the message to that one too.
   const subagents = useSessionSubagents(id);
   const children = useApp((st) => st.subagents[id]);
   const mentionAgents = useMemo(() => orchestratorOrder(subagents.filter((a) => a.source === "delegated"), (a) => a.state)
     .map((a) => ({ id: a.id, title: a.title, state: a.state, agentKind: children?.find((c) => c.session.id === a.id)?.session.agentKind ?? null })), [subagents, children]);
-  const mentionSources = useMemo(() => ({ cwd, mac: macSkill, apps: installedApps, appIcons, accessibility, accessibilityAction, files: mentionFiles, library: mentionLibrary, onOpen: onMentionOpen, ensureIcons, addRef, roles: teamRoles ?? [], agents: mentionAgents }),
-    [cwd, macSkill, installedApps, appIcons, accessibility, accessibilityAction, mentionFiles, mentionLibrary, onMentionOpen, ensureIcons, addRef, teamRoles, mentionAgents]);
+  // The space's teammates, for `@`: every one but the teammate whose chat this is.
+  const spaceTeammates = useApp((st) => st.teammates[item.spaceId]);
+  const teammate = spaceTeammates?.find((t) => t.homeSessionId === id) ?? null;
+  const mentionTeammates = useMemo(() => (spaceTeammates ?? []).filter((t) => t.homeSessionId !== id), [spaceTeammates, id]);
+  const mentionSources = useMemo(() => ({ cwd, mac: macSkill, apps: installedApps, appIcons, accessibility, accessibilityAction, files: mentionFiles, library: mentionLibrary, onOpen: onMentionOpen, ensureIcons, addRef, teammates: mentionTeammates, agents: mentionAgents }),
+    [cwd, macSkill, installedApps, appIcons, accessibility, accessibilityAction, mentionFiles, mentionLibrary, onMentionOpen, ensureIcons, addRef, mentionTeammates, mentionAgents]);
   /* The apps the log's own messages named keep their icons after a relaunch: asked for once each,
      when the transcript first carries them. */
   const loggedApps = useMemo(() => [...new Set(transcript.blocks.flatMap((b) => (b.kind === "user" && b.refs ? b.refs.flatMap((r) => (r.kind === "app" ? [r.path] : [])) : [])))].join("\n"),
@@ -596,7 +612,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   // The prompter's suggested prompt, derived from THIS session (prompt-hint.ts): the last turn, the
   // working tree, the mode. Computed here rather than in Composer because everything it reads is
   // already the pane's — Composer only draws it and fills it in on ⇥.
-  const hint = promptHint({
+  // A teammate's chat is a conversation with it, not a prompt to be finished: its prompter keeps
+  // "Message <name>", and no suggestion stands in for it.
+  const hint = teammate ? null : promptHint({
     blocks: transcript.blocks, gitInfo, status, inPlan: session.permissionMode === PLAN_PERMISSION_MODE,
     generated: transcript.promptHint?.text ?? null,
   });
@@ -677,12 +695,12 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
     <div ref={setPane} className="session-pane" data-visible={visible || undefined} data-focused={focused || undefined} data-composer={hero ? "hero" : "docked"}
       data-peek={peek || undefined}
       data-dropping={fileDrop.dropping || undefined} {...(peek ? {} : fileDrop.handlers)}>
-      <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused} cwd={session.cwd} track
+      <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused} cwd={session.cwd} track teammates={spaceTeammates}
         saved={savedSeqs} onSave={onSaveTurn} reveal={promptFor} onRevealed={promptTaken} onEarlier={onEarlier}
         onExpandPlan={(planId) => openSheet({ kind: "session-plan", sessionId: id, planId })}
         // A plan, or an answer, handed to other models: this session's Agents tab, with it as the work.
         onImplementWith={peek ? undefined : (text) => run(() => openAgentsTabFor(id, { plan: text }))}
-        sessionId={id}
+        sessionId={id} brief={brief} report={report}
         mode={sessionModeOf(session.permissionMode)}
         eggs={easterEggs} packLabels={packLabels}
         onPath={(p, at) => setPathMenu({ path: p, at })} checkout={checkout} turnEditing={turnEditing}
@@ -694,6 +712,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
         mentionIds={liveMentionIds} appIcons={appIcons}
         onDecide={(requestId, d, answers) => run(() => respondPermission(id, requestId, d, answers))}
         onRetry={() => { setSends((n) => n + 1); run(() => retryLastTurn(id)); }}
+        onContinueOn={(accountId) => { setSends((n) => n + 1); run(async () => { await setSessionAccount(id, accountId); await retryLastTurn(id); }); }}
         onRate={(messageId, rating) => run(() => rateMessage(id, messageId, rating))} />
       {peek
         ? <PeekBar spaceName={space?.name ?? "another space"} elsewhere={session.spaceId !== activeSpaceId} onOpen={() => run(() => openPeek())} />
@@ -705,6 +724,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onSignIn={() => run(() => startSignIn(session.agentKind, session.spaceId, session.id))}
             onDismissJob={() => dismissCliJob(session.agentKind)} />
         : <DraftedComposer session={session} status={status} gitInfo={gitInfo} changes={changes} todos={todos} quote={quote}
+            placeholder={teammate ? `Message ${teammate.name}` : undefined}
             onOpenDiff={() => run(() => openDiff(session.environmentId))}
             attachments={attachments}
             onAttachPick={() => run(() => attachFromPicker(id))}
@@ -734,6 +754,17 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
               if (kind !== session.agentKind) await setSessionAgent(id, kind);
               if (modelId !== null) await setSessionOptions(id, { model: modelId });
             })}
+            onSwitchAgent={(kind, modelId) => switchSessionAgent(id, kind, modelId)}
+            account={hasAccounts(session.agentKind) ? {
+              accounts: accounts.filter((a) => a.kind === session.agentKind),
+              current: session.accountId ?? defaultAccountId(session.agentKind),
+              onPick: (accountId) => setSessionAccount(id, accountId === defaultAccountId(session.agentKind as "claude" | "codex") ? null : accountId),
+              onAdd: () => addAccount(session.agentKind),
+              signInOf: (accountId) => accountSignIns[accountId],
+              onCode: (accountId, code) => run(() => sendAccountSignInCode(accountId, code)),
+              onCancel: (accountId) => run(async () => { await cancelAccountSignIn(accountId); await removeAccount(accountId); }),
+              onOpen: () => run(() => refreshAccounts(true)),
+            } : undefined}
             onMode={(mode) => run(() => setSessionMode(id, mode))} planReturn={planReturn}
             onParkPermission={(permissionMode) => run(() => setParkedPermission(id, permissionMode))}
             // The agent's own modes off THIS session's init event (Plan 14 W3): null = handshake not

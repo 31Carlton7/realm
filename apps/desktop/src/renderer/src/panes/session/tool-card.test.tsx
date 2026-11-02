@@ -594,6 +594,8 @@ describe("the row says what the act is, not what the tool is called", () => {
       ["Edit", "Edit"], ["MultiEdit", "Edit"], ["apply_patch", "Edit"], ["Write", "Write"],
       ["Read", "Read"], ["Grep", "Search"], ["Glob", "Find files"],
       ["WebFetch", "Fetch"], ["WebSearch", "Search web"], ["TodoWrite", "Plan"], ["Task", "Delegate"],
+      // Codex's own image tool, as its adapter names it.
+      ["image_generation", "Generate image"],
       // An MCP call is its tool's own name said plainly, its server named apart.
       ["mcp__linear__save_issue", "Save issue"], ["mcp__realm__realm-browser__browser_open", "Browser open"],
       // A tool Realm has no word for keeps its bare name rather than gaining one it never had.
@@ -875,5 +877,16 @@ describe("a media call in flight draws the generating canvas for its kind", () =
     expect(container.querySelector(".gen-canvas")).toHaveAttribute("data-kind", "video");
     rerender(<ToolCard sessionStatus="running" block={tool("g2", "Bash", { command: "ffmpeg -i a.mov b.mp4" }, 0, true)} />);
     expect(container.querySelector(".gen-canvas")).toBeNull();
+  });
+
+  it("is the call's one loader: the row keeps its glyph while the canvas turns, and an ordinary call turns its own", () => {
+    // The owner: a calm loader rather than "that square with dots". THE MUTANT: the row's orb turning
+    // beside the canvas's ring, two loaders for one picture.
+    const { container, rerender } = render(<ToolCard sessionStatus="running" block={tool("ig_1", "image_generation", { prompt: "a logo" }, 0, false)} />);
+    expect(container.querySelector(".gen-canvas")).not.toBeNull();
+    expect(container.querySelector(".tool-status")).not.toHaveAttribute("data-on");
+    expect(screen.getByRole("button", { name: "image_generation tool call" })).toHaveTextContent("Generate image");
+    rerender(<ToolCard sessionStatus="running" block={tool("c1", "Bash", { command: "pnpm test" }, 0, false)} />);
+    expect(container.querySelector(".tool-status")).toHaveAttribute("data-on");
   });
 });

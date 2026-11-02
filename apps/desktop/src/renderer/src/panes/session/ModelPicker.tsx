@@ -1,8 +1,9 @@
-import { AGENT_META, type AgentKind, type ModelInfo } from "@realm/contracts";
+import { AGENT_META, accountName, type Account, type AgentKind, type AgentSignIn, type ModelInfo } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ScrollFades } from "../../components/ScrollFades";
+import { AccountSignInSteps, signInLive } from "../../components/AccountSignIn";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
 import { useAutoHideScrollbar } from "../../components/use-auto-hide-scrollbar";
 import {
@@ -25,6 +26,29 @@ const LIST_FLOOR = 32 * 3 + 22;
  *  chip collapses into this popover as a labelled group instead of wrapping the row. Items mirror the
  *  chip's own menu items exactly — same labels, same handlers. */
 export type OverflowGroup = { label: string; items: { label: string; checked?: boolean; onSelect: () => void }[] };
+
+/** How a session that has run moves to another agent (`sessions.switchAgent`). The new agent starts
+ *  fresh with a summary of this conversation, so a pick that would change the agent asks first.
+ *  `busy` is a turn in flight, which a switch waits out; `onSwitch` throws what went wrong. */
+export type SwitchAgent = { busy: boolean; onSwitch: (kind: AgentKind, modelId: string | null) => Promise<void> };
+
+/** The accounts the session's agent can run on (contracts/accounts.ts), set from the picker's foot:
+ *  which one this session is on, the others, and adding one — its CLI's own sign-in, started from
+ *  here and followed here. `onPick` and `onAdd` throw what went wrong. */
+export type AccountControl = {
+  accounts: Account[];
+  /** The account in force: the session's, or its CLI's own where it names none. */
+  current: string;
+  onPick: (id: string) => Promise<void>;
+  /** Make a new account and start its sign-in; answers with its id. */
+  onAdd: () => Promise<string>;
+  signInOf: (accountId: string) => AgentSignIn | undefined;
+  onCode: (accountId: string, code: string) => void;
+  /** Stop the sign-in of an account `onAdd` just made — which takes the account back. */
+  onCancel: (accountId: string) => void;
+  /** Ask the CLIs again who each account is, when the list is opened. */
+  onOpen: () => void;
+};
 
 /** A sentence with its commands set as code: `AGENT_NOTES` marks them with backticks, which read as
  *  stray punctuation printed raw. The plain form is for a tooltip, which has no code face. */
@@ -102,7 +126,7 @@ function useChipSweep(ref: RefObject<HTMLButtonElement | null>, effort: string |
  * - **Open until you leave it.** A pick changes the model and leaves the card to set its level and its
  *   speed in the same visit; a click outside, the chip again, or Escape put the picker away.
  */
-export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite, onPick, overflow, fast, eggs = false }: {
+export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite, onPick, switchAgent, account, overflow, fast, eggs = false }: {
   kind: AgentKind;
   model: string | null;
   /** The session's reasoning level and what its model takes, or absent where the harness takes none —
@@ -115,6 +139,10 @@ export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite,
   info: Record<string, ModelInfo>;
   onToggleFavorite: (key: string) => void;
   onPick: (kind: AgentKind, modelId: string | null) => void;
+  /** Present once the session has run and can still change agents by handing over. */
+  switchAgent?: SwitchAgent;
+  /** The session's agent's accounts, where its CLI can hold more than one. */
+  account?: AccountControl;
   /** Fast mode, or absent where Realm cannot ask this harness for it at all. */
   fast?: FastMode;
   overflow?: OverflowGroup[];
@@ -143,7 +171,7 @@ export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite,
         <Icon name="chevronDown" size={12} className="chip-caret" />
       </button>
       {open && <ModelPopover kind={kind} name={label} rows={rows} info={info} anchorRef={btn} onClose={() => setOpen(false)} onPick={onPick}
-        onToggleFavorite={onToggleFavorite} effort={effort} overflow={overflow} fast={fast} eggs={eggs} />}
+        switchAgent={switchAgent} account={account} onToggleFavorite={onToggleFavorite} effort={effort} overflow={overflow} fast={fast} eggs={eggs} />}
     </>
   );
 }
@@ -166,7 +194,7 @@ export function ModelChipText({ kind, label, level, fast }: { kind: AgentKind; l
   );
 }
 
-function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onToggleFavorite, effort, overflow, fast, eggs }: {
+function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, switchAgent, account, onToggleFavorite, effort, overflow, fast, eggs }: {
   kind: AgentKind;
   /** The current model's name, as the chip shows it — what the fast-mode line talks about. */
   name: string;
@@ -174,6 +202,8 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
   info: Record<string, ModelInfo>;
   anchorRef: RefObject<HTMLButtonElement | null>;
   onClose: () => void; onPick: (kind: AgentKind, modelId: string | null) => void;
+  switchAgent?: SwitchAgent;
+  account?: AccountControl;
   onToggleFavorite: (key: string) => void;
   effort?: EffortControl;
   fast?: FastMode;
@@ -218,6 +248,11 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
   /** A model has just been picked here: until the highlight moves or the search changes, ←/→ in the
    *  search field step that model's level, which is what the keyboard reaches for next. */
   const [tuning, setTuning] = useState(false);
+  /** A pick that would move the session to another agent, waiting on the person's yes; then the
+   *  switch in flight, and what it answered if it failed. */
+  const [asking, setAsking] = useState<{ row: ModelRow; harness: AgentKind } | null>(null);
+  const [switching, setSwitching] = useState(false);
+  const [switchError, setSwitchError] = useState<string | null>(null);
   const search = useRef<HTMLInputElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
@@ -255,20 +290,35 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
     row.scrollIntoView?.({ block: "nearest" });
   }, [activeRow, pos]);
 
-  /* A pick changes the model and leaves the picker open, so the card under the list can set how the
-     new model runs in the same visit (the owner, 10-05). */
-  const pick = (row: ModelRow | undefined, harness?: AgentKind) => {
-    if (!row || row.blockedReason) return;
-    const target = harness && row.harnesses.includes(harness) ? harness : row.kind;
+  /* The box holds its height from here on (`height`), and the list gets room under its last row for
+     the part of the box below it that is about to be replaced — at most the whole of it. */
+  const hold = (replaced?: string) => {
     const box = ref.current?.offsetHeight ?? 0;
     if (height === null && box > 0) {
       setHeight(box);
       setFloor(Math.min(wrap.current?.offsetHeight ?? 0, LIST_FLOOR));
     }
-    // The most the list can be given is the whole of the card now under it.
-    const foot = ref.current?.querySelector<HTMLElement>(".mp-foot")?.offsetHeight ?? 0;
+    let below = 0;
+    if (replaced) ref.current?.querySelectorAll<HTMLElement>(replaced).forEach((el) => { below += el.offsetHeight; });
     const l = list.current;
-    if (l && foot > 0) setSlack((was) => was + Math.max(0, foot - (l.scrollHeight - l.clientHeight - l.scrollTop)));
+    if (l && below > 0) setSlack((was) => was + Math.max(0, below - (l.scrollHeight - l.clientHeight - l.scrollTop)));
+  };
+
+  /* A pick changes the model and leaves the picker open, so the card under the list can set how the
+     new model runs in the same visit (the owner, 10-05). */
+  const pick = (row: ModelRow | undefined, harness?: AgentKind) => {
+    if (!row || row.blockedReason) return;
+    const target = harness && row.harnesses.includes(harness) ? harness : row.kind;
+    // Another agent, for a session that has run: it starts fresh, so the card asks before anything moves.
+    if (switchAgent && target !== kind) {
+      hold(".mp-about, .mp-foot");
+      setActiveKey(row.id);
+      setTuning(false);
+      setSwitchError(null);
+      setAsking({ row, harness: target });
+      return;
+    }
+    hold(".mp-foot");
     setRoutes((rs) => ({ ...rs, [row.id]: target }));
     setActiveKey(row.id);
     setTuning(true);
@@ -280,7 +330,25 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
     search.current?.focus();
     search.current?.select();
   };
+  const confirmSwitch = async () => {
+    if (!asking || !switchAgent || switchAgent.busy || switching) return;
+    const { row, harness } = asking;
+    setSwitching(true);
+    setSwitchError(null);
+    try {
+      await switchAgent.onSwitch(harness, modelIdOn(row, harness) ?? null);
+      setRoutes((rs) => ({ ...rs, [row.id]: harness }));
+      setAsking(null);
+      setTuning(true);
+    } catch (e) {
+      setSwitchError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSwitching(false);
+      search.current?.focus();
+    }
+  };
   const move = (by: number) => {
+    if (!switching) setAsking(null);
     setTuning(false);
     setActiveKey(shown[Math.min(shown.length - 1, Math.max(0, cur + by))]?.id ?? null);
   };
@@ -305,6 +373,7 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
     }
     // ⌥↩ stars the highlighted row — the keyboard's path to a star focus never enters.
     else if (e.key === "Enter" && e.altKey) { e.preventDefault(); if (activeRow) onToggleFavorite(activeRow.key); }
+    else if (e.key === "Enter" && asking) { e.preventDefault(); void confirmSwitch(); }
     else if (e.key === "Enter") { e.preventDefault(); if (activeRow) pick(activeRow, routeOf(activeRow)); }
     // ⌘1…⌘9 pick a favourite. Free to bind here: the window's ⌘-digit space binding does not run
     // while this search field, autofocused for the popover's whole life, holds the keyboard.
@@ -313,7 +382,7 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
 
   const harness = AGENT_META[kind].label;
   const runs = (effort?.levels.length ?? 0) > 0 || !!fast;
-  const hasFoot = runs || (overflow?.length ?? 0) > 0;
+  const hasFoot = runs || (overflow?.length ?? 0) > 0 || !!account;
   return createPortal(
     <div ref={ref} className="model-picker" aria-label="Model picker" role="dialog"
       style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999, maxHeight: room ?? undefined,
@@ -325,7 +394,7 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
         {/* Autofocused because the picker opens for typing — the command palette's bargain. */}
         <input ref={search} autoFocus type="text" value={query} placeholder="Search models" aria-label="Search models"
           role="combobox" aria-expanded aria-controls="mp-list" aria-activedescendant={activeRow ? `mp-${activeRow.id}` : undefined}
-          onChange={(e) => { setQuery(e.target.value); setActiveKey(null); setTuning(false); setHeight(null); }} onKeyDown={onKeyDown} />
+          onChange={(e) => { setQuery(e.target.value); setActiveKey(null); setTuning(false); setHeight(null); if (!switching) setAsking(null); }} onKeyDown={onKeyDown} />
       </div>
       <div ref={wrap} className="mp-list-wrap">
         <ScrollFades scroller={list} />
@@ -395,15 +464,23 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, onTo
           )}
         </div>
       </div>
-      {activeRow && <About row={activeRow} route={routeOf(activeRow)} info={info} />}
-      {hasFoot && (
-        <div className="mp-foot">
-          {/* Nothing on this surface closes it: the model, the level, fast mode and a folded chip's
-              choice are settings on the card you are looking at, and each answers in place. */}
-          {runs && <RunCard effort={effort} fast={fast} model={name} />}
-          {(overflow ?? []).map((g) => <Segments key={g.label} label={g.label} items={g.items} />)}
-        </div>
-      )}
+      {asking && switchAgent ? (
+        <SwitchAsk agent={AGENT_META[asking.harness].label} from={harness} busy={switchAgent.busy} switching={switching} error={switchError}
+          onCancel={() => { setAsking(null); setSwitchError(null); search.current?.focus(); }}
+          onSwitch={() => void confirmSwitch()} />
+      ) : <>
+        {activeRow && <About row={activeRow} route={routeOf(activeRow)} info={info} />}
+        {hasFoot && (
+          <div className="mp-foot">
+            {/* Nothing on this surface closes it: the model, the level, fast mode and a folded chip's
+                choice are settings on the card you are looking at, and each answers in place. */}
+            {runs && <RunCard effort={effort} fast={fast} model={name} />}
+            {(overflow ?? []).map((g) => <Segments key={g.label} label={g.label} items={g.items} />)}
+            {/* The box keeps its height as the list opens, and the models above give way to it. */}
+            {account && <AccountSection control={account} onGrow={() => hold()} />}
+          </div>
+        )}
+      </>}
     </div>,
     document.body,
   );
@@ -430,6 +507,94 @@ function About({ row, route, info }: { row: ModelRow; route: AgentKind; info: Re
           : <><span className="mp-about-name">{name}</span>{withCode(note)}</>}
       </p>
       <p className="mp-about-specs" title={plain(billing)}>{withCode(specs ?? billingLead(billing))}</p>
+    </div>
+  );
+}
+
+/**
+ * The one question a switch of agents asks, where the picked model's card would be: the new agent
+ * starts fresh with a summary of this conversation, and that is worth a yes before it happens. While
+ * a turn runs it says what the switch is waiting on instead of offering one the server would refuse.
+ */
+function SwitchAsk({ agent, from, busy, switching, error, onCancel, onSwitch }: {
+  agent: string; from: string; busy: boolean; switching: boolean; error: string | null;
+  onCancel: () => void; onSwitch: () => void;
+}) {
+  const note = error ?? (busy ? `${from} is still working. Stop the turn or let it finish, then switch.`
+    : switching ? `Writing a summary of this conversation for ${agent}…`
+    : "It starts fresh with a summary of this conversation.");
+  return (
+    <div className="mp-switch" role="group" aria-label={`Switch to ${agent}`}>
+      <p className="mp-switch-title">Switch to {agent}?</p>
+      <p className="mp-switch-note" data-tone={error ? "warning" : undefined} aria-live="polite">{note}</p>
+      {/* A press keeps the keyboard in the search, as the rows do: Return there is Switch. */}
+      <div className="mp-switch-actions" onMouseDown={(e) => e.preventDefault()}>
+        <button type="button" className="btn" onClick={onCancel}>Cancel</button>
+        <button type="button" className="btn primary" disabled={busy || switching} onClick={onSwitch}>{switching ? "Switching…" : "Switch"}</button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Which login the session's agent runs on, as one row in the foot: "Account", the one in force and its
+ * email, and a disclosure that opens the agent's accounts as a list, ticked on the current one, with
+ * "Add account…" last. Adding runs the CLI's own sign-in in a new folder and follows it here — the
+ * page, a code if the page shows one — and the list comes back with the account in it.
+ */
+function AccountSection({ control, onGrow }: { control: AccountControl; onGrow: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [adding, setAdding] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const current = control.accounts.find((a) => a.id === control.current) ?? null;
+  const signIn = adding ? control.signInOf(adding) : undefined;
+  const live = signInLive(signIn) ? signIn : null;
+  // A sign-in that ended puts the list back, with what happened said where the row was.
+  useEffect(() => {
+    if (!adding || !signIn || live) return;
+    setAdding(null);
+    setError(signIn.state === "failed" ? "The sign-in didn't finish. Try again from Settings ▸ Engines." : null);
+  }, [adding, signIn, live]);
+  const act = async (work: () => Promise<void>) => {
+    setError(null);
+    try { await work(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+  };
+  const toggle = () => {
+    if (!open) { onGrow(); control.onOpen(); }
+    setOpen(!open);
+  };
+  return (
+    <div className="mp-account" role="group" aria-label="Account">
+      <button type="button" className="mp-account-head" aria-expanded={open} onClick={toggle}
+        title={current ? accountName(current) : undefined}>
+        <span className="mp-seg-label">Account</span>
+        <span className="mp-account-name">{current?.label ?? "Default"}</span>
+        {current?.email && <span className="mp-account-email">{current.email}</span>}
+        <Icon name="chevronDown" size={12} className="mp-account-caret" />
+      </button>
+      {open && !live && (
+        <div className="mp-account-list" role="listbox" aria-label="Accounts">
+          {control.accounts.map((a) => (
+            <div key={a.id} role="option" aria-selected={a.id === control.current} tabIndex={-1} className="mp-account-row"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { if (a.id !== control.current) void act(() => control.onPick(a.id)); }}>
+              <span className="mp-account-name">{a.label}</span>
+              {a.email && <span className="mp-account-email">{a.email}</span>}
+              {a.signedIn === false && <span className="mp-row-hint" data-tone="warning">Signed out</span>}
+              {a.id === control.current && <Icon name="check" size={14} className="mp-check" />}
+            </div>
+          ))}
+          <button type="button" className="mp-account-row mp-account-add" onMouseDown={(e) => e.preventDefault()}
+            onClick={() => void act(async () => { setAdding(await control.onAdd()); })}>
+            <Icon name="add" size={14} />Add account…
+          </button>
+        </div>
+      )}
+      {live && adding && (
+        <AccountSignInSteps className="mp-account-signin" signIn={live} name={control.accounts.find((a) => a.id === adding)?.label ?? "the new account"}
+          onCode={(code) => control.onCode(adding, code)} onCancel={() => { setAdding(null); control.onCancel(adding); }} />
+      )}
+      {error && <p className="mp-account-note" data-tone="warning">{error}</p>}
     </div>
   );
 }

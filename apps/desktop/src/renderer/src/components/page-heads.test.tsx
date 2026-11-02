@@ -20,6 +20,9 @@ import { YouPage } from "../panes/you/YouPage";
  * claim is about where the head IS — the first thing inside its page's scroller, which dissolves at
  * an end once there is something past it. jsdom scrolls nothing and measures nothing, so this holds
  * the structure; `audits-live.mjs` scrolls each page in the real window and watches its title go.
+ *
+ * Library ▸ Memory is not one of them: it is a list beside the memory being read, in the Scheduled
+ * and Code review pages' grammar, whose list keeps its name and its search over the rows it filters.
  */
 
 afterEach(() => cleanup());
@@ -29,7 +32,6 @@ const PAGES: { name: string; kind: ItemKind; Page: ComponentType<PaneProps>; ref
   { name: "Connections", kind: "connections-page", Page: ConnectionsPage },
   { name: "Library ▸ Files", kind: "library-page", Page: LibraryPage },
   { name: "Library ▸ Skills", kind: "library-page", Page: LibraryPage, tab: "Skills" },
-  { name: "Library ▸ Memory", kind: "library-page", Page: LibraryPage, tab: "Memory" },
   { name: "You", kind: "you-page", Page: YouPage },
   { name: "a profile", kind: "profile-page", Page: ProfilePage },
   { name: "a space", kind: "space-page", Page: SpacePage, refId: "s1" },

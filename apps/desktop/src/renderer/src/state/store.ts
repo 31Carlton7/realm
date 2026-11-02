@@ -21,7 +21,7 @@ import {
   AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, LINKS_OPEN_IN_KEY, type LinksOpenIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
-  type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpSignInOptions, type McpServerStatus, type McpTransport, type MemoryClaudeBackfill, type MemoryClaudeImport, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary, type ResourceReport, type ResourcePolicies, type ResourcePolicyKey, type FreeAction,
+  type Account, type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpSignInOptions, type McpServerStatus, type McpTransport, type MemoryClaudeBackfill, type MemoryClaudeImport, type MemoryLibraryEntry, type MemoryLibraryFile, type MemoryLibrarySource, type MemoryLibraryType, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary, type ResourceReport, type ResourcePolicies, type ResourcePolicyKey, type FreeAction,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import { SHEET_MIN_WIDTH, complementOf, snapBrowserLeaves, type Rect } from "./no-overlay";
@@ -30,6 +30,7 @@ import { libraryAddNotices } from "./library-add";
 import { libraryRemoveNotice, libraryRestoreNotice } from "./library-remove";
 import { forgetThumbnails } from "../components/use-thumbnail";
 import { closeIntent } from "./close-intent";
+import { teammatesSlice, type TeammatesApi, type TeammatesSlice } from "./teammates-slice";
 import { panelPlace, splitRefusal } from "./view-room";
 import type { LibraryAddInput, LibraryAddResult, LibraryRemoveInput, LibraryRemoveResult, LibraryRestoreInput, LibraryRestoreResult } from "@realm/contracts";
 import { getMachineHub } from "../panes/machine/machine-hub";
@@ -53,8 +54,6 @@ import { SIDEBAR_WIDTH, clampSidebarWidth } from "../components/sidebar/sidebar-
 import type { SettingsTab } from "../panes/settings/settings-index";
 import type { AskAnswers } from "@realm/contracts";
 import { NOTIFICATIONS_IPHONE_KEY, type PairRequest, type PairingWindow, type RemoteStatus } from "@realm/contracts";
-import { teamSlice, type TeamApi, type TeamSlice } from "./team-slice";
-import { labSlice, type LabApi, type LabSlice } from "./lab-slice";
 
 export type CreateSpaceInput = { name: string; icon: string; profileId: string; color?: string };
 /** What the New space sheet hands over: the row, and what is made WITH it — the folder its sessions
@@ -165,7 +164,7 @@ export type ShareResult = { ok: true; profileName: string } | { ok: false; error
 
 /** Everything the store needs from the outside world: realm-server RPC plus what main provides over
  *  the preload bridge. Tests substitute a fake. */
-export type Api = TeamApi & LabApi & {
+export type Api = TeammatesApi & {
   listProfiles(): Promise<Profile[]>;
   /** Icon/color left out are the server's defaults (`user` / grey) — the New space sheet's inline
    *  add asks only for a name; the New profile sheet asks for all three. */
@@ -420,6 +419,8 @@ export type Api = TeamApi & LabApi & {
   setSessionOptions(id: string, o: SessionOptions): Promise<Session>;
   /** `sessions.setAgent` — rejected by the server once the session has any event. */
   setSessionAgent(id: string, agentKind: AgentKind): Promise<Session>;
+  /** `sessions.switchAgent` — a session that has run moves to another agent with a hand-off note. */
+  switchSessionAgent(sessionId: string, agentKind: AgentKind, model: string | null): Promise<Session>;
   failoverGet(spaceId: string): Promise<FailoverPolicy>;
   failoverSet(spaceId: string, policy: FailoverPolicy): Promise<FailoverPolicy>;
   /** `laya.*` — the local Laya runtime (Settings ▸ Engines). Each answers the fresh status; the server
@@ -470,6 +471,14 @@ export type Api = TeamApi & LabApi & {
   agentSignInCode(id: string, code: string): Promise<void>;
   /** `agentSignIn.cancel` — stop a sign-in that is still running. */
   agentSignInCancel(id: string): Promise<void>;
+  /** `accounts.*` — the accounts each agent CLI runs on (contracts/accounts.ts). */
+  listAccounts(refresh: boolean): Promise<Account[]>;
+  addAccount(kind: AgentKind, label?: string): Promise<{ account: Account; signIn: AgentSignIn }>;
+  accountSignIn(id: string): Promise<AgentSignIn>;
+  renameAccount(id: string, label: string): Promise<Account>;
+  removeAccount(id: string): Promise<void>;
+  /** `sessions.setAccount` — run a session on another of its agent's accounts. */
+  setSessionAccount(id: string, accountId: string | null): Promise<Session>;
   /** `models.catalog` — prices, context windows and reasoning efforts for the picker. Never rejects
    *  on a dead network: the server answers with its cache, or with nothing. */
   modelCatalog(force: boolean): Promise<ModelInfo[]>;
@@ -670,6 +679,15 @@ export type Api = TeamApi & LabApi & {
   claudeBackfill(profileId: string, run: boolean): Promise<MemoryClaudeBackfill>;
   /** `memory.repo.setClaudeProject` — a Claude project placed by hand (a space's id, or "skip"), then a run. */
   setClaudeProject(profileId: string, project: string, into: string): Promise<MemoryClaudeBackfill>;
+  /** `memory.library.*` — every memory file an agent on this Mac reads, for one profile: the Library's
+   *  Memory page. Returned rather than stored, like `usageSummary`: one page reads them, while it is open. */
+  memoryLibrarySources(profileId: string): Promise<MemoryLibrarySource[]>;
+  memoryLibraryList(profileId: string, o?: { sourceId?: string; query?: string }): Promise<MemoryLibraryEntry[]>;
+  memoryLibraryRead(id: string, profileId: string): Promise<MemoryLibraryFile>;
+  /** Refused with MEMORY_EXTERNAL_UNCONFIRMED for a file outside Realm unless `confirmExternal`. */
+  memoryLibraryWrite(id: string, text: string, confirmExternal: boolean): Promise<MemoryLibraryEntry>;
+  memoryLibraryCreate(input: MemoryLibraryNew): Promise<MemoryLibraryEntry>;
+  memoryLibraryDelete(id: string, confirmExternal: boolean): Promise<{ trashed: boolean }>;
   /** `mcp.tools.list` — triggers a lazy connect. A connect failure comes back as `error`, not a throw:
    *  the list is still a renderable result. */
   mcpToolsList(id: string): Promise<{ tools: McpServer["tools"]; error: string | null }>;
@@ -773,6 +791,8 @@ export type McpCallsFilter = { sessionId?: string; serverId?: string };
 export type ProfileMemoryDoc = { profileId: string; path: string; doc: string };
 /** Whose a memory repo is: a profile's, or one space's own. */
 export type MemoryRepoOwner = { scope: MemoryRepoScope; id: string };
+/** A new memory for `memory.library.create`: into a Realm repo's root, or a space's folder of it. */
+export type MemoryLibraryNew = { sourceId: string; spaceId?: string; name: string; description: string; type: MemoryLibraryType; body: string };
 /** One owner's key in the per-repo maps (`memoryRepoLog`). */
 export const memoryRepoKey = (o: MemoryRepoOwner): string => `${o.scope}:${o.id}`;
 
@@ -932,14 +952,11 @@ export type SessionDock = { kind: "summary" } | { kind: "files" } | { kind: "ter
 
 /** The space page's tab rail (Plan 12 W3). "connections" is what the retired sheet called "mcp" —
  *  openers that used `tab: "mcp"` (the plus-menu's "Manage connections…") map to it. */
-export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "scripts" | "sandbox" | "sessions" | "worktrees" | "tasks" | "history"
-  /* A team's pages, in the same column under a "Team" head (TeamPages.tsx): its chats — the one it
-     lands on, and a teammate's — the Overview, the records and one of them, the log. */
-  | "team" | "overview" | "records" | "roles" | "policies" | "vault" | "activity" | `role:${string}` | `record:${string}`
-  /* A kind of record's list, and the page its fields are shaped on (`recordtype:new` makes one). */
-  | `records:${string}` | `recordtype:${string}`;
+export type SpacePageTab = "general" | "memory" | "skills" | "connections" | "scripts" | "sandbox" | "sessions" | "worktrees" | "tasks" | "history";
 /** The profile page's rail (Plan 14 W2). */
 export type ProfilePageTab = "general" | "skills" | "connections" | "memory";
+/** The Library page's sections. */
+export type LibraryTab = "files" | "saved" | "skills" | "memory";
 /** The Settings page's tabs, in rail order — the store holds which one is showing so an opener can land
  *  on one (the browser pane's "Browser settings" opens Sign-ins). `settings-index.ts` owns their order
  *  and headings. */
@@ -965,9 +982,6 @@ export type Sheet =
    *  Opened from McpSection ("Activity") or the palette ("MCP Activity"); replaces whatever sheet was
    *  open (the one-slot ruling — see the sheet-plumbing note above), including space settings itself. */
   | { kind: "activity" }
-  /** Teams: who joins a team that exists — the starters not on it yet, and teammates the person
-   *  writes. From the team's page and the sidebar's Team fold alike. */
-  | { kind: "add-teammates"; spaceId: string }
   /** This version's notes: opened once after an update, and from the rail or Help (WhatsNewSheet). */
   | { kind: "whats-new" }
   /** Plan 22: start a lecture (title prompt), wrap one up (pick which), import Plynn recordings. */
@@ -979,9 +993,11 @@ export type Sheet =
    *  the revision, not the snapshot that was taken when the row was clicked. */
   | { kind: "session-plan"; sessionId: string; planId: string }
   /** A session as a web page: what the page includes, its size, and Save (share/ShareSheet.tsx). */
-  | { kind: "share-session"; sessionId: string };
+  | { kind: "share-session"; sessionId: string }
+  /** New teammate in a space, or — with `id` — the same sheet editing that one (TeammateSheet.tsx). */
+  | { kind: "teammate"; spaceId: string; id?: string };
 
-export type AppState = TeamSlice & LabSlice & {
+export type AppState = TeammatesSlice & {
   /** False until `boot()` has finished once. First-run onboarding keys off "no spaces" — which is also
    *  what an unbooted store looks like, so without this the sheet would flash on every launch. */
   booted: boolean;
@@ -1387,6 +1403,9 @@ export type AppState = TeamSlice & LabSlice & {
   cliJobs: Record<string, CliJob>;
   /** The latest space-less sign-in per agent (`agentSignIn.*`), as the server last reported it. */
   agentSignIns: Partial<Record<AgentKind, AgentSignIn>>;
+  /** Every agent CLI's accounts (`accounts.list`), and the latest sign-in of each one by its id. */
+  accounts: Account[];
+  accountSignIns: Record<string, AgentSignIn>;
   /** The Settings page's App-tab preferences (Plan 12 W6), read from the server's settings rows:
    *  which notification categories are switched OFF (`NOTIFICATIONS_DISABLED_KEY` — default-on
    *  polarity, matching the service), and the permission mode new sessions start in
@@ -1587,6 +1606,11 @@ export type AppState = TeamSlice & LabSlice & {
    *  agent's launching call id or a delegated child's session id. Absent: the tab's overview.
    *  Persisted (`SETTING_AGENTS_SHOWN`), so a restored tab opens where it was left. */
   agentsShown: Record<string, string>;
+  /** Whether a sub-agent's report is open, by the sub-agent's id, where the reader chose — the viewer
+   *  and the sub-agent's own transcript fold the same report, so they keep one answer. Absent: as its
+   *  length decides (`ReportFold`). Kept while the app runs. */
+  reportsOpen: Record<string, boolean>;
+  setReportOpen(id: string, open: boolean): void;
   /** The checkpoint the sheet is asking about, as the preview it is showing. Null = the list state;
    *  the preview carries its own `checkpointId`, so there is nothing else to remember. */
   checkpointPreview: RestorePreview | null;
@@ -1744,6 +1768,12 @@ export type AppState = TeamSlice & LabSlice & {
    *  opener lands on a section whether or not the page is already up. One value, not keyed — Settings
    *  are the app's, not a space's. */
   settingsPageTab: SettingsPageTab;
+  /** The Library page's section, per space — in the store for `profilePageTab`'s reason: Profile
+   *  settings ▸ Memory lands on the Library's Memory section whether or not the page is already up. */
+  libraryTab: Record<string, LibraryTab>;
+  /** Moves whenever memory changes anywhere — an agent's save, an edit in another window, a file the
+   *  library wrote outside Realm — so the Library's Memory page reads its list again. */
+  memoryLibraryRev: number;
   /**
    * The skill the Library page is READING, per space — null (or absent) means it is showing its tabs.
    *
@@ -2153,9 +2183,9 @@ export type AppState = TeamSlice & LabSlice & {
    *  waited on the round trip would snap back before it moved — and the server's broadcast, which
    *  follows, is the order that stands. */
   moveQueuedPrompt(sessionId: string, queuedId: string, before: string | null): Promise<void>;
-  /** Create a session, open its item in the main view, and open its transcript. It goes to
-   *  `input.spaceId`, else the current space — the space of the session in focus. When `edge` is
-   *  supplied with a target leaf, it opens there the way a dragged row would. */
+  /** Create a session, open its item in the main view, open its transcript, and give its prompter the
+   *  keyboard. It goes to `input.spaceId`, else the current space — the space of the session in focus.
+   *  When `edge` is supplied with a target leaf, it opens there the way a dragged row would. */
   newSession(input: Omit<CreateSessionInput, "spaceId"> & { spaceId?: string | null }, targetLeafId?: string | null, edge?: DropEdge): Promise<void>;
   /** The one instant-create path behind "+", ⌘N and the palette's plain "New session" (W3): no
    *  questions — last-used agent (else FALLBACK_AGENT), the space's own folder, the model last sent
@@ -2204,6 +2234,9 @@ export type AppState = TeamSlice & LabSlice & {
   /** Switch an unstarted session's agent (prompter model picker). The server refuses once events exist —
    *  cross-agent rows go unavailable there, so this is only ever called while it is legal. */
   setSessionAgent(id: string, agentKind: AgentKind): Promise<void>;
+  /** Move a session that has run onto another agent: the server writes a hand-off note of the
+   *  conversation and the new agent starts fresh with it (`sessions.switchAgent`). */
+  switchSessionAgent(id: string, agentKind: AgentKind, model: string | null): Promise<void>;
   /** The active space's failover policy, or null before it has been read. Null is "not known yet"
    *  rather than "off" — a switch rendered off against an unread row would lie for one frame and
    *  then jump. */
@@ -2277,6 +2310,17 @@ export type AppState = TeamSlice & LabSlice & {
   cancelAgentSignIn(kind: AgentKind): Promise<void>;
   /** An `agentSignIn.changed` event, or a start's own answer. */
   applyAgentSignIn(s: AgentSignIn): void;
+  /** Re-read the accounts; `ask` has each CLI asked again about the ones not asked lately. */
+  refreshAccounts(ask?: boolean): Promise<void>;
+  /** Make a new account for `kind` and start its CLI's login in its folder. Answers with its id. */
+  addAccount(kind: AgentKind): Promise<string>;
+  signInAccount(id: string): Promise<void>;
+  sendAccountSignInCode(accountId: string, code: string): Promise<void>;
+  cancelAccountSignIn(accountId: string): Promise<void>;
+  renameAccount(id: string, label: string): Promise<void>;
+  removeAccount(id: string): Promise<void>;
+  /** Run a session on another account of its agent — `null` is the CLI's own. */
+  setSessionAccount(id: string, accountId: string | null): Promise<void>;
   /**
    * Whether this SPACE lets Realm finish a sign-in itself, including the click on Authorize.
    *
@@ -2629,9 +2673,9 @@ export type AppState = TeamSlice & LabSlice & {
   applyDelegationChanged(payload: { sessionId: string; running: DelegatedRun[] }): void;
   /** Re-read a lead's sub-agents into `subagents`. */
   refreshSubagents(sessionId: string): Promise<void>;
-  /** Add a teammate to a session from its prompter's "+". The new sub-agent arrives in `subagents`
+  /** Add a sub-agent to a session from its prompter's "+". It arrives in `subagents`
    *  by the `delegation.changed` its start announces. */
-  addTeammate(input: AddTeammate): Promise<void>;
+  addSubAgent(input: AddTeammate): Promise<void>;
   /** Take a sub-agent off its lead's prompter row, here at once and in every window by the
    *  `delegation.changed` the server sends. */
   dismissSubagent(leadId: string, id: string): Promise<void>;
@@ -2647,6 +2691,11 @@ export type AppState = TeamSlice & LabSlice & {
   /** A view an MCP server drew for one of the session's tool calls, as a tab of the session's side
    *  pane — the one it has, or a new one. Never a split: a view is the session's, not the layout's. */
   openAppView(sessionId: string, view: AppViewRef): Promise<void>;
+  /** A teammate's page: its chat (the home session, made now when it has none) wherever it is, with
+   *  its computer beside it the first time it is opened. */
+  openTeammate(id: string): Promise<void>;
+  /** A teammate's computer, as a tab of its chat's side pane — the one it has, or a new one. */
+  showTeammateComputer(id: string): Promise<void>;
   /** The tab has taken what it was asked for; a remount must not take it again. */
   clearAgentsAsk(sessionId: string): void;
   /** `delegation.models`, for the composer. Not held in the store: it is read when the tab mounts. */
@@ -2684,9 +2733,6 @@ export type AppState = TeamSlice & LabSlice & {
    *  page on a section — the plus-menu's "Manage connections…" passes "connections"; omitted keeps
    *  whatever tab the page last showed. While it is up, that space is the current one. */
   openSpacePage(spaceId: string, tab?: SpacePageTab): void;
-  /** The space's Review pane, on one review when one is named: the pane is one per space, found or
-   *  made, and it takes the main pane in focus as any item opened from the sidebar does. */
-  openTeamReview(spaceId: string, reviewId?: string | null): Promise<void>;
   /** The page's tab, per space — see `spacePageTab`. */
   setSpacePageTab(spaceId: string, tab: SpacePageTab): void;
   /** The Sessions page's filter, per space — see `spaceSessionsView`. */
@@ -2704,6 +2750,20 @@ export type AppState = TeamSlice & LabSlice & {
   setSettingsPageTab(tab: SettingsPageTab): void;
   /** Which skill the Library page is reading, for `spaceId` — see `librarySkill`. Null closes it. */
   setLibrarySkill(spaceId: string, id: string | null): void;
+  /** The Library page's section, for `spaceId` — see `libraryTab`. */
+  setLibraryTab(spaceId: string, tab: LibraryTab): void;
+  /** Open the Library on its Memory section, from a page that is not the Library — `openSkillPage`'s
+   *  two steps. */
+  openMemoryLibrary(): Promise<void>;
+  /** Memory changed somewhere: see `memoryLibraryRev`. */
+  memoryLibraryChanged(): void;
+  /** The Library's Memory page's reads and writes — `Api`'s, returned rather than stored. */
+  memoryLibrarySources(profileId: string): Promise<MemoryLibrarySource[]>;
+  memoryLibraryList(profileId: string, o?: { sourceId?: string; query?: string }): Promise<MemoryLibraryEntry[]>;
+  memoryLibraryRead(id: string, profileId: string): Promise<MemoryLibraryFile>;
+  memoryLibraryWrite(id: string, text: string, confirmExternal: boolean): Promise<MemoryLibraryEntry>;
+  memoryLibraryCreate(input: MemoryLibraryNew): Promise<MemoryLibraryEntry>;
+  memoryLibraryDelete(id: string, confirmExternal: boolean): Promise<{ trashed: boolean }>;
   /** Open the Library on one skill's page, from a list that is not the Library's own. The same
    *  two-step `openProfilePage` uses: name the destination, then go there. */
   openSkillPage(id: string): Promise<void>;
@@ -4445,10 +4505,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     let contrastTimer: ReturnType<typeof setTimeout> | null = null;
 
     return {
-      ...teamSlice(api, get, set),
-      ...labSlice(api, get, set),
       booted: false,
       sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], installedFonts: [], localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, confirmDelete: true, items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarOnPage: null, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
+      ...teammatesSlice(api, get, set),
       allItems: [], archivedSessions: null, lastAgentKind: null, lastModels: {}, renamingItemId: null,
       connectionState: "connected",
       appPick: null,
@@ -4457,11 +4516,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       failover: null,
       laya: null,
       savedTurns: {}, savedTurnsRev: 0, promptFor: null,
-      spacePageTab: {}, spaceSessionsView: {}, sessionReplies: {}, profilePageTab: {}, settingsPageTab: "general", librarySkill: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionActivityAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, unlockPolicy: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, computerAwaiting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
+      spacePageTab: {}, spaceSessionsView: {}, sessionReplies: {}, profilePageTab: {}, settingsPageTab: "general", libraryTab: {}, memoryLibraryRev: 0, librarySkill: {}, mcpPanelSpaceId: null,
+      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionActivityAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, accounts: [], accountSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, unlockPolicy: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, computerAwaiting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeBranches: {}, worktreeAckStale: null,
-      checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, dismissedSubagents: {}, agentsAsk: {}, agentsShown: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
+      checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, dismissedSubagents: {}, agentsAsk: {}, agentsShown: {}, reportsOpen: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
       sessionTerminals: {}, sessionDock: {}, pageOverlay: null, simulatorElements: {}, quickChat: null, quickChatPos: null, viewer: null,
       machineName: "", userName: "", avatarPath: null, detachedSince: null, connectors: {}, browserAllowlists: {}, computerAllowedApps: {}, computerControl: {},
       mcpServers: [], mcpProviders: [], mcpToolsError: {},
@@ -5664,7 +5723,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ connectionState: state });
         if (state !== "connected") return;
         // The socket was down: change events were lost, so refetch what they would have delivered.
-        get().run(() => Promise.all([get().refreshSpaces(), get().refreshItems(), get().refreshSessions(), get().refreshAllSessions(), get().refreshTeams()]));
+        get().run(() => Promise.all([get().refreshSpaces(), get().refreshItems(), get().refreshSessions(), get().refreshAllSessions()]));
         // openSession fetches events after each transcript's lastSeq — exactly the missed tail.
         for (const id of Object.keys(get().transcripts)) get().run(() => get().openSession(id));
         // …and the terminals, which are the same problem with a different cursor.
@@ -5682,6 +5741,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // Realm Mobile's status, if anything here has read it: a phone added or a window closed while
         // the socket was down went unannounced, and a held pair request may be over.
         if (get().remote !== null || get().remoteError !== null) void get().refreshRemote();
+        get().run(() => get().refreshTeammates());
       },
       // One overlay slot (U-M4/V-F5): sheets and the palette never stack — opening either closes the other.
       setKeybindings(rules) { set({ keybindings: rules }); },
@@ -6049,6 +6109,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (ev.event.type === "init" && (ev.event.payload.supportsFastMode !== undefined || ev.event.payload.fastModeModels || ev.event.payload.effortModels)) {
           void get().run(() => get().refreshFastSupport());
         }
+        /* The session changed agents — a failover's handoff, or a switch made in another window. The
+           row is what the prompter's chip reads, and the event is the only word of it this window gets. */
+        if (ev.event.type === "handoff" && !ev.ephemeral) {
+          void get().run(async () => { const row = await api.getSession(ev.sessionId); if (get().sessions[row.id]) mergeSession(row); });
+        }
         /** This event makes no other write: the line, and the log's length, are the whole of it. */
         const lineOnly = () => { if (also) set(also); };
         const buf = loading.get(ev.sessionId);
@@ -6166,12 +6231,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         catch (e) { void get().refreshSessionQueue(sessionId); throw e; }
       },
       async newSession(input, targetLeafId = null, edge) {
-        await makeSession(input, targetLeafId, edge);
+        const id = await makeSession(input, targetLeafId, edge);
+        // Made to be typed in, whichever way it was asked for — ⌘N, the palette's agent rows, a worktree,
+        // a split — so its prompter gets the keyboard, and a list showing it brings it into view.
+        if (id) set({ keyboardFor: { sessionId: id, n: (get().keyboardFor?.n ?? 0) + 1 } });
       },
       async newSessionInstant(targetLeafId = null, edge, spaceId = null) {
-        const id = await makeSession({ ...instantPick(), spaceId }, targetLeafId, edge);
-        // Made to be typed in: ⌘N, a split, an empty pane's button — its prompter gets the keyboard.
-        if (id) set({ keyboardFor: { sessionId: id, n: (get().keyboardFor?.n ?? 0) + 1 } });
+        await get().newSession({ ...instantPick(), spaceId }, targetLeafId, edge);
       },
       async newSessionInWorktree(targetLeafId = null, spaceId = null, named) {
         const sid = spaceFor(spaceId); if (!sid) return;
@@ -6186,11 +6252,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const env = await api.createWorktree(sid, named?.title ?? null, named?.base ?? null);
         if (inProfile(sid)) set({ environments: { ...get().environments, [env.id]: env } });
         await get().newSession({ ...instantPick(), environmentId: env.id, spaceId: sid }, targetLeafId);
-        // Made to be typed in, as a session from "+" is.
-        if (named) {
-          const made = Object.values(get().sessions).find((x) => x.environmentId === env.id);
-          if (made) set({ keyboardFor: { sessionId: made.id, n: (get().keyboardFor?.n ?? 0) + 1 } });
-        }
       },
       requestRename(itemId) { set({ renamingItemId: itemId }); },
       /**
@@ -6512,6 +6573,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // The server renames an untouched default title to match the new agent; the sidebar row shows it.
         await get().refreshItems(row.spaceId);
       },
+      async switchSessionAgent(id, agentKind, model) {
+        mergeSession(await api.switchSessionAgent(id, agentKind, model));
+        rememberAgent(agentKind);
+      },
       async setSessionEnvironment(id, environmentId) {
         // The id travels verbatim and the merged session is the server's answer — the chip renders
         // what was persisted, never what was hoped.
@@ -6692,6 +6757,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (s) await api.agentSignInCancel(s.id);
       },
       applyAgentSignIn(s) {
+        // An account's sign-in is that account's, and leaves the agent's own — first run's — alone.
+        if (s.accountId) {
+          const was = get().accountSignIns[s.accountId];
+          if (was && was.id === s.id && SIGN_IN_ORDER[was.state] > SIGN_IN_ORDER[s.state]) return;
+          if (was && was.id !== s.id && s.state === "cancelled") return;
+          set({ accountSignIns: { ...get().accountSignIns, [s.accountId]: s } });
+          if (s.state === "done") get().run(() => get().refreshAccounts(true));
+          return;
+        }
         const now = get().agentSignIns[s.kind];
         // The sign-in a newer one replaced, reporting its cancellation late, says nothing about the
         // newer one — and a start's own answer arriving after its events must not walk them back.
@@ -6703,6 +6777,37 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // That agent alone, fresh — a second or so, where every agent's probe waits on the slowest
         // of them to say nothing about this one.
         if (s.state === "done") get().run(() => get().probeAgent(s.kind));
+      },
+      async refreshAccounts(ask = false) {
+        set({ accounts: await api.listAccounts(ask) });
+      },
+      async addAccount(kind) {
+        const { account, signIn } = await api.addAccount(kind);
+        set({ accounts: [...get().accounts.filter((a) => a.id !== account.id), account] });
+        get().applyAgentSignIn(signIn);
+        return account.id;
+      },
+      async signInAccount(id) {
+        get().applyAgentSignIn(await api.accountSignIn(id));
+      },
+      async sendAccountSignInCode(accountId, code) {
+        const s = get().accountSignIns[accountId];
+        if (s) await api.agentSignInCode(s.id, code);
+      },
+      async cancelAccountSignIn(accountId) {
+        const s = get().accountSignIns[accountId];
+        if (s) await api.agentSignInCancel(s.id);
+      },
+      async renameAccount(id, label) {
+        const row = await api.renameAccount(id, label);
+        set({ accounts: get().accounts.map((a) => (a.id === id ? row : a)) });
+      },
+      async removeAccount(id) {
+        await api.removeAccount(id);
+        set({ accounts: get().accounts.filter((a) => a.id !== id) });
+      },
+      async setSessionAccount(id, accountId) {
+        mergeSession(await api.setSessionAccount(id, accountId));
       },
       async runCliAction(kind, action) {
         const started = await api.runCli(kind, action);
@@ -7478,7 +7583,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const { children, dismissed } = await api.listDelegatedChildren(sessionId);
         set({ subagents: { ...get().subagents, [sessionId]: children }, dismissedSubagents: { ...get().dismissedSubagents, [sessionId]: dismissed } });
       },
-      async addTeammate(input) {
+      async addSubAgent(input) {
         await api.addTeammate(input);
       },
       async dismissSubagent(leadId, id) {
@@ -7518,6 +7623,28 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         }
         if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)) { await get().openItem(itemId); return; }
         await adoptItem(sid, itemId, null, { sessionId });
+      },
+      setReportOpen(id, open) { set({ reportsOpen: { ...get().reportsOpen, [id]: open } }); },
+      async openTeammate(id) {
+        const t = Object.values(get().teammates).flat().find((x) => x.id === id);
+        if (!t) return;
+        const home = t.homeSessionId ?? (await api.teammateHome(id)).sessionId;
+        if (!get().items.some((i) => i.kind === "session" && i.refId === home)) await loadSpaceItems(t.spaceId);
+        if (!(await get().revealSession(home, t.spaceId))) return;
+        if (!get().items.some((i) => i.kind === "computer" && i.refId === id)) await get().showTeammateComputer(id);
+      },
+      async showTeammateComputer(id) {
+        const t = Object.values(get().teammates).flat().find((x) => x.id === id);
+        const home = t?.homeSessionId ?? (t ? (await api.teammateHome(id)).sessionId : null);
+        if (!t || !home) return;
+        let itemId = get().items.find((i) => i.kind === "computer" && i.refId === id)?.id;
+        if (!itemId) {
+          itemId = (await api.createItem(t.spaceId, "computer", "Computer", id)).id;
+          await loadSpaceItems(t.spaceId);
+        }
+        if (findLeafOfItem(get().layout ?? emptyLayout(), itemId)) { await get().openItem(itemId); return; }
+        // Shown beside the chat, with the keyboard left in its prompter: the person came to talk to it.
+        await get().openInSidePane(home, itemId, { show: true });
       },
       showSubagent(leadId, id) {
         if (!agentsShownLoaded) { void get().hydrateAgentsShown().then(() => get().showSubagent(leadId, id)); return; }
@@ -7625,17 +7752,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         get().run(() => get().markSessionSeen(sessionId));
         if (child.doneRow) get().run(() => get().markNotificationsRead([child.doneRow!]));
       },
-      async openTeamReview(spaceId, reviewId = null) {
-        if (reviewId) get().selectTeamReview(spaceId, reviewId);
-        let itemId = get().items.find((i) => i.kind === "review" && i.refId === spaceId)?.id;
-        if (!itemId) {
-          const made = await api.createItem(spaceId, "review", "Review", spaceId);
-          await get().refreshItems(spaceId);
-          itemId = made.id;
-        }
-        get().closePageOverlay();
-        await get().openItem(itemId);
-      },
       openSpacePage(spaceId, tab) {
         // The tab lands even when the page is already up — "Manage connections…" on an open page
         // must still end up on Connections.
@@ -7691,6 +7807,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       setProfilePageTab(profileId, tab) { set({ profilePageTab: { ...get().profilePageTab, [profileId]: tab } }); },
       setLibrarySkill(spaceId, id) { set({ librarySkill: { ...get().librarySkill, [spaceId]: id } }); },
+      setLibraryTab(spaceId, tab) { set({ libraryTab: { ...get().libraryTab, [spaceId]: tab } }); },
+      async openMemoryLibrary() {
+        const spaceId = get().activeSpaceId;
+        if (!spaceId) return;
+        get().setLibrarySkill(spaceId, null);
+        get().setLibraryTab(spaceId, "memory");
+        await get().openDestinationPage("library-page");
+      },
       async openSkillPage(id) {
         // Keyed by the ACTIVE space, which is the space whose Library page `openDestinationPage`
         // will open and the vantage that page reads its skills from.
@@ -7699,6 +7823,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         get().setLibrarySkill(spaceId, id);
         await get().openDestinationPage("library-page");
       },
+      memoryLibraryChanged() { set({ memoryLibraryRev: get().memoryLibraryRev + 1 }); },
+      memoryLibrarySources(profileId) { return api.memoryLibrarySources(profileId); },
+      memoryLibraryList(profileId, o) { return api.memoryLibraryList(profileId, o); },
+      memoryLibraryRead(id, profileId) { return api.memoryLibraryRead(id, profileId); },
+      memoryLibraryWrite(id, text, confirmExternal) { return api.memoryLibraryWrite(id, text, confirmExternal); },
+      memoryLibraryCreate(input) { return api.memoryLibraryCreate(input); },
+      memoryLibraryDelete(id, confirmExternal) { return api.memoryLibraryDelete(id, confirmExternal); },
       async refreshSettingsPrefs() {
         const [rawDisabled, rawMode, rawDesktop, rawSound, rawVolume, rawMidTurn, rawIphone] = await Promise.all([
           api.getSetting(NOTIFICATIONS_DISABLED_KEY), api.getSetting(DEFAULT_PERMISSION_MODE_KEY), api.getSetting(NOTIFICATIONS_DESKTOP_KEY),

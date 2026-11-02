@@ -13,7 +13,9 @@ const P = {
   user_message: z.object({
     text: z.string(),
     attachments: z.array(z.object({ path: z.string(), mime: z.string() })),
-    from: z.object({ sessionId: z.string(), title: z.string() }).optional(),
+    /** Another session's agent wrote it. `teammateId` when that session is a teammate's
+     *  (`team_message`), so the transcript can draw who sent it. */
+    from: z.object({ sessionId: z.string(), title: z.string(), teammateId: z.string().optional() }).optional(),
     /** This turn was written by the session's own goal rather than typed by anyone — a continuation,
      *  or the handover a spent budget asks for. Absent on everything a person sent, including the
      *  objective itself, which the user really did write. The transcript attributes it for `from`'s
@@ -23,8 +25,9 @@ const P = {
      *  is what Realm appended for the agent — the unattended rules — and stays in `text`, which is what
      *  the agent was handed; the transcript draws the task's name above the bubble instead and keeps
      *  the note out of it, so the bubble reads as the instructions the person wrote. Optional, so every
-     *  row ever written still parses. */
-    scheduled: z.object({ task: z.string(), note: z.string() }).optional(),
+     *  row ever written still parses. `scheduleId` is on a teammate's clock's turn in its chat, where
+     *  no run is behind the message (contracts/teammates.ts `TeammateSchedule`). */
+    scheduled: z.object({ task: z.string(), note: z.string(), scheduleId: z.string().optional() }).optional(),
     /** What the message's `@[…]` chips named — files, Library items, apps — so the log can draw each
      *  chip with its own mark a week later. Kept apart from `attachments`, which stay the files the
      *  user attached: a mentioned file is a chip in the sentence, and a tile above it would be the
@@ -104,6 +107,9 @@ const P = {
     message: z.string(),
     failure: z.enum(["usage_limit", "provider_down", "transient", "auth", "fatal"]).optional(),
     fix: z.object({ title: z.string(), hint: z.string(), command: z.string().nullable() }).optional(),
+    /** The agent's other signed-in accounts, offered where this one hit its usage limit — the person
+     *  picks one; nothing moves on its own. */
+    accounts: z.array(z.object({ id: z.string(), label: z.string() })).optional(),
   }),
   /**
    * The next-move suggestion the prompter offers as its hint text, written by a model once per
@@ -138,9 +144,10 @@ const P = {
     detail: z.string().nullable(),
   }),
   /**
-   * The session changed agents mid-flight, because the one it was on could not finish the turn
-   * (`failover.ts` decides when). Persisted, and rendered — a session that changes hands has to say
-   * so, or the reader is left comparing two agents' voices and wondering which of them wrote what.
+   * The session changed agents mid-flight: the one it was on could not finish the turn
+   * (`failover.ts` decides when), or the person switched it (`reason: "switch"`). Persisted, and
+   * rendered — a session that changes hands has to say so, or the reader is left comparing two
+   * agents' voices and wondering which of them wrote what.
    *
    * `attempt` counts the same-agent retries that were spent before the handoff, so the record is
    * complete: "we waited three times, then moved" is a different story to "we moved immediately",
@@ -148,10 +155,12 @@ const P = {
    */
   handoff: z.object({
     from: z.string(), to: z.string(),
-    reason: z.enum(["usage_limit", "provider_down", "transient", "auth", "fatal"]),
+    reason: z.enum(["usage_limit", "provider_down", "transient", "auth", "fatal", "switch"]),
     /** The sentence shown. Built server-side so every surface tells it identically. */
     note: z.string(),
     attempt: z.number().int(),
+    /** The hand-off note a switch wrote under Realm's home — what the incoming agent was handed. */
+    summaryPath: z.string().optional(),
   }),
   /**
    * A same-agent retry is about to happen, after `waitMs`. Ephemeral rather than persisted: it is a
