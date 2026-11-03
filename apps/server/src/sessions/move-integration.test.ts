@@ -481,9 +481,9 @@ describe("sessions.move", () => {
   });
 
   it("brings a session the server stopped mid-move back where it was", async () => {
-    const { home, session } = await setup("claude");
+    const { home, session, repo } = await setup("claude");
     new SessionsStore(app!.db).update({ id: session.id, status: "moving" });
-    new SettingsStore(app!.db).set(`move.inFlight:${session.id}`, "m1");
+    new SettingsStore(app!.db).set(`move.inFlight:${session.id}`, { moveId: "m1", sourcePath: repo });
     await app!.close();
     app = await createApp({ home, port: 0, adapters: { claude: new FakeAdapter({ script: [] }) } as never });
     const row = new SessionsStore(app.db).get(session.id)!;
@@ -491,4 +491,38 @@ describe("sessions.move", () => {
     const failed = new SessionEventsStore(app.db).listAfter(session.id, 0, 1000).map((e) => e.event).find((e) => e.type === "move_failed");
     expect(failed?.payload).toMatchObject({ moveId: "m1", step: "commit" });
   });
+
+  it("takes back what a move had merged, made and copied when the server stopped in the middle of it", async () => {
+    const { c, sp, home, repo, session, agent } = await setup("codex", "declined");
+    const target = (await c.call("environments.createWorktree", { spaceId: sp.id, title: "kept" })).result;
+    agent.onResume = "slow";
+    const moving = c.call("sessions.move", { id: session.id, to: { kind: "environment", environmentId: target.id } });
+    await waitFor(async () => agent.starts.some((o) => o.resume));
+    // Booting at the target, so the changes are merged there, and what takes them back is kept.
+    const kept = new SettingsStore(app!.db).get(`move.inFlight:${session.id}`) as Any;
+    expect(kept).toMatchObject({ sourcePath: repo, merged: { path: target.path } });
+    expect(status(target.path)).toEqual([" M a.txt", " M b.txt", "?? new.txt"]);
+    await c.call("sessions.cancelMove", { id: session.id });
+    agent.release();
+    await moving;
+
+    // The server stopped there instead: the merge still in the target, a worktree and a record copy
+    // the move had made beside it, and the facts kept.
+    writeFileSync(join(target.path, "a.txt"), "two\n");
+    writeFileSync(join(target.path, "new.txt"), "fresh\n");
+    const made = (await c.call("environments.createWorktree", { spaceId: sp.id, title: "made" })).result;
+    const copy = join(home, "claude-cfg", "projects", "-made", "s.jsonl");
+    mkdirSync(join(copy, ".."), { recursive: true }); writeFileSync(copy, "{}\n");
+    new SessionsStore(app!.db).update({ id: session.id, status: "moving" });
+    new SettingsStore(app!.db).set(`move.inFlight:${session.id}`, { ...kept, worktreeId: made.id, rehomed: { made: [copy], renamed: [] } });
+    await app!.close();
+
+    app = await createApp({ home, port: 0, adapters: { codex: new FakeAdapter({ script: [] }) } as never });
+    expect(status(target.path)).toEqual([]);
+    expect(readFileSync(join(target.path, "a.txt"), "utf8")).toBe("one\n");
+    expect(existsSync(made.path)).toBe(false);
+    expect(new SessionsStore(app.db).get(session.id)).toMatchObject({ status: "idle", environmentId: session.environmentId });
+    expect(existsSync(copy)).toBe(false);
+    expect(new SettingsStore(app.db).get(`move.inFlight:${session.id}`)).toBeNull();
+  }, 30_000);
 });

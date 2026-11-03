@@ -1869,6 +1869,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     },
   });
   sessions.markStaleOnBoot();
+  await sessions.recoverMoves();
   // AFTER markStaleOnBoot, which is what turns a session that was mid-turn back into a resumable
   // row — recovery reconciles each live run against that reconciled world, not the pre-boot one.
   runs.recoverOnBoot();

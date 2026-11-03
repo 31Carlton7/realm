@@ -15,7 +15,7 @@ import { NotFoundError, RpcError } from "../store/rows";
 import { buildHandoffContext, defaultAccountId, hasAccounts, shouldSurfaceWrite, switchNote, type AccountKind } from "@realm/contracts";
 import type { FailoverHooks } from "./failover";
 import { handOver, modeAfterSwitch, modelNameOf } from "./handover";
-import { moveInFlightKey, movePrefaceKey, runMove, type MovePlan } from "./move";
+import { moveInFlightKey, movePrefaceKey, runMove, undoInterruptedMove, type MoveInFlight, type MovePlan } from "./move";
 import type { Rehomed } from "../accounts/service";
 import type { CheckpointGit } from "../workspace/checkpoints";
 import { portEnv, type PortAllocator } from "../workspace/ports";
@@ -1707,16 +1707,25 @@ export class SessionService {
       }
       const resumable = s.status === "running" || s.status === "waiting_permission" || (s.status === "ended" && s.providerSessionId !== null);
       if (resumable) this.d.sessions.update({ id: s.id, status: "idle" });
-      // A move the server stopped in the middle of never committed — the commit and the `moving`
-      // status leave together — so the session is still where it was.
-      if (s.status === "moving") {
-        const moveId = this.d.settings.get(moveInFlightKey(s.id));
-        this.d.settings.set(moveInFlightKey(s.id), null);
-        this.d.sessions.update({ id: s.id, status: "idle" });
-        const reason = "Realm stopped before the move finished";
-        this.persist(s.id, sessionEvent("move_failed", { moveId: typeof moveId === "string" ? moveId : "", step: "commit", reason,
-          note: `Could not move this session: ${reason}. It is still in ${s.cwd}, as it was.` }));
+    }
+  }
+
+  /** Boot, after `markStaleOnBoot`: a move the server stopped in the middle of never committed — the
+   *  commit and the `moving` status leave together — so the session is still where it was, and what
+   *  the move had changed elsewhere is taken back from what it kept as it went. */
+  async recoverMoves(): Promise<void> {
+    for (const s of this.d.sessions.listAll()) {
+      if (s.status !== "moving") continue;
+      const kept = this.d.settings.get(moveInFlightKey(s.id)) as MoveInFlight | null;
+      const moves = this.d.moves;
+      if (kept && moves) {
+        await undoInterruptedMove({ git: moves.git, environment: (id) => this.d.environments.get(id), discardWorktree: (env, from) => moves.discardWorktree(env, from) }, kept);
       }
+      this.d.settings.set(moveInFlightKey(s.id), null);
+      this.d.sessions.update({ id: s.id, status: "idle" });
+      const reason = "Realm stopped before the move finished";
+      this.persist(s.id, sessionEvent("move_failed", { moveId: kept?.moveId ?? "", step: "commit", reason,
+        note: `Could not move this session: ${reason}. It is still in ${s.cwd}, as it was.` }));
     }
   }
 
