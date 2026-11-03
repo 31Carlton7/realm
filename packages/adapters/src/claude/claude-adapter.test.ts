@@ -1051,6 +1051,19 @@ describe("ClaudeAdapter skills", () => {
     await handle.dispose();
   });
 
+  it("takes a pinned model back to the CLI's default when the model is cleared", async () => {
+    const setModel = vi.fn();
+    const adapter = new ClaudeAdapter({
+      query: (() => Object.assign((async function* () {})(), { setModel })) as never,
+    });
+    const handle = adapter.start({ cwd: "/tmp", mcpServers: [], model: "claude-sonnet-5-5" });
+    await handle.send({ text: "hi", attachments: [] });
+    await handle.setOptions({ model: null });
+    expect(setModel).toHaveBeenCalledTimes(1);
+    expect(setModel).toHaveBeenCalledWith(undefined);
+    await handle.dispose();
+  });
+
   it("holds a mid-carry interrupt until the spawn it stops exists", async () => {
     // The same window as setOptions above: a Stop pressed while the helper is still minting found no
     // `q`, so `q?.interrupt()` did nothing and the first turn ran on as if Stop was never pressed.

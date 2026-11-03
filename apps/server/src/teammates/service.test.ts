@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { tempDir } from "@realm/test-utils";
-import { FakeAdapter, type AgentAdapter, type FakeScript } from "@realm/adapters";
+import { FakeAdapter, type AgentAdapter, type AgentHandle, type FakeScript } from "@realm/adapters";
 import { DEFAULT_MODEL_LABEL, type AgentModel, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { ProfilesStore } from "../store/profiles";
@@ -87,6 +87,36 @@ describe("a teammate", () => {
     app.team.archive(a.id, true);
     const s = app.sessions.create({ spaceId, agentKind: "fake", projectId: null, model: null, effort: null, permissionMode: "default" }).session;
     expect(app.gateway.realmProvidersFor(s.id, spaceId)).not.toContain("realm-team");
+  });
+
+  it("takes its chat back to the agent's default model and effort when set to Default", async () => {
+    const home = tempDir("realm-teammates-");
+    const fake = new FakeAdapter({ script: SCRIPT, delayMs: 2 });
+    const sent: Parameters<AgentHandle["setOptions"]>[0][] = [];
+    const claude: AgentAdapter = {
+      kind: "claude",
+      probe: () => fake.probe(),
+      start: (o) => {
+        const handle = fake.start(o);
+        return { ...handle, setOptions: async (opts) => { sent.push(opts); await handle.setOptions(opts); } };
+      },
+    };
+    app = await createApp({ home, port: 0, adapters: { fake, claude }, agentRun: { fallbackKind: "fake" } });
+    const said: string[] = [];
+    const broadcast = app.rpc.broadcast.bind(app.rpc);
+    vi.spyOn(app.rpc, "broadcast").mockImplementation((event, payload) => { said.push(event); broadcast(event, payload); });
+    const profile = new ProfilesStore(app.db).create({ name: "P", icon: "x", color: "#000" });
+    const space = new SpacesStore(app.db, home).create({ profileId: profile.id, name: "Realm", icon: "folder" });
+    const scout = app.team.create({ spaceId: space.id, name: "Scout", brief: "Scouts.", agentKind: "claude", model: "claude-sonnet-5-5", effort: "high" });
+    const { sessionId } = await app.team.message(scout.id, "hello there");
+    await idle(sessionId);
+    said.length = 0;
+    app.team.update({ id: scout.id, model: null, effort: null });
+    await waitFor(() => sent.length > 0);
+    expect(sent).toEqual([{ model: null, effort: null }]);
+    expect(app.sessions.get(sessionId)).toMatchObject({ model: null, effort: null });
+    // The open chat's chip is re-read too.
+    await waitFor(() => said.includes("items.changed"));
   });
 });
 

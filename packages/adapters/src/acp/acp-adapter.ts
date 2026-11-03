@@ -290,6 +290,8 @@ export class AcpAdapter implements AgentAdapter {
     let effortConfigId: string | null = null;
     let effortLevels: string[] = [];
     let effortDefault: string | null = null;
+    /** The model the agent started on, before any pin — what a reset to Default writes back. */
+    let modelDefault: string | null = null;
     /** `modes.currentModeId` at boot — `acpBuildMode`'s fallback when the agent has no `agent` id. */
     let bootModeId: string | null = null;
     /** Full access, answered on Realm's side. ACP has no mode for it — mode ids are the agent's own —
@@ -557,6 +559,7 @@ export class AcpAdapter implements AgentAdapter {
         effortConfigId = cfg.effortConfigId;
         effortLevels = cfg.efforts.map((e) => e.id);
         effortDefault = cfg.currentEffort;
+        modelDefault = cfg.currentModelId;
         // The session's pinned model is transmitted HERE, not merely displayed: ACP's `session/new`
         // takes `{cwd, mcpServers}` and nothing else, so a model picked in an earlier run (or before
         // the first message) only reaches the agent through a follow-up write. Failure is a log line,
@@ -697,9 +700,10 @@ export class AcpAdapter implements AgentAdapter {
           else if (target) await attempt("session/set_mode", { sessionId, modeId: target.id });
           else log(`no advertised mode maps onto ${o.permissionMode === PLAN_PERMISSION_MODE ? "Plan" : o.permissionMode === ASK_PERMISSION_MODE ? "Ask" : "Build"}; nothing sent`);
         }
-        if (o.model !== undefined) {
-          if (modelConfigId) await attempt("session/set_config_option", { sessionId, configId: modelConfigId, value: o.model });
-          else await attempt("session/set_model", { sessionId, modelId: o.model });
+        const model = o.model === undefined ? undefined : o.model ?? modelDefault;
+        if (model) {
+          if (modelConfigId) await attempt("session/set_config_option", { sessionId, configId: modelConfigId, value: model });
+          else await attempt("session/set_model", { sessionId, modelId: model });
         }
         // A reset writes the level the agent started on back by name; anything not on its list is not
         // sent, and an agent with no `thought_level` option is never asked.

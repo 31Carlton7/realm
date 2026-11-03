@@ -323,11 +323,12 @@ export class TeammatesService {
     }
     if (was.name !== now.name) this.d.sessions.retitleIf(home.id, was.name, now.name);
     const options = {
-      ...(now.model !== home.model && now.model !== null ? { model: now.model } : {}),
+      ...(now.model !== home.model ? { model: now.model } : {}),
       ...(now.effort !== home.effort ? { effort: now.effort } : {}),
       ...(now.permissionMode !== home.permissionMode ? { permissionMode: now.permissionMode } : {}),
     };
-    if (Object.keys(options).length > 0) void this.d.sessions.setOptions(home.id, options).catch((e: unknown) => {
+    // Windows re-read a session's model and effort on `items.changed`; nothing else tells an open chat.
+    if (Object.keys(options).length > 0) void this.d.sessions.setOptions(home.id, options).then(() => this.changedItems(now.spaceId), (e: unknown) => {
       console.error(`[teammates] ${now.handle}'s chat kept its old options: ${e instanceof Error ? e.message : String(e)}`);
     });
   }
@@ -347,6 +348,10 @@ export class TeammatesService {
       ...((TEAMMATE_PERMISSION_MODES as readonly string[]).includes(session.permissionMode) ? { permissionMode: session.permissionMode as TeammatePermissionMode } : {}),
     });
     this.changed(row.spaceId);
+  }
+
+  private changedItems(spaceId: string): void {
+    this.d.rpc.broadcast("items.changed", { spaceId });
   }
 
   /** Every window re-reads the space's teammates — once per tick however many things moved. */
