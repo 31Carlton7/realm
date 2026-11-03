@@ -4063,6 +4063,10 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 /* A move's line is one line: its sentence keeps its room and the step and reason beside it give way. */
 .msg-handoff[data-move] > span { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .msg-handoff[data-move] > .msg-handoff-tries { flex: 0 1 auto; min-width: 0; }
+/* …except a failed one, whose reason is the point of it: that one wraps rather than lose it. */
+.msg-handoff[data-move="failed"] { flex-wrap: wrap; justify-content: center; }
+.msg-handoff[data-move="failed"] > span { flex: 0 1 auto; white-space: normal; text-wrap: pretty; }
+.msg-handoff[data-move="failed"]::before, .msg-handoff[data-move="failed"]::after { display: none; }
 /* The note a switch wrote, as a link set into the seam: the seam's size, the link's ink. */
 .msg-handoff-link { font: inherit; color: var(--rl-accent); font-weight: var(--fw-label); padding: 0; background: none; }
 .msg-handoff-link:hover { text-decoration: underline; text-underline-offset: 2px; }

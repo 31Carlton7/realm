@@ -846,11 +846,11 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             // A move is a seam too: the paths above it are under the old checkout's root. Each end is
             // named as the Move sheet names it, and the paths are the tooltip's.
             case "moved": return <div key={key} className="msg-handoff" data-move role="note" data-enter={enter || undefined}>
-              <span title={`${b.from.cwd} → ${b.to.cwd}`}>{movedSentence(b)}</span>
+              <span title={`${movedSentence(b)}\n${b.from.cwd} → ${b.to.cwd}`}>{movedSentence(b)}</span>
             </div>;
             // A move that did not happen changed nothing above or below it, so it is told as calmly as
             // the seams are, with where it stopped and why beside the sentence.
-            case "move_failed": return <div key={key} className="msg-handoff" data-move role="note" data-enter={enter || undefined}>
+            case "move_failed": return <div key={key} className="msg-handoff" data-move="failed" role="note" data-enter={enter || undefined}>
               <span>{b.note}</span>
               <span className="msg-handoff-tries">{moveStepLabel(b.step, agentLabel)}{b.note.includes(b.reason) ? "" : ` · ${b.reason}`}</span>
             </div>;
