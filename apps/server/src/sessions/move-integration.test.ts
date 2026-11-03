@@ -148,6 +148,8 @@ describe("sessions.move", () => {
 
     // Claude's record is where the CLI looks first from the new cwd.
     expect(readFileSync(join(claudeCfg, "projects", claudeProjectName(realpathSync(env.path)), `${pid}.jsonl`), "utf8")).toBe("{\"conversation\":true}\n");
+    // …and the old cwd's copy is gone from its reach, so a later account switch cannot carry a stale one.
+    expect(existsSync(record)).toBe(false);
 
     const events = await eventsOf(c, session.id);
     const line = events.find((e: Any) => e.type === "moved").payload;

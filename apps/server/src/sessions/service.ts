@@ -263,7 +263,7 @@ export class SessionService {
     accounts?: {
       envFor(kind: AgentKind, accountId: string | null | undefined): Record<string, string>;
       accountFor(kind: AgentKind, accountId: string | null | undefined): { label: string } | null;
-      carry(kind: AgentKind, providerSessionId: string, fromId: string | null, toId: string | null): Promise<boolean>;
+      carry(kind: AgentKind, providerSessionId: string, fromId: string | null, toId: string | null, cwd?: string): Promise<boolean>;
       rehome?(kind: AgentKind, providerSessionId: string, accountId: string | null, cwd: { from: string; to: string }): Promise<(() => Promise<void>) | null>;
     };
     /** What moving a session to another checkout needs beyond the stores (`sessions.move`): the git
@@ -1110,7 +1110,7 @@ export class SessionService {
     this.refuseMidTurn(s, "switch accounts");
     const carried = async () => {
       await this.reap(id);
-      if (s.providerSessionId === null || await accounts.carry(s.agentKind, s.providerSessionId, s.accountId ?? null, accountId)) {
+      if (s.providerSessionId === null || await accounts.carry(s.agentKind, s.providerSessionId, s.accountId ?? null, accountId, s.cwd)) {
         this.d.sessions.update({ id, accountId });
         return;
       }

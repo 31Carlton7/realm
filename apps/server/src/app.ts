@@ -1412,7 +1412,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     accounts: {
       envFor: (kind, accountId) => accounts.envFor(kind, accountId),
       accountFor: (kind, accountId) => accounts.accountFor(kind, accountId),
-      carry: (kind, providerSessionId, fromId, toId) => accounts.carry(kind, providerSessionId, fromId, toId),
+      carry: (kind, providerSessionId, fromId, toId, cwd) => accounts.carry(kind, providerSessionId, fromId, toId, cwd),
       rehome: (kind, providerSessionId, accountId, cwd) => accounts.rehome(kind, providerSessionId, accountId, cwd),
     },
     moves: {
