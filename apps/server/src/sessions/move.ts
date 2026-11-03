@@ -98,7 +98,12 @@ export async function runMove(d: MoveDeps, s: Session, plan: MovePlan): Promise<
     d.emit(s.id, sessionEvent("moving", { moveId: plan.moveId, step }));
   };
   const source = d.environment(s.environmentId);
+  const inFlight: MoveInFlight = { moveId: plan.moveId, sourcePath: source?.path ?? s.cwd };
+  const keep = (facts: Partial<MoveInFlight>) => d.settings.set(moveInFlightKey(s.id), Object.assign(inFlight, facts));
   try {
+    // Before the first `moving`, which is persisted: a restart from here on finds the move to close.
+    keep({});
+    undo.push(() => d.settings.set(moveInFlightKey(s.id), null));
     at("preflight");
     if (!source) throw new RpcError("MOVE_FAILED", "the checkout it runs in is gone");
     const isRepo = await d.git.isRepository(source.path);
@@ -109,10 +114,6 @@ export async function runMove(d: MoveDeps, s: Session, plan: MovePlan): Promise<
     if (work.length > 0 && !plan.stopping) throw new RpcError("MOVE_FAILED", `its agent is still running ${work.join(", ")}, which moving would stop`);
 
     at("freeze");
-    const inFlight: MoveInFlight = { moveId: plan.moveId, sourcePath: source.path };
-    const keep = (facts: Partial<MoveInFlight>) => d.settings.set(moveInFlightKey(s.id), Object.assign(inFlight, facts));
-    keep({});
-    undo.push(() => d.settings.set(moveInFlightKey(s.id), null));
     d.sessions.update({ id: s.id, status: "moving" });
     d.broadcastStatus(s.id, "moving");
     undo.push(() => { d.sessions.update({ id: s.id, status: "idle" }); d.broadcastStatus(s.id, "idle"); });

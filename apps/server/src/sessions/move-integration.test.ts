@@ -12,6 +12,7 @@ import { waitFor } from "../test-utils";
 import { claudeProjectName } from "../memory/claude-backfill";
 import { SettingsStore } from "../store/settings";
 import { SessionEventsStore, SessionsStore } from "../store/sessions";
+import { SessionProjector } from "../remote/rows";
 
 /**
  * `sessions.move` through the real RPC surface, database, repository and (scripted) adapters: the
@@ -210,7 +211,8 @@ describe("sessions.move", () => {
     expect(status(target.path)).toEqual([" M a.txt", " M b.txt", "?? new.txt", "?? scratch.txt", "A  own.txt"].sort());
 
     const events = await eventsOf(c, session.id);
-    expect(events.find((e: Any) => e.type === "moved").payload.conversation).toBe("notes");
+    expect(events.find((e: Any) => e.type === "moved").payload).toMatchObject({ conversation: "notes",
+      note: `Moved from ${basename(repo)} (main) to ${basename(target.path)} (${target.branch}). The conversation continued from notes.` });
     // The moved line tells it; a context_reset beside it would contradict the notes.
     expect(events.some((e: Any) => e.type === "context_reset")).toBe(false);
     const context = new SettingsStore(app!.db).get(handoffContextKey(session.id)) as string;
@@ -290,8 +292,12 @@ describe("sessions.move", () => {
     const move = { moveId: expect.any(String), to: { kind: "worktree" }, step: "boot" };
     expect((await late.call("sessions.queued", { id: session.id })).result.move).toEqual(move);
     expect((await late.call("sessions.moveOptions", { id: session.id })).result.move).toEqual(move);
+    // The transcript carries the progress too, for a client that only reads the event log.
+    const steps = async () => (await eventsOf(late, session.id)).filter((e: Any) => e.type === "moving").map((e: Any) => e.payload.step);
+    expect(await steps()).toEqual(["preflight", "freeze", "snapshot", "place", "boot"]);
     agent.release();
     await moving;
+    expect((await eventsOf(late, session.id)).filter((e: Any) => e.type.startsWith("mov")).map((e: Any) => e.type).slice(-2)).toEqual(["moving", "moved"]);
     expect((await late.call("sessions.queued", { id: session.id })).result.move).toBeNull();
     expect(c.queues.map((q) => q.move?.step ?? null)).toEqual(["preflight", "freeze", "snapshot", "place", "boot", "commit", null]);
     late.close();
@@ -580,12 +586,30 @@ describe("sessions.move", () => {
     const { home, session, repo } = await setup("claude");
     new SessionsStore(app!.db).update({ id: session.id, status: "moving" });
     new SettingsStore(app!.db).set(`move.inFlight:${session.id}`, { moveId: "m1", sourcePath: repo });
+    new SessionEventsStore(app!.db).append(session.id, sessionEvent("moving", { moveId: "m1", step: "place" }));
     await app!.close();
     app = await createApp({ home, port: 0, adapters: { claude: new FakeAdapter({ script: [] }) } as never });
     const row = new SessionsStore(app.db).get(session.id)!;
     expect(row).toMatchObject({ status: "idle", environmentId: session.environmentId });
     const failed = new SessionEventsStore(app.db).listAfter(session.id, 0, 1000).map((e) => e.event).find((e) => e.type === "move_failed");
-    expect(failed?.payload).toMatchObject({ moveId: "m1", step: "commit" });
+    expect(failed?.payload).toMatchObject({ moveId: "m1", step: "place" });
+  });
+
+  it("closes a move the server stopped before the session froze, and leaves its status alone", async () => {
+    const { home, session, repo } = await setup("claude");
+    new SettingsStore(app!.db).set(`move.inFlight:${session.id}`, { moveId: "m1", sourcePath: repo });
+    new SessionEventsStore(app!.db).append(session.id, sessionEvent("moving", { moveId: "m1", step: "preflight" }));
+    new SessionsStore(app!.db).update({ id: session.id, status: "error" });
+    await app!.close();
+    app = await createApp({ home, port: 0, adapters: { claude: new FakeAdapter({ script: [] }) } as never });
+    const log = new SessionEventsStore(app.db).listAfter(session.id, 0, 1000);
+    expect(log.map((e) => e.event).filter((e) => e.type.startsWith("mov")).at(-1)).toMatchObject({ type: "move_failed", payload: { moveId: "m1", step: "preflight" } });
+    expect(new SettingsStore(app.db).get(`move.inFlight:${session.id}`)).toBeNull();
+    expect(new SessionsStore(app.db).get(session.id)!.status).toBe("error");
+    // Replayed, the progress row is gone: its row now says the move did not happen.
+    const phone = new SessionProjector();
+    for (const e of log) phone.apply(e);
+    expect(phone.all().find((r) => r.key === "mv:m1")).toMatchObject({ text: expect.stringContaining("Could not move this session") });
   });
 
   /** A move the server stopped while the target booted: the changes merged into another checkout,

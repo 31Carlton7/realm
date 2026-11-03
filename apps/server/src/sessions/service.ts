@@ -1762,20 +1762,23 @@ export class SessionService {
 
   /** Boot, after `markStaleOnBoot`: a move the server stopped in the middle of never committed — the
    *  commit and the `moving` status leave together — so the session is still where it was, and what
-   *  the move had changed elsewhere is taken back from what it kept as it went. */
+   *  the move had changed elsewhere is taken back from what it kept as it went. Its `move_failed`
+   *  closes the progress row its last `moving` left in the transcript. */
   async recoverMoves(): Promise<void> {
     for (const s of this.d.sessions.listAll()) {
-      if (s.status !== "moving") continue;
       const kept = this.d.settings.get(moveInFlightKey(s.id)) as MoveInFlight | null;
+      if (s.status !== "moving" && !kept) continue;
       const moves = this.d.moves;
       const left = kept && moves ? await undoInterruptedMove({
         git: moves.git, environment: (id) => this.d.environments.get(id), discardWorktree: (env, from) => moves.discardWorktree(env, from),
         othersWorkingIn: (envId, sid) => this.otherTurnIn(envId, sid), ...(this.d.userHome ? { home: this.d.userHome } : {}),
       }, s.id, kept) : [];
       this.d.settings.set(moveInFlightKey(s.id), null);
-      this.d.sessions.update({ id: s.id, status: "idle" });
+      if (s.status === "moving") this.d.sessions.update({ id: s.id, status: "idle" });
       const reason = "Realm stopped before the move finished";
-      this.persist(s.id, sessionEvent("move_failed", { moveId: kept?.moveId ?? "", step: "commit", reason,
+      const last = this.d.events.lastOfType(s.id, "moving");
+      const step = last?.type === "moving" && last.payload.moveId === kept?.moveId ? last.payload.step : "commit";
+      this.persist(s.id, sessionEvent("move_failed", { moveId: kept?.moveId ?? "", step, reason,
         note: [`Could not move this session: ${reason}. It is still in ${s.cwd}, as it was.`, ...left].join(" ") }));
     }
   }

@@ -520,3 +520,22 @@ describe("the media a turn left on disk", () => {
     expect(t.made).toEqual({ 50: made });
   });
 });
+
+describe("a move under way", () => {
+  const moving = (moveId: string, step: "preflight" | "place" | "boot") => sessionEvent("moving", { moveId, step });
+  const failed = (moveId: string) => sessionEvent("move_failed", { moveId, step: "commit", reason: "r", note: "n" });
+  const place = { machine: null, environmentId: "01J00000000000000000000000", cwd: "/r", branch: null };
+  const moved = (moveId: string) => sessionEvent("moved", { moveId, from: place, to: { ...place, cwd: "/w" }, conversation: "notes", changedFiles: 0, leftBehind: [], preface: "p", note: "n" });
+
+  it("is one progress row at the newest step, which how the move ended clears", () => {
+    const t = reduceAll([moving("m", "preflight"), moving("m", "place")]);
+    expect(t.move).toEqual({ moveId: "m", step: "place" });
+    expect(t.blocks).toEqual([]);
+    expect(reduceAll([moved("m")], t).move).toBeNull();
+    expect(reduceAll([moving("m", "boot"), failed("m")]).move).toBeNull();
+  });
+
+  it("is not cleared by the end of another move", () => {
+    expect(reduceAll([failed("old"), moving("m", "boot"), moved("old")]).move).toEqual({ moveId: "m", step: "boot" });
+  });
+});

@@ -104,6 +104,15 @@ describe("runMove", () => {
     expect(settings.get(moveInFlightKey(session.id))).toBeNull();
   });
 
+  it("keeps the move on disk before it says its first step, so a server that stops after that can close it", async () => {
+    const { d, settings } = fakes({ work: ["a background command"] });
+    const told: (string | undefined)[] = [];
+    d.emit = (_id, ev) => { if (ev.type === "moving") told.push((settings.get(moveInFlightKey(session.id)) as MoveInFlight | null)?.moveId); };
+    await expect(runMove(d, session, plan())).rejects.toThrow("which moving would stop");
+    expect(told).toEqual(["m1"]);
+    expect(settings.get(moveInFlightKey(session.id))).toBeNull();
+  });
+
   it("keeps what takes a merge back on disk before it merges, so a server that stops in between can", async () => {
     const { d, calls } = fakes();
     await runMove(d, session, plan());
