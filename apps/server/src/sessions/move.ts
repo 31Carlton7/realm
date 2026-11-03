@@ -33,6 +33,9 @@ export type MoveDeps = {
   handoffNotes?: { write(session: Session, sides: { from: string; to: string }, how: "moved"): Promise<{ path: string; notes: string }> };
   /** Stop the engine the way the idle sweep does. */
   stop: (sessionId: string) => Promise<void>;
+  /** What the engine is running beyond a turn — background tasks, scheduled jobs — which stopping it
+   *  stops too. */
+  engineWork: (sessionId: string) => Promise<string[]>;
   /** Start the engine at `env` with a resume, send nothing, and answer its `init`. */
   boot: (sessionId: string, env: Environment) => Promise<SessionEventPayload<"init">>;
   /** Put an event on the transcript, down the path the pump uses. */
@@ -43,7 +46,8 @@ export type MoveDeps = {
   home?: string;
 };
 
-export type MovePlan = { moveId: string; to: MoveTarget; keepSourceChanges: boolean; signal: AbortSignal };
+/** `stopping`: the person asked to stop what the agent is doing and move, background work included. */
+export type MovePlan = { moveId: string; to: MoveTarget; keepSourceChanges: boolean; stopping: boolean; signal: AbortSignal };
 
 /**
  * Move a started session to another checkout on this machine, mid-conversation: freeze, snapshot,
@@ -73,6 +77,8 @@ export async function runMove(d: MoveDeps, s: Session, plan: MovePlan): Promise<
     if (plan.to.kind === "worktree" && !isRepo) throw new RpcError("MOVE_FAILED", `${source.path} is not a git repository, so it has no worktrees`);
     const existing = plan.to.kind === "environment" ? d.environment(plan.to.environmentId) : null;
     if (plan.to.kind === "environment" && !existing) throw new RpcError("MOVE_FAILED", "that checkout is gone");
+    const work = await d.engineWork(s.id);
+    if (work.length > 0 && !plan.stopping) throw new RpcError("MOVE_FAILED", `its agent is still running ${work.join(", ")}, which moving would stop`);
 
     at("freeze");
     d.settings.set(moveInFlightKey(s.id), plan.moveId);
@@ -115,7 +121,7 @@ export async function runMove(d: MoveDeps, s: Session, plan: MovePlan): Promise<
     const from = placeOf(source);
     const to = placeOf(target);
     const hadTerminal = d.closeTerminal(s.id);
-    const leftBehind = [...(hadTerminal ? ["the terminal"] : []), ...secrets];
+    const leftBehind = [...(hadTerminal ? ["the terminal"] : []), ...secrets, ...work.map((w) => `${w} (stopped)`)];
     const preface = movePreface(from, to, leftBehind);
     d.db.exec("BEGIN");
     try {

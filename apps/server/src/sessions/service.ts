@@ -1254,7 +1254,7 @@ export class SessionService {
   async move(id: string, req: { to: MoveTarget; keepSourceChanges: boolean; when: MoveWhen }): Promise<Session> {
     const s = this.get(id);
     this.refuseMove(s, req);
-    const plan = { moveId: newId(), to: req.to, keepSourceChanges: req.keepSourceChanges };
+    const plan = { moveId: newId(), to: req.to, keepSourceChanges: req.keepSourceChanges, stopping: req.when === "stop" };
     const midTurn = s.status === "running" || s.status === "waiting_permission";
     if (midTurn && req.when === "now") this.refuseMidTurn(s, "move it");
     if (midTurn && req.when === "after-turn") { this.pendingMoves.set(id, plan); return s; }
@@ -1263,9 +1263,7 @@ export class SessionService {
     const abort = new AbortController();
     this.moveAborts.set(id, abort);
     if (midTurn) {
-      // The adapter denies its own cards on interrupt; the ones Realm raises itself (browser tools,
-      // `ui_ask`, elicitations) wait in the gateway and only an answer here clears them.
-      for (const requestId of this.d.events.findDanglingPermissions(id)) this.respondPermission(id, requestId, "deny");
+      this.denyOpenCards(id);
       const handle = this.live.get(id)?.handle;
       if (handle) {
         try { await this.interruptAndSettle(id, handle); } catch (e) { this.moveAborts.delete(id); throw e; }
@@ -1333,6 +1331,23 @@ export class SessionService {
     }
   }
 
+  /** The adapter denies its own cards when its engine stops; the ones Realm raises itself (browser
+   *  tools, `ui_ask`, elicitations) wait in the gateway, and only an answer here clears them. */
+  private denyOpenCards(id: string): void {
+    for (const requestId of this.d.events.findDanglingPermissions(id)) this.respondPermission(id, requestId, "deny");
+  }
+
+  /** What the engine runs beyond a turn, which stopping it stops too — named for a move. */
+  private async engineWork(id: string): Promise<string[]> {
+    const work: string[] = [];
+    const tasks = this.background.get(id)?.size ?? 0;
+    if (tasks > 0) work.push(tasks === 1 ? "a background task" : `${tasks} background tasks`);
+    const shells = await this.d.backgroundShells?.().catch(() => null);
+    if (shells?.has(id)) work.push("a background command");
+    if ((this.crons.get(id) ?? 0) > 0 || this.wakeups.has(id)) work.push("a scheduled job");
+    return work;
+  }
+
   /** Whether a session other than `s` is mid-turn in `s`'s checkout. */
   private otherTurnIn(s: Session): boolean {
     return this.d.sessions.listAll().some((o) => o.id !== s.id && o.environmentId === s.environmentId && (o.status === "running" || o.status === "waiting_permission"));
@@ -1346,6 +1361,7 @@ export class SessionService {
     this.moveAborts.set(id, abort);
     try {
       if (!moves) throw new RpcError("SESSION_MOVE_REFUSED", "This session cannot move: this build cannot move sessions.");
+      this.denyOpenCards(id);
       await this.whileSwitching(id, (async () => {
         const accounts = this.d.accounts;
         const handoffNotes = this.d.handoffNotes;
@@ -1363,6 +1379,7 @@ export class SessionService {
           ...(accounts?.rehome ? { rehome: accounts.rehome.bind(accounts) } : {}),
           ...(handoffNotes ? { handoffNotes } : {}),
           stop: (sid) => this.reap(sid),
+          engineWork: (sid) => this.engineWork(sid),
           boot: (sid, env) => this.bootAt(sid, env),
           emit: (sid, ev) => this.onEvent(sid, ev),
           broadcastStatus: (sid, status) => this.d.rpc.broadcast("session.status", { sessionId: sid, status }),

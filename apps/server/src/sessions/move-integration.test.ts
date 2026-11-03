@@ -82,6 +82,9 @@ const SCRIPT = [
   { on: "open-a-pane", emit: [{ kind: "call" as const, tool: "realm-browser__browser_open", input: { url: "https://example.com" } }] },
   { on: "ask-a-question", emit: [{ kind: "call" as const, tool: "realm-ui__ui_ask", input: { questions: [
     { id: "db", prompt: "Which database?", kind: "choice", options: [{ label: "Postgres" }, { label: "SQLite" }] }] } }] },
+  // A job the engine itself keeps between turns, and dies with it.
+  { on: "schedule-a-job", emit: [{ kind: "tool" as const, name: "CronCreate", input: { cron: "*/5 * * * *", prompt: "check" }, result: "scheduled" },
+    { kind: "text" as const, text: "Scheduled." }] },
 ];
 
 async function setup(kind: AgentKind, resume?: "continued" | "declined" | "unsupported") {
@@ -373,6 +376,35 @@ describe("sessions.move", () => {
     }
     expect(new SessionEventsStore(app!.db).findDanglingPermissions(session.id)).toEqual([]);
   }, 60_000);
+
+  it("denies a ui_ask card on a queued move too, when the person stops the turn it is open in", async () => {
+    const { c, session } = await setup("claude");
+    await c.call("sessions.send", { id: session.id, text: "ask-a-question" });
+    await waitFor(async () => (await c.call("sessions.get", { id: session.id })).result.status === "waiting_permission");
+    await c.call("sessions.move", { id: session.id, to: { kind: "worktree" }, when: "after-turn" });
+    await c.call("sessions.interrupt", { id: session.id });
+    // A real engine abandons the tool call on a stop and settles, leaving Realm's card open; the
+    // scripted one waits on the call, so its settle is reported for it.
+    app!.sessions.emitExternal(session.id, sessionEvent("status", { status: "idle", interrupted: true }));
+    await waitFor(async () => (await eventsOf(c, session.id)).some((e: Any) => e.type === "moved"));
+    expect(new SessionEventsStore(app!.db).findDanglingPermissions(session.id)).toEqual([]);
+    const responses = (await eventsOf(c, session.id)).filter((e: Any) => e.type === "permission_response");
+    expect(responses.map((e: Any) => e.payload.decision)).toEqual(["deny"]);
+ }, 30_000);
+
+  it("refuses to stop the agent's background work unless asked to stop, and names what a stop ended", async () => {
+    const { c, session, sp } = await setup("claude");
+    await turn(c, session.id, "schedule-a-job");
+    const refused = await c.call("sessions.move", { id: session.id, to: { kind: "worktree" } });
+    expect(refused.error.code).toBe("MOVE_FAILED");
+    expect(refused.error.message).toContain("still running a scheduled job, which moving would stop");
+    expect((await c.call("environments.list", { spaceId: sp.id })).result.some((e: Any) => e.kind === "worktree")).toBe(false);
+
+    expect((await c.call("sessions.move", { id: session.id, to: { kind: "worktree" }, when: "stop" })).result.status).toBe("idle");
+    const moved = (await eventsOf(c, session.id)).find((e: Any) => e.type === "moved").payload;
+    expect(moved.leftBehind).toEqual([".env", "a scheduled job (stopped)"]);
+    expect(moved.preface).toContain("a scheduled job (stopped)");
+  });
 
   it("merges the changes onto another base when the new worktree starts from one", async () => {
     const { c, repo, session, sp } = await setup("claude");
