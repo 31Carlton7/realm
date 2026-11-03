@@ -15,7 +15,7 @@ import { NotFoundError, RpcError } from "../store/rows";
 import { buildHandoffContext, defaultAccountId, hasAccounts, shouldSurfaceWrite, switchNote, type AccountKind } from "@realm/contracts";
 import type { FailoverHooks } from "./failover";
 import { handOver, modeAfterSwitch, modelNameOf } from "./handover";
-import { moveFallbackKey, moveInFlightKey, movePrefaceKey, runMove, undoInterruptedMove, type MoveInFlight, type MovePlan } from "./move";
+import { moveFallbackKey, moveInFlightKey, movePrefaceKey, placeOf, runMove, undoInterruptedMove, type MoveInFlight, type MovePlan } from "./move";
 import type { Rehomed } from "../accounts/service";
 import type { CheckpointGit } from "../workspace/checkpoints";
 import { portEnv, type PortAllocator } from "../workspace/ports";
@@ -1293,15 +1293,15 @@ export class SessionService {
     const secrets = isRepo && git ? await git.secretLookingIgnored(env.path) : [];
     const mode = AGENT_SESSION_RESUME[s.agentKind].mode;
     return {
-      from: { machine: null, environmentId: env.id, cwd: env.path, branch: env.branch },
+      from: await placeOf(git, env),
       busy: s.status === "running" || s.status === "waiting_permission",
       blocked: this.moveRefusal(s),
       pending: this.pendingMoves.has(id) || this.moveAborts.has(id),
       conversation: s.providerSessionId !== null && mode !== "none" ? "native" : "notes",
       changedFiles: hazard?.dirtyFiles ?? 0,
       leftBehind: [...(s.terminalItemId ? ["the terminal"] : []), ...secrets],
-      environments: this.d.environments.list(s.spaceId).filter((e) => e.id !== env.id)
-        .map((e) => ({ environmentId: e.id, path: e.path, branch: e.branch, kind: e.kind })),
+      environments: await Promise.all(this.d.environments.list(s.spaceId).filter((e) => e.id !== env.id)
+        .map(async (e) => ({ environmentId: e.id, path: e.path, branch: (await placeOf(git, e)).branch, kind: e.kind }))),
       worktree: isRepo ? { available: true, reason: null } : { available: false, reason: `${env.path} is not a git repository, so it has no worktrees` },
     };
   }

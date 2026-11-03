@@ -450,6 +450,24 @@ describe("sessions.move", () => {
     expect(readFileSync(join(moved.cwd, "new.txt"), "utf8")).toBe("fresh\n");
   });
 
+  it("names the branch a primary checkout is on at both ends of a move, and none on a detached HEAD", async () => {
+    const { c, repo, session } = await setup("claude");
+    expect((await c.call("sessions.moveOptions", { id: session.id })).result.from).toMatchObject({ cwd: repo, branch: "main" });
+    const there = (await c.call("sessions.move", { id: session.id, to: { kind: "worktree" }, keepSourceChanges: false })).result;
+    const out = (await eventsOf(c, session.id)).find((e: Any) => e.type === "moved").payload;
+    expect(out.from).toMatchObject({ cwd: repo, branch: "main" });
+    expect(out.preface).toContain(`It ran in ${repo} (branch main)`);
+
+    git(repo, "checkout", "-q", "--detach");
+    const options = (await c.call("sessions.moveOptions", { id: session.id })).result;
+    expect(options.environments).toEqual([expect.objectContaining({ path: repo, branch: null })]);
+    await c.call("sessions.move", { id: session.id, to: { kind: "environment", environmentId: session.environmentId } });
+    const back = (await eventsOf(c, session.id)).filter((e: Any) => e.type === "moved").at(-1).payload;
+    expect(back.to).toMatchObject({ cwd: repo, branch: null });
+    expect(back.from.cwd).toBe(there.cwd);
+    expect((await c.call("sessions.moveOptions", { id: session.id })).result.from).toMatchObject({ cwd: repo, branch: null });
+  });
+
   it("says what it would carry, and refuses what it cannot do before touching anything", async () => {
     const { c, session, sp } = await setup("claude");
     await c.call("sessions.openTerminal", { id: session.id });

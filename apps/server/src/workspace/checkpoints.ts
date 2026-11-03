@@ -143,6 +143,13 @@ export class CheckpointGit {
     catch { return false; }
   }
 
+  /** The branch checked out at `cwd`, or null on a detached HEAD or outside a repository. */
+  async branch(cwd: string): Promise<string | null> {
+    if (!await this.isRepository(cwd)) return null;
+    const r = await this.git(cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+    return r.code === 0 ? r.stdout.trim() || null : null;
+  }
+
   /**
    * Write the checkout's current state as a commit object and point a hidden ref at it.
    *

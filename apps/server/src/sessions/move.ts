@@ -141,8 +141,7 @@ export async function runMove(d: MoveDeps, s: Session, plan: MovePlan): Promise<
     const carried = await carryConversation(d, s, source, target, at, undo, keep);
 
     at("commit");
-    const from = placeOf(source);
-    const to = placeOf(target);
+    const [from, to] = await Promise.all([placeOf(d.git, source), placeOf(d.git, target)]);
     const hadTerminal = d.closeTerminal(s.id);
     d.db.exec("BEGIN");
     try {
@@ -251,7 +250,11 @@ function claudeFallbackContext(notes: string, from: string, to: string): string 
   ].join("\n\n");
 }
 
-const placeOf = (env: Environment): MovePlace => ({ machine: null, environmentId: env.id, cwd: env.path, branch: env.branch });
+/** Only a worktree's row keeps its branch; any other checkout is on whatever branch git has out now. */
+export async function placeOf(git: Pick<CheckpointGit, "branch"> | undefined, env: Environment): Promise<MovePlace> {
+  const branch = env.branch ?? (git ? await git.branch(env.path) : null);
+  return { machine: null, environmentId: env.id, cwd: env.path, branch };
+}
 
 /** What the agent is told on its first turn after the move. It names both roots because every path in
  *  the conversation so far is under the old one. */
