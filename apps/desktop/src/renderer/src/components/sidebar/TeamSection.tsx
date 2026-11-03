@@ -1,5 +1,5 @@
 import { Icon, TeammateIcon } from "@realm/ui";
-import { useState, type CSSProperties, type DragEvent, type MouseEvent } from "react";
+import { useState, type CSSProperties, type DragEvent, type MouseEvent, type ReactNode } from "react";
 import { itemIdOfLeaf, type Teammate, type TeammateTaskSession } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { groupKey } from "../../state/teammates-slice";
@@ -18,8 +18,9 @@ const TEAMMATE_DRAG_TYPE = "application/x-realm-teammate";
  *
  * Nothing here is drawn for a space with no teammates; the space's menu offers the first one.
  */
-export function TeamSection({ spaceId, sessions }: { spaceId: string; sessions: boolean }) {
+export function TeamSection({ spaceId }: { spaceId: string }) {
   const list = useApp((s) => s.teammates[spaceId]);
+  const folded = useApp((s) => s.sidebarFoldedLists.includes(`${spaceId}/team`));
   const openSheet = useApp((s) => s.openSheet);
   const reorderTeammates = useApp((s) => s.reorderTeammates);
   const run = useApp((s) => s.run);
@@ -42,16 +43,31 @@ export function TeamSection({ spaceId, sessions }: { spaceId: string; sessions: 
   const drag = { dragging, start: setDragging, drop };
   return (
     <div className="sb-team" role="group" aria-label="Team">
-      <div className="item sb-row sb-caption-row" data-nested="" data-actions="1">
-        <span className="item-row sb-caption">Team</span>
+      <ListCaption spaceId={spaceId} list="team" label="Team" folded={folded}>
         <span className="item-actions">
           <button type="button" className="item-act" aria-label="Add a teammate" title="Add a teammate"
             onClick={() => openSheet({ kind: "teammate", spaceId })}><Icon name="add" size={12} /></button>
         </span>
-      </div>
-      {top.map((t) => <TeammateRow key={t.id} teammate={t} drag={drag} />)}
-      {groups.map(([name, members]) => <TeamGroup key={name} spaceId={spaceId} name={name} members={members} drag={drag} />)}
-      {sessions && <div className="item sb-row sb-caption-row" data-nested="" data-actions="0"><span className="item-row sb-caption">Sessions</span></div>}
+      </ListCaption>
+      {!folded && top.map((t) => <TeammateRow key={t.id} teammate={t} drag={drag} />)}
+      {!folded && groups.map(([name, members]) => <TeamGroup key={name} spaceId={spaceId} name={name} members={members} drag={drag} />)}
+    </div>
+  );
+}
+
+/** A caption over one of a space's lists, Team or Sessions, that folds the list away and remembers it. */
+export function ListCaption({ spaceId, list, label, folded, children }:
+  { spaceId: string; list: "team" | "sessions"; label: string; folded: boolean; children?: ReactNode }) {
+  const setSpaceListFolded = useApp((s) => s.setSpaceListFolded);
+  const run = useApp((s) => s.run);
+  return (
+    <div className="item sb-row sb-caption-row" data-nested="" data-actions={children ? "1" : "0"}>
+      <button type="button" className="item-row sb-caption" aria-expanded={!folded}
+        onClick={() => run(() => setSpaceListFolded(spaceId, list, !folded))}>
+        <span className="sb-caret" data-open={!folded || undefined}><Icon name="chevronRight" size={12} /></span>
+        {label}
+      </button>
+      {children}
     </div>
   );
 }
