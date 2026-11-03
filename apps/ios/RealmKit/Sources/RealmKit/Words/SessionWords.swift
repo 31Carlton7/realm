@@ -75,7 +75,11 @@ public struct RowSubagents: Sendable, Equatable {
         guard let count = row.subagents, count > 0 else { return nil }
         self.count = count
         waiting = min(max(row.subagentsWaiting ?? 0, 0), count)
-        opens = [row.id] + (waiting > 0 ? row.subagentWaiting.map { [$0] } ?? [] : [])
+        if waiting > 0, let longest = row.subagentWaiting {
+            opens = [row.id, longest]
+        } else {
+            opens = [row.id]
+        }
     }
 
     /// "2 sub-agents"; while any waits, "1 sub-agent needs you", "2 sub-agents need you".
