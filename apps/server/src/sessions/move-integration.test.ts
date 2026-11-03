@@ -412,9 +412,15 @@ describe("sessions.move", () => {
   it("refuses to stop the agent's background work unless asked to stop, and names what a stop ended", async () => {
     const { c, session, sp } = await setup("claude");
     await turn(c, session.id, "schedule-a-job");
-    const refused = await c.call("sessions.move", { id: session.id, to: { kind: "worktree" } });
-    expect(refused.error.code).toBe("MOVE_FAILED");
-    expect(refused.error.message).toContain("still running a scheduled job, which moving would stop");
+    expect((await c.call("sessions.moveOptions", { id: session.id })).result.stops).toEqual(["a scheduled job"]);
+    const before = await eventsOf(c, session.id);
+    for (const when of ["now", "after-turn"]) {
+      const refused = await c.call("sessions.move", { id: session.id, to: { kind: "worktree" }, when });
+      expect(refused.error).toMatchObject({ code: "MOVE_STOPS_WORK", message: "its agent is still running a scheduled job, which moving would stop" });
+    }
+    expect(await eventsOf(c, session.id)).toEqual(before);
+    expect(new SettingsStore(app!.db).get(`move.inFlight:${session.id}`)).toBeNull();
+    expect((await c.call("sessions.moveOptions", { id: session.id })).result.pending).toBe(false);
     expect((await c.call("environments.list", { spaceId: sp.id })).result.some((e: Any) => e.kind === "worktree")).toBe(false);
 
     expect((await c.call("sessions.move", { id: session.id, to: { kind: "worktree" }, when: "stop" })).result.status).toBe("idle");
@@ -473,7 +479,7 @@ describe("sessions.move", () => {
     await c.call("sessions.openTerminal", { id: session.id });
     const options = (await c.call("sessions.moveOptions", { id: session.id })).result;
     expect(options).toMatchObject({ busy: false, blocked: null, pending: false, conversation: "native", changedFiles: 3,
-      leftBehind: ["the terminal", ".env"], environments: [], worktree: { available: true, reason: null } });
+      leftBehind: ["the terminal", ".env"], stops: [], environments: [], worktree: { available: true, reason: null } });
     expect((await c.call("sessions.move", { id: session.id, to: { kind: "environment", environmentId: session.environmentId } })).error.code).toBe("BAD_REQUEST");
     const other = (await c.call("spaces.create", { profileId: sp.profileId, name: "T" })).result;
     const foreign = (await c.call("environments.list", { spaceId: other.id })).result[0]

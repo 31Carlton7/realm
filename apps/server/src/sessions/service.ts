@@ -1253,11 +1253,14 @@ export class SessionService {
    * open permission card, stops the turn and moves.
    */
   async move(id: string, req: { to: MoveTarget; keepSourceChanges: boolean; when: MoveWhen }): Promise<Session> {
+    // Asked before the refusals, so nothing awaits between them and the claim below.
+    const work = req.when === "stop" ? [] : await this.engineWork(id);
     const s = this.get(id);
     this.refuseMove(s, req);
     const plan = { moveId: newId(), to: req.to, keepSourceChanges: req.keepSourceChanges, stopping: req.when === "stop" };
     const midTurn = s.status === "running" || s.status === "waiting_permission";
     if (midTurn && req.when === "now") this.refuseMidTurn(s, "move it");
+    if (work.length > 0) throw new RpcError("MOVE_STOPS_WORK", `its agent is still running ${work.join(", ")}, which moving would stop`);
     if (midTurn && req.when === "after-turn") { this.pendingMoves.set(id, plan); return s; }
     // Claimed before the first await: a second request while this one stops the turn is refused
     // rather than run beside it.
@@ -1300,6 +1303,7 @@ export class SessionService {
       conversation: s.providerSessionId !== null && mode !== "none" ? "native" : "notes",
       changedFiles: hazard?.dirtyFiles ?? 0,
       leftBehind: [...(s.terminalItemId ? ["the terminal"] : []), ...secrets],
+      stops: await this.engineWork(id),
       environments: await Promise.all(this.d.environments.list(s.spaceId).filter((e) => e.id !== env.id)
         .map(async (e) => ({ environmentId: e.id, path: e.path, branch: (await placeOf(git, e)).branch, kind: e.kind }))),
       worktree: isRepo ? { available: true, reason: null } : { available: false, reason: `${env.path} is not a git repository, so it has no worktrees` },

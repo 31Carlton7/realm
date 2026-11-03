@@ -13,7 +13,7 @@ const TARGET = env("e-dst", "/dst");
 const state = (commitSha: string): CapturedState => ({ commitSha, worktreeTree: `${commitSha}-tree`, indexTree: `${commitSha}-index`, headSha: "head", headRef: "refs/heads/main" });
 const session = { id: "s1", spaceId: "sp", environmentId: SOURCE.id, agentKind: "codex", providerSessionId: null, accountId: null, title: "t", status: "idle" } as unknown as Session;
 
-function fakes(o: { busy?: (environmentId: string) => boolean; sourceChanged?: boolean } = {}) {
+function fakes(o: { busy?: (environmentId: string) => boolean; sourceChanged?: boolean; work?: string[] } = {}) {
   const calls: string[] = [];
   const settings = new Map<string, unknown>();
   const events: SessionEvent[] = [];
@@ -38,7 +38,7 @@ function fakes(o: { busy?: (environmentId: string) => boolean; sourceChanged?: b
     createWorktree: async () => env("e-new", "/new"),
     discardWorktree: async () => { calls.push("discard"); },
     stop: async () => {},
-    engineWork: async () => [],
+    engineWork: async () => o.work ?? [],
     boot: async () => ({ providerSessionId: "p", resumeOutcome: "declined" }) as never,
     emit: (_id, ev) => { events.push(ev); },
     broadcastStatus: () => {},
@@ -55,6 +55,16 @@ describe("runMove", () => {
     await expect(runMove(d, session, plan())).rejects.toThrow("another session started working in that checkout");
     expect(calls.filter((c) => c.startsWith("apply"))).toEqual([]);
     expect(events.at(-1)).toMatchObject({ type: "move_failed", payload: { step: "place" } });
+  });
+
+  it("does not stop background work the agent started after the move was asked for, unless it is stopping", async () => {
+    const { d, calls, events } = fakes({ work: ["a background command"] });
+    await expect(runMove(d, session, plan())).rejects.toThrow("its agent is still running a background command, which moving would stop");
+    expect(events.at(-1)).toMatchObject({ type: "move_failed", payload: { step: "preflight" } });
+    expect(calls).toEqual([]);
+
+    await runMove(d, session, plan({ stopping: true }));
+    expect(moved(events)?.leftBehind).toEqual(["a background command (stopped)"]);
   });
 
   it("leaves the source's changes where they are when a session started working there during the move", async () => {
