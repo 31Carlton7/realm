@@ -33,13 +33,32 @@ public struct OutboxFiles: Sendable {
     public func keep(_ bytes: Data, name: String, mime: String) throws -> OutgoingAttachment {
         let id = UUID()
         let file = "\(id.uuidString).\(Self.fileExtension(name: name, mime: mime))"
+        try makeFolder()
+        try bytes.write(to: directory.appending(path: file), options: RealmCache.writingOptions)
+        return OutgoingAttachment(id: id, name: name, mime: mime, size: bytes.count, file: file)
+    }
+
+    /// Keeps a file already on this phone by moving it in, never reading it: a film shared from Photos
+    /// can be far larger than the app should hold at once.
+    public func keep(movingFileAt url: URL, name: String, mime: String) throws -> OutgoingAttachment {
+        let id = UUID()
+        let file = "\(id.uuidString).\(Self.fileExtension(name: name, mime: mime))"
+        try makeFolder()
+        let destination = directory.appending(path: file)
+        try FileManager.default.moveItem(at: url, to: destination)
+        #if os(iOS)
+        try (destination as NSURL).setResourceValue(URLFileProtection.complete, forKey: .fileProtectionKey)
+        #endif
+        let size = try destination.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        return OutgoingAttachment(id: id, name: name, mime: mime, size: size, file: file)
+    }
+
+    private func makeFolder() throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         var folder = directory
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
         try folder.setResourceValues(values)
-        try bytes.write(to: directory.appending(path: file), options: RealmCache.writingOptions)
-        return OutgoingAttachment(id: id, name: name, mime: mime, size: bytes.count, file: file)
     }
 
     /// Where an attachment's bytes are: what Quick Look and a thumbnail read.
