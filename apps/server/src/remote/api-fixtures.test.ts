@@ -143,7 +143,8 @@ async function generate(): Promise<Record<string, unknown>> {
   ];
   const log: StoredSessionEvent[] = [
     ...evs.map((event, i) => ({ seq: i + 1, sessionId: S, event })),
-    // The tidy-up session moved to a worktree, and a second move found that checkout busy.
+    // The tidy-up session moved to a worktree, a second move found that checkout busy, and a third
+    // took it back to the checkout under a fresh conversation.
     ...[
       sessionEvent("user_message", { text: "Tidy the settings page", attachments: [] }),
       sessionEvent("moved", {
@@ -155,6 +156,12 @@ async function generate(): Promise<Record<string, unknown>> {
       sessionEvent("move_failed", {
         moveId: "01JMOVE0000000000000000002", step: "place", reason: "another session started working in that checkout",
         note: "Could not move this session: another session started working in that checkout. It is still in ~/Realm/worktrees/realm/tidy-settings, as it was.",
+      }),
+      sessionEvent("moved", {
+        moveId: "01JMOVE0000000000000000003", from: { machine: null, environmentId: WORKTREE, cwd: "/Users/me/Realm/worktrees/realm/tidy-settings", branch: "tidy-settings" },
+        to: { machine: null, environmentId: CHECKOUT, cwd: "/Users/me/realm", branch: "main" },
+        conversation: "notes", changedFiles: 0, leftBehind: [], preface: "Realm moved this session.",
+        note: "Moved from ~/Realm/worktrees/realm/tidy-settings to ~/realm. The conversation was carried as notes.",
       }),
     ].map((event, i) => ({ seq: i + 1, sessionId: OLDER[0]!, event })),
     // Cursor named its own modes when the session started, which is what offers Plan and Ask on it.

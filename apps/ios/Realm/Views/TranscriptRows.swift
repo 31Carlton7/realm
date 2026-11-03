@@ -1144,12 +1144,14 @@ private struct NoticeLine: View {
 }
 
 /// A move of the session, said in the middle as a notice is: under way with a spinner, then where it
-/// went, or why it stayed, in its tone.
+/// went, or why it stayed, in its tone. The desktop keeps a move's paths in a tooltip; here a tap shows
+/// them.
 private struct MoveLine: View {
     let text: String
     /// The paths from and to, or where a failed move stopped and why.
     let detail: String?
     let move: MoveMark
+    @State private var showsPaths = false
 
     var body: some View {
         VStack(spacing: 2) {
@@ -1166,16 +1168,14 @@ private struct MoveLine: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(Palette.orange)
                 }
-                Text(text)
+                sentence
                     .foregroundStyle(move == .failed ? Palette.ink : Palette.ink2)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if let detail {
-                Group {
-                    // The paths of a move, or the words for where one stopped.
-                    if move == .moved { Text(detail).mono(.caption) } else { Text(detail).font(.caption) }
-                }
-                .foregroundStyle(Palette.ink3)
+            if move == .moved, showsPaths, let detail {
+                Text(detail)
+                    .mono(.caption)
+                    .foregroundStyle(Palette.ink3)
                     .lineLimit(2)
                     .truncationMode(.middle)
             }
@@ -1183,8 +1183,20 @@ private struct MoveLine: View {
         .font(.footnote)
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if move == .moved, detail != nil { withAnimation(.easeOut(duration: 0.2)) { showsPaths.toggle() } }
+        }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("move-\(move.rawValue)")
+    }
+
+    /// A failed move's step goes on the end of its sentence, quieter, as the desktop sets it beside.
+    private var sentence: Text {
+        if move == .failed, let detail {
+            return Text("\(text) \(Text(detail).foregroundStyle(Palette.ink3))")
+        }
+        return Text(text)
     }
 }
 
