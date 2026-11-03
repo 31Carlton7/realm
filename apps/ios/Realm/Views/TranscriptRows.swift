@@ -37,6 +37,8 @@ struct TranscriptRowView: View {
                 ChangesCard(checkpointId: checkpointId, sessionId: sessionId, summary: text)
             } else if let files = row.madeFiles, !files.isEmpty {
                 MadeFilesRow(files: files, sessionId: sessionId, summary: text)
+            } else if let move = row.move {
+                MoveLine(text: text, detail: row.noticeDetail, move: move)
             } else {
                 NoticeLine(text: text)
             }
@@ -1138,6 +1140,51 @@ private struct NoticeLine: View {
             .foregroundStyle(Palette.ink2)
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
+    }
+}
+
+/// A move of the session, said in the middle as a notice is: under way with a spinner, then where it
+/// went, or why it stayed, in its tone.
+private struct MoveLine: View {
+    let text: String
+    /// The paths from and to, or where a failed move stopped and why.
+    let detail: String?
+    let move: MoveMark
+
+    var body: some View {
+        VStack(spacing: 2) {
+            // A spinner has no baseline of its own, and would sit below the words on theirs.
+            HStack(alignment: move == .moving ? .center : .firstTextBaseline, spacing: 6) {
+                switch move {
+                case .moving:
+                    ProgressView()
+                        .controlSize(.mini)
+                case .moved:
+                    Image(systemName: "arrow.right.circle")
+                        .foregroundStyle(Palette.ink2)
+                case .failed:
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(Palette.orange)
+                }
+                Text(text)
+                    .foregroundStyle(move == .failed ? Palette.ink : Palette.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let detail {
+                Group {
+                    // The paths of a move, or the words for where one stopped.
+                    if move == .moved { Text(detail).mono(.caption) } else { Text(detail).font(.caption) }
+                }
+                .foregroundStyle(Palette.ink3)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+            }
+        }
+        .font(.footnote)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("move-\(move.rawValue)")
     }
 }
 

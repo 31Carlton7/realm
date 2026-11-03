@@ -80,11 +80,13 @@ enum SettingWords {
     }
 }
 
-/// The chips on the composer's toolbar: the model, which opens the session's settings, and the mode,
-/// a menu of its own. They scroll sideways where the text is too large for them to fit.
+/// The chips on the composer's toolbar: the model, which opens the session's settings, the mode, a
+/// menu of its own, and where the session runs, which opens the Move sheet once its Mac can move it.
+/// They scroll sideways where the text is too large for them to fit.
 struct ComposerChips: View {
     let sessionId: String
     let openSettings: () -> Void
+    let openMove: () -> Void
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -93,7 +95,8 @@ struct ComposerChips: View {
         // Before the Mac answers, or from one too old to, the session's own row names the model.
         SettingChips(label: options?.modelLabel ?? session?.modelDisplayName ?? session?.agentDisplayName ?? "Model",
                      kind: options?.agent.kind ?? session?.agent ?? "", mark: options?.agent.mark ?? session?.agentMark,
-                     options: options, busy: model.configuring[sessionId] != nil, openSettings: openSettings) { changes, setting in
+                     options: options, busy: model.configuring[sessionId] != nil, openSettings: openSettings,
+                     place: model.moveOptions[sessionId].map { PlaceChip(label: MoveWords.chip($0), symbol: $0.from.kind == .primary ? "laptopcomputer" : "arrow.triangle.branch", open: openMove) }) { changes, setting in
             Task { await model.configure(changes, setting, in: sessionId) }
         }
     }
@@ -110,22 +113,22 @@ struct SettingChips: View {
     /// A change is on its way, and the mode chip is off until it lands.
     let busy: Bool
     let openSettings: () -> Void
+    /// Where the session runs, for a session whose Mac can move it.
+    var place: PlaceChip?
     let choose: (SessionChanges, SessionSetting) -> Void
 
     var body: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 0) {
-                Button(action: openSettings) {
-                    ChipLabel(text: label, emphasised: true) {
-                        AgentMark(kind: kind, mark: mark, colored: true, size: 15, relativeTo: .subheadline)
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Model, \(label)")
-                .accessibilityHint("Opens the model, reasoning and mode")
-                if let options, options.agent.modes.count > 1 || !options.agent.permissions.isEmpty {
-                    ModeMenu(options: options, choose: choose)
-                        .disabled(busy)
+        Group {
+            if place == nil {
+                ScrollView(.horizontal) { chips(.words) }
+            } else {
+                // A phone's row has room for the model and the mode chips and little more, so the place
+                // chip gives up its words first, then the model chip its name; only then does it scroll.
+                ViewThatFits(in: .horizontal) {
+                    chips(.words)
+                    chips(.placeGlyph)
+                    chips(.agentMark)
+                    ScrollView(.horizontal) { chips(.agentMark) }
                 }
             }
         }
@@ -135,6 +138,48 @@ struct SettingChips: View {
         // keep their size at every one, so the mode chip is not scrolled off the card at the largest.
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
+
+    /// How much of the row says itself in words.
+    private enum Fit {
+        case words, placeGlyph, agentMark
+    }
+
+    private func chips(_ fit: Fit) -> some View {
+        HStack(spacing: 0) {
+            Button(action: openSettings) {
+                ChipLabel(text: label, emphasised: true, wordless: fit == .agentMark) {
+                    AgentMark(kind: kind, mark: mark, colored: true, size: 15, relativeTo: .subheadline)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Model, \(label)")
+            .accessibilityHint("Opens the model, reasoning and mode")
+            if let options, options.agent.modes.count > 1 || !options.agent.permissions.isEmpty {
+                ModeMenu(options: options, choose: choose)
+                    .disabled(busy)
+            }
+            if let place {
+                Button(action: place.open) {
+                    ChipLabel(text: place.label, emphasised: false, wordless: fit != .words) {
+                        Image(systemName: place.symbol)
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(Palette.ink2)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Where it runs, \(place.label)")
+                .accessibilityHint("Moves this session to another checkout or a new worktree")
+            }
+        }
+    }
+}
+
+/// The chip that says where a session runs, and opens where it could be moved to.
+struct PlaceChip {
+    let label: String
+    /// A laptop on the Mac's own folder, a branch in a worktree or another checkout.
+    let symbol: String
+    let open: () -> Void
 }
 
 /// A chip's face: quiet words with a glyph and a chevron, drawn on the composer's own glass rather than
@@ -146,17 +191,21 @@ struct ChipLabel<Icon: View>: View {
     let emphasised: Bool
     /// A tone the words take instead, where the setting warns.
     var tone: Color?
+    /// Its glyph alone, where the row is short of room; the words are still its large content.
+    var wordless = false
     @ViewBuilder let icon: Icon
     @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         HStack(spacing: 6) {
             icon
-            Text(text)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(tone ?? (emphasised ? Palette.ink : Palette.ink2))
-                .lineLimit(1)
-                .fixedSize()
+            if !wordless {
+                Text(text)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(tone ?? (emphasised ? Palette.ink : Palette.ink2))
+                    .lineLimit(1)
+                    .fixedSize()
+            }
             Image(systemName: "chevron.down")
                 .font(.caption2.weight(.bold))
                 .foregroundStyle(Palette.ink3)
