@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import {
   AGENT_MODELS, PERMISSION_MODES, SELECTABLE_AGENT_KINDS, sessionEvent, steerNote, type DelegatedChild, type FileDiff, type Item, type MethodName, type PlanLimits,
-  type QueuedPrompt, type Run, type Schedule, type Session, type StoredSessionEvent,
+  type QueuedPrompt, type Run, type Schedule, type Session, type StoredSessionEvent, type Teammate,
   type TurnChanges, type UsageSessionRow,
 } from "@realm/contracts";
 import { HomeSchema, MobileCalls, RECENT_LIMIT, SCREEN_SIDE, SEND_LIMITS } from "@realm/remote";
@@ -1053,6 +1053,46 @@ describe("session.subagents", () => {
 
   it("refuses a session the Mac does not have", async () => {
     expect(await attempt(api(), rpc, "session.subagents", { id: "nobody" })).toMatchObject({ ok: false });
+  });
+});
+
+describe("teammates.list and teammate.chat", () => {
+  const teammate = (id: string, spaceId: string, extra: Partial<Teammate> = {}): Teammate => ({
+    id, spaceId, handle: id, name: `${id} (name)`, brief: `What ${id} does`, icon: { shape: "circle", color: "blue" }, agentKind: "claude", model: null, effort: null,
+    permissionMode: "default", folder: "/tmp", lead: false, group: null, sortOrder: 0, archived: false, homeSessionId: null, schedule: null, createdAt: 0, updatedAt: 0,
+    state: "idle", stateSince: null, unread: false, liveTask: null, taskSessions: [], ...extra,
+  } as Teammate);
+  const none = { sessions: [], items: [] };
+  const team: Record<string, Teammate[]> = {
+    s1: [teammate("cto", "s1", { lead: true, homeSessionId: "cto-chat" }), teammate("designer", "s1")],
+    s2: [teammate("tutor", "s2", { brief: "Explains CSCI 270" })],
+  };
+
+  it("names every space's teammates, space by space in each Team list's order, and only what a phone shows", async () => {
+    const { rpc, asked } = recorded(none, { "teammates.list": ((p: { spaceId: string }) => team[p.spaceId] ?? []) as never });
+    const got = await attempt(api(), rpc, "teammates.list", {});
+    if (!got.ok) throw new Error(got.message);
+    const { teammates } = MobileCalls["teammates.list"].result.parse(got.result);
+    expect(teammates).toEqual([
+      { id: "cto", spaceId: "s1", name: "cto (name)", handle: "cto", brief: "What cto does", lead: true, chatId: "cto-chat" },
+      { id: "designer", spaceId: "s1", name: "designer (name)", handle: "designer", brief: "What designer does", lead: false, chatId: null },
+      { id: "tutor", spaceId: "s2", name: "tutor (name)", handle: "tutor", brief: "Explains CSCI 270", lead: false, chatId: null },
+    ]);
+    // THE MUTANT: archived teammates asked for too, and one the person put away is offered a share.
+    expect(asked).toEqual([["teammates.list", { spaceId: "s1", archived: false }], ["teammates.list", { spaceId: "s2", archived: false }]]);
+  });
+
+  it("answers a teammate's chat with its home session, which the Mac makes when it has none", async () => {
+    const { rpc, asked } = recorded(none, { "teammates.home": ((p: { id: string }) => ({ sessionId: `${p.id}-chat` })) as never });
+    expect(await attempt(api(), rpc, "teammate.chat", { id: "designer" })).toEqual({ ok: true, result: { id: "designer-chat" } });
+    expect(asked).toEqual([["teammates.home", { id: "designer" }]]);
+  });
+
+  it("refuses the chat of a teammate that is archived or gone", async () => {
+    const archived = recorded(none, { "teammates.home": (() => { throw new RpcCallError("TEAMMATE_ARCHIVED", "designer (name) is archived"); }) as never });
+    expect(await attempt(api(), archived.rpc, "teammate.chat", { id: "designer" })).toEqual({ ok: false, code: "FORBIDDEN", message: "designer (name) is archived" });
+    const gone = recorded(none, { "teammates.home": (() => { throw new RpcCallError("NOT_FOUND", "teammate nobody not found"); }) as never });
+    expect(await attempt(api(), gone.rpc, "teammate.chat", { id: "nobody" })).toMatchObject({ ok: false, code: "NOT_FOUND" });
   });
 });
 

@@ -224,6 +224,8 @@ export class MobileApi {
         }
         case "session.editQueued": return await this.editQueued(rpc, p as MobileParams<"session.editQueued">);
         case "session.subagents": return await this.subagents(ctx, p.id as string);
+        case "teammates.list": return await this.teammates(rpc);
+        case "teammate.chat": return { id: (await rpc.call("teammates.home", { id: p.id as string })).sessionId };
         case "usage.get": return await this.usage(rpc);
         // Review went with the first Teams: the phone's Review screen is told there is nothing in it,
         // and a review it still holds is gone, rather than either being an error it cannot read.
@@ -283,7 +285,7 @@ export class MobileApi {
         // or a task whose last run is still going, refuses what was asked, and the Mac's words say why.
         const code: MobileErrorCode = e.code === "NOT_FOUND" || e.code === "SESSION_NOT_LIVE" || e.code === "INVALID_PARAMS" ? e.code
           : e.code === "TREE_GONE" || e.code === "NOT_A_REPOSITORY" ? "NOT_FOUND"
-          : e.code === "TEAM_REVIEW_STATE" || e.code === "SCHEDULE_BUSY" ? "FORBIDDEN"
+          : e.code === "TEAM_REVIEW_STATE" || e.code === "SCHEDULE_BUSY" || e.code === "TEAMMATE_ARCHIVED" ? "FORBIDDEN"
           : e.code === "TEAM_REVIEW_INVALID" ? "INVALID_PARAMS" : "INTERNAL";
         throw new MobileError(code, e.message);
       }
@@ -564,6 +566,15 @@ export class MobileApi {
     const inFlight = new Set(running.map((r) => r.sessionId));
     const subagents = children.map((c) => subagentOf(c, row(c.session), inFlight.has(c.session.id)));
     return { subagents: subagents.sort((a, b) => b.startedAt - a.startedAt || (a.session.id < b.session.id ? 1 : a.session.id > b.session.id ? -1 : 0)) };
+  }
+
+  /** Every space's teammates, space by space in the sidebar's order, each space's in its Team list's. */
+  private async teammates(rpc: RpcPort): Promise<MobileResult<"teammates.list">> {
+    const spaces = await rpc.call("spaces.list", {});
+    const each = await Promise.all(spaces.map((sp) => rpc.call("teammates.list", { spaceId: sp.id, archived: false })));
+    return {
+      teammates: each.flat().map((t) => ({ id: t.id, spaceId: t.spaceId, name: t.name, handle: t.handle, brief: t.brief, lead: t.lead, chatId: t.homeSessionId })),
+    };
   }
 
   /** Every agent's plan as Settings ▸ Usage draws it, and this calendar month's spend on the Mac's clock,
