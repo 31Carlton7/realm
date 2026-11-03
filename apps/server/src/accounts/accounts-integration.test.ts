@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type StartOptions } from "@realm/adapters";
@@ -8,6 +8,7 @@ import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
 import { AccountsStore } from "../store/accounts";
 import { accountsRoot } from "./service";
+import { claudeProjectName } from "../memory/claude-backfill";
 
 /**
  * A session on an account, through the real RPC surface: the engine starts under the account's
@@ -103,6 +104,26 @@ describe("accounts over rpc", () => {
     await waitFor(() => claude.starts.length === 2);
     expect(claude.starts[1]!.resume).toBe(thread);
     expect(claude.starts[1]!.env?.CLAUDE_CONFIG_DIR).toBe(work.configDir);
+    c.close();
+  });
+
+  it("carries the copy of the record the session's own checkout resumes, not a newer one elsewhere", async () => {
+    const own = tempDir("realm-dot-claude-");
+    const { c, session, work } = await setup({ defaultClaude: own });
+    await c.call("sessions.send", { id: session.id, text: "go" });
+    await idle(c, session.id);
+    const row = (await c.call("sessions.get", { id: session.id })).result;
+    const copy = (project: string, body: string, at: number) => {
+      mkdirSync(join(own, "projects", project), { recursive: true });
+      writeFileSync(join(own, "projects", project, `${row.providerSessionId}.jsonl`), body);
+      utimesSync(join(own, "projects", project, `${row.providerSessionId}.jsonl`), at, at);
+    };
+    const project = claudeProjectName(realpathSync(row.cwd));
+    copy(project, "this checkout's\n", 1_000);
+    copy("-elsewhere", "another checkout's\n", 2_000);
+
+    await c.call("sessions.setAccount", { id: session.id, accountId: "work" });
+    expect(readFileSync(join(work.configDir!, "projects", project, `${row.providerSessionId}.jsonl`), "utf8")).toBe("this checkout's\n");
     c.close();
   });
 
