@@ -33,20 +33,25 @@ struct MoveSheet: View {
             .scrollContentBackground(.hidden)
             .navigationTitle("Move this session")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(Ground.grouped, for: .navigationBar)
+            .toolbarBackgroundVisibility(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Close", systemImage: "xmark") { dismiss() }
                 }
             }
-            .safeAreaBar(edge: .bottom) {
+            // On a ground of their own, so the list ends above the buttons rather than running under them.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
                 if let options, options.blocked == nil {
                     buttons(options, working: status == .running || status == .waiting || (status == nil && options.busy))
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
+                        .background(Ground.grouped)
                 }
             }
         }
         .presentationDetents([.medium, .large])
+        .presentationBackground(Ground.grouped)
         .task { await model.loadMoveOptions(sessionId) }
         .onAppear {
             model.moveSheets.insert(sessionId)
