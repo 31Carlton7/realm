@@ -259,6 +259,76 @@ describe("a session link in prose", () => {
   });
 });
 
+/** The Lead's chat, with its transcript set to `t`. */
+async function mountLeadChat(t: ReturnType<typeof reduceAll>) {
+  const api = fakeApi(team());
+  const store = createAppStore(api); await store.getState().boot();
+  await act(() => store.getState().refreshTeammates());
+  const openTeammate = vi.fn(async () => {});
+  store.setState({ openTeammate, sessionStatus: { "home-lead": "running" }, transcripts: { "home-lead": { lastSeq: 9, t } } });
+  const leadItem = item("i-home-lead", "s1", { kind: "session", refId: "home-lead", title: "Lead" });
+  const r = render(<StoreContext.Provider value={store}><SessionPane item={leadItem} visible /></StoreContext.Provider>);
+  return { store, openTeammate, ...r };
+}
+
+const call = (id: string, to: string, message: string, ts: number) =>
+  sessionEvent("tool_call", { toolUseId: id, name: "mcp__realm__realm-team__team_message", input: { to, message }, parentToolUseId: null }, ts);
+const sent = (id: string, to: string, ts: number) =>
+  sessionEvent("tool_result", { toolUseId: id, content: `Sent to @${to}. You are not waiting for it — carry on.`, isError: false }, ts);
+const callRow = (id: string) => document.querySelector(`.teammate-call[data-tool-use-id="${id}"]`)!;
+
+describe("a message to a teammate in the sender's transcript", () => {
+  const T0 = 1_700_000_000_000;
+  const events = [
+    sessionEvent("user_message", { text: "Get the search shipped.", attachments: [] }, T0),
+    call("c1", "@cto", "From @lead: Index the docs folder.", T0 + 1), sent("c1", "cto", T0 + 2),
+    call("r1", "research", "Which engines are in use?", T0 + 3), sent("r1", "research", T0 + 4),
+    call("c2", "cto", "And the notes folder too.", T0 + 5), sent("c2", "cto", T0 + 6),
+  ];
+
+  it("draws the teammate it went to, what it was asked and what it is doing now", async () => {
+    await mountLeadChat(reduceAll(events));
+    const cto = callRow("c2");
+    expect(cto.querySelector(".tool-name")).toHaveTextContent("cto");
+    expect(cto.querySelector(".teammate-call-handle")).toHaveTextContent("@cto");
+    expect(cto.querySelector("svg[data-shape]")).toHaveAttribute("data-shape", "hexagon");
+    expect(cto.querySelector(".delegation-line-task")).toHaveTextContent("And the notes folder too.");
+    // THE MUTANTS: a generic tool card; a state that is not the teammate's own (cto works, research needs you).
+    expect(document.querySelector(".tool-card:not(.teammate-call)")).toBeNull();
+    expect(cto).toHaveAttribute("data-state", "working");
+    expect(cto.querySelector(".delegation-line-time")).toHaveTextContent("Working");
+    expect(callRow("r1")).toHaveAttribute("data-state", "needs-you");
+    expect(callRow("r1").querySelector(".delegation-line-time")).toHaveTextContent("Needs you");
+    // THE MUTANT: an older message to cto claiming the work cto is doing on the newer one.
+    expect(callRow("c1")).toHaveAttribute("data-state", "done");
+    // THE MUTANT: the sender's own "From @lead:" left in front of what it asked.
+    expect(callRow("c1").querySelector(".delegation-line-task")).toHaveTextContent(/^Index the docs folder\.$/);
+  });
+
+  it("says Done once the teammate's turn has ended", async () => {
+    const { store } = await mountLeadChat(reduceAll(events));
+    act(() => store.setState({ teammates: { s1: store.getState().teammates.s1!.map((t) => (t.id === "cto" ? { ...t, state: "idle" as const } : t)) } }));
+    expect(callRow("c2")).toHaveAttribute("data-state", "done");
+    expect(callRow("c2").querySelector(".delegation-line-time")).toHaveTextContent("Done");
+  });
+
+  it("opens the teammate's chat on a click", async () => {
+    const { openTeammate } = await mountLeadChat(reduceAll(events));
+    fireEvent.click(within(callRow("r1") as HTMLElement).getByRole("button", { name: /^research, Needs you/ }));
+    await waitFor(() => expect(openTeammate).toHaveBeenCalledWith("research"));
+  });
+
+  it("draws a reply that repeats its own \"From @x:\" as that teammate, without either", async () => {
+    await mountLeadChat(reduceAll([
+      sessionEvent("user_message", { text: "From @cto: From @cto: got both.", attachments: [], from: { sessionId: "home-cto", title: "@cto", teammateId: "cto" } }, T0),
+    ]));
+    const row = document.querySelector(".msg-teammate-row")!;
+    expect(row.querySelector(".msg-teammate-head")).toHaveTextContent("cto");
+    expect(row.querySelector(".msg-teammate-head svg[data-shape]")).toHaveAttribute("data-shape", "hexagon");
+    expect(row.querySelector(".msg-assistant")!.textContent!.trim()).toBe("got both.");
+  });
+});
+
 describe("@ in a prompter", () => {
   it("names a teammate by its handle, matches its name too, and passes the message to it", () => {
     const cto = teammate("cto-id", "s1", { handle: "cto", name: "Chief technologist", brief: "Owns the stack." });
