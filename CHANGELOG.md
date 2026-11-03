@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.7.1 — 2026-11-03
+
+- When a session messages a teammate, the teammate shows in the transcript with its icon, what it was asked, and whether it is working or done.
+- Team and Sessions in the sidebar fold away and stay folded.
+- The account switcher is cleaner: one row per account, and its own panel for signing in.
+- Each teammate shows the model it really runs.
+- Realm Mobile shows sub-agents under their lead session.
+- CI is faster.
+
 ## v2.7.0 — 2026-11-02
 
 ### Teammates you message
