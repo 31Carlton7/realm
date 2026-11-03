@@ -62,7 +62,6 @@ describe("the workspace selector on a started session", () => {
     expect(store.getState().sheet).toEqual({ kind: "move-session", sessionId: "se1", to: { kind: "environment", environmentId: "envB" } });
     expect(api.calls.some((c) => c.startsWith("setSessionEnvironment"))).toBe(false);
     const dialog = await sheet();
-    // Both ends, named.
     await within(dialog).findByText("~/realm");
     expect(within(dialog).getByText("~/Realm/worktrees/fix-tests")).toBeInTheDocument();
     expect(within(dialog).getByText("realm/fix-tests")).toBeInTheDocument();

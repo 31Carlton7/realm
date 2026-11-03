@@ -124,7 +124,6 @@ function sectionFor(b: Block): string | null {
     // And the sharpest version of the same warning: the agent that answered below this line had none
     // of the conversation above it. A reader of this file would otherwise read one continuous thread.
     case "context_reset": return `> **Context reset:** ${b.note}`;
-    // Where the paths change: everything above ran in the old checkout.
     case "moved": return `> **Moved:** ${movedSentence(b)}`;
     case "move_failed": return `> **Move failed:** ${b.note}`;
     // One reader's place in a shared log. It is not part of what the session produced, and an

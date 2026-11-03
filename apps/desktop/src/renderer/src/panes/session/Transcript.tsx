@@ -844,7 +844,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
               <span>{b.note}</span>
             </div>;
             // A move is a seam too: the paths above it are under the old checkout's root. Each end is
-            // named as the Move sheet names it, and the paths are the tooltip's.
+            // named as the Move sheet names it. The line can be cut, so its tooltip holds all of it.
             case "moved": return <div key={key} className="msg-handoff" data-move role="note" data-enter={enter || undefined}>
               <span title={`${movedSentence(b)}\n${b.from.cwd} → ${b.to.cwd}`}>{movedSentence(b)}</span>
             </div>;
