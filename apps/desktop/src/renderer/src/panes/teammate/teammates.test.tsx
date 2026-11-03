@@ -88,7 +88,33 @@ describe("the sidebar's Team list", () => {
     await mountSidebar();
     // THE MUTANTS: the Lead in its sort order; a teammate's chat or task also loose among the sessions.
     await waitFor(() => expect(titles()).toEqual(["Lead", "cto", "Strat", "research", "Alpha"]));
-    expect(screen.getByRole("group", { name: "Team" })).toHaveTextContent("Sessions");
+    expect(screen.getByRole("button", { name: "Sessions", expanded: true })).toBeInTheDocument();
+  });
+
+  it("folds the Team and the Sessions lists from their captions, and remembers each", async () => {
+    const { store, api } = await mountSidebar();
+    // THE MUTANTS: a caption that folds both lists, or one that hides its rows without saying so.
+    fireEvent.click(await screen.findByRole("button", { name: "Team", expanded: true }));
+    await waitFor(() => expect(titles()).toEqual(["Alpha"]));
+    expect(screen.getByRole("button", { name: "Team", expanded: false })).toBeInTheDocument();
+    expect(api.calls).toContain("setSetting:ui.sidebarFoldedLists=s1/team");
+    fireEvent.click(screen.getByRole("button", { name: "Sessions", expanded: true }));
+    await waitFor(() => expect(titles()).toEqual([]));
+    expect(store.getState().sidebarFoldedLists).toEqual(["s1/team", "s1/sessions"]);
+    fireEvent.click(screen.getByRole("button", { name: "Team", expanded: false }));
+    await waitFor(() => expect(titles()).toEqual(["Lead", "cto", "Strat", "research"]));
+  });
+
+  it("comes back with the lists folded as they were left", async () => {
+    await mountSidebar({ settings: { "ui.sidebarFoldedLists": ["s1/sessions"] } });
+    await waitFor(() => expect(titles()).toEqual(["Lead", "cto", "Strat", "research"]));
+    expect(screen.getByRole("button", { name: "Sessions", expanded: false })).toBeInTheDocument();
+  });
+
+  it("keeps a teamless space's sessions showing whatever a fold left behind, since it has no caption to open them", async () => {
+    await mountSidebar({ teammates: [], settings: { "ui.sidebarFoldedLists": ["s1/sessions"] } });
+    await waitFor(() => expect(titles()).toContain("Alpha"));
+    expect(screen.queryByRole("button", { name: "Sessions" })).toBeNull();
   });
 
   it("says each teammate's state in words, not only in the dot's colour", async () => {

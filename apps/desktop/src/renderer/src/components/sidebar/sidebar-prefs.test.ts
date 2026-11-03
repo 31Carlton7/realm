@@ -41,6 +41,16 @@ describe("the sidebar's remembered choices", () => {
     expect(store.getState().sidebarCollapsedSpaces).toEqual([]);
   });
 
+  it("remembers a folded Team or Sessions list per space, and reads junk as all open", async () => {
+    const { api, store } = await booted({ "ui.sidebarFoldedLists": ["s1/team", 4, "gone/sessions"] });
+    await store.getState().hydrateSidebarPrefs();
+    expect(store.getState().sidebarFoldedLists).toEqual(["s1/team", "gone/sessions"]);
+    await store.getState().setSpaceListFolded("s2", "sessions", true);
+    expect(api.data.settings["ui.sidebarFoldedLists"]).toEqual(["s1/team", "s2/sessions"]);
+    await store.getState().setSpaceListFolded("s1", "team", false);
+    expect(store.getState().sidebarFoldedLists).toEqual(["s2/sessions"]);
+  });
+
   it("drops a deleted space's id on the way past", async () => {
     const { store } = await booted({ "ui.sidebarCollapsedSpaces": ["gone"] });
     await store.getState().hydrateSidebarPrefs();

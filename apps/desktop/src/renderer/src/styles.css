@@ -10854,6 +10854,13 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .sb-team { display: flex; flex-direction: column; }
 .sb-caption-row { min-height: 26px; }
 .sb-caption-row > .item-row { padding-top: 6px; padding-bottom: 2px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+/* A caption folds its list. Its caret stands in the nested indent, on the column a teammate's caret
+   uses, so the word stays where it is as the caret turns. */
+.sb-caption-row .sb-caret { position: absolute; left: 11px; top: 6px; height: 16px; }
+.sb-caption-row > .item-row:hover .sb-caret { color: var(--rl-text-bright); }
+/* The Team caption is the first row under the section's clip, which would take the top off a ring
+   drawn outside it. */
+.sb-caption-row > .item-row:focus-visible { outline-offset: -2px; }
 /* A teammate's disclosure stands just left of its icon, in the nested row's own indent — the column
    the space's caret uses one level up — and only on a row that has sessions to show. */
 .sb-teammate > .sb-team-caret { position: absolute; z-index: 1; left: 9px; top: 50%; translate: 0 -50%; width: 16px; height: 22px;
