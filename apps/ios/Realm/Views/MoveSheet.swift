@@ -10,6 +10,7 @@ struct MoveSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var target: MoveTarget?
+    @State private var detent: PresentationDetent = .medium
 
     /// How long the sheet waits on the Mac's answer before leaving the move to the transcript: a
     /// refusal comes back at once, and a move takes as long as starting the agent in its new place.
@@ -20,6 +21,7 @@ struct MoveSheet: View {
         let transcript = model.store.transcript(sessionId)
         let status = transcript.status ?? transcript.session?.status
         let agent = transcript.session?.agentDisplayName ?? "The agent"
+        let working = status == .running || status == .waiting || (status == nil && options?.busy == true)
         NavigationStack {
             Form {
                 if let options {
@@ -43,14 +45,14 @@ struct MoveSheet: View {
             // On a ground of their own, so the list ends above the buttons rather than running under them.
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if let options, options.blocked == nil {
-                    buttons(options, working: status == .running || status == .waiting || (status == nil && options.busy))
+                    buttons(options, working: working)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
                         .background(Ground.grouped)
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.medium, .large], selection: $detent)
         .presentationBackground(Ground.grouped)
         .task { await model.loadMoveOptions(sessionId) }
         .onAppear {
@@ -60,6 +62,10 @@ struct MoveSheet: View {
         .onDisappear { model.moveSheets.remove(sessionId) }
         .onChange(of: options?.checkouts, initial: true) {
             if target == nil, let options { target = Self.firstTarget(options) }
+        }
+        // Two buttons leave the medium detent room for little more than where it runs.
+        .onChange(of: working, initial: true) {
+            if working { detent = .large }
         }
     }
 
