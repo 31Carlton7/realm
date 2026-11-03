@@ -88,7 +88,7 @@ export function MoveSheet({ sessionId, to }: { sessionId: string; to: MoveTarget
   const waitingOnYou = status === "waiting_permission" || asking;
   const unavailable = to.kind === "worktree" && options && !options.worktree.available ? options.worktree.reason ?? "A worktree can't be made here." : null;
   const blocked = options?.blocked ?? unavailable;
-  const ready = options !== null && !blocked && !options.pending && !starting;
+  const ready = options !== null && !blocked && !options.pending && !starting && status !== "moving";
   const move = (when: MoveWhen) => {
     if (!options) return;
     setStarting(true);

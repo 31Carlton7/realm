@@ -156,6 +156,8 @@ describe("the Move sheet", () => {
     await waitFor(() => expect(within(dialog).getByRole("alert")).toHaveTextContent("Realm couldn't start the move. Try again in a moment."));
     expect(dialog).not.toHaveTextContent("TypeError");
     expect(store.getState().toasts).toEqual([]);
+    act(() => store.setState({ sessionStatus: { se1: "moving" } }));
+    expect(within(dialog).getByRole("button", { name: "Move" })).toBeDisabled();
   });
 
   it("closes once the session is moving, and leaves a later failure to the transcript", async () => {
