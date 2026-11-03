@@ -4062,7 +4062,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .msg-handoff-tries { color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
 /* A move's rows read from the left like the run lines, and wrap rather than cut: the end of the
    moved line is where the session went, and a failed one's reason is the point of it. */
-.msg-handoff[data-move] { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
+.msg-handoff[data-move] { flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
 .msg-handoff[data-move]::before, .msg-handoff[data-move]::after { display: none; }
 .msg-handoff[data-move] > span { max-width: 100%; text-wrap: pretty; }
 .move-failed-head { font-weight: var(--fw-label); }
