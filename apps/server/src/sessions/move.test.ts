@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Environment, Session, SessionEvent } from "@realm/contracts";
-import { moveInFlightKey, runMove, type MoveDeps, type MovePlan } from "./move";
+import { moveInFlightKey, runMove, undoInterruptedMove, type MoveDeps, type MoveInFlight, type MovePlan } from "./move";
 import type { CapturedState } from "../workspace/checkpoints";
 
 /**
@@ -13,7 +13,8 @@ const TARGET = env("e-dst", "/dst");
 const state = (commitSha: string): CapturedState => ({ commitSha, worktreeTree: `${commitSha}-tree`, indexTree: `${commitSha}-index`, headSha: "head", headRef: "refs/heads/main" });
 const session = { id: "s1", spaceId: "sp", environmentId: SOURCE.id, agentKind: "codex", providerSessionId: null, accountId: null, title: "t", status: "idle" } as unknown as Session;
 
-function fakes(o: { busy?: (environmentId: string) => boolean; sourceChanged?: boolean; work?: string[] } = {}) {
+/** `changed`: the checkouts that changed since the move last looked; `busy`: asked with the calls so far. */
+function fakes(o: { busy?: (environmentId: string, calls: string[]) => boolean; changed?: string[]; work?: string[]; bootFails?: boolean } = {}) {
   const calls: string[] = [];
   const settings = new Map<string, unknown>();
   const events: SessionEvent[] = [];
@@ -26,20 +27,31 @@ function fakes(o: { busy?: (environmentId: string) => boolean; sourceChanged?: b
       isRepository: async () => true,
       changedFiles: async () => 2,
       secretLookingIgnored: async () => [],
-      applyChanges: async (i: { cwd: string }) => { calls.push(`apply ${i.cwd}`); },
+      mergedTree: async () => "merged-tree",
+      applyChanges: async (i: { cwd: string }) => {
+        // The undo is on disk before there is anything to undo.
+        const kept = settings.get(moveInFlightKey(session.id)) as MoveInFlight | undefined;
+        calls.push(`apply ${i.cwd}${kept?.merged?.path === i.cwd ? "" : " (nothing kept)"}`);
+      },
       extract: async (i: { cwd: string }) => { calls.push(`extract ${i.cwd}`); },
       restore: async (i: { cwd: string }) => { calls.push(`restore ${i.cwd}`); },
-      hazard: async () => ({ filesChanged: o.sourceChanged ? 1 : 0, commitsRolledBack: 0, headMovable: true, headReason: null }),
+      hazard: async (i: { cwd: string; state: CapturedState }) => {
+        calls.push(`hazard ${i.cwd} ${i.state.worktreeTree}`);
+        return { filesChanged: o.changed?.includes(i.cwd) ? 1 : 0, commitsRolledBack: 0, headMovable: true, headReason: null };
+      },
       resetToHead: async (cwd: string) => { calls.push(`reset ${cwd}`); },
     } as never,
     environment: (id) => [SOURCE, TARGET].find((e) => e.id === id) ?? null,
-    othersWorkingIn: (environmentId) => o.busy?.(environmentId) ?? false,
+    othersWorkingIn: (environmentId) => o.busy?.(environmentId, calls) ?? false,
     capture: async (c) => ({ state: state(c.environmentId) }),
     createWorktree: async () => env("e-new", "/new"),
     discardWorktree: async () => { calls.push("discard"); },
     stop: async () => {},
     engineWork: async () => o.work ?? [],
-    boot: async () => ({ providerSessionId: "p", resumeOutcome: "declined" }) as never,
+    boot: async () => {
+      if (o.bootFails) throw new Error("the boot timed out");
+      return { providerSessionId: "p", resumeOutcome: "declined" } as never;
+    },
     emit: (_id, ev) => { events.push(ev); },
     broadcastStatus: () => {},
     closeTerminal: () => false,
@@ -48,6 +60,9 @@ function fakes(o: { busy?: (environmentId: string) => boolean; sourceChanged?: b
 }
 const plan = (o: Partial<MovePlan> = {}): MovePlan => ({ moveId: "m1", to: { kind: "environment", environmentId: TARGET.id }, keepSourceChanges: true, stopping: false, signal: new AbortController().signal, ...o });
 const moved = (events: SessionEvent[]) => events.find((e) => e.type === "moved")?.payload as { leftBehind: string[] } | undefined;
+const failed = (events: SessionEvent[]) => events.find((e) => e.type === "move_failed")?.payload as { note: string } | undefined;
+/** A session whose engine boots at the target, so the move waits there after the merge. */
+const booting = { ...session, providerSessionId: "p" } as Session;
 
 describe("runMove", () => {
   it("does not merge into a checkout a session started working in after the move was asked for", async () => {
@@ -75,7 +90,7 @@ describe("runMove", () => {
   });
 
   it("leaves the source's changes where they are when they changed after the checkpoint", async () => {
-    const { d, calls, events } = fakes({ sourceChanged: true });
+    const { d, calls, events } = fakes({ changed: ["/src"] });
     await runMove(d, session, plan({ keepSourceChanges: false }));
     expect(calls).not.toContain("reset /src");
     expect(moved(events)?.leftBehind).toEqual(["its uncommitted changes (they changed during the move)"]);
@@ -84,8 +99,52 @@ describe("runMove", () => {
   it("resets the source once the changes are across and nothing has touched it", async () => {
     const { d, calls, events, settings } = fakes();
     await runMove(d, session, plan({ keepSourceChanges: false }));
-    expect(calls).toEqual(["apply /dst", "reset /src"]);
+    expect(calls).toEqual(["apply /dst", "hazard /src e-src-tree", "reset /src"]);
     expect(moved(events)?.leftBehind).toEqual([]);
     expect(settings.get(moveInFlightKey(session.id))).toBeNull();
+  });
+
+  it("keeps what takes a merge back on disk before it merges, so a server that stops in between can", async () => {
+    const { d, calls } = fakes();
+    await runMove(d, session, plan());
+    expect(calls).toEqual(["apply /dst"]);
+  });
+
+  it("takes back what it merged into a checkout when a later step fails and nothing has touched it since", async () => {
+    const { d, calls, events } = fakes({ bootFails: true });
+    await expect(runMove(d, booting, plan())).rejects.toThrow("the boot timed out");
+    expect(calls).toEqual(["apply /dst", "hazard /dst merged-tree", "restore /dst"]);
+    expect(failed(events)?.note).toBe("Could not move this session: the boot timed out. It is still in /src, as it was.");
+  });
+
+  it("leaves what it merged into a checkout that changed while the target booted, and says so", async () => {
+    const { d, calls, events } = fakes({ bootFails: true, changed: ["/dst"] });
+    await expect(runMove(d, booting, plan())).rejects.toThrow("the boot timed out");
+    expect(calls).not.toContain("restore /dst");
+    expect(failed(events)?.note).toBe("Could not move this session: the boot timed out. It is still in /src, as it was. " +
+      "The changes it merged into /dst are still there, since that checkout changed after they went in.");
+  });
+
+  it("leaves what it merged into a checkout another session started working in while the target booted", async () => {
+    const { d, calls, events } = fakes({ bootFails: true, busy: (id, done) => id === TARGET.id && done.includes("apply /dst") });
+    await expect(runMove(d, booting, plan())).rejects.toThrow("the boot timed out");
+    expect(calls).not.toContain("restore /dst");
+    expect(failed(events)?.note).toContain("The changes it merged into /dst are still there, since another session is working there.");
+  });
+});
+
+describe("undoInterruptedMove", () => {
+  const kept: MoveInFlight = { moveId: "m1", sourcePath: "/src", merged: { path: "/dst", environmentId: TARGET.id, state: state("before"), after: { ...state("before"), worktreeTree: "merged-tree" } } };
+
+  it("takes the merge back out of a checkout that is as the move left it", async () => {
+    const { d, calls } = fakes();
+    expect(await undoInterruptedMove(d, session.id, kept)).toEqual([]);
+    expect(calls).toEqual(["hazard /dst merged-tree", "restore /dst"]);
+  });
+
+  it("leaves a checkout someone worked in after the server stopped, and says so", async () => {
+    const { d, calls } = fakes({ changed: ["/dst"] });
+    expect(await undoInterruptedMove(d, session.id, kept)).toEqual(["The changes it merged into /dst are still there, since that checkout changed after they went in."]);
+    expect(calls).not.toContain("restore /dst");
   });
 });

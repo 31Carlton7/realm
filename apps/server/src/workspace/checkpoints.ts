@@ -428,9 +428,16 @@ export class CheckpointGit {
    */
   async applyChanges(input: { cwd: string; state: CapturedState; into: CapturedState | null }): Promise<void> {
     const root = await this.root(input.cwd);
+    const tree = await this.mergedTree(input);
+    const indexTree = input.into?.indexTree ?? (await this.git(root, ["rev-parse", "HEAD^{tree}"])).stdout.trim();
+    await this.applyTrees(root, { ...input.state, worktreeTree: tree, indexTree }, "MOVE_FAILED");
+  }
+
+  /** The working tree `applyChanges` would leave, written to the object store and nowhere else.
+   *  Throws on a conflict as it does. */
+  async mergedTree(input: { cwd: string; state: CapturedState; into: CapturedState | null }): Promise<string> {
+    const root = await this.root(input.cwd);
     if (!input.state.headSha) throw new RpcError("MOVE_FAILED", "the checkout has no commits to carry its changes from");
-    const head = await this.git(root, ["rev-parse", "HEAD^{tree}"]);
-    const indexTree = input.into?.indexTree ?? head.stdout.trim();
     const merged = await this.git(root, ["merge-tree", "--write-tree", "--name-only", `--merge-base=${input.state.headSha}`, input.into?.commitSha ?? "HEAD", input.state.commitSha]);
     const [tree, ...rest] = merged.stdout.split("\n");
     if (merged.code === 1) {
@@ -438,7 +445,7 @@ export class CheckpointGit {
       throw new RpcError("MOVE_FAILED", `the changes conflict with the work already there, in ${files.join(", ") || "some files"}`);
     }
     if (merged.code !== 0 || !tree?.trim()) throw new RpcError("MOVE_FAILED", gitReason(merged));
-    await this.applyTrees(root, { ...input.state, worktreeTree: tree.trim(), indexTree }, "MOVE_FAILED");
+    return tree.trim();
   }
 
   /** Put the checkout back to its HEAD: tracked files reset, untracked ones removed, ignored ones

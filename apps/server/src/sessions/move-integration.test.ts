@@ -533,7 +533,9 @@ describe("sessions.move", () => {
     expect(failed?.payload).toMatchObject({ moveId: "m1", step: "commit" });
   });
 
-  it("takes back what a move had merged, made and copied when the server stopped in the middle of it", async () => {
+  /** A move the server stopped while the target booted: the changes merged into another checkout,
+   *  a worktree and a record copy made beside them, and the facts that take them back kept. */
+  async function stoppedMidMove() {
     const { c, sp, home, repo, session, agent } = await setup("codex", "declined");
     const target = (await c.call("environments.createWorktree", { spaceId: sp.id, title: "kept" })).result;
     agent.onResume = "slow";
@@ -547,23 +549,45 @@ describe("sessions.move", () => {
     agent.release();
     await moving;
 
-    // The server stopped there instead: the merge still in the target, a worktree and a record copy
-    // the move had made beside it, and the facts kept.
+    // The server stopped there instead: the merge put back into the target as the move left it.
     writeFileSync(join(target.path, "a.txt"), "two\n");
+    writeFileSync(join(target.path, "b.txt"), "bees\n");
     writeFileSync(join(target.path, "new.txt"), "fresh\n");
     const made = (await c.call("environments.createWorktree", { spaceId: sp.id, title: "made" })).result;
     const copy = join(home, "claude-cfg", "projects", "-made", "s.jsonl");
     mkdirSync(join(copy, ".."), { recursive: true }); writeFileSync(copy, "{}\n");
     new SessionsStore(app!.db).update({ id: session.id, status: "moving" });
     new SettingsStore(app!.db).set(`move.inFlight:${session.id}`, { ...kept, worktreeId: made.id, rehomed: { made: [copy], renamed: [] } });
-    await app!.close();
+    const restart = async () => {
+      await app!.close();
+      app = await createApp({ home, port: 0, adapters: { codex: new FakeAdapter({ script: [] }) } as never });
+    };
+    return { session, target, made, copy, restart };
+  }
+  const failedNote = (sessionId: string) =>
+    new SessionEventsStore(app!.db).listAfter(sessionId, 0, 1000).map((e) => e.event).filter((e) => e.type === "move_failed").at(-1)?.payload.note;
 
-    app = await createApp({ home, port: 0, adapters: { codex: new FakeAdapter({ script: [] }) } as never });
+  it("takes back what a move had merged, made and copied when the server stopped in the middle of it", async () => {
+    const { session, target, made, copy, restart } = await stoppedMidMove();
+    await restart();
     expect(status(target.path)).toEqual([]);
     expect(readFileSync(join(target.path, "a.txt"), "utf8")).toBe("one\n");
     expect(existsSync(made.path)).toBe(false);
-    expect(new SessionsStore(app.db).get(session.id)).toMatchObject({ status: "idle", environmentId: session.environmentId });
+    expect(new SessionsStore(app!.db).get(session.id)).toMatchObject({ status: "idle", environmentId: session.environmentId });
     expect(existsSync(copy)).toBe(false);
-    expect(new SettingsStore(app.db).get(`move.inFlight:${session.id}`)).toBeNull();
+    expect(new SettingsStore(app!.db).get(`move.inFlight:${session.id}`)).toBeNull();
+    expect(failedNote(session.id)).not.toContain("still there");
+  }, 30_000);
+
+  it("leaves a checkout someone worked in after the server stopped mid-move, and says so", async () => {
+    const { session, target, made, restart } = await stoppedMidMove();
+    writeFileSync(join(target.path, "a.txt"), "two, and then some\n");
+    await restart();
+    expect(readFileSync(join(target.path, "a.txt"), "utf8")).toBe("two, and then some\n");
+    expect(readFileSync(join(target.path, "new.txt"), "utf8")).toBe("fresh\n");
+    // Only the checkout is left: the rest of the move is still taken back.
+    expect(existsSync(made.path)).toBe(false);
+    expect(new SessionsStore(app!.db).get(session.id)).toMatchObject({ status: "idle", environmentId: session.environmentId });
+    expect(failedNote(session.id)).toContain(`The changes it merged into ${target.path} are still there, since that checkout changed after they went in.`);
   }, 30_000);
 });

@@ -24,12 +24,15 @@ export const moveInFlightKey = (sessionId: string): string => `move.inFlight:${s
 export type MoveInFlight = {
   moveId: string;
   sourcePath: string;
-  /** The checkout the changes were merged into, and its checkpoint from before. */
-  merged?: { path: string; state: CapturedState };
+  /** The checkout the changes were merged into, its checkpoint from before, and `after`, the same
+   *  checkpoint with the merge's working tree: what the checkout is until someone works in it. */
+  merged?: Merged;
   /** The worktree made for the move. */
   worktreeId?: string;
   rehomed?: Rehomed;
 };
+
+type Merged = { path: string; environmentId: string; state: CapturedState; after: CapturedState };
 
 export type MoveDeps = {
   db: Db;
@@ -83,6 +86,8 @@ export type MovePlan = { moveId: string; to: MoveTarget; keepSourceChanges: bool
  */
 export async function runMove(d: MoveDeps, s: Session, plan: MovePlan): Promise<MoveConversation> {
   const undo: (() => Promise<void> | void)[] = [];
+  /** What a rollback left as it was, said in `move_failed`. */
+  const leftAsItWas: string[] = [];
   let step: MoveStep = "preflight";
   const at = (next: MoveStep) => {
     if (plan.signal.aborted) throw new RpcError("MOVE_CANCELLED", "the move was cancelled");
@@ -132,9 +137,11 @@ export async function runMove(d: MoveDeps, s: Session, plan: MovePlan): Promise<
     } else {
       target = existing!;
       if (changedFiles > 0) {
-        const into = target;
-        const before = await mergeInto(d, s, into, cp!.state, keep);
-        undo.push(async () => { await d.git.restore({ cwd: into.path, state: before }); });
+        const merged = await mergeInto(d, s, target, cp!.state, keep);
+        undo.push(async () => {
+          const left = await takeBackMerge(d, merged, s.id, d.home ?? homedir());
+          if (left) leftAsItWas.push(left);
+        });
       }
     }
 
@@ -167,7 +174,7 @@ export async function runMove(d: MoveDeps, s: Session, plan: MovePlan): Promise<
     for (const u of undo.reverse()) { try { await u(); } catch { /* the failure being reported is the one that matters */ } }
     const reason = e instanceof Error ? e.message : String(e);
     const where = source ? tilde(source.path, d.home ?? homedir()) : "its checkout";
-    const note = `Could not move this session: ${reason}. It is still in ${where}, as it was.`;
+    const note = [`Could not move this session: ${reason}. It is still in ${where}, as it was.`, ...leftAsItWas].join(" ");
     d.emit(s.id, sessionEvent("move_failed", { moveId: plan.moveId, step, reason, note }));
     throw new RpcError("MOVE_FAILED", note);
   }
@@ -176,13 +183,27 @@ export async function runMove(d: MoveDeps, s: Session, plan: MovePlan): Promise<
 /** Merge the session's changes into a checkout that has its own state, after a checkpoint of that
  *  state — the undo, kept and answered. */
 async function mergeInto(d: MoveDeps, s: Session, into: Environment, state: CapturedState,
-  keep: (facts: Partial<MoveInFlight>) => void): Promise<CapturedState> {
+  keep: (facts: Partial<MoveInFlight>) => void): Promise<Merged> {
   const before = await d.capture({ environmentId: into.id, sessionId: null, label: `Before “${s.title}” moved in` });
   if (!before) throw new RpcError("MOVE_FAILED", `${into.path} is not a git repository, so the changes cannot go into it`);
   if (d.othersWorkingIn(into.id, s.id)) throw new RpcError("MOVE_FAILED", "another session started working in that checkout");
-  keep({ merged: { path: into.path, state: before.state } });
+  const tree = await d.git.mergedTree({ cwd: into.path, state, into: before.state });
+  const merged = { path: into.path, environmentId: into.id, state: before.state, after: { ...before.state, worktreeTree: tree } };
+  keep({ merged });
   await d.git.applyChanges({ cwd: into.path, state, into: before.state });
-  return before.state;
+  return merged;
+}
+
+/** Put a checkout the changes were merged into back as it was — `clearSource`'s rule: only while it is
+ *  still as the merge left it and no other session is working there, since a restore would throw away
+ *  anything done there since. Answers the sentence saying it was left, or null. */
+async function takeBackMerge(d: Pick<MoveDeps, "git" | "othersWorkingIn">, merged: Merged, sessionId: string, home: string): Promise<string | null> {
+  const left = (why: string) => `The changes it merged into ${tilde(merged.path, home)} are still there, since ${why}.`;
+  if (d.othersWorkingIn(merged.environmentId, sessionId)) return left("another session is working there");
+  const since = await d.git.hazard({ cwd: merged.path, state: merged.after }).catch(() => null);
+  if (!since || since.filesChanged > 0 || since.commitsRolledBack > 0) return left("that checkout changed after they went in");
+  await d.git.restore({ cwd: merged.path, state: merged.state });
+  return null;
 }
 
 /** Put the source back to its HEAD once the changes are in the new checkout — unless they changed
@@ -231,12 +252,18 @@ async function carryConversation(d: MoveDeps, s: Session, source: Environment, t
 }
 
 /** Take back what a move the server stopped in the middle had changed, newest first. Best effort:
- *  each step is tried whatever the one before it did. */
-export async function undoInterruptedMove(d: Pick<MoveDeps, "git" | "environment" | "discardWorktree">, kept: MoveInFlight): Promise<void> {
+ *  each step is tried whatever the one before it did. Answers what it left as it was, to say so. */
+export async function undoInterruptedMove(d: Pick<MoveDeps, "git" | "environment" | "discardWorktree" | "othersWorkingIn" | "home">,
+  sessionId: string, kept: MoveInFlight): Promise<string[]> {
+  const left: string[] = [];
   if (kept.rehomed) await undoRehome(kept.rehomed).catch(() => {});
-  if (kept.merged) await d.git.restore({ cwd: kept.merged.path, state: kept.merged.state }).catch(() => {});
+  if (kept.merged) {
+    const merged = await takeBackMerge(d, kept.merged, sessionId, d.home ?? homedir()).catch(() => null);
+    if (merged) left.push(merged);
+  }
   const made = kept.worktreeId ? d.environment(kept.worktreeId) : null;
   if (made) await d.discardWorktree(made, kept.sourcePath).catch(() => {});
+  return left;
 }
 
 function claudeFallbackContext(notes: string, from: string, to: string): string {

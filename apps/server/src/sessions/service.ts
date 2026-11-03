@@ -1732,14 +1732,15 @@ export class SessionService {
       if (s.status !== "moving") continue;
       const kept = this.d.settings.get(moveInFlightKey(s.id)) as MoveInFlight | null;
       const moves = this.d.moves;
-      if (kept && moves) {
-        await undoInterruptedMove({ git: moves.git, environment: (id) => this.d.environments.get(id), discardWorktree: (env, from) => moves.discardWorktree(env, from) }, kept);
-      }
+      const left = kept && moves ? await undoInterruptedMove({
+        git: moves.git, environment: (id) => this.d.environments.get(id), discardWorktree: (env, from) => moves.discardWorktree(env, from),
+        othersWorkingIn: (envId, sid) => this.otherTurnIn(envId, sid), ...(this.d.userHome ? { home: this.d.userHome } : {}),
+      }, s.id, kept) : [];
       this.d.settings.set(moveInFlightKey(s.id), null);
       this.d.sessions.update({ id: s.id, status: "idle" });
       const reason = "Realm stopped before the move finished";
       this.persist(s.id, sessionEvent("move_failed", { moveId: kept?.moveId ?? "", step: "commit", reason,
-        note: `Could not move this session: ${reason}. It is still in ${s.cwd}, as it was.` }));
+        note: [`Could not move this session: ${reason}. It is still in ${s.cwd}, as it was.`, ...left].join(" ") }));
     }
   }
 
