@@ -36,13 +36,15 @@ struct MoveTests {
     func howAMoveEndedIsANoticeMarkedSo() throws {
         let opened = try APIFixtureTests.decode(OpenedSession.self, "calls", "session.open:moved")
         let notices = opened.rows.filter { $0.move != nil }
-        #expect(notices.map(\.move) == [.moved, .failed])
-        guard case .notice(let text) = notices[0].content else {
-            Issue.record("the moved line is not a notice")
-            return
+        #expect(notices.map(\.move) == [.moved, .failed, .moved])
+        let texts = notices.map { row -> String? in
+            if case .notice(let text) = row.content { return text }
+            return nil
         }
-        #expect(text == "Moved from realm (main) to tidy-settings (tidy-settings). The conversation continued.")
-        #expect(notices.map(\.noticeDetail) == ["~/realm → ~/Realm/worktrees/realm/tidy-settings", "Setting up the checkout"])
+        // The desktop's sentence, which says how the conversation went from the moved event's own field.
+        #expect(texts[0] == "Moved from realm (main) to tidy-settings (tidy-settings). The conversation continued.")
+        #expect(texts[2] == "Moved from tidy-settings (tidy-settings) to realm (main). The conversation continued from notes.")
+        #expect(notices.map(\.noticeDetail) == ["~/realm → ~/Realm/worktrees/realm/tidy-settings", "Setting up the checkout", "~/Realm/worktrees/realm/tidy-settings → ~/realm"])
         // Every other row says nothing of moves.
         let others = try APIFixtureTests.opened().rows
         #expect(others.allSatisfy { $0.move == nil })

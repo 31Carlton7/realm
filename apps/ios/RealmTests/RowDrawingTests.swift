@@ -94,14 +94,14 @@ struct RowDrawingTests {
         #expect(error.contains("Out of credits") && error.contains("Top up"))
     }
 
-    /// A move says where it went and the paths under that, or why it stayed and where it stopped.
-    @Test func aMoveDrawsItsLineAndWhatIsUnderIt() throws {
+    /// A move says where it went, without its paths until tapped, or why it stayed and where it stopped.
+    @Test func aMoveDrawsItsSentence() throws {
         func words(_ move: MoveMark, _ text: String, _ detail: String?) throws -> String {
             let row = TranscriptRow(key: "mv:1", seq: 4, content: .notice(text: text), move: move, noticeDetail: detail)
             return try Drawing.words(TranscriptRowView(row: row, sessionId: "s1").environment(AppModel()))
         }
         let moved = try words(.moved, "Moved from realm (main) to feat-x (feat-x). The conversation continued.", "~/realm → ~/w/feat-x")
-        #expect(moved.contains("Moved from realm (main)") && moved.contains("~/w/feat-x"), "\(moved)")
+        #expect(moved.contains("Moved from realm (main)") && !moved.contains("~/w/feat-x"), "\(moved)")
         let failed = try words(.failed, "Could not move this session: the disk is full.", "Setting up the checkout")
         #expect(failed.contains("Could not move") && failed.contains("Setting up the checkout"), "\(failed)")
         #expect(try words(.moving, "Moving · Starting Claude", nil).contains("Starting Claude"))
