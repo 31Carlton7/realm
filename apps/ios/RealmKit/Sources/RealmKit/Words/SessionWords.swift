@@ -60,3 +60,27 @@ public enum AgentNames {
         return bare.prefix(1).uppercased() + bare.dropFirst()
     }
 }
+
+/// What a lead's row says of its sub-agents, as the desktop's sidebar row says it: how many are its,
+/// or, while any waits on a request, how many need you, and the one the row then opens on.
+public struct RowSubagents: Sendable, Equatable {
+    public let count: Int
+    public let waiting: Int
+    /// The sessions a press on the row opens, the lead first: and over it the sub-agent that has waited
+    /// longest, where one waits, so the way back from its request leads to the lead.
+    public let opens: [String]
+
+    /// Nil for a row with none, and for every row from a Mac that does not say.
+    public init?(_ row: SessionRow) {
+        guard let count = row.subagents, count > 0 else { return nil }
+        self.count = count
+        waiting = min(max(row.subagentsWaiting ?? 0, 0), count)
+        opens = [row.id] + (waiting > 0 ? row.subagentWaiting.map { [$0] } ?? [] : [])
+    }
+
+    /// "2 sub-agents"; while any waits, "1 sub-agent needs you", "2 sub-agents need you".
+    public var words: String {
+        if waiting > 0 { return waiting == 1 ? "1 sub-agent needs you" : "\(waiting) sub-agents need you" }
+        return count == 1 ? "1 sub-agent" : "\(count) sub-agents"
+    }
+}

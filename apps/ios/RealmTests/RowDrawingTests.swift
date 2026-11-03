@@ -275,6 +275,26 @@ struct SessionRowTests {
         #expect(RowState.done.word == "Done" && RowState.working.word == "Working")
     }
 
+    /// A lead says its sub-agents' request over its own turn working, as the sidebar does, but never over
+    /// its own request; with none waiting, its row counts them after what it says of itself.
+    @Test func aLeadSaysItsSubagentsOnItsRow() {
+        let lead = { (status: SessionStatus, waiting: Int) in
+            SessionRow(id: "lead", title: "Lead", spaceId: "sp", spaceName: "Realm", agent: "claude", model: nil, status: status, needsYou: false,
+                       unread: false, updatedAt: 1_790_000_000_000, subagents: 3, subagentsWaiting: waiting, subagentWaiting: waiting > 0 ? "child" : nil)
+        }
+        #expect(RowState(lead(.running, 2)) == .subagentsWaiting("2 sub-agents need you"))
+        #expect(RowState(lead(.running, 2))?.isWaiting == true)
+        #expect(RowState(lead(.waiting, 1)) == .waiting)
+        #expect(RowState(lead(.idle, 0)) == nil)
+        let now = Date(timeIntervalSince1970: 1_790_000_120)
+        #expect(SessionRowView.spoken(lead(.idle, 0), now: now) == "Lead, 3 sub-agents, Realm, Claude, 2m ago")
+        #expect(SessionRowView.spoken(lead(.idle, 1), now: now) == "Lead, 1 sub-agent needs you, Realm, Claude, 2m ago")
+        // Its press-and-hold lists them; a row with none has no such action.
+        #expect(RowActions(row: lead(.idle, 0), connected: false).menu == [.pin, .rename, .archive, .subagents])
+        #expect(!RowActions(row: lead(.idle, 0), connected: false).isOff(.subagents))
+        #expect(!RowActions(row: Self.row, connected: true).menu.contains(.subagents))
+    }
+
     @Test func stopIsOfferedOnlyWhileATurnIsUnderWay() {
         let make = { (status: SessionStatus) in
             SessionRow(id: "s", title: "T", spaceId: "sp", spaceName: "", agent: "claude", model: nil, status: status, needsYou: false,
