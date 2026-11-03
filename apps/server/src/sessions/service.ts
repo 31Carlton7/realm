@@ -1326,7 +1326,7 @@ export class SessionService {
       if (env.id === s.environmentId) throw new RpcError("BAD_REQUEST", "this session already runs in that checkout");
       if (this.isEnvironmentBusy(env.id)) throw new RpcError("ENVIRONMENT_BUSY", "another session is working in that checkout; move once it has finished its turn");
     }
-    if (!req.keepSourceChanges && this.otherTurnIn(s)) {
+    if (!req.keepSourceChanges && this.otherTurnIn(s.environmentId, s.id)) {
       throw new RpcError("ENVIRONMENT_BUSY", "another session is working in this checkout, so its changes cannot be cleared from it");
     }
   }
@@ -1348,9 +1348,9 @@ export class SessionService {
     return work;
   }
 
-  /** Whether a session other than `s` is mid-turn in `s`'s checkout. */
-  private otherTurnIn(s: Session): boolean {
-    return this.d.sessions.listAll().some((o) => o.id !== s.id && o.environmentId === s.environmentId && (o.status === "running" || o.status === "waiting_permission"));
+  /** Whether a session other than `exceptId` is mid-turn in that checkout. */
+  private otherTurnIn(environmentId: string, exceptId: string): boolean {
+    return this.d.sessions.listAll().some((o) => o.id !== exceptId && o.environmentId === environmentId && (o.status === "running" || o.status === "waiting_permission"));
   }
 
   /** Run a move now. Held as a switch, so a message sent meanwhile waits for it, and the queue the
@@ -1369,6 +1369,7 @@ export class SessionService {
         await runMove({
           db: this.d.db, sessions: this.d.sessions, events: this.d.events, settings: this.d.settings, git: moves.git,
           environment: (envId) => this.d.environments.get(envId),
+          othersWorkingIn: (envId, sid) => this.otherTurnIn(envId, sid),
           capture: async (c) => {
             const cp = await checkpoints?.capture({ environmentId: c.environmentId, sessionId: c.sessionId, kind: "manual", label: c.label });
             const state = cp ? checkpoints!.stateOf(cp.id) : null;

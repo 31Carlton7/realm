@@ -23,6 +23,9 @@ export type MoveDeps = {
   git: CheckpointGit;
   /** The session's environment as a row; null when it is gone. */
   environment: (id: string) => Environment | null;
+  /** Whether a session other than `sessionId` is mid-turn in that checkout. Asked again just before
+   *  a checkout is written, since a turn can start there while the move is under way. */
+  othersWorkingIn: (environmentId: string, sessionId: string) => boolean;
   /** The checkpoint taken before anything moves: the undo point for the source tree. */
   capture: (input: { environmentId: string; sessionId: string | null; label: string }) => Promise<{ state: CapturedState } | null>;
   createWorktree: (input: { spaceId: string; title: string | null; from: string; base: string | null }) => Promise<Environment>;
@@ -121,19 +124,19 @@ export async function runMove(d: MoveDeps, s: Session, plan: MovePlan): Promise<
     const from = placeOf(source);
     const to = placeOf(target);
     const hadTerminal = d.closeTerminal(s.id);
-    const leftBehind = [...(hadTerminal ? ["the terminal"] : []), ...secrets, ...work.map((w) => `${w} (stopped)`)];
-    const preface = movePreface(from, to, leftBehind);
     d.db.exec("BEGIN");
     try {
       d.sessions.setEnvironment(s.id, target.id);
       d.sessions.update({ id: s.id, status: "idle", providerSessionId: carried.providerSessionId });
       d.db.exec("COMMIT");
     } catch (e) { d.db.exec("ROLLBACK"); throw e; }
-    d.settings.set(movePrefaceKey(s.id), preface);
     d.settings.set(moveInFlightKey(s.id), null);
     d.broadcastStatus(s.id, "idle");
     // After the commit and never before it: until the move has happened, the source keeps its changes.
-    if (!plan.keepSourceChanges && cp) await d.git.resetToHead(source.path).catch(() => {});
+    const kept = !plan.keepSourceChanges && cp ? await clearSource(d, s, source, cp.state) : [];
+    const leftBehind = [...(hadTerminal ? ["the terminal"] : []), ...secrets, ...work.map((w) => `${w} (stopped)`), ...kept];
+    const preface = movePreface(from, to, leftBehind);
+    d.settings.set(movePrefaceKey(s.id), preface);
     d.emit(s.id, sessionEvent("moved", {
       moveId: plan.moveId, from, to, conversation: carried.conversation, changedFiles, leftBehind, preface,
       note: movedNote(from, to, carried.conversation, d.home ?? homedir()),
@@ -154,8 +157,20 @@ export async function runMove(d: MoveDeps, s: Session, plan: MovePlan): Promise<
 async function mergeInto(d: MoveDeps, s: Session, into: Environment, state: CapturedState): Promise<CapturedState> {
   const before = await d.capture({ environmentId: into.id, sessionId: null, label: `Before “${s.title}” moved in` });
   if (!before) throw new RpcError("MOVE_FAILED", `${into.path} is not a git repository, so the changes cannot go into it`);
+  if (d.othersWorkingIn(into.id, s.id)) throw new RpcError("MOVE_FAILED", "another session started working in that checkout");
   await d.git.applyChanges({ cwd: into.path, state, into: before.state });
   return before.state;
+}
+
+/** Put the source back to its HEAD once the changes are in the new checkout — unless they changed
+ *  since the checkpoint, or another session is working there now, either of which a reset would
+ *  throw away. Answers what it kept, to name as left behind. */
+async function clearSource(d: MoveDeps, s: Session, source: Environment, state: CapturedState): Promise<string[]> {
+  const since = await d.git.hazard({ cwd: source.path, state });
+  if (since.filesChanged > 0 || since.commitsRolledBack > 0) return ["its uncommitted changes (they changed during the move)"];
+  if (d.othersWorkingIn(source.id, s.id)) return ["its uncommitted changes (another session is working there)"];
+  await d.git.resetToHead(source.path).catch(() => {});
+  return [];
 }
 
 /**
