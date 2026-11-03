@@ -12,6 +12,7 @@ import { ProfileWindowBridge } from "./components/profiles/ProfileWindowBridge";
 import { NewLectureSheet, WrapUpLectureSheet } from "./components/LectureSheets";
 import { SessionPlanSheet } from "./panes/session/SessionSummary";
 import { ShareSheet } from "./panes/session/share/ShareSheet";
+import { MoveSheet } from "./panes/session/MoveSheet";
 import { TeammateSheet } from "./panes/teammate/TeammateSheet";
 import { PlynnImportSheet } from "./components/PlynnImportSheet";
 import { RemoveWorktreeSheet } from "./components/RemoveWorktreeSheet";
@@ -424,6 +425,7 @@ function SheetHost() {
   if (sheet.kind === "plynn-import") return <PlynnImportSheet />;
   if (sheet.kind === "session-plan") return <SessionPlanSheet sessionId={sheet.sessionId} planId={sheet.planId} />;
   if (sheet.kind === "share-session") return <ShareSheet sessionId={sheet.sessionId} />;
+  if (sheet.kind === "move-session") return <MoveSheet sessionId={sheet.sessionId} to={sheet.to} />;
   if (sheet.kind === "teammate") return <TeammateSheet spaceId={sheet.spaceId} id={sheet.id} />;
   return null;
 }

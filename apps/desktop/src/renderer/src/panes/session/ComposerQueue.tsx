@@ -74,8 +74,11 @@ function useLeaving(queued: QueuedPrompt[]): { q: QueuedPrompt; leaving: boolean
  * A message is edited in place, as plain text: an element chip shows as its `@[label]` token, and
  * taking the token out drops the chip (the server's `keepLiveChips`), exactly as in the prompter.
  */
-export function ComposerQueue({ kind, queued, running, submitKey, actions }: {
+export function ComposerQueue({ kind, queued, running, submitKey, actions, pendingMove = null }: {
   kind: AgentKind; queued: QueuedPrompt[]; running: boolean; submitKey: SubmitKey; actions: QueueActions;
+  /** A move waiting for this turn to end ("Move after this turn"): said first, since it happens at
+   *  the turn's end before anything queued goes, and called off from here. */
+  pendingMove?: { to: string; onCancel: () => void } | null;
 }) {
   const [editing, setEditingState] = useState<{ id: string; text: string; was: string } | null>(null);
   // Mirrored in a ref so the Enter that closes the field and the blur that follows it are one close,
@@ -95,7 +98,17 @@ export function ComposerQueue({ kind, queued, running, submitKey, actions }: {
     if (editing.text !== editing.was && editing.text.trim()) actions.onSaveEdit(editing.id, editing.text);
     setEditing(null);
   }, [queued, editing, actions]);
-  if (rows.length === 0) return null;
+  const moveLine = pendingMove && (
+    <div className="queue-head queue-move">
+      <Icon name="arrowRight" size={12} className="queue-head-glyph" />
+      <span className="queue-head-title">Move after this turn</span>
+      <span className="queue-head-when"><span className="queue-head-sep" aria-hidden="true">·</span>to {pendingMove.to}</span>
+      <button type="button" className="queue-fold" onClick={pendingMove.onCancel}>Cancel</button>
+    </div>
+  );
+  if (rows.length === 0) {
+    return moveLine ? <section className="composer-queue" aria-label="Queued move">{moveLine}</section> : null;
+  }
 
   const n = queued.length;
   const note = steerNote(kind);
@@ -203,6 +216,7 @@ export function ComposerQueue({ kind, queued, running, submitKey, actions }: {
 
   return (
     <section className="composer-queue" aria-label="Queued messages" data-count={n} data-folded={folded || undefined}>
+      {moveLine}
       {head}
       {!folded && (
         <ol className="queue-list" id={listId} data-dragging={dragging ? "" : undefined}>

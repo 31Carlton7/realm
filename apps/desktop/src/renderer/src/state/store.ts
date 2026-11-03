@@ -21,6 +21,7 @@ import {
   AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, LINKS_OPEN_IN_KEY, type LinksOpenIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
+  type MoveOptions, type MoveTarget, type MoveWhen,
   type Account, type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpSignInOptions, type McpServerStatus, type McpTransport, type MemoryClaudeBackfill, type MemoryClaudeImport, type MemoryLibraryEntry, type MemoryLibraryFile, type MemoryLibrarySource, type MemoryLibraryType, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary, type ResourceReport, type ResourcePolicies, type ResourcePolicyKey, type FreeAction,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
@@ -441,6 +442,12 @@ export type Api = TeammatesApi & {
   setSessionEnvironment(id: string, environmentId: string): Promise<Session>;
   /** `sessions.moveToSpace` — same guard as setAgent/setEnvironment: rejected once the session has any event. */
   moveSessionToSpace(id: string, spaceId: string): Promise<Session>;
+  /** `sessions.moveOptions`: what moving a started session would carry and leave, for the Move sheet. */
+  sessionMoveOptions(id: string): Promise<MoveOptions>;
+  /** `sessions.move`: a started session to another checkout or a new worktree. */
+  moveSession(id: string, to: MoveTarget, keepSourceChanges: boolean, when: MoveWhen): Promise<Session>;
+  /** `sessions.cancelMove`: drop a move waiting on the turn, or stop one before it commits. */
+  cancelSessionMove(id: string): Promise<{ cancelled: boolean }>;
   /** Persisted events with seq > afterSeq, ascending, at most `limit`. */
   sessionEvents(id: string, afterSeq: number, limit: number): Promise<StoredSessionEvent[]>;
   /** The newest `limit` persisted events before `beforeSeq`, ascending — of `types` only, when given. */
@@ -994,6 +1001,8 @@ export type Sheet =
   | { kind: "session-plan"; sessionId: string; planId: string }
   /** A session as a web page: what the page includes, its size, and Save (share/ShareSheet.tsx). */
   | { kind: "share-session"; sessionId: string }
+  /** Moving a started session to `to`: what goes with it, what stays, and when (MoveSheet.tsx). */
+  | { kind: "move-session"; sessionId: string; to: MoveTarget }
   /** New teammate in a space, or — with `id` — the same sheet editing that one (TeammateSheet.tsx). */
   | { kind: "teammate"; spaceId: string; id?: string };
 
@@ -1314,6 +1323,10 @@ export type AppState = TeammatesSlice & {
   /** Messages waiting for a session's current turn to end, oldest first, from `session.queue`. The
    *  key is dropped when a queue empties, so a session with nothing waiting holds nothing here. */
   sessionQueues: Record<string, QueuedPrompt[]>;
+  /** A move asked for with "Move after this turn", waiting for the turn to end, and where it goes —
+   *  the prompter's queue says so and can call it off. Dropped when the move starts, ends or is
+   *  cancelled. */
+  pendingMoves: Record<string, { to: string }>;
   /** The turns the reader saved in each session, as their prompts' event seqs, from `sessions.saved`
    *  and kept current by `session.saved`. A session not read yet holds nothing here. */
   savedTurns: Record<string, number[]>;
@@ -2268,6 +2281,12 @@ export type AppState = TeammatesSlice & {
    *  server's "session" default) AND move the session into it — one action, so creating without
    *  selecting cannot happen. */
   moveSessionToNewWorktree(sessionId: string): Promise<void>;
+  /** Move a STARTED session (the Move sheet). `toLabel` is what the queue says while an `after-turn`
+   *  move waits. The sheet closes at once; the transcript draws the move from its events. */
+  moveSession(sessionId: string, to: MoveTarget, opts: { keepSourceChanges: boolean; when: MoveWhen; toLabel: string; busy: boolean }): Promise<void>;
+  cancelSessionMove(sessionId: string): Promise<void>;
+  /** What the Move sheet shows before anything happens (`sessions.moveOptions`). */
+  sessionMoveOptions(sessionId: string): Promise<MoveOptions>;
   /** Sidebar's "Move to space…" (item context menu). Same server guard as the agent/environment
    *  switches — closes the item out of the current space's layout first, then re-homes it; any open
    *  terminal for the session is torn down client-side to match the server's teardown. */
@@ -3944,6 +3963,25 @@ export function createAppStore(api: Api): StoreApi<AppState> {
     };
     /** The changed-file list rides along with the summary: the prompter's "what changed" pill is drawn
      *  from it, so it has to move whenever the branch and counts do. */
+    const dropPendingMove = (sessionId: string) => {
+      if (!get().pendingMoves[sessionId]) return;
+      const { [sessionId]: _gone, ...pendingMoves } = get().pendingMoves;
+      set({ pendingMoves });
+    };
+    /** The session ran somewhere else from here: its row names the new checkout, its git chips must
+     *  describe that tree, and a terminal the server closed loses its xterm handle here too. */
+    const settleMove = async (sessionId: string) => {
+      const row = await api.getSession(sessionId);
+      if (!get().sessions[row.id]) return;
+      mergeSession(row);
+      refreshGitFor(sessionId);
+      const termId = get().sessionTerminals[sessionId];
+      if (termId && row.terminalItemId === null) {
+        api.disposeTerminal(termId);
+        const { [sessionId]: _tid, ...sessionTerminals } = get().sessionTerminals;
+        set({ sessionTerminals });
+      }
+    };
     const refreshGitFor = (sessionId: string) => {
       const cwd = get().sessions[sessionId]?.cwd;
       if (cwd) get().run(() => Promise.all([get().refreshGitInfo(cwd), readDiff(cwd)]));
@@ -4510,7 +4548,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], installedFonts: [], localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, confirmDelete: true, items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarOnPage: null, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
+      sessionQueues: {}, pendingMoves: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], installedFonts: [], localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, confirmDelete: true, items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarOnPage: null, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
       ...teammatesSlice(api, get, set),
       allItems: [], archivedSessions: null, lastAgentKind: null, lastModels: {}, renamingItemId: null,
       connectionState: "connected",
@@ -6132,6 +6170,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (ev.event.type === "handoff" && !ev.ephemeral) {
           void get().run(async () => { const row = await api.getSession(ev.sessionId); if (get().sessions[row.id]) mergeSession(row); });
         }
+        const type = ev.event.type;
+        if (type === "moving" || type === "moved" || type === "move_failed") dropPendingMove(ev.sessionId);
+        if (type === "moved" && !ev.ephemeral) void get().run(() => settleMove(ev.sessionId));
         /** This event makes no other write: the line, and the log's length, are the whole of it. */
         const lineOnly = () => { if (also) set(also); };
         const buf = loading.get(ev.sessionId);
@@ -6139,6 +6180,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const cur = get().transcripts[ev.sessionId];
         if (!cur) { lineOnly(); return; } // not opened yet: openSession fetches everything later
         // Deltas are buffered and land a frame later; see `pendingDeltas`.
+        // The move's progress is the one ephemeral event the transcript draws: it is about right now.
+        if (ev.ephemeral && type === "moving") { setTranscript(ev.sessionId, { lastSeq: cur.lastSeq, t: reduceTranscript(cur.t, ev.event) }, also); return; }
         if (ev.ephemeral) { lineOnly(); if (ev.event.type === "assistant_delta") queueDelta(ev.sessionId, ev.event.payload.messageId, ev.event.payload.delta, ev.event.ts); return; }
         if (ev.seq <= cur.lastSeq) { lineOnly(); return; }
         // A persisted event is ordered AFTER the deltas still waiting, so it folds them into its own
@@ -6612,6 +6655,22 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (inProfile(s.spaceId)) set({ environments: { ...get().environments, [env.id]: env } });
         // …then select it. Creating without selecting is the named mutant this line kills.
         await get().setSessionEnvironment(sessionId, env.id);
+      },
+      async moveSession(sessionId, to, { keepSourceChanges, when, toLabel, busy }) {
+        get().closeSheet();
+        const waits = busy && when === "after-turn";
+        if (waits) set({ pendingMoves: { ...get().pendingMoves, [sessionId]: { to: toLabel } } });
+        try {
+          mergeSession(await api.moveSession(sessionId, to, keepSourceChanges, when));
+        } catch (e) {
+          if (waits) dropPendingMove(sessionId);
+          throw e;
+        }
+      },
+      sessionMoveOptions(sessionId) { return api.sessionMoveOptions(sessionId); },
+      async cancelSessionMove(sessionId) {
+        dropPendingMove(sessionId);
+        await api.cancelSessionMove(sessionId);
       },
       async moveSessionToSpace(sessionId, spaceId) {
         const item = get().items.find((i) => i.kind === "session" && i.refId === sessionId);

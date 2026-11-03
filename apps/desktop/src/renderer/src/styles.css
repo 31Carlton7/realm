@@ -42,7 +42,7 @@
 .theme-import textarea, .tool-body pre, .tool-stat, .tool-group-work .tool-stat-add, .tool-group-work .tool-stat-del, .tool-summary[data-form="code"], .tool-well, .tool-panel-cwd, .tool-panel-exit, .tool-panel-path, .tool-panel-text, .tool-body .code-body, .tool-arg dd[data-form="code"], .tool-arg dd[data-form="json"], .wt-path, button.md-path, kbd,
 .machine-facts, .machine-detail, .machine-bar-size, .machine-resolved-target, .machine-guest-size,
 .terminal-dock-title,
-.sim-detail, .upl-path, .wt-branch, .laya-facts code, .whats-new-group code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code, .browser-runner-score,
+.sim-detail, .upl-path, .wt-branch, .move-path, .move-branch, .laya-facts code, .whats-new-group code, .laya-reason, .computer-app-id, .agent-card-tail, .agent-code, .browser-error-code, .browser-runner-score,
 .edit-counts, .cr-tab-counts, .cr-setup-how code, .cr-branch, .cr-finding-where, .diff-split-cell, .cr-pending-where,
 .subagent-where[data-branch], .subagent-view-where[data-branch], .subagent-brief-branch, .subagent-brief-dir, .signin-hint code, .signin-code {
   letter-spacing: normal;
@@ -4379,6 +4379,13 @@ button.subagent-brief-chip:focus-visible { outline: none; box-shadow: var(--rl-o
    line is for, and the faint tier is the quietest one that still clears AA — a timestamp mixed below
    it was a timestamp a reader had to squint at. */
 .msg-run-at { color: var(--rl-text-faint); }
+/* A move under way (MoveProgress): every step in order, the one under way in ink. */
+.move-progress { align-items: center; animation: rl-fade-in var(--dur-enter) var(--ease-out-strong); }
+.move-progress .spinner { flex: none; color: var(--rl-text-dim); }
+.move-steps { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; margin: 0; padding: 0; list-style: none; }
+.move-steps li + li::before { content: "→"; margin-right: 6px; color: var(--rl-text-faint); }
+.move-steps li[data-state="done"] { color: var(--rl-text-dim); }
+.move-steps li[data-state="now"] { color: var(--rl-text-bright); font-weight: var(--fw-label); }
 /* ── A turn's edits (EditSummary.tsx): Codex's "Edited 2 files +20 −3" card ───────────────────────
    A card the eye rests in, so it is drawn as every card is: the curve, no ring, the fill as its
    boundary with the card's light and lift, and its head not ruled off from its rows — the title and its two actions are chrome for the
@@ -5345,6 +5352,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .composer-queue .queue-fold:hover:not(:disabled) { background: var(--rl-hover); color: var(--rl-text-bright); transition-duration: 0s; }
 .composer-queue .queue-fold:disabled { opacity: .45; }
 
+/* A move waiting on the turn: the head's own grammar, its Cancel where Show all would be. */
+.composer-queue .queue-move + .queue-head { margin-top: 4px; }
 .composer-queue .queue-list { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 0; padding: 0; list-style: none; }
 /* A grid of one row so the row can fold to nothing and back: `grid-template-rows` animates where
    `height: auto` cannot. The body clips while it folds; the tip the attachment tile hangs outside
@@ -9796,6 +9805,23 @@ span.documents-name:hover { background: none; }
 .share-sheet-reading { display: flex; align-items: center; gap: 8px; margin: 16px 0 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
 .share-sheet-note { margin: 12px 0 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); text-wrap: pretty; }
 .share-sheet-note[data-tone="danger"] { color: var(--rl-danger); }
+/* Move this session (MoveSheet): the two ends as a pair of labelled lines, then what goes and what
+   stays as quiet lists under caption heads, then the one switch as a settings card. */
+.move-sheet { display: flex; flex-direction: column; gap: 16px; }
+.move-ends { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 12px; align-items: baseline; margin: 0; }
+.move-ends dt { font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.move-ends dd { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; margin: 0; font-size: 14px; line-height: 20px; }
+.move-path { font-family: var(--font-mono); font-size: 13px; color: var(--rl-text-bright); word-break: break-all; }
+.move-branch { font-family: var(--font-mono); font-size: 12px; color: var(--rl-text-dim); }
+.move-new { color: var(--rl-text-bright); }
+.move-group-head { margin: 0 0 6px; font-size: 12px; line-height: 16px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
+.move-list { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.move-list li { display: flex; align-items: baseline; gap: 8px; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); text-wrap: pretty; }
+.move-list li > svg { flex: none; align-self: center; color: var(--rl-text-faint); }
+.move-list[data-stays] li { color: var(--rl-text-dim); }
+.move-list code { font-size: 12px; }
+.move-sheet .share-sheet-note { margin: 0; }
+.move-pending { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .share-sheet-status { flex: 1; min-width: 0; align-self: center; margin: 0 8px 0 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim);
   font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* What's new (WhatsNewSheet): the app's icon and the version over the notes, then the notes as a
