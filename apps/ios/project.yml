@@ -35,6 +35,7 @@ targets:
       - package: RealmKit
         product: RealmMarkdown
       - target: RealmNotificationService
+      - target: RealmShare
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: co.charmtechnologies.realm.ios
@@ -60,6 +61,27 @@ targets:
         PRODUCT_NAME: RealmNotificationService
         INFOPLIST_FILE: RealmNotificationService/Info.plist
         CODE_SIGN_ENTITLEMENTS: RealmNotificationService/RealmNotificationService.entitlements
+  # Sharing into Realm from another app. It cannot reach the Mac: it hands the share to the app
+  # through the App Group's container, and draws with the app's palette and grounds.
+  RealmShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: RealmShare
+      - path: Realm/Theme/Palette.swift
+      - path: Realm/Theme/Surfaces.swift
+      - path: Realm/Assets.xcassets
+    dependencies:
+      - package: RealmKit
+        product: RealmKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: co.charmtechnologies.realm.ios.share
+        PRODUCT_NAME: RealmShare
+        INFOPLIST_FILE: RealmShare/Info.plist
+        CODE_SIGN_ENTITLEMENTS: RealmShare/RealmShare.entitlements
+        ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: NO
+        ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS: NO
   # The app's own views, drawn and read back: hosted in the app, run with the scheme's tests.
   RealmTests:
     type: bundle.unit-test
@@ -93,6 +115,7 @@ schemes:
       targets:
         Realm: all
         RealmNotificationService: all
+        RealmShare: all
     run:
       config: Debug
     test:
@@ -106,6 +129,7 @@ schemes:
       targets:
         Realm: all
         RealmNotificationService: all
+        RealmShare: all
     test:
       config: Debug
       targets:

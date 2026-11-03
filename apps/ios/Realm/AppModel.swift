@@ -40,6 +40,12 @@ struct Toast: Equatable, Identifiable {
     static func == (a: Toast, b: Toast) -> Bool { a.id == b.id }
 }
 
+/// A share's new session: the agent and the space it was shared to.
+struct SharedNewSession: Equatable {
+    let agent: String
+    let spaceId: String
+}
+
 /// Everything the screens act through: pairing, the connection to the Mac, the cache, what waits to
 /// be sent, notifications and where the person is.
 @MainActor
@@ -94,6 +100,9 @@ final class AppModel {
     /// The agents a new session could be given, as the Mac last said; nil until it answers `agents.list`,
     /// and Home's compose button with it.
     var agentList: AgentList?
+    /// A share from another app to a new session, its files and words already in the new session's
+    /// composer: Home opens the sheet on the agent and the space it was shared to.
+    var sharedNewSession: SharedNewSession?
     /// The queued messages a Send now, an edit or a removal is on its way to the Mac for, by session.
     var queueCalls: [String: Set<String>] = [:]
     /// The person asked to pair again over the Mac this phone shows (after the Mac removed it).
@@ -116,6 +125,7 @@ final class AppModel {
     @ObservationIgnored private var autoDiagnosticsStarted = false
     @ObservationIgnored private var pendingSession: String?
     @ObservationIgnored private var cache: RealmCache?
+    @ObservationIgnored private let shareInbox = ShareInbox.shared()
     /// Every write to the cache, in the order it was made: a later outbox must never be overwritten by
     /// an earlier one still on its way to disk.
     @ObservationIgnored private let disk = DispatchQueue(label: "co.charmtechnologies.realm.ios.cache", qos: .utility)
@@ -239,6 +249,11 @@ final class AppModel {
 
     /// A link the system handed the app: the scheme, a Universal Link, or a code the scanner read.
     func open(url: URL) {
+        // `realm-mobile://share`: the share extension, once it has put a share in the inbox.
+        if url.scheme == "realm-mobile", url.host() == "share" {
+            takeShares()
+            return
+        }
         open(pairingText: url.absoluteString)
     }
 
@@ -366,6 +381,7 @@ final class AppModel {
         switch phase {
         case .active:
             if store.pairedMac != nil, connection == nil, launched { connect() }
+            takeShares()
             Task { await refreshNotificationStatus() }
         case .background:
             saveEverything()
@@ -529,6 +545,8 @@ final class AppModel {
             store.showHome(home)
             rowEdits.caughtUp(with: home, ask: ask)
             if let cache { disk.async { try? cache.saveHome(home) } }
+            if agentList == nil { await loadAgents() }
+            saveShareTargets()
             // The badge says what Needs you says: the same moments the Mac's pushes are for.
             try? await UNUserNotificationCenter.current().setBadgeCount(home.needsYou.count)
             // A Mac's first answer names its profiles, and with them the one shown by default: its own
@@ -734,6 +752,75 @@ final class AppModel {
         }
     }
 
+    /// What other apps shared into Realm, each into the composer it was shared to: a session's, or the
+    /// new session's. Then the last one opens. A picture the Mac cannot show is made a JPEG as a picked
+    /// file is; anything else is moved in whole, never read. What the Mac would refuse is left out, and
+    /// a toast says why.
+    func takeShares() {
+        guard let inbox = shareInbox, store.pairedMac != nil else { return }
+        inbox.removeAbandoned(olderThan: 3_600)
+        var opens: ShareTarget?
+        for item in inbox.pending() {
+            let key: String
+            switch item.target {
+            case .session(let id): key = id
+            case .newSession: key = NewSessionDefaults.draft
+            }
+            let limits = sessionOptions[key]?.attachments ?? agentList?.attachments
+            for file in item.files {
+                let url = inbox.url(of: file, in: item)
+                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                if let limits, let refusal = AttachmentLimits.refusal(file.name, size: size, joining: draftAttachments[key] ?? [], limits: limits) {
+                    show(toast: refusal)
+                    continue
+                }
+                do {
+                    let mime = FilePrep.mime(of: file.name)
+                    if mime.hasPrefix("image/"), !FilePrep.inlinePictures.contains(mime) {
+                        let picture = FilePrep.prepared(try Data(contentsOf: url), name: file.name)
+                        draftAttachments[key, default: []].append(try store.files.keep(picture.data, name: picture.name, mime: picture.mime))
+                    } else {
+                        draftAttachments[key, default: []].append(try store.files.keep(movingFileAt: url, name: file.name, mime: mime))
+                    }
+                } catch {
+                    show(toast: "\(file.name) could not be kept on this iPhone. \(error.localizedDescription)")
+                }
+            }
+            if !item.text.isEmpty {
+                let typed = composerDrafts[key] ?? ""
+                composerDrafts[key] = typed.isEmpty ? item.text : "\(typed)\n\(item.text)"
+            }
+            inbox.remove(item.id)
+            opens = item.target
+        }
+        switch opens {
+        case .session(let id):
+            settingsShown = false
+            path = [.session(id)]
+        case .newSession(let agent, let spaceId):
+            settingsShown = false
+            path = []
+            sharedNewSession = SharedNewSession(agent: agent, spaceId: spaceId)
+        case nil:
+            break
+        }
+    }
+
+    /// What the share extension offers, from what Home and the agents last said: the sessions Home
+    /// lists first, the spaces of the profile it shows, and the agents that can start a session.
+    func saveShareTargets() {
+        guard let inbox = shareInbox, let home = store.home else { return }
+        var seen = Set<String>()
+        let sessions = (home.needsYou + (home.recent ?? home.spaces.flatMap(\.sessions)))
+            .filter { seen.insert($0.id).inserted }
+            .sorted { $0.lastActivity > $1.lastActivity }
+        let spaces = NewSessionDefaults.spaces(home, choice: profileChoice)
+        let targets = ShareTargets(macName: home.mac.name, sessions: Array(sessions.prefix(30)), spaces: spaces,
+                                   agents: agentList.map(NewSessionDefaults.agents)?.filter(\.available) ?? [],
+                                   spaceId: NewSessionDefaults.space(lastUsed: lastSpace, in: spaces)?.id)
+        disk.async { try? inbox.saveTargets(targets) }
+    }
+
     #if DEBUG
     @ObservationIgnored private var photoStaged = false
 
@@ -912,9 +999,11 @@ final class AppModel {
 
     private func forgetFetched() {
         everConnected = false
-        // A draft's files were for that Mac's sessions.
+        // A draft's files were for that Mac's sessions, and so is every share still waiting.
         store.files.remove(draftAttachments.values.joined())
         draftAttachments = [:]
+        shareInbox?.removeAll()
+        sharedNewSession = nil
         work.forget()
         sessionOptions = [:]
         optionsUnanswered = []
