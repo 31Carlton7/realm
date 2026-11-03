@@ -78,6 +78,10 @@ class RecordingFake extends FakeAdapter {
 // which is named for the first message — so no first message here is a scripted token.
 const SCRIPT = [
   { on: "ask-permission", emit: [{ kind: "tool" as const, name: "Bash", input: { command: "ls" }, needsPermission: true, result: "x" }] },
+  // Cards Realm raises itself, through the session's gateway: the adapter knows nothing of them.
+  { on: "open-a-pane", emit: [{ kind: "call" as const, tool: "realm-browser__browser_open", input: { url: "https://example.com" } }] },
+  { on: "ask-a-question", emit: [{ kind: "call" as const, tool: "realm-ui__ui_ask", input: { questions: [
+    { id: "db", prompt: "Which database?", kind: "choice", options: [{ label: "Postgres" }, { label: "SQLite" }] }] } }] },
 ];
 
 async function setup(kind: AgentKind, resume?: "continued" | "declined" | "unsupported") {
@@ -309,6 +313,26 @@ describe("sessions.move", () => {
     const responses = (await eventsOf(c, session.id)).filter((e: Any) => e.type === "permission_response");
     expect(responses.at(-1).payload.decision).toBe("deny");
   }, 30_000);
+
+  it("denies a browser tool's card and a ui_ask card when a move stops the turn they are open in", async () => {
+    const { c, session } = await setup("claude");
+    const stopAndMove = async (text: string, to: Any) => {
+      await c.call("sessions.send", { id: session.id, text });
+      await waitFor(async () => (await c.call("sessions.get", { id: session.id })).result.status === "waiting_permission");
+      expect((await c.call("sessions.move", { id: session.id, to, when: "stop" })).result.status).toBe("idle");
+    };
+    await stopAndMove("open-a-pane", { kind: "worktree" });
+    await stopAndMove("ask-a-question", { kind: "environment", environmentId: session.environmentId });
+
+    const events = await eventsOf(c, session.id);
+    const requests = events.filter((e: Any) => e.type === "permission_request");
+    expect(requests.map((e: Any) => e.payload.toolName)).toEqual(["browser_open", "ui_ask"]);
+    for (const { payload } of requests) {
+      const answers = events.filter((e: Any) => e.type === "permission_response" && e.payload.requestId === payload.requestId);
+      expect(answers.map((e: Any) => e.payload.decision), payload.toolName).toEqual(["deny"]);
+    }
+    expect(new SessionEventsStore(app!.db).findDanglingPermissions(session.id)).toEqual([]);
+  }, 60_000);
 
   it("merges the changes onto another base when the new worktree starts from one", async () => {
     const { c, repo, session, sp } = await setup("claude");
