@@ -6,7 +6,7 @@ import type { AccountKind, AgentKind, AgentSignIn } from "@realm/contracts";
 import { openDatabase } from "../db/database";
 import { AccountsStore } from "../store/accounts";
 import type { SignInAccount } from "../agents/signin-service";
-import { AccountsService, accountsRoot } from "./service";
+import { AccountsService, accountsRoot, undoRehome } from "./service";
 import { codexIdentity, type AccountProbe } from "./probe";
 
 function fresh(o: { probe?: (kind: AccountKind, dir: string | null) => AccountProbe; busy?: boolean } = {}) {
@@ -182,34 +182,42 @@ describe("re-homing a conversation for a new working directory", () => {
     seed(defaults.claude, "/elsewhere", "s1", "stale\n");
     const source = seed(defaults.claude, from, "s1", "current\n");
     mkdirSync(join(defaults.claude, "projects", project(from), "s1", "tool-results"), { recursive: true });
-    const undo = await svc.rehome("claude", "s1", null, { from, to });
+    const rehomed = await svc.rehome("claude", "s1", null, { from, to });
     const dest = join(defaults.claude, "projects", project(to), "s1.jsonl");
     expect(readFileSync(dest, "utf8")).toBe("current\n");
     expect(existsSync(join(defaults.claude, "projects", project(to), "s1", "tool-results"))).toBe(true);
     // One live copy: the old cwd's is out of the CLI's reach, and of a later account switch's.
     expect(existsSync(source)).toBe(false);
-    await undo!();
+    await undoRehome(rehomed!);
     expect(readFileSync(source, "utf8")).toBe("current\n");
     expect(existsSync(dest)).toBe(false);
     expect(existsSync(join(defaults.claude, "projects", project(to), "s1"))).toBe(false);
   });
 
-  it("writes over an older copy at the destination, and puts that copy back on undo", async () => {
+  it("writes over an older copy at the destination and its folder, and puts both back on undo", async () => {
     const { svc, defaults, home: h } = fresh();
     const home = realpathSync(h);
     const from = join(home, "wt"), to = join(home, "repo");
     mkdirSync(from); mkdirSync(to);
-    seed(defaults.claude, from, "s1", "newer\n");
+    const source = seed(defaults.claude, from, "s1", "newer\n");
     const dest = seed(defaults.claude, to, "s1", "older\n");
-    const undo = await svc.rehome("claude", "s1", null, { from, to });
+    const result = (cwd: string) => join(defaults.claude, "projects", project(cwd), "s1", "tool-results", "r.txt");
+    mkdirSync(join(result(from), ".."), { recursive: true }); writeFileSync(result(from), "newer result");
+    mkdirSync(join(result(to), ".."), { recursive: true }); writeFileSync(result(to), "older result");
+    writeFileSync(join(result(to), "..", "only-older.txt"), "x");
+    const rehomed = await svc.rehome("claude", "s1", null, { from, to });
     expect(readFileSync(dest, "utf8")).toBe("newer\n");
-    await undo!();
+    expect(readFileSync(result(to), "utf8")).toBe("newer result");
+    await undoRehome(rehomed!);
     expect(readFileSync(dest, "utf8")).toBe("older\n");
+    expect(readFileSync(result(to), "utf8")).toBe("older result");
+    expect(existsSync(join(result(to), "..", "only-older.txt"))).toBe(true);
+    expect(readFileSync(source, "utf8")).toBe("newer\n");
   });
 
   it("needs nothing for Codex, and cannot for an agent with no record Realm can find", async () => {
     const { svc, home } = fresh();
-    expect(await svc.rehome("codex", "th", null, { from: home, to: home })).toBeTypeOf("function");
+    expect(await svc.rehome("codex", "th", null, { from: home, to: home })).toEqual({ made: [], renamed: [] });
     expect(await svc.rehome("claude", "missing", null, { from: home, to: join(home, "x") })).toBeNull();
     expect(await svc.rehome("acp:cursor", "s", null, { from: home, to: join(home, "x") })).toBeNull();
   });

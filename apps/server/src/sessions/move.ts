@@ -9,6 +9,7 @@ import type { SettingsStore } from "../store/settings";
 import type { Db } from "../db/database";
 import { RpcError } from "../store/rows";
 import type { CapturedState, CheckpointGit } from "../workspace/checkpoints";
+import { undoRehome, type Rehomed } from "../accounts/service";
 
 /** The one-time word to the agent on its first turn after a move, until that turn spends it. */
 export const movePrefaceKey = (sessionId: string): string => `move.preface:${sessionId}`;
@@ -31,8 +32,8 @@ export type MoveDeps = {
   createWorktree: (input: { spaceId: string; title: string | null; from: string; base: string | null }) => Promise<Environment>;
   /** Take back a worktree this move made, directory, branch and row. */
   discardWorktree: (env: Environment, sourcePath: string) => Promise<void>;
-  /** Make the provider's record findable from the new cwd; the undo, or null where it cannot. */
-  rehome?: (kind: AgentKind, providerSessionId: string, accountId: string | null, cwd: { from: string; to: string }) => Promise<(() => Promise<void>) | null>;
+  /** Make the provider's record findable from the new cwd; what it changed, or null where it cannot. */
+  rehome?: (kind: AgentKind, providerSessionId: string, accountId: string | null, cwd: { from: string; to: string }) => Promise<Rehomed | null>;
   handoffNotes?: { write(session: Session, sides: { from: string; to: string }, how: "moved"): Promise<{ path: string; notes: string }> };
   /** Stop the engine the way the idle sweep does. */
   stop: (sessionId: string) => Promise<void>;
@@ -183,9 +184,9 @@ async function carryConversation(d: MoveDeps, s: Session, source: Environment, t
   const mode = AGENT_SESSION_RESUME[s.agentKind].mode;
   const id = s.providerSessionId;
   if (id !== null && s.agentKind === "claude") {
-    const undoRecord = await d.rehome?.(s.agentKind, id, s.accountId ?? null, { from: source.path, to: target.path });
-    if (undoRecord) {
-      undo.push(undoRecord);
+    const rehomed = await d.rehome?.(s.agentKind, id, s.accountId ?? null, { from: source.path, to: target.path });
+    if (rehomed) {
+      undo.push(() => undoRehome(rehomed));
       return { conversation: "native", providerSessionId: id };
     }
   } else if (id !== null && mode !== "none") {

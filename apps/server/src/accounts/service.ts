@@ -1,4 +1,4 @@
-import { copyFile, cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, cp, mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import { existsSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import {
@@ -160,43 +160,49 @@ export class AccountsService {
 
   /**
    * Make the provider's record of a conversation findable from a new working directory, for a session
-   * moving there. Answers how to undo it, or null where the record cannot be made findable and the
-   * caller carries the conversation as text instead.
+   * moving there. Answers what it changed, for `undoRehome`, or null where the record cannot be made
+   * findable and the caller carries the conversation as text instead.
    *
    * Claude resumes from `<folder>/projects/<name of the cwd>/<id>.jsonl`, and when that file is
    * missing it searches every project and resumes only a record it finds exactly once (CLI 2.1.316,
-   * measured), so the record is copied into the new cwd's project — over an older copy left by an
-   * earlier move to the same place — and the old cwd's copy is renamed out of the CLI's reach, so no
-   * stale copy is left for a later resume or account switch to find. Codex keeps its rollouts by date
-   * rather than by cwd and resumes with the cwd it is given, so there is nothing to copy.
+   * measured), so the record is copied into the new cwd's project — setting aside an older copy left
+   * by an earlier move to the same place — and the old cwd's copy is renamed out of the CLI's reach,
+   * so no stale copy is left for a later resume or account switch to find. Codex keeps its rollouts by
+   * date rather than by cwd and resumes with the cwd it is given, so there is nothing to copy.
    */
-  async rehome(kind: AgentKind, providerSessionId: string, accountId: string | null, cwd: { from: string; to: string }): Promise<(() => Promise<void>) | null> {
-    if (kind === "codex") return async () => {};
+  async rehome(kind: AgentKind, providerSessionId: string, accountId: string | null, cwd: { from: string; to: string }): Promise<Rehomed | null> {
+    if (kind === "codex") return { made: [], renamed: [] };
     if (kind !== "claude") return null;
     const folder = this.folderOf(kind, accountId);
     if (!folder) return null;
     const name = claudeProjectName(realOr(cwd.to));
     // Past this the CLI shortens the name with a hash of its own, which is not worth guessing at.
     if (name.length > CLAUDE_PROJECT_NAME_MAX) return null;
+    const done: Rehomed = { made: [], renamed: [] };
+    const moveAside = async (from: string, to: string) => {
+      await rm(to, { recursive: true, force: true });
+      await rename(from, to);
+      done.renamed.push([from, to]);
+    };
     try {
       const found = await claudeRecord(folder, providerSessionId, claudeProjectName(realOr(cwd.from)));
       if (!found) return null;
       const dest = join(folder, "projects", name, basename(found));
-      if (dest === found) return async () => {};
-      const before = existsSync(dest) ? await readFile(dest) : null;
-      await mkdir(dirname(dest), { recursive: true });
-      await copyFile(found, dest);
+      if (dest === found) return done;
       const beside = found.replace(/\.jsonl$/, "");
       const besideDest = dest.replace(/\.jsonl$/, "");
-      const besideNew = existsSync(beside) && !existsSync(besideDest);
-      if (existsSync(beside)) await cp(beside, besideDest, { recursive: true });
-      await rename(found, `${found}${CLAUDE_MOVED_SUFFIX}`);
-      return async () => {
-        await rename(`${found}${CLAUDE_MOVED_SUFFIX}`, found);
-        if (before) await writeFile(dest, before); else await rm(dest, { force: true });
-        if (besideNew) await rm(besideDest, { recursive: true, force: true });
-      };
+      for (const p of [dest, besideDest]) if (existsSync(p)) await moveAside(p, `${p}${CLAUDE_SET_ASIDE_SUFFIX}`);
+      await mkdir(dirname(dest), { recursive: true });
+      done.made.push(dest);
+      await copyFile(found, dest);
+      if (existsSync(beside)) {
+        done.made.push(besideDest);
+        await cp(beside, besideDest, { recursive: true });
+      }
+      await moveAside(found, `${found}${CLAUDE_MOVED_SUFFIX}`);
+      return done;
     } catch {
+      await undoRehome(done).catch(() => {});
       return null;
     }
   }
@@ -244,6 +250,18 @@ export class AccountsService {
 /** Appended to a Claude record a move left behind, so the CLI, which looks for `<id>.jsonl`, no
  *  longer finds it. */
 const CLAUDE_MOVED_SUFFIX = ".moved";
+/** Appended to an older copy a move would have written over, until the move is undone. */
+const CLAUDE_SET_ASIDE_SUFFIX = ".before-move";
+
+/** What `rehome` changed in an agent's folder, as plain paths so it can be kept across a restart:
+ *  what it made, and what it renamed, `[from, to]`, in order. */
+export type Rehomed = { made: string[]; renamed: [string, string][] };
+
+/** Put an agent's folder back as `rehome` found it. */
+export async function undoRehome(r: Rehomed): Promise<void> {
+  for (const p of r.made) await rm(p, { recursive: true, force: true });
+  for (const [from, to] of [...r.renamed].reverse()) if (existsSync(to)) await rename(to, from);
+}
 
 /** The longest project name Claude uses as it is; a longer one it cuts and suffixes with a hash. */
 const CLAUDE_PROJECT_NAME_MAX = 200;

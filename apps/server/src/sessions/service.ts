@@ -16,6 +16,7 @@ import { buildHandoffContext, defaultAccountId, hasAccounts, shouldSurfaceWrite,
 import type { FailoverHooks } from "./failover";
 import { handOver, modeAfterSwitch, modelNameOf } from "./handover";
 import { moveInFlightKey, movePrefaceKey, runMove, type MovePlan } from "./move";
+import type { Rehomed } from "../accounts/service";
 import type { CheckpointGit } from "../workspace/checkpoints";
 import { portEnv, type PortAllocator } from "../workspace/ports";
 import type { WorktreeService } from "../workspace/worktrees";
@@ -264,7 +265,7 @@ export class SessionService {
       envFor(kind: AgentKind, accountId: string | null | undefined): Record<string, string>;
       accountFor(kind: AgentKind, accountId: string | null | undefined): { label: string } | null;
       carry(kind: AgentKind, providerSessionId: string, fromId: string | null, toId: string | null, cwd?: string): Promise<boolean>;
-      rehome?(kind: AgentKind, providerSessionId: string, accountId: string | null, cwd: { from: string; to: string }): Promise<(() => Promise<void>) | null>;
+      rehome?(kind: AgentKind, providerSessionId: string, accountId: string | null, cwd: { from: string; to: string }): Promise<Rehomed | null>;
     };
     /** What moving a session to another checkout needs beyond the stores (`sessions.move`): the git
      *  half of checkpoints, and making and unmaking a worktree with its row. Optional — without it a
