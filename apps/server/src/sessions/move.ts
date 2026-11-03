@@ -262,8 +262,8 @@ export async function undoInterruptedMove(d: Pick<MoveDeps, "git" | "environment
   const left: string[] = [];
   if (kept.rehomed) await undoRehome(kept.rehomed).catch(() => {});
   if (kept.merged) {
-    const merged = await takeBackMerge(d, kept.merged, sessionId, d.home ?? homedir()).catch(() => null);
-    if (merged) left.push(merged);
+    const note = await takeBackMerge(d, kept.merged, sessionId, d.home ?? homedir()).catch(() => null);
+    if (note) left.push(note);
   }
   const made = kept.worktreeId ? d.environment(kept.worktreeId) : null;
   if (made) await d.discardWorktree(made, kept.sourcePath).catch(() => {});

@@ -1415,7 +1415,7 @@ export class SessionService {
     if (!fallback) return;
     this.d.settings.set(handoffContextKey(id), fallback.before ?? null);
     this.d.settings.set(moveFallbackKey(id), null);
-    for (const path of fallback.setAside ?? []) void rm(path, { recursive: true, force: true }).catch(() => {});
+    for (const path of fallback.setAside) void rm(path, { recursive: true, force: true }).catch(() => {});
   }
 
   /**
