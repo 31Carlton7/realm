@@ -1273,7 +1273,8 @@ export class SessionService {
         try { await this.interruptAndSettle(id, handle); } catch (e) { this.moveAborts.delete(id); throw e; }
       }
     }
-    await this.moveNow(id, plan, abort);
+    // A stop is the person's, as the Stop button is: the queue stays parked behind it.
+    await this.moveNow(id, plan, abort, midTurn);
     return this.get(id);
   }
 

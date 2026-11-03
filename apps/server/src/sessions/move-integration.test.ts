@@ -374,6 +374,19 @@ describe("sessions.move", () => {
     expect((await eventsOf(c, session.id)).some((e: Any) => e.type === "user_message" && e.payload.text === "later")).toBe(false);
   });
 
+  it("leaves the message queue parked behind a move that stops the turn", async () => {
+    const { c, session } = await setup("claude");
+    await c.call("sessions.send", { id: session.id, text: "ask-permission" });
+    await waitFor(async () => (await c.call("sessions.get", { id: session.id })).result.status === "waiting_permission");
+    await c.call("sessions.send", { id: session.id, text: "later", delivery: "queue" });
+    await c.call("sessions.move", { id: session.id, to: { kind: "worktree" }, when: "stop" });
+    await idle(c, session.id);
+    await new Promise((r) => setTimeout(r, 200));
+    expect((await eventsOf(c, session.id)).some((e: Any) => e.type === "moved")).toBe(true);
+    expect((await c.call("sessions.queued", { id: session.id })).result.queued).toHaveLength(1);
+    expect((await eventsOf(c, session.id)).some((e: Any) => e.type === "user_message" && e.payload.text === "later")).toBe(false);
+  });
+
   it("denies a browser tool's card and a ui_ask card when a move stops the turn they are open in", async () => {
     const { c, session } = await setup("claude");
     const stopAndMove = async (text: string, to: Any) => {
