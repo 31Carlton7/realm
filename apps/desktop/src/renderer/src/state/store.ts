@@ -6664,6 +6664,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           mergeSession(await api.moveSession(sessionId, to, keepSourceChanges, when));
         } catch (e) {
           if (waits) dropPendingMove(sessionId);
+          // The transcript's move_failed row already says why, and where the session still is.
+          if ((e as { code?: unknown } | null)?.code === "MOVE_FAILED") return;
           throw e;
         }
       },

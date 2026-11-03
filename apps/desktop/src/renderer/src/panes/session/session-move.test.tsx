@@ -119,6 +119,18 @@ describe("the Move sheet", () => {
     expect(store.getState().sheet).toBeNull();
   });
 
+  it("leaves a failed move to the transcript's notice, and toasts any other refusal", async () => {
+    const { api, store } = await mount();
+    const refuse = (code: string, message: string) => {
+      api.moveSession = async () => { throw Object.assign(new Error(message), { code }); };
+    };
+    refuse("MOVE_FAILED", "Could not move this session: the changes conflict.");
+    await store.getState().moveSession("se1", { kind: "worktree" }, { keepSourceChanges: true, when: "now", toLabel: "a new worktree", busy: false });
+    refuse("ENVIRONMENT_BUSY", "another session is working in that checkout");
+    store.getState().run(() => store.getState().moveSession("se1", { kind: "worktree" }, { keepSourceChanges: true, when: "now", toLabel: "a new worktree", busy: false }));
+    await waitFor(() => expect(store.getState().toasts.map((t) => t.text)).toEqual(["another session is working in that checkout"]));
+  });
+
   it("sends keepSourceChanges false when the switch is off", async () => {
     const { api } = await mount();
     pick("New worktree…");
