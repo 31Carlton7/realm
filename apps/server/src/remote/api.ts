@@ -11,7 +11,7 @@ import {
   type ScheduledTask, type Screen, type SessionOptions, type SessionRow, type Subagent,
 } from "@realm/remote";
 import {
-  FALLBACK_AGENT, isLive, LAST_AGENT_SETTING, modelLabel, needsYou, nestChildren, QUICK_CHAT_SETTING, quickChatIdOf, subagentState, upcomingOrder, type NeedsYouState,
+  FALLBACK_AGENT, isChild, isLive, LAST_AGENT_SETTING, modelLabel, needsYou, nestChildren, QUICK_CHAT_SETTING, quickChatIdOf, subagentState, upcomingOrder, type NeedsYouState,
 } from "@realm/view";
 import { resolveDefaultPermissionMode } from "../sessions/service";
 import { diffPage } from "./changes";
@@ -156,6 +156,13 @@ type Shared = { remembered: Record<string, string[]>; catalog: Map<string, Model
  *  shared settings. */
 const optionsInput = (probe: ProbeRow | null, init: InitFacts | null, shared: Shared): OptionsInput =>
   ({ probe, init, remembered: shared.remembered, catalog: shared.catalog });
+
+/** What a lead's row says of its sub-agents, as the sidebar's row says it (`agentsWaiting`): how many,
+ *  how many wait on a request, and the one that has waited longest. */
+function subagentsOn(agents: readonly Session[]): Pick<SessionRow, "subagents" | "subagentsWaiting" | "subagentWaiting"> {
+  const waiting = agents.filter((a) => a.status === "waiting_permission").sort((a, b) => a.updatedAt - b.updatedAt);
+  return { subagents: agents.length, subagentsWaiting: waiting.length, ...(waiting[0] ? { subagentWaiting: waiting[0].id } : {}) };
+}
 
 /** A sub-agent, as its lead's Agents tab says it: working (or waiting, or about to start) until the
  *  tab's state says it has ended, and then how. */
@@ -330,6 +337,7 @@ export class MobileApi {
       agentName: meta?.label ?? s.agentKind, agentMark: meta?.icon ?? "bot",
       modelLabel: meta ? modelLabel(s.agentKind, s.model, probe) : s.model ?? "",
       createdAt: s.createdAt, effort: s.effort, permissionMode: s.permissionMode, activityAt: s.activityAt, pinned: item?.pinned ?? false,
+      ...(isChild(s) && s.dispatchedBy?.sessionId ? { leadId: s.dispatchedBy.sessionId } : {}),
     };
   }
 
@@ -347,9 +355,12 @@ export class MobileApi {
     // its own — a waiting one is still in Needs you.
     const nested = nestChildren(lists.sessions.filter((s) => rows.has(s.id)).map((s) => ({ id: s.id, spaceId: s.spaceId, session: s, createdAt: s.createdAt })));
     const listed = nested.map((n) => n.row.session).sort(newestFirst);
+    const agentsOf = new Map(nested.filter((n) => n.agents.length > 0).map((n) => [n.row.id, n.agents.map((a) => a.session)]));
     const row = (s: Session, title?: string, spaceId = s.spaceId) => {
       const item = rows.get(s.id);
-      return this.row(s, title === undefined ? item : { title, pinned: item?.pinned ?? false }, spaceById.get(spaceId), need, probe);
+      const own = this.row(s, title === undefined ? item : { title, pinned: item?.pinned ?? false }, spaceById.get(spaceId), need, probe);
+      const agents = agentsOf.get(s.id);
+      return agents ? { ...own, ...subagentsOn(agents) } : own;
     };
     return { spaces: lists.spaces, spaceById, waiting, listed, row };
   }

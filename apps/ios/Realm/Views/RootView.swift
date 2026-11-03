@@ -26,6 +26,10 @@ struct RootView: View {
                         }
                 }
                 .renameAlert()
+                // A lead's sub-agents, from its row's press-and-hold.
+                .sheet(item: subagentsLead) { lead in
+                    SubagentsSheet(sessionId: lead.id)
+                }
                 // A link opened while a Mac is paired pairs over the top of it.
                 .sheet(isPresented: pairingOverTheTop) {
                     NavigationStack { PairView(overTheTop: true) }
@@ -47,6 +51,10 @@ struct RootView: View {
         } message: {
             Text("This iPhone will stop showing \(model.store.pairedMac?.macName ?? "this Mac")'s sessions.")
         }
+    }
+
+    private var subagentsLead: Binding<ShownLead?> {
+        Binding(get: { model.subagentsShown.map(ShownLead.init) }, set: { model.subagentsShown = $0?.id })
     }
 
     private var pairingOverTheTop: Binding<Bool> {
@@ -109,4 +117,9 @@ struct ToastView: View {
             .onTapGesture { model.toast = nil }
         }
     }
+}
+
+/// The lead a sub-agents sheet is up for.
+private struct ShownLead: Identifiable {
+    let id: String
 }

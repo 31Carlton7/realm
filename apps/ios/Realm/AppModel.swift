@@ -89,6 +89,8 @@ final class AppModel {
     var rowEdits = RowEdits()
     /// The Rename alert, while it is up: the session, and the title in its field.
     var renaming: RenameDraft?
+    /// The lead whose sub-agents' sheet a row's press-and-hold opened over Home, while it is up.
+    var subagentsShown: String?
     /// The agents a new session could be given, as the Mac last said; nil until it answers `agents.list`,
     /// and Home's compose button with it.
     var agentList: AgentList?

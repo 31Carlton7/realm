@@ -138,6 +138,34 @@ describe("home.get lists sessions as the sidebar does", () => {
     expect(h.spaces.map((sp) => sp.sessions.map((r) => r.id))).toEqual([["orphan", "lead"], ["own"]]);
     expect(h.recent?.map((r) => r.id)).toEqual(["orphan", "lead", "own"]);
   });
+
+  it("says on a lead's row how many sub-agents are its, and which of them has waited longest on you", async () => {
+    const lists: Lists = {
+      sessions: [
+        session("lead", "s1", { activityAt: 10 }),
+        session("first", "s1", { status: "waiting_permission", updatedAt: 40, dispatchedBy: { kind: "agent_run", sessionId: "lead" } }),
+        session("longest", "s1", { status: "waiting_permission", updatedAt: 20, dispatchedBy: { kind: "browser_agent_run", sessionId: "lead" } }),
+        session("working", "s1", { status: "running", updatedAt: 30, dispatchedBy: { kind: "agent_run", sessionId: "lead" } }),
+        session("quiet", "s1", { activityAt: 5 }),
+        session("orphan", "s1", { activityAt: 3, dispatchedBy: { kind: "agent_run", sessionId: "deleted" } }),
+        session("opened-beside", "s1", { activityAt: 2, dispatchedBy: { kind: "session_open", sessionId: "lead" } }),
+      ],
+      items: ["lead", "first", "longest", "working", "quiet", "orphan", "opened-beside"].map((id) => item(id, "s1", id)),
+    };
+    const h = HomeSchema.parse(await api().handle(channel(fakeRpc(lists)), "home.get", {}));
+    const said = (id: string) => {
+      const r = h.spaces[0]!.sessions.find((s) => s.id === id)!;
+      return [r.leadId, r.subagents, r.subagentsWaiting, r.subagentWaiting];
+    };
+    // THE MUTANTS: count every waiting session in the space (the lead's own count grows), take the
+    // newest waiter instead of the longest, or give a session opened beside its agent a lead.
+    expect(said("lead")).toEqual([undefined, 3, 2, "longest"]);
+    expect(said("quiet")).toEqual([undefined, undefined, undefined, undefined]);
+    expect(said("orphan")).toEqual(["deleted", undefined, undefined, undefined]);
+    expect(said("opened-beside")).toEqual([undefined, undefined, undefined, undefined]);
+    // Its sub-agents wait under it, not in Needs you.
+    expect(h.needsYou).toEqual([]);
+  });
 });
 
 describe("session.seen", () => {

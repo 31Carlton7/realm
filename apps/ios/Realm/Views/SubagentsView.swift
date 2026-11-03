@@ -213,8 +213,8 @@ struct SubagentsChip: View {
 }
 
 /// The sub-agents a session started, newest first. Pressing one puts the sheet away and opens its own
-/// session over the lead's, the way back leading to the lead.
-private struct SubagentsSheet: View {
+/// session over the lead's, the way back leading to the lead — opened from Home, the lead goes first.
+struct SubagentsSheet: View {
     let sessionId: String
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -227,6 +227,7 @@ private struct SubagentsSheet: View {
                 ForEach(subagents) { subagent in
                     Button {
                         dismiss()
+                        if model.path.last != .session(sessionId) { model.path.append(.session(sessionId)) }
                         model.path.append(.session(subagent.id))
                     } label: {
                         SubagentRow(subagent: subagent)
