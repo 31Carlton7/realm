@@ -1,0 +1,100 @@
+# Node 22, pnpm and the workspace's dependencies, for every job in build-desktop.yml.
+#
+# node_modules and the pnpm store are cached per OS and keyed on the lockfile. Only pushes to main write
+# them (save-cache): a pull request can read main's caches but not another branch's, so a cache written
+# on a pull request would serve nothing but that pull request's reruns, and push main's out of the 10 GB.
+# With node_modules restored, `pnpm install` finds it up to date and links nothing; the store is fetched
+# only when node_modules missed, so a changed lockfile downloads just what changed.
+#
+# Windows caches the store alone. pnpm links node_modules there with junctions, which come back from the
+# cache's tar as entries pnpm cannot follow (EPERM on realpath), so it installs from the store each time.
+name: Set up
+description: Node, pnpm and the workspace's dependencies, restored from main's cache.
+
+inputs:
+  hugeicons-token:
+    description: The HUGEICONS_TOKEN secret, which installs @hugeicons-pro. A pull request from a fork has none.
+    required: false
+  save-cache:
+    description: Whether to write node_modules and the store back to the cache when they were not restored.
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v4
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+
+    # @hugeicons-pro is a paid package on Hugeicons' own registry. Written to the user .npmrc so it never
+    # lands in the checkout. A pull request from a fork is given no secrets, so it skips this and builds
+    # with the free pack under the same names (docs/dev/hugeicons.md). Every other run still needs it.
+    - name: Hugeicons registry
+      if: ${{ !github.event.pull_request.head.repo.fork }}
+      shell: bash
+      env:
+        HUGEICONS_TOKEN: ${{ inputs.hugeicons-token }}
+      run: |
+        test -n "$HUGEICONS_TOKEN" || { echo "::error::Set the HUGEICONS_TOKEN repo secret to install @hugeicons-pro"; exit 1; }
+        printf '@hugeicons-pro:registry=https://npm.hugeicons.com/\n//npm.hugeicons.com/:_authToken=%s\n' "$HUGEICONS_TOKEN" >> ~/.npmrc
+
+    # A fork's caches are named apart from main's, so its run never restores main's copy of the Pro pack.
+    - name: Cache keys
+      id: keys
+      shell: bash
+      run: |
+        echo "prefix=${{ runner.os }}-${{ runner.arch }}-node$(node -p 'process.versions.node.split(".")[0]')-${{ github.event.pull_request.head.repo.fork && 'free' || 'pro' }}" >> "$GITHUB_OUTPUT"
+        echo "lockfile=${{ hashFiles('pnpm-lock.yaml') }}" >> "$GITHUB_OUTPUT"
+        echo "store=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+    - name: Restore node_modules
+      id: modules
+      if: runner.os != 'Windows'
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          node_modules
+          apps/*/node_modules
+          packages/*/node_modules
+          services/*/node_modules
+        key: modules-${{ steps.keys.outputs.prefix }}-${{ steps.keys.outputs.lockfile }}
+
+    - name: Restore the pnpm store
+      id: store
+      if: steps.modules.outputs.cache-hit != 'true'
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ steps.keys.outputs.store }}
+        key: store-${{ steps.keys.outputs.prefix }}-${{ steps.keys.outputs.lockfile }}
+        restore-keys: store-${{ steps.keys.outputs.prefix }}-
+
+    - name: Install
+      shell: bash
+      run: pnpm install --frozen-lockfile
+
+    # The Pro pack is an optional dependency, and pnpm skips one it cannot fetch without failing, so a
+    # token that has lapsed would otherwise build with the free pack and say nothing.
+    - name: Hugeicons Pro installed
+      if: ${{ !github.event.pull_request.head.repo.fork }}
+      shell: bash
+      run: test -e packages/ui/node_modules/@hugeicons-pro/core-stroke-rounded/package.json || { echo "::error::@hugeicons-pro did not install; check the HUGEICONS_TOKEN repo secret"; exit 1; }
+
+    - name: Save node_modules
+      if: inputs.save-cache == 'true' && steps.modules.outputs.cache-hit != 'true' && runner.os != 'Windows'
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          node_modules
+          apps/*/node_modules
+          packages/*/node_modules
+          services/*/node_modules
+        key: modules-${{ steps.keys.outputs.prefix }}-${{ steps.keys.outputs.lockfile }}
+
+    - name: Save the pnpm store
+      if: inputs.save-cache == 'true' && steps.modules.outputs.cache-hit != 'true' && steps.store.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ steps.keys.outputs.store }}
+        key: store-${{ steps.keys.outputs.prefix }}-${{ steps.keys.outputs.lockfile }}

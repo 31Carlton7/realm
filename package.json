@@ -6,6 +6,7 @@
   "engines": { "node": ">=22.13" },
   "pnpm": { "onlyBuiltDependencies": ["node-pty", "esbuild", "electron"] },
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks || exit 0",
     "build": "pnpm -r build",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -14,6 +15,7 @@
     "ios:release": "node scripts/ios-release.mjs",
     "ios:public-beta": "node scripts/ios-public-beta.mjs",
     "typecheck": "pnpm -r typecheck",
+    "lint": "oxlint --deny-warnings",
     "dev": "pnpm --filter @realm/server build && pnpm -r --parallel --filter @realm/server --filter @realm/desktop dev",
     "dist": "pnpm build && pnpm --filter @realm/desktop dist",
     "dist:dir": "pnpm build && pnpm --filter @realm/desktop dist:dir",
@@ -26,6 +28,7 @@
   "devDependencies": {
     "@realm/test-utils": "workspace:*",
     "@types/node": "^22.13.0",
+    "oxlint": "1.90.0",
     "typescript": "^5.6.0",
     "vitest": "^3.2.0"
   }
