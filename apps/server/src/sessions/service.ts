@@ -1339,8 +1339,9 @@ export class SessionService {
   }
 
   /** Run a move now. Held as a switch, so a message sent meanwhile waits for it, and the queue the
-   *  turn left behind drains once it is over, wherever the session ended up. */
-  private async moveNow(id: string, plan: Omit<MovePlan, "signal">, abort: AbortController): Promise<void> {
+   *  turn left behind drains once it is over, wherever the session ended up — unless the person
+   *  stopped that turn, which parks the queue as it does without a move. */
+  private async moveNow(id: string, plan: Omit<MovePlan, "signal">, abort: AbortController, interrupted = false): Promise<void> {
     const moves = this.d.moves;
     this.moveAborts.set(id, abort);
     try {
@@ -1376,7 +1377,7 @@ export class SessionService {
       })());
     } finally {
       this.moveAborts.delete(id);
-      void this.drainQueue(id).catch(() => {});
+      if (!interrupted) void this.drainQueue(id).catch(() => {});
     }
   }
 
@@ -2426,7 +2427,7 @@ export class SessionService {
         // Not beside a move already under way, which a request to stop the turn started.
         const move = this.moveAborts.has(id) ? undefined : this.pendingMoves.get(id);
         this.pendingMoves.delete(id);
-        if (move) void this.moveNow(id, move, new AbortController()).catch(() => {});
+        if (move) void this.moveNow(id, move, new AbortController(), ev.payload.interrupted === true).catch(() => {});
         else if (!ev.payload.interrupted) void this.drainQueue(id).catch(() => {});
         /* …and then the goal, if this session is pursuing one. AFTER the drain and never instead of
            it: a message the user typed during the turn is the next turn, and the goal picks up
