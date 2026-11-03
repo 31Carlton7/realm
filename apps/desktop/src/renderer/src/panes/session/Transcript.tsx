@@ -29,7 +29,7 @@ import { useEnterTracker } from "./transcript-enter";
 import { TranscriptSummary } from "./TranscriptSummary";
 import { ReportFold } from "../agents-tab/ReportFold";
 import { MoveProgress, moveStepLabel } from "./MoveProgress";
-import { moveFailureReason, movedSentence } from "./move-place";
+import { moveFailureReason, moveLeftAsItWas, movedSentence } from "./move-place";
 import { MediaStrip } from "./media/MediaView";
 import { useMediaFiles } from "./media/use-media";
 import { NEAR_END_PX, SETTLE_MS, applyScrollTop, markOf, recallScroll, rememberScroll, type ScrollMark } from "../scroll-memory";
@@ -850,10 +850,14 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             </div>;
             // A move that did not happen changed nothing, so it is told as calmly as the seams are.
             // The server's note repeats where the session still is, which is the tooltip's to say.
-            case "move_failed": return <div key={key} className="msg-handoff" data-move="failed" role="note" title={b.note} data-enter={enter || undefined}>
-              <span className="move-failed-head">Couldn't move this session.<span className="msg-handoff-tries">{moveStepLabel(b.step, agentLabel)}</span></span>
-              <span className="move-failed-reason" data-selectable>{moveFailureReason(b.reason)}</span>
-            </div>;
+            case "move_failed": {
+              const left = moveLeftAsItWas(b.note);
+              return <div key={key} className="msg-handoff" data-move="failed" role="note" title={b.note} data-enter={enter || undefined}>
+                <span className="move-failed-head">Couldn't move this session.<span className="msg-handoff-tries">{moveStepLabel(b.step, agentLabel)}</span></span>
+                <span className="move-failed-reason" data-selectable>{moveFailureReason(b.reason)}</span>
+                {left && <span className="move-failed-reason" data-selectable>{left}</span>}
+              </div>;
+            }
             // Not a seam: nothing changed about the agent here, and wearing the seam's class would
             // say it had. This is a mark about the READER — where they stopped — so it is the one
             // rule in the column that carries the accent, and it says so in the second person.

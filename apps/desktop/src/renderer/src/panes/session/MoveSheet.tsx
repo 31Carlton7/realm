@@ -9,6 +9,7 @@ import { moveFailureReason, shortPath } from "./move-place";
 const reason = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const filesWord = (n: number) => (n === 1 ? "1 changed file" : `${n} changed files`);
 
+const workList = new Intl.ListFormat("en", { type: "conjunction" });
 const stopsWorkNote = (agent: string, work: string) => `${agent} is still running ${work}, which moving would stop. Stop and move to end it and move.`;
 
 /** Why the server would not start a move, as the sheet says it. `stopsWork` is the agent's
@@ -151,7 +152,7 @@ export function MoveSheet({ sessionId, to }: { sessionId: string; to: MoveTarget
             </label>
           </div>
           {busy && waitingOnYou && <p className="share-sheet-note">{agent} is waiting on a request. Answer it first to move after this turn, or Stop and move, which denies it.</p>}
-          {work.length > 0 && !refused && <p className="share-sheet-note">{stopsWorkNote(agent, work.join(", "))}</p>}
+          {work.length > 0 && !refused && <p className="share-sheet-note">{stopsWorkNote(agent, workList.format(work))}</p>}
           {busy && !waitingOnYou && !stopsWork && <p className="share-sheet-note">{agent} is working. The move can wait for this turn to end, or stop it.</p>}
           {options.pending && (
             <p className="share-sheet-note move-pending">A move is already waiting for this turn.

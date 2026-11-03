@@ -25,6 +25,14 @@ export function moveFailureReason(reason: string): string {
   return /[.!?]$/.test(sentence) ? sentence : `${sentence}.`;
 }
 
+/** What a failed move's note says after its standard lead: the server's word on a checkout the
+ *  rollback left as it was, its paths shortened. Empty when the rollback put everything back. */
+export function moveLeftAsItWas(note: string): string {
+  const lead = ", as it was. ";
+  const at = note.indexOf(lead);
+  return at < 0 ? "" : note.slice(at + lead.length).trim().replace(PATH_IN_TEXT, (path) => shortPath(path));
+}
+
 /** A segment this long is an id or a temp name, which says nothing a reader can use. */
 const LONG_SEGMENT = 20;
 

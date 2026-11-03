@@ -153,6 +153,14 @@ describe("the Move sheet", () => {
     expect(dialog).not.toHaveTextContent("The move can wait for this turn to end");
   });
 
+  it("lists each kind of work a move would stop in words, as one sentence", async () => {
+    await mount({ moveOptions: { stops: ["a background task", "a rewind", "an active goal, durable run or delegation"] } });
+    pick("realm/fix-tests");
+    const dialog = await sheet();
+    expect(await within(dialog).findByText("Fake agent is still running a background task, a rewind, and an active goal, durable run or delegation, which moving would stop. Stop and move to end it and move.")).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Move" })).toBeNull();
+  });
+
   it("says a move is already under way in the sheet, and never shows a raw error", async () => {
     const { api, store } = await mount();
     refuse(api, "SESSION_SWITCHING", "this session is already switching");
@@ -287,5 +295,26 @@ describe("a move in the transcript", () => {
     expect(line).not.toHaveTextContent("It is still in");
     expect(line).toHaveAttribute("title", note);
     expect(line.closest('[role="alert"]')).toBeNull();
+  });
+
+  it("says when a failed move left the checkout it merged into as it was, its path shortened", async () => {
+    const { store } = await mount({ status: "moving" });
+    const left = "The changes it merged into /Users/me/Realm/worktrees/01M6HDE0JV8Y1B2DVQZN8B29YC/fix-tests are still there, since another session is working there.";
+    const note = `Could not move this session: the agent did not start. It is still in ~/realm, as it was. ${left}`;
+    act(() => store.getState().applySessionEvent({ seq: 5, sessionId: "se1", ephemeral: false, event: sessionEvent("move_failed", {
+      moveId: "m1", step: "boot", reason: "the agent did not start", note }) }));
+    const line = (await screen.findByText("Couldn't move this session.", { exact: false })).closest(".msg-handoff")!;
+    const reasons = [...line.querySelectorAll(".move-failed-reason")].map((r) => r.textContent);
+    expect(reasons).toEqual(["The agent did not start.", "The changes it merged into ~/Realm/worktrees/…/fix-tests are still there, since another session is working there."]);
+    expect(line).not.toHaveTextContent("It is still in");
+    expect(line.closest('[role="alert"]')).toBeNull();
+  });
+
+  it("adds no second line when the rollback put everything back", async () => {
+    const { store } = await mount({ status: "moving" });
+    act(() => store.getState().applySessionEvent({ seq: 5, sessionId: "se1", ephemeral: false, event: sessionEvent("move_failed", {
+      moveId: "m1", step: "boot", reason: "the agent did not start", note: "Could not move this session: the agent did not start. It is still in ~/realm, as it was." }) }));
+    const line = (await screen.findByText("Couldn't move this session.", { exact: false })).closest(".msg-handoff")!;
+    expect(line.querySelectorAll(".move-failed-reason")).toHaveLength(1);
   });
 });
