@@ -57,7 +57,7 @@ describe("a failed move's reason", () => {
   });
 
   it("leaves words with a slash in them alone", () => {
-    expect(moveFailureReason("the changes conflict with the work already there, in src/cart.ts"))
-      .toBe("The changes conflict with the work already there, in src/cart.ts.");
+    expect(moveFailureReason("the changes conflict with the work already there, in src/lib/cart.ts"))
+      .toBe("The changes conflict with the work already there, in src/lib/cart.ts.");
   });
 });
