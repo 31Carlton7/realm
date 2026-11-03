@@ -264,7 +264,7 @@ async function main() {
   await evalIn(c, `__live.click(__live.button('Add account…'))`);
   await until(() => evalIn(c, `/Finish signing in to Account 3/.test(__live.q('.mp-account .account-signin')?.textContent ?? '')`), 15_000, "sign-in step");
   check("the sign-in is followed in the picker, with the page one click away",
-    await evalIn(c, `!!__live.button('Open the page again', __live.q('.mp-account'))`));
+    await evalIn(c, `!!__live.button('Open again', __live.q('.mp-account'))`));
   await shots(c, "2-add-account", ".model-picker", 16);
   await evalIn(c, `__live.click(__live.button('Cancel', __live.q('.mp-account')))`);
   await until(() => evalIn(c, `!__live.q('.mp-account .account-signin')`), 10_000, "sign-in cancelled");

@@ -537,15 +537,20 @@ function SwitchAsk({ agent, from, busy, switching, error, onCancel, onSwitch }: 
 }
 
 /**
- * Which login the session's agent runs on, as one row in the foot: "Account", the one in force and its
- * email, and a disclosure that opens the agent's accounts as a list, ticked on the current one, with
- * "Add account…" last. Adding runs the CLI's own sign-in in a new folder and follows it here — the
- * page, a code if the page shows one — and the list comes back with the account in it.
+ * Which login the session's agent runs on, as one well in the foot: "Account" and the one in force.
+ * Opened, the well holds the agent's accounts in that place instead, each once as a row of one kind —
+ * its name and the email its CLI says it is signed in as, or "CLI sign-in" for the CLI's own folder
+ * before it has said one — the current one ticked, with "Add account…" last, so the account in force
+ * is never named twice. Adding runs the CLI's own sign-in in a new folder and follows it in the same
+ * well — the page, a code if the page shows one — and the list comes back with the account in it.
  */
 function AccountSection({ control, onGrow }: { control: AccountControl; onGrow: () => void }) {
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const box = useRef<HTMLDivElement>(null);
+  /** Opened from the keyboard: the trigger it was on is gone, so the keyboard goes to the ticked row. */
+  const [byKey, setByKey] = useState(false);
   const current = control.accounts.find((a) => a.id === control.current) ?? null;
   const signIn = adding ? control.signInOf(adding) : undefined;
   const live = signInLive(signIn) ? signIn : null;
@@ -555,44 +560,61 @@ function AccountSection({ control, onGrow }: { control: AccountControl; onGrow: 
     setAdding(null);
     setError(signIn.state === "failed" ? "The sign-in didn't finish. Try again from Settings ▸ Engines." : null);
   }, [adding, signIn, live]);
+  // A press anywhere else on the picker puts the list away; one outside the picker closes the picker.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    window.addEventListener("pointerdown", onDown);
+    return () => window.removeEventListener("pointerdown", onDown);
+  }, [open]);
+  // The list and the trigger take each other's place, so the keyboard is handed across each way.
+  useEffect(() => {
+    if (!byKey) return;
+    box.current?.querySelector<HTMLElement>(open ? '[aria-selected="true"]' : ".mp-account-head")?.focus();
+  }, [open, byKey]);
   const act = async (work: () => Promise<void>) => {
     setError(null);
     try { await work(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
-  const toggle = () => {
-    if (!open) { onGrow(); control.onOpen(); }
-    setOpen(!open);
+  const pick = (id: string) => {
+    setOpen(false);
+    if (id !== control.current) void act(() => control.onPick(id));
   };
   return (
     <div className="mp-account" role="group" aria-label="Account">
-      <button type="button" className="mp-account-head" aria-expanded={open} onClick={toggle}
-        title={current ? accountName(current) : undefined}>
-        <span className="mp-seg-label">Account</span>
-        <span className="mp-account-name">{current?.label ?? "Default"}</span>
-        {current?.email && <span className="mp-account-email">{current.email}</span>}
-        <Icon name="chevronDown" size={12} className="mp-account-caret" />
-      </button>
-      {open && !live && (
-        <div className="mp-account-list" role="listbox" aria-label="Accounts">
-          {control.accounts.map((a) => (
-            <div key={a.id} role="option" aria-selected={a.id === control.current} tabIndex={-1} className="mp-account-row"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => { if (a.id !== control.current) void act(() => control.onPick(a.id)); }}>
-              <span className="mp-account-name">{a.label}</span>
-              {a.email && <span className="mp-account-email">{a.email}</span>}
-              {a.signedIn === false && <span className="mp-row-hint" data-tone="warning">Signed out</span>}
-              {a.id === control.current && <Icon name="check" size={14} className="mp-check" />}
-            </div>
-          ))}
-          <button type="button" className="mp-account-row mp-account-add" onMouseDown={(e) => e.preventDefault()}
-            onClick={() => void act(async () => { setAdding(await control.onAdd()); })}>
-            <Icon name="add" size={14} />Add account…
-          </button>
-        </div>
-      )}
-      {live && adding && (
-        <AccountSignInSteps className="mp-account-signin" signIn={live} name={control.accounts.find((a) => a.id === adding)?.label ?? "the new account"}
+      {live && adding ? (
+        <AccountSignInSteps signIn={live} name={control.accounts.find((a) => a.id === adding)?.label ?? "the new account"}
           onCode={(code) => control.onCode(adding, code)} onCancel={() => { setAdding(null); control.onCancel(adding); }} />
+      ) : (
+        <div className="mp-account-well" ref={box}>
+          {!open && <span className="mp-seg-label">Account</span>}
+          {open ? (
+            <div className="mp-account-list" role="listbox" aria-label="Accounts">
+              {control.accounts.map((a) => (
+                <button key={a.id} type="button" role="option" aria-selected={a.id === control.current} className="mp-account-row"
+                  title={accountName(a)} onMouseDown={(e) => e.preventDefault()} onClick={() => pick(a.id)}>
+                  <span className="mp-account-name">{a.label}</span>
+                  {a.email ? <span className="mp-account-email">{a.email}</span>
+                    : a.configDir === null && <span className="mp-account-email">CLI sign-in</span>}
+                  {a.signedIn === false && <span className="mp-row-hint" data-tone="warning">Signed out</span>}
+                  {a.id === control.current && <Icon name="check" size={14} className="mp-check" />}
+                </button>
+              ))}
+              <button type="button" className="mp-account-row mp-account-add" onMouseDown={(e) => e.preventDefault()}
+                onClick={() => { setOpen(false); void act(async () => { setAdding(await control.onAdd()); }); }}>
+                <Icon name="add" size={14} />Add account…
+              </button>
+            </div>
+          ) : (
+            <button type="button" className="mp-account-row mp-account-head" aria-expanded={false} aria-haspopup="listbox"
+              title={current ? accountName(current) : undefined} onMouseDown={(e) => e.preventDefault()}
+              onClick={(e) => { onGrow(); control.onOpen(); setByKey(e.detail === 0); setOpen(true); }}>
+              <span className="mp-account-name">{current?.label ?? "Default"}</span>
+              {current?.email && <span className="mp-account-email">{current.email}</span>}
+              <Icon name="unfold" size={12} className="mp-account-caret" />
+            </button>
+          )}
+        </div>
       )}
       {error && <p className="mp-account-note" data-tone="warning">{error}</p>}
     </div>
