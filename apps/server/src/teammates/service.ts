@@ -1,7 +1,7 @@
 import { statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import {
-  AGENT_META, DEFAULT_MODEL_LABEL, TEAMMATE_CLOCK_TURN_MS, TEAMMATE_PERMISSION_MODES, TEAM_MESSAGE_WAIT_MS, TeamMessageArgsSchema, fenceAgentOutput, normalizeHandle, sessionLink, teammateHandle, teammateIconFromSeed,
+  TEAMMATE_CLOCK_TURN_MS, TEAMMATE_PERMISSION_MODES, TEAM_MESSAGE_WAIT_MS, TeamMessageArgsSchema, fenceAgentOutput, normalizeHandle, sessionLink, teammateHandle, teammateIconFromSeed,
   type CreateTeammateInput, type MentionRef, type ReorderTeammatesInput, type Schedule, type Session, type SessionEvent, type SessionStatus, type Teammate,
   type TeammatePermissionMode, type TeammateSchedule, type TeammateState, type TeammateTaskSession, type UpdateTeammateInput,
 } from "@realm/contracts";
@@ -9,6 +9,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { ProviderCallContext } from "../mcp/gateway";
 import { clip, err, ok, parseArgs } from "../mcp/tool-result";
 import type { RpcServer } from "../rpc/server";
+import { modelNameOf } from "../sessions/handover";
 import type { SessionService } from "../sessions/service";
 import type { DelegationEngine, ActiveRun } from "../delegation/engine";
 import type { ScheduleService } from "../schedules/service";
@@ -73,7 +74,7 @@ export class TeammatesService {
     store: TeammatesStore;
     spaces: Pick<SpacesStore, "get">;
     environments: Pick<EnvironmentsStore, "ensurePrimary" | "ensureAt">;
-    sessions: Pick<SessionService, "create" | "get" | "send" | "setOptions" | "events" | "retitleIf" | "queuedFor" | "interrupt">;
+    sessions: Pick<SessionService, "create" | "get" | "send" | "setOptions" | "events" | "retitleIf" | "queuedFor" | "interrupt" | "probeCached">;
     engine: Pick<DelegationEngine, "begin" | "end" | "awaitAnswer" | "parentInterrupted">;
     schedules: Pick<ScheduleService, "forTeammate" | "setForTeammate">;
     rpc: Pick<RpcServer, "broadcast">;
@@ -525,11 +526,12 @@ export class TeammatesService {
     const me = this.sessionTeammate(ctx.sessionId);
     const rows = this.list(ctx.spaceId);
     if (rows.length === 0) return ok("This space has no teammates.");
+    const probes = this.d.sessions.probeCached()?.rows ?? [];
     return ok(rows.map((t) => {
       const what = firstLine(t.brief) || t.name;
       const state = t.state === "needs-you" ? "needs the person" : t.state;
       const task = t.liveTask ? ` on "${t.liveTask}"` : "";
-      const model = `${AGENT_META[t.agentKind].label} · ${t.model ?? DEFAULT_MODEL_LABEL[t.agentKind]}`;
+      const model = modelNameOf(t.agentKind, t.model, probes);
       return `- @${t.handle}${t.lead ? " (Lead)" : ""}${t.id === me?.id ? " (you)" : ""} — ${t.name}: ${clip(what, 160)} · ${state}${task} · ${model}`;
     }).join("\n"));
   }

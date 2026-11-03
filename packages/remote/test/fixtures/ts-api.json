@@ -2870,7 +2870,8 @@
             "effort": null,
             "permissionMode": "default",
             "activityAt": 1789999900000,
-            "pinned": false
+            "pinned": false,
+            "leadId": "01JSESSION00000000000000000"
           },
           "goal": "Backfill the theme column for every existing row, 500 at a time.",
           "startedAt": 1789999500000,
@@ -2898,7 +2899,8 @@
             "effort": null,
             "permissionMode": "default",
             "activityAt": 1789999400000,
-            "pinned": false
+            "pinned": false,
+            "leadId": "01JSESSION00000000000000000"
           },
           "goal": "Write the migration that adds the theme column, with a down step.",
           "startedAt": 1789999000000,
@@ -2926,7 +2928,8 @@
             "effort": null,
             "permissionMode": "default",
             "activityAt": 1789998300000,
-            "pinned": false
+            "pinned": false,
+            "leadId": "01JSESSION00000000000000000"
           },
           "goal": "Profile how long the theme switch takes on a cold start.",
           "startedAt": 1789998000000,

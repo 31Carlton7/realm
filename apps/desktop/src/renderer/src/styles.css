@@ -1568,32 +1568,42 @@ kbd { font: 11px var(--font-mono); }
 .mp-switch-note[data-tone="warning"] { color: var(--rl-warning); }
 .mp-switch-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 
-/* Which login the agent runs on: one row in the foot, the label column the segments use, the account
-   by name and its email quieter beside it; opened, the agent's accounts as rows of the list's own kind. */
-.mp-account { display: flex; flex-direction: column; gap: 2px; }
-.mp-account-head { display: flex; align-items: center; gap: 10px; min-width: 0; height: 28px; padding: 0 6px 0 0; border: 0; background: none; font: inherit; text-align: left;
-  --btn-h: 28px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; }
-.mp-account-head:hover { background: var(--hover); }
+/* Which login the agent runs on: one well of the segments' own fill and curve, holding the label
+   and the account in force. Opened, the same well holds the accounts as rows, so nothing is drawn
+   twice; the sign-in panel takes the well's place on the same fill. */
+.mp-account { display: flex; flex-direction: column; gap: 4px; }
+.mp-account-well { display: grid; grid-template-columns: 62px minmax(0, 1fr); column-gap: 8px; align-items: start; min-width: 0;
+  padding: 2px 2px 2px 10px; border-radius: var(--r-ctl); corner-shape: squircle; background: var(--hover); }
+.mp-account-well > .mp-seg-label { width: auto; line-height: 28px; }
+/* Opened, the list is the well's whole width, its rows' words on the label's edge. */
+.mp-account-list { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 2px; margin-left: -8px; }
+.mp-account-row { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; height: 28px; padding: 0 8px; border: 0; background: none;
+  font: inherit; color: var(--rl-text-bright); text-align: left; border-radius: calc(var(--r-ctl) - 2px); corner-shape: squircle; }
+.mp-account-row:hover { background: var(--hover-2); }
+.mp-account-row:focus-visible { outline-offset: -2px; }
 .mp-account-name { flex: none; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
 .mp-account-email { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--rl-text-dim); }
-.mp-account-caret { margin-left: auto; flex: none; color: var(--rl-text-faint); transition: transform var(--dur-hover) ease; }
-.mp-account-head[aria-expanded="true"] .mp-account-caret { transform: rotate(180deg); }
-.mp-account-list { display: flex; flex-direction: column; padding-left: 82px; }
-.mp-account-row { display: flex; align-items: center; gap: 8px; min-width: 0; height: 28px; padding: 0 6px; border: 0; background: none; font: inherit; color: var(--rl-text-bright); text-align: left;
-  --btn-h: 28px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle; }
-.mp-account-row:hover { background: var(--hover); }
+.mp-account-caret { margin-left: auto; flex: none; color: var(--rl-text-faint); }
 .mp-account-row .mp-check { margin-left: auto; }
-.mp-account-add { gap: 6px; font-size: 13px; color: var(--rl-text-dim); }
+/* Adding is a step after the choices, not one of them: a seam above it and the quiet ink. */
+.mp-account-add { position: relative; margin-top: 2px; gap: 6px; font-size: 13px; color: var(--rl-text-dim); }
+.mp-account-add::before { content: ""; position: absolute; top: -3px; left: 8px; right: 8px; border-top: var(--hairline-w) solid var(--rl-hairline); }
 .mp-account-add:hover { color: var(--rl-text-bright); }
-.mp-account-signin { padding: 4px 0 2px 82px; }
-.mp-account-note { margin: 0; padding-left: 82px; font-size: 12px; line-height: 17px; color: var(--rl-text-dim); text-wrap: pretty; }
+.mp-account-note { margin: 0; padding: 0 10px; font-size: 12px; line-height: 17px; color: var(--rl-text-dim); text-wrap: pretty; }
 .mp-account-note[data-tone="warning"] { color: var(--rl-warning); }
 
-/* An account's sign-in while it runs, wherever it is followed — the picker's foot, an engine's card. */
-.account-signin { display: flex; flex-direction: column; gap: 6px; }
-.account-signin-step { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; line-height: 17px; color: var(--rl-text-dim); }
-.account-signin-code { display: flex; gap: 6px; }
-.account-signin-actions { display: flex; gap: 4px; margin-left: -7px; }
+/* An account's sign-in while it runs, wherever it is followed — the picker's foot, an engine's card:
+   one panel on the hover fill, its field and buttons on the control rung inside it. */
+.account-signin { --pad: 10px; display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: var(--pad);
+  border-radius: calc(var(--r-ctl) + var(--pad)); corner-shape: squircle; background: var(--hover); }
+.account-signin-step { margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); text-wrap: pretty; }
+.account-signin .account-signin-code { flex: none; width: 100%; box-sizing: border-box; background: var(--surface); }
+/* The placeholder is a sentence; only what is pasted is the code. */
+.account-signin-code::placeholder { font-family: var(--font-ui); color: var(--rl-text-faint); }
+.account-signin-actions { display: flex; align-items: center; gap: 6px; }
+.account-signin-actions > .btn-quiet { flex: none; white-space: nowrap; }
+.account-signin-actions > :first-child { margin-left: -7px; }
+.account-signin-actions > :first-child:not(:only-child) { margin-right: auto; }
 
 /* How the answer is produced: effort, fast mode, and whatever the control row could not fit. */
 .mp-foot { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 12px; border-top: var(--hairline-w) solid var(--rl-hairline); }
@@ -4355,6 +4365,10 @@ button.subagent-brief-chip:focus-visible { outline: none; box-shadow: var(--rl-o
 .delegation-line[data-state="done"] .tool-status { color: var(--ink-3); }
 .delegation-line[data-state="failed"] .tool-status, .delegation-line[data-state="timeout"] .tool-status { color: var(--rl-danger); }
 .delegation-line .tool-row:disabled { color: var(--ink); opacity: 1; }
+/* A message to a teammate: the same line, led by the teammate's icon, name and handle, its state in
+   words at the end. What it was asked is the one part of unbounded length, so it alone yields. */
+.teammate-call .tool-row > svg { flex: none; }
+.teammate-call-handle { flex: none; font-size: 12px; color: var(--ink-3); white-space: nowrap; }
 
 .plan-implement-with { gap: 5px; }
 /* The settled twin of .msg-working: the same verb in the past tense, with the wait it cost. Quieter
@@ -10850,6 +10864,13 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .sb-team { display: flex; flex-direction: column; }
 .sb-caption-row { min-height: 26px; }
 .sb-caption-row > .item-row { padding-top: 6px; padding-bottom: 2px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+/* A caption folds its list. Its caret stands in the nested indent, on the column a teammate's caret
+   uses, so the word stays where it is as the caret turns. */
+.sb-caption-row .sb-caret { position: absolute; left: 11px; top: 6px; height: 16px; }
+.sb-caption-row > .item-row:hover .sb-caret { color: var(--rl-text-bright); }
+/* The Team caption is the first row under the section's clip, which would take the top off a ring
+   drawn outside it. */
+.sb-caption-row > .item-row:focus-visible { outline-offset: -2px; }
 /* A teammate's disclosure stands just left of its icon, in the nested row's own indent — the column
    the space's caret uses one level up — and only on a row that has sessions to show. */
 .sb-teammate > .sb-team-caret { position: absolute; z-index: 1; left: 9px; top: 50%; translate: 0 -50%; width: 16px; height: 22px;

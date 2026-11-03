@@ -267,7 +267,8 @@ Electron, Chromium, Node and SQLite versions were read from the Electron binary 
 | Tests | Vitest | 3.2.7 | every package (`vitest.config.ts` projects) |
 | | jsdom, Testing Library | 25.0.1, 16.3.2 | renderer components |
 | | `*-live.mjs` scripts | in repo | the built app, driven over CDP |
-| CI | GitHub Actions | `build-desktop.yml` | typecheck, test and unsigned packages on macOS, Linux and Windows |
+| Lint | Oxlint | 1.90.0 | the whole repo, correctness rules as errors (`.oxlintrc.json`) |
+| CI | GitHub Actions | `build-desktop.yml` | lint, typecheck, test and unsigned packages on macOS, Linux and Windows |
 | Site | Next.js, React | 16.3.4, 19.2.8 | realm.computer |
 | | Tailwind CSS | 4.3.3 | the site's styles |
 | | vgpu | 0.3.1 | the WebGPU field behind the landing page |

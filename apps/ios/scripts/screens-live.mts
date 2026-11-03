@@ -26,7 +26,8 @@
  *   queue <key> <text>      a message to a staged session's queue, from the Mac (`queued` is staged with
  *                a turn of half an hour and two messages behind it; "Hold the queue" starts another)
  *   teammate <key> <brief>  a sub-agent for a staged lead (`lead`); a brief with "Backfill the theme
- *                column" in it works for ten minutes, and prints `{"teammate": <its session>}`
+ *                column" in it works for ten minutes, one with "Check the theme's contrast" waits on a
+ *                permission, and it prints `{"teammate": <its session>}`
  *   review       the Studio team's role sends another post to Review
  *   midturn queue|steer   what a message typed during a turn does on this Mac
  *   quit
@@ -93,6 +94,7 @@ const SCRIPT = [
   // a long turn, a team's role sending a post to Review, and a scheduled task's run. The sub-agents'
   // briefs first of all: what each is handed carries its lead's conversation too, and the first entry
   // that matches is the one that runs.
+  { on: "Check the theme's contrast", emit: [{ kind: "tool", name: "Bash", needsPermission: true, input: { command: "pnpm contrast --theme dark" }, result: "Every pair passes AA." }] },
   { on: "Write the theme migration", emit: [{ kind: "usage", costUsd: 3.75 }, { kind: "text", text: "Added `migrations/0042_theme.sql` with an up and a down step. The suite passes." }] },
   { on: "Backfill the theme column", emit: [{ kind: "text", paceMs: 3_000, text: slowly(10) }] },
   { on: "Plan dark mode with two teammates", emit: [

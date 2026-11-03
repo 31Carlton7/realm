@@ -44,6 +44,15 @@ export const SessionRowSchema = z.object({
   activityAt: z.number().optional(),
   /** Pinned in the desktop's sidebar, so Home lists it in Pinned. */
   pinned: z.boolean().optional(),
+  /** The session that started it, where it is a sub-agent (`isChild`). Absent from an older Mac, and
+   *  then the row stands on its own. */
+  leadId: Id.optional(),
+  /** On a listed lead: how many sub-agents are its, and so not rows of their own (`nestChildren`). */
+  subagents: z.number().int().optional(),
+  /** On a listed lead: how many of its sub-agents wait on a request, which the sidebar says on its row. */
+  subagentsWaiting: z.number().int().optional(),
+  /** On a listed lead: the sub-agent that has waited longest, which its row opens on. */
+  subagentWaiting: Id.optional(),
 });
 export type SessionRow = z.infer<typeof SessionRowSchema>;
 

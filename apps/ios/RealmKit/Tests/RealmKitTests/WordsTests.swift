@@ -51,4 +51,33 @@ struct WordsTests {
         """#)
         #expect(spaces.map(\.emoji) == ["🌊", nil, nil, nil])
     }
+
+    static func lead(_ fields: String) throws -> SessionRow {
+        try ModelTests.decode(SessionRow.self, #"{"id":"lead","title":"t","spaceId":"x","spaceName":"y","agent":"claude","model":null,"status":"idle","needsYou":false,"unread":false,"updatedAt":1"# + fields + "}")
+    }
+
+    @Test func aLeadsRowSaysHowManySubagentsAreIts() throws {
+        let row = try #require(RowSubagents(Self.lead(#","subagents":2,"subagentsWaiting":0"#)))
+        #expect(row.words == "2 sub-agents")
+        #expect(row.opens == ["lead"])
+        #expect(try RowSubagents(Self.lead(#","subagents":1"#))?.words == "1 sub-agent")
+    }
+
+    @Test func aWaitingSubagentIsSaidOnItsLeadAndOpenedOverIt() throws {
+        let one = try #require(RowSubagents(Self.lead(#","subagents":3,"subagentsWaiting":1,"subagentWaiting":"child""#)))
+        #expect(one.words == "1 sub-agent needs you")
+        #expect(one.opens == ["lead", "child"])
+        let two = try #require(RowSubagents(Self.lead(#","subagents":3,"subagentsWaiting":2,"subagentWaiting":"child""#)))
+        #expect(two.words == "2 sub-agents need you")
+        // A count past how many there are is the Mac's mistake, not more requests.
+        #expect(try RowSubagents(Self.lead(#","subagents":1,"subagentsWaiting":4"#))?.waiting == 1)
+    }
+
+    @Test func aRowWithNoneOrFromAnOlderMacSaysNothingOfThem() throws {
+        #expect(try RowSubagents(Self.lead("")) == nil)
+        #expect(try RowSubagents(Self.lead(#","subagents":0"#)) == nil)
+        let child = try Self.lead(#","leadId":"lead""#)
+        #expect(child.leadId == "lead")
+        #expect(try Self.lead("").leadId == nil)
+    }
 }

@@ -54,6 +54,16 @@ export function normalizeHandle(raw: string): string {
   return teammateHandle(raw.trim().replace(/^@/, ""));
 }
 
+/** The teammate a `team_message` names, as the server resolves `to`: its handle, `@handle`, or `lead`. */
+export function teammateByHandle<T extends { handle: string; lead: boolean }>(teammates: readonly T[], to: string): T | null {
+  const handle = normalizeHandle(to);
+  return teammates.find((t) => t.handle === handle) ?? (handle === "lead" ? teammates.find((t) => t.lead) ?? null : null);
+}
+
+/** A teammate's words without the "From @handle: " the server puts in front of them for the agent —
+ *  every one of them, since an agent that has read a few writes its own as well. */
+export const teammateWords = (text: string): string => text.replace(/^(?:From @[^\s:]+: )+/, "");
+
 /** An icon nobody chose, the same every time for the same seed: a role's old Realmite seed or its id. */
 export function teammateIconFromSeed(seed: string): TeammateIcon {
   let h = 2166136261;

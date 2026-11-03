@@ -8,7 +8,7 @@
   "types": "./src/index.ts",
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit --incremental && tsc -p tsconfig.node.json --noEmit --incremental",
     "dev": "wrangler dev",
     "deploy:staging": "node --experimental-strip-types --no-warnings scripts/deploy.ts staging",
     "deploy:production": "node --experimental-strip-types --no-warnings scripts/deploy.ts production",

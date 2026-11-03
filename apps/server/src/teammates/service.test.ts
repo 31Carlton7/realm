@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type AgentAdapter, type AgentHandle, type FakeScript } from "@realm/adapters";
-import type { SessionEvent, StoredSessionEvent } from "@realm/contracts";
+import { DEFAULT_MODEL_LABEL, type AgentModel, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { ProfilesStore } from "../store/profiles";
 import { SpacesStore } from "../store/spaces";
@@ -117,6 +117,34 @@ describe("a teammate", () => {
     expect(app.sessions.get(sessionId)).toMatchObject({ model: null, effort: null });
     // The open chat's chip is re-read too.
     await waitFor(() => said.includes("items.changed"));
+  });
+});
+
+describe("team_list", () => {
+  it("names the model each teammate runs: its own, or the one the CLI says it runs when none is picked", async () => {
+    const home = tempDir("realm-teammates-");
+    const fake = new FakeAdapter({ script: SCRIPT, delayMs: 2 });
+    // The account's CLI runs Opus 5.5 when nothing is pinned, not the model Realm's static label names.
+    const models: AgentModel[] = [
+      { id: "claude-opus-5-5", label: "Claude Opus 5.5", isDefault: true },
+      { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5" },
+    ];
+    const claude: AgentAdapter = {
+      kind: "claude",
+      probe: async () => ({ kind: "claude", available: true, version: "fake", loggedIn: true, reason: null, models }),
+      start: (o) => fake.start(o),
+    };
+    app = await createApp({ home, port: 0, adapters: { fake, claude }, agentRun: { fallbackKind: "fake" } });
+    const profile = new ProfilesStore(app.db).create({ name: "P", icon: "x", color: "#000" });
+    const space = new SpacesStore(app.db, home).create({ profileId: profile.id, name: "Realm", icon: "folder" });
+    await app.sessions.probe();
+    const captain = app.team.create({ spaceId: space.id, name: "Captain", brief: "Releases.", agentKind: "claude" });
+    app.team.create({ spaceId: space.id, name: "Scout", brief: "Scouts.", agentKind: "claude", model: "claude-sonnet-5-5" });
+    const listed = app.team.teamList({ sessionId: captain.homeSessionId!, spaceId: space.id }).content
+      .flatMap((c) => (c.type === "text" ? [c.text] : [])).join("\n");
+    expect(listed).toContain("@captain (you) — Captain: Releases. · idle · Claude Opus 5.5");
+    expect(listed).toContain("@scout — Scout: Scouts. · idle · Claude Sonnet 5.5");
+    expect(listed).not.toContain(DEFAULT_MODEL_LABEL.claude);
   });
 });
 

@@ -394,43 +394,111 @@ describe("the account the agent runs on", () => {
     return { c, picked };
   };
 
-  it("is one row in the foot naming the account in force, and opens to the agent's accounts", () => {
-    const { c } = control();
+  const accountRow = () => screen.getByRole("group", { name: "Account" });
+  const openAccounts = () => fireEvent.click(within(accountRow()).getByRole("button", { expanded: false }));
+
+  it("is one row in the foot naming the account in force once", () => {
+    const { c } = control({ current: "work" });
     mount({ account: c });
-    const head = screen.getByRole("button", { name: /Account/ });
-    expect(head).toHaveTextContent("AccountDefaultme@example.com");
+    const head = within(accountRow()).getByRole("button", { expanded: false });
+    expect(head).toHaveTextContent("Workwork@example.com");
+    expect(accountRow()).toHaveTextContent(/^AccountWorkwork@example\.com$/);
+    expect(accountRow().querySelector(".mp-account-well")).toHaveTextContent(/^AccountWorkwork@example\.com$/);
     expect(screen.queryByRole("listbox", { name: "Accounts" })).toBeNull();
-    fireEvent.click(head);
+  });
+
+  it("opens in its own place to the agent's accounts, each once, the current one ticked and Add account last", () => {
+    const { c } = control({ current: "work" });
+    mount({ account: c });
+    openAccounts();
     const list = screen.getByRole("listbox", { name: "Accounts" });
     const rows = within(list).getAllByRole("option");
     expect(rows.map((r) => r.textContent)).toEqual(["Defaultme@example.com", "Workwork@example.com"]);
-    expect(rows[0]).toHaveAttribute("aria-selected", "true");
-    expect(within(list).getByRole("button", { name: "Add account…" })).toBeInTheDocument();
+    expect(rows.map((r) => r.getAttribute("aria-selected"))).toEqual(["false", "true"]);
+    expect(rows.map((r) => !!r.querySelector(".mp-check"))).toEqual([false, true]);
+    expect(rows.every((r) => r.className === "mp-account-row" && r.querySelector(".mp-account-name") && r.querySelector(".mp-account-email"))).toBe(true);
+    expect(accountRow().querySelector(".mp-seg-label")).toBeNull();
+    // The trigger gives its place to the list, so the account in force is not named a second time.
+    expect(within(accountRow()).queryByRole("button", { expanded: false })).toBeNull();
+    expect(accountRow().textContent!.match(/work@example\.com/g)).toHaveLength(1);
+    const buttons = within(list).getAllByRole("button");
+    expect(buttons[buttons.length - 1]).toHaveTextContent("Add account…");
+  });
+
+  it("gives the CLI's own account the email its CLI is signed in as", () => {
+    const { c } = control({ current: "work", accounts: [acct("default-claude", "Default", "carlton@example.com"), acct("work", "Work", "work@example.com")] });
+    mount({ account: c });
+    openAccounts();
+    const rows = within(screen.getByRole("listbox", { name: "Accounts" })).getAllByRole("option");
+    expect(rows.map((r) => r.querySelector(".mp-account-email")?.textContent)).toEqual(["carlton@example.com", "work@example.com"]);
+    expect(rows[0]).toHaveTextContent(/^Defaultcarlton@example\.com$/);
+  });
+
+  it("says the CLI's own account is the CLI's sign-in while it has no email, on the same row as the rest", () => {
+    const { c } = control({ current: "work", accounts: [acct("default-claude", "Default", null), acct("work", "Work", "work@example.com")] });
+    mount({ account: c });
+    openAccounts();
+    const rows = within(screen.getByRole("listbox", { name: "Accounts" })).getAllByRole("option");
+    expect(rows.map((r) => r.textContent)).toEqual(["DefaultCLI sign-in", "Workwork@example.com"]);
+    expect(rows.map((r) => r.querySelector(".mp-account-email")?.textContent)).toEqual(["CLI sign-in", "work@example.com"]);
+    expect(rows.map((r) => !!r.querySelector(".mp-check"))).toEqual([false, true]);
+  });
+
+  it("puts the list away on a press elsewhere in the picker", () => {
+    const { c } = control();
+    mount({ account: c });
+    openAccounts();
+    fireEvent.pointerDown(screen.getByPlaceholderText("Search models"));
+    expect(screen.queryByRole("listbox", { name: "Accounts" })).toBeNull();
+    expect(within(accountRow()).getByRole("button", { expanded: false })).toHaveTextContent("Default");
   });
 
   it("moves the session to the account picked, and says a signed-out one is", async () => {
     const { c, picked } = control({ accounts: [acct("default-claude", "Default", null), acct("work", "Work", null, false)] });
     mount({ account: c });
-    fireEvent.click(screen.getByRole("button", { name: /Account/ }));
+    openAccounts();
     const work = screen.getByRole("option", { name: /Work/ });
     expect(work).toHaveTextContent("Signed out");
     await act(async () => { fireEvent.click(work); });
     expect(picked).toEqual(["work"]);
+    expect(screen.queryByRole("listbox", { name: "Accounts" })).toBeNull();
   });
 
-  it("starts an account's sign-in on the spot, and follows it in the picker", async () => {
+  it("starts an account's sign-in on the spot, and follows it in one panel in the account's place", async () => {
     const { c } = control();
     mount({ account: c });
-    fireEvent.click(screen.getByRole("button", { name: /Account/ }));
+    openAccounts();
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add account…" })); });
-    expect(document.querySelector(".account-signin")).toHaveTextContent("Finish signing in to the new account in your browser.");
-    expect(screen.getByRole("button", { name: "Open the page again" })).toBeInTheDocument();
+    const panel = accountRow().querySelector(".account-signin")!;
+    expect(panel).toHaveTextContent("Finish signing in to the new account in your browser.");
+    expect(panel.querySelector(".shimmer-text")).toHaveTextContent("Finish signing in");
+    expect(panel.querySelector(".spinner")).toBeNull();
+    expect(within(accountRow()).queryByRole("button", { expanded: false })).toBeNull();
+    expect(within(panel as HTMLElement).getAllByRole("button").map((b) => b.textContent)).toEqual(["Open again", "Cancel"]);
+  });
+
+  it("asks for the page's code in the panel, Continue beside Cancel, and sends it", async () => {
+    const codes: string[] = [];
+    const signIns: Record<string, AgentSignIn> = {};
+    const { c } = control({
+      onAdd: async () => { signIns.new = { id: "si", kind: "claude", accountId: "new", state: "code", url: "https://example.com/oauth", detail: null }; return "new"; },
+      signInOf: (id) => signIns[id], onCode: (_id, code) => { codes.push(code); },
+    });
+    mount({ account: c });
+    openAccounts();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add account…" })); });
+    const panel = accountRow().querySelector<HTMLElement>(".account-signin")!;
+    expect(within(panel).getAllByRole("button").map((b) => b.textContent)).toEqual(["Open again", "Cancel", "Continue"]);
+    expect(within(panel).getByRole("button", { name: "Continue" })).toBeDisabled();
+    fireEvent.change(within(panel).getByRole("textbox", { name: "Code from the sign-in page" }), { target: { value: " abc#123 " } });
+    fireEvent.click(within(panel).getByRole("button", { name: "Continue" }));
+    expect(codes).toEqual(["abc#123"]);
   });
 
   it("keeps a refusal on the row it answers", async () => {
     const { c } = control({ onPick: async () => { throw new Error("Claude is still working on this turn. Stop it or let it finish, then switch accounts."); } });
     mount({ account: c });
-    fireEvent.click(screen.getByRole("button", { name: /Account/ }));
+    openAccounts();
     await act(async () => { fireEvent.click(screen.getByRole("option", { name: /Work/ })); });
     expect(document.querySelector(".mp-account-note")).toHaveTextContent(/still working/);
   });
