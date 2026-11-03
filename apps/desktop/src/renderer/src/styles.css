@@ -6810,7 +6810,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    the left. The mark before it keeps the leading slash on the left under the right-to-left flow.
    It also has no width of its own to ask for (`contain: inline-size`): one unbroken line of unbounded
    length, measured into a `1fr` track, widened first run's whole page past a narrow window. */
-.space-folder-path, .space-folder-made { min-width: 0; contain: inline-size; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.space-folder-path, .space-folder-made { min-width: 0; contain: inline-size; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .space-folder-path::before, .space-folder-made::before { content: "\200e"; }
 .space-folder-path { flex: 1; font-size: 13px; color: var(--rl-text-bright); }
 .space-folder-default { display: flex; gap: 4px; min-width: 0; margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); white-space: nowrap; }
@@ -9811,9 +9811,11 @@ span.documents-name:hover { background: none; }
 .move-ends { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 12px; align-items: baseline; margin: 0; }
 .move-ends dt { font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
 .move-ends dd { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; margin: 0; font-size: 14px; line-height: 20px; }
-.move-path { font-family: var(--font-mono); font-size: 13px; color: var(--rl-text-bright); word-break: break-all; }
+.move-name { color: var(--rl-text-bright); font-weight: var(--fw-label); }
+.move-path { flex-basis: 100%; min-width: 0; font-family: var(--font-mono); font-size: 12px; line-height: 16px; color: var(--rl-text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .move-branch { font-family: var(--font-mono); font-size: 12px; color: var(--rl-text-dim); }
-.move-new { color: var(--rl-text-bright); }
+.move-new { color: var(--rl-text-bright); font-weight: var(--fw-label); }
 .move-group-head { margin: 0 0 6px; font-size: 12px; line-height: 16px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
 .move-list { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .move-list li { display: flex; align-items: baseline; gap: 8px; font-size: 13px; line-height: 18px; color: var(--rl-text-bright); text-wrap: pretty; }

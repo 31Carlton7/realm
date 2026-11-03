@@ -23,7 +23,7 @@ export function MoveProgress({ step, agent, onCancel }: { step: MoveStep; agent:
   const at = steps.indexOf(step);
   return (
     <div className="msg-run move-progress" role="status" aria-label={`Moving: ${moveStepLabel(step, agent)}`}>
-      <Spinner size={12} />
+      <Spinner size={14} />
       <ol className="move-steps">
         {steps.map((s, i) => (
           <li key={s} data-state={i < at ? "done" : i === at ? "now" : "next"}>{moveStepLabel(s, agent)}</li>

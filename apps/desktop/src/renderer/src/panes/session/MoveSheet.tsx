@@ -9,9 +9,12 @@ import { tildePath } from "../documents/home-model";
 const reason = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const filesWord = (n: number) => (n === 1 ? "1 changed file" : `${n} changed files`);
 
-/** Where the session is now, as a path and the branch it is on. */
+/** A checkout by its folder's name and branch, with the whole path quiet under them. */
 function Place({ path, branch }: { path: string; branch: string | null }) {
-  return <><code className="move-path">{tildePath(path)}</code>{branch && <span className="move-branch">{branch}</span>}</>;
+  return <>
+    <span className="move-name">{basenameOf(path)}</span>{branch && <span className="move-branch">{branch}</span>}
+    <code className="move-path" title={path}>{tildePath(path)}</code>
+  </>;
 }
 
 /** The destination in the words the prompter's queue uses while a move waits. */
