@@ -1,6 +1,6 @@
 import { realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { ENGINE_IDLE_MINUTES_DEFAULT, ENGINE_IDLE_MINUTES_KEY, AGENT_MEMORY_CHANNEL, AGENT_SESSION_RESUME, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type MoveOptions, type MoveTarget, type MoveWhen, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
+import { ENGINE_IDLE_MINUTES_DEFAULT, ENGINE_IDLE_MINUTES_KEY, AGENT_MEMORY_CHANNEL, AGENT_SESSION_RESUME, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, handoffContextKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type MoveOptions, type MoveTarget, type MoveWhen, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, RestartRequiredError, type AdapterRegistry, type AgentAdapter, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -15,7 +15,7 @@ import { NotFoundError, RpcError } from "../store/rows";
 import { buildHandoffContext, defaultAccountId, hasAccounts, shouldSurfaceWrite, switchNote, type AccountKind } from "@realm/contracts";
 import type { FailoverHooks } from "./failover";
 import { handOver, modeAfterSwitch, modelNameOf } from "./handover";
-import { moveInFlightKey, movePrefaceKey, runMove, undoInterruptedMove, type MoveInFlight, type MovePlan } from "./move";
+import { moveFallbackKey, moveInFlightKey, movePrefaceKey, runMove, undoInterruptedMove, type MoveInFlight, type MovePlan } from "./move";
 import type { Rehomed } from "../accounts/service";
 import type { CheckpointGit } from "../workspace/checkpoints";
 import { portEnv, type PortAllocator } from "../workspace/ports";
@@ -1400,6 +1400,15 @@ export class SessionService {
     }
   }
 
+  /** The conversation resumed after a Claude move, so the notes carried in case it did not are put
+   *  back to the hand-off context they replaced. */
+  private dropMoveFallback(id: string): void {
+    const fallback = this.d.settings.get(moveFallbackKey(id)) as { before: unknown } | null;
+    if (!fallback) return;
+    this.d.settings.set(handoffContextKey(id), fallback.before ?? null);
+    this.d.settings.set(moveFallbackKey(id), null);
+  }
+
   /**
    * Start the engine at a move's target and wait for its `init`, sending nothing: the moment a resume
    * is accepted or refused. The row still names the source — it moves only when the move commits —
@@ -1479,6 +1488,7 @@ export class SessionService {
     this.pendingMoves.delete(id);
     this.moveAborts.get(id)?.abort();
     this.d.settings.set(movePrefaceKey(id), null);
+    this.d.settings.set(moveFallbackKey(id), null);
     // …and the rewind bookkeeping. The row carrying the durable half goes below; these two are what a
     // still-draining pump could otherwise read after the session it describes has stopped existing.
     this.forkInFlight.delete(id);
@@ -2363,6 +2373,7 @@ export class SessionService {
     this.d.notifications?.handleSessionEvent(before, ev);
     if (ev.type === "init") {
       this.noteContextReset(before, ev.payload);
+      if (ev.payload.resumeOutcome === "continued") this.dropMoveFallback(id);
       // A move's boot reports to the move, which writes the id only if it commits.
       this.bootWaiters.get(id)?.resolve(ev.payload);
       if (before.status !== "moving") this.d.sessions.update({ id, providerSessionId: ev.payload.providerSessionId });

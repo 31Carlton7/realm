@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import {
-  AGENT_SESSION_RESUME, HANDOFF_CONTEXT_MAX, buildMoveContext, carriedTranscript, handoffContextKey, sessionEvent,
+  AGENT_SESSION_RESUME, HANDOFF_CONTEXT_MAX, buildMoveContext, carriedTranscript, fenceFor, handoffContextKey, sessionEvent,
   type AgentKind, type Environment, type MoveConversation, type MovePlace, type MoveStep, type MoveTarget, type Session,
   type SessionEvent, type SessionEventPayload,
 } from "@realm/contracts";
@@ -13,6 +13,9 @@ import { undoRehome, type Rehomed } from "../accounts/service";
 
 /** The one-time word to the agent on its first turn after a move, until that turn spends it. */
 export const movePrefaceKey = (sessionId: string): string => `move.preface:${sessionId}`;
+/** A Claude move's notes, carried in case the CLI does not find the record it was re-homed, until a
+ *  resume is accepted: `before` is the hand-off context they took the place of. */
+export const moveFallbackKey = (sessionId: string): string => `move.fallback:${sessionId}`;
 /** A move under way (`MoveInFlight`), so a server that stops mid-move can take it back when it comes up. */
 export const moveInFlightKey = (sessionId: string): string => `move.inFlight:${sessionId}`;
 
@@ -145,6 +148,7 @@ export async function runMove(d: MoveDeps, s: Session, plan: MovePlan): Promise<
     try {
       d.sessions.setEnvironment(s.id, target.id);
       d.sessions.update({ id: s.id, status: "idle", providerSessionId: carried.providerSessionId });
+      if (carried.fallback) d.settings.set(moveFallbackKey(s.id), { before: d.settings.get(handoffContextKey(s.id)) });
       if (carried.context !== null) d.settings.set(handoffContextKey(s.id), carried.context);
       d.settings.set(moveInFlightKey(s.id), null);
       d.db.exec("COMMIT");
@@ -196,11 +200,12 @@ async function clearSource(d: MoveDeps, s: Session, source: Environment, state: 
 /**
  * Take the conversation to the new cwd, natively where the agent can resume its own record of it
  * there, and as a hand-off note where it cannot. A refused resume is not a failure of the move: the
- * agent starts fresh there, handed the note. Answers the context to carry, which the commit writes.
+ * agent starts fresh there, handed the note. Answers the context to carry, which the commit writes —
+ * for Claude, whose resume is only known to work when the CLI next starts, a note to fall back on.
  */
 async function carryConversation(d: MoveDeps, s: Session, source: Environment, target: Environment,
   at: (step: MoveStep) => void, undo: (() => Promise<void> | void)[], keep: (facts: Partial<MoveInFlight>) => void,
-): Promise<{ conversation: MoveConversation; providerSessionId: string | null; context: string | null }> {
+): Promise<{ conversation: MoveConversation; providerSessionId: string | null; context: string | null; fallback?: boolean }> {
   const mode = AGENT_SESSION_RESUME[s.agentKind].mode;
   const id = s.providerSessionId;
   if (id !== null && s.agentKind === "claude") {
@@ -208,7 +213,8 @@ async function carryConversation(d: MoveDeps, s: Session, source: Environment, t
     if (rehomed) {
       keep({ rehomed });
       undo.push(() => undoRehome(rehomed));
-      return { conversation: "native", providerSessionId: id, context: null };
+      const notes = carriedTranscript(d.events.transcript(s.id, Date.now()), HANDOFF_CONTEXT_MAX).body;
+      return { conversation: "native", providerSessionId: id, context: claudeFallbackContext(notes, source.path, target.path), fallback: true };
     }
   } else if (id !== null && mode !== "none") {
     at("boot");
@@ -232,6 +238,17 @@ export async function undoInterruptedMove(d: Pick<MoveDeps, "git" | "environment
   if (kept.merged) await d.git.restore({ cwd: kept.merged.path, state: kept.merged.state }).catch(() => {});
   const made = kept.worktreeId ? d.environment(kept.worktreeId) : null;
   if (made) await d.discardWorktree(made, kept.sourcePath).catch(() => {});
+}
+
+function claudeFallbackContext(notes: string, from: string, to: string): string {
+  const fence = fenceFor(notes);
+  return [
+    "# Moved mid-session",
+    `This session was moved from ${from} to ${to}. If the conversation before this message is there, carry on with it and ignore this note. ` +
+    "If it is not, it did not move with you, and Realm's record of it is below.",
+    `Paths in it are under ${from}; the same work, uncommitted changes included, is now under ${to} — work there.`,
+    `${fence}markdown\n${notes}\n${fence}`,
+  ].join("\n\n");
 }
 
 const placeOf = (env: Environment): MovePlace => ({ machine: null, environmentId: env.id, cwd: env.path, branch: env.branch });

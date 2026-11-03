@@ -171,6 +171,23 @@ describe("sessions.move", () => {
     expect(await turn(c, session.id, "and again")).not.toContain("Realm moved");
   });
 
+  it("carries a Claude move's notes to fall back on, until the CLI resumes the conversation", async () => {
+    const { c, session, agent, claudeCfg, repo } = await setup("claude", "continued");
+    const pid: string = session.providerSessionId;
+    const record = join(claudeCfg, "projects", claudeProjectName(realpathSync(repo)), `${pid}.jsonl`);
+    mkdirSync(join(record, ".."), { recursive: true });
+    writeFileSync(record, "{}\n");
+    const settings = new SettingsStore(app!.db);
+    settings.set(handoffContextKey(session.id), "# Handed over earlier");
+
+    await c.call("sessions.move", { id: session.id, to: { kind: "worktree" } });
+    expect(settings.get(handoffContextKey(session.id))).toContain("If the conversation before this message is there, carry on with it");
+    await turn(c, session.id, "go on");
+    expect(agent.starts.at(-1)!.systemContext).toContain("# Moved mid-session");
+    // Resumed, so the notes stand down, and the context they took the place of is back.
+    expect(settings.get(handoffContextKey(session.id))).toBe("# Handed over earlier");
+  });
+
   it("carries a Codex conversation as notes when its resume is declined at the target", async () => {
     const { c, sp, repo, session, agent, home } = await setup("codex", "declined");
     const target = (await c.call("environments.createWorktree", { spaceId: sp.id, title: "elsewhere" })).result;
