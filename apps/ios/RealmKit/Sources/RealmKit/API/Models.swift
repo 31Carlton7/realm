@@ -12,6 +12,9 @@ public typealias Millis = Double
 
 public enum SessionStatus: Sendable, Hashable, Codable {
     case idle, running, waiting, error, ended
+    /// Being moved to another checkout. The Mac says `running` with `moving` beside it, which this phone
+    /// reads as this (`SessionRow.shownStatus`, `SessionStatusEvent`).
+    case moving
     case other(String)
 
     public init(rawValue: String) {
@@ -21,6 +24,7 @@ public enum SessionStatus: Sendable, Hashable, Codable {
         case "waiting": self = .waiting
         case "error": self = .error
         case "ended": self = .ended
+        case "moving": self = .moving
         default: self = .other(rawValue)
         }
     }
@@ -32,6 +36,7 @@ public enum SessionStatus: Sendable, Hashable, Codable {
         case .waiting: "waiting"
         case .error: "error"
         case .ended: "ended"
+        case .moving: "moving"
         case .other(let value): value
         }
     }
@@ -44,6 +49,7 @@ public enum SessionStatus: Sendable, Hashable, Codable {
         case .waiting: "Waiting on you"
         case .error: "Failed"
         case .ended: "Ended"
+        case .moving: "Moving"
         case .other(let value): value.capitalized
         }
     }
@@ -99,12 +105,16 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
     public let subagentsWaiting: Int?
     /// On a lead the Mac lists: the sub-agent that has waited longest, which its row opens on.
     public let subagentWaiting: String?
+    /// Being moved to another checkout, while `status` says running. Nil from a Mac before moves, and
+    /// whenever it is not moving.
+    public let moving: Bool?
 
     public init(id: String, title: String, spaceId: String, spaceName: String, agent: String, model: String?,
                 status: SessionStatus, needsYou: Bool, unread: Bool, updatedAt: Millis,
                 agentName: String? = nil, agentMark: String? = nil, modelLabel: String? = nil,
                 createdAt: Millis? = nil, effort: String? = nil, permissionMode: String? = nil, activityAt: Millis? = nil, pinned: Bool? = nil,
-                leadId: String? = nil, subagents: Int? = nil, subagentsWaiting: Int? = nil, subagentWaiting: String? = nil) {
+                leadId: String? = nil, subagents: Int? = nil, subagentsWaiting: Int? = nil, subagentWaiting: String? = nil,
+                moving: Bool? = nil) {
         self.id = id
         self.title = title
         self.spaceId = spaceId
@@ -127,7 +137,11 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
         self.subagents = subagents
         self.subagentsWaiting = subagentsWaiting
         self.subagentWaiting = subagentWaiting
+        self.moving = moving
     }
+
+    /// The status as this phone shows it: Moving while the Mac moves the session.
+    public var shownStatus: SessionStatus { moving == true ? .moving : status }
 
     /// When the session last moved, as the Mac orders its lists: what a list of sessions is ordered by,
     /// and what a row's age says. An older Mac sends no `activityAt`, and its `updatedAt` stands in.
@@ -143,6 +157,7 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
         case id, title, spaceId, spaceName, agent, model, status, needsYou, unread, updatedAt, agentName, agentMark, modelLabel
         case createdAt, effort, permissionMode, activityAt, pinned
         case leadId, subagents, subagentsWaiting, subagentWaiting
+        case moving
     }
 
     public init(from decoder: Decoder) throws {
@@ -169,6 +184,7 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
         subagents = try? c.decodeIfPresent(Int.self, forKey: .subagents)
         subagentsWaiting = try? c.decodeIfPresent(Int.self, forKey: .subagentsWaiting)
         subagentWaiting = try? c.decodeIfPresent(String.self, forKey: .subagentWaiting)
+        moving = try? c.decodeIfPresent(Bool.self, forKey: .moving)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -195,6 +211,7 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
         try c.encodeIfPresent(subagents, forKey: .subagents)
         try c.encodeIfPresent(subagentsWaiting, forKey: .subagentsWaiting)
         try c.encodeIfPresent(subagentWaiting, forKey: .subagentWaiting)
+        try c.encodeIfPresent(moving, forKey: .moving)
     }
 
     /// The mode the session is in, read from its stored permission mode. Nil where the Mac did not say.
@@ -445,24 +462,31 @@ public struct TranscriptRow: Codable, Sendable, Hashable, Identifiable {
     /// What the person sent with a message, each file by its path on the Mac, which `session.file`
     /// previews. Nil from a Mac before Plan 29, and on every other kind of row.
     public let sentFiles: [SentFile]?
+    /// A notice about moving the session: how far it has got, or how it ended. Nil on every other row.
+    public let move: MoveMark?
+    /// A notice's quieter second line: a move's paths, from and to, or the step a failed move stopped
+    /// at and why. Nil from a Mac before moves, and on every other row.
+    public let noticeDetail: String?
 
     public var id: String { key }
 
     public init(key: String, seq: Int, content: Content, checkpointId: String? = nil, madeFiles: [MadeFile]? = nil,
-                sentFiles: [SentFile]? = nil) {
+                sentFiles: [SentFile]? = nil, move: MoveMark? = nil, noticeDetail: String? = nil) {
         self.key = key
         self.seq = seq
         self.content = content
         self.checkpointId = checkpointId
         self.madeFiles = madeFiles
         self.sentFiles = sentFiles
+        self.move = move
+        self.noticeDetail = noticeDetail
     }
 
     private enum CodingKeys: String, CodingKey {
         case key, seq, kind, type
         case text, streaming, name, summary, state, detail
         case requestId, tool, title, questions, steps, hint
-        case asker, message, answers, plan, checkpointId, files
+        case asker, message, answers, plan, checkpointId, files, move
         case sentFiles = "attachments"
     }
 
@@ -481,6 +505,9 @@ public struct TranscriptRow: Codable, Sendable, Hashable, Identifiable {
         checkpointId = try? c.decodeIfPresent(String.self, forKey: .checkpointId)
         madeFiles = try? c.decodeIfPresent([MadeFile].self, forKey: .files)
         sentFiles = try? c.decodeIfPresent([SentFile].self, forKey: .sentFiles)
+        move = try? c.decodeIfPresent(MoveMark.self, forKey: .move)
+        // A tool's `detail` is its content's own.
+        noticeDetail = kind == "notice" ? try? c.decodeIfPresent(String.self, forKey: .detail) : nil
     }
 
     private static func decodeContent(kind: String, _ c: KeyedDecodingContainer<CodingKeys>) throws -> Content {
@@ -574,7 +601,14 @@ public struct TranscriptRow: Codable, Sendable, Hashable, Identifiable {
         try c.encodeIfPresent(checkpointId, forKey: .checkpointId)
         try c.encodeIfPresent(madeFiles, forKey: .files)
         try c.encodeIfPresent(sentFiles, forKey: .sentFiles)
+        try c.encodeIfPresent(move, forKey: .move)
+        try c.encodeIfPresent(noticeDetail, forKey: .detail)
     }
+}
+
+/// Where a move of the session stands, on its notice: under way, done, or not made.
+public enum MoveMark: String, Codable, Sendable, Hashable {
+    case moving, moved, failed
 }
 
 /// A file sent with a message, by its path on the Mac.
@@ -1616,7 +1650,22 @@ public struct SessionRowsEvent: Decodable, Sendable {
 
 public struct SessionStatusEvent: Decodable, Sendable {
     public let id: String
+    /// Moving where the Mac says `moving` beside `running`.
     public let status: SessionStatus
+
+    public init(id: String, status: SessionStatus) {
+        self.id = id
+        self.status = status
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, status, moving }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        let said = try c.decode(SessionStatus.self, forKey: .status)
+        status = (try? c.decodeIfPresent(Bool.self, forKey: .moving)) == true ? .moving : said
+    }
 }
 
 /// `session.hint`: the suggested next message changed, to a new one or to none.

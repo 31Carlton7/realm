@@ -9,6 +9,7 @@ extension SessionStatus {
         case .waiting: "hand.raised"
         case .error: "exclamationmark.triangle"
         case .ended: "stop.circle"
+        case .moving: "arrow.right.circle"
         case .other: "questionmark.circle"
         }
     }
