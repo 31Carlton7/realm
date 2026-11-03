@@ -2224,8 +2224,9 @@ export const Methods = {
    * Answers once the move has committed (`moved`) — or, for `after-turn` during a turn, once it is
    * queued. A move that fails puts everything back, writes `move_failed`, and rejects with
    * MOVE_FAILED. Refused for a teammate's chat, while a sub-agent it started is running
-   * (SESSION_MOVE_REFUSED), mid-turn with `when: "now"` (SESSION_BUSY), and while another move or
-   * switch is under way (SESSION_SWITCHING).
+   * (SESSION_MOVE_REFUSED), mid-turn with `when: "now"` (SESSION_BUSY), while another move or switch
+   * is under way (SESSION_SWITCHING), and unless `when` is `stop`, while the agent runs background
+   * work the move would stop (MOVE_STOPS_WORK).
    */
   "sessions.move": { params: z.object({ id: IdSchema, to: MoveTargetSchema, keepSourceChanges: z.boolean().default(true), when: MoveWhenSchema.default("now") }), result: SessionSchema },
   /** Drop a move queued behind the turn, or stop one under way before it commits (it rolls back

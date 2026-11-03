@@ -61,6 +61,9 @@ export const MoveOptionsSchema = z.object({
   changedFiles: z.number().int(),
   /** What stays behind, by name: the terminal, and ignored files that look like secrets. */
   leftBehind: z.array(z.string()),
+  /** What the agent is running beyond a turn — background tasks, commands, scheduled jobs — which only
+   *  Stop and move stops; any other move is refused (MOVE_STOPS_WORK) while it runs. */
+  stops: z.array(z.string()).optional(),
   /** The space's other checkouts the session can move to. */
   environments: z.array(z.object({ environmentId: IdSchema, path: z.string(), branch: z.string().nullable(), kind: z.string() })),
   /** Whether a new worktree can be made for it, and why not when it cannot. */
