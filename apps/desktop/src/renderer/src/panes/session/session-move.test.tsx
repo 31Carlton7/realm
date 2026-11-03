@@ -118,16 +118,58 @@ describe("the Move sheet", () => {
     expect(store.getState().sheet).toBeNull();
   });
 
-  it("leaves a failed move to the transcript's notice, and toasts any other refusal", async () => {
+  const refuse = (api: { moveSession: unknown }, code: string, message: string) => {
+    api.moveSession = async () => { throw Object.assign(new Error(message), { code }); };
+  };
+
+  it("keeps the sheet open on background work and offers Stop and move, with no toast", async () => {
+    // THE MUTANT: the sheet closes before the server answers, and the refusal is a toast.
     const { api, store } = await mount();
-    const refuse = (code: string, message: string) => {
-      api.moveSession = async () => { throw Object.assign(new Error(message), { code }); };
+    refuse(api, "MOVE_FAILED", "Could not move this session: its agent is still running a background task, which moving would stop. It is still in ~/realm, as it was.");
+    pick("realm/fix-tests");
+    const dialog = await sheet();
+    fireEvent.click(await within(dialog).findByRole("button", { name: "Move" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Fake agent is still running a background task, which moving would stop. Stop and move to end it and move.");
+    expect(store.getState().sheet).toMatchObject({ kind: "move-session" });
+    expect(store.getState().toasts).toEqual([]);
+    expect(within(dialog).queryByRole("button", { name: "Move" })).toBeNull();
+    const calls: string[] = [];
+    api.moveSession = async (_id: string, to: unknown, keepSourceChanges: boolean, when: string) => {
+      calls.push(JSON.stringify({ to, keepSourceChanges, when }));
+      return store.getState().sessions.se1!;
     };
-    refuse("MOVE_FAILED", "Could not move this session: the changes conflict.");
-    await store.getState().moveSession("se1", { kind: "worktree" }, { keepSourceChanges: true, when: "now", toLabel: "a new worktree", busy: false });
-    refuse("ENVIRONMENT_BUSY", "another session is working in that checkout");
-    store.getState().run(() => store.getState().moveSession("se1", { kind: "worktree" }, { keepSourceChanges: true, when: "now", toLabel: "a new worktree", busy: false }));
-    await waitFor(() => expect(store.getState().toasts.map((t) => t.text)).toEqual(["another session is working in that checkout"]));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Stop and move" }));
+    await waitFor(() => expect(calls).toEqual([JSON.stringify({ to: { kind: "environment", environmentId: "envB" }, keepSourceChanges: true, when: "stop" })]));
+    await waitFor(() => expect(store.getState().sheet).toBeNull());
+  });
+
+  it("says a move is already under way in the sheet, and never shows a raw error", async () => {
+    const { api, store } = await mount();
+    refuse(api, "SESSION_SWITCHING", "this session is already switching");
+    pick("realm/fix-tests");
+    const dialog = await sheet();
+    fireEvent.click(await within(dialog).findByRole("button", { name: "Move" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("This session is already moving. Wait for that move to finish.");
+    expect(dialog).not.toHaveTextContent("already switching");
+    refuse(api, "INTERNAL", "TypeError: cannot read properties of undefined");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Move" }));
+    await waitFor(() => expect(within(dialog).getByRole("alert")).toHaveTextContent("Realm couldn't start the move. Try again in a moment."));
+    expect(dialog).not.toHaveTextContent("TypeError");
+    expect(store.getState().toasts).toEqual([]);
+  });
+
+  it("closes once the session is moving, and leaves a later failure to the transcript", async () => {
+    const { api, store } = await mount();
+    let fail: (e: Error) => void = () => {};
+    api.moveSession = () => new Promise((_, reject) => { fail = reject; });
+    pick("realm/fix-tests");
+    const dialog = await sheet();
+    fireEvent.click(await within(dialog).findByRole("button", { name: "Move" }));
+    expect(within(dialog).getByRole("button", { name: "Move" })).toBeDisabled();
+    act(() => store.setState({ sessionStatus: { se1: "moving" } }));
+    await waitFor(() => expect(store.getState().sheet).toBeNull());
+    await act(async () => { fail(Object.assign(new Error("Could not move this session: the changes conflict."), { code: "MOVE_FAILED" })); });
+    expect(store.getState().toasts).toEqual([]);
   });
 
   it("sends keepSourceChanges false when the switch is off", async () => {

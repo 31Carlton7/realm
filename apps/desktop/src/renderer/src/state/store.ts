@@ -2282,7 +2282,7 @@ export type AppState = TeammatesSlice & {
    *  selecting cannot happen. */
   moveSessionToNewWorktree(sessionId: string): Promise<void>;
   /** Move a STARTED session (the Move sheet). `toLabel` is what the queue says while an `after-turn`
-   *  move waits. The sheet closes at once; the transcript draws the move from its events. */
+   *  move waits. Resolves when the move is done or queued; a refusal rejects, for the sheet to say. */
   moveSession(sessionId: string, to: MoveTarget, opts: { keepSourceChanges: boolean; when: MoveWhen; toLabel: string; busy: boolean }): Promise<void>;
   cancelSessionMove(sessionId: string): Promise<void>;
   /** What the Move sheet shows before anything happens (`sessions.moveOptions`). */
@@ -6657,15 +6657,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         await get().setSessionEnvironment(sessionId, env.id);
       },
       async moveSession(sessionId, to, { keepSourceChanges, when, toLabel, busy }) {
-        get().closeSheet();
         const waits = busy && when === "after-turn";
         if (waits) set({ pendingMoves: { ...get().pendingMoves, [sessionId]: { to: toLabel } } });
         try {
           mergeSession(await api.moveSession(sessionId, to, keepSourceChanges, when));
         } catch (e) {
           if (waits) dropPendingMove(sessionId);
-          // The transcript's move_failed row already says why, and where the session still is.
-          if ((e as { code?: unknown } | null)?.code === "MOVE_FAILED") return;
           throw e;
         }
       },

@@ -1,13 +1,25 @@
 import { AGENT_META, basenameOf, type MoveOptions, type MovePlace, type MoveTarget, type MoveWhen } from "@realm/contracts";
 import { Icon } from "@realm/ui";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Sheet } from "../../components/Sheet";
 import { Spinner } from "../../components/Spinner";
 import { useApp } from "../../state/store";
-import { shortPath } from "./move-place";
+import { moveFailureReason, shortPath } from "./move-place";
 
 const reason = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const filesWord = (n: number) => (n === 1 ? "1 changed file" : `${n} changed files`);
+
+/** Why the server would not start a move, as the sheet says it. `stopsWork` is the agent's
+ *  background work, which Stop and move ends. */
+function moveRefusal(e: unknown, agent: string): { text: string; stopsWork: boolean } {
+  const code = (e as { code?: unknown } | null)?.code;
+  const message = e instanceof Error ? e.message : "";
+  const work = /still running (.+), which moving would stop/.exec(message);
+  if (code === "MOVE_FAILED" && work) return { text: `${agent} is still running ${work[1]}, which moving would stop. Stop and move to end it and move.`, stopsWork: true };
+  if (code === "SESSION_SWITCHING") return { text: "This session is already moving. Wait for that move to finish.", stopsWork: false };
+  if (code === "MOVE_FAILED" || code === "SESSION_MOVE_REFUSED" || code === "SESSION_BUSY" || code === "ENVIRONMENT_BUSY") return { text: moveFailureReason(message), stopsWork: false };
+  return { text: "Realm couldn't start the move. Try again in a moment.", stopsWork: false };
+}
 
 /** A checkout by its folder's name and branch, with its path quiet under them, cut in the middle so the tail shows. */
 function Place({ path, branch }: { path: string; branch: string | null }) {
@@ -58,6 +70,12 @@ export function MoveSheet({ sessionId, to }: { sessionId: string; to: MoveTarget
   const [options, setOptions] = useState<MoveOptions | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [keepSourceChanges, setKeepSourceChanges] = useState(true);
+  const [starting, setStarting] = useState(false);
+  const [refused, setRefused] = useState<{ text: string; stopsWork: boolean } | null>(null);
+  const open = useRef(true);
+  useEffect(() => () => { open.current = false; }, []);
+  // The move has begun once the session is `moving`; the transcript tells the rest.
+  useEffect(() => { if (starting && status === "moving") closeSheet(); }, [starting, status, closeSheet]);
 
   useEffect(() => {
     let live = true;
@@ -70,10 +88,15 @@ export function MoveSheet({ sessionId, to }: { sessionId: string; to: MoveTarget
   const waitingOnYou = status === "waiting_permission" || asking;
   const unavailable = to.kind === "worktree" && options && !options.worktree.available ? options.worktree.reason ?? "A worktree can't be made here." : null;
   const blocked = options?.blocked ?? unavailable;
-  const ready = options !== null && !blocked && !options.pending;
+  const ready = options !== null && !blocked && !options.pending && !starting;
   const move = (when: MoveWhen) => {
     if (!options) return;
-    void run(() => moveSession(sessionId, to, { keepSourceChanges, when, toLabel: moveTargetLabel(to, options), busy }));
+    setStarting(true);
+    setRefused(null);
+    moveSession(sessionId, to, { keepSourceChanges, when, toLabel: moveTargetLabel(to, options), busy }).then(
+      () => { if (open.current) closeSheet(); },
+      (e: unknown) => { if (!open.current) return; setStarting(false); setRefused(moveRefusal(e, agent)); },
+    );
   };
   const named = (options?.leftBehind ?? []).filter((n) => !/terminal/i.test(n));
 
@@ -81,9 +104,9 @@ export function MoveSheet({ sessionId, to }: { sessionId: string; to: MoveTarget
     <Sheet title="Move this session" onClose={closeSheet} width={480}
       footer={<>
         <button type="button" className="btn" onClick={closeSheet}>Cancel</button>
-        {busy ? <>
-          <button type="button" className="btn" disabled={!ready} onClick={() => move("stop")}>Stop and move</button>
-          <button type="button" className="btn primary" disabled={!ready || waitingOnYou} onClick={() => move("after-turn")}>Move after this turn</button>
+        {busy || refused?.stopsWork ? <>
+          <button type="button" className={busy ? "btn" : "btn primary"} disabled={!ready} onClick={() => move("stop")}>Stop and move</button>
+          {busy && <button type="button" className="btn primary" disabled={!ready || waitingOnYou} onClick={() => move("after-turn")}>Move after this turn</button>}
         </> : (
           <button type="button" className="btn primary" disabled={!ready} onClick={() => move("now")}>Move</button>
         )}
@@ -129,6 +152,7 @@ export function MoveSheet({ sessionId, to }: { sessionId: string; to: MoveTarget
             </p>
           )}
           {blocked && <p className="share-sheet-note" role="alert">{blocked}</p>}
+          {refused && <p className="share-sheet-note" role="alert">{refused.text}</p>}
         </div>
       )}
       {failure && <p className="share-sheet-note" role="alert" data-tone="danger">{failure}</p>}
