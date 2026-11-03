@@ -115,7 +115,7 @@ export function MoveSheet({ sessionId, to }: { sessionId: string; to: MoveTarget
             <label className="settings-row">
               <div className="settings-row-main">
                 <span className="settings-row-name">Leave my changes here too</span>
-                <span className="settings-row-desc">Off, this checkout goes back to its last commit after a checkpoint you can restore.</span>
+                <span className="settings-row-desc">Turn off to reset this checkout to its last commit. A checkpoint keeps your changes.</span>
               </div>
               <input type="checkbox" role="switch" className="switch" aria-label="Leave my changes here too"
                 checked={keepSourceChanges} onChange={(e) => setKeepSourceChanges(e.target.checked)} />
