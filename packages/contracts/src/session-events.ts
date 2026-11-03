@@ -262,9 +262,9 @@ const P = {
     note: z.string(),
   }),
   /**
-   * A move of this session to another place is under way, at `step` (`session-move.ts`). Ephemeral,
-   * like `retrying`: it is the progress row for someone watching now, and the transcript keeps only
-   * how the move ended — `moved` or `move_failed`.
+   * A move of this session to another place is under way, at `step` (`session-move.ts`). Persisted,
+   * so a client that opens the session mid-move finds the progress row; the `moved` or `move_failed`
+   * with the same `moveId` closes it, and boot writes `move_failed` for a move a restart cut short.
    */
   moving: z.object({ moveId: z.string(), step: MoveStepSchema }),
   /**
@@ -505,7 +505,7 @@ export function sessionEvent<T extends SessionEventType>(type: T, payload: Sessi
 }
 
 /** Event types the server persists; the rest (assistant_delta) are ephemeral. */
-export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "background_task", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback", "handoff", "compacted", "context_reset", "moved", "move_failed", "summary", "prompt_hint", "turn_changes", "files_made"];
+export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "background_task", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback", "handoff", "compacted", "context_reset", "moving", "moved", "move_failed", "summary", "prompt_hint", "turn_changes", "files_made"];
 
 export const StoredSessionEventSchema = z.object({ seq: z.number().int(), sessionId: z.string(), event: SessionEventSchema });
 export type StoredSessionEvent = { seq: number; sessionId: string; event: SessionEvent };

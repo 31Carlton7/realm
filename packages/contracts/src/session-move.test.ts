@@ -7,10 +7,8 @@ import { Methods } from "./rpc";
 const place = { machine: null, environmentId: "01J00000000000000000000000", cwd: "/repo", branch: "main" };
 
 describe("session move contracts", () => {
-  it("keeps how a move ended and drops its progress", () => {
-    expect(PERSISTED_EVENT_TYPES).toContain("moved");
-    expect(PERSISTED_EVENT_TYPES).toContain("move_failed");
-    expect(PERSISTED_EVENT_TYPES).not.toContain("moving");
+  it("keeps a move's progress and how it ended", () => {
+    expect(PERSISTED_EVENT_TYPES).toEqual(expect.arrayContaining(["moving", "moved", "move_failed"]));
   });
 
   it("parses each move event", () => {
