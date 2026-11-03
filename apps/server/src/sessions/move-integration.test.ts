@@ -316,6 +316,29 @@ describe("sessions.move", () => {
     expect(responses.at(-1).payload.decision).toBe("deny");
   }, 30_000);
 
+  it("runs one move when a second is asked for while the first stops the turn", async () => {
+    const { c, session, sp, repo } = await setup("claude");
+    const worktrees = async () => (await c.call("environments.list", { spaceId: sp.id })).result.filter((e: Any) => e.kind === "worktree");
+    for (const second of ["stop", "after-turn"]) {
+      await c.call("sessions.send", { id: session.id, text: "ask-permission" });
+      await waitFor(async () => (await c.call("sessions.get", { id: session.id })).result.status === "waiting_permission");
+      const before = (await worktrees()).length;
+      const moves = async () => (await eventsOf(c, session.id)).filter((e: Any) => e.type === "moved").length;
+      const movesBefore = await moves();
+      const first = c.call("sessions.move", { id: session.id, to: { kind: "worktree" }, when: "stop" });
+      const again = c.call("sessions.move", { id: session.id, to: { kind: "worktree" }, when: second });
+      const [a, b] = await Promise.all([first, again]);
+      expect(a.result?.status, second).toBe("idle");
+      expect(b.error?.code, second).toBe("SESSION_SWITCHING");
+      await idle(c, session.id);
+      expect((await worktrees()).length, second).toBe(before + 1);
+      expect(await moves(), second).toBe(movesBefore + 1);
+      // Back to the first checkout, so the next round starts from it.
+      await c.call("sessions.move", { id: session.id, to: { kind: "environment", environmentId: session.environmentId } });
+    }
+    expect(git(repo, "worktree", "list").trim().split("\n")).toHaveLength(3);
+  }, 30_000);
+
   it("denies a browser tool's card and a ui_ask card when a move stops the turn they are open in", async () => {
     const { c, session } = await setup("claude");
     const stopAndMove = async (text: string, to: Any) => {

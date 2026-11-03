@@ -1255,16 +1255,23 @@ export class SessionService {
     const s = this.get(id);
     this.refuseMove(s, req);
     const plan = { moveId: newId(), to: req.to, keepSourceChanges: req.keepSourceChanges };
-    if (s.status === "running" || s.status === "waiting_permission") {
-      if (req.when === "now") this.refuseMidTurn(s, "move it");
-      if (req.when === "after-turn") { this.pendingMoves.set(id, plan); return s; }
+    const midTurn = s.status === "running" || s.status === "waiting_permission";
+    if (midTurn && req.when === "now") this.refuseMidTurn(s, "move it");
+    if (midTurn && req.when === "after-turn") { this.pendingMoves.set(id, plan); return s; }
+    // Claimed before the first await: a second request while this one stops the turn is refused
+    // rather than run beside it.
+    const abort = new AbortController();
+    this.moveAborts.set(id, abort);
+    if (midTurn) {
       // The adapter denies its own cards on interrupt; the ones Realm raises itself (browser tools,
       // `ui_ask`, elicitations) wait in the gateway and only an answer here clears them.
       for (const requestId of this.d.events.findDanglingPermissions(id)) this.respondPermission(id, requestId, "deny");
       const handle = this.live.get(id)?.handle;
-      if (handle) await this.interruptAndSettle(id, handle);
+      if (handle) {
+        try { await this.interruptAndSettle(id, handle); } catch (e) { this.moveAborts.delete(id); throw e; }
+      }
     }
-    await this.moveNow(id, plan);
+    await this.moveNow(id, plan, abort);
     return this.get(id);
   }
 
@@ -1313,7 +1320,7 @@ export class SessionService {
   private refuseMove(s: Session, req: { to: MoveTarget; keepSourceChanges: boolean }): void {
     const refusal = this.moveRefusal(s);
     if (refusal) throw new RpcError("SESSION_MOVE_REFUSED", `This session cannot move: ${refusal}.`);
-    if (this.switching.has(s.id) || this.pendingMoves.has(s.id)) throw new RpcError("SESSION_SWITCHING", "this session is already switching");
+    if (this.switching.has(s.id) || this.pendingMoves.has(s.id) || this.moveAborts.has(s.id)) throw new RpcError("SESSION_SWITCHING", "this session is already switching");
     if (req.to.kind === "environment") {
       const env = this.d.environments.get(req.to.environmentId);
       if (!env) throw new NotFoundError("environment", req.to.environmentId);
@@ -1333,12 +1340,11 @@ export class SessionService {
 
   /** Run a move now. Held as a switch, so a message sent meanwhile waits for it, and the queue the
    *  turn left behind drains once it is over, wherever the session ended up. */
-  private async moveNow(id: string, plan: Omit<MovePlan, "signal">): Promise<void> {
+  private async moveNow(id: string, plan: Omit<MovePlan, "signal">, abort: AbortController): Promise<void> {
     const moves = this.d.moves;
-    if (!moves) throw new RpcError("SESSION_MOVE_REFUSED", "This session cannot move: this build cannot move sessions.");
-    const abort = new AbortController();
     this.moveAborts.set(id, abort);
     try {
+      if (!moves) throw new RpcError("SESSION_MOVE_REFUSED", "This session cannot move: this build cannot move sessions.");
       await this.whileSwitching(id, (async () => {
         const accounts = this.d.accounts;
         const handoffNotes = this.d.handoffNotes;
@@ -2417,9 +2423,10 @@ export class SessionService {
         // turn ended on its own, and forgotten if the user stopped it.
         this.drainOwed.delete(id);
         // A move asked for during this turn goes first, and the queue drains behind it.
-        const move = this.pendingMoves.get(id);
+        // Not beside a move already under way, which a request to stop the turn started.
+        const move = this.moveAborts.has(id) ? undefined : this.pendingMoves.get(id);
         this.pendingMoves.delete(id);
-        if (move) void this.moveNow(id, move).catch(() => {});
+        if (move) void this.moveNow(id, move, new AbortController()).catch(() => {});
         else if (!ev.payload.interrupted) void this.drainQueue(id).catch(() => {});
         /* …and then the goal, if this session is pursuing one. AFTER the drain and never instead of
            it: a message the user typed during the turn is the next turn, and the goal picks up
