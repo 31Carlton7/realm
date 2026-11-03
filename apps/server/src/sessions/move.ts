@@ -16,6 +16,9 @@ export const movePrefaceKey = (sessionId: string): string => `move.preface:${ses
 /** A Claude move's notes, carried in case the CLI does not find the record it was re-homed, until a
  *  resume is accepted: `before` is the hand-off context they took the place of. */
 export const moveFallbackKey = (sessionId: string): string => `move.fallback:${sessionId}`;
+/** `setAside`: the copies of the record the move renamed out of the CLI's reach, kept until then in
+ *  case the CLI does not resume the one it made. */
+export type MoveFallback = { before: unknown; setAside: string[] };
 /** A move under way (`MoveInFlight`), so a server that stops mid-move can take it back when it comes up. */
 export const moveInFlightKey = (sessionId: string): string => `move.inFlight:${sessionId}`;
 
@@ -154,7 +157,7 @@ export async function runMove(d: MoveDeps, s: Session, plan: MovePlan): Promise<
     try {
       d.sessions.setEnvironment(s.id, target.id);
       d.sessions.update({ id: s.id, status: "idle", providerSessionId: carried.providerSessionId });
-      if (carried.fallback) d.settings.set(moveFallbackKey(s.id), { before: d.settings.get(handoffContextKey(s.id)) });
+      if (carried.setAside) d.settings.set(moveFallbackKey(s.id), { before: d.settings.get(handoffContextKey(s.id)), setAside: carried.setAside } satisfies MoveFallback);
       if (carried.context !== null) d.settings.set(handoffContextKey(s.id), carried.context);
       d.settings.set(moveInFlightKey(s.id), null);
       d.db.exec("COMMIT");
@@ -225,7 +228,7 @@ async function clearSource(d: MoveDeps, s: Session, source: Environment, state: 
  */
 async function carryConversation(d: MoveDeps, s: Session, source: Environment, target: Environment,
   at: (step: MoveStep) => void, undo: (() => Promise<void> | void)[], keep: (facts: Partial<MoveInFlight>) => void,
-): Promise<{ conversation: MoveConversation; providerSessionId: string | null; context: string | null; fallback?: boolean }> {
+): Promise<{ conversation: MoveConversation; providerSessionId: string | null; context: string | null; setAside?: string[] }> {
   const mode = AGENT_SESSION_RESUME[s.agentKind].mode;
   const id = s.providerSessionId;
   if (id !== null && s.agentKind === "claude") {
@@ -234,7 +237,8 @@ async function carryConversation(d: MoveDeps, s: Session, source: Environment, t
       keep({ rehomed });
       undo.push(() => undoRehome(rehomed));
       const notes = carriedTranscript(d.events.transcript(s.id, Date.now()), HANDOFF_CONTEXT_MAX).body;
-      return { conversation: "native", providerSessionId: id, context: claudeFallbackContext(notes, source.path, target.path), fallback: true };
+      return { conversation: "native", providerSessionId: id, context: claudeFallbackContext(notes, source.path, target.path),
+        setAside: rehomed.renamed.map(([, to]) => to) };
     }
   } else if (id !== null && mode !== "none") {
     at("boot");

@@ -1,4 +1,5 @@
 import { realpathSync, statSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { ENGINE_IDLE_MINUTES_DEFAULT, ENGINE_IDLE_MINUTES_KEY, AGENT_MEMORY_CHANNEL, AGENT_SESSION_RESUME, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, handoffContextKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type MoveOptions, type MoveTarget, type MoveWhen, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, RestartRequiredError, type AdapterRegistry, type AgentAdapter, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
@@ -15,7 +16,7 @@ import { NotFoundError, RpcError } from "../store/rows";
 import { buildHandoffContext, defaultAccountId, hasAccounts, shouldSurfaceWrite, switchNote, type AccountKind } from "@realm/contracts";
 import type { FailoverHooks } from "./failover";
 import { handOver, modeAfterSwitch, modelNameOf } from "./handover";
-import { moveFallbackKey, moveInFlightKey, movePrefaceKey, placeOf, runMove, undoInterruptedMove, type MoveInFlight, type MovePlan } from "./move";
+import { moveFallbackKey, moveInFlightKey, movePrefaceKey, placeOf, runMove, undoInterruptedMove, type MoveFallback, type MoveInFlight, type MovePlan } from "./move";
 import type { Rehomed } from "../accounts/service";
 import type { CheckpointGit } from "../workspace/checkpoints";
 import { portEnv, type PortAllocator } from "../workspace/ports";
@@ -1408,12 +1409,13 @@ export class SessionService {
   }
 
   /** The conversation resumed after a Claude move, so the notes carried in case it did not are put
-   *  back to the hand-off context they replaced. */
+   *  back to the hand-off context they replaced, and the copies of the record the move set aside go. */
   private dropMoveFallback(id: string): void {
-    const fallback = this.d.settings.get(moveFallbackKey(id)) as { before: unknown } | null;
+    const fallback = this.d.settings.get(moveFallbackKey(id)) as MoveFallback | null;
     if (!fallback) return;
     this.d.settings.set(handoffContextKey(id), fallback.before ?? null);
     this.d.settings.set(moveFallbackKey(id), null);
+    for (const path of fallback.setAside ?? []) void rm(path, { recursive: true, force: true }).catch(() => {});
   }
 
   /**

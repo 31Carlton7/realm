@@ -182,10 +182,13 @@ describe("sessions.move", () => {
 
     await c.call("sessions.move", { id: session.id, to: { kind: "worktree" } });
     expect(settings.get(handoffContextKey(session.id))).toContain("If the conversation before this message is there, carry on with it");
+    expect(existsSync(`${record}.moved`)).toBe(true);
     await turn(c, session.id, "go on");
     expect(agent.starts.at(-1)!.systemContext).toContain("# Moved mid-session");
-    // Resumed, so the notes stand down, and the context they took the place of is back.
+    // Resumed, so the notes stand down, the context they took the place of is back, and the old
+    // copy kept in case the resume failed goes.
     expect(settings.get(handoffContextKey(session.id))).toBe("# Handed over earlier");
+    await waitFor(() => !existsSync(`${record}.moved`));
   });
 
   it("carries a Codex conversation as notes when its resume is declined at the target", async () => {
