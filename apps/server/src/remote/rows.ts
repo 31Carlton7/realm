@@ -1,6 +1,6 @@
-import { basenameOf, type AskCard, type AskQuestion, type MovePlace, type MoveStep, type QueuedPrompt, type SessionEvent, type SessionEventType, type StoredSessionEvent } from "@realm/contracts";
+import { movedSentence, type AskCard, type AskQuestion, type MoveStep, type PendingMove, type QueuedPrompt, type SessionEvent, type SessionEventType, type StoredSessionEvent } from "@realm/contracts";
 import { givenAttachmentName } from "@realm/contracts/src/temp-attachments";
-import type { QueuedMessage, Row } from "@realm/remote";
+import type { PendingMove as PhonePendingMove, QueuedMessage, Row } from "@realm/remote";
 import { questionOf } from "@realm/view";
 
 /**
@@ -68,6 +68,13 @@ export function queuedMessage(q: QueuedPrompt, attachmentsDir: string | null): Q
   };
 }
 
+/** A move waiting behind the turn or under way, its target named as the phone's `session.move` names it. */
+export function pendingMove(m: PendingMove | null | undefined): PhonePendingMove | null {
+  if (!m) return null;
+  const to = m.to.kind === "environment" ? { kind: "checkout" as const, environmentId: m.to.environmentId } : { kind: "worktree" as const };
+  return { moveId: m.moveId, to, step: m.step };
+}
+
 /** What each step of a move is called, as the desktop's progress row calls it, for the agent being moved. */
 export function moveStepLabel(step: MoveStep, agent: string): string {
   switch (step) {
@@ -78,15 +85,6 @@ export function moveStepLabel(step: MoveStep, agent: string): string {
     case "boot": return `Starting ${agent}`;
     case "commit": return "Finishing";
   }
-}
-
-/** One end of a move as the desktop's moved line names it: the folder, and its branch when it has one. */
-const placeName = (p: MovePlace): string => (p.branch ? `${basenameOf(p.cwd)} (${p.branch})` : basenameOf(p.cwd));
-
-/** The desktop's moved line: each end by folder and branch, then how the conversation went. */
-export function movedSentence(from: MovePlace, to: MovePlace, conversation: "native" | "notes"): string {
-  const how = conversation === "native" ? "The conversation continued." : "The conversation continued from notes.";
-  return `Moved from ${placeName(from)} to ${placeName(to)}. ${how}`;
 }
 
 /** A path as the Mac's home shortens it. */
@@ -190,7 +188,7 @@ export class SessionProjector {
       case "moved": {
         const { from, to } = ev.payload;
         return put({
-          key: `mv:${ev.payload.moveId}`, seq, kind: "notice", text: movedSentence(from, to, ev.payload.conversation),
+          key: `mv:${ev.payload.moveId}`, seq, kind: "notice", text: movedSentence({ from, to, conversation: ev.payload.conversation }),
           detail: `${tilde(from.cwd, this.o.home ?? null)} → ${tilde(to.cwd, this.o.home ?? null)}`, move: "moved",
         });
       }

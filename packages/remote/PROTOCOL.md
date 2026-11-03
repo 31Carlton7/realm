@@ -463,10 +463,10 @@ else keeps its own name, whatever it looks like.
 | `ping` | `{}` | `{at: ms}`, the Mac's clock |
 | `home.get` | `{profileId?}` | `{mac: {name}, needsYou: [SessionRow], spaces: [Space], profiles?: [Profile], profileId?: string\|null, recent?: [SessionRow]}` |
 | `space.sessions` | `{id, offset?: int = 0, limit?: int = 50}` | `{sessions: [SessionRow], more: bool}`. `limit` is at most 100. |
-| `session.open` | `{id, limit?: int = 200}` | `{session: SessionRow, rows: [Row], hasMore: bool, hint?: string\|null, queued?: [QueuedMessage]}` |
+| `session.open` | `{id, limit?: int = 200}` | `{session: SessionRow, rows: [Row], hasMore: bool, hint?: string\|null, queued?: [QueuedMessage], move?: PendingMove\|null}` |
 | `session.close` | `{id}` | `{ok: true}` |
 | `session.update` | `{id, title?, pinned?: bool, archived?: bool}` | `{session: SessionRow\|null}`: null once it is archived |
-| `session.queue` | `{id}` | `{queued: [QueuedMessage]}` |
+| `session.queue` | `{id}` | `{queued: [QueuedMessage], move?: PendingMove\|null}` |
 | `session.sendQueuedNow` | `{id, queuedId}` | `{ok: true}` |
 | `session.removeQueued` | `{id, queuedId}` | `{ok: true}` |
 | `session.holdQueued` | `{id, queuedId, held: bool}` | `{ok: true}` |
@@ -645,7 +645,8 @@ QueuedMessage {
   words back in its composer; no words at all, on a message with no file, is `INVALID_PARAMS`.
 
 `session.open` answers with the queue as it was when the session opened, and `session.queue` (the
-event) carries the whole queue each time it changes after that.
+event) carries the whole queue each time it changes after that. Both carry `move` beside it: a move
+of the session that is not over, which waits ahead of the queue.
 
 **A session's sub-agents are its Agents tab's.** `session.subagents` lists every session it started
 (`delegation.children`), newest first:
@@ -848,6 +849,16 @@ Checkout { environmentId, path, branch: string|null, kind: "primary"|"checkout"|
   checkout another session is working in, a move already under way, background work only `stop` would
   stop, a move that could not be made — is `FORBIDDEN`, in its words; a move that fails part way puts everything back first.
 - A Mac from before moves answers all three `METHOD_NOT_FOUND`, and a phone offers no move.
+- **`move`**, on `session.open`, `session.queue` and the `session.queue` event, is the move not over yet:
+
+  ```
+  PendingMove { moveId, to: {kind: "checkout", environmentId} | {kind: "worktree"},
+                step: "preflight"|"freeze"|"snapshot"|"place"|"boot"|"commit"|null }
+  ```
+
+  `step` is null while it waits for the turn to end, and the step it is at once under way. A move's
+  progress is never stored, so `session.open` on a session mid-move puts its progress row in `rows`
+  at that step. `move` is null once it is over, and absent from a Mac before it was sent.
 
 **Opening a session subscribes the channel to it.** From then until `session.close` or the end of
 the channel, the Mac sends that session's `session.rows`, `session.status`, `session.hint`,
@@ -933,7 +944,7 @@ setting, or a key.
 | `session.status` | `{id, status, moving?: true}` | The session's status changed. `moving` as `SessionRow.moving`. |
 | `session.hint` | `{id, text: string\|null}` | The suggested next message changed: a newer one after a turn, or none once something was sent. |
 | `home.changed` | `{}` | Call `home.get` again. Sent at most once a second. |
-| `session.queue` | `{id, queued: [QueuedMessage]}` | An open session's queue changed: the whole queue. |
+| `session.queue` | `{id, queued: [QueuedMessage], move?: PendingMove\|null}` | An open session's queue changed, or its move was queued, reached a step or ended: the whole queue, and the move. |
 | `session.subagents` | `{id}` | An open session's sub-agents changed: call `session.subagents` again. |
 | `work.changed` | `{}` | Reviews or scheduled tasks changed somewhere: call `reviews.list` and `schedules.list` again. Sent at most once a second. |
 | `pair.result` | see §4.1 | Pairing channels only. |

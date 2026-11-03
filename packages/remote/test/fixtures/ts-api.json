@@ -1326,7 +1326,8 @@
             }
           ]
         }
-      ]
+      ],
+      "move": null
     },
     "session.changes": {
       "checkpointId": "01JCHECKPOINT0000000000000",
@@ -2845,7 +2846,8 @@
             }
           ]
         }
-      ]
+      ],
+      "move": null
     },
     "session.file:queued": {
       "path": "/Users/me/Realm/tmp/attachments/5e6f7a8b9c0d-sketch.png",
@@ -3298,7 +3300,8 @@
       ],
       "hasMore": false,
       "hint": null,
-      "queued": []
+      "queued": [],
+      "move": null
     },
     "session.moveOptions": {
       "mac": "MacBook Pro",
@@ -3355,6 +3358,58 @@
     },
     "session.cancelMove": {
       "cancelled": true
+    },
+    "session.queue:move": {
+      "queued": [],
+      "move": {
+        "moveId": "01JMOVE0000000000000000004",
+        "to": {
+          "kind": "checkout",
+          "environmentId": "01JWORKTREE000000000000001"
+        },
+        "step": null
+      }
+    },
+    "session.open:moving": {
+      "session": {
+        "id": "01JREALM000000000000000003",
+        "title": "Fix the flaky upload test",
+        "spaceId": "sp1",
+        "spaceName": "Realm",
+        "agent": "claude",
+        "model": "claude-opus-5-5",
+        "status": "idle",
+        "needsYou": false,
+        "unread": false,
+        "updatedAt": 1789946000000,
+        "agentName": "Claude",
+        "agentMark": "claude",
+        "modelLabel": "Opus 5.5",
+        "createdAt": 1789000000002,
+        "effort": null,
+        "permissionMode": "default",
+        "activityAt": 1789946000000,
+        "pinned": false
+      },
+      "rows": [
+        {
+          "key": "mv:01JMOVE0000000000000000005",
+          "seq": 0,
+          "kind": "notice",
+          "text": "Moving · Setting up the checkout",
+          "move": "moving"
+        }
+      ],
+      "hasMore": false,
+      "hint": null,
+      "queued": [],
+      "move": {
+        "moveId": "01JMOVE0000000000000000005",
+        "to": {
+          "kind": "worktree"
+        },
+        "step": "place"
+      }
     },
     "session.update": {
       "session": {
@@ -3422,6 +3477,18 @@
       {
         "id": "01JSESSION00000000000000000",
         "queued": []
+      },
+      {
+        "id": "01JREALM000000000000000002",
+        "queued": [],
+        "move": {
+          "moveId": "01JMOVE0000000000000000004",
+          "to": {
+            "kind": "checkout",
+            "environmentId": "01JWORKTREE000000000000001"
+          },
+          "step": null
+        }
       }
     ],
     "session.subagents": [

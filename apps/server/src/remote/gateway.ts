@@ -7,6 +7,7 @@ import {
 import { MobileApi, MobileError, type ChannelContext } from "./api";
 import { RelayLink, type LinkState } from "./link";
 import type { RpcPort } from "./rpc-port";
+import { pendingMove } from "./rows";
 import type { MacIdentity, PairedPhone, PhoneStore } from "./store";
 
 /**
@@ -443,8 +444,8 @@ export class RemoteGateway {
           const open = c.ctx.sessions.get(p.sessionId);
           if (!open || !c.send) continue;
           // Still opening: its answer carries the queue, and this is newer than the queue it read.
-          if (open.buffer) { open.queued = p.queued; continue; }
-          this.sendEvent(c, "session.queue", { id: p.sessionId, queued: this.api.queuedMessages(p.queued) } satisfies MobileEventPayload<"session.queue">);
+          if (open.buffer) { open.queued = p.queued; open.move = p.move ?? null; continue; }
+          this.sendEvent(c, "session.queue", { id: p.sessionId, queued: this.api.queuedMessages(p.queued), move: pendingMove(p.move) } satisfies MobileEventPayload<"session.queue">);
         }
         return;
       }

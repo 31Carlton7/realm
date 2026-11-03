@@ -3,12 +3,13 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import {
-  normalizeAnswers, sessionEvent, type AskCard, type DelegatedChild, type FileDiff, type Item, type PlanLimits, type QueuedPrompt, type Run, type Schedule,
+  normalizeAnswers, sessionEvent, type AskCard, type DelegatedChild, type FileDiff, type Item, type PendingMove, type PlanLimits, type QueuedPrompt, type Run, type Schedule,
   type Session, type SessionEvent, type Space, type StoredSessionEvent, type UsageSessionRow,
 } from "@realm/contracts";
 import { tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
 import { MobileCalls, MobileEvents, RowSchema, type MobileEvent } from "@realm/remote";
 import { MobileApi } from "./api";
+import { pendingMove } from "./rows";
 import { channel, fakeRpc, jpegHeader, machine, machineState, pngHeader, profile, simulator, simulatorState } from "./api.test-fakes";
 
 /**
@@ -20,7 +21,7 @@ import { channel, fakeRpc, jpegHeader, machine, machineState, pngHeader, profile
  * picture, three agents' session options and a change to them, every agent a new session can have;
  * the queue, the lead's sub-agents (one working, two ended), a space's teammates and one's chat, the plans and the month's spend, an empty
  * Review (it went with the first Teams), the scheduled tasks and one run now, the screens the theme column's space has open and a frame of one, a rename with a pin and an
- * archive; and every event but `session.rows` and `session.status` —
+ * archive, a move queued behind a turn and a session opened mid-move; and every event but `session.rows` and `session.status` —
  * every one made by the real projector and the real `MobileApi`, over a fake of the desktop's RPC.
  * Generated, not hand-written, so this test also proves the committed file is what the code produces
  * today: `REALM_WRITE_FIXTURES=1 pnpm vitest run apps/server/src/remote/api-fixtures.test.ts` rewrites it.
@@ -65,6 +66,9 @@ const CTO = "01JTEAMMATE000000000000001";
 const DESIGNER = "01JTEAMMATE000000000000002";
 const CTO_CHAT = "01JCTOCHAT0000000000000000";
 const DESIGNER_CHAT = "01JDESIGNERCHAT00000000000";
+/** A move queued behind one session's turn, and another session's under way. */
+const AFTER_TURN: PendingMove = { moveId: "01JMOVE0000000000000000004", to: { kind: "environment", environmentId: WORKTREE }, step: null };
+const UNDER_WAY: PendingMove = { moveId: "01JMOVE0000000000000000005", to: { kind: "worktree" }, step: "place" };
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 /** Far enough ahead that no window has reset whenever this runs, and far enough back that one has. */
@@ -257,7 +261,6 @@ async function generate(): Promise<Record<string, unknown>> {
     spaces: [space("sp1", "Realm", "code"), space("sp2", "Deck", "emoji:🌊"), space("sp3", "School", "asset:01JASSET", "p2")],
     sessions,
     items,
-    queued: { [S]: queued },
     settings: {
       "ui.lastAgentKind": "codex", "sessions.midTurnMode": "steer", "sessions.defaultPermissionMode": "acceptEdits",
       // What Claude Code said its models take: Haiku takes no level.
@@ -314,8 +317,11 @@ async function generate(): Promise<Record<string, unknown>> {
       machines: [machine(TEXTEDIT, "sp1", "TextEdit", "mac"), machine(STUDIO, "sp1", "Studio", "vnc"), machine(GUEST, "sp1", "Ubuntu", "qemu")],
       states: [machineState(TEXTEDIT, "running"), machineState(STUDIO, "running"), machineState(GUEST, "off")],
     })) as never,
+    "sessions.queued": ((p: { id: string }) => ({
+      queued: p.id === S ? queued : [], move: p.id === OLDER[1] ? AFTER_TURN : p.id === OLDER[2] ? UNDER_WAY : null,
+    })) as never,
     "sessions.moveOptions": (() => ({
-      from: { machine: null, environmentId: CHECKOUT, cwd: "/Users/me/realm", branch: "main" },
+      from: { machine: null, environmentId: CHECKOUT, cwd: "/Users/me/realm", branch: "main", kind: "primary" }, machineName: "MacBook Pro",
       busy: true, blocked: null, pending: false, conversation: "native", changedFiles: 3, leftBehind: ["the terminal", ".env"], stops: [],
       environments: [{ environmentId: WORKTREE, path: "/Users/me/Realm/worktrees/realm/tidy-settings", branch: "tidy-settings", kind: "worktree" }],
       worktree: { available: true, reason: null },
@@ -379,6 +385,8 @@ async function generate(): Promise<Record<string, unknown>> {
       "session.moveOptions": await call("session.moveOptions", { id: S }),
       "session.move": await call("session.move", { id: S, to: { kind: "worktree" }, when: "after-turn" }),
       "session.cancelMove": await call("session.cancelMove", { id: S }),
+      "session.queue:move": await call("session.queue", { id: OLDER[1]! }),
+      "session.open:moving": await call("session.open", { id: OLDER[2]!, limit: 200 }),
       // Last, because they change the lists every call above reads.
       "session.update": await call("session.update", { id: OLDER[5]!, title: "Write the 2.0.3 changelog", pinned: true }),
       "session.update:archived": await call("session.update", { id: OLDER[3]!, archived: true }),
@@ -386,7 +394,7 @@ async function generate(): Promise<Record<string, unknown>> {
     events: {
       "session.hint": [{ id: S, text: "Approve the plan and run the migration" }, { id: S, text: null }],
       // The queue as the gateway sends it: the whole list each time, then empty once both have gone out.
-      "session.queue": [{ id: S, queued: api.queuedMessages(queued) }, { id: S, queued: [] }],
+      "session.queue": [{ id: S, queued: api.queuedMessages(queued) }, { id: S, queued: [] }, { id: OLDER[1]!, queued: [], move: pendingMove(AFTER_TURN) }],
       "session.subagents": [{ id: S }],
       "work.changed": [{}],
     },

@@ -438,6 +438,18 @@ export const FileDataSchema = z.object({
  *  its branch, and whether it is the space's own folder, another checkout or a worktree. */
 const CheckoutSchema = z.object({ environmentId: Id, path: z.string(), branch: z.string().nullable(), kind: z.enum(["primary", "checkout", "worktree"]) });
 
+/** Where a move sends the session: another checkout of its space, or a new worktree. */
+const MoveToSchema = z.discriminatedUnion("kind", [z.object({ kind: z.literal("checkout"), environmentId: Id }), z.object({ kind: z.literal("worktree") })]);
+
+/** A move of the session that is not over: queued behind the turn while `step` is null, otherwise
+ *  under way at `step`, the step its progress row names. */
+export const PendingMoveSchema = z.object({
+  moveId: z.string(),
+  to: MoveToSchema,
+  step: z.enum(["preflight", "freeze", "snapshot", "place", "boot", "commit"]).nullable(),
+});
+export type PendingMove = z.infer<typeof PendingMoveSchema>;
+
 /** Where a session can be moved to, and what would go with it (`session.moveOptions`). */
 export const MoveOptionsSchema = z.object({
   /** The Mac it runs on. */
@@ -523,6 +535,8 @@ export const MobileCalls = {
       hint: z.string().nullable().optional(),
       /** The messages waiting in the Mac's queue when the session opened. */
       queued: z.array(QueuedMessageSchema).optional(),
+      /** The move queued behind the turn or under way when the session opened, or null. */
+      move: PendingMoveSchema.nullable().optional(),
     }),
   },
   "session.close": { params: z.object({ id: Id }), result: Ok },
@@ -532,7 +546,7 @@ export const MobileCalls = {
     result: z.object({ session: SessionRowSchema.nullable() }),
   },
   /** The messages waiting in the Mac's queue; `session.queue` (the event) says when they change. */
-  "session.queue": { params: z.object({ id: Id }), result: z.object({ queued: z.array(QueuedMessageSchema) }) },
+  "session.queue": { params: z.object({ id: Id }), result: z.object({ queued: z.array(QueuedMessageSchema), move: PendingMoveSchema.nullable().optional() }) },
   /** Sends one queued message now, ahead of the turn it was waiting for. */
   "session.sendQueuedNow": { params: z.object({ id: Id, queuedId: z.string().min(1) }), result: Ok },
   /** Takes a queued message out of the queue; it is not sent. */
@@ -641,7 +655,7 @@ export const MobileCalls = {
   "session.move": {
     params: z.object({
       id: Id,
-      to: z.discriminatedUnion("kind", [z.object({ kind: z.literal("checkout"), environmentId: Id }), z.object({ kind: z.literal("worktree") })]),
+      to: MoveToSchema,
       when: z.enum(["now", "after-turn", "stop"]).default("now"),
     }),
     result: z.object({ session: SessionRowSchema }),
@@ -663,7 +677,7 @@ export const MobileEvents = {
   "session.hint": z.object({ id: Id, text: z.string().nullable() }),
   "home.changed": z.object({}),
   /** An open session's queue changed: the whole list, as the desktop's own event carries it. */
-  "session.queue": z.object({ id: Id, queued: z.array(QueuedMessageSchema) }),
+  "session.queue": z.object({ id: Id, queued: z.array(QueuedMessageSchema), move: PendingMoveSchema.nullable().optional() }),
   /** An open session's sub-agents changed: one started, settled or was stopped. `session.subagents` reads them. */
   "session.subagents": z.object({ id: Id }),
   /** Reviews or scheduled tasks changed somewhere: `reviews.list` and `schedules.list` read them again. */
