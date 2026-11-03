@@ -149,3 +149,41 @@ describe("sessions.switchAgent", () => {
     c.close();
   });
 });
+
+describe("a model or level picked on a teammate's chat", () => {
+  it("is saved to the teammate, and nothing else the chat's chips set is", async () => {
+    const { c, sp } = await setup();
+    const mate = (await c.call("teammates.create", { spaceId: sp.id, name: "Reviewer", brief: "Reviews.", agentKind: "fake", model: "fake-1", permissionMode: "default" })).result;
+    const { sessionId } = (await c.call("teammates.home", { id: mate.id })).result;
+    await c.call("sessions.send", { id: sessionId, text: "go" });
+    await idle(c, sessionId);
+
+    await c.call("sessions.setOptions", { id: sessionId, model: "fake-2" });
+    await c.call("sessions.setOptions", { id: sessionId, effort: "high" });
+    await c.call("sessions.setOptions", { id: sessionId, permissionMode: "acceptEdits" });
+    expect((await c.call("teammates.get", { id: mate.id })).result).toMatchObject({ model: "fake-2", effort: "high", permissionMode: "default", homeSessionId: sessionId });
+    expect((await c.call("sessions.get", { id: sessionId })).result).toMatchObject({ model: "fake-2", effort: "high", permissionMode: "acceptEdits" });
+    c.close();
+  });
+
+  it("takes the agent with it when the model picked is another agent's, before the chat has run", async () => {
+    const { c, sp } = await setup();
+    const mate = (await c.call("teammates.create", { spaceId: sp.id, name: "Reviewer", brief: "Reviews.", agentKind: "fake", model: "fake-1", permissionMode: "default" })).result;
+    await c.call("sessions.setAgent", { id: mate.homeSessionId, agentKind: "codex" });
+    expect((await c.call("teammates.get", { id: mate.id })).result).toMatchObject({ agentKind: "codex", model: null });
+    await c.call("sessions.setOptions", { id: mate.homeSessionId, model: "gpt-5.6" });
+    expect((await c.call("teammates.get", { id: mate.id })).result).toMatchObject({ agentKind: "codex", model: "gpt-5.6", homeSessionId: mate.homeSessionId });
+    c.close();
+  });
+
+  it("is not saved from a task session the teammate started", async () => {
+    const { c, sp } = await setup();
+    const mate = (await c.call("teammates.create", { spaceId: sp.id, name: "Reviewer", brief: "Reviews.", agentKind: "fake", model: "fake-1", permissionMode: "default" })).result;
+    const home = (await c.call("sessions.get", { id: mate.homeSessionId })).result;
+    const { session: task } = app.sessions.create({ spaceId: sp.id, agentKind: "fake", projectId: null, environmentId: home.environmentId, model: "fake-1", effort: null,
+      permissionMode: "default", title: "reviewer - task", teammate: { id: mate.id, home: false } });
+    await c.call("sessions.setOptions", { id: task.id, model: "fake-2", effort: "high" });
+    expect((await c.call("teammates.get", { id: mate.id })).result).toMatchObject({ model: "fake-1", effort: null });
+    c.close();
+  });
+});

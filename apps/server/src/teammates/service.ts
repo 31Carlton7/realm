@@ -340,14 +340,34 @@ export class TeammatesService {
    * agent as a reason to start a new chat, and the switch already handed this one over.
    */
   followSwitch(session: Session): void {
-    if (!session.teammateHome || !session.teammateId) return;
-    const row = this.d.store.get(session.teammateId);
-    if (!row || row.homeSessionId !== session.id) return;
+    const row = this.homeOf(session);
+    if (!row) return;
     this.d.store.update(row.id, {
       agentKind: session.agentKind, model: session.model, effort: session.effort,
       ...((TEAMMATE_PERMISSION_MODES as readonly string[]).includes(session.permissionMode) ? { permissionMode: session.permissionMode as TeammatePermissionMode } : {}),
     });
     this.changed(row.spaceId);
+  }
+
+  /**
+   * A model or level picked on a home session's chip (`sessions.setOptions`, `sessions.setAgent`). The
+   * teammate takes it, with the agent the model belongs to. Not its permission mode: a chip lowered for
+   * one chat leaves the mode the teammate's tasks run in. Written to the row alone, as `followSwitch`
+   * is, so it does not go back to the chat through `followHome`.
+   */
+  followOptions(session: Session): void {
+    const row = this.homeOf(session);
+    if (!row) return;
+    if (row.agentKind === session.agentKind && row.model === session.model && row.effort === session.effort) return;
+    this.d.store.update(row.id, { agentKind: session.agentKind, model: session.model, effort: session.effort });
+    this.changed(row.spaceId);
+  }
+
+  /** The teammate whose home chat this is; a task session, or a chat it has moved off, has none. */
+  private homeOf(session: Session): TeammateRow | null {
+    if (!session.teammateHome || !session.teammateId) return null;
+    const row = this.d.store.get(session.teammateId);
+    return row && row.homeSessionId === session.id ? row : null;
   }
 
   private changedItems(spaceId: string): void {

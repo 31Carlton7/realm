@@ -1239,8 +1239,17 @@ export function registerMethods(d: Deps): void {
     return { seqs };
   });
   reg("sessions.respondPermission", (p) => { d.sessions.respondPermission(p.id, p.requestId, p.decision, p.answers); return { ok: true as const }; });
-  reg("sessions.setOptions", (p) => d.sessions.setOptions(p.id, { model: p.model, effort: p.effort, permissionMode: p.permissionMode, fastMode: p.fastMode }));
-  reg("sessions.setAgent", (p) => d.sessions.setAgent(p.id, p.agentKind));
+  // A model or level picked on a teammate's chat is the teammate's from then on.
+  reg("sessions.setOptions", async (p) => {
+    const s = await d.sessions.setOptions(p.id, { model: p.model, effort: p.effort, permissionMode: p.permissionMode, fastMode: p.fastMode });
+    d.team.followOptions(s);
+    return s;
+  });
+  reg("sessions.setAgent", (p) => {
+    const s = d.sessions.setAgent(p.id, p.agentKind);
+    d.team.followOptions(s);
+    return s;
+  });
   reg("sessions.setAccount", (p) => d.sessions.setAccount(p.id, p.accountId));
   // A teammate's chat switched takes the teammate with it, so its next chat and its next edit start there.
   reg("sessions.switchAgent", async (p) => {
