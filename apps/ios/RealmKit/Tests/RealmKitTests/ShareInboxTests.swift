@@ -79,9 +79,27 @@ struct ShareInboxTests {
         #expect(inbox.loadTargets() == nil)
         let agent = AgentOptions(kind: "claude", name: "Claude", mark: "claude", models: [ModelChoice(id: nil, label: "Default")])
         let space = Space(id: "sp1", name: "Realm", icon: nil, color: nil, sessions: [], more: 0)
-        let targets = ShareTargets(macName: "MacBook Pro", sessions: [StoreTests.session("s1")], spaces: [space], agents: [agent], spaceId: "sp1")
+        let cto = Teammate(id: "t1", spaceId: "sp1", name: "CTO", handle: "cto", brief: "Owns the architecture", lead: true, chatId: "s9")
+        let targets = ShareTargets(macName: "MacBook Pro", sessions: [StoreTests.session("s1")], spaces: [space], agents: [agent], spaceId: "sp1", teammates: [cto])
         try inbox.saveTargets(targets)
         #expect(inbox.loadTargets() == targets)
+    }
+
+    /// The file an app from before teammates wrote still offers its sessions, and no teammate.
+    @Test func targetsWrittenBeforeTeammatesStillRead() throws {
+        let space = Space(id: "sp1", name: "Realm", icon: nil, color: nil, sessions: [], more: 0)
+        let targets = ShareTargets(macName: "MacBook Pro", sessions: [StoreTests.session("s1")], spaces: [space], agents: [], spaceId: "sp1", teammates: nil)
+        var written = try JSONSerialization.jsonObject(with: JSONEncoder().encode(targets)) as! [String: Any]
+        written.removeValue(forKey: "teammates")
+        try FileManager.default.createDirectory(at: inbox.directory, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: written).write(to: inbox.directory.appending(path: "targets.json"))
+        #expect(inbox.loadTargets() == targets)
+    }
+
+    @Test func aShareToATeammateIsTakenAsItWasMade() throws {
+        let item = SharedItem(id: UUID(), target: .teammate(id: "t1"), text: "For the header", files: [], sharedAt: Date())
+        try inbox.commit(item)
+        #expect(inbox.pending() == [item])
     }
 
     @Test func aSharedFileIsMovedIntoTheOutboxNotCopied() throws {

@@ -40,6 +40,19 @@ struct WorkFixtureTests {
         #expect(subagents.allSatisfy { subagent in subagent.settledAt.map { $0 >= subagent.startedAt } ?? true })
     }
 
+    /// A space's Team, its Lead first, and the chat of a teammate that had none until it was asked for.
+    @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
+    func aSpacesTeammatesAndOnesChatDecode() throws {
+        struct Answer: Decodable { let teammates: [Teammate] }
+        let teammates = try Self.decode(Answer.self, "teammates.list").teammates
+        #expect(teammates.map(\.handle) == ["cto", "designer"])
+        #expect(teammates.map(\.lead) == [true, false] && teammates.allSatisfy { $0.spaceId == "sp1" })
+        #expect(teammates[1].brief == "Keeps the app and the site on one design.")
+        #expect(teammates.map(\.chatId) == ["01JCTOCHAT0000000000000000", nil])
+        struct Chat: Decodable { let id: String }
+        #expect(try Self.decode(Chat.self, "teammate.chat").id == "01JDESIGNERCHAT00000000000")
+    }
+
     /// Each runnable agent's plan, the ones that report first: windows fullest first, one that reset
     /// since its reading and one never measured with no figure, the provider's warning in words; then
     /// the agents that cannot say, each with why. And the month's spend against its budget.
@@ -130,6 +143,10 @@ struct WorkCallTests {
         let api = MobileAPI(connection: connection)
         _ = try? await api.subagents(id: "lead")
         #expect(relay.methods.last == "session.subagents" && relay.params.last == ["id": "lead"])
+        _ = try? await api.teammates()
+        #expect(relay.methods.last == "teammates.list")
+        _ = try? await api.teammateChat(id: "designer")
+        #expect(relay.methods.last == "teammate.chat" && relay.params.last == ["id": "designer"])
         _ = try? await api.usage()
         #expect(relay.methods.last == "usage.get")
         _ = try? await api.reviews()

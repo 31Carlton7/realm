@@ -1075,6 +1075,30 @@ public struct Subagent: Codable, Sendable, Hashable, Identifiable {
     }
 }
 
+/// A space's teammate, as its Team list names it.
+public struct Teammate: Codable, Sendable, Hashable, Identifiable {
+    public let id: String
+    public let spaceId: String
+    public let name: String
+    public let handle: String
+    /// What it does, in the person's words.
+    public let brief: String
+    /// The space's Lead, listed first.
+    public let lead: Bool
+    /// Its chat, when it has one; `teammateChat` makes one for a teammate that has none.
+    public let chatId: String?
+
+    public init(id: String, spaceId: String, name: String, handle: String, brief: String, lead: Bool, chatId: String?) {
+        self.id = id
+        self.spaceId = spaceId
+        self.name = name
+        self.handle = handle
+        self.brief = brief
+        self.lead = lead
+        self.chatId = chatId
+    }
+}
+
 /// One window of a plan's quota: how much of it is used, and when it starts again.
 public struct PlanWindow: Codable, Sendable, Hashable, Identifiable {
     public let id: String

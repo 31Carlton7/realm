@@ -2,9 +2,9 @@ import RealmKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Where a share goes: one of the sessions Home last listed, or a new session with one of the Mac's
-/// agents in a space. What is offered is what the app last heard from the Mac, as the extension cannot
-/// ask it; a phone not yet paired is told to pair first.
+/// Where a share goes: one of the sessions Home last listed, a new session with one of the Mac's
+/// agents in a space, or a teammate's chat. What is offered is what the app last heard from the Mac,
+/// as the extension cannot ask it; a phone not yet paired is told to pair first.
 struct ShareView: View {
     let draft: ShareDraft
     let targets: ShareTargets?
@@ -64,6 +64,18 @@ struct ShareView: View {
                     }
                     Picker("Agent", selection: Binding(get: { agent.kind }, set: { agentKind = $0; target = .newSession(agent: $0, spaceId: space.id) })) {
                         ForEach(targets.agents, id: \.kind) { Text($0.name).tag($0.kind) }
+                    }
+                }
+                .listRowBackground(Fill.card)
+            }
+            if let teammates = targets.teammates, !teammates.isEmpty {
+                Section("Teammates") {
+                    ForEach(teammates) { teammate in
+                        let spaceName = targets.spaces.first { $0.id == teammate.spaceId }?.name
+                        TargetRow(title: teammate.name, detail: spaceName.map { "@\(teammate.handle) · \($0)" } ?? "@\(teammate.handle)",
+                                  chosen: target == .teammate(id: teammate.id)) {
+                            target = .teammate(id: teammate.id)
+                        }
                     }
                 }
                 .listRowBackground(Fill.card)

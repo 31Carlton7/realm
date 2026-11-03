@@ -1,9 +1,11 @@
 import Foundation
 
-/// Where a share from another app goes: an existing session, or a new one with an agent in a space.
+/// Where a share from another app goes: an existing session, a new one with an agent in a space, or a
+/// teammate's chat.
 public enum ShareTarget: Codable, Sendable, Hashable {
     case session(id: String)
     case newSession(agent: String, spaceId: String)
+    case teammate(id: String)
 }
 
 /// A file a share brought, copied into its folder in the inbox under the name the Mac will know it by.
@@ -43,8 +45,9 @@ public struct SharedItem: Codable, Sendable, Hashable, Identifiable {
     }
 }
 
-/// What the share extension offers: the sessions and spaces Home last showed and the agents a new
-/// session could be given. The app writes it; the extension, which cannot reach the Mac, only reads it.
+/// What the share extension offers: the sessions and spaces Home last showed, the agents a new session
+/// could be given and the spaces' teammates. The app writes it; the extension, which cannot reach the
+/// Mac, only reads it.
 public struct ShareTargets: Codable, Sendable, Hashable {
     public let macName: String
     /// The sessions to offer, newest activity first.
@@ -53,13 +56,16 @@ public struct ShareTargets: Codable, Sendable, Hashable {
     public let agents: [AgentOptions]
     /// The space a new session goes in until another is picked.
     public let spaceId: String?
+    /// The teammates of those spaces; nil from a Mac older than teammates, or a file written before them.
+    public let teammates: [Teammate]?
 
-    public init(macName: String, sessions: [SessionRow], spaces: [Space], agents: [AgentOptions], spaceId: String?) {
+    public init(macName: String, sessions: [SessionRow], spaces: [Space], agents: [AgentOptions], spaceId: String?, teammates: [Teammate]?) {
         self.macName = macName
         self.sessions = sessions
         self.spaces = spaces
         self.agents = agents
         self.spaceId = spaceId
+        self.teammates = teammates
     }
 }
 
