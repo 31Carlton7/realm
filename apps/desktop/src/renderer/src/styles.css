@@ -4389,9 +4389,9 @@ button.subagent-brief-chip:focus-visible { outline: none; box-shadow: var(--rl-o
 .move-steps li { flex: none; }
 .move-steps li + li::before { content: "→"; margin-right: 6px; color: var(--rl-text-faint); }
 .move-steps li[data-state="done"] + li[data-state="done"]::before { content: none; }
-.move-steps li[data-state="done"] { position: relative; align-self: center; display: inline-flex; color: var(--rl-text-dim); }
+.move-steps li[data-state="done"] { align-self: center; display: inline-flex; color: var(--rl-text-dim); }
 .move-steps li[data-state="now"] { color: var(--rl-text-bright); font-weight: var(--fw-label); }
-/* The steps still to come are what the row can spare, so they give way, the last ones first. */
+/* The steps still to come are what the row can spare: they give way, and the next one holds longest. */
 .move-steps li[data-state="next"] { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .move-steps li[data-state="next"] ~ li[data-state="next"] { flex-shrink: 4; }
 /* ── A turn's edits (EditSummary.tsx): Codex's "Edited 2 files +20 −3" card ───────────────────────
