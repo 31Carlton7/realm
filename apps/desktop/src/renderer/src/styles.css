@@ -4060,13 +4060,14 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .msg-unseen { display: flex; align-items: center; gap: 10px; margin: 14px 0; font-size: 11px; color: var(--rl-accent); }
 .msg-unseen::before, .msg-unseen::after { content: ""; flex: 1; height: 1px; background: color-mix(in oklab, var(--rl-accent) 45%, transparent); }
 .msg-handoff-tries { color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
-/* A move's line is one line: its sentence keeps its room and the step and reason beside it give way. */
-.msg-handoff[data-move] > span { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.msg-handoff[data-move] > .msg-handoff-tries { flex: 0 1 auto; min-width: 0; }
-/* …except a failed one, whose reason is the point of it: that one wraps rather than lose it. */
-.msg-handoff[data-move="failed"] { flex-wrap: wrap; justify-content: center; }
-.msg-handoff[data-move="failed"] > span { flex: 0 1 auto; white-space: normal; text-wrap: pretty; }
-.msg-handoff[data-move="failed"]::before, .msg-handoff[data-move="failed"]::after { display: none; }
+/* A move's rows read from the left like the run lines, and wrap rather than cut: the end of the
+   moved line is where the session went, and a failed one's reason is the point of it. */
+.msg-handoff[data-move] { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
+.msg-handoff[data-move]::before, .msg-handoff[data-move]::after { display: none; }
+.msg-handoff[data-move] > span { max-width: 100%; text-wrap: pretty; }
+.move-failed-head { font-weight: var(--fw-label); }
+.move-failed-head > .msg-handoff-tries { margin-left: 8px; font-weight: var(--fw-body); }
+.move-failed-reason { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 /* The note a switch wrote, as a link set into the seam: the seam's size, the link's ink. */
 .msg-handoff-link { font: inherit; color: var(--rl-accent); font-weight: var(--fw-label); padding: 0; background: none; }
 .msg-handoff-link:hover { text-decoration: underline; text-underline-offset: 2px; }

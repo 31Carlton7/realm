@@ -208,8 +208,8 @@ describe("a move in the transcript", () => {
       store.getState().applySessionStatus("se1", "idle");
     });
     // Named as the sheet names the ends; the server's sentence, with its paths, is not what is drawn.
-    const line = await screen.findByText("Moved from realm (main) to fix-tests (realm/fix-tests). The conversation continued.");
-    expect(line).toHaveAttribute("title", `${envA.path} → ${envB.path}`);
+    const line = await screen.findByText("Moved from realm (main) to fix-tests. The conversation continued.");
+    expect(line.getAttribute("title")).toContain(`${envA.path} → ${envB.path}`);
     expect(screen.queryByText(/Moved from \//)).toBeNull();
     expect(screen.queryByRole("status", { name: /^Moving/ })).toBeNull();
   });
@@ -222,12 +222,16 @@ describe("a move in the transcript", () => {
     expect(screen.getAllByText(/^Moved from realm/)).toHaveLength(1);
   });
 
-  it("tells a failed move calmly, with the step and the reason", async () => {
+  it("tells a failed move calmly: the lead, the step, and the reason with its path shortened", async () => {
     const { store } = await mount({ status: "moving" });
+    const note = "Could not move this session: /Users/me/Realm/worktrees/01M6HDE0JV8Y1B2DVQZN8B29YC/fix-tests is not a git repository. It is still in ~/realm, as it was.";
     act(() => store.getState().applySessionEvent({ seq: 5, sessionId: "se1", ephemeral: false, event: sessionEvent("move_failed", {
-      moveId: "m1", step: "place", reason: "git refused the worktree", note: "The session didn't move. It's where it was." }) }));
-    const line = (await screen.findByText("The session didn't move. It's where it was.")).closest(".msg-handoff")!;
-    expect(line).toHaveTextContent("Setting up the checkout · git refused the worktree");
+      moveId: "m1", step: "place", reason: "/Users/me/Realm/worktrees/01M6HDE0JV8Y1B2DVQZN8B29YC/fix-tests is not a git repository", note }) }));
+    const line = (await screen.findByText("Couldn't move this session.", { exact: false })).closest(".msg-handoff")!;
+    expect(line.querySelector(".move-failed-head")).toHaveTextContent("Couldn't move this session.Setting up the checkout");
+    expect(line.querySelector(".move-failed-reason")).toHaveTextContent("~/Realm/worktrees/…/fix-tests is not a git repository.");
+    expect(line).not.toHaveTextContent("It is still in");
+    expect(line).toHaveAttribute("title", note);
     expect(line.closest('[role="alert"]')).toBeNull();
   });
 });
