@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type StartOptions } from "@realm/adapters";
-import { handoffContextKey, type AgentKind } from "@realm/contracts";
+import { handoffContextKey, sessionEvent, type AgentKind } from "@realm/contracts";
 import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
 import { claudeProjectName } from "../memory/claude-backfill";
@@ -46,10 +46,26 @@ class RecordingFake extends FakeAdapter {
   starts: StartOptions[] = [];
   /** Throw on a start that resumes, the way an engine that cannot boot at the target would fail. */
   failResume = false;
+  /** On a start that resumes: hold the engine's first event until `release`, or report a failure. */
+  onResume: "slow" | "error" | null = null;
+  release: () => void = () => {};
   override start(o: StartOptions) {
     this.starts.push(o);
     if (this.failResume && o.resume) throw new Error("the engine would not start there");
-    return super.start(o);
+    const h = super.start(o);
+    if (!o.resume || !this.onResume) return h;
+    const how = this.onResume;
+    const held = new Promise<void>((r) => { this.release = r; });
+    async function* events() {
+      if (how === "error") {
+        yield sessionEvent("error", { message: "signed out at the target" });
+        yield sessionEvent("status", { status: "error" });
+        return;
+      }
+      await held;
+      yield* h.events;
+    }
+    return Object.assign(Object.create(h), { events: events() });
   }
 }
 
@@ -208,6 +224,32 @@ describe("sessions.move", () => {
     agent.failResume = false;
     await turn(c, session.id, "start");
     expect(agent.starts.at(-1)!.cwd).toBe(repo);
+  });
+
+  it("stays moving while the target boots, and a cancel there puts the session back as it was", async () => {
+    const { c, session, agent, sp } = await setup("codex", "declined");
+    agent.onResume = "slow";
+    const moving = c.call("sessions.move", { id: session.id, to: { kind: "worktree" } });
+    await waitFor(async () => agent.starts.some((o) => o.resume));
+    expect((await c.call("sessions.get", { id: session.id })).result.status).toBe("moving");
+    expect((await c.call("sessions.cancelMove", { id: session.id })).result.cancelled).toBe(true);
+    agent.release();
+    expect((await moving).error.code).toBe("MOVE_FAILED");
+    const row = (await c.call("sessions.get", { id: session.id })).result;
+    // The declined boot reported a fresh id; the move never committed, so the row keeps the old one.
+    expect(row).toMatchObject({ status: "idle", environmentId: session.environmentId, providerSessionId: session.providerSessionId });
+    expect((await c.call("environments.list", { spaceId: sp.id })).result.filter((e: Any) => e.kind === "worktree")).toEqual([]);
+    expect((await eventsOf(c, session.id)).find((e: Any) => e.type === "move_failed").payload.reason).toBe("the move was cancelled");
+  });
+
+  it("fails at boot on the engine's own error rather than waiting it out", async () => {
+    const { c, session, agent } = await setup("codex", "continued");
+    agent.onResume = "error";
+    app!.sessions.moveBootTimeoutMs = 15_000;
+    const started = Date.now();
+    const res = await c.call("sessions.move", { id: session.id, to: { kind: "worktree" } });
+    expect(res.error.message).toContain("signed out at the target");
+    expect(Date.now() - started).toBeLessThan(10_000);
   });
 
   it("refuses changes that conflict with the target's own, and takes back what it merged when a later step fails", async () => {
