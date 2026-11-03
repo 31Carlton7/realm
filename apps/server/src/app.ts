@@ -1413,6 +1413,21 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
       envFor: (kind, accountId) => accounts.envFor(kind, accountId),
       accountFor: (kind, accountId) => accounts.accountFor(kind, accountId),
       carry: (kind, providerSessionId, fromId, toId) => accounts.carry(kind, providerSessionId, fromId, toId),
+      rehome: (kind, providerSessionId, accountId, cwd) => accounts.rehome(kind, providerSessionId, accountId, cwd),
+    },
+    moves: {
+      git: checkpointGit,
+      createWorktree: async (input) => {
+        const env = await envService.createWorktree(input);
+        rpc.broadcast("environments.changed", { spaceId: env.spaceId });
+        return env;
+      },
+      // A worktree a failed move made moments ago and handed to nobody: off disk, then its row.
+      discardWorktree: async (env, sourcePath) => {
+        await worktrees.discard(sourcePath, env.path, env.branch ?? "");
+        environments.delete(env.id);
+        rpc.broadcast("environments.changed", { spaceId: env.spaceId });
+      },
     }, documents, goals, views: appViews,
     // What the idle reaper must leave running between turns. Read at sweep time, long after every
     // service named here exists.

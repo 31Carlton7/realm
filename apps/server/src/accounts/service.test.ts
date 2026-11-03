@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import type { AccountKind, AgentKind, AgentSignIn } from "@realm/contracts";
@@ -137,5 +137,59 @@ describe("codexIdentity", () => {
     writeFileSync(join(home, "auth.json"), JSON.stringify({ tokens: { id_token: token } }));
     expect(await codexIdentity(home)).toEqual({ email: "you@example.com", plan: "pro" });
     expect(await codexIdentity(join(home, "nowhere"))).toEqual({ email: null, plan: null });
+  });
+});
+
+describe("re-homing a conversation for a new working directory", () => {
+  const project = (cwd: string) => cwd.replace(/[^a-zA-Z0-9]/g, "-");
+  const seed = (cfg: string, cwd: string, id: string, body: string) => {
+    const dir = join(cfg, "projects", project(cwd));
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `${id}.jsonl`), body);
+    return join(dir, `${id}.jsonl`);
+  };
+
+  it("copies Claude's record into the new cwd's project, preferring the copy the old cwd resumes, and undoes it", async () => {
+    const { svc, defaults, home: h } = fresh();
+    // The CLI names a project after the cwd with symlinks resolved — /var is /private/var on a Mac.
+    const home = realpathSync(h);
+    const from = join(home, "repo"), to = join(home, "wt");
+    mkdirSync(from); mkdirSync(to);
+    seed(defaults.claude, "/elsewhere", "s1", "stale\n");
+    seed(defaults.claude, from, "s1", "current\n");
+    mkdirSync(join(defaults.claude, "projects", project(from), "s1", "tool-results"), { recursive: true });
+    const undo = await svc.rehome("claude", "s1", null, { from, to });
+    const dest = join(defaults.claude, "projects", project(to), "s1.jsonl");
+    expect(readFileSync(dest, "utf8")).toBe("current\n");
+    expect(existsSync(join(defaults.claude, "projects", project(to), "s1", "tool-results"))).toBe(true);
+    await undo!();
+    expect(existsSync(dest)).toBe(false);
+    expect(existsSync(join(defaults.claude, "projects", project(to), "s1"))).toBe(false);
+  });
+
+  it("writes over an older copy at the destination, and puts that copy back on undo", async () => {
+    const { svc, defaults, home: h } = fresh();
+    const home = realpathSync(h);
+    const from = join(home, "wt"), to = join(home, "repo");
+    mkdirSync(from); mkdirSync(to);
+    seed(defaults.claude, from, "s1", "newer\n");
+    const dest = seed(defaults.claude, to, "s1", "older\n");
+    const undo = await svc.rehome("claude", "s1", null, { from, to });
+    expect(readFileSync(dest, "utf8")).toBe("newer\n");
+    await undo!();
+    expect(readFileSync(dest, "utf8")).toBe("older\n");
+  });
+
+  it("needs nothing for Codex, and cannot for an agent with no record Realm can find", async () => {
+    const { svc, home } = fresh();
+    expect(await svc.rehome("codex", "th", null, { from: home, to: home })).toBeTypeOf("function");
+    expect(await svc.rehome("claude", "missing", null, { from: home, to: join(home, "x") })).toBeNull();
+    expect(await svc.rehome("acp:cursor", "s", null, { from: home, to: join(home, "x") })).toBeNull();
+  });
+
+  it("refuses a cwd whose project name the CLI would shorten", async () => {
+    const { svc, defaults, home } = fresh();
+    seed(defaults.claude, home, "s1", "x\n");
+    expect(await svc.rehome("claude", "s1", null, { from: home, to: join(home, "d".repeat(220)) })).toBeNull();
   });
 });

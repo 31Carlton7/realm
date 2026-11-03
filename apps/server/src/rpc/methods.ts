@@ -1274,6 +1274,9 @@ export function registerMethods(d: Deps): void {
   });
   reg("sessions.setEnvironment", (p) => d.sessions.setEnvironment(p.id, p.environmentId));
   reg("sessions.moveToSpace", (p) => d.sessions.moveToSpace(p.id, p.spaceId));
+  reg("sessions.moveOptions", (p) => d.sessions.moveOptions(p.id));
+  reg("sessions.move", (p) => d.sessions.move(p.id, { to: p.to, keepSourceChanges: p.keepSourceChanges, when: p.when }));
+  reg("sessions.cancelMove", (p) => ({ cancelled: d.sessions.cancelMove(p.id) }));
   reg("sessions.events", (p) => d.sessions.events(p.id, p.afterSeq, p.limit, { beforeSeq: p.beforeSeq, types: p.types }));
   reg("sessions.openTerminal", (p) => d.sessions.openTerminal(p.id));
   // "Fork from here" (Plan 16 W3): new worktree at the checkpoint's tree + new session carrying the

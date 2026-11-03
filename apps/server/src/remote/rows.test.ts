@@ -156,6 +156,16 @@ describe("the phone's rows", () => {
     expect(p.hint).toBeNull();
   });
 
+  it("draws how a move ended as a notice today's phones already know, and skips its progress", () => {
+    const p = new SessionProjector();
+    const place = { machine: null, environmentId: "01J00000000000000000000000", cwd: "/r", branch: null };
+    p.apply(ephemeral(sessionEvent("moving", { moveId: "m", step: "place" })));
+    p.apply(persisted(sessionEvent("moved", { moveId: "m", from: place, to: { ...place, cwd: "/w" }, conversation: "native", changedFiles: 0, leftBehind: [], preface: "p", note: "Moved from /r to /w. The conversation continued." })));
+    p.apply(persisted(sessionEvent("move_failed", { moveId: "n", step: "boot", reason: "x", note: "Could not move this session: x." })));
+    expect(p.all()).toMatchObject([{ kind: "notice", text: "Moved from /r to /w. The conversation continued." }, { kind: "notice", text: "Could not move this session: x." }]);
+    for (const r of p.all()) expect(RowSchema.safeParse(r).success).toBe(true);
+  });
+
   it("names a turn's checkpoint on its changes, and the files a turn made by their paths", () => {
     const p = new SessionProjector();
     p.apply(persisted(sessionEvent("turn_changes", { checkpointId: "cp1", settledAt: 1, root: "/r", afterTree: "abc", files: [{ path: "a.ts", oldPath: null, status: "modified", additions: 1, deletions: 1 }], totalFiles: 1 })));

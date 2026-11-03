@@ -1,6 +1,6 @@
-import { copyFile, cp, mkdir, readdir, rm } from "node:fs/promises";
-import { existsSync } from "node:fs";
-import { dirname, isAbsolute, join, relative } from "node:path";
+import { copyFile, cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { existsSync, realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import {
   ACCOUNT_DIR_ENV, agentLabel, hasAccounts, newId,
   type Account, type AccountKind, type AgentKind, type AgentSignIn,
@@ -10,6 +10,7 @@ import type { SignInAccount } from "../agents/signin-service";
 import type { AccountRow, AccountsStore } from "../store/accounts";
 import { RpcError } from "../store/rows";
 import type { AccountProbe } from "./probe";
+import { claudeProjectName } from "../memory/claude-backfill";
 
 /** Where added accounts keep their folders: `accounts/<kind>/<id>`, one per account, under Realm's
  *  home beside its other folders of its own. */
@@ -154,6 +155,46 @@ export class AccountsService {
     }
   }
 
+  /**
+   * Make the provider's record of a conversation findable from a new working directory, for a session
+   * moving there. Answers how to undo it, or null where the record cannot be made findable and the
+   * caller carries the conversation as text instead.
+   *
+   * Claude resumes from `<folder>/projects/<name of the cwd>/<id>.jsonl`, and when that file is
+   * missing it searches every project and resumes only a record it finds exactly once (CLI 2.1.316,
+   * measured), so the record is copied into the new cwd's project — over an older copy left by an
+   * earlier move to the same place. Codex keeps its rollouts by date rather than by cwd and resumes
+   * with the cwd it is given, so there is nothing to copy.
+   */
+  async rehome(kind: AgentKind, providerSessionId: string, accountId: string | null, cwd: { from: string; to: string }): Promise<(() => Promise<void>) | null> {
+    if (kind === "codex") return async () => {};
+    if (kind !== "claude") return null;
+    const folder = this.folderOf(kind, accountId);
+    if (!folder) return null;
+    const name = claudeProjectName(realOr(cwd.to));
+    // Past this the CLI shortens the name with a hash of its own, which is not worth guessing at.
+    if (name.length > CLAUDE_PROJECT_NAME_MAX) return null;
+    try {
+      const found = await claudeRecord(folder, providerSessionId, claudeProjectName(realOr(cwd.from)));
+      if (!found) return null;
+      const dest = join(folder, "projects", name, basename(found));
+      if (dest === found) return async () => {};
+      const before = existsSync(dest) ? await readFile(dest) : null;
+      await mkdir(dirname(dest), { recursive: true });
+      await copyFile(found, dest);
+      const beside = found.replace(/\.jsonl$/, "");
+      const besideDest = dest.replace(/\.jsonl$/, "");
+      const besideNew = existsSync(beside) && !existsSync(besideDest);
+      if (existsSync(beside)) await cp(beside, besideDest, { recursive: true });
+      return async () => {
+        if (before) await writeFile(dest, before); else await rm(dest, { force: true });
+        if (besideNew) await rm(besideDest, { recursive: true, force: true });
+      };
+    } catch {
+      return null;
+    }
+  }
+
   private folderOf(kind: AccountKind, accountId: string | null): string | null {
     const a = accountId ? this.d.store.get(accountId) : null;
     if (a && a.kind === kind && a.configDir) return a.configDir;
@@ -194,16 +235,26 @@ export class AccountsService {
   }
 }
 
+/** The longest project name Claude uses as it is; a longer one it cuts and suffixes with a hash. */
+const CLAUDE_PROJECT_NAME_MAX = 200;
+
+/** The path the CLI names a project after: the cwd as the OS reports it, symlinks resolved. */
+function realOr(path: string): string {
+  try { return realpathSync(path); } catch { return path; }
+}
+
 /** Whether `p` is somewhere under `root`. */
 function inside(root: string, p: string): boolean {
   const r = relative(root, p);
   return r !== "" && !r.startsWith("..") && !isAbsolute(r);
 }
 
-/** `<folder>/projects/*\/<id>.jsonl`, the Claude transcript a resume reads. */
-async function claudeRecord(folder: string, id: string): Promise<string | null> {
+/** `<folder>/projects/*\/<id>.jsonl`, the Claude transcript a resume reads — `prefer`'s first, the
+ *  project the CLI itself looks in first. */
+async function claudeRecord(folder: string, id: string, prefer?: string): Promise<string | null> {
   const projects = join(folder, "projects");
   const dirs = await readdir(projects).catch(() => [] as string[]);
+  if (prefer && dirs.includes(prefer)) dirs.unshift(prefer);
   for (const d of dirs) {
     const f = join(projects, d, `${id}.jsonl`);
     if (existsSync(f)) return f;
