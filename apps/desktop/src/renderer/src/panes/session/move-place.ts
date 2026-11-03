@@ -20,10 +20,7 @@ const PATH_IN_TEXT = /(?<![\w.~])~?\/[^\s,;:'"()]*\/[^\s,;:'"()]*/g;
 
 /** A failed move's reason as a sentence, its paths shortened as the sheet shortens them. */
 export function moveFailureReason(reason: string): string {
-  const text = reason.trim().replace(PATH_IN_TEXT, (path) => {
-    const end = path.endsWith(".") ? "." : "";
-    return shortPath(path.slice(0, path.length - end.length)) + end;
-  });
+  const text = reason.trim().replace(PATH_IN_TEXT, (path) => shortPath(path));
   const sentence = text.charAt(0).toUpperCase() + text.slice(1);
   return /[.!?]$/.test(sentence) ? sentence : `${sentence}.`;
 }
