@@ -230,7 +230,7 @@ enum RowState: Equatable {
         }
         switch row.status {
         case .waiting: self = .waiting
-        case .running: self = .working
+        case .running, .moving: self = .working
         case .error: self = .failed
         // A turn that finished while the person was away, and has not been read.
         case .idle where row.unread: self = .done

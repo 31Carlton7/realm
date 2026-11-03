@@ -94,6 +94,19 @@ struct RowDrawingTests {
         #expect(error.contains("Out of credits") && error.contains("Top up"))
     }
 
+    /// A move says where it went and the paths under that, or why it stayed and where it stopped.
+    @Test func aMoveDrawsItsLineAndWhatIsUnderIt() throws {
+        func words(_ move: MoveMark, _ text: String, _ detail: String?) throws -> String {
+            let row = TranscriptRow(key: "mv:1", seq: 4, content: .notice(text: text), move: move, noticeDetail: detail)
+            return try Drawing.words(TranscriptRowView(row: row, sessionId: "s1").environment(AppModel()))
+        }
+        let moved = try words(.moved, "Moved from realm (main) to feat-x (feat-x). The conversation continued.", "~/realm → ~/w/feat-x")
+        #expect(moved.contains("Moved from realm (main)") && moved.contains("~/w/feat-x"), "\(moved)")
+        let failed = try words(.failed, "Could not move this session: the disk is full.", "Setting up the checkout")
+        #expect(failed.contains("Could not move") && failed.contains("Setting up the checkout"), "\(failed)")
+        #expect(try words(.moving, "Moving · Starting Claude", nil).contains("Starting Claude"))
+    }
+
     /// The light face draws the same words: no ink there has gone to the paper's colour.
     @Test func theLightFaceDrawsTheSameWords() throws {
         let error = try Self.words(.error(text: "Out of credits", hint: "Top up in Settings"), dark: false)
@@ -378,6 +391,9 @@ struct TranscriptLayoutTests {
         let changes = Self.row("c1", .notice(text: "Changed 1 file"), checkpoint: "cp1")
         let rows = [Self.user("u1"), Self.tool("t1", "Read"), request, Self.tool("t2", "Edit"), changes, Self.said("a1")]
         #expect(TranscriptLayout.items(rows, settled: true).map(\.id) == ["u1", "fold/t1", "r1", "fold/t2", "c1", "a1"])
+        // Nor is where the session went.
+        let moved = TranscriptRow(key: "mv:1", seq: 1, content: .notice(text: "Moved"), move: .moved)
+        #expect(TranscriptLayout.items([Self.user("u1"), Self.tool("t1", "Read"), moved, Self.said("a1")], settled: true).map(\.id) == ["u1", "fold/t1", "mv:1", "a1"])
         let talk = [Self.user("u1"), Self.said("p1"), Self.said("a1")]
         #expect(TranscriptLayout.items(talk, settled: true).map(\.id) == ["u1", "p1", "a1"])
     }
