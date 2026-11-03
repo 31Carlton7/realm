@@ -216,7 +216,11 @@ export class FakeAdapter implements AgentAdapter {
       },
       respondPermission: resolvePermission,
       interrupt: async () => { interrupted = true; denyAllPending(); },
-      setOptions: async (o) => { if (o.permissionMode !== undefined) mode = o.permissionMode; },
+      setOptions: async (o) => {
+        // Said for live checks, which have no other way to see what reached the engine.
+        opts.onLog?.(`setOptions ${JSON.stringify(o)}`);
+        if (o.permissionMode !== undefined) mode = o.permissionMode;
+      },
       dispose: async () => {
         if (disposed) return;
         disposed = true;

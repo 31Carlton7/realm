@@ -899,7 +899,7 @@ export class CodexAdapter implements AgentAdapter {
         // Unlike the two below, these take effect on the next turn: the tier and the level ride on `turn/start`.
         if (o.fastMode !== undefined) fastMode = o.fastMode;
         if (o.effort !== undefined) effort = o.effort;
-        const parts = [o.model === undefined ? null : `model=${o.model}`, o.permissionMode === undefined ? null : `permissionMode=${o.permissionMode}`].filter(Boolean);
+        const parts = [o.model === undefined ? null : `model=${o.model ?? "default"}`, o.permissionMode === undefined ? null : `permissionMode=${o.permissionMode}`].filter(Boolean);
         if (parts.length === 0) return;
         opts.onLog?.(`[codex] ${parts.join(" ")} recorded; codex fixes these at thread start, so it applies the next time this session starts`);
       },

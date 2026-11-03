@@ -993,7 +993,7 @@ export class SessionService {
     this.get(id);
     this.onEvent(id, sessionEvent("feedback", { messageId, rating }));
   }
-  async setOptions(id: string, o: { model?: string; effort?: string | null; permissionMode?: string; fastMode?: boolean }): Promise<Session> {
+  async setOptions(id: string, o: { model?: string | null; effort?: string | null; permissionMode?: string; fastMode?: boolean }): Promise<Session> {
     const modeInForce = this.get(id).permissionMode;
     const s = this.d.sessions.update({ id, ...o });
     // The row moves whether or not a process is live. A session that has not started yet keeps the

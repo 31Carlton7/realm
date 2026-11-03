@@ -855,7 +855,8 @@ export class ClaudeAdapter implements AgentAdapter {
       },
       setOptions: async (o) => {
         await qUp; // mid-carry there is no q yet; without the wait every change below would no-op
-        if (o.model) await q?.setModel(o.model);
+        // No model is the SDK's own "back to the default", as no level is for effort below.
+        if (o.model !== undefined) await q?.setModel(o.model ?? undefined);
         // `fastMode` is a settings key, so the flag layer is how it moves mid-session — the same
         // layer `query()`'s inline `settings` writes, above user and project settings and below
         // managed policy. There is no `setFastMode`, and there does not need to be.

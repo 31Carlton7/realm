@@ -322,7 +322,7 @@ export class TeammatesService {
     }
     if (was.name !== now.name) this.d.sessions.retitleIf(home.id, was.name, now.name);
     const options = {
-      ...(now.model !== home.model && now.model !== null ? { model: now.model } : {}),
+      ...(now.model !== home.model ? { model: now.model } : {}),
       ...(now.effort !== home.effort ? { effort: now.effort } : {}),
       ...(now.permissionMode !== home.permissionMode ? { permissionMode: now.permissionMode } : {}),
     };

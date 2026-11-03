@@ -802,6 +802,15 @@ describe("AcpAdapter", () => {
     await handle.dispose();
   });
 
+  it("writes the model the agent started on back when the model is cleared", async () => {
+    const { handle, evs } = await booted();
+    await handle.setOptions({ model: null });
+    await turn(handle, evs, "REVEAL");
+    const journal = JSON.parse(texts(evs)[0]!) as { calls: { method: string; params: Record<string, unknown> }[] };
+    expect(journal.calls.find((c) => c.method === "session/set_model")?.params).toEqual({ sessionId: "sess_0", modelId: "fake-model-1" });
+    await handle.dispose();
+  });
+
   it("captures the agent's advertised modes on the init event, verbatim (Plan 14 W3)", async () => {
     const { handle, evs } = await booted();
     expect(of(evs, "init")[0]!.payload.availableModes).toEqual([

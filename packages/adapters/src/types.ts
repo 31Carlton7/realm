@@ -125,9 +125,9 @@ export interface AgentHandle {
   respondPermission(requestId: string, decision: PermissionDecision, answers?: AskAnswers): void;
   interrupt(): Promise<void>;
   /** `effort: null` is "the model's own default" — a level the session no longer asks for, not one
-   *  left unsaid. Rejects with `RestartRequiredError` when the running agent takes a permission mode
-   *  only at launch. */
-  setOptions(opts: { model?: string; effort?: string | null; permissionMode?: string; fastMode?: boolean }): Promise<void>;
+   *  left unsaid; `model: null` is the agent's own default model the same way. Rejects with
+   *  `RestartRequiredError` when the running agent takes a permission mode only at launch. */
+  setOptions(opts: { model?: string | null; effort?: string | null; permissionMode?: string; fastMode?: boolean }): Promise<void>;
   dispose(): Promise<void>;
 }
 
