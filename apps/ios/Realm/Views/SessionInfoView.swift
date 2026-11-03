@@ -95,6 +95,7 @@ struct SessionInfoSheet: View {
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
+            .background(Ground.grouped)
             .navigationTitle(row?.displayTitle ?? "Session")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -106,6 +107,8 @@ struct SessionInfoSheet: View {
         }
         // At the accessibility sizes half the screen holds less than the first section.
         .presentationDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.medium, .large])
+        // Pulled up to full height the system's sheet turns opaque white, and the cards go with it.
+        .presentationBackground(Ground.grouped)
         .sheet(item: $previewing) { file in
             FilePreviewSheet(path: file.path, name: file.name, sessionId: sessionId, size: file.size)
         }
@@ -131,9 +134,8 @@ struct RunsOnSection: View {
             LabeledContent(SessionInfoWords.checkout(runsOn.checkout)) {
                 Text(runsOn.folder)
                     .mono(.subheadline)
-                    .lineLimit(2)
+                    .lineLimit(1)
                     .truncationMode(.head)
-                    .multilineTextAlignment(.trailing)
             }
             if let branch = runsOn.branch {
                 LabeledContent("Branch") {
