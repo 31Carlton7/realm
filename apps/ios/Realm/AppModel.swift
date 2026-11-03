@@ -853,9 +853,7 @@ final class AppModel {
     /// A file a turn made or a message took, whole, on this phone: what the gallery plays, opens in Quick
     /// Look and shares. Fetched from the Mac once and kept in the cache, which the system may clear.
     func wholeFile(_ path: String, name: String, in sessionId: String, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
-        let digest = SHA256.hash(data: Data(Self.previewKey(path, sessionId).utf8)).map { String(format: "%02x", $0) }.joined()
-        let destination = Self.wholeFiles.appending(path: digest, directoryHint: .isDirectory)
-            .appending(path: name.replacingOccurrences(of: "/", with: "-"))
+        let destination = Self.wholeFile(path, name: name, in: sessionId)
         if FileManager.default.fileExists(atPath: destination.path) { return destination }
         guard let api, isConnected else { throw ChannelError.notConnected }
         try await FileFetch.fetch(to: destination, progress: progress) { from in
@@ -864,7 +862,18 @@ final class AppModel {
         return destination
     }
 
+    /// A file `wholeFile` already brought to this phone; nil for one it has not.
+    func keptFile(_ path: String, name: String, in sessionId: String) -> URL? {
+        let kept = Self.wholeFile(path, name: name, in: sessionId)
+        return FileManager.default.fileExists(atPath: kept.path) ? kept : nil
+    }
+
     private static let wholeFiles = URL.cachesDirectory.appending(path: "Files", directoryHint: .isDirectory)
+
+    private static func wholeFile(_ path: String, name: String, in sessionId: String) -> URL {
+        let digest = SHA256.hash(data: Data(previewKey(path, sessionId).utf8)).map { String(format: "%02x", $0) }.joined()
+        return wholeFiles.appending(path: digest, directoryHint: .isDirectory).appending(path: name.replacingOccurrences(of: "/", with: "-"))
+    }
 
     private static func previewKey(_ path: String, _ sessionId: String) -> String { "\(sessionId)\u{0}\(path)" }
     private static let previewsKept = 12

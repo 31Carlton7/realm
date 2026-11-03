@@ -257,7 +257,8 @@ private struct GalleryPage: View {
     }
 }
 
-/// Every file of the message as a square tile: a picture is itself, edge to edge; anything else its name
+/// Every file of the message as a square tile: a picture is itself, edge to edge, and so is a video's
+/// first frame or a document's first page once the file has been fetched whole; anything else its name
 /// at the head and its kind's glyph in the middle. The one on screen before is ringed.
 private struct GalleryGrid: View {
     let pages: GalleryPages
@@ -300,6 +301,8 @@ private struct GalleryTile: View {
     /// The Mac's preview made small enough for the tile, its short side covering the widest tile the grid
     /// lays out. The strip's thumbnail fits a smaller square, and filled out to a tile it goes soft.
     @State private var picture: UIImage?
+    /// A video's first frame or a document's first page, made from the file once it is on this phone.
+    @State private var cover: UIImage?
 
     var body: some View {
         Color.clear
@@ -309,6 +312,23 @@ private struct GalleryTile: View {
                     Image(uiImage: thumbnail)
                         .resizable()
                         .scaledToFill()
+                } else if let cover {
+                    // A page is taller than the tile: its head, where its title is, stays in view.
+                    Color.clear
+                        .overlay(alignment: .top) {
+                            Image(uiImage: cover)
+                                .resizable()
+                                .scaledToFill()
+                        }
+                        .overlay(alignment: .bottomLeading) {
+                            if GalleryKind(mime: file.mime) == .video {
+                                Image(systemName: "play.fill")
+                                    .font(.footnote)
+                                    .foregroundStyle(.white)
+                                    .shadow(color: .black.opacity(0.5), radius: 2)
+                                    .padding(8)
+                            }
+                        }
                 } else {
                     VStack(spacing: 8) {
                         Text(file.name)
@@ -335,6 +355,32 @@ private struct GalleryTile: View {
                 guard scale < 1 else { picture = image; return }
                 picture = await image.byPreparingThumbnail(ofSize: CGSize(width: image.size.width * scale, height: image.size.height * scale)) ?? image
             }
+            .task {
+                guard !file.isImage, let kept = model.keptFile(file.path, name: file.name, in: sessionId) else { return }
+                cover = await GalleryCover.image(of: kept, kind: GalleryKind(mime: file.mime), side: GalleryGrid.widestTile, scale: displayScale)
+            }
+    }
+}
+
+/// A tile's picture of a file that is not one: a video's first frame, or a document's first page, its
+/// short side covering a `side`-point square.
+private enum GalleryCover {
+    static func image(of url: URL, kind: GalleryKind, side: CGFloat, scale: CGFloat) async -> UIImage? {
+        switch kind {
+        case .video:
+            let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+            // A phone films sideways and says which way up in the track; the frame comes unrotated without it.
+            generator.appliesPreferredTrackTransform = true
+            // The longest side bounds both: twice the tile keeps the short side of a tall film over it.
+            generator.maximumSize = CGSize(width: 2 * side * scale, height: 2 * side * scale)
+            guard let frame = try? await generator.image(at: .zero).image else { return nil }
+            return UIImage(cgImage: frame)
+        case .document:
+            let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: side, height: 2 * side), scale: scale, representationTypes: .thumbnail)
+            return try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request).uiImage
+        case .picture:
+            return nil
+        }
     }
 }
 
