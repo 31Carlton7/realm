@@ -1,4 +1,4 @@
-import type { AskCard, AskQuestion, MoveStep, QueuedPrompt, SessionEvent, SessionEventType, StoredSessionEvent } from "@realm/contracts";
+import { moveFailedSentence, type AskCard, type AskQuestion, type MoveStep, type QueuedPrompt, type SessionEvent, type SessionEventType, type StoredSessionEvent } from "@realm/contracts";
 import { givenAttachmentName } from "@realm/contracts/src/temp-attachments";
 import type { QueuedMessage, Row } from "@realm/remote";
 import { questionOf } from "@realm/view";
@@ -68,6 +68,9 @@ export function queuedMessage(q: QueuedPrompt, attachmentsDir: string | null): Q
   };
 }
 
+/** A path as the Mac's home shortens it. */
+export const tilde = (path: string, home: string | null): string => (home && (path === home || path.startsWith(`${home}/`)) ? `~${path.slice(home.length)}` : path);
+
 /** What a move's progress row says at each step. */
 const MOVE_STEP_LABEL: Record<MoveStep, string> = {
   preflight: "Checking", freeze: "Pausing the agent", snapshot: "Saving a checkpoint",
@@ -88,8 +91,9 @@ export class SessionProjector {
   private hinted: { text: string; throughSeq: number } | null = null;
 
   /** `attachmentsDir` is the Realm home's `tmp/attachments`: a file there was written under a random
-   *  prefix, which a row leaves out of its name. */
-  constructor(private readonly o: { attachmentsDir: string | null } = { attachmentsDir: null }) {}
+   *  prefix, which a row leaves out of its name. `home` is the Mac's home folder, which the paths under
+   *  a moved line are shortened against. */
+  constructor(private readonly o: { attachmentsDir: string | null; home?: string } = { attachmentsDir: null }) {}
 
   /** The latest persisted seq seen — what a live event must be newer than to count. */
   get seq(): number { return this.lastSeq; }
@@ -164,8 +168,22 @@ export class SessionProjector {
       case "context_reset": return put({ key: `e:${seq}`, seq, kind: "notice", text: ev.payload.note || "The agent started a fresh context" });
       // A move's progress and how it ended are one row, so the line that said where it had got to
       // becomes the line that says how it went.
-      case "moving": return put({ key: `mv:${ev.payload.moveId}`, seq, kind: "notice", text: `Moving · ${MOVE_STEP_LABEL[ev.payload.step]}` });
-      case "moved": case "move_failed": return put({ key: `mv:${ev.payload.moveId}`, seq, kind: "notice", text: ev.payload.note });
+      case "moving": return put({ key: `mv:${ev.payload.moveId}`, seq, kind: "notice", text: `Moving · ${MOVE_STEP_LABEL[ev.payload.step]}`, move: "moving" });
+      case "moved": {
+        const { from, to } = ev.payload;
+        return put({
+          key: `mv:${ev.payload.moveId}`, seq, kind: "notice", text: ev.payload.note,
+          detail: `${tilde(from.cwd, this.o.home ?? null)} → ${tilde(to.cwd, this.o.home ?? null)}`, move: "moved",
+        });
+      }
+      // The note leads with the sentence every surface shows; what follows it, the rollback lines, and
+      // the Mac's reason, git's own words often, wait under it for a tap.
+      case "move_failed": {
+        const { step, reason, note, from } = ev.payload;
+        const sentence = moveFailedSentence({ step, from });
+        const rest = note.startsWith(sentence) ? note.slice(sentence.length).trim() : "";
+        return put({ key: `mv:${ev.payload.moveId}`, seq, kind: "notice", text: sentence, detail: rest ? `${reason}\n${rest}` : reason, move: "failed" });
+      }
       case "plan": {
         const row: PlanRow = { key: `p:${ev.payload.planId}`, seq, kind: "plan", text: ev.payload.text ?? null, steps: ev.payload.steps ?? null };
         this.lastPlan = row;

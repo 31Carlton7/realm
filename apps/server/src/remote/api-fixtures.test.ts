@@ -56,6 +56,9 @@ const PHONE = "01JSIMULATOR00000000000002";
 const TEXTEDIT = "01JMACHINE0000000000000001";
 const GUEST = "01JMACHINE0000000000000002";
 const STUDIO = "01JMACHINE0000000000000003";
+/** The Realm space's checkouts: its own folder, and a worktree a session was moved to. */
+const CHECKOUT = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+const WORKTREE = "01JWORKTREE000000000000001";
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 /** Far enough ahead that no window has reset whenever this runs, and far enough back that one has. */
@@ -139,6 +142,21 @@ async function generate(): Promise<Record<string, unknown>> {
   ];
   const log: StoredSessionEvent[] = [
     ...evs.map((event, i) => ({ seq: i + 1, sessionId: S, event })),
+    // The tidy-up session moved to a worktree, and a second move found that checkout busy.
+    ...[
+      sessionEvent("user_message", { text: "Tidy the settings page", attachments: [] }),
+      sessionEvent("moved", {
+        moveId: "01JMOVE0000000000000000001", from: { machine: null, environmentId: CHECKOUT, cwd: "/Users/me/realm", branch: "main" },
+        to: { machine: null, environmentId: WORKTREE, cwd: "/Users/me/Realm/worktrees/realm/tidy-settings", branch: "tidy-settings" },
+        conversation: "native", changedFiles: 4, leftBehind: ["the terminal"], preface: "Realm moved this session.",
+        note: "Moved from realm (main) to tidy-settings. The conversation continued.",
+      }),
+      sessionEvent("move_failed", {
+        moveId: "01JMOVE0000000000000000002", step: "place", reason: "another session started working in that checkout",
+        from: { machine: null, environmentId: WORKTREE, cwd: "/Users/me/Realm/worktrees/realm/tidy-settings", branch: "tidy-settings" },
+        note: "Couldn't move this session while setting up the checkout. It's still in tidy-settings. The changes it merged into ~/realm are still there, since another session is working there.",
+      }),
+    ].map((event, i) => ({ seq: i + 1, sessionId: OLDER[0]!, event })),
     // Cursor named its own modes when the session started, which is what offers Plan and Ask on it.
     { seq: 1, sessionId: QUIET, event: sessionEvent("init", {
       providerSessionId: "cursor-1", model: "composer-2", tools: [], cwd: "/tmp",
@@ -279,9 +297,18 @@ async function generate(): Promise<Record<string, unknown>> {
       machines: [machine(TEXTEDIT, "sp1", "TextEdit", "mac"), machine(STUDIO, "sp1", "Studio", "vnc"), machine(GUEST, "sp1", "Ubuntu", "qemu")],
       states: [machineState(TEXTEDIT, "running"), machineState(STUDIO, "running"), machineState(GUEST, "off")],
     })) as never,
+    "sessions.moveOptions": (() => ({
+      from: { machine: null, environmentId: CHECKOUT, cwd: "/Users/me/realm", branch: "main" },
+      busy: true, blocked: null, pending: false, conversation: "native", changedFiles: 3, leftBehind: ["the terminal", ".env"], stops: [],
+      environments: [{ environmentId: WORKTREE, path: "/Users/me/Realm/worktrees/realm/tidy-settings", branch: "tidy-settings", kind: "worktree" }],
+      worktree: { available: true, reason: null },
+    })) as never,
+    "environments.get": (() => ({ id: CHECKOUT, spaceId: "sp1", path: "/Users/me/realm", branch: "main", kind: "primary", portBlockStart: null, createdAt: 0, updatedAt: 0 })) as never,
+    "sessions.move": ((p: { id: string }) => sessions.find((x) => x.id === p.id)) as never,
+    "sessions.cancelMove": (() => ({ cancelled: true })) as never,
     "simulators.capture": (() => ({ data: pngHeader(1206, 2622).toString("base64"), mimeType: "image/png", width: 1206, height: 2622 })) as never,
   });
-  const api = new MobileApi({ macName: () => "MacBook Pro", reportsDir: "/nonexistent", realmHome: home, dev: false, downscale: async () => Buffer.from("jpeg") });
+  const api = new MobileApi({ macName: () => "MacBook Pro", reportsDir: "/nonexistent", realmHome: home, userHome: "/Users/me", dev: false, downscale: async () => Buffer.from("jpeg") });
   const call = (method: string, params: unknown) => api.handle(channel(rpc), method, params);
   // A frame is the JPEG `sips` makes at the side asked for — here its header alone, which keeps the file
   // small — taken at a clock held still, so the file is the same each time it is made.
@@ -322,6 +349,10 @@ async function generate(): Promise<Record<string, unknown>> {
       "schedules.runNow": await call("schedules.runNow", { id: WEEKLY }),
       "session.screens": await call("session.screens", { id: S }),
       "session.screen": frame,
+      "session.open:moved": await call("session.open", { id: OLDER[0]!, limit: 200 }),
+      "session.moveOptions": await call("session.moveOptions", { id: S }),
+      "session.move": await call("session.move", { id: S, to: { kind: "worktree" }, when: "after-turn" }),
+      "session.cancelMove": await call("session.cancelMove", { id: S }),
       // Last, because they change the lists every call above reads.
       "session.update": await call("session.update", { id: OLDER[5]!, title: "Write the 2.0.3 changelog", pinned: true }),
       "session.update:archived": await call("session.update", { id: OLDER[3]!, archived: true }),

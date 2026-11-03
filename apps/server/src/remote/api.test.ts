@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { tempDir } from "@realm/test-utils";
@@ -1504,5 +1504,78 @@ describe("what a picture of a screen leaves in the temporary folder", () => {
     expect(kept.filter((path) => !existsSync(path))).toEqual([]);
     // As the real server starts, and only there: no test's server clears the Mac's own temporary folder.
     expect(readFileSync(join(__dirname, "../main.ts"), "utf8")).toContain("void clearCaptureLeftovers();");
+  });
+});
+
+describe("moving a session from the phone", () => {
+  const ENV = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+  const WORKTREE = "01JWORKTREE000000000000000";
+  const user = homedir();
+  const options = {
+    from: { machine: null, environmentId: ENV, cwd: join(user, "realm"), branch: "main" },
+    busy: true, blocked: null, pending: false, conversation: "native" as const, changedFiles: 3, leftBehind: ["the terminal", ".env"], stops: ["a background task"],
+    environments: [{ environmentId: WORKTREE, path: join(user, "Realm/worktrees/x/feat-theme"), branch: "feat/theme", kind: "worktree" }],
+    worktree: { available: true, reason: null },
+  };
+  const environment = { id: ENV, spaceId: "s1", path: join(user, "realm"), branch: "main", kind: "primary" as const, portBlockStart: null, createdAt: 0, updatedAt: 0 };
+
+  it("names the Mac, the checkout it is in and every other one as the Mac's home shortens them", async () => {
+    const rpc = fakeRpc({ sessions: [session("a", "s1")], items: [] }, {
+      "sessions.moveOptions": (() => options) as never,
+      "environments.get": (() => environment) as never,
+    });
+    const answer = MobileCalls["session.moveOptions"].result.parse(await api().handle(channel(rpc), "session.moveOptions", { id: "a" }));
+    expect(answer).toEqual({
+      mac: "Test Mac",
+      from: { environmentId: ENV, path: "~/realm", branch: "main", kind: "primary" },
+      busy: true, blocked: null, pending: false, conversation: "native", changedFiles: 3, leftBehind: ["the terminal", ".env"], stops: ["a background task"],
+      checkouts: [{ environmentId: WORKTREE, path: "~/Realm/worktrees/x/feat-theme", branch: "feat/theme", kind: "worktree" }],
+      worktree: { available: true, reason: null },
+    });
+  });
+
+  it("asks the desktop for the move it shows, leaving the checkout it came from as it was, and answers with the session's row", async () => {
+    const asked: unknown[] = [];
+    const sessions = [session("a", "s1")];
+    const rpc = fakeRpc({ sessions, items: [item("a", "s1", "Theme")] }, {
+      "sessions.move": ((p: unknown) => { asked.push(p); return sessions[0]; }) as never,
+    });
+    const moved = await api().handle(channel(rpc), "session.move", { id: "a", to: { kind: "worktree" }, when: "after-turn" });
+    await api().handle(channel(rpc), "session.move", { id: "a", to: { kind: "checkout", environmentId: WORKTREE } });
+    expect(asked).toEqual([
+      { id: "a", to: { kind: "worktree" }, keepSourceChanges: true, when: "after-turn" },
+      { id: "a", to: { kind: "environment", environmentId: WORKTREE }, keepSourceChanges: true, when: "now" },
+    ]);
+    expect(MobileCalls["session.move"].result.parse(moved).session).toMatchObject({ id: "a", title: "Theme", status: "idle" });
+  });
+
+  it("refuses in the Mac's own words, and fails as any other call does for what is not a refusal", async () => {
+    const refusing = (code: string, message: string) => fakeRpc({ sessions: [session("a", "s1")], items: [] }, {
+      "sessions.move": (() => { throw new RpcCallError(code, message); }) as never,
+    });
+    const teammate = "This session cannot move: a teammate's chat stays where its teammate works.";
+    expect(await attempt(api(), refusing("SESSION_MOVE_REFUSED", teammate), "session.move", { id: "a", to: { kind: "worktree" } }))
+      .toEqual({ ok: false, code: "FORBIDDEN", message: teammate });
+    expect(await attempt(api(), refusing("ENVIRONMENT_BUSY", "another session is working in that checkout"), "session.move", { id: "a", to: { kind: "worktree" } }))
+      .toMatchObject({ ok: false, code: "FORBIDDEN" });
+    const work = "its agent is still running a background task, which moving would stop";
+    expect(await attempt(api(), refusing("MOVE_STOPS_WORK", work), "session.move", { id: "a", to: { kind: "worktree" }, when: "after-turn" }))
+      .toEqual({ ok: false, code: "FORBIDDEN", message: work });
+    expect(await attempt(api(), refusing("NOT_FOUND", "no session a"), "session.move", { id: "a", to: { kind: "worktree" } }))
+      .toMatchObject({ ok: false, code: "NOT_FOUND" });
+    expect(await attempt(api(), refusing("SESSION_MOVE_REFUSED", "x"), "session.move", { id: "a", to: { kind: "server" } }))
+      .toMatchObject({ ok: false, code: "INVALID_PARAMS" });
+  });
+
+  it("says a session being moved is running, as a phone from before moves waits on, and that it is moving", async () => {
+    const h = await home({ sessions: [session("a", "s1", { status: "moving" }), session("b", "s1")], items: [item("a", "s1", "A"), item("b", "s1", "B")] });
+    const rows = h.spaces.flatMap((s) => s.sessions);
+    expect(rows.find((r) => r.id === "a")).toMatchObject({ status: "running", moving: true });
+    expect(rows.find((r) => r.id === "b")).not.toHaveProperty("moving");
+  });
+
+  it("cancels a move as the desktop does", async () => {
+    const rpc = fakeRpc({ sessions: [session("a", "s1")], items: [] }, { "sessions.cancelMove": (() => ({ cancelled: true })) as never });
+    expect(await api().handle(channel(rpc), "session.cancelMove", { id: "a" })).toEqual({ cancelled: true });
   });
 });

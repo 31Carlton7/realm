@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sessionEvent, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
+import { moveFailedSentence, movedSentence, sessionEvent, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
 import { RowSchema } from "@realm/remote";
 import { SessionProjector, summarize } from "./rows";
 
@@ -161,11 +161,43 @@ describe("the phone's rows", () => {
     const place = { machine: null, environmentId: "01J00000000000000000000000", cwd: "/r", branch: null };
     p.apply(persisted(sessionEvent("moving", { moveId: "m", step: "preflight" })));
     p.apply(persisted(sessionEvent("moving", { moveId: "m", step: "place" })));
-    expect(p.all()).toEqual([expect.objectContaining({ key: "mv:m", kind: "notice", text: "Moving · Setting up the checkout" })]);
+    expect(p.all()).toEqual([expect.objectContaining({ key: "mv:m", kind: "notice", move: "moving", text: "Moving · Setting up the checkout" })]);
     p.apply(persisted(sessionEvent("moved", { moveId: "m", from: place, to: { ...place, cwd: "/w" }, conversation: "native", changedFiles: 0, leftBehind: [], preface: "p", note: "Moved from r to w. The conversation continued." })));
     p.apply(persisted(sessionEvent("moving", { moveId: "n", step: "boot" })));
-    p.apply(persisted(sessionEvent("move_failed", { moveId: "n", step: "boot", reason: "x", note: "Could not move this session: x." })));
-    expect(p.all()).toMatchObject([{ key: "mv:m", text: "Moved from r to w. The conversation continued." }, { key: "mv:n", text: "Could not move this session: x." }]);
+    p.apply(persisted(sessionEvent("move_failed", { moveId: "n", step: "boot", reason: "x", note: "Couldn't move this session while starting the agent." })));
+    expect(p.all()).toMatchObject([{ key: "mv:m", text: "Moved from r to w. The conversation continued." }, { key: "mv:n", text: "Couldn't move this session while starting the agent." }]);
+    for (const r of p.all()) expect(RowSchema.safeParse(r).success).toBe(true);
+  });
+
+  it("marks a move's rows for the phone, with both paths under the moved line", () => {
+    const p = new SessionProjector({ attachmentsDir: null, home: "/Users/me" });
+    const place = { machine: null, environmentId: "01J00000000000000000000000", cwd: "/Users/me/realm", branch: "main" };
+    const to = { ...place, cwd: "/Users/me/Realm/worktrees/x/fix-tests", branch: "realm/fix-tests" };
+    p.apply(persisted(sessionEvent("assistant_text", { messageId: "a", text: "Done." })));
+    expect(p.apply(persisted(sessionEvent("moving", { moveId: "m", step: "freeze" })))).toMatchObject([{ key: "mv:m", kind: "notice", move: "moving", text: "Moving · Pausing the agent" }]);
+    p.apply(persisted(sessionEvent("moved", { moveId: "m", from: place, to, conversation: "native", changedFiles: 2, leftBehind: [], preface: "p", note: movedSentence({ from: place, to, conversation: "native" }) })));
+    expect(p.all().map((r) => r.key)).toEqual(["m:a", "mv:m"]);
+    expect(p.all()[1]).toMatchObject({
+      kind: "notice", move: "moved", text: "Moved from realm (main) to fix-tests. The conversation continued.",
+      detail: "~/realm → ~/Realm/worktrees/x/fix-tests",
+    });
+    p.apply(persisted(sessionEvent("move_failed", { moveId: "n", step: "boot", reason: "x", from: place, note: moveFailedSentence({ step: "boot", from: place }) })));
+    expect(p.all()[2]).toMatchObject({ key: "mv:n", move: "failed", text: "Couldn't move this session while starting the agent. It's still in realm (main).", detail: "x" });
+    for (const r of p.all()) expect(RowSchema.safeParse(r).success).toBe(true);
+  });
+
+  it("shows a failed move's sentence, and keeps what the note says after it with git's words for the tap", () => {
+    const p = new SessionProjector({ attachmentsDir: null, home: "/Users/me" });
+    const from = { machine: null, environmentId: "01J00000000000000000000000", cwd: "/Users/me/realm", branch: "main" };
+    const reason = "Command failed: git -c core.fsmonitor= worktree add -b realm/x /var/folders/tmp/x HEAD\nPreparing worktree (new branch 'realm/x')";
+    const left = "The changes it merged into ~/Realm/worktrees/x were left as they were.";
+    const sentence = moveFailedSentence({ step: "place", from });
+    p.apply(persisted(sessionEvent("move_failed", { moveId: "n", step: "place", reason, from, note: `${sentence} ${left}` })));
+    // THE MUTANT: the whole note as the line, and the rollback reads as part of the sentence older phones show.
+    expect(p.all()[0]).toMatchObject({ move: "failed", text: "Couldn't move this session while setting up the checkout. It's still in realm (main).", detail: `${reason}\n${left}` });
+    // A failure whose checkout was gone names no place.
+    p.apply(persisted(sessionEvent("move_failed", { moveId: "o", step: "freeze", reason: "the agent would not stop", note: moveFailedSentence({ step: "freeze" }) })));
+    expect(p.all()[1]).toMatchObject({ text: "Couldn't move this session while pausing the agent.", detail: "the agent would not stop" });
     for (const r of p.all()) expect(RowSchema.safeParse(r).success).toBe(true);
   });
 
