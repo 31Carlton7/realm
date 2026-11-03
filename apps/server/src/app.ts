@@ -1408,7 +1408,9 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     },
     log: (line) => console.log(line),
   });
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, agentMemory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, handoffNotes, planLimits,
+  // Read once, for system.info and the Move sheet both.
+  const machineNameRead = machineName();
+  const sessions = new SessionService({ db, rpc, machineName: () => machineNameRead, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, agentMemory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, handoffNotes, planLimits,
     accounts: {
       envFor: (kind, accountId) => accounts.envFor(kind, accountId),
       accountFor: (kind, accountId) => accounts.accountFor(kind, accountId),
@@ -1784,7 +1786,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     rpc.broadcast("ships.changed", { spaceId: entry.spaceId });
   } });
   // Two shell-outs for two labels: asked for together so boot waits once, not twice.
-  const [machine, user] = await Promise.all([machineName(), userFirstName()]);
+  const [machine, user] = await Promise.all([machineNameRead, userFirstName()]);
   // Realm Mobile (Plan 28): the paired phones, the link to the relay, and the pushes held back while
   // the owner is at this Mac. Nothing dials until a phone is paired or a pairing window opens.
   const presence = new Presence({ attached: () => browserBridge.connected });

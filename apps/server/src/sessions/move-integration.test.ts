@@ -3,7 +3,7 @@ import WebSocket from "ws";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { FakeAdapter, type StartOptions } from "@realm/adapters";
 import { handoffContextKey, sessionEvent, type AgentKind } from "@realm/contracts";
@@ -28,10 +28,12 @@ async function client(port: number) {
   const ws = await new Promise<WebSocket>((res, rej) => { const w = new WebSocket(`ws://127.0.0.1:${port}`); w.once("open", () => res(w)); w.once("error", rej); });
   const pending = new Map<string, (v: Any) => void>();
   const statuses: string[] = [];
+  const queues: Any[] = [];
   ws.on("message", (d) => {
     const m = JSON.parse(d.toString());
     if ("id" in m) pending.get(m.id)?.(m);
     else if (m.event === "session.status") statuses.push(m.payload.status);
+    else if (m.event === "session.queue") queues.push(m.payload);
   });
   let n = 0;
   const call = (method: string, params: unknown) => new Promise<Any>((res, rej) => {
@@ -40,7 +42,7 @@ async function client(port: number) {
     pending.set(id, (v) => { clearTimeout(timer); res(v); });
     ws.send(JSON.stringify({ id, method, params }));
   });
-  return { call, statuses, close: () => ws.close() };
+  return { call, statuses, queues, close: () => ws.close() };
 }
 
 function git(cwd: string, ...args: string[]): string {
@@ -157,7 +159,7 @@ describe("sessions.move", () => {
     const events = await eventsOf(c, session.id);
     const line = events.find((e: Any) => e.type === "moved").payload;
     expect(line).toMatchObject({ conversation: "native", changedFiles: 3, leftBehind: [".env"], from: { cwd: repo }, to: { cwd: env.path } });
-    expect(line.note).toContain("The conversation continued.");
+    expect(line.note).toBe(`Moved from ${basename(repo)} (main) to ${basename(env.path)} (${env.branch}). The conversation continued.`);
     expect(events.some((e: Any) => e.type === "context_reset")).toBe(false);
     const cps = (await c.call("checkpoints.list", { environmentId: session.environmentId, sessionId: session.id })).result;
     expect(cps.some((cp: Any) => cp.label === "Before move to a new worktree")).toBe(true);
@@ -279,6 +281,22 @@ describe("sessions.move", () => {
     expect((await eventsOf(c, session.id)).find((e: Any) => e.type === "move_failed").payload.reason).toBe("the move was cancelled");
   });
 
+  it("tells a client that opens the session mid-move which step the move is at, and forgets it once it ends", async () => {
+    const { c, session, agent } = await setup("codex", "declined");
+    agent.onResume = "slow";
+    const moving = c.call("sessions.move", { id: session.id, to: { kind: "worktree" } });
+    await waitFor(async () => agent.starts.some((o) => o.resume));
+    const late = await client(app!.port);
+    const move = { moveId: expect.any(String), to: { kind: "worktree" }, step: "boot" };
+    expect((await late.call("sessions.queued", { id: session.id })).result.move).toEqual(move);
+    expect((await late.call("sessions.moveOptions", { id: session.id })).result.move).toEqual(move);
+    agent.release();
+    await moving;
+    expect((await late.call("sessions.queued", { id: session.id })).result.move).toBeNull();
+    expect(c.queues.map((q) => q.move?.step ?? null)).toEqual(["preflight", "freeze", "snapshot", "place", "boot", "commit", null]);
+    late.close();
+  });
+
   it("fails at boot on the engine's own error rather than waiting it out", async () => {
     const { c, session, agent } = await setup("codex", "continued");
     agent.onResume = "error";
@@ -316,7 +334,13 @@ describe("sessions.move", () => {
     const queued = (await c.call("sessions.move", { id: session.id, to: { kind: "worktree" }, when: "after-turn" })).result;
     expect(queued.environmentId).toBe(session.environmentId);
     expect((await c.call("sessions.moveOptions", { id: session.id })).result.pending).toBe(true);
+    // Anyone opening the session sees the move waiting behind the turn, as they see the queue.
+    const waiting = { moveId: expect.any(String), to: { kind: "worktree" }, step: null };
+    expect((await c.call("sessions.queued", { id: session.id })).result.move).toEqual(waiting);
+    expect(c.queues.at(-1)).toEqual({ sessionId: session.id, queued: [], move: waiting });
     expect((await c.call("sessions.cancelMove", { id: session.id })).result.cancelled).toBe(true);
+    expect((await c.call("sessions.queued", { id: session.id })).result.move).toBeNull();
+    expect(c.queues.at(-1).move).toBeNull();
     expect((await c.call("sessions.cancelMove", { id: session.id })).result.cancelled).toBe(false);
 
     await c.call("sessions.move", { id: session.id, to: { kind: "worktree" }, when: "after-turn" });
@@ -485,10 +509,14 @@ describe("sessions.move", () => {
 
   it("names the branch a primary checkout is on at both ends of a move, and none on a detached HEAD", async () => {
     const { c, repo, session } = await setup("claude");
-    expect((await c.call("sessions.moveOptions", { id: session.id })).result.from).toMatchObject({ cwd: repo, branch: "main" });
+    const before = (await c.call("sessions.moveOptions", { id: session.id })).result;
+    expect(before.from).toMatchObject({ cwd: repo, branch: "main", kind: "primary" });
+    expect(before.machineName).toBe((await c.call("system.info", {})).result.machineName);
     const there = (await c.call("sessions.move", { id: session.id, to: { kind: "worktree" }, keepSourceChanges: false })).result;
+    expect((await c.call("sessions.moveOptions", { id: session.id })).result.from).toMatchObject({ cwd: there.cwd, kind: "worktree" });
     const out = (await eventsOf(c, session.id)).find((e: Any) => e.type === "moved").payload;
-    expect(out.from).toMatchObject({ cwd: repo, branch: "main" });
+    expect(out.from).toMatchObject({ cwd: repo, branch: "main", kind: "primary" });
+    expect(out.to).toMatchObject({ cwd: there.cwd, kind: "worktree" });
     expect(out.preface).toContain(`It ran in ${repo} (branch main)`);
 
     git(repo, "checkout", "-q", "--detach");

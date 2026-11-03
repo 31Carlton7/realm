@@ -1,7 +1,7 @@
 import { realpathSync, statSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { ENGINE_IDLE_MINUTES_DEFAULT, ENGINE_IDLE_MINUTES_KEY, AGENT_MEMORY_CHANNEL, AGENT_SESSION_RESUME, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, handoffContextKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type MoveOptions, type MoveTarget, type MoveWhen, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
+import { ENGINE_IDLE_MINUTES_DEFAULT, ENGINE_IDLE_MINUTES_KEY, AGENT_MEMORY_CHANNEL, AGENT_SESSION_RESUME, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, handoffContextKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type MoveOptions, type MoveTarget, type MoveWhen, type PendingMove, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, RestartRequiredError, type AdapterRegistry, type AgentAdapter, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -247,6 +247,8 @@ export class SessionService {
   private pendingMoves = new Map<string, Omit<MovePlan, "signal">>();
   /** The move under way per session, so `cancelMove` can stop it before it commits. */
   private moveAborts = new Map<string, AbortController>();
+  /** The move under way per session and the step it is at, for a client that opens it mid-move. */
+  private movesUnderWay = new Map<string, PendingMove>();
   /** A move's boot, waiting on the engine's `init`. */
   private bootWaiters = new Map<string, { resolve: (init: SessionEventPayload<"init">) => void; reject: (e: Error) => void }>();
   /** How long a move waits for the engine it boots to report in. A field so a test can shorten it. */
@@ -316,6 +318,8 @@ export class SessionService {
     /** The user's home, for the folders the turn-media sweep refuses (`~`, `~/Library`) and the `~` it
      *  expands. Defaults to the OS's; a test passes a scratch one. */
     userHome?: string;
+    /** The machine's name, as `system.info` gives it, for the Move sheet's header. */
+    machineName?: () => Promise<string>;
     /** Writes the model's account of a session when a turn settles (`SessionSummaryService`). Wired
      *  and gated for exactly the same reasons as `titleGenerator` above: it is a billed call, so only
      *  the real server process passes one, and it is `void`ed off the settle rather than awaited. */
@@ -732,13 +736,20 @@ export class SessionService {
     return this.wireQueue(id);
   }
 
+  /** The move waiting behind this session's turn, or the one under way and its step. */
+  pendingMove(id: string): PendingMove | null {
+    const queued = this.pendingMoves.get(id);
+    if (queued) return { moveId: queued.moveId, to: queued.to, step: null };
+    return this.movesUnderWay.get(id) ?? null;
+  }
+
   private wireQueue(id: string): QueuedPrompt[] {
     const held = this.queueHolds.get(id)?.queuedId;
     return (this.queued.get(id) ?? []).map((w) => ({ ...w.prompt, held: w.prompt.id === held }));
   }
 
   private broadcastQueue(id: string): void {
-    this.d.rpc.broadcast("session.queue", { sessionId: id, queued: this.wireQueue(id) });
+    this.d.rpc.broadcast("session.queue", { sessionId: id, queued: this.wireQueue(id), move: this.pendingMove(id) });
   }
 
   /** Everything a typed message earns on its way to the adapter. Reached only from `send` and from
@@ -1262,7 +1273,11 @@ export class SessionService {
     const midTurn = s.status === "running" || s.status === "waiting_permission";
     if (midTurn && req.when === "now") this.refuseMidTurn(s, "move it");
     if (work.length > 0) throw new RpcError("MOVE_STOPS_WORK", `its agent is still running ${work.join(", ")}, which moving would stop`);
-    if (midTurn && req.when === "after-turn") { this.pendingMoves.set(id, plan); return s; }
+    if (midTurn && req.when === "after-turn") {
+      this.pendingMoves.set(id, plan);
+      this.broadcastQueue(id);
+      return s;
+    }
     // Claimed before the first await: a second request while this one stops the turn is refused
     // rather than run beside it.
     const abort = new AbortController();
@@ -1281,7 +1296,10 @@ export class SessionService {
 
   /** Drop a move queued behind the turn, or stop one under way (it rolls back as a failure would). */
   cancelMove(id: string): boolean {
-    if (this.pendingMoves.delete(id)) return true;
+    if (this.pendingMoves.delete(id)) {
+      this.broadcastQueue(id);
+      return true;
+    }
     const abort = this.moveAborts.get(id);
     abort?.abort();
     return abort !== undefined;
@@ -1297,11 +1315,14 @@ export class SessionService {
     const hazard = isRepo ? await this.d.worktrees.hazard({ path: env.path, branch: env.branch, fallbackRepo: env.path }) : null;
     const secrets = isRepo && git ? await git.secretLookingIgnored(env.path) : [];
     const mode = AGENT_SESSION_RESUME[s.agentKind].mode;
+    const machineName = await this.d.machineName?.();
     return {
       from: await placeOf(git, env),
+      ...(machineName ? { machineName } : {}),
       busy: s.status === "running" || s.status === "waiting_permission",
       blocked: this.moveRefusal(s),
       pending: this.pendingMoves.has(id) || this.moveAborts.has(id),
+      move: this.pendingMove(id),
       conversation: s.providerSessionId !== null && mode !== "none" ? "native" : "notes",
       changedFiles: hazard?.dirtyFiles ?? 0,
       leftBehind: [...(s.terminalItemId ? ["the terminal"] : []), ...secrets],
@@ -1368,6 +1389,7 @@ export class SessionService {
   private async moveNow(id: string, plan: Omit<MovePlan, "signal">, abort: AbortController, interrupted = false): Promise<void> {
     const moves = this.d.moves;
     this.moveAborts.set(id, abort);
+    this.movesUnderWay.set(id, { moveId: plan.moveId, to: plan.to, step: null });
     try {
       if (!moves) throw new RpcError("SESSION_MOVE_REFUSED", "This session cannot move: this build cannot move sessions.");
       this.denyOpenCards(id);
@@ -1391,7 +1413,13 @@ export class SessionService {
           stop: (sid) => this.reap(sid),
           engineWork: (sid) => this.engineWork(sid),
           boot: (sid, env) => this.bootAt(sid, env),
-          emit: (sid, ev) => this.onEvent(sid, ev),
+          emit: (sid, ev) => {
+            if (ev.type === "moving") {
+              this.movesUnderWay.set(sid, { moveId: ev.payload.moveId, to: plan.to, step: ev.payload.step });
+              this.broadcastQueue(sid);
+            }
+            this.onEvent(sid, ev);
+          },
           broadcastStatus: (sid, status) => this.d.rpc.broadcast("session.status", { sessionId: sid, status }),
           closeTerminal: (sid) => {
             const itemId = this.d.sessions.get(sid)?.terminalItemId;
@@ -1404,6 +1432,8 @@ export class SessionService {
       })());
     } finally {
       this.moveAborts.delete(id);
+      this.movesUnderWay.delete(id);
+      this.broadcastQueue(id);
       if (!interrupted) void this.drainQueue(id).catch(() => {});
     }
   }
@@ -1496,6 +1526,7 @@ export class SessionService {
     this.restartOwed.delete(id);
     this.pendingMoves.delete(id);
     this.moveAborts.get(id)?.abort();
+    this.movesUnderWay.delete(id);
     this.d.settings.set(movePrefaceKey(id), null);
     this.d.settings.set(moveFallbackKey(id), null);
     // …and the rewind bookkeeping. The row carrying the durable half goes below; these two are what a

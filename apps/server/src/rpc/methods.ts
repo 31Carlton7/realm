@@ -1228,7 +1228,7 @@ export function registerMethods(d: Deps): void {
   reg("sessions.holdQueued", (p) => ({ ok: true as const, held: d.sessions.holdQueued(p.id, p.queuedId, p.held) }));
   reg("sessions.editQueued", (p) => ({ edited: d.sessions.editQueued(p.id, p.queuedId, p.text, p.attachments) }));
   reg("sessions.moveQueued", (p) => { d.sessions.moveQueued(p.id, p.queuedId, p.before); return { ok: true as const }; });
-  reg("sessions.queued", async (p) => ({ queued: d.sessions.queuedPrompts(p.id) }));
+  reg("sessions.queued", async (p) => ({ queued: d.sessions.queuedPrompts(p.id), move: d.sessions.pendingMove(p.id) }));
   reg("sessions.interrupt", async (p) => { await d.sessions.interrupt(p.id); return { ok: true as const }; });
   reg("sessions.recordFeedback", (p) => { d.sessions.recordFeedback(p.id, p.messageId, p.rating); return { ok: true as const }; });
   reg("sessions.saved", (p) => ({ seqs: d.savedTurns.forSession(p.id) }));

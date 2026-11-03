@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import {
-  AGENT_SESSION_RESUME, HANDOFF_CONTEXT_MAX, buildMoveContext, carriedTranscript, fenceFor, handoffContextKey, sessionEvent,
+  AGENT_SESSION_RESUME, HANDOFF_CONTEXT_MAX, buildMoveContext, carriedTranscript, fenceFor, handoffContextKey, movedSentence, sessionEvent,
   type AgentKind, type Environment, type MoveConversation, type MovePlace, type MoveStep, type MoveTarget, type Session,
   type SessionEvent, type SessionEventPayload,
 } from "@realm/contracts";
@@ -170,7 +170,7 @@ export async function runMove(d: MoveDeps, s: Session, plan: MovePlan): Promise<
     d.settings.set(movePrefaceKey(s.id), preface);
     d.emit(s.id, sessionEvent("moved", {
       moveId: plan.moveId, from, to, conversation: carried.conversation, changedFiles, leftBehind, preface,
-      note: movedNote(from, to, carried.conversation, d.home ?? homedir()),
+      note: movedSentence({ from, to, conversation: carried.conversation }),
     }));
     return carried.conversation;
   } catch (e) {
@@ -284,7 +284,7 @@ function claudeFallbackContext(notes: string, from: string, to: string): string 
 /** Only a worktree's row keeps its branch; any other checkout is on whatever branch git has out now. */
 export async function placeOf(git: Pick<CheckpointGit, "branch"> | undefined, env: Environment): Promise<MovePlace> {
   const branch = env.branch ?? (git ? await git.branch(env.path) : null);
-  return { machine: null, environmentId: env.id, cwd: env.path, branch };
+  return { machine: null, environmentId: env.id, cwd: env.path, branch, kind: env.kind };
 }
 
 /** What the agent is told on its first turn after the move. It names both roots because every path in
@@ -296,11 +296,6 @@ export function movePreface(from: MovePlace, to: MovePlace, leftBehind: readonly
     `Paths in the conversation so far are under ${from.cwd}; the same work, uncommitted changes included, is now under ${to.cwd}. Use the new paths from here on.`,
     ...(leftBehind.length > 0 ? [`Left behind in the old checkout: ${leftBehind.join(", ")}.`] : []),
   ].join(" ");
-}
-
-function movedNote(from: MovePlace, to: MovePlace, conversation: MoveConversation, home: string): string {
-  const how = conversation === "native" ? "The conversation continued." : "The conversation was carried as notes.";
-  return `Moved from ${tilde(from.cwd, home)} to ${tilde(to.cwd, home)}. ${how}`;
 }
 
 const tilde = (path: string, home: string): string => (path === home || path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path);
