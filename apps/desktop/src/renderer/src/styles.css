@@ -4355,6 +4355,10 @@ button.subagent-brief-chip:focus-visible { outline: none; box-shadow: var(--rl-o
 .delegation-line[data-state="done"] .tool-status { color: var(--ink-3); }
 .delegation-line[data-state="failed"] .tool-status, .delegation-line[data-state="timeout"] .tool-status { color: var(--rl-danger); }
 .delegation-line .tool-row:disabled { color: var(--ink); opacity: 1; }
+/* A message to a teammate: the same line, led by the teammate's icon, name and handle, its state in
+   words at the end. What it was asked is the one part of unbounded length, so it alone yields. */
+.teammate-call .tool-row > svg { flex: none; }
+.teammate-call-handle { flex: none; font-size: 12px; color: var(--ink-3); white-space: nowrap; }
 
 .plan-implement-with { gap: 5px; }
 /* The settled twin of .msg-working: the same verb in the past tense, with the wait it cost. Quieter
