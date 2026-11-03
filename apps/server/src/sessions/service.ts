@@ -1258,6 +1258,8 @@ export class SessionService {
     if (s.status === "running" || s.status === "waiting_permission") {
       if (req.when === "now") this.refuseMidTurn(s, "move it");
       if (req.when === "after-turn") { this.pendingMoves.set(id, plan); return s; }
+      // The adapter denies its own cards on interrupt; the ones Realm raises itself (browser tools,
+      // `ui_ask`, elicitations) wait in the gateway and only an answer here clears them.
       for (const requestId of this.d.events.findDanglingPermissions(id)) this.respondPermission(id, requestId, "deny");
       const handle = this.live.get(id)?.handle;
       if (handle) await this.interruptAndSettle(id, handle);

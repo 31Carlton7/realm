@@ -8,7 +8,7 @@ import type { SessionsStore, SessionEventsStore } from "../store/sessions";
 import type { SettingsStore } from "../store/settings";
 import type { Db } from "../db/database";
 import { RpcError } from "../store/rows";
-import type { CheckpointGit } from "../workspace/checkpoints";
+import type { CapturedState, CheckpointGit } from "../workspace/checkpoints";
 
 /** The one-time word to the agent on its first turn after a move, until that turn spends it. */
 export const movePrefaceKey = (sessionId: string): string => `move.preface:${sessionId}`;
@@ -142,8 +142,6 @@ export async function runMove(d: MoveDeps, s: Session, plan: MovePlan): Promise<
     throw new RpcError("MOVE_FAILED", note);
   }
 }
-
-type CapturedState = Parameters<CheckpointGit["extract"]>[0]["state"];
 
 /** Merge the session's changes into a checkout that has its own state, after a checkpoint of that
  *  state — the undo, answered. */
