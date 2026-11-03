@@ -21,6 +21,7 @@ struct SessionView: View {
     /// the bottom, so there is never less content than window to place.
     @State private var viewport: CGFloat = 0
     @FocusState private var composing: Bool
+    @State private var showsInfo = false
 
     /// The items drawn at a time. Every one drawn is measured as it is, so the foot is where the
     /// transcript really ends at any text size — a lazy list places it by guesses, and a long answer
@@ -152,11 +153,24 @@ struct SessionView: View {
         }
         .navigationTitle(row?.displayTitle ?? "Session")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationSubtitle(subtitle(transcript))
         .toolbar {
+            // The title and its line open the session's info, as a contact's name heads Messages.
+            ToolbarItem(placement: .principal) {
+                Button {
+                    showsInfo = true
+                } label: {
+                    SessionTitle(title: row?.displayTitle ?? "Session", subtitle: subtitle(transcript))
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Shows the session's info")
+                .accessibilityIdentifier("session-title")
+            }
             if let row {
                 ToolbarItem(placement: .topBarTrailing) { SessionMenu(row: row) }
             }
+        }
+        .sheet(isPresented: $showsInfo) {
+            SessionInfoSheet(sessionId: sessionId)
         }
         .task(id: model.channelGeneration) { await model.open(sessionId) }
         // A turn is what opens a simulator or a machine, so the bar asks again as one starts and ends.
@@ -186,6 +200,26 @@ struct SessionView: View {
     static func outgoing(_ outbox: Outbox, _ transcript: Transcript, in sessionId: String) -> [OutgoingItem] {
         let queued = outbox.inQueue(transcript.queued ?? [], for: sessionId)
         return outbox.items(for: sessionId).filter { $0.isMessage && queued[$0.id] == nil }
+    }
+}
+
+/// The bar's title and the line under it, as the system draws an inline title and its subtitle.
+private struct SessionTitle: View {
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        VStack(spacing: 1) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(Palette.ink)
+            Text(subtitle)
+                .font(.caption)
+                .foregroundStyle(Palette.ink2)
+        }
+        .lineLimit(1)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 }
 

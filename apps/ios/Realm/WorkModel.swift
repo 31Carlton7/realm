@@ -18,6 +18,10 @@ final class WorkModel {
     private(set) var subagents: [String: [Subagent]] = [:]
     /// The Mac answers none of these calls, being older than them: the pages are not offered.
     private(set) var unsupported = false
+    /// What each session's info sheet says beyond its row, as last read.
+    private(set) var info: [String: SessionInfo] = [:]
+    /// The Mac is older than `session.info`: the sheet says what the row says, and does not ask again.
+    private(set) var infoUnsupported = false
 
     /// The Mac's calls while this phone is connected to it; nil while it is away.
     @ObservationIgnored var api: @MainActor () -> MobileAPI? = { nil }
@@ -56,6 +60,16 @@ final class WorkModel {
             subagents[sessionId] = SubagentOrder.newestFirst(list)
         } catch {
             noteRefusal(error)
+        }
+    }
+
+    /// Where a session runs, what it has cost and its files, read again each time its sheet opens.
+    func loadInfo(_ sessionId: String) async {
+        guard let api = api(), !infoUnsupported else { return }
+        do {
+            info[sessionId] = try await api.info(id: sessionId)
+        } catch {
+            if case ChannelError.rpc(let refusal) = error, refusal.code == "METHOD_NOT_FOUND" { infoUnsupported = true }
         }
     }
 
@@ -106,6 +120,8 @@ final class WorkModel {
         subagents = [:]
         subagentAsks = [:]
         unsupported = false
+        info = [:]
+        infoUnsupported = false
     }
 
     /// A Mac older than these calls says it has no such method: nothing here asks it again.

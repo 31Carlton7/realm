@@ -40,6 +40,26 @@ struct WorkFixtureTests {
         #expect(subagents.allSatisfy { subagent in subagent.settledAt.map { $0 >= subagent.startedAt } ?? true })
     }
 
+    /// Where the theme column runs, what it cost, and its files newest first: the ones its turn made,
+    /// then the ones sent with its first message, each under the name the person gave it.
+    @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
+    func aSessionsInfoSaysWhereItRunsWhatItCostAndItsFiles() throws {
+        let info = try Self.decode(SessionInfo.self, "session.info")
+        #expect(info.runsOn == RunsOn(machine: "MacBook Pro", checkout: "worktree", folder: "/Users/me/Desktop/Deck", branch: "theme-column"))
+        #expect(info.usage?.costUsd == 18.42 && info.usage?.estimated == false)
+        let files = try #require(info.files)
+        #expect(files.map(\.name) == ["slide.png", "notes.md", "walkthrough.mp4", "IMG_0042.jpg", "brief.pdf"])
+        #expect(files.map(\.sent) == [false, false, false, true, true])
+        #expect(files.first?.size == 1024 && files.last?.size == nil)
+    }
+
+    /// A part this phone cannot read is left out, not the rest with it; and an older Mac's answer has none.
+    @Test func aSessionsInfoKeepsWhatItCanRead() throws {
+        let info = try JSONDecoder().decode(SessionInfo.self, from: Data(#"{"runsOn":{"machine":"Mac"},"usage":{"costUsd":1,"estimated":false,"inputTokens":2,"outputTokens":3,"turns":1}}"#.utf8))
+        #expect(info.runsOn == nil && info.usage?.outputTokens == 3 && info.files == nil)
+        #expect(try JSONDecoder().decode(SessionInfo.self, from: Data("{}".utf8)) == SessionInfo(runsOn: nil, usage: nil, files: nil))
+    }
+
     /// Each runnable agent's plan, the ones that report first: windows fullest first, one that reset
     /// since its reading and one never measured with no figure, the provider's warning in words; then
     /// the agents that cannot say, each with why. And the month's spend against its budget.
