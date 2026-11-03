@@ -16,16 +16,24 @@ const LONG_SEGMENT = 20;
 
 /**
  * A path `~`-shortened and cut in the middle, so its first folder and its tail stay readable:
- * `~/Realm/worktrees/01M6…/fix-tests` becomes `~/Realm/worktrees/…/fix-tests`. Long inner segments
- * go first, then inner segments from the left, until it fits in `max` characters.
+ * `~/Realm/worktrees/01M6…/fix-tests` becomes `~/Realm/worktrees/…/fix-tests`. The tail is read back
+ * from the last folder until `max` characters; an id just above the last folder is cut to "…", and
+ * any other long segment ends the tail, since nothing before it would read better.
  */
 export function shortPath(path: string, max = 44): string {
-  const parts = tildePath(path).split("/");
-  if (parts.join("/").length <= max || parts.length <= 3) return parts.join("/");
+  const whole = tildePath(path);
+  const parts = whole.split("/");
+  if (whole.length <= max || parts.length <= 3) return whole;
   const head = parts[0] === "" ? 2 : 1; // "/var" keeps "var"; "~" is a segment of its own
   const last = parts.length - 1;
-  const kept = parts.map((s, i) => (i >= head && i < last && s.length > LONG_SEGMENT ? "…" : s));
-  const joined = () => kept.filter((s, i) => !(s === "…" && kept[i - 1] === "…")).join("/");
-  for (let i = head; i < last && joined().length > max; i++) kept[i] = "…";
-  return joined();
+  const tail = [parts[last]];
+  let i = last - 1;
+  for (; i >= head; i--) {
+    const long = parts[i].length > LONG_SEGMENT;
+    if (long && i !== last - 1) break;
+    const seg = long ? "…" : parts[i];
+    if ([...parts.slice(0, head), "…", seg, ...tail].join("/").length > max) break;
+    tail.unshift(seg);
+  }
+  return [...parts.slice(0, head), ...(i >= head ? ["…"] : []), ...tail].join("/");
 }

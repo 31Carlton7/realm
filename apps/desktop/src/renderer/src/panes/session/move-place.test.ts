@@ -28,12 +28,14 @@ describe("shortPath", () => {
       .toBe("~/Realm/worktrees/…/polish-session-move");
   });
 
-  it("cuts a temp path down from the left until it fits, never touching the last folder", () => {
+  it("cuts a temp path at its first long name, keeping one run of folders before the last", () => {
     const p = "/var/folders/14/224nwfmx72lbz5rd86370k840000gn/T/realm-session-move-live-xl1qhD/home/worktrees/01M6HDE0JV8Y1B2DVQZN8B29YC/fix-tests";
     const short = shortPath(p);
     expect(short.length).toBeLessThanOrEqual(44);
-    expect(short.startsWith("/var/…")).toBe(true);
-    expect(short.endsWith("/worktrees/…/fix-tests")).toBe(true);
-    expect(short).not.toContain("…/…");
+    expect(short).toBe("/var/…/home/worktrees/…/fix-tests");
+  });
+
+  it("keeps as much of the tail as fits", () => {
+    expect(shortPath("/Users/me/code/clients/acme/apps/storefront/packages/checkout-flow", 40)).toBe("~/…/storefront/packages/checkout-flow");
   });
 });
