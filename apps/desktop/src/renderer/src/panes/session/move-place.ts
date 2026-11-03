@@ -26,12 +26,13 @@ export function shortPath(path: string, max = 44): string {
   if (whole.length <= max || parts.length <= 3) return whole;
   const head = parts[0] === "" ? 2 : 1; // "/var" keeps "var"; "~" is a segment of its own
   const last = parts.length - 1;
-  const tail = [parts[last]];
+  const tail = [parts[last] ?? ""];
   let i = last - 1;
   for (; i >= head; i--) {
-    const long = parts[i].length > LONG_SEGMENT;
+    const part = parts[i] ?? "";
+    const long = part.length > LONG_SEGMENT;
     if (long && i !== last - 1) break;
-    const seg = long ? "…" : parts[i];
+    const seg = long ? "…" : part;
     if ([...parts.slice(0, head), "…", seg, ...tail].join("/").length > max) break;
     tail.unshift(seg);
   }
