@@ -98,6 +98,9 @@ struct SessionInfoSheet: View {
             .background(Ground.grouped)
             .navigationTitle(row?.displayTitle ?? "Session")
             .navigationBarTitleDisplayMode(.inline)
+            // The scroll edge only fades the rows: pulled up and scrolled, they read through the title.
+            .toolbarBackground(Ground.grouped, for: .navigationBar)
+            .toolbarBackgroundVisibility(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(role: .close) { dismiss() }
