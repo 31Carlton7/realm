@@ -1,6 +1,7 @@
 import { basenameOf } from "@realm/contracts";
 import type { Block, Transcript } from "./transcript-model";
 import { toolSummary } from "./tool-summary";
+import { movedSentence } from "./move-place";
 
 /**
  * A session as a Markdown document.
@@ -124,7 +125,7 @@ function sectionFor(b: Block): string | null {
     // of the conversation above it. A reader of this file would otherwise read one continuous thread.
     case "context_reset": return `> **Context reset:** ${b.note}`;
     // Where the paths change: everything above ran in the old checkout.
-    case "moved": return `> **Moved:** ${b.note}`;
+    case "moved": return `> **Moved:** ${movedSentence(b)}`;
     case "move_failed": return `> **Move failed:** ${b.note}`;
     // One reader's place in a shared log. It is not part of what the session produced, and an
     // exported file has no reader whose place it could describe.

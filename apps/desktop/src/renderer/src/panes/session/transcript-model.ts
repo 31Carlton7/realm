@@ -77,9 +77,9 @@ export type Block =
   | { kind: "context_reset"; note: string; reason: "declined" | "unsupported"; ts: number }
   /**
    * The session moved to another checkout, and runs there from here on. The fourth seam: everything
-   * above it ran at `from`, and its paths are under that root. `note` is the server's sentence.
+   * above it ran at `from`, and its paths are under that root.
    */
-  | { kind: "moved"; from: MovePlace; to: MovePlace; conversation: "native" | "notes"; note: string; ts: number }
+  | { kind: "moved"; from: MovePlace; to: MovePlace; conversation: "native" | "notes"; ts: number }
   /** A move that did not happen, and where it stopped. The session is where it was. */
   | { kind: "move_failed"; step: MoveStep; reason: string; note: string; ts: number }
   /**
@@ -485,7 +485,7 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
     case "moving": return { ...t, move: { moveId: e.payload.moveId, step: e.payload.step } };
     case "moved":
       return { ...t, move: t.move?.moveId === e.payload.moveId ? null : t.move, blocks: [...dropPending(blocks),
-        { kind: "moved", from: e.payload.from, to: e.payload.to, conversation: e.payload.conversation, note: e.payload.note, ts: e.ts }] };
+        { kind: "moved", from: e.payload.from, to: e.payload.to, conversation: e.payload.conversation, ts: e.ts }] };
     case "move_failed":
       return { ...t, move: t.move?.moveId === e.payload.moveId ? null : t.move, blocks: [...blocks, { kind: "move_failed", step: e.payload.step, reason: e.payload.reason, note: e.payload.note, ts: e.ts }] };
     // The four numbers are replaced wholesale; the context measurement is CARRIED when the new event

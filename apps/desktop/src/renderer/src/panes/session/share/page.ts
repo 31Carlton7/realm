@@ -10,6 +10,7 @@ import { editStat, editTarget, failureReason, mcpParts, readTarget, resultEditSt
 import { goalTurnLabel, type Block, type Transcript } from "../transcript-model";
 import { hideHomeFolders, scrubSecrets } from "./scrub";
 import { DEFAULT_SHARE_OPTIONS, type ShareOptions } from "./options";
+import { movedSentence } from "../move-place";
 import { PAGE_SCRIPT, PAGE_SCRIPT_HASH, pageStyle } from "./style";
 
 /**
@@ -368,7 +369,7 @@ function renderBlock(b: Block, nested: readonly ToolNode[], byCall: Map<string, 
     case "handoff": return `<p class="note"><strong>Handed over</strong> from ${esc(b.from)} to ${esc(b.to)} · ${esc(b.note)}</p>`;
     case "compacted": return `<p class="note"><strong>Context compacted</strong>${b.postTokens === undefined ? "" : ` · ${b.preTokens.toLocaleString("en-US")} tokens summarised to ${b.postTokens.toLocaleString("en-US")}`}</p>`;
     case "context_reset": return `<p class="note"><strong>Context reset</strong> · ${esc(b.note)}</p>`;
-    case "moved": return `<p class="note"><strong>Moved</strong> · ${esc(b.note)}</p>`;
+    case "moved": return `<p class="note"><strong>Moved</strong> · ${esc(movedSentence(b))}</p>`;
     case "move_failed": return `<p class="note"><strong>Move failed</strong> · ${esc(b.note)}</p>`;
     case "run": return `<p class="run">${b.stopped ? "Stopped after" : b.failed ? "Failed after" : "Worked for"} ${formatDuration(b.ms)}</p>`;
     // Where one reader stopped reading, and a retry in flight at the moment of sharing: facts about a

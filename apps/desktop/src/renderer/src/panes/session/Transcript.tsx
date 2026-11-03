@@ -29,6 +29,7 @@ import { useEnterTracker } from "./transcript-enter";
 import { TranscriptSummary } from "./TranscriptSummary";
 import { ReportFold } from "../agents-tab/ReportFold";
 import { MoveProgress, moveStepLabel } from "./MoveProgress";
+import { movedSentence } from "./move-place";
 import { MediaStrip } from "./media/MediaView";
 import { useMediaFiles } from "./media/use-media";
 import { NEAR_END_PX, SETTLE_MS, applyScrollTop, markOf, recallScroll, rememberScroll, type ScrollMark } from "../scroll-memory";
@@ -842,13 +843,14 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             case "context_reset": return <div key={key} className="msg-handoff" role="note" data-enter={enter || undefined}>
               <span>{b.note}</span>
             </div>;
-            // A move is a seam too: the paths above it are under the old checkout's root.
-            case "moved": return <div key={key} className="msg-handoff" role="note" data-enter={enter || undefined}>
-              <span title={`${b.from.cwd} → ${b.to.cwd}`}>{b.note}</span>
+            // A move is a seam too: the paths above it are under the old checkout's root. Each end is
+            // named as the Move sheet names it, and the paths are the tooltip's.
+            case "moved": return <div key={key} className="msg-handoff" data-move role="note" data-enter={enter || undefined}>
+              <span title={`${b.from.cwd} → ${b.to.cwd}`}>{movedSentence(b)}</span>
             </div>;
             // A move that did not happen changed nothing above or below it, so it is told as calmly as
             // the seams are, with where it stopped and why beside the sentence.
-            case "move_failed": return <div key={key} className="msg-handoff" role="note" data-enter={enter || undefined}>
+            case "move_failed": return <div key={key} className="msg-handoff" data-move role="note" data-enter={enter || undefined}>
               <span>{b.note}</span>
               <span className="msg-handoff-tries">{moveStepLabel(b.step, agentLabel)}{b.note.includes(b.reason) ? "" : ` · ${b.reason}`}</span>
             </div>;

@@ -19,15 +19,15 @@ function Host() {
 }
 
 /** A session that has RUN (its first message is behind it) in the space's own folder, with a worktree beside it. */
-async function mount({ status = "idle", moveOptions = {}, permission = false }: {
-  status?: SessionStatus; moveOptions?: Partial<MoveOptions>; permission?: boolean;
+async function mount({ status = "idle", moveOptions = {}, permission = false, worktree = envB }: {
+  status?: SessionStatus; moveOptions?: Partial<MoveOptions>; permission?: boolean; worktree?: Environment;
 } = {}) {
   const events = [sessionEvent("user_message", { text: "fix the tests", attachments: [] }),
     ...(permission ? [sessionEvent("permission_request", { requestId: "r1", toolName: "Bash", title: "Run rm -rf build", input: { command: "rm -rf build" }, suggestions: [] })] : [])];
   const api = fakeApi({
     sessions: [session("se1", "s1", { status, environmentId: "envA", cwd: envA.path, lastEventSeq: events.length })],
     sessionEvents: { se1: events.map((event, i) => ({ seq: i + 1, sessionId: "se1", event })) },
-    environments: { s1: [envA, envB] },
+    environments: { s1: [envA, worktree] },
     gitInfo: { [envA.path]: { branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0 } },
     moveOptions: { se1: { from: place("envA", envA.path, "main"), ...moveOptions } },
   });
@@ -66,6 +66,14 @@ describe("the workspace selector on a started session", () => {
     await within(dialog).findByText("~/realm");
     expect(within(dialog).getByText("~/Realm/worktrees/fix-tests")).toBeInTheDocument();
     expect(within(dialog).getByText("realm/fix-tests")).toBeInTheDocument();
+  });
+
+  it("cuts a long path in the middle under its name, whole in the tooltip", async () => {
+    const long = "/Users/me/Realm/worktrees/01M6HDE0JV8Y1B2DVQZN8B29YC/fix-tests";
+    await mount({ worktree: { ...envB, path: long } });
+    pick("realm/fix-tests");
+    const path = await within(await sheet()).findByText("~/Realm/worktrees/…/fix-tests");
+    expect(path).toHaveAttribute("title", long);
   });
 
   it("opens the sheet for a new worktree without making one first", async () => {
@@ -163,6 +171,10 @@ describe("the Move sheet", () => {
 });
 
 describe("a move in the transcript", () => {
+  const movedEvent = { seq: 5, sessionId: "se1", ephemeral: false, event: sessionEvent("moved", {
+    moveId: "m1", from: place("envA", envA.path, "main"), to: place("envB", envB.path, "realm/fix-tests"),
+    conversation: "native" as const, changedFiles: 2, leftBehind: ["the terminal"], preface: "p",
+    note: "Moved from /Users/me/realm to /Users/me/Realm/worktrees/fix-tests. The conversation continued." }) };
   const moving = (step: "snapshot" | "boot") => ({ seq: -1, sessionId: "se1", ephemeral: true, event: sessionEvent("moving", { moveId: "m1", step }) });
 
   it("draws the progress row from the moving event, and the moved line in its place", async () => {
@@ -171,21 +183,32 @@ describe("a move in the transcript", () => {
     act(() => store.getState().applySessionEvent(moving("snapshot")));
     const row = await screen.findByRole("status", { name: "Moving: Saving a checkpoint" });
     expect(row.querySelector('[data-state="now"]')).toHaveTextContent("Saving a checkpoint");
+    // A done step is its check, its name kept for the reader and the tooltip.
     expect(row.querySelector('[data-state="done"]')).toHaveTextContent("Checking");
+    expect(row.querySelector('[data-state="done"]')).toHaveAttribute("title", "Checking");
+    expect(row.querySelector('[data-state="done"] .visually-hidden')).toHaveTextContent("Checking");
     act(() => store.getState().applySessionEvent(moving("boot")));
     expect(await screen.findByRole("status", { name: "Moving: Starting Fake agent" })).toBeInTheDocument();
     fireEvent.click(within(screen.getByRole("status", { name: "Moving: Starting Fake agent" })).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(api.calls).toContain("cancelSessionMove:se1"));
 
-    const note = "Moved from ~/realm to ~/Realm/worktrees/fix-tests. The conversation continued.";
     act(() => {
-      store.getState().applySessionEvent({ seq: 5, sessionId: "se1", ephemeral: false, event: sessionEvent("moved", {
-        moveId: "m1", from: place("envA", envA.path, "main"), to: place("envB", envB.path, "realm/fix-tests"),
-        conversation: "native", changedFiles: 2, leftBehind: ["the terminal"], preface: "p", note }) });
+      store.getState().applySessionEvent(movedEvent);
       store.getState().applySessionStatus("se1", "idle");
     });
-    expect(await screen.findByText(note)).toBeInTheDocument();
+    // Named as the sheet names the ends; the server's sentence, with its paths, is not what is drawn.
+    const line = await screen.findByText("Moved from realm (main) to fix-tests (realm/fix-tests). The conversation continued.");
+    expect(line).toHaveAttribute("title", `${envA.path} → ${envB.path}`);
+    expect(screen.queryByText(/Moved from \//)).toBeNull();
     expect(screen.queryByRole("status", { name: /^Moving/ })).toBeNull();
+  });
+
+  it("draws a move once when its event arrives live and again on a read of the log", async () => {
+    const { store } = await mount({ status: "moving" });
+    act(() => store.getState().applySessionEvent(movedEvent));
+    act(() => store.getState().applySessionEvent(movedEvent));
+    await screen.findByText(/^Moved from realm/);
+    expect(screen.getAllByText(/^Moved from realm/)).toHaveLength(1);
   });
 
   it("tells a failed move calmly, with the step and the reason", async () => {

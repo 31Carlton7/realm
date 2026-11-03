@@ -4,16 +4,16 @@ import { useEffect, useState } from "react";
 import { Sheet } from "../../components/Sheet";
 import { Spinner } from "../../components/Spinner";
 import { useApp } from "../../state/store";
-import { tildePath } from "../documents/home-model";
+import { shortPath } from "./move-place";
 
 const reason = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const filesWord = (n: number) => (n === 1 ? "1 changed file" : `${n} changed files`);
 
-/** A checkout by its folder's name and branch, with the whole path quiet under them. */
+/** A checkout by its folder's name and branch, with its path quiet under them, cut in the middle so the tail shows. */
 function Place({ path, branch }: { path: string; branch: string | null }) {
   return <>
     <span className="move-name">{basenameOf(path)}</span>{branch && <span className="move-branch">{branch}</span>}
-    <code className="move-path" title={path}>{tildePath(path)}</code>
+    <code className="move-path" title={path}>{shortPath(path)}</code>
   </>;
 }
 
