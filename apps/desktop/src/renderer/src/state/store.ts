@@ -6172,7 +6172,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         }
         const type = ev.event.type;
         if (type === "moving" || type === "moved" || type === "move_failed") dropPendingMove(ev.sessionId);
-        if (type === "moved" && !ev.ephemeral) void get().run(() => settleMove(ev.sessionId));
+        if (type === "moved") void get().run(() => settleMove(ev.sessionId));
         /** This event makes no other write: the line, and the log's length, are the whole of it. */
         const lineOnly = () => { if (also) set(also); };
         const buf = loading.get(ev.sessionId);

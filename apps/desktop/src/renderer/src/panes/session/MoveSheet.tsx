@@ -18,7 +18,7 @@ function Place({ path, branch }: { path: string; branch: string | null }) {
 }
 
 /** The destination in the words the prompter's queue uses while a move waits. */
-export function moveTargetLabel(to: MoveTarget, options: Pick<MoveOptions, "environments">): string {
+function moveTargetLabel(to: MoveTarget, options: Pick<MoveOptions, "environments">): string {
   if (to.kind === "worktree") return "a new worktree";
   const env = options.environments.find((e) => e.environmentId === to.environmentId);
   return env ? env.branch ?? basenameOf(env.path) : "another checkout";
@@ -43,11 +43,8 @@ function Ends({ from, to, options }: { from: MovePlace; to: MoveTarget; options:
 
 /**
  * Moving a started session to another checkout of its space, or to a new worktree, on this Mac.
- *
- * It says where the session goes from and to, what goes with it and what stays here, and asks
- * one question: whether this checkout keeps its changes too. During a turn the move either waits
- * for the turn to end or stops it; a permission still open has to be answered before the move can
- * wait, because a turn waiting on a person never ends on its own, and Stop and move denies it.
+ * A permission still open has to be answered before the move can wait for the turn, because a turn
+ * waiting on a person never ends on its own; Stop and move denies it instead.
  */
 export function MoveSheet({ sessionId, to }: { sessionId: string; to: MoveTarget }) {
   const closeSheet = useApp((s) => s.closeSheet);

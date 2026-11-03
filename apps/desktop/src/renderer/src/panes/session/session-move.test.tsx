@@ -23,7 +23,7 @@ async function mount({ status = "idle", moveOptions = {}, permission = false }: 
   status?: SessionStatus; moveOptions?: Partial<MoveOptions>; permission?: boolean;
 } = {}) {
   const events = [sessionEvent("user_message", { text: "fix the tests", attachments: [] }),
-    ...(permission ? [sessionEvent("permission_request", { requestId: "r1", toolName: "Bash", input: { command: "rm -rf build" } })] : [])];
+    ...(permission ? [sessionEvent("permission_request", { requestId: "r1", toolName: "Bash", title: "Run rm -rf build", input: { command: "rm -rf build" }, suggestions: [] })] : [])];
   const api = fakeApi({
     sessions: [session("se1", "s1", { status, environmentId: "envA", cwd: envA.path, lastEventSeq: events.length })],
     sessionEvents: { se1: events.map((event, i) => ({ seq: i + 1, sessionId: "se1", event })) },

@@ -4379,7 +4379,6 @@ button.subagent-brief-chip:focus-visible { outline: none; box-shadow: var(--rl-o
    line is for, and the faint tier is the quietest one that still clears AA — a timestamp mixed below
    it was a timestamp a reader had to squint at. */
 .msg-run-at { color: var(--rl-text-faint); }
-/* A move under way (MoveProgress): every step in order, the one under way in ink. */
 .move-progress { align-items: center; animation: rl-fade-in var(--dur-enter) var(--ease-out-strong); }
 .move-progress .spinner { flex: none; color: var(--rl-text-dim); }
 .move-steps { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; margin: 0; padding: 0; list-style: none; }

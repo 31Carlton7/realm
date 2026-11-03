@@ -13,11 +13,8 @@ export function moveStepLabel(step: MoveStep, agent: string): string {
   }
 }
 
-/**
- * The transcript's row while the session is being moved: every step in order, the one under way in
- * ink beside the spinner. Cancel is offered until the last step, where the move can no longer be
- * stopped without leaving it half-made.
- */
+/** The transcript's row while the session is being moved. No Cancel at the last step: a move
+ *  stopped while it commits would be left half-made. */
 export function MoveProgress({ step, agent, onCancel }: { step: MoveStep; agent: string; onCancel?: () => void }) {
   const steps = MoveStepSchema.options;
   const at = steps.indexOf(step);
