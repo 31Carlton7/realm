@@ -376,11 +376,14 @@ SessionRow {
                           or the mode it is in instead ("plan", "ask"), as the desktop stores it
   activityAt?: ms,        when the conversation last moved: a message went out, or the agent answered
                           or finished a turn
-  pinned?: bool           pinned in the desktop's sidebar, so Home lists it in Pinned
+  pinned?: bool,          pinned in the desktop's sidebar, so Home lists it in Pinned
+  moving?: true           being moved to another checkout (`session.move`); absent otherwise
 }
 ```
 
 - `waiting` is the desktop's `waiting_permission`.
+- A session being moved is `running` with `moving: true`: `running` is the word a phone from before
+  moves already waits on, and a newer one says Moving.
 - `needsYou` is true exactly when the row is in `home.get`'s `needsYou`.
 - **Lists are ordered by `activityAt`**, as the desktop's are, and a row's age is read from it.
   `updatedAt` moves whenever the Mac writes the row, for a change of settings or a rename as much as
@@ -398,12 +401,12 @@ then the fields its kind adds:
 | `tool` | `name`, `summary`, `state: "running"\|"done"\|"error"`, `detail: string\|null` |
 | `request` | `requestId`, `tool`, `title`, `summary`, `state: "pending"\|"allowed"\|"denied"`, `questions: [Question] \| null`, `asker?`, `message?`, `answers?`, `plan?: {text: string\|null, steps: [{text, status}] \| null}` |
 | `plan` | `text: string\|null`, `steps: [{text, status}] \| null` |
-| `notice` | `text`, `checkpointId?`, `files?: [{path, size}]` |
+| `notice` | `text`, `checkpointId?`, `files?: [{path, size}]`, `move?: "moving"\|"moved"\|"failed"`, `detail?` |
 | `error` | `text`, `hint: string\|null` |
 | `unknown` | `type`: the event type this phone cannot draw |
 
 - **A key names a row.** Keys look like `u:<seq>`, `m:<messageId>`, `k:<messageId>`,
-  `t:<toolUseId>`, `r:<requestId>`, `p:<planId>`, `c:<checkpointId>` or `e:<seq>`.
+  `t:<toolUseId>`, `r:<requestId>`, `p:<planId>`, `c:<checkpointId>`, `mv:<moveId>` or `e:<seq>`.
 - **A later row with the same key replaces the earlier one** where it stands. That is how streamed
   text, tool results and answered requests update in place.
 - **`seq`** is the server's sequence number of the event that made the row. Streamed rows carry the
@@ -437,6 +440,15 @@ Question {
 
 A **notice** may lead somewhere. A turn's changes carry `checkpointId`, which `session.changes`
 opens. A turn's files made carry `files`, each of which `session.file` previews.
+
+A **move** is one notice, keyed `mv:<moveId>`. While it goes it carries `move: "moving"` and the step
+it has reached, as the desktop's progress row names it ("Moving · Setting up the checkout"), sent as
+streamed rows are; the same row then says how it ended, in the desktop's words: `moved` ("Moved from
+realm (main) to tidy-settings (tidy-settings). The conversation continued.", or "…continued from
+notes."), with both paths in `detail` ("~/realm → ~/Realm/worktrees/realm/tidy-settings"); or
+`failed`, the Mac's sentence for why and where the session still is, with the step it stopped at in
+`detail`. Only how it ended is stored, so a session opened later shows that alone. A phone that knows
+no `move` draws each as the notice it is.
 
 A **user row** carries `attachments` when files were sent with the message: each by its path on the
 Mac, its name and its type, as the message's `user_message` recorded them. `session.file` previews
@@ -482,6 +494,9 @@ else keeps its own name, whatever it looks like.
 | `space.icon` | `{id}` | `{mime, data}`: base64 |
 | `session.screens` | `{id}` | `{screens: [Screen]}`: the live first, then by name |
 | `session.screen` | `{id, screenId, kind: "simulator"\|"machine", maxSide?: number = 1000}` | `{mime: "image/jpeg", data, width: int, height: int, capturedAt: ms}`: `data` is base64 |
+| `session.moveOptions` | `{id}` | `MoveOptions` |
+| `session.move` | `{id, to: {kind: "checkout", environmentId} \| {kind: "worktree"}, when?: "now"\|"after-turn"\|"stop" = "now"}` | `{session: SessionRow}`, once the move is done, or queued for `after-turn` |
+| `session.cancelMove` | `{id}` | `{cancelled: bool}`: false when there was nothing left to stop |
 | `debug.report` | `{name, data}` | `{ok: true}` |
 
 `Space` is `{id, name, icon, color, sessions: [SessionRow], more: int, iconKind?, glyph?, emoji?, profileId?}`.
@@ -793,6 +808,38 @@ Screen {
   and what a server that stopped part way left there is cleared by the next one to start, once it is
   ten minutes old.
 
+**A session moves within its Mac.** `session.moveOptions` is what the desktop's Move sheet reads:
+
+```
+MoveOptions {
+  mac: string,               the Mac it runs on
+  from: Checkout,            the checkout it runs in now
+  busy: bool,                a turn is under way: Move after this turn, or Stop and move
+  blocked: string|null,      why it cannot move at all, in the Mac's words (a teammate's chat, a
+                             sub-agent still running), or null
+  pending: bool,             a move is queued behind the turn, or under way
+  conversation: "native"|"notes",
+                             the agent resumes the conversation there, or is handed it as notes
+  changedFiles: int,         uncommitted files in its checkout, which go with it
+  leftBehind: [string],      what stays, by name: the terminal, ignored files that look like secrets
+  stops?: [string],          what the agent runs beyond its turn (a background task, a command),
+                             which only `stop` stops; any other move is refused while it runs
+  checkouts: [Checkout],     the space's other checkouts it can move to
+  worktree: {available: bool, reason: string|null}
+                             whether a new worktree can be made for it
+}
+Checkout { environmentId, path, branch: string|null, kind: "primary"|"checkout"|"worktree" }
+```
+
+- `path` is shortened against the Mac's home (`~/realm`).
+- **`session.move`** is the desktop's `sessions.move`, and the checkout it leaves is left as it was.
+  Mid-turn, `now` is refused, `after-turn` waits for the turn to end (the answer comes once it is
+  queued) and `stop` stops the turn, denying any open request, and moves. Messages sent meanwhile wait
+  and go once it is over. What the Mac refuses — a teammate's chat, a sub-agent still running, a
+  checkout another session is working in, a move already under way, background work only `stop` would
+  stop, a move that could not be made — is `FORBIDDEN`, in its words; a move that fails part way puts everything back first.
+- A Mac from before moves answers all three `METHOD_NOT_FOUND`, and a phone offers no move.
+
 **Opening a session subscribes the channel to it.** From then until `session.close` or the end of
 the channel, the Mac sends that session's `session.rows`, `session.status`, `session.hint`,
 `session.queue` and `session.subagents` events. A change to the queue that comes while the session is
@@ -853,6 +900,10 @@ phone read, and what bounds it:
   Anything else, a file that holds a secret included, is `FORBIDDEN`.
 - **`schedules.list`** and **`schedules.runNow`**: every space's scheduled tasks, each with how its last
   run went and that run's session, and Run now. A task's instructions are not sent.
+- **`session.moveOptions`** and **`session.move`**: the paths and branches of the session's space's
+  checkouts, how many files are uncommitted in its own and the names of the secret-looking files a
+  move leaves behind (never their contents). A move goes only to one of those checkouts or a new
+  worktree of the session's own; the phone names no path.
 - **`session.screens`** and **`session.screen`**: the simulators and machines open in that session's
   space, by their panes' names, what kind each is and whether it is live; and a picture of one of them
   as it is now, at most 1280 px on its longer side, while it is live. A screen is shared by every
@@ -868,7 +919,7 @@ setting, or a key.
 | Event | Payload | Meaning |
 |---|---|---|
 | `session.rows` | `{id, rows: [Row]}` | Rows to upsert by key. Text deltas are coalesced to at most ten a second. |
-| `session.status` | `{id, status}` | The session's status changed. |
+| `session.status` | `{id, status, moving?: true}` | The session's status changed. `moving` as `SessionRow.moving`. |
 | `session.hint` | `{id, text: string\|null}` | The suggested next message changed: a newer one after a turn, or none once something was sent. |
 | `home.changed` | `{}` | Call `home.get` again. Sent at most once a second. |
 | `session.queue` | `{id, queued: [QueuedMessage]}` | An open session's queue changed: the whole queue. |
@@ -881,7 +932,8 @@ setting, or a key.
 `METHOD_NOT_FOUND`, `INVALID_PARAMS`, `NOT_FOUND`, `FORBIDDEN`, `SESSION_NOT_LIVE`, `INTERNAL`.
 
 `FORBIDDEN` is also what the Mac answers when it refuses what was asked in the state a thing is in —
-a review already decided, a task whose last run is still going, a screen that is not live — with its
+a review already decided, a task whose last run is still going, a screen that is not live, a move it
+will not make — with its
 own words for why.
 
 ## 9. What holds this in place

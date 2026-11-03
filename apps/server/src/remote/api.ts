@@ -8,7 +8,7 @@ import {
 } from "@realm/contracts";
 import { givenAttachmentName, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
 import {
-  MobileCalls, RECENT_LIMIT, SEND_LIMITS, type Home, type MobileErrorCode, type MobileMethod, type MobileParams, type MobileResult, type QueuedMessage,
+  MobileCalls, RECENT_LIMIT, SEND_LIMITS, type Home, type MobileErrorCode, type MobileMethod, type MobileParams, type MobileResult, type MoveOptions, type QueuedMessage,
   type ScheduledTask, type Screen, type SessionOptions, type SessionRow, type Subagent,
 } from "@realm/remote";
 import {
@@ -19,7 +19,7 @@ import { tildify } from "../skills/discovery";
 import { diffPage } from "./changes";
 import { agentOptions, changesFor, ChoiceRefused, probeList, type InitFacts, type OptionsInput, type ProbeRow } from "./options";
 import { fileData, filePreview, PreviewRefused, sipsDownscale, type Downscale } from "./preview";
-import { queuedMessage, SessionProjector } from "./rows";
+import { queuedMessage, SessionProjector, tilde } from "./rows";
 import { RpcCallError, type RpcPort } from "./rpc-port";
 import { frameSide, machineScreen, phoneMayWatch, SCREEN_DEADLINE_MS, screenFrame, screenOrder, simulatorScreen } from "./screens";
 import { checkUploads, saveUploads, UploadRefused, type Upload } from "./uploads";
@@ -68,6 +68,9 @@ const AGENT_PROBE_WAIT_MS = 1_500;
 const HOME_PER_SPACE = 5;
 /** The most a space's picture may weigh to be sent (`space.icon`). */
 export const ICON_MAX_BYTES = 256 * 1024;
+
+/** The desktop's refusals of a move, which a phone shows as they are worded. */
+const MOVE_REFUSALS = new Set(["SESSION_MOVE_REFUSED", "SESSION_BUSY", "SESSION_SWITCHING", "ENVIRONMENT_BUSY", "ENVIRONMENT_WRONG_SPACE", "BAD_REQUEST", "MOVE_FAILED", "MOVE_CANCELLED", "MOVE_STOPS_WORK"]);
 
 /** `moving` goes out as `running`: a phone on today's build knows no other word for "busy, wait". */
 const mobileStatus = (s: Session["status"]): SessionRow["status"] => (s === "waiting_permission" ? "waiting" : s === "moving" ? "running" : s);
@@ -198,7 +201,8 @@ export class MobileApi {
    *  its own, as the gateway answers a phone's calls as they come. */
   private readonly capturing = new Map<string, Promise<{ bytes: Buffer; capturedAt: number }>>();
 
-  constructor(private readonly o: { macName: () => string; reportsDir: string; dev: boolean; downscale?: Downscale; realmHome: string }) {}
+  /** `userHome` is the Mac's home folder, which paths are shortened against; the server's own by default. */
+  constructor(private readonly o: { macName: () => string; reportsDir: string; dev: boolean; downscale?: Downscale; realmHome: string; userHome?: string }) {}
 
   async handle(ctx: ChannelContext, method: string, params: unknown): Promise<unknown> {
     if (!Object.hasOwn(MobileCalls, method)) throw new MobileError("METHOD_NOT_FOUND", `no mobile.v1 call ${method}`);
@@ -271,6 +275,9 @@ export class MobileApi {
         case "space.icon": return await this.spaceIcon(rpc, p.id as string);
         case "session.screens": return { screens: (await this.screens(rpc, p.id as string)).shown.sort(screenOrder) };
         case "session.screen": return await this.screen(rpc, p as MobileParams<"session.screen">);
+        case "session.moveOptions": return await this.moveOptions(rpc, p.id as string);
+        case "session.move": return await this.move(rpc, p as MobileParams<"session.move">);
+        case "session.cancelMove": return await rpc.call("sessions.cancelMove", { id: p.id as string });
         case "debug.report": {
           if (!this.o.dev) throw new MobileError("FORBIDDEN", "debug.report is for development builds");
           mkdirSync(this.o.reportsDir, { recursive: true });
@@ -343,6 +350,7 @@ export class MobileApi {
       modelLabel: meta ? modelLabel(s.agentKind, s.model, probe) : s.model ?? "",
       createdAt: s.createdAt, effort: s.effort, permissionMode: s.permissionMode, activityAt: s.activityAt, pinned: item?.pinned ?? false,
       ...(isChild(s) && s.dispatchedBy?.sessionId ? { leadId: s.dispatchedBy.sessionId } : {}),
+      ...(s.status === "moving" ? { moving: true } : {}),
     };
   }
 
@@ -481,13 +489,14 @@ export class MobileApi {
   private async open(ctx: ChannelContext, id: string, limit: number): Promise<MobileResult<"session.open">> {
     // Opened again, it keeps the sub-agents the phone has read of it: their changes are still its list's.
     const entry: OpenSession = {
-      projector: new SessionProjector({ attachmentsDir: tempAttachmentDir(this.o.realmHome) }), buffer: [], queued: null,
+      projector: new SessionProjector({ attachmentsDir: tempAttachmentDir(this.o.realmHome), home: this.o.userHome ?? homedir() }), buffer: [], queued: null,
       subagents: ctx.sessions.get(id)?.subagents ?? new Set(),
     };
     ctx.sessions.set(id, entry);
     const rpc = ctx.rpc;
     try {
       const session = await rpc.call("sessions.get", { id });
+      entry.projector.agent = AGENT_META[session.agentKind]?.label ?? session.agentKind;
       const read = (await rpc.call("sessions.queued", { id })).queued;
       // What a broadcast carried before the read is in it; one from here on is newer than it.
       entry.queued = null;
@@ -542,6 +551,41 @@ export class MobileApi {
     if (now.archived) return { session: null };
     const { listed, row } = await this.listing(rpc);
     return { session: row(listed.find((s) => s.id === p.id) ?? session) };
+  }
+
+  /** The Move sheet's choices: the desktop's own, with the checkout the session is in named as the
+   *  others are, and every path as the Mac's home would shorten it. */
+  private async moveOptions(rpc: RpcPort, id: string): Promise<MoveOptions> {
+    const options = await rpc.call("sessions.moveOptions", { id });
+    const here = await rpc.call("environments.get", { id: options.from.environmentId });
+    const home = this.o.userHome ?? homedir();
+    const checkout = (c: { environmentId: string; path: string; branch: string | null; kind: string }) => ({
+      environmentId: c.environmentId, path: tilde(c.path, home), branch: c.branch, kind: c.kind as MoveOptions["from"]["kind"],
+    });
+    return {
+      mac: this.o.macName(),
+      from: checkout({ ...options.from, path: options.from.cwd, kind: here.kind }),
+      busy: options.busy, blocked: options.blocked, pending: options.pending, conversation: options.conversation,
+      changedFiles: options.changedFiles, leftBehind: options.leftBehind, stops: options.stops ?? [],
+      checkouts: options.environments.map(checkout),
+      worktree: options.worktree,
+    };
+  }
+
+  /** A move asked for from the phone, as the desktop's Move sheet asks for it, the source checkout left
+   *  as it was. What the Mac refuses — a teammate's chat, a sub-agent still running, a checkout another
+   *  session is working in, a move that could not be made — is FORBIDDEN, in its words. */
+  private async move(rpc: RpcPort, p: MobileParams<"session.move">): Promise<MobileResult<"session.move">> {
+    const to = p.to.kind === "checkout" ? { kind: "environment" as const, environmentId: p.to.environmentId } : { kind: "worktree" as const };
+    try {
+      await rpc.call("sessions.move", { id: p.id, to, keepSourceChanges: true, when: p.when });
+    } catch (e) {
+      if (e instanceof RpcCallError && MOVE_REFUSALS.has(e.code)) throw new MobileError("FORBIDDEN", e.message);
+      throw e;
+    }
+    const { listed, row } = await this.listing(rpc);
+    const moved = listed.find((s) => s.id === p.id) ?? await rpc.call("sessions.get", { id: p.id });
+    return { session: row(moved) };
   }
 
   /** New words for a queued message, which keeps its files and its place, and lets go of its hold. */

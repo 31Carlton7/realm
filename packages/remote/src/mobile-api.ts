@@ -53,6 +53,9 @@ export const SessionRowSchema = z.object({
   subagentsWaiting: z.number().int().optional(),
   /** On a listed lead: the sub-agent that has waited longest, which its row opens on. */
   subagentWaiting: Id.optional(),
+  /** Being moved to another checkout. `status` says `running` meanwhile, which is all a phone from
+   *  before moves knows to wait on. */
+  moving: z.boolean().optional(),
 });
 export type SessionRow = z.infer<typeof SessionRowSchema>;
 
@@ -190,6 +193,11 @@ export const RowSchema = z.discriminatedUnion("kind", [
     checkpointId: z.string().optional(),
     /** A turn's files made, which `session.file` previews: each by its path on the Mac. */
     files: z.array(z.object({ path: z.string(), size: z.number() })).optional(),
+    /** A notice about moving the session: `moving` while it goes (the same row then says how it
+     *  ended), `moved` once it runs in the new place, `failed` when it stayed where it was. */
+    move: z.enum(["moving", "moved", "failed"]).optional(),
+    /** A quieter second line: a move's paths, from and to, or the step a failed move stopped at and why. */
+    detail: z.string().optional(),
   }),
   z.object({ ...rowBase, kind: z.literal("error"), text: z.string(), hint: z.string().nullable() }),
   z.object({ ...rowBase, kind: z.literal("unknown"), type: z.string() }),
@@ -412,6 +420,38 @@ export const FileDataSchema = z.object({
   from: z.number().int(), data: z.string(), next: z.number().int().nullable(),
 });
 
+/** A checkout of the session's space, as the Move sheet names it: its path (`~` for the Mac's home),
+ *  its branch, and whether it is the space's own folder, another checkout or a worktree. */
+const CheckoutSchema = z.object({ environmentId: Id, path: z.string(), branch: z.string().nullable(), kind: z.enum(["primary", "checkout", "worktree"]) });
+
+/** Where a session can be moved to, and what would go with it (`session.moveOptions`). */
+export const MoveOptionsSchema = z.object({
+  /** The Mac it runs on. */
+  mac: z.string(),
+  /** The checkout it runs in now. */
+  from: CheckoutSchema,
+  /** A turn is under way: the sheet offers Move after this turn, or Stop and move. */
+  busy: z.boolean(),
+  /** Why this session cannot move at all, in the Mac's words, or null. */
+  blocked: z.string().nullable(),
+  /** A move is queued behind the turn, or under way. */
+  pending: z.boolean(),
+  /** How the conversation would travel: the agent resumes it there, or is handed it as notes. */
+  conversation: z.enum(["native", "notes"]),
+  /** Uncommitted files in its checkout, which go with it. */
+  changedFiles: z.number().int(),
+  /** What stays behind, by name: the terminal, ignored files that look like secrets. */
+  leftBehind: z.array(z.string()),
+  /** What the agent runs beyond its turn — a background task, a command — which only Stop and move
+   *  stops; any other move is refused while it runs. Absent from a Mac before it said. */
+  stops: z.array(z.string()).optional(),
+  /** The space's other checkouts it can move to. */
+  checkouts: z.array(CheckoutSchema),
+  /** Whether a new worktree can be made for it, and why not when it cannot. */
+  worktree: z.object({ available: z.boolean(), reason: z.string().nullable() }),
+});
+export type MoveOptions = z.infer<typeof MoveOptionsSchema>;
+
 /** A simulator or a machine the session's space has open on the Mac: a pane with a screen in it. */
 export const ScreenSchema = z.object({
   id: Id,
@@ -571,6 +611,26 @@ export const MobileCalls = {
     params: z.object({ id: Id, screenId: Id, kind: ScreenSchema.shape.kind, maxSide: z.number().optional() }),
     result: ScreenFrameSchema,
   },
+  /** Where the session can be moved to on its Mac, and what would go with it and stay. A Mac before
+   *  moves answers METHOD_NOT_FOUND, and the phone offers none. */
+  "session.moveOptions": { params: z.object({ id: Id }), result: MoveOptionsSchema },
+  /**
+   * Moves the session to another checkout of its space, or to a new worktree. Mid-turn, `now` is
+   * refused; `after-turn` waits for the turn to end; `stop` stops it and moves. Answers once the move
+   * is done — or queued, for `after-turn` — with the session's row; its progress and how it ended come
+   * as notice rows. A refusal is FORBIDDEN, in the Mac's words.
+   */
+  "session.move": {
+    params: z.object({
+      id: Id,
+      to: z.discriminatedUnion("kind", [z.object({ kind: z.literal("checkout"), environmentId: Id }), z.object({ kind: z.literal("worktree") })]),
+      when: z.enum(["now", "after-turn", "stop"]).default("now"),
+    }),
+    result: z.object({ session: SessionRowSchema }),
+  },
+  /** Drops a move queued behind the turn, or stops one under way; `cancelled` is false when there was
+   *  nothing left to stop. */
+  "session.cancelMove": { params: z.object({ id: Id }), result: z.object({ cancelled: z.boolean() }) },
   "debug.report": { params: z.object({ name: z.string().regex(/^[\w.-]{1,80}$/), data: z.unknown() }), result: Ok },
 } as const;
 export type MobileMethod = keyof typeof MobileCalls;
@@ -579,7 +639,8 @@ export type MobileResult<M extends MobileMethod> = z.infer<(typeof MobileCalls)[
 
 export const MobileEvents = {
   "session.rows": z.object({ id: Id, rows: z.array(RowSchema) }),
-  "session.status": z.object({ id: Id, status: SessionStatusSchema }),
+  /** `moving` as `SessionRow.moving` says it. */
+  "session.status": z.object({ id: Id, status: SessionStatusSchema, moving: z.boolean().optional() }),
   /** The suggested next message changed: a new one after a turn, or none once something was sent. */
   "session.hint": z.object({ id: Id, text: z.string().nullable() }),
   "home.changed": z.object({}),
