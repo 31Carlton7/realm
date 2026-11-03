@@ -429,6 +429,17 @@ describe("sessions.move", () => {
     expect(moved.preface).toContain("a scheduled job (stopped)");
   });
 
+  it("counts a rewind and an active goal, durable run or delegation as work a move would stop", async () => {
+    const { c, session } = await setup("claude");
+    const svc = app!.sessions as unknown as { forkInFlight: Map<string, unknown>; d: { keepEngine: (id: string) => boolean } };
+    svc.forkInFlight.set(session.id, {});
+    svc.d.keepEngine = (id) => id === session.id;
+    const refused = await c.call("sessions.move", { id: session.id, to: { kind: "worktree" } });
+    expect(refused.error).toMatchObject({ code: "MOVE_STOPS_WORK",
+      message: "its agent is still running a rewind, an active goal, durable run or delegation, which moving would stop" });
+    expect((await c.call("sessions.moveOptions", { id: session.id })).result.stops).toEqual(["a rewind", "an active goal, durable run or delegation"]);
+  });
+
   it("merges the changes onto another base when the new worktree starts from one", async () => {
     const { c, repo, session, sp } = await setup("claude");
     const head = git(repo, "rev-parse", "HEAD").trim();

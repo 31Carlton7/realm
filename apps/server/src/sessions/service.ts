@@ -1350,6 +1350,8 @@ export class SessionService {
     const shells = await this.d.backgroundShells?.().catch(() => null);
     if (shells?.has(id)) work.push("a background command");
     if ((this.crons.get(id) ?? 0) > 0 || this.wakeups.has(id)) work.push("a scheduled job");
+    if (this.forkInFlight.has(id) || this.rewindTurns.has(id)) work.push("a rewind");
+    if (this.d.keepEngine?.(id)) work.push("an active goal, durable run or delegation");
     return work;
   }
 
