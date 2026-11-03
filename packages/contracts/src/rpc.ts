@@ -45,7 +45,7 @@ import { SIMULATOR_CA_DEBUG, SimulatorActSchema, SimulatorAppSchema, SimulatorAx
 import { GoalSchema, GoalStatusSchema } from "./goal";
 import { UnlockedEggPackSchema } from "./egg-pack";
 import { FailoverPolicySchema } from "./failover";
-import { MoveOptionsSchema, MoveTargetSchema, MoveWhenSchema } from "./session-move";
+import { MoveOptionsSchema, MoveTargetSchema, MoveWhenSchema, PendingMoveSchema } from "./session-move";
 import { LayaModeSchema, LayaStatusSchema } from "./laya";
 import { FreeActionSchema, ResourcePoliciesSchema, ResourcePolicyKeySchema, ResourceReportSchema } from "./resources";
 import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
@@ -2144,8 +2144,9 @@ export const Methods = {
    */
   "sessions.moveQueued": { params: z.object({ id: IdSchema, queuedId: z.string().min(1), before: z.string().min(1).nullable() }), result: z.object({ ok: z.literal(true) }) },
   /** The queue as it stands, for a pane that has just mounted. Live changes arrive on `session.queue`;
-   *  this is the initial read, the same split `sessions.events` and `session.event` already use. */
-  "sessions.queued": { params: z.object({ id: IdSchema }), result: z.object({ queued: z.array(QueuedPromptSchema) }) },
+   *  this is the initial read, the same split `sessions.events` and `session.event` already use.
+   *  `move` is a move waiting behind the turn or under way, which waits ahead of the queue. */
+  "sessions.queued": { params: z.object({ id: IdSchema }), result: z.object({ queued: z.array(QueuedPromptSchema), move: PendingMoveSchema.nullable().optional() }) },
   "sessions.interrupt": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /** The reader's verdict on one assistant message, appended to that session's own event log and
    *  going nowhere else — there is no endpoint behind this and no aggregate anywhere. `rating: null`
@@ -2366,8 +2367,9 @@ export const Events = {
   "session.status":   z.object({ sessionId: IdSchema, status: SessionStatusSchema }),
   /** This session's queue changed — a message was queued, sent now, dropped, or drained into a turn.
    *  Carries the whole list rather than a delta: it is a handful of short strings, and a prompter that
-   *  applied deltas would have to reason about one arriving before its initial `sessions.queued` read. */
-  "session.queue":    z.object({ sessionId: IdSchema, queued: z.array(QueuedPromptSchema) }),
+   *  applied deltas would have to reason about one arriving before its initial `sessions.queued` read.
+   *  Also sent when a move is queued behind the turn, reaches its next step, or ends (`move`). */
+  "session.queue":    z.object({ sessionId: IdSchema, queued: z.array(QueuedPromptSchema), move: PendingMoveSchema.nullable().optional() }),
   /** A session's saved turns changed — one saved or unsaved, here or in another window. Carries the
    *  whole set, as `session.queue` carries the whole queue: it is a few numbers. */
   "session.saved":    z.object({ sessionId: IdSchema, seqs: z.array(z.number().int()) }),

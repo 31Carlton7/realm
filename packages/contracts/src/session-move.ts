@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { IdSchema } from "./ids";
+import { EnvironmentKindSchema } from "./entities";
+import { basenameOf } from "./attachments";
 
 /**
  * Moving a started session to somewhere else to run (docs/superpowers/specs/2026-11-03-switch-session-runtime.md).
@@ -35,6 +37,8 @@ export const MovePlaceSchema = z.object({
   environmentId: IdSchema,
   cwd: z.string(),
   branch: z.string().nullable(),
+  /** The environment row's kind: the space's own folder, a checkout, or a worktree. */
+  kind: EnvironmentKindSchema.optional(),
 });
 export type MovePlace = z.infer<typeof MovePlaceSchema>;
 
@@ -45,15 +49,26 @@ export type MovePlace = z.infer<typeof MovePlaceSchema>;
 export const MoveConversationSchema = z.enum(["native", "notes"]);
 export type MoveConversation = z.infer<typeof MoveConversationSchema>;
 
+/**
+ * A move of this session that has not finished: queued behind the turn, or under way. `step` is null
+ * while it waits for the turn to end, and otherwise the step it is at, which is what `moving` last said.
+ */
+export const PendingMoveSchema = z.object({ moveId: z.string(), to: MoveTargetSchema, step: MoveStepSchema.nullable() });
+export type PendingMove = z.infer<typeof PendingMoveSchema>;
+
 /** What the Move sheet shows before anything happens (`sessions.moveOptions`). */
 export const MoveOptionsSchema = z.object({
   from: MovePlaceSchema,
+  /** The name of the machine the session runs on, as `system.info.machineName` gives it. */
+  machineName: z.string().optional(),
   /** A turn is live: the sheet offers Move after this turn or Stop and move. */
   busy: z.boolean(),
   /** Why this session cannot move at all, or null. A teammate's chat, a sub-agent still running. */
   blocked: z.string().nullable(),
   /** A move of this session is queued behind the turn, or under way. */
   pending: z.boolean(),
+  /** That move, when there is one. */
+  move: PendingMoveSchema.nullable().optional(),
   /** How the conversation would travel, as far as Realm can tell beforehand. Codex and the ACP
    *  agents are asked at boot, and one that declines moves on notes after all. */
   conversation: MoveConversationSchema,
@@ -70,3 +85,13 @@ export const MoveOptionsSchema = z.object({
   worktree: z.object({ available: z.boolean(), reason: z.string().nullable() }),
 });
 export type MoveOptions = z.infer<typeof MoveOptionsSchema>;
+
+/** One end of a move as the moved line names it: the folder, and its branch when it has one. */
+export const placeName = (p: Pick<MovePlace, "cwd" | "branch">): string =>
+  p.branch ? `${basenameOf(p.cwd)} (${p.branch})` : basenameOf(p.cwd);
+
+/** The moved line, the same on every surface. Paths are left out; each end is named by folder and branch. */
+export function movedSentence(b: { from: Pick<MovePlace, "cwd" | "branch">; to: Pick<MovePlace, "cwd" | "branch">; conversation: MoveConversation }): string {
+  const how = b.conversation === "native" ? "The conversation continued." : "The conversation continued from notes.";
+  return `Moved from ${placeName(b.from)} to ${placeName(b.to)}. ${how}`;
+}
