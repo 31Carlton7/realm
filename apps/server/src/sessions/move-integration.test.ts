@@ -355,6 +355,35 @@ describe("sessions.move", () => {
     expect((await c.call("sessions.get", { id: moved.id })).result.terminalItemId).toBeNull();
   });
 
+  it("refuses a teammate's chat, a running sub-agent, and a checkout another session is mid-turn in", async () => {
+    const { c, sp, session } = await setup("claude");
+    const store = new SessionsStore(app!.db);
+    const code = async (req: Any) => (await c.call("sessions.move", { id: session.id, to: { kind: "worktree" }, ...req })).error?.code;
+
+    app!.db.prepare("UPDATE sessions SET teammate_home = 1 WHERE id = ?").run(session.id);
+    expect(await code({})).toBe("SESSION_MOVE_REFUSED");
+    app!.db.prepare("UPDATE sessions SET teammate_home = 0 WHERE id = ?").run(session.id);
+
+    const child = store.create({ spaceId: sp.id, projectId: null, agentKind: "claude", model: null, effort: null, permissionMode: "default",
+      environmentId: session.environmentId, title: "child", dispatchedBy: { kind: "agent_run", sessionId: session.id } });
+    store.update({ id: child.id, status: "running" });
+    expect(await code({})).toBe("SESSION_MOVE_REFUSED");
+    store.update({ id: child.id, status: "idle" });
+
+    // A session mid-turn in the target blocks moving into it; one mid-turn in the source blocks clearing it.
+    const target = (await c.call("environments.createWorktree", { spaceId: sp.id, title: "busy" })).result;
+    const there = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "claude", environmentId: target.id, permissionMode: "default" })).result.session;
+    await c.call("sessions.send", { id: there.id, text: "ask-permission" });
+    await waitFor(async () => (await c.call("sessions.get", { id: there.id })).result.status === "waiting_permission");
+    expect(await code({ to: { kind: "environment", environmentId: target.id } })).toBe("ENVIRONMENT_BUSY");
+    const here = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "claude", environmentId: session.environmentId, permissionMode: "default" })).result.session;
+    await c.call("sessions.send", { id: here.id, text: "ask-permission" });
+    await waitFor(async () => (await c.call("sessions.get", { id: here.id })).result.status === "waiting_permission");
+    expect(await code({ keepSourceChanges: false })).toBe("ENVIRONMENT_BUSY");
+    expect((await c.call("sessions.get", { id: session.id })).result.environmentId).toBe(session.environmentId);
+    expect((await eventsOf(c, session.id)).some((e: Any) => e.type === "move_failed")).toBe(false);
+  });
+
   it("brings a session the server stopped mid-move back where it was", async () => {
     const { home, session } = await setup("claude");
     new SessionsStore(app!.db).update({ id: session.id, status: "moving" });
