@@ -5,12 +5,13 @@ import { Spinner } from "../../components/Spinner";
 import { useDissolve } from "../../components/ScrollFades";
 import { fileIconFor } from "../../components/file-icon";
 import { clip, editStat, editTarget, failureReason, mcpParts, prettyJson, readTarget, resultEditStat, statedExit, toolGlyph, toolSummary, toolVerb } from "./tool-summary";
-import { flattenRun, formatDuration, formatToolRun, isHarnessLaunch, runWork, summarizeToolRun, type ToolBlock, type ToolStep } from "./tool-group";
+import { flattenRun, formatDuration, formatToolRun, isHarnessLaunch, isTeammateCall, runWork, summarizeToolRun, type ToolBlock, type ToolStep } from "./tool-group";
 import { ErrorPanel, ToolInputBody, ToolPanelBody, ToolResultBody } from "./rich/ToolViews";
 import { DRAW_LIMIT, mediaWorkFor, toolInputView, toolPanel, toolResultView } from "./rich/tool-view";
 import { GeneratingCanvas, ToolMedia } from "./media/MediaView";
 import { ChildSessions, delegatedChildIds } from "./DelegatedRuns";
 import { AgentLaunchLine, DelegationLine, DelegationWait, isDelegationLine, isDelegationWait } from "./DelegationLine";
+import { TeammateCallLine } from "./TeammateCallLine";
 import { useElapsed } from "./use-elapsed";
 import { AppView } from "../app-view/AppView";
 
@@ -175,6 +176,7 @@ export const ToolCard = memo(function ToolCard(props: ToolCardProps) {
   const waiting = useContext(ToolWaiting).has(props.block.toolUseId);
   if (isDelegationLine(props.block)) return <DelegationLine block={props.block} sessionStatus={props.sessionStatus} enter={props.enter} />;
   if (isDelegationWait(props.block)) return <DelegationWait block={props.block} sessionStatus={props.sessionStatus} enter={props.enter} />;
+  if (isTeammateCall(props.block)) return <TeammateCallLine block={props.block} enter={props.enter} />;
   if (isHarnessLaunch(props.block)) {
     return (
       <AgentLaunchLine block={props.block} sessionStatus={props.sessionStatus} enter={props.enter}>

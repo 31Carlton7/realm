@@ -1,6 +1,6 @@
 import { Icon, TeammateIcon } from "@realm/ui";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { LINK_SERVICE_META, MAC_SKILL_ID, chipRuns, mediaCandidatesIn, type MentionRef, type SessionMode, type Teammate, type SessionStatus, type AskAnswers, type Checkpoint, type TurnChanges } from "@realm/contracts";
+import { LINK_SERVICE_META, MAC_SKILL_ID, chipRuns, mediaCandidatesIn, teammateWords, type MentionRef, type SessionMode, type Teammate, type SessionStatus, type AskAnswers, type Checkpoint, type TurnChanges } from "@realm/contracts";
 import { AttachmentTile } from "./AttachmentTile";
 import { fileMark } from "./mention-sources";
 import { CommandCopy } from "../../components/CommandCopy";
@@ -15,7 +15,8 @@ import { PlanCard } from "./PlanCard";
 import { AnsweredQuestion } from "./QuestionCard";
 import { ToolCard, ToolCwd, ToolGroup, ToolWaiting } from "./ToolCard";
 import { LeadSessionContext } from "./DelegationLine";
-import { formatDuration, groupTranscript, withEnter } from "./tool-group";
+import { TeammateCallsContext } from "./TeammateCallLine";
+import { formatDuration, groupTranscript, newestTeammateCalls, withEnter } from "./tool-group";
 import { blockKey, goalTurnLabel, lastUserMessage, waitingToolIds, type Block, type Rating, type Transcript as TranscriptModel } from "./transcript-model";
 import { dateFormat, stampLabel, stampTitle, useNow } from "./timestamps";
 import { touchedFiles, type FileLinkContext } from "./file-links";
@@ -265,10 +266,6 @@ function scheduledLine(s: { task: string; scheduleId?: string }, ts: number): st
   return s.scheduleId ? `Scheduled · ${dateFormat({ weekday: "short", hour: "numeric", minute: "2-digit" }).format(ts)}` : `Scheduled run · ${s.task}`;
 }
 
-/** The words another teammate sent, without the "From @handle: " the server put in front of them for
- *  the agent: on screen the head above them already says who. */
-export const teammateWords = (text: string): string => text.replace(/^From @[^\s:]+: /, "");
-
 /** Who sent a teammate's message: its icon and its name, or the handle the message carried when the
  *  teammate is not one this space holds (archived, say). */
 function TeammateSender({ from, teammates }: { from: { title: string; teammateId?: string }; teammates: readonly Teammate[] }) {
@@ -414,6 +411,9 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
      rebuilds the blocks and a fresh set would re-render every card in the transcript with it. */
   const waitingKey = permissions.length ? waitingToolIds(transcript.blocks, permissions).join("\n") : "";
   const waiting = useMemo(() => (waitingKey ? new Set(waitingKey.split("\n")) : NO_WAITING), [waitingKey]);
+  /* Kept as the same object while the newest calls and the team hold, for the reason `waiting` is. */
+  const newestCallsKey = newestTeammateCalls(transcript.blocks).join("\n");
+  const teammateCalls = useMemo(() => ({ teammates, newest: new Set(newestCallsKey ? newestCallsKey.split("\n") : []) }), [teammates, newestCallsKey]);
   /* The newest answer in the transcript — the only message that wears an action bar.
      A bar under every finished message meant forty of them in a long session, all but one of which
      acted on something the reader had scrolled past; the copy the reader actually reaches for is
@@ -677,6 +677,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
         <div className="transcript-col">
         <ToolCwd.Provider value={cwd}>
         <ToolWaiting.Provider value={waiting}>
+        <TeammateCallsContext.Provider value={teammateCalls}>
         {(start > 0 || more) && (
           <button ref={earlierRef} type="button" className="btn-quiet transcript-earlier" onClick={showEarlier}>Show earlier messages</button>
         )}
@@ -858,6 +859,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             message in it. Draws nothing while a turn is live, and nothing on a session with nothing
             to count. */}
         <TranscriptSummary blocks={transcript.blocks} status={sessionStatus} written={transcript.summary?.text ?? null} brief={brief?.text ?? null} />
+        </TeammateCallsContext.Provider>
         </ToolWaiting.Provider>
         </ToolCwd.Provider>
         </div>

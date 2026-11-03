@@ -143,7 +143,7 @@ extension SessionRow {
 
 /// What can be done to a session from its row, or from its screen's menu.
 enum RowAction: Hashable, Identifiable {
-    case pin, unpin, rename, archive, stop
+    case pin, unpin, rename, archive, subagents, stop
 
     var id: Self { self }
 
@@ -153,6 +153,7 @@ enum RowAction: Hashable, Identifiable {
         case .unpin: "Unpin"
         case .rename: "Rename"
         case .archive: "Archive"
+        case .subagents: "Sub-agents"
         case .stop: "Stop"
         }
     }
@@ -163,6 +164,7 @@ enum RowAction: Hashable, Identifiable {
         case .unpin: "pin.slash"
         case .rename: "pencil"
         case .archive: "archivebox"
+        case .subagents: "person.2"
         case .stop: "stop.fill"
         }
     }
@@ -171,7 +173,7 @@ enum RowAction: Hashable, Identifiable {
     var tint: Color {
         switch self {
         case .pin, .unpin, .archive: Palette.accentFill
-        case .rename: Palette.ink2
+        case .rename, .subagents: Palette.ink2
         case .stop: Palette.ink
         }
     }
@@ -179,8 +181,9 @@ enum RowAction: Hashable, Identifiable {
 
 /// The actions a session's row offers in the state it is in, and where: Pin or Unpin from the leading
 /// edge; Archive, Rename and, while a turn is under way, Stop from the trailing edge, outermost first;
-/// all of them in a press-and-hold, Stop last. Pin, Rename and Archive change the Mac's own row, so they
-/// are off while it is away; Stop keeps its place, and says why it cannot go.
+/// all of them in a press-and-hold, with a lead's Sub-agents before Stop, Stop last. Pin, Rename and
+/// Archive change the Mac's own row, so they are off while it is away; Sub-agents lists what the phone
+/// last heard, and Stop keeps its place, and says why it cannot go.
 struct RowActions: Equatable {
     let leading: [RowAction]
     let trailing: [RowAction]
@@ -190,14 +193,15 @@ struct RowActions: Equatable {
     init(row: SessionRow, connected: Bool) {
         let pin: RowAction = row.pinned == true ? .unpin : .pin
         let stop: [RowAction] = row.isWorking ? [.stop] : []
+        let subagents: [RowAction] = RowSubagents(row) == nil ? [] : [.subagents]
         leading = [pin]
         trailing = [.archive, .rename] + stop
-        menu = [pin, .rename, .archive] + stop
+        menu = [pin, .rename, .archive] + subagents + stop
         self.connected = connected
     }
 
     func isOff(_ action: RowAction) -> Bool {
-        action != .stop && !connected
+        action != .stop && action != .subagents && !connected
     }
 }
 
@@ -322,6 +326,7 @@ extension AppModel {
         case .unpin: change(.pinned(false), of: row)
         case .rename: renaming = RenameDraft(row: row)
         case .archive: change(.archived(true), of: row)
+        case .subagents: subagentsShown = row.id
         case .stop: Task { await stop(row.id) }
         }
     }

@@ -1141,9 +1141,13 @@ export type AppState = TeammatesSlice & {
   /** The space sections folded shut, by space id (`ui.sidebarCollapsedSpaces`). A section is open
    *  unless listed, so a new space arrives with its sessions showing. */
   sidebarCollapsedSpaces: string[];
+  /** The Team and Sessions lists folded shut inside a space's section, as `<spaceId>/team` and
+   *  `<spaceId>/sessions` (`ui.sidebarFoldedLists`). Open unless listed, like the sections. */
+  sidebarFoldedLists: string[];
   hydrateSidebarPrefs(): Promise<void>;
   setSidebarLens(lens: "spaces" | "recent"): Promise<void>;
   setSpaceSectionCollapsed(spaceId: string, collapsed: boolean): Promise<void>;
+  setSpaceListFolded(spaceId: string, list: "team" | "sessions", folded: boolean): Promise<void>;
   // ——— end Plan 27 ———
   /**
    * Whether deleting something asks first.
@@ -5053,14 +5057,20 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       // ——— Plan 27: the sidebar's remembered choices (see `sidebarLens`) ———
       sidebarLens: "spaces",
       sidebarCollapsedSpaces: [],
+      sidebarFoldedLists: [],
       async hydrateSidebarPrefs() {
-        const before = { lens: get().sidebarLens, folded: get().sidebarCollapsedSpaces };
-        const [lens, folded] = await Promise.all([api.getSetting("ui.sidebarLens"), api.getSetting("ui.sidebarCollapsedSpaces")]);
+        const before = { lens: get().sidebarLens, folded: get().sidebarCollapsedSpaces, lists: get().sidebarFoldedLists };
+        const [lens, folded, lists] = await Promise.all([
+          api.getSetting("ui.sidebarLens"), api.getSetting("ui.sidebarCollapsedSpaces"), api.getSetting("ui.sidebarFoldedLists"),
+        ]);
         // Anything but the two words, or a list of ids, reads as the resting state: Spaces, all open.
         // A choice made while the settings were being read wins over what they said.
         if (get().sidebarLens === before.lens) set({ sidebarLens: lens === "recent" ? "recent" : "spaces" });
         if (get().sidebarCollapsedSpaces === before.folded) {
           set({ sidebarCollapsedSpaces: Array.isArray(folded) ? folded.filter((id): id is string => typeof id === "string") : [] });
+        }
+        if (get().sidebarFoldedLists === before.lists) {
+          set({ sidebarFoldedLists: Array.isArray(lists) ? lists.filter((k): k is string => typeof k === "string") : [] });
         }
       },
       async setSidebarLens(lens) {
@@ -5074,6 +5084,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const next = collapsed ? [...kept, spaceId] : kept;
         set({ sidebarCollapsedSpaces: next });
         await api.setSetting("ui.sidebarCollapsedSpaces", next);
+      },
+      async setSpaceListFolded(spaceId, list, folded) {
+        const key = `${spaceId}/${list}`;
+        const known = new Set(get().spaces.map((s) => s.id));
+        const kept = get().sidebarFoldedLists.filter((k) => k !== key && known.has(k.slice(0, k.indexOf("/"))));
+        const next = folded ? [...kept, key] : kept;
+        set({ sidebarFoldedLists: next });
+        await api.setSetting("ui.sidebarFoldedLists", next);
       },
       // ——— end Plan 27 ———
       async setConfirmDelete(v) {

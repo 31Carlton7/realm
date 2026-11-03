@@ -1,4 +1,4 @@
-import { bareToolName } from "@realm/contracts";
+import { TEAM_MESSAGE_TOOL, bareToolName, normalizeHandle } from "@realm/contracts";
 import { blockKey, type Block } from "./transcript-model";
 import { clip, editStat, editTarget, readTarget, resultEditStat, toolSummary, toolVerb, type EditStat } from "./tool-summary";
 
@@ -10,6 +10,22 @@ const SPAWNS = new Set(["agent_start", "agent_run"]);
 export const isDelegationLine = (b: ToolBlock): boolean => SPAWNS.has(bareToolName(b.name)) && !b.result?.isError;
 /** The call that collects them, drawn as a line of its own too (DelegationWait). */
 export const isDelegationWait = (b: ToolBlock): boolean => bareToolName(b.name) === "agent_wait" && !b.result?.isError;
+
+/** A message to a teammate, drawn as that teammate (TeammateCallLine). A refused one stays a card for
+ *  the same reason a refused delegation does. */
+export const isTeammateCall = (b: ToolBlock): boolean => bareToolName(b.name) === TEAM_MESSAGE_TOOL && !b.result?.isError;
+
+/** The newest message to each teammate in these blocks. Only that one says what the teammate is doing
+ *  now; an earlier one has been answered or overtaken, and calling it "Working" would be the
+ *  teammate's later work told about an older ask. */
+export function newestTeammateCalls(blocks: readonly Block[]): string[] {
+  const newest = new Map<string, string>();
+  for (const b of blocks) {
+    if (b.kind !== "tool" || !isTeammateCall(b) || typeof b.input.to !== "string") continue;
+    newest.set(normalizeHandle(b.input.to), b.toolUseId);
+  }
+  return [...newest.values()];
+}
 
 /**
  * Tool names that spawn sub-agents INSIDE the harness.
@@ -28,7 +44,7 @@ export const isHarnessLaunch = (b: ToolBlock): boolean => SUBAGENT_TOOLS.has(b.n
  *  "Worked for 8s" once it settles, which hid the one thing a reader of a delegation wants to see:
  *  each sub-agent, and how it ended. A call that drew a view is the same case: the view is what the
  *  call was for, and a ledger line is no place to keep it. */
-const standsAlone = (b: ToolBlock): boolean => isDelegationLine(b) || isDelegationWait(b) || isHarnessLaunch(b) || b.view !== undefined;
+const standsAlone = (b: ToolBlock): boolean => isDelegationLine(b) || isDelegationWait(b) || isTeammateCall(b) || isHarnessLaunch(b) || b.view !== undefined;
 
 /** §2.8: "the agent's work is a quiet ledger" — a run of consecutive tool calls collapses to one
  *  summary line ("18 tools · 5 files · 2 commands · 6m 12s") that expands into its steps.

@@ -178,9 +178,9 @@ The adapters package builds `findExecutable`, `spawnTarget` and `killTree` from 
     Windows (`lib/unresolved-modules.mjs`). The build stops when one does not.
 - **`pack.mjs`** starts `electron-builder.cmd` through a shell on Windows.
 - **Scripts:** `pnpm --filter @realm/desktop dist:linux` and `dist:win` in `apps/desktop/package.json`. `homepage` was added because a deb needs a project URL.
-- **CI:** `.github/workflows/build-desktop.yml` runs on macOS, Ubuntu and Windows. Each job installs, typechecks, tests, builds and packages unsigned, then uploads the artifacts. Nothing is published.
-  - The Mac job is gated on the whole suite.
-  - The Linux and Windows jobs are gated on the platform-branch tests, and run the whole suite for information only, since it was written against POSIX hosts.
+- **CI:** `.github/workflows/build-desktop.yml` lints and typechecks once, and builds on macOS, Ubuntu and Windows, in jobs that run side by side. Pushes to main, runs by hand and release branches package unsigned and upload the artifacts; other pull requests package an unpacked app. Nothing is published.
+  - The Mac is gated on the whole suite, split across shards.
+  - Linux and Windows are gated on the platform-branch tests. On pushes to main and runs by hand they also run the whole suite for information only, since it was written against POSIX hosts.
 
 ## What has been run
 

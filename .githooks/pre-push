@@ -1,0 +1,43 @@
+#!/bin/sh
+# Before a push: whitespace errors and conflict markers in the commits going out, Oxlint over the repo,
+# and the typecheck of each package those commits change. CI runs all of it again, and more; this is the
+# part that takes seconds, on your machine. `pnpm install` turns it on (core.hooksPath, set by the root
+# package's prepare script).
+#
+# Skip it for one push with `git push --no-verify`, or for every push with REALM_SKIP_PRE_PUSH=1.
+
+[ "$REALM_SKIP_PRE_PUSH" = 1 ] && exit 0
+
+changed=""
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case $local_ref in refs/heads/*) ;; *) continue ;; esac
+  case $local_sha in *[!0]*) ;; *) continue ;; esac # deleting the branch
+  case $remote_sha in
+    *[!0]*) base=$remote_sha ;;
+    *) base=$(git merge-base origin/main "$local_sha" 2>/dev/null) || continue ;; # a new branch
+  esac
+  git cat-file -e "$base^{commit}" 2>/dev/null || continue # the remote has commits this clone lacks
+  git diff --check "$base" "$local_sha" || { echo "pre-push: whitespace errors or conflict markers above" >&2; exit 1; }
+  changed="$changed
+$(git diff --name-only "$base" "$local_sha")"
+done
+
+[ -n "$(printf %s "$changed" | tr -d '[:space:]')" ] || exit 0
+
+if [ ! -x node_modules/.bin/oxlint ] || [ ! -x node_modules/.bin/tsc ]; then
+  echo "pre-push: no node_modules here, so no lint or typecheck (pnpm install)" >&2
+  exit 0
+fi
+
+node_modules/.bin/oxlint --deny-warnings || { echo "pre-push: pnpm lint failed" >&2; exit 1; }
+
+# A change at the root (the lockfile, tsconfig.base.json, package.json) can break any package.
+if printf '%s\n' "$changed" | grep -qxE 'pnpm-lock\.yaml|package\.json|tsconfig\.base\.json'; then
+  pnpm -r --parallel run typecheck || { echo "pre-push: typecheck failed" >&2; exit 1; }
+  exit 0
+fi
+filters=$(printf '%s\n' "$changed" | sed -nE 's#^((apps|packages|services)/[^/]+)/.*#\1#p' | sort -u |
+  while read -r dir; do [ -f "$dir/package.json" ] && printf -- '--filter ./%s ' "$dir"; done)
+[ -n "$filters" ] || exit 0
+# shellcheck disable=SC2086 # one word per filter
+pnpm --parallel $filters run typecheck || { echo "pre-push: typecheck failed" >&2; exit 1; }

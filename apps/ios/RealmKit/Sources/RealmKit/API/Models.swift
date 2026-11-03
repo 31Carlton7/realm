@@ -89,11 +89,22 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
     public let activityAt: Millis?
     /// Pinned in the desktop's sidebar, so Home lists it in Pinned. Nil from a Mac before it said.
     public var pinned: Bool?
+    /// The session that started it, where it is a sub-agent. Nil for the person's own sessions, and from
+    /// a Mac before it said: such a row stands on its own.
+    public let leadId: String?
+    /// On a lead the Mac lists: how many sub-agents are its, which are not rows of their own. Nil for
+    /// none, and from a Mac before it said.
+    public let subagents: Int?
+    /// On a lead the Mac lists: how many of its sub-agents wait on a request.
+    public let subagentsWaiting: Int?
+    /// On a lead the Mac lists: the sub-agent that has waited longest, which its row opens on.
+    public let subagentWaiting: String?
 
     public init(id: String, title: String, spaceId: String, spaceName: String, agent: String, model: String?,
                 status: SessionStatus, needsYou: Bool, unread: Bool, updatedAt: Millis,
                 agentName: String? = nil, agentMark: String? = nil, modelLabel: String? = nil,
-                createdAt: Millis? = nil, effort: String? = nil, permissionMode: String? = nil, activityAt: Millis? = nil, pinned: Bool? = nil) {
+                createdAt: Millis? = nil, effort: String? = nil, permissionMode: String? = nil, activityAt: Millis? = nil, pinned: Bool? = nil,
+                leadId: String? = nil, subagents: Int? = nil, subagentsWaiting: Int? = nil, subagentWaiting: String? = nil) {
         self.id = id
         self.title = title
         self.spaceId = spaceId
@@ -112,6 +123,10 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
         self.permissionMode = permissionMode
         self.activityAt = activityAt
         self.pinned = pinned
+        self.leadId = leadId
+        self.subagents = subagents
+        self.subagentsWaiting = subagentsWaiting
+        self.subagentWaiting = subagentWaiting
     }
 
     /// When the session last moved, as the Mac orders its lists: what a list of sessions is ordered by,
@@ -127,6 +142,7 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case id, title, spaceId, spaceName, agent, model, status, needsYou, unread, updatedAt, agentName, agentMark, modelLabel
         case createdAt, effort, permissionMode, activityAt, pinned
+        case leadId, subagents, subagentsWaiting, subagentWaiting
     }
 
     public init(from decoder: Decoder) throws {
@@ -149,6 +165,10 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
         permissionMode = try? c.decodeIfPresent(String.self, forKey: .permissionMode)
         activityAt = try? c.decodeIfPresent(Millis.self, forKey: .activityAt)
         pinned = try? c.decodeIfPresent(Bool.self, forKey: .pinned)
+        leadId = try? c.decodeIfPresent(String.self, forKey: .leadId)
+        subagents = try? c.decodeIfPresent(Int.self, forKey: .subagents)
+        subagentsWaiting = try? c.decodeIfPresent(Int.self, forKey: .subagentsWaiting)
+        subagentWaiting = try? c.decodeIfPresent(String.self, forKey: .subagentWaiting)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -171,6 +191,10 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
         try c.encodeIfPresent(permissionMode, forKey: .permissionMode)
         try c.encodeIfPresent(activityAt, forKey: .activityAt)
         try c.encodeIfPresent(pinned, forKey: .pinned)
+        try c.encodeIfPresent(leadId, forKey: .leadId)
+        try c.encodeIfPresent(subagents, forKey: .subagents)
+        try c.encodeIfPresent(subagentsWaiting, forKey: .subagentsWaiting)
+        try c.encodeIfPresent(subagentWaiting, forKey: .subagentWaiting)
     }
 
     /// The mode the session is in, read from its stored permission mode. Nil where the Mac did not say.

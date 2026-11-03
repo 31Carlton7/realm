@@ -6,7 +6,7 @@ import { Menu, type MenuItem } from "../Menu";
 import { SpaceIcon } from "../SpaceIcon";
 import { reorderWithin, rowsBySpace, sectionView, spaceTally, tallyWords, type ListRow, type SessionRow, type SidebarState, type Tally } from "./model";
 import { ListRowView, TallyMarks } from "./SessionRows";
-import { TeamSection } from "./TeamSection";
+import { ListCaption, TeamSection } from "./TeamSection";
 import { useNewSessionIn, useOpenSpacePage, useOrderedSpaces, useSpaceTint } from "./use-sidebar-model";
 
 /** What a section head carries in a drag, told apart from an item's. */
@@ -72,6 +72,8 @@ function SpaceSection({ space, rows, tally, onChanged, drag }: { space: Space; r
   const askNewWorktree = useApp((s) => s.askNewWorktree);
   const openSheet = useApp((s) => s.openSheet);
   const hasTeam = useApp((s) => (s.teammates[space.id]?.length ?? 0) > 0);
+  // Only a space with a team heads its sessions with a caption, so only there can they fold away.
+  const sessionsFolded = useApp((s) => hasTeam && s.sidebarFoldedLists.includes(`${space.id}/sessions`));
   const addTeammate = () => openSheet({ kind: "teammate", spaceId: space.id });
   // A plain folder has no worktrees, so its ⋯ offers no session in one (store.ts).
   const plainFolder = useApp((s) => spaceIsPlainFolder(s, space.id));
@@ -135,7 +137,8 @@ function SpaceSection({ space, rows, tally, onChanged, drag }: { space: Space; r
           <div className="sb-section-clip" inert={collapsed || undefined} aria-hidden={collapsed || undefined}>
             <div className="item-list" id={listId}>
               {/* The space's teammates head it, above its sessions. */}
-              <TeamSection spaceId={space.id} sessions={rows.length > 0} />
+              <TeamSection spaceId={space.id} />
+              {hasTeam && rows.length > 0 && <ListCaption spaceId={space.id} list="sessions" label="Sessions" folded={sessionsFolded} />}
               {rows.length === 0 ? (
                 // An empty space offers the shortest honest paths to work in it: a session, or — while
                 // it has none — a teammate.
@@ -153,8 +156,8 @@ function SpaceSection({ space, rows, tally, onChanged, drag }: { space: Space; r
                     </div>
                   )}
                 </>
-              ) : shown.map((r) => <ListRowView key={r.id} row={r} nested onChanged={onChanged} />)}
-              {hidden > 0 && (
+              ) : !sessionsFolded && shown.map((r) => <ListRowView key={r.id} row={r} nested onChanged={onChanged} />)}
+              {!sessionsFolded && hidden > 0 && (
                 <button type="button" className="agents-more sb-more" title={`Every session in ${space.name}, on its page`}
                   onClick={() => openSessions("active")}>Show more <span className="item-count">{hidden}</span></button>
               )}

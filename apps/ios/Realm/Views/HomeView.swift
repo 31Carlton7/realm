@@ -216,11 +216,18 @@ extension SessionRow {
 
 /// What a row says about its session, at the end of its first line: the state a person would act on
 /// or want to know, as a glyph and a word in its tone. A session at rest says nothing, and its row
-/// shows how long ago it moved instead.
+/// shows how long ago it moved instead. A lead whose sub-agent waits on a request says so, as the
+/// desktop's sidebar does, ahead of its own turn working.
 enum RowState: Equatable {
     case waiting, working, failed, done
+    /// Its sub-agents' requests, said in words: "1 sub-agent needs you".
+    case subagentsWaiting(String)
 
     init?(_ row: SessionRow) {
+        if row.status != .waiting, let subagents = RowSubagents(row), subagents.waiting > 0 {
+            self = .subagentsWaiting(subagents.words)
+            return
+        }
         switch row.status {
         case .waiting: self = .waiting
         case .running: self = .working
@@ -237,12 +244,21 @@ enum RowState: Equatable {
         case .working: "Working"
         case .failed: "Failed"
         case .done: "Done"
+        case .subagentsWaiting(let words): words
+        }
+    }
+
+    /// Its own request or a sub-agent's: the tile wears the waiting dot.
+    var isWaiting: Bool {
+        switch self {
+        case .waiting, .subagentsWaiting: true
+        case .working, .failed, .done: false
         }
     }
 
     var symbol: String {
         switch self {
-        case .waiting: "hand.raised.fill"
+        case .waiting, .subagentsWaiting: "hand.raised.fill"
         case .working: "progress.indicator"
         case .failed: "exclamationmark.circle.fill"
         case .done: "checkmark.circle.fill"
@@ -251,7 +267,7 @@ enum RowState: Equatable {
 
     var tone: Tone {
         switch self {
-        case .waiting: .waiting
+        case .waiting, .subagentsWaiting: .waiting
         case .working: .working
         case .failed: .failed
         case .done: .done
@@ -580,7 +596,8 @@ struct SessionLink: View {
 
     var body: some View {
         Button {
-            model.path.append(Route.session(row.id))
+            // A lead whose sub-agent waits opens on that sub-agent's request, the way back to the lead.
+            model.path.append(contentsOf: (RowSubagents(row)?.opens ?? [row.id]).map(Route.session))
         } label: {
             SessionRowView(row: row, space: space)
                 .contentShape(Rectangle())
@@ -632,10 +649,18 @@ struct SessionRowView: View {
                     }
                     .fixedSize()
                 }
-                if let state {
-                    StateWord(state: state)
-                } else {
-                    RowAbout(row: row, space: space)
+                let about = dynamicTypeSize.isAccessibilitySize
+                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2))
+                    : AnyLayout(HStackLayout(spacing: 6))
+                about {
+                    if let state {
+                        StateWord(state: state)
+                    } else {
+                        RowAbout(row: row, space: space)
+                    }
+                    if let subagents = RowSubagents(row), subagents.waiting == 0 {
+                        SubagentCount(words: subagents.words, dotted: !dynamicTypeSize.isAccessibilitySize)
+                    }
                 }
             }
         }
@@ -650,6 +675,7 @@ struct SessionRowView: View {
     static func spoken(_ row: SessionRow, now: Date = Date()) -> String {
         var parts = [row.displayTitle]
         if let state = RowState(row) { parts.append(state.word) }
+        if let subagents = RowSubagents(row), subagents.waiting == 0 { parts.append(subagents.words) }
         if row.unread { parts.append("Unread") }
         if row.pinned == true { parts.append("Pinned") }
         parts.append(contentsOf: [row.spaceName, row.agentDisplayName].filter { !$0.isEmpty })
@@ -686,9 +712,9 @@ private struct RowTile: View {
             }
         }
         .overlay(alignment: .topTrailing) {
-            if state == .waiting || row.unread {
+            if state?.isWaiting == true || row.unread {
                 Circle()
-                    .fill(state == .waiting ? Palette.orange : Palette.accent)
+                    .fill(state?.isWaiting == true ? Palette.orange : Palette.accent)
                     .frame(width: 11, height: 11)
                     .overlay(Circle().strokeBorder(Ground.transcript, lineWidth: 2))
                     .offset(x: 1, y: -1)
@@ -726,6 +752,30 @@ private struct RowAbout: View {
         }
         .font(.footnote)
         .foregroundStyle(Palette.ink2)
+        .accessibilityHidden(true)
+    }
+}
+
+/// How many sub-agents a lead's row holds, after what the line says of the session itself: the count
+/// keeps its place, and the model beside it yields first.
+private struct SubagentCount: View {
+    let words: String
+    /// After the line's other words; on a line of its own at the accessibility sizes.
+    let dotted: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if dotted { Text("·") }
+            HStack(spacing: 3) {
+                Image(systemName: "person.2")
+                    .font(.caption)
+                Text(words)
+            }
+        }
+        .font(.footnote)
+        .foregroundStyle(Palette.ink2)
+        .fixedSize()
+        .layoutPriority(3)
         .accessibilityHidden(true)
     }
 }
