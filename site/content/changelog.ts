@@ -21,6 +21,29 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-7-1",
+    title: "Realm v2.7.1",
+    date: "2026-11-03",
+    version: "v2.7.1",
+    area: "Release",
+    summary:
+      "See a teammate at work from the session that messaged it, fold away Team and Sessions in the sidebar, and switch accounts from one row per account.",
+    body: [
+      { kind: "h", text: "Teammates in the transcript" },
+      { kind: "ul", items: [
+        "**When a session messages a teammate, the teammate shows in the transcript** with its icon, what it was asked, and whether it is working or done.",
+        "**Each teammate shows the model it really runs.** A teammate on the CLI's default model was listed as Fable 5.1 while it ran Opus 5.5.",
+      ] },
+      { kind: "h", text: "Smaller fixes" },
+      { kind: "ul", items: [
+        "**Team and Sessions in the sidebar fold away,** and stay folded until you open them again.",
+        "**A cleaner account switcher in the model picker:** one row per account, with its email, and its own panel for signing in.",
+        "**Realm Mobile shows sub-agents under their lead session.**",
+        "**CI is faster.**",
+      ] },
+    ],
+  },
+  {
     slug: "v2-7-0",
     title: "Realm v2.7.0",
     date: "2026-11-02",
