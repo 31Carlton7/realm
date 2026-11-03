@@ -16,7 +16,7 @@ import {
 import { resolveDefaultPermissionMode } from "../sessions/service";
 import { diffPage } from "./changes";
 import { agentOptions, changesFor, ChoiceRefused, probeList, type InitFacts, type OptionsInput, type ProbeRow } from "./options";
-import { filePreview, PreviewRefused, sipsDownscale, type Downscale } from "./preview";
+import { fileData, filePreview, PreviewRefused, sipsDownscale, type Downscale } from "./preview";
 import { queuedMessage, SessionProjector } from "./rows";
 import { RpcCallError, type RpcPort } from "./rpc-port";
 import { frameSide, machineScreen, phoneMayWatch, SCREEN_DEADLINE_MS, screenFrame, screenOrder, simulatorScreen } from "./screens";
@@ -264,6 +264,7 @@ export class MobileApi {
         }
         case "session.diff": return await this.diff(rpc, p.id as string, p.checkpointId as string, p.path as string, p.from as number);
         case "session.file": return await this.file(rpc, p.id as string, p.path as string);
+        case "session.fileData": return await this.fileData(rpc, p.id as string, p.path as string, p.from as number);
         case "space.icon": return await this.spaceIcon(rpc, p.id as string);
         case "session.screens": return { screens: (await this.screens(rpc, p.id as string)).shown.sort(screenOrder) };
         case "session.screen": return await this.screen(rpc, p as MobileParams<"session.screen">);
@@ -633,6 +634,19 @@ export class MobileApi {
    *  message waiting in its queue carries — and of nothing else: the path must be one a `files_made` or
    *  a `user_message` of this session listed, or the queue holds, exactly as it was listed. */
   private async file(rpc: RpcPort, id: string, path: string): Promise<MobileResult<"session.file">> {
+    await this.mayRead(rpc, id, path);
+    // Named as its user row names it: a file a phone or a paste sent, without the prefix it was written under.
+    return { ...await this.preview(path), name: givenAttachmentName(path, tempAttachmentDir(this.o.realmHome)) };
+  }
+
+  /** A piece of one of the files `session.file` previews, and of no other. */
+  private async fileData(rpc: RpcPort, id: string, path: string, from: number): Promise<MobileResult<"session.fileData">> {
+    await this.mayRead(rpc, id, path);
+    return { ...await this.read(() => fileData(path, from)), name: givenAttachmentName(path, tempAttachmentDir(this.o.realmHome)) };
+  }
+
+  /** Refuses a path no `files_made` or `user_message` of the session listed, nor its queue holds. */
+  private async mayRead(rpc: RpcPort, id: string, path: string): Promise<void> {
     const [made, sent, { queued }] = await Promise.all([
       this.eventsOf(rpc, id, "files_made"), this.eventsOf(rpc, id, "user_message"), rpc.call("sessions.queued", { id }),
     ]);
@@ -643,16 +657,22 @@ export class MobileApi {
     if (!listed.has(path)) throw new MobileError("FORBIDDEN", "That file is not one this session made or was sent.");
     // A message on the Mac can carry any file someone picked, a key among them; a phone is never sent one.
     if (isSecretPath(path)) throw new MobileError("FORBIDDEN", "That file holds a secret, so Realm does not send it to a phone.");
-    // Named as its user row names it: a file a phone or a paste sent, without the prefix it was written under.
-    return { ...await this.preview(path), name: givenAttachmentName(path, tempAttachmentDir(this.o.realmHome)) };
   }
 
   /** `filePreview`, its refusals and a file gone since it was listed said as mobile.v1 says them;
    *  `check` runs first, and refuses by throwing `PreviewRefused`. */
   private async preview(path: string, check?: () => Promise<void>): Promise<MobileResult<"session.file">> {
-    try {
+    return this.read(async () => {
       await check?.();
       return await filePreview(path, { downscale: this.o.downscale });
+    });
+  }
+
+  /** A read of a file a phone asked for, its refusals and a file gone since it was listed said as
+   *  mobile.v1 says them. */
+  private async read<T>(reading: () => Promise<T>): Promise<T> {
+    try {
+      return await reading();
     } catch (e) {
       if (e instanceof PreviewRefused) throw new MobileError("FORBIDDEN", e.message);
       if ((e as NodeJS.ErrnoException).code === "ENOENT") throw new MobileError("NOT_FOUND", "That file is no longer on this Mac.");
