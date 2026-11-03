@@ -118,7 +118,7 @@ async function generate(): Promise<Record<string, unknown>> {
   ];
 
   const evs: SessionEvent[] = [
-    sessionEvent("user_message", { text: "File the issue, then plan the column", attachments: sent }),
+    sessionEvent("user_message", { text: "File the issue, then plan the column", attachments: sent }, 1_790_000_000_000),
     sessionEvent("thinking", { messageId: "k1", text: "Linear first." }),
     sessionEvent("assistant_text", { messageId: "m1", text: "Filing it in **Linear**." }),
     sessionEvent("tool_call", { toolUseId: "t1", name: "Bash", input: { command: "pnpm test --silent" }, parentToolUseId: null }),
@@ -133,7 +133,7 @@ async function generate(): Promise<Record<string, unknown>> {
       { path: "src/theme.ts", oldPath: null, status: "modified", additions: 2, deletions: 1 },
       { path: "src/new-name.ts", oldPath: "src/old-name.ts", status: "renamed", additions: 0, deletions: 0 },
     ] }),
-    sessionEvent("files_made", { settledAt: 7, files: made, totalFiles: 3 }),
+    sessionEvent("files_made", { settledAt: 7, files: made, totalFiles: 3 }, 1_790_000_040_000),
     sessionEvent("error", { message: "Claude hit its usage limit", failure: "usage_limit", fix: { title: "Switch agent", hint: "Continue on Codex", command: null } }),
     sessionEvent("prompt_hint", { text: "Approve the plan and run the migration", throughSeq: 14 }),
   ];
@@ -268,6 +268,8 @@ async function generate(): Promise<Record<string, unknown>> {
     "delegation.running": ((p: { sessionId: string }) => ({ running: p.sessionId === S ? [{ sessionId: WORKER, startedAt: 1_789_999_500_000, detached: true, owned: true }] : [] })) as never,
     "limits.get": (() => ({ limits: plans })) as never,
     "usage.summary": (() => month) as never,
+    // A worktree of the deck's folder, on a branch git has been asked about.
+    "environments.get": ((p: { id: string }) => ({ id: p.id, spaceId: "sp1", path: dir, branch: "theme-column", kind: "worktree", portBlockStart: null, createdAt: 0, updatedAt: 0 })) as never,
     "schedules.list": ((p: { spaceId: string }) => tasks[p.spaceId] ?? []) as never,
     "schedules.runNow": ((p: { id: string }) => ({ ...tasks.sp1!.find((t) => t.id === p.id)!, lastRunAt: 1_790_000_400_000, lastRunId: NOW_RUN })) as never,
     "runs.get": ((p: { id: string }) => (runs[p.id] ? { run: runs[p.id], attempts: [] } : null)) as never,
@@ -316,6 +318,7 @@ async function generate(): Promise<Record<string, unknown>> {
       "session.queue": await call("session.queue", { id: S }),
       "session.file:queued": await call("session.file", { id: S, path: sketch }),
       "session.subagents": await call("session.subagents", { id: S }),
+      "session.info": await call("session.info", { id: S }),
       "usage.get": await call("usage.get", {}),
       "reviews.list": await call("reviews.list", {}),
       "schedules.list": await call("schedules.list", {}),

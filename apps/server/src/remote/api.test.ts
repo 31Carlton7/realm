@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { tempDir } from "@realm/test-utils";
@@ -1053,6 +1053,68 @@ describe("session.subagents", () => {
 
   it("refuses a session the Mac does not have", async () => {
     expect(await attempt(api(), rpc, "session.subagents", { id: "nobody" })).toMatchObject({ ok: false });
+  });
+});
+
+describe("session.info", () => {
+  const home = homedir();
+  const totals = (extra: Record<string, number> = {}) => ({
+    costUsd: 0, reportedUsd: 0, estimatedUsd: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, turns: 0, sessions: 1, unmeasuredSessions: 0, ...extra,
+  });
+  function rig(rows: { id: string; totals: ReturnType<typeof totals> }[], log: StoredSessionEvent[] = [], branch: string | null = "theme-mode") {
+    const asked: unknown[] = [];
+    const rpc = fakeRpc({ sessions: [session("s1", "sp1", { environmentId: "e1", createdAt: 500 })], items: [] }, {
+      "environments.get": ((p: { id: string }) => ({ id: p.id, spaceId: "sp1", path: join(home, "Code", "app-theme"), branch, kind: "worktree", portBlockStart: null, createdAt: 0, updatedAt: 0 })) as never,
+      "usage.summary": ((p: unknown) => { asked.push(p); return { sessions: rows }; }) as never,
+      ...(log.length > 0 ? { "sessions.events": eventsOf(log) as never } : {}),
+    });
+    return { rpc, asked };
+  }
+  const info = async (rpc: RpcPort) => {
+    const got = await attempt(api(), rpc, "session.info", { id: "s1" });
+    if (!got.ok) throw new Error(got.message);
+    return MobileCalls["session.info"].result.parse(got.result);
+  };
+
+  it("says which Mac and checkout the session runs in, the folder under ~, and the branch only once git was asked", async () => {
+    expect((await info(rig([]).rpc)).runsOn).toEqual({ machine: "Test Mac", checkout: "worktree", folder: "~/Code/app-theme", branch: "theme-mode" });
+    expect((await info(rig([], [], null).rpc)).runsOn?.branch).toBeNull();
+  });
+
+  it("counts its cost and tokens over its whole life in its space, cached input with the rest, and says when part is an estimate", async () => {
+    const { rpc, asked } = rig([
+      { id: "other", totals: totals({ costUsd: 99, inputTokens: 1 }) },
+      { id: "s1", totals: totals({ costUsd: 3.5, estimatedUsd: 0.5, inputTokens: 1_000, cacheReadTokens: 20_000, cacheWriteTokens: 300, outputTokens: 4_000, turns: 6 }) },
+    ]);
+    // THE MUTANTS: another session's row, input without the cache, or the estimate left unsaid.
+    expect((await info(rpc)).usage).toEqual({ costUsd: 3.5, estimated: true, inputTokens: 21_300, outputTokens: 4_000, turns: 6 });
+    expect(asked).toEqual([expect.objectContaining({ from: 500, spaceId: "sp1" })]);
+  });
+
+  it("says nothing of usage for an engine that reports none, or before anything was reported", async () => {
+    expect((await info(rig([{ id: "s1", totals: totals({ costUsd: 0, unmeasuredSessions: 1 }) }]).rpc)).usage).toBeUndefined();
+    expect((await info(rig([{ id: "s1", totals: totals({ costUsd: 1, unmeasuredSessions: 1 }) }]).rpc)).usage).toBeUndefined();
+    expect((await info(rig([{ id: "s1", totals: totals() }]).rpc)).usage).toBeUndefined();
+    expect((await info(rig([]).rpc)).usage).toBeUndefined();
+  });
+
+  it("lists the files it made and was sent, newest first, each once, and never one that holds a secret", async () => {
+    const log = [
+      stored("s1", sessionEvent("files_made", { settledAt: 1, files: [{ path: "/w/shot.png", size: 2_048 }, { path: "/w/notes.md", size: 10 }], totalFiles: 2 }, 100)),
+      stored("s1", sessionEvent("user_message", { text: "use these", attachments: [{ path: "/w/brief.pdf", mime: "application/pdf" }, { path: "/w/.env", mime: "text/plain" }] }, 200)),
+      stored("s1", sessionEvent("files_made", { settledAt: 2, files: [{ path: "/w/shot.png", size: 4_096 }], totalFiles: 1 }, 300)),
+    ];
+    const { files } = await info(rig([], log).rpc);
+    // THE MUTANTS: oldest first, a file named twice, or the key sent along to the phone.
+    expect(files).toEqual([
+      { path: "/w/shot.png", name: "shot.png", size: 4_096, sent: false, at: 300 },
+      { path: "/w/brief.pdf", name: "brief.pdf", size: null, sent: true, at: 200 },
+      { path: "/w/notes.md", name: "notes.md", size: 10, sent: false, at: 100 },
+    ]);
+  });
+
+  it("refuses a session the Mac does not have", async () => {
+    expect(await attempt(api(), rig([]).rpc, "session.info", { id: "nobody" })).toMatchObject({ ok: false });
   });
 });
 
