@@ -125,7 +125,7 @@ describe("the Move sheet", () => {
   it("keeps the sheet open on background work and offers Stop and move, with no toast", async () => {
     // THE MUTANT: the sheet closes before the server answers, and the refusal is a toast.
     const { api, store } = await mount();
-    refuse(api, "MOVE_FAILED", "Could not move this session: its agent is still running a background task, which moving would stop. It is still in ~/realm, as it was.");
+    refuse(api, "MOVE_STOPS_WORK", "its agent is still running a background task, which moving would stop");
     pick("realm/fix-tests");
     const dialog = await sheet();
     fireEvent.click(await within(dialog).findByRole("button", { name: "Move" }));
@@ -141,6 +141,16 @@ describe("the Move sheet", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Stop and move" }));
     await waitFor(() => expect(calls).toEqual([JSON.stringify({ to: { kind: "environment", environmentId: "envB" }, keepSourceChanges: true, when: "stop" })]));
     await waitFor(() => expect(store.getState().sheet).toBeNull());
+  });
+
+  it("names the background work a move would stop before anything is pressed, and offers only Stop and move", async () => {
+    await mount({ status: "running", moveOptions: { stops: ["a scheduled job"] } });
+    pick("realm/fix-tests");
+    const dialog = await sheet();
+    expect(await within(dialog).findByText("Fake agent is still running a scheduled job, which moving would stop. Stop and move to end it and move.")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Move after this turn" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Stop and move" })).toBeEnabled();
+    expect(dialog).not.toHaveTextContent("The move can wait for this turn to end");
   });
 
   it("says a move is already under way in the sheet, and never shows a raw error", async () => {

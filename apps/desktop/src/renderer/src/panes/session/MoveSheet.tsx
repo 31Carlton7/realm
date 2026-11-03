@@ -9,13 +9,17 @@ import { moveFailureReason, shortPath } from "./move-place";
 const reason = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const filesWord = (n: number) => (n === 1 ? "1 changed file" : `${n} changed files`);
 
+const stopsWorkNote = (agent: string, work: string) => `${agent} is still running ${work}, which moving would stop. Stop and move to end it and move.`;
+
 /** Why the server would not start a move, as the sheet says it. `stopsWork` is the agent's
  *  background work, which Stop and move ends. */
 function moveRefusal(e: unknown, agent: string): { text: string; stopsWork: boolean } {
   const code = (e as { code?: unknown } | null)?.code;
   const message = e instanceof Error ? e.message : "";
-  const work = /still running (.+), which moving would stop/.exec(message);
-  if (code === "MOVE_FAILED" && work) return { text: `${agent} is still running ${work[1]}, which moving would stop. Stop and move to end it and move.`, stopsWork: true };
+  if (code === "MOVE_STOPS_WORK") {
+    const work = /still running (.+), which moving would stop/.exec(message)?.[1] ?? "work in the background";
+    return { text: stopsWorkNote(agent, work), stopsWork: true };
+  }
   if (code === "SESSION_SWITCHING") return { text: "This session is already moving. Wait for that move to finish.", stopsWork: false };
   if (code === "MOVE_FAILED" || code === "SESSION_MOVE_REFUSED" || code === "SESSION_BUSY" || code === "ENVIRONMENT_BUSY") return { text: moveFailureReason(message), stopsWork: false };
   return { text: "Realm couldn't start the move. Try again in a moment.", stopsWork: false };
@@ -99,14 +103,16 @@ export function MoveSheet({ sessionId, to }: { sessionId: string; to: MoveTarget
     );
   };
   const named = (options?.leftBehind ?? []).filter((n) => !/terminal/i.test(n));
+  const work = options?.stops ?? [];
+  const stopsWork = work.length > 0 || (refused?.stopsWork ?? false);
 
   return (
     <Sheet title="Move this session" onClose={closeSheet} width={480}
       footer={<>
         <button type="button" className="btn" onClick={closeSheet}>Cancel</button>
-        {busy || refused?.stopsWork ? <>
-          <button type="button" className={busy ? "btn" : "btn primary"} disabled={!ready} onClick={() => move("stop")}>Stop and move</button>
-          {busy && <button type="button" className="btn primary" disabled={!ready || waitingOnYou} onClick={() => move("after-turn")}>Move after this turn</button>}
+        {busy || stopsWork ? <>
+          <button type="button" className={busy && !stopsWork ? "btn" : "btn primary"} disabled={!ready} onClick={() => move("stop")}>Stop and move</button>
+          {busy && <button type="button" className={stopsWork ? "btn" : "btn primary"} disabled={!ready || waitingOnYou || stopsWork} onClick={() => move("after-turn")}>Move after this turn</button>}
         </> : (
           <button type="button" className="btn primary" disabled={!ready} onClick={() => move("now")}>Move</button>
         )}
@@ -145,7 +151,8 @@ export function MoveSheet({ sessionId, to }: { sessionId: string; to: MoveTarget
             </label>
           </div>
           {busy && waitingOnYou && <p className="share-sheet-note">{agent} is waiting on a request. Answer it first to move after this turn, or Stop and move, which denies it.</p>}
-          {busy && !waitingOnYou && <p className="share-sheet-note">{agent} is working. The move can wait for this turn to end, or stop it.</p>}
+          {work.length > 0 && !refused && <p className="share-sheet-note">{stopsWorkNote(agent, work.join(", "))}</p>}
+          {busy && !waitingOnYou && !stopsWork && <p className="share-sheet-note">{agent} is working. The move can wait for this turn to end, or stop it.</p>}
           {options.pending && (
             <p className="share-sheet-note move-pending">A move is already waiting for this turn.
               <button type="button" className="btn-quiet" onClick={() => void run(async () => { await cancelSessionMove(sessionId); closeSheet(); })}>Cancel that move</button>
