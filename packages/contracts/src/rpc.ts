@@ -45,6 +45,7 @@ import { SIMULATOR_CA_DEBUG, SimulatorActSchema, SimulatorAppSchema, SimulatorAx
 import { GoalSchema, GoalStatusSchema } from "./goal";
 import { UnlockedEggPackSchema } from "./egg-pack";
 import { FailoverPolicySchema } from "./failover";
+import { MoveOptionsSchema, MoveTargetSchema, MoveWhenSchema } from "./session-move";
 import { LayaModeSchema, LayaStatusSchema } from "./laya";
 import { FreeActionSchema, ResourcePoliciesSchema, ResourcePolicyKeySchema, ResourceReportSchema } from "./resources";
 import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
@@ -2212,6 +2213,24 @@ export const Methods = {
    *  list; the origin space drops it via items.changed the same way sessions.delete does. Moving to the
    *  space a session is already in is a no-op, even once it has run. */
   "sessions.moveToSpace": { params: z.object({ id: IdSchema, spaceId: IdSchema }), result: SessionSchema },
+  /** What moving this session would carry and leave behind, and where it can go (the Move sheet). */
+  "sessions.moveOptions": { params: z.object({ id: IdSchema }), result: MoveOptionsSchema },
+  /**
+   * Move a started session to another checkout of its space, or to a new worktree, mid-conversation
+   * (`session-move.ts`). The session keeps its id and transcript; its uncommitted changes are copied
+   * across from a checkpoint taken first, and the source checkout is left as it was unless
+   * `keepSourceChanges` is false, which resets it to HEAD afterwards (the checkpoint undoes that).
+   *
+   * Answers once the move has committed (`moved`) — or, for `after-turn` during a turn, once it is
+   * queued. A move that fails puts everything back, writes `move_failed`, and rejects with
+   * MOVE_FAILED. Refused for a teammate's chat, while a sub-agent it started is running
+   * (SESSION_MOVE_REFUSED), mid-turn with `when: "now"` (SESSION_BUSY), and while another move or
+   * switch is under way (SESSION_SWITCHING).
+   */
+  "sessions.move": { params: z.object({ id: IdSchema, to: MoveTargetSchema, keepSourceChanges: z.boolean().default(true), when: MoveWhenSchema.default("now") }), result: SessionSchema },
+  /** Drop a move queued behind the turn, or stop one under way before it commits (it rolls back
+   *  as a failure would). `cancelled` is false when there was nothing left to stop. */
+  "sessions.cancelMove": { params: z.object({ id: IdSchema }), result: z.object({ cancelled: z.boolean() }) },
   /** A session's stored events, oldest first: the first `limit` after `afterSeq` — or, with `beforeSeq`,
    *  the newest `limit` before it, which is how a transcript opens on its end and pages back as the
    *  reader scrolls up. `types` keeps only those kinds. */

@@ -10,7 +10,7 @@ import type { Session, SessionStatus } from "@realm/contracts";
 
 /** The words a session's state is read out in, after its title (A-L4: the dot alone says nothing to
  *  a reader). */
-export const STATUS_LABEL = { idle: "idle", running: "running", waiting_permission: "needs permission", error: "error", ended: "ended" } as const;
+export const STATUS_LABEL = { idle: "idle", running: "running", waiting_permission: "needs permission", error: "error", ended: "ended", moving: "moving" } as const;
 
 /**
  * Something happened in this session that you have not read: its log has been written past the mark

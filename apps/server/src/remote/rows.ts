@@ -156,6 +156,7 @@ export class SessionProjector {
       case "handoff": return put({ key: `e:${seq}`, seq, kind: "notice", text: `Handed over from ${ev.payload.from} to ${ev.payload.to}` });
       case "compacted": return put({ key: `e:${seq}`, seq, kind: "notice", text: "Context compacted" });
       case "context_reset": return put({ key: `e:${seq}`, seq, kind: "notice", text: ev.payload.note || "The agent started a fresh context" });
+      case "moved": case "move_failed": return put({ key: `e:${seq}`, seq, kind: "notice", text: ev.payload.note });
       case "plan": {
         const row: PlanRow = { key: `p:${ev.payload.planId}`, seq, kind: "plan", text: ev.payload.text ?? null, steps: ev.payload.steps ?? null };
         this.lastPlan = row;
@@ -182,8 +183,9 @@ export class SessionProjector {
         if (!this.hinted || this.hinted.throughSeq <= ev.payload.throughSeq) this.hinted = { text: ev.payload.text, throughSeq: ev.payload.throughSeq };
         return [];
       // Carried elsewhere, or not drawn on the phone: status travels as `session.status`; usage, init,
-      // feedback and the account's rate limits are desktop detail, and so is the summary.
-      case "status": case "usage": case "init": case "feedback": case "summary": case "retrying": case "rate_limit":
+      // feedback and the account's rate limits are desktop detail, and so are the summary and a move's
+      // progress (how the move ended is a notice, above).
+      case "status": case "usage": case "init": case "feedback": case "summary": case "retrying": case "rate_limit": case "moving":
         return [];
       default: {
         const unhandled: never = ev;

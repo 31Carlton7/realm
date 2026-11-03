@@ -470,6 +470,9 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
     // per-agent state off the event stream. The transcript is unchanged by it on purpose: a block
     // saying "weekly window at 78%" would be a sentence nobody said, stuck between two that were.
     case "rate_limit": return t;
+    // A move's progress row and its moved line are the session pane's to draw (the move spec's second
+    // stream); until it does, the transcript skips them.
+    case "moving": case "moved": case "move_failed": return t;
     // The four numbers are replaced wholesale; the context measurement is CARRIED when the new event
     // does not state one. Not staleness — occupancy does not reset between turns, so the last
     // measurement is still the last true thing known about this window, and the adapter restates the
