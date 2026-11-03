@@ -1363,7 +1363,6 @@ export class SessionService {
             if (term) this.closeTerminalItem(term.refId);
             return term !== null;
           },
-          forgetMemory: (sid) => this.d.memory.forgetSession(sid),
           ...(this.d.userHome ? { home: this.d.userHome } : {}),
         }, this.get(id), { ...plan, signal: abort.signal });
       })());

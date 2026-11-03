@@ -40,8 +40,6 @@ export type MoveDeps = {
   broadcastStatus: (sessionId: string, status: Session["status"]) => void;
   /** Close the session's terminal, answering whether it had one. Its pty was spawned at the old cwd. */
   closeTerminal: (sessionId: string) => boolean;
-  /** The memory a session's starts were frozen to names its cwd; the next start composes it again. */
-  forgetMemory: (sessionId: string) => void;
   home?: string;
 };
 
@@ -127,7 +125,6 @@ export async function runMove(d: MoveDeps, s: Session, plan: MovePlan): Promise<
     } catch (e) { d.db.exec("ROLLBACK"); throw e; }
     d.settings.set(movePrefaceKey(s.id), preface);
     d.settings.set(moveInFlightKey(s.id), null);
-    d.forgetMemory(s.id);
     d.broadcastStatus(s.id, "idle");
     // After the commit and never before it: until the move has happened, the source keeps its changes.
     if (!plan.keepSourceChanges && cp) await d.git.resetToHead(source.path).catch(() => {});
@@ -174,8 +171,7 @@ async function carryConversation(d: MoveDeps, s: Session, source: Environment, t
     }
   } else if (id !== null && mode !== "none") {
     at("boot");
-    d.forgetMemory(s.id);
-    undo.push(async () => { await d.stop(s.id); d.forgetMemory(s.id); });
+    undo.push(() => d.stop(s.id));
     const init = await d.boot(s.id, target);
     if (init.resumeOutcome !== "declined" && init.resumeOutcome !== "unsupported") {
       return { conversation: "native", providerSessionId: init.providerSessionId };

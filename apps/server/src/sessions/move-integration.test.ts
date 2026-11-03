@@ -27,7 +27,12 @@ type Any = any;
 async function client(port: number) {
   const ws = await new Promise<WebSocket>((res, rej) => { const w = new WebSocket(`ws://127.0.0.1:${port}`); w.once("open", () => res(w)); w.once("error", rej); });
   const pending = new Map<string, (v: Any) => void>();
-  ws.on("message", (d) => { const m = JSON.parse(d.toString()); if ("id" in m) pending.get(m.id)?.(m); });
+  const statuses: string[] = [];
+  ws.on("message", (d) => {
+    const m = JSON.parse(d.toString());
+    if ("id" in m) pending.get(m.id)?.(m);
+    else if (m.event === "session.status") statuses.push(m.payload.status);
+  });
   let n = 0;
   const call = (method: string, params: unknown) => new Promise<Any>((res, rej) => {
     const id = String(++n);
@@ -35,7 +40,7 @@ async function client(port: number) {
     pending.set(id, (v) => { clearTimeout(timer); res(v); });
     ws.send(JSON.stringify({ id, method, params }));
   });
-  return { call, close: () => ws.close() };
+  return { call, statuses, close: () => ws.close() };
 }
 
 function git(cwd: string, ...args: string[]): string {
@@ -192,8 +197,11 @@ describe("sessions.move", () => {
   it("keeps a continued ACP resume native, with the id the engine reported", async () => {
     const { c, sp, session, agent } = await setup("acp:cursor", "continued");
     const target = (await c.call("environments.createWorktree", { spaceId: sp.id, title: "there" })).result;
+    c.statuses.length = 0;
     const moved = (await c.call("sessions.move", { id: session.id, to: { kind: "environment", environmentId: target.id } })).result;
     expect(moved).toMatchObject({ environmentId: target.id, providerSessionId: session.providerSessionId });
+    // The engine booted at the target reports itself idle; every client still sees one move, start to end.
+    expect(c.statuses).toEqual(["moving", "idle"]);
     expect((await eventsOf(c, session.id)).find((e: Any) => e.type === "moved").payload.conversation).toBe("native");
     expect(new SettingsStore(app!.db).get(handoffContextKey(session.id))).toBeFalsy();
     // The engine booted for the move is the one the next turn uses.
