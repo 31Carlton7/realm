@@ -10928,10 +10928,8 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .unlock-confirm-list { margin: 0; padding-left: 18px; list-style: disc; display: flex; flex-direction: column; gap: 6px; line-height: 1.5; color: var(--rl-text-dim); }
 
 /* ── Teammates (Teams v2): the sidebar's Team list, a teammate's chat head, its computer, its sheet ──
-   A space's teammates head its section: a caption, the Lead and the rest with their icons on the
-   gutter under the space's (so every name stands on the titles' column), the groups the person made,
-   then a "Sessions" caption over the sessions. Captions are the caption rung in the secondary ink,
-   and a row shorter than a session's, so the list reads as one column with two labels in it. */
+   A space's teammates head the column under the pinned row: the Lead and the rest, their icons in the
+   gutter so every name stands on the titles' column, then the groups the person made. */
 .sb-team { display: flex; flex-direction: column; }
 /* A group the person made is a caption over its teammates, the column's one nesting. Its caret comes
    up under the pointer, after the name, and stays while the group is folded so a folded group says so. */

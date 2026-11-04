@@ -9,8 +9,8 @@ import { groupByDay, type DayGroup } from "./chat-feed";
  *
  * The sidebar lists SESSIONS: Needs you across every space and profile, the space on screen's own
  * sessions, and every session of the profile by time under Recent. Nothing here reads the store or
- * the clock, so each decision — what counts as waiting, what a fan-out is, what a
- * space's tile counts — is testable without a DOM.
+ * the clock, so each decision — what counts as waiting, what a fan-out is, what a space's tile
+ * counts — is testable without a DOM.
  */
 
 /** The store slices every derivation below reads. */

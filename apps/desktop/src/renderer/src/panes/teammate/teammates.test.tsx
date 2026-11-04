@@ -10,7 +10,7 @@ import { reduceAll } from "../session/transcript-model";
 import { mentionOptions, mentionRows, refFor } from "../session/mention-sources";
 import { ComputerPane } from "./ComputerPane";
 import { TeammateSheet } from "./TeammateSheet";
-import { commandKind, dayLabel, groupTeammates, plainTitle, recentSessions, sessionTree, teammateMark, todayLine } from "./teammate-model";
+import { commandKind, dayLabel, groupTeammates, plainTitle, sessionTree, teammateMark, todayLine } from "./teammate-model";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -41,11 +41,6 @@ describe("teammate-model", () => {
     const g = groupTeammates([teammate("lead", "s1", { lead: true }), teammate("r", "s1", { group: "Strat" }), teammate("cto", "s1"), teammate("d", "s1", { group: "Strat" })]);
     expect(g.top.map((t) => t.id)).toEqual(["lead", "cto"]);
     expect(g.groups).toEqual([["Strat", [expect.objectContaining({ id: "r" }), expect.objectContaining({ id: "d" })]]]);
-  });
-
-  it("unfolds a row to everything live and the newest of the rest", () => {
-    const list = [task("1"), task("2", { state: "working" }), task("3"), task("4"), task("5", { state: "needs-you" }), task("6"), task("7")];
-    expect(recentSessions(list, 4).map((s) => s.id)).toEqual(["1", "2", "3", "5"]);
   });
 
   it("takes only a teammate's own handle off a title", () => {

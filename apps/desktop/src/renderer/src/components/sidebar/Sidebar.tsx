@@ -22,12 +22,13 @@ import { useAllItemsFresh, useOpenAnywhere, useProfileRows, useSidebarState } fr
  * One space at a time (direction A, the owner 11-03), and nothing the window already shows: its
  * toggle, search and a new session in the head row; the space's name under it; what waits on you,
  * from every space and profile; the profile's pinned items; the space's team and sessions, or every
- * session by time. The app's destinations, the spaces and the profile are the rail's. It lists SESSIONS — a terminal, a browser or a diff is something a
- * session opens, and lives in that session's side pane, not here.
+ * session by time. The app's destinations, the spaces and the profile are the rail's. It lists
+ * SESSIONS — a terminal, a browser or a diff is something a session opens, and lives in that
+ * session's side pane, not here.
  *
  * One scroller holds the list, so a long one lengthens the column rather than pushing anything
  * around; it dissolves at an end only while there are rows past it (`useDissolve`), so the list at
- * rest starts close under the profile with its first row whole.
+ * rest starts close under the title with its first row whole.
  *
  * The column is a box that opens and closes (`--sidebar-open`, styles.css) and everything in it rides
  * one wrapper that slides with its edge (`.sidebar-slide`): head and list move together, clipped to

@@ -45,15 +45,6 @@ export function groupTeammates(list: readonly Teammate[]): { top: Teammate[]; gr
   return { top, groups: [...groups] };
 }
 
-/** The sessions a teammate's sidebar row unfolds to: the ones still running or waiting, and the
- *  newest others, up to `cap` in all — the rest are on its computer. */
-export function recentSessions(sessions: readonly TeammateTaskSession[], cap = 5): TeammateTaskSession[] {
-  const live = sessions.filter((s) => s.state !== "idle");
-  const rest = sessions.filter((s) => s.state === "idle");
-  const keep = new Set([...live, ...rest].slice(0, Math.max(cap, live.length)).map((s) => s.id));
-  return sessions.filter((s) => keep.has(s.id));
-}
-
 /** A task session's title without the `<handle> - ` its teammate wrote in front of it, which the
  *  computer says with the teammate's icon instead. Only a teammate's own handle is taken off. */
 export function plainTitle(title: string, handles: readonly string[]): string {
