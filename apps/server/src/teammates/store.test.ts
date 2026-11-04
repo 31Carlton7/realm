@@ -5,7 +5,7 @@ import { tempDir } from "@realm/test-utils";
 import { teammateIconFromSeed } from "@realm/contracts";
 import { openDatabase } from "../db/database";
 import { migrations } from "../db/migrations";
-import { registerPayloadFunction } from "../store/event-payload";
+import { encodePayload, registerPayloadFunction } from "../store/event-payload";
 import { SchedulesStore } from "../store/schedules";
 import { TeammatesStore } from "./store";
 
@@ -167,6 +167,33 @@ describe("the teammates store", () => {
     expect(store.list("s").map((t) => [t.handle, t.group])).toEqual([["b", "Strat"], ["a", null]]);
     expect(store.freeHandle("s", "a")).toBe("a-2");
     expect(store.freeHandle("s", "a", a.id)).toBe("a");
+    db.close();
+  });
+
+  it("reads what each finished session produced off its gh commands, and a failure off its last error", () => {
+    const { db, store } = fresh();
+    db.exec("INSERT INTO environments (id, space_id, path, branch, kind, created_at, updated_at) VALUES ('e', 's', '/tmp/s', 'main', 'checkout', 1, 1)");
+    const session = (id: string, status: string) => db.prepare(`INSERT INTO sessions (id, space_id, project_id, agent_kind, model, effort, permission_mode, status,
+        provider_session_id, title, last_event_seq, environment_id, created_at, updated_at) VALUES (?, 's', NULL, 'claude', NULL, NULL, 'default', ?, NULL, ?, 0, 'e', 1, 1)`).run(id, status, id);
+    const event = (id: string, type: string, payload: unknown) => db.prepare("INSERT INTO session_events (session_id, ts, type, payload_json) VALUES (?, 1, ?, ?)")
+      .run(id, type, encodePayload(JSON.stringify(payload)));
+    const bash = (id: string, use: string, command: string, out: string, padding = "") => {
+      event(id, "tool_call", { toolUseId: use, name: "Bash", input: { command, description: padding }, parentToolUseId: null });
+      event(id, "tool_result", { toolUseId: use, content: out, isError: false });
+    };
+    session("opened", "idle"); session("merged", "ended"); session("broke", "error"); session("quiet", "idle");
+    // Long enough to be stored compressed, which a plain LIKE over the column would never match.
+    bash("opened", "u1", "gh pr create --fill", "https://github.com/a/b/pull/269", "x".repeat(900));
+    bash("merged", "u2", "gh pr merge 264 --squash", "");
+    bash("broke", "u3", "gh pr create --fill", "https://github.com/a/b/pull/12");
+    event("broke", "error", { message: "Notarization keychain item missing\nmore" });
+    bash("quiet", "u4", "ls", "https://github.com/a/b/pull/7");
+    const out = store.outcomes([{ id: "opened", status: "idle" }, { id: "merged", status: "ended" }, { id: "broke", status: "error" }, { id: "quiet", status: "idle" }]);
+    // THE MUTANTS: a compressed log skipped; an errored session credited with its PR; a URL any command printed taken as a PR.
+    expect(out.get("opened")).toEqual({ kind: "pr", number: 269, url: "https://github.com/a/b/pull/269", merged: false });
+    expect(out.get("merged")).toEqual({ kind: "pr", number: 264, url: null, merged: true });
+    expect(out.get("broke")).toEqual({ kind: "failed", reason: "Notarization keychain item missing" });
+    expect(out.has("quiet")).toBe(false);
     db.close();
   });
 });

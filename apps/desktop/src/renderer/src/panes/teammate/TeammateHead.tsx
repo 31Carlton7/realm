@@ -36,7 +36,7 @@ export function useTeammateMenu(t: Teammate | null): MenuItem[] {
   if (!t) return [];
   return [
     { label: "Edit…", icon: <Icon name="edit" size={14} />, onSelect: () => openSheet({ kind: "teammate", spaceId: t.spaceId, id: t.id }) },
-    { label: "Computer", icon: <Icon name="computer" size={14} />, detail: "Where it works, and the sessions it started", onSelect: () => run(() => showTeammateComputer(t.id)) },
+    { label: "Computer", icon: <Icon name="computer" size={14} />, detail: "What it is doing on this Mac, and what it finished", onSelect: () => run(() => showTeammateComputer(t.id)) },
     t.lead
       ? { label: "Not the Lead", icon: <Icon name="star" size={14} />, onSelect: () => run(() => setTeamLead(t.spaceId, null)) }
       : { label: "Make Lead", icon: <Icon name="star" size={14} />, onSelect: () => run(() => setTeamLead(t.spaceId, t.id)) },

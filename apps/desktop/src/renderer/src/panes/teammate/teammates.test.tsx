@@ -10,7 +10,7 @@ import { reduceAll } from "../session/transcript-model";
 import { mentionOptions, mentionRows, refFor } from "../session/mention-sources";
 import { ComputerPane } from "./ComputerPane";
 import { TeammateSheet } from "./TeammateSheet";
-import { groupTeammates, recentSessions, sessionTree, teammateMark } from "./teammate-model";
+import { commandKind, dayLabel, groupTeammates, plainTitle, recentSessions, sessionTree, teammateMark, todayLine } from "./teammate-model";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -46,6 +46,34 @@ describe("teammate-model", () => {
   it("unfolds a row to everything live and the newest of the rest", () => {
     const list = [task("1"), task("2", { state: "working" }), task("3"), task("4"), task("5", { state: "needs-you" }), task("6"), task("7")];
     expect(recentSessions(list, 4).map((s) => s.id)).toEqual(["1", "2", "3", "5"]);
+  });
+
+  it("takes only a teammate's own handle off a title", () => {
+    // THE MUTANTS: any "word - " prefix taken off; the prefix kept.
+    expect(plainTitle("captain - ship 2.7.3", ["captain", "engines"])).toBe("ship 2.7.3");
+    expect(plainTitle("engines - move - part 2", ["captain", "engines"])).toBe("move - part 2");
+    expect(plainTitle("v2 - the plan", ["captain"])).toBe("v2 - the plan");
+  });
+
+  it("names a day as today, yesterday or its date, by the calendar rather than 24 hours", () => {
+    const now = new Date(2026, 10, 4, 0, 30).getTime();
+    expect(dayLabel(new Date(2026, 10, 4, 0, 5).getTime(), now)).toBe("Today");
+    expect(dayLabel(new Date(2026, 10, 3, 23, 50).getTime(), now)).toBe("Yesterday");
+    expect(dayLabel(new Date(2026, 10, 1, 12).getTime(), now)).not.toMatch(/Today|Yesterday/);
+  });
+
+  it("counts only today's outcomes in the head, and says nothing when there are none", () => {
+    const now = Date.now();
+    expect(todayLine([task("a", { updatedAt: now, outcome: { kind: "pr", number: 1, url: null, merged: true } }),
+      task("b", { updatedAt: now, outcome: { kind: "pr", number: 2, url: null, merged: true } }),
+      task("c", { updatedAt: now - 3 * 86_400_000, outcome: { kind: "pr", number: 3, url: null, merged: true } })], now)).toBe("Today: 2 PRs merged");
+    expect(todayLine([task("a", { updatedAt: now, outcome: null })], now)).toBeNull();
+  });
+
+  it("reads a build or a dev server off a terminal's command", () => {
+    expect(commandKind("pnpm build")).toBe("build");
+    expect(commandKind("next dev -p 3000")).toBe("server");
+    expect(commandKind("pnpm vitest")).toBe("terminal");
   });
 });
 
@@ -276,42 +304,48 @@ describe("a teammate's computer", () => {
     return { api, store, ...r };
   }
 
-  it("says where it works and its state in words, and lists its sessions with the hand-offs counted", async () => {
+  it("says in words what is working, and lists the work without its handle", async () => {
     const { api } = await mountComputer();
-    expect(document.querySelector(".tm-machine")).toHaveTextContent("This MacWorking");
     await waitFor(() => expect(api.calls).toContain("teammateSessions:cto"));
-    const rows = [...document.querySelectorAll(".tm-session")];
-    expect(rows.map((r) => r.querySelector(".tm-session-title")!.textContent)).toEqual(["cto - sqlite search", "design - icon"]);
-    expect(rows[0]!.querySelector(".tm-handoffs")).toHaveTextContent("↳ 1");
+    expect(document.querySelector(".tm-headline")).toHaveTextContent("1 session working");
+    // THE MUTANT: the "cto - " prefix left on the title the icon already says.
+    expect(document.querySelector(".tm-now .tm-session-title")).toHaveTextContent(/^sqlite search$/);
   });
 
-  it("stops everything it is running, its chat and its live sessions", async () => {
+  it("stops everything it is running, its chat and its live sessions, and says how many", async () => {
     const { api } = await mountComputer();
     await waitFor(() => expect(api.calls).toContain("teammateSessions:cto"));
-    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop 1 session" }));
     // THE MUTANT: Stop on the chat alone, leaving the session it started running.
     await waitFor(() => expect(api.calls.filter((c) => c.startsWith("interrupt:")).sort()).toEqual(["interrupt:home-cto", "interrupt:t1"]));
   });
 });
 
-describe("a teammate's Sessions, on its computer", () => {
-  /** cto's work, out of order: one working and unread, one waiting on you, two more unread (one a hand-off), and the
-   *  hand-off nested under the session that asked for it. */
+describe("a teammate's work, on its computer", () => {
+  const DAY = 86_400_000;
+  const now = Date.now();
+  /** cto's work: one waiting on you, two working, and finished work over three days with outcomes and a hand-off. */
   const work = () => [
-    task("old", { title: "polish - quiet labels", updatedAt: 1 }),
-    task("mid", { title: "polish - move sheet P1", updatedAt: 5 }),
-    task("live", { title: "polish - space rail tiles", state: "working", unread: true, updatedAt: 9 }),
-    task("child", { title: "polish - move notices", parentId: "mid", unread: true, updatedAt: 7 }),
-    task("wait", { title: "polish - light mode depth", state: "needs-you", updatedAt: 3 }),
-    task("new", { title: "polish - type ladder", unread: true, updatedAt: 4 }),
+    task("old", { title: "cto - quiet labels", updatedAt: now - 3 * DAY }),
+    task("mid", { title: "cto - move sheet P1", updatedAt: now - DAY, outcome: { kind: "pr", number: 257, url: null, merged: true } }),
+    task("child", { title: "design - move notices", teammateId: "design", parentId: "mid", unread: true, updatedAt: now - 2000 }),
+    task("live", { title: "cto - space rail tiles", state: "working", updatedAt: now - 60_000 }),
+    task("live2", { title: "cto - type ladder", state: "working", updatedAt: now - 120_000 }),
+    task("wait", { title: "cto - light mode depth", state: "needs-you", updatedAt: now - 3000 }),
+    task("shipped", { title: "cto - ship 2.7.2", updatedAt: now - 5000, outcome: { kind: "release", tag: "v2.7.2" } }),
+    task("pr", { title: "cto - land #264", unread: true, updatedAt: now - 6000, outcome: { kind: "pr", number: 264, url: "https://github.com/a/b/pull/264", merged: false } }),
+    task("broke", { title: "cto - sign + publish", updatedAt: now - 7000, outcome: { kind: "failed", reason: "Notarization keychain item missing" } }),
+    task("plain", { title: "cto - tidy", updatedAt: now - 8000, outcome: null }),
   ];
 
-  async function mount(tasks: TeammateTaskSession[]) {
-    const cto = teammate("cto", "s1", { name: "cto", homeSessionId: "home-cto", taskSessions: tasks });
+  async function mount(tasks: TeammateTaskSession[], over: FakeData = {}) {
+    const cto = teammate("cto", "s1", { name: "cto", handle: "cto", homeSessionId: "home-cto", taskSessions: tasks, icon: { shape: "hexagon", color: "blue" } });
+    const design = teammate("design", "s1", { name: "design", handle: "design", icon: { shape: "cloud", color: "pink" } });
     const api = fakeApi(team({
-      teammates: [cto],
+      teammates: [cto, design],
       items: { s1: [sessionItem("home-cto", "cto"), ...tasks.map((t) => sessionItem(t.id, t.title))] },
-      sessions: [session("home-cto", "s1", { title: "cto", teammateId: "cto", teammateHome: true }), ...tasks.map((t) => session(t.id, "s1", { title: t.title, teammateId: "cto" }))],
+      sessions: [session("home-cto", "s1", { title: "cto", teammateId: "cto", teammateHome: true }), ...tasks.map((t) => session(t.id, "s1", { title: t.title, teammateId: t.teammateId }))],
+      ...over,
     }));
     const store = createAppStore(api); await store.getState().boot();
     await act(() => store.getState().refreshTeammates());
@@ -319,88 +353,172 @@ describe("a teammate's Sessions, on its computer", () => {
     await waitFor(() => expect(api.calls).toContain("teammateSessions:cto"));
     return { api, store, cto };
   }
-  const rows = () => [...document.querySelectorAll<HTMLElement>(".tm-sessions > li")];
-  const row = (title: string) => rows().find((r) => r.querySelector(".tm-session-title")?.textContent === title)!;
+  const nowRows = () => [...document.querySelectorAll<HTMLElement>(".tm-now > li")];
+  const doneRows = () => [...document.querySelectorAll<HTMLElement>(".tm-day .tm-sessions > li")];
+  const doneRow = (title: string) => doneRows().find((r) => r.querySelector(".tm-session-title")?.textContent === title)!;
 
-  it("lists them newest first, with a hand-off one step in under the session that asked", async () => {
+  it("heads the report with what is working, what needs you, and what today came to", async () => {
     await mount(work());
-    // THE MUTANTS: oldest first; the hand-off at the top level; no count on the parent.
-    expect(rows().map((r) => r.querySelector(".tm-session-title")!.textContent)).toEqual([
-      "polish - space rail tiles", "polish - move sheet P1", "polish - move notices", "polish - type ladder", "polish - light mode depth", "polish - quiet labels"]);
-    expect(rows().map((r) => r.style.getPropertyValue("--tm-depth"))).toEqual(["0", "0", "1", "0", "0", "0"]);
-    expect(row("polish - move sheet P1").querySelector(".tm-handoffs")).toHaveTextContent("↳ 1");
+    // THE MUTANTS: needs-you counted as working; a count off the wrong state; today's outcomes left out or yesterday's let in.
+    expect(document.querySelector(".tm-headline")).toHaveTextContent("2 sessions working · 1 needs you");
+    expect(document.querySelector(".tm-needs")).toHaveTextContent("1 needs you");
+    expect(screen.getByText(/^Today:/)).toHaveTextContent("Today: 1 PR opened · v2.7.2 shipped · 1 failed");
+    expect(screen.getByRole("button", { name: "Stop 3 sessions" })).toBeInTheDocument();
   });
 
-  it("marks each with one thing at its far end: the amber dot, the spinner or its age, and unread in bold", async () => {
-    await mount(work());
-    const trail = (title: string) => row(title).querySelector(".tm-trail")!;
-    // THE MUTANTS: a dot for working or for unread; the age beside a spinner; bold read off the mark.
-    expect(trail("polish - light mode depth").querySelector('.status-dot[data-status="waiting_permission"]')).not.toBeNull();
-    expect(trail("polish - space rail tiles").querySelector(".spinner")).not.toBeNull();
-    expect(trail("polish - space rail tiles").querySelector(".tm-age, .status-dot")).toBeNull();
-    expect(trail("polish - type ladder").querySelector(".tm-age")).not.toBeNull();
-    expect(document.querySelectorAll(".tm-sessions .status-dot")).toHaveLength(1);
-    expect(rows().filter((r) => r.querySelector("[data-unread]")).map((r) => r.querySelector(".tm-session-title")!.textContent)).toEqual([
-      "polish - space rail tiles", "polish - move notices", "polish - type ladder"]);
-    expect(screen.getByRole("button", { name: /^polish - light mode depth — needs you,/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^polish - space rail tiles — working,/ })).toBeInTheDocument();
-  });
-
-  it("opens a session on a click, beside the chat", async () => {
+  it("puts the session that needs you first in Now, with Answer, then the working ones with a spinner", async () => {
     const { store } = await mount(work());
-    const peekSession = vi.fn(async () => true);
-    act(() => store.setState({ peekSession }));
-    fireEvent.click(screen.getByRole("button", { name: /^polish - move notices/ }));
-    // THE MUTANT: a click that opens the row's parent, or nothing.
-    await waitFor(() => expect(peekSession).toHaveBeenCalledWith("child", "s1"));
-  });
-
-  it("opens it in place when there is no chat on screen to look beside", async () => {
-    const { store } = await mount(work());
+    // THE MUTANT: Now in list order, so the one waiting on you sits under the work.
+    expect(nowRows().map((r) => r.querySelector(".tm-session-title")!.textContent)).toEqual(["light mode depth", "space rail tiles", "type ladder"]);
+    expect(nowRows()[0]!.querySelector(".spinner")).toBeNull();
+    expect(nowRows()[1]!.querySelector(".spinner")).not.toBeNull();
+    expect(document.querySelectorAll(".tm-computer .status-dot")).toHaveLength(1);
     const revealSession = vi.fn(async () => true);
-    act(() => store.setState({ peekSession: vi.fn(async () => false), revealSession }));
-    fireEvent.click(screen.getByRole("button", { name: /^polish - quiet labels/ }));
-    // THE MUTANT: a refused peek that leaves the click doing nothing.
-    await waitFor(() => expect(revealSession).toHaveBeenCalledWith("old", "s1"));
+    act(() => store.setState({ revealSession }));
+    fireEvent.click(within(nowRows()[0]!).getByRole("button", { name: "Answer" }));
+    // THE MUTANT: Answer that opens the teammate's chat instead of the session holding the question.
+    await waitFor(() => expect(revealSession).toHaveBeenCalledWith("wait", "s1"));
+  });
+
+  it("shows a working session's current step from what it was last seen doing", async () => {
+    const { store } = await mount(work());
+    act(() => store.setState({ sessionActivity: { live: { text: "pnpm vitest run", icon: "terminal", ts: now } } }));
+    expect(nowRows()[1]!.querySelector(".tm-step")).toHaveTextContent("pnpm vitest run");
+    expect(nowRows()[2]!.querySelector(".tm-step")).toBeNull();
+  });
+
+  it("groups Done by day, newest first, with a hand-off under the session that asked", async () => {
+    await mount(work());
+    const days = [...document.querySelectorAll(".tm-day")].map((d) => [d.querySelector(".tm-day-label")!.textContent,
+      [...d.querySelectorAll(".tm-session-title")].map((t) => t.textContent)]);
+    // THE MUTANTS: one flat list; oldest first; the hand-off (finished today) under a day of its own; "design - " left on it.
+    expect(days.slice(0, 2)).toEqual([
+      ["Today", ["ship 2.7.2", "land #264", "sign + publish", "tidy"]],
+      ["Yesterday", ["move sheet P1", "move notices"]],
+    ]);
+    expect(days).toHaveLength(3);
+    expect(doneRow("move notices").style.getPropertyValue("--tm-depth")).toBe("1");
+    expect(doneRow("move sheet P1").querySelector(".tm-handoffs")).toHaveTextContent("↳ 1");
+  });
+
+  it("ends each finished row in what it produced, and nothing where nothing was recorded", async () => {
+    await mount(work());
+    const chip = (title: string) => doneRow(title).querySelector(".tm-outcome");
+    // THE MUTANTS: an opened PR called merged; a failure without its reason; a chip made up for a plain session.
+    expect(chip("land #264")).toHaveTextContent("#264 open");
+    expect(chip("move sheet P1")).toHaveTextContent("#257 merged");
+    expect(chip("ship 2.7.2")).toHaveTextContent("v2.7.2 shipped");
+    expect(chip("sign + publish")).toHaveTextContent("Failed");
+    expect(chip("sign + publish")).toHaveAttribute("data-kind", "failed");
+    expect(doneRow("sign + publish").querySelector(".tm-failed-why")).toHaveTextContent("Notarization keychain item missing");
+    expect(chip("tidy")).toBeNull();
+    expect(chip("quiet labels")).toBeNull();
+    // Bold is unread.
+    expect(doneRows().filter((r) => r.querySelector("[data-unread]")).map((r) => r.querySelector(".tm-session-title")!.textContent)).toEqual(["land #264", "move notices"]);
+  });
+
+  it("wears the icon of the teammate each session runs on", async () => {
+    await mount(work());
+    const shape = (title: string) => doneRow(title).querySelector(".tm-row-icon svg, .tm-row-icon [data-shape]");
+    expect(shape("move notices")).not.toBeNull();
+    // THE MUTANT: every row in the computer's own teammate's icon.
+    expect(doneRow("move notices").querySelector(".tm-row-icon")!.innerHTML).not.toEqual(doneRow("tidy").querySelector(".tm-row-icon")!.innerHTML);
+  });
+
+  it("opens a finished session on a click, beside the chat, and in place when there is none", async () => {
+    const { store } = await mount(work());
+    const peekSession = vi.fn(async () => false);
+    const revealSession = vi.fn(async () => true);
+    act(() => store.setState({ peekSession, revealSession }));
+    fireEvent.click(screen.getByRole("button", { name: /^move notices/ }));
+    await waitFor(() => expect(peekSession).toHaveBeenCalledWith("child", "s1"));
+    await waitFor(() => expect(revealSession).toHaveBeenCalledWith("child", "s1"));
   });
 
   it("renames and archives from the row's menu, as the sidebar row did", async () => {
     const { api } = await mount(work());
     const menu = async (title: string) => {
-      fireEvent.contextMenu(row(title).querySelector("button")!, { clientX: 10, clientY: 10 });
-      return within(await screen.findByRole("menu", { name: `Actions for ${title}` }));
+      fireEvent.contextMenu(doneRow(title).querySelector("button")!, { clientX: 10, clientY: 10 });
+      return within(await screen.findByRole("menu", { name: `Actions for cto - ${title}` }));
     };
-    fireEvent.click((await menu("polish - type ladder")).getByRole("menuitem", { name: "Rename" }));
-    const input = screen.getByRole("textbox", { name: "Rename polish - type ladder" });
-    fireEvent.change(input, { target: { value: "polish - type scale" } });
+    fireEvent.click((await menu("tidy")).getByRole("menuitem", { name: "Rename" }));
+    const input = screen.getByRole("textbox", { name: "Rename cto - tidy" });
+    fireEvent.change(input, { target: { value: "cto - tidy up" } });
     fireEvent.keyDown(input, { key: "Enter" });
-    // THE MUTANT: a rename written to the item while the row keeps the old title.
-    await waitFor(() => expect(row("polish - type scale")).toBeDefined());
-    fireEvent.click((await menu("polish - quiet labels")).getByRole("menuitem", { name: "Archive" }));
+    await waitFor(() => expect(doneRow("tidy up")).toBeDefined());
+    fireEvent.click((await menu("quiet labels")).getByRole("menuitem", { name: "Archive" }));
     // THE MUTANT: an archived session still listed on the computer.
-    await waitFor(() => expect(row("polish - quiet labels")).toBeUndefined());
+    await waitFor(() => expect(doneRow("quiet labels")).toBeUndefined());
     expect(api.calls).not.toContain("deleteItem:i-old");
   });
 
-  it("shows eight, then all of them on Show all", async () => {
-    await mount(Array.from({ length: 11 }, (_, i) => task(`t${i}`, { title: `task ${i}`, updatedAt: i })));
+  it("shows eight finished, then all of them on Show all", async () => {
+    await mount(Array.from({ length: 11 }, (_, i) => task(`t${i}`, { title: `task ${i}`, updatedAt: now - (11 - i) * 1000 })));
     // THE MUTANTS: no cap; a cap that keeps the oldest; a count of the hidden ones only.
-    expect(rows()).toHaveLength(8);
-    expect(rows()[0]).toHaveTextContent("task 10");
+    expect(doneRows()).toHaveLength(8);
+    expect(doneRows()[0]).toHaveTextContent("task 10");
     fireEvent.click(screen.getByRole("button", { name: "Show all 11" }));
-    expect(rows()).toHaveLength(11);
+    expect(doneRows()).toHaveLength(11);
     fireEvent.click(screen.getByRole("button", { name: "Show fewer" }));
-    expect(rows()).toHaveLength(8);
+    expect(doneRows()).toHaveLength(8);
   });
 
-  it("takes in a session the moment it starts, at the top", async () => {
+  it("takes in a session the moment it starts", async () => {
     const { store, cto } = await mount(work());
-    cto.taskSessions = [task("fresh", { title: "polish - rail badges", state: "working", updatedAt: 20 }), ...cto.taskSessions];
-    // What `teammates.changed` does: the space's teammates are read again, and the computers held with them.
+    cto.taskSessions = [task("fresh", { title: "cto - rail badges", state: "working", updatedAt: now }), ...cto.taskSessions];
     await act(() => store.getState().refreshTeammates("s1"));
     // THE MUTANT: a list read once when the computer opened.
-    await waitFor(() => expect(rows()[0]).toHaveTextContent("polish - rail badges"));
-    expect(rows()).toHaveLength(7);
+    await waitFor(() => expect(nowRows().map((r) => r.querySelector(".tm-session-title")!.textContent)).toContain("rail badges"));
+  });
+
+  it("lists what its sessions hold open on this Mac, and opens and stops each", async () => {
+    const term = item("i-term", "s1", { kind: "terminal", refId: "term-1", title: "pnpm vitest" });
+    const tab = item("i-tab", "s1", { kind: "browser", refId: "br-1", title: "PR #269 · GitHub" });
+    const sim = item("i-sim", "s1", { kind: "simulator", refId: "sim-1", title: "iPhone 17 Pro" });
+    const stranger = item("i-other", "s1", { kind: "terminal", refId: "term-2", title: "someone else's" });
+    const tasks = work();
+    const { store } = await mount(tasks, {
+      items: { s1: [sessionItem("home-cto", "cto"), ...tasks.map((t) => sessionItem(t.id, t.title)), term, tab, sim, stranger] },
+    });
+    act(() => store.setState({
+      view: { layout: { type: "leaf", id: "l", itemId: null }, zoomedLeafId: null, sidePanes: { "i-live": { tabs: ["i-tab", "i-sim"], itemId: "i-tab" } } },
+      sessionTerminals: { "home-cto": "term-1" },
+      simulatorState: { "sim-1": { simulatorId: "sim-1", status: "running", udid: "U", serial: null, streamUrl: null, wsUrl: null, screen: null, error: null, detail: null, physical: false } },
+    }));
+    const rows = () => [...document.querySelectorAll<HTMLElement>(".tm-resource")];
+    // THE MUTANTS: another session's terminal listed; a session's kept tabs missed; a device read as off.
+    await waitFor(() => expect(rows().map((r) => r.querySelector(".tm-resource-label")!.textContent)).toEqual(["pnpm vitest", "PR #269 · GitHub", "iPhone 17 Pro"]));
+    expect(rows()[2]!.querySelector(".tm-resource-state")).toHaveTextContent("On");
+    expect(screen.getByText(/Simulator on/)).toBeInTheDocument();
+    const openInSidePane = vi.fn(async () => true);
+    const deleteItem = vi.fn(async () => {});
+    act(() => store.setState({ openInSidePane, deleteItem }));
+    fireEvent.click(within(rows()[1]!).getByRole("button", { name: "Open" }));
+    // THE MUTANT: Open that shows the tab beside the wrong session, or not at all.
+    await waitFor(() => expect(openInSidePane).toHaveBeenCalledWith("live", "i-tab", { focus: true }));
+    // A browser tab has nothing running to stop.
+    expect(within(rows()[1]!).queryByRole("button", { name: "Stop" })).toBeNull();
+  });
+
+  it("stands Done beside Now and On this Mac when the panel is wide, and under Now when it is narrow", async () => {
+    let fire: (w: number) => void = () => {};
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(cb: ResizeObserverCallback) { fire = (w) => cb([{ borderBoxSize: [{ inlineSize: w, blockSize: 0 }], contentRect: { width: w - 32 } } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver); }
+      observe() {} disconnect() {}
+    });
+    await mount(work());
+    const order = () => [...document.querySelectorAll(".tm-section")].map((s) => s.getAttribute("aria-label"));
+    const root = document.querySelector(".tm-computer")!;
+    act(() => fire(420));
+    expect(root).not.toHaveAttribute("data-wide");
+    expect(order()).toEqual(["Now", "Done", "On this Mac"]);
+    act(() => fire(780));
+    // THE MUTANTS: one column at any width; the switch made at the wrong width, or read off the content box.
+    expect(root).toHaveAttribute("data-wide");
+    expect([...document.querySelectorAll(".tm-column")].map((c) => [...c.querySelectorAll(".tm-section")].map((s) => s.getAttribute("aria-label"))))
+      .toEqual([["Now", "On this Mac"], ["Done"]]);
+    act(() => fire(759));
+    expect(root).not.toHaveAttribute("data-wide");
   });
 });
 

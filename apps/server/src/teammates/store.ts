@@ -1,6 +1,9 @@
-import { TeammateIconSchema, TeammatePermissionModeSchema, newId, teammateHandle, teammateIconFromSeed, type AgentKind, type SessionStatus, type TeammateIcon, type TeammatePermissionMode } from "@realm/contracts";
+import { TeammateIconSchema, TeammatePermissionModeSchema, failureReason, newId, sessionOutcome, teammateHandle, teammateIconFromSeed, type AgentKind, type OutcomeEvent, type SessionOutcome, type SessionStatus, type TeammateIcon, type TeammatePermissionMode } from "@realm/contracts";
 import type { Db } from "../db/database";
+import { payloadSql } from "../store/event-payload";
 import { now } from "../store/rows";
+
+const PAYLOAD = payloadSql("payload_json");
 
 /** A teammate as stored: everything but the derived state, which the service reads off its sessions. */
 export type TeammateRow = {
@@ -206,5 +209,41 @@ export class TeammatesStore {
         // A teammate's sessions are made for the person to read, so one never opened is unread too.
         unread: r.seen_seq < r.last_event_seq, activityAt: r.activity_at, updatedAt: r.updated_at,
       }));
+  }
+
+  /**
+   * What each of these finished sessions produced, by id: the error its last turn ended on for one
+   * whose status is `error`, else what its `gh` commands did (`sessionOutcome`). Only the calls that
+   * could be one are read — a `gh pr` or `gh release create` command and the results answering them —
+   * so a long session costs a few rows, not its whole log.
+   */
+  outcomes(sessions: readonly { id: string; status: SessionStatus }[]): Map<string, SessionOutcome> {
+    const out = new Map<string, SessionOutcome>();
+    if (sessions.length === 0) return out;
+    const ids = sessions.map((s) => s.id);
+    const marks = ids.map(() => "?").join(", ");
+    const calls = this.db.prepare(`SELECT seq, session_id, type, ${PAYLOAD} AS payload_json FROM session_events
+      WHERE session_id IN (${marks}) AND type = 'tool_call' AND (${PAYLOAD} LIKE '%gh pr %' OR ${PAYLOAD} LIKE '%gh release create%')
+      ORDER BY seq`).all(...ids) as { seq: number; session_id: string; type: "tool_call"; payload_json: string }[];
+    const callIds = calls.map((c) => (JSON.parse(c.payload_json) as { toolUseId: string }).toolUseId);
+    const results = callIds.length === 0 ? [] : this.db.prepare(`SELECT seq, session_id, type, ${PAYLOAD} AS payload_json FROM session_events
+      WHERE session_id IN (${marks}) AND type = 'tool_result' AND json_extract(${PAYLOAD}, '$.toolUseId') IN (${callIds.map(() => "?").join(", ")})
+      ORDER BY seq`).all(...ids, ...callIds) as { seq: number; session_id: string; type: "tool_result"; payload_json: string }[];
+    const bySession = new Map<string, OutcomeEvent[]>();
+    for (const r of [...calls, ...results].sort((a, b) => a.seq - b.seq)) {
+      bySession.set(r.session_id, [...(bySession.get(r.session_id) ?? []), { type: r.type, payload: JSON.parse(r.payload_json) } as OutcomeEvent]);
+    }
+    const lastError = this.db.prepare(`SELECT ${PAYLOAD} AS payload_json FROM session_events WHERE session_id = ? AND type = 'error' ORDER BY seq DESC LIMIT 1`);
+    for (const s of sessions) {
+      if (s.status === "error") {
+        const e = lastError.get(s.id) as { payload_json: string } | undefined;
+        const message = e ? (JSON.parse(e.payload_json) as { message?: string }).message ?? "" : "";
+        out.set(s.id, { kind: "failed", reason: failureReason(message) });
+        continue;
+      }
+      const o = sessionOutcome(bySession.get(s.id) ?? []);
+      if (o) out.set(s.id, o);
+    }
+    return out;
   }
 }

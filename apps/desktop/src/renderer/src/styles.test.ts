@@ -3142,7 +3142,7 @@ describe("one card", () => {
   const CARDS = [".subagent-card", ".subagent-view-result", ".subagent-view-brief",
     ".edit-summary", ".permission-card", ".question-card", ".question-answered", ".plan-card", ".plan-decision", ".app-view-request",
     ".settings-row", ".sched-card", ".cr-note", ".library-offer", ".saved-turn-open", ".library-tile", ".memory-reader", ".agent-card",
-    ".stat-tile", ".usage-card", ".usage-figures", ".plan-account", ".market-card"];
+    ".stat-tile", ".usage-card", ".usage-figures", ".plan-account", ".market-card", ".tm-card"];
   /** Cards made of a run of boxes, one card a list long: each box takes its share of the corners. */
   const RUNS = [".settings-row", ".engine-card"];
   /** An edge drawn round a box or along one side of it: a border, a zero-blur ring, a stack with a ring

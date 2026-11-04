@@ -123,7 +123,11 @@ export class TeammatesService {
   /** Every session it started, and the ones handed on from them, newest first. */
   sessions(id: string): TeammateTaskSession[] {
     const row = this.row(id);
-    return this.tasks(row, this.d.store.sessions(row.spaceId));
+    const all = this.d.store.sessions(row.spaceId);
+    const list = this.tasks(row, all);
+    const status = new Map(all.map((s) => [s.id, s.status]));
+    const outcomes = this.d.store.outcomes(list.filter((s) => s.state === "idle").map((s) => ({ id: s.id, status: status.get(s.id)! })));
+    return list.map((s) => ({ ...s, outcome: outcomes.get(s.id) ?? null }));
   }
 
   private row(id: string): TeammateRow {
