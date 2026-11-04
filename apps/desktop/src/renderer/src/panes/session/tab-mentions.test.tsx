@@ -67,7 +67,7 @@ describe("the @ list's Tabs", () => {
     // A row says what the pane is: a page by its address, a document by its file.
     expect(option("Pricing").querySelector(".mention-row-desc")?.textContent).toBe("127.0.0.1:4100/pricing");
     expect(option("All open tabs").querySelector(".mention-row-desc")?.textContent).toBe("2 tabs");
-    expect(option("Documents").querySelector(".mention-row-desc")?.textContent).toBe("notes.md");
+    expect(option("Documents").querySelector(".mention-row-desc")?.textContent).toBe("Documents");
   });
 
   it("ranks on screen, then open behind a tab or off screen with its session, then the rest", () => {
@@ -92,7 +92,7 @@ describe("a picked tab is a card beside the draft", () => {
     fireEvent.click(option("Pricing"));
     // THE MUTANT: the pick inserted as `@[Pricing]` — raw text, not a card.
     expect(box().value).toBe("look at ");
-    await waitFor(() => expect(cardLines()).toEqual(["Pricing12 KB"]));
+    await waitFor(() => expect(cardLines()).toEqual(["Pricing127.0.0.1:4100/pricing · 12 KB"]));
     expect(api.calls).toContain("previewTab:ib2");
     // THE MUTANT: a × that removes nothing.
     fireEvent.click(within(cards()!).getByRole("button", { name: "Remove Pricing" }));
@@ -105,7 +105,7 @@ describe("a picked tab is a card beside the draft", () => {
     await waitFor(() => expect(names()).toContain("All open tabs"));
     fireEvent.click(option("All open tabs"));
     // THE MUTANT: no flag — a 40 KB document sent cut, and nothing before the send says so.
-    await waitFor(() => expect(cardLines()).toEqual(["Pricing12 KB", "Documents39 KB · Cut to fit"]));
+    await waitFor(() => expect(cardLines()).toEqual(["Pricing127.0.0.1:4100/pricing · 12 KB", "DocumentsDocuments · 39 KB · Cut to fit"]));
     expect(cards()!.querySelector("[data-flag=truncated]")).not.toBeNull();
     expect(cards()!.querySelector(".attach-tip-detail")?.textContent).toBe("Too long to send whole: the agent gets its first 32,000 characters.");
   });
@@ -115,11 +115,13 @@ describe("a picked tab is a card beside the draft", () => {
     await type("@old");
     await waitFor(() => expect(names()[0]).toBe("Old docs"));
     fireEvent.click(option("Old docs"));
-    await waitFor(() => expect(cardLines()).toEqual(["Old docs20 KB · Large"]));
+    await waitFor(() => expect(cardLines()).toEqual(["Old docsdocs.example.com · 20 KB · Large"]));
+    // A large card is said in the quiet ink: only a cut asks anything of the person.
+    expect(cards()!.querySelector("[data-flag=large]")).not.toBeNull();
     await type("@zsh");
     await waitFor(() => expect(names()[0]).toBe("zsh"));
     fireEvent.click(option("zsh"));
-    await waitFor(() => expect(cardLines()).toEqual(["Old docs20 KB · Large", "zshClosed"]));
+    await waitFor(() => expect(cardLines()).toEqual(["Old docsdocs.example.com · 20 KB · Large", "zshClosed"]));
   });
 
   it("sends the cards with the message, and a card alone is enough to send", async () => {
@@ -127,7 +129,7 @@ describe("a picked tab is a card beside the draft", () => {
     await type("@pric");
     await waitFor(() => expect(names()[0]).toBe("Pricing"));
     fireEvent.click(option("Pricing"));
-    await waitFor(() => expect(cardLines()).toEqual(["Pricing12 KB"]));
+    await waitFor(() => expect(cardLines()).toEqual(["Pricing127.0.0.1:4100/pricing · 12 KB"]));
     const send = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
     expect(send.disabled).toBe(false);
     fireEvent.click(send);
@@ -143,10 +145,11 @@ describe("a sent message's cards", () => {
   it("draw on the message, and a click goes to the pane", async () => {
     const { store } = await mount();
     const openItem = vi.fn(async () => {});
-    act(() => store.setState({ openItem, transcripts: { se1: { lastSeq: 1, t: sent([card(TABS[2]!)]) } } }));
+    act(() => store.setState({ openItem, transcripts: { se1: { lastSeq: 1, t: sent([card(TABS[2]!), card(TABS[3]!, { bytes: 40_000, truncated: true })]) } } }));
     const row = await screen.findByRole("list", { name: "Tabs" });
     expect(row.closest(".msg-user-row")).not.toBeNull();
-    expect(row.querySelector(".attach-card-text")?.textContent).toBe("Pricing127.0.0.1:4100/pricing · 12 KB");
+    // The sent cards say what the draft's said, the cut included.
+    expect(Array.from(row.querySelectorAll(".attach-card-text")).map((e) => e.textContent)).toEqual(["Pricing127.0.0.1:4100/pricing · 12 KB", "DocumentsDocuments · 39 KB · Cut to fit"]);
     fireEvent.click(within(row).getByRole("button", { name: "Open Pricing" }));
     // THE MUTANT: a card that is only a picture of a link.
     await waitFor(() => expect(openItem).toHaveBeenCalledWith("ib2"));

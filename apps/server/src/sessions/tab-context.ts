@@ -1,5 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
   TAB_KINDS, capTabText, isSecretPath, pageWithFields, tabBlock, tabsContext, utf8Bytes,
   type Attachment, type BrowserDescribeResult, type BrowserReadResult, type Item, type TabCard, type TabEntry, type TabKind, type TabRef,
@@ -44,7 +44,8 @@ export class TabContextReader {
     return this.d.items.list(spaceId).filter((i) => !i.archived && (TAB_KINDS as readonly string[]).includes(i.kind)).map((i) => {
       const entry: TabEntry = { itemId: i.id, kind: i.kind as TabKind, title: i.title, favicon: i.favicon ?? "" };
       if (i.kind === "browser") { const url = this.d.browsers.get(i.refId)?.url; if (url) entry.url = url; }
-      if (i.kind === "documents") { const path = this.documentPath(i.refId); if (path) entry.path = path; }
+      // A documents pane is named by the file it shows: its own title is the pane's, "Documents · realm".
+      if (i.kind === "documents") { const path = this.documentPath(i.refId); if (path) { entry.path = path; entry.title = basename(path); } }
       return entry;
     });
   }
@@ -84,9 +85,10 @@ export class TabContextReader {
         if (!path || !root) return textTab(base, "documents", "(no file is open in this pane)");
         const abs = join(root, path);
         // The rule a mentioned file keeps: a file that exists to hold a secret is never handed over.
-        if (isSecretPath(abs)) return textTab({ ...base, path: abs }, "documents", "(not attached: Realm does not hand over files that hold secrets)");
+        const named = { ...base, title: basename(path), path: abs };
+        if (isSecretPath(abs)) return textTab(named, "documents", "(not attached: Realm does not hand over files that hold secrets)");
         const text = await this.d.documents.read(item.refId, path).catch(() => "(this file is not text Realm can read)");
-        return textTab({ ...base, path: abs }, "documents", text);
+        return textTab(named, "documents", text);
       }
       case "terminal": {
         const screen = await this.d.terminals.screen(item.refId, MAX_SCROLLBACK_LINES);

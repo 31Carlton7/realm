@@ -15,18 +15,20 @@ import { tabDetail } from "./mention-sources";
 
 const fmtChars = (n: number): string => n.toLocaleString("en-US");
 
-/** The card's second line before sending, and the sentence its tip says when the line is a warning. */
-function draftTabLine(card: TabCard | null): { line: string; flag: "truncated" | "large" | "closed" | null; tip: string | null } {
+/** A card's second line — what the pane is, its size, and a word when it is cut or large — and the
+ *  sentence its tip says when there is one. Only a cut is a warning: a large card asks nothing of
+ *  the person, so it says so in the quiet ink. */
+function tabLine(t: Pick<TabEntry, "kind" | "url">, card: TabCard | null): { line: string; flag: "truncated" | "large" | "closed" | null; tip: string | null } {
   if (!card) return { line: "Reading…", flag: null, tip: null };
   if (card.closed) return { line: "Closed", flag: "closed", tip: "This pane is closed, so nothing of it will be sent." };
-  const size = formatAttachmentSize(card.bytes);
+  const what = `${tabDetail(t)} · ${formatAttachmentSize(card.bytes)}`;
   const flag = tabCardFlag(card);
   if (flag === "truncated") {
-    const what = card.kind === "terminal" ? `the last ${fmtChars(TAB_TEXT_CAPS.terminal)} characters of its output` : `its first ${fmtChars(TAB_TEXT_CAPS[card.kind as "browser" | "documents"])} characters`;
-    return { line: `${size} · Cut to fit`, flag, tip: `Too long to send whole: the agent gets ${what}.` };
+    const kept = card.kind === "terminal" ? `the last ${fmtChars(TAB_TEXT_CAPS.terminal)} characters of its output` : `its first ${fmtChars(TAB_TEXT_CAPS[card.kind as "browser" | "documents"])} characters`;
+    return { line: `${what} · Cut to fit`, flag, tip: `Too long to send whole: the agent gets ${kept}.` };
   }
-  if (flag === "large") return { line: `${size} · Large`, flag, tip: "A large card takes a good share of the agent's context." };
-  return { line: size, flag: null, tip: null };
+  if (flag === "large") return { line: `${what} · Large`, flag, tip: "A large card takes a good share of the agent's context." };
+  return { line: what, flag: null, tip: null };
 }
 
 function TabMark({ tab }: { tab: Pick<TabEntry, "kind" | "favicon"> }) {
@@ -39,7 +41,7 @@ export function DraftTabRow({ tabs, onRemove }: { tabs: readonly DraftTab[]; onR
   return (
     <ul className="composer-attachments composer-tabs" aria-label="Tabs">
       {tabs.map((t) => {
-        const { line, flag, tip } = draftTabLine(t.card);
+        const { line, flag, tip } = tabLine(t, t.card);
         const name = t.card?.title || t.title;
         return (
           <li key={t.itemId} className="composer-attach-item">
@@ -53,7 +55,7 @@ export function DraftTabRow({ tabs, onRemove }: { tabs: readonly DraftTab[]; onR
                 <span className="visually-hidden">{name} — {line}{tip ? `. ${tip}` : ""}</span>
               </span>
               <span className="attach-tip" aria-hidden="true">
-                <span className="attach-tip-name">{tabDetail(t)}</span>
+                <span className="attach-tip-name">{t.path ?? tabDetail(t)}</span>
                 {tip && <span className="attach-tip-detail">{tip}</span>}
               </span>
               <button type="button" className="attach-remove" aria-label={`Remove ${name}`} onClick={() => onRemove(t.itemId)}>
@@ -86,15 +88,15 @@ function SentTabRow({ tabs, favicons, onOpen }: { tabs: readonly TabCard[]; favi
   return (
     <ul className="msg-user-files msg-user-tabs" aria-label="Tabs">
       {tabs.map((t) => {
-        const detail = t.closed ? "Was closed" : [tabDetail(t), formatAttachmentSize(t.bytes)].join(" · ");
+        const { line, flag } = t.closed ? { line: "Was closed", flag: null } : tabLine(t, t);
         return (
           <li key={t.itemId}>
-            <span className="attach-tile" data-layout="card" data-tab={t.kind}>
+            <span className="attach-tile" data-layout="card" data-tab={t.kind} data-flag={flag ?? undefined}>
               <button type="button" className="attach-open" aria-label={`Open ${t.title}`} onClick={() => onOpen(t)}>
                 <TabMark tab={{ kind: t.kind, favicon: favicons[t.itemId] ?? "" }} />
                 <span className="attach-card-text" aria-hidden="true">
                   <span className="attach-card-name">{t.title}</span>
-                  <span className="attach-card-kind">{detail}</span>
+                  <span className="attach-card-kind">{line}</span>
                 </span>
               </button>
             </span>

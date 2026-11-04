@@ -68,7 +68,8 @@ describe("each kind of pane, read for a message", () => {
   it("a document: its open file's path and text, a secret file withheld", async () => {
     const { r } = reader({}, [at("d", "documents")]);
     const out = await r.gather("s1", [{ itemId: "d", kind: "documents", title: "d" }]);
-    expect(out.cards[0]).toMatchObject({ path: "/repo/notes.md", bytes: 3, truncated: false });
+    // THE MUTANT: the pane's own title, "Documents · realm", where the file's name belongs.
+    expect(out.cards[0]).toMatchObject({ title: "notes.md", path: "/repo/notes.md", bytes: 3, truncated: false });
     const secret = reader({ documents: { get: () => ({ activePath: ".env" }), rootOfWorkspace: () => "/repo", read: async () => "API_KEY=sk-live" } }, [at("d", "documents")]);
     const withheld = await secret.r.gather("s1", [{ itemId: "d", kind: "documents", title: "d" }]);
     expect(withheld.context).not.toContain("sk-live");
@@ -182,7 +183,7 @@ describe("a message with tab cards, end to end", () => {
 
     const listed = (await c.call("tabs.list", { sessionId: session.id })).result.tabs;
     expect(listed.map((t: Any) => [t.itemId, t.kind])).toEqual(expect.arrayContaining([[browser.itemId, "browser"], [docs.itemId, "documents"]]));
-    expect(listed.find((t: Any) => t.kind === "documents").path).toBe("notes.md");
+    expect(listed.find((t: Any) => t.kind === "documents")).toMatchObject({ path: "notes.md", title: "notes.md" });
     const preview = (await c.call("tabs.preview", { sessionId: session.id, tab: { itemId: docs.itemId, kind: "documents", title: "Documents" } })).result;
     expect(preview).toMatchObject({ bytes: 15, truncated: false });
 
