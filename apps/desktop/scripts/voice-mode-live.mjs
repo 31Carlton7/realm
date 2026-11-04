@@ -67,8 +67,9 @@ function killPort(port) {
 function cdp(wsUrl) {
   const ws = new WebSocket(wsUrl); let id = 0; const pending = new Map();
   const ready = new Promise((res) => ws.addEventListener("open", res));
-  ws.addEventListener("message", (m) => { const msg = JSON.parse(m.data); if (msg.id !== undefined) pending.get(msg.id)?.(msg); });
-  return { ready, close: () => ws.close(), send: (method, params) => new Promise((res, rej) => { const i = ++id; pending.set(i, (msg) => (msg.error ? rej(new Error(msg.error.message)) : res(msg.result))); ws.send(JSON.stringify({ id: i, method, params })); }) };
+  const listeners = new Map();
+  ws.addEventListener("message", (m) => { const msg = JSON.parse(m.data); if (msg.id !== undefined) pending.get(msg.id)?.(msg); else listeners.get(msg.method)?.(msg.params); });
+  return { ready, close: () => ws.close(), on: (method, fn) => listeners.set(method, fn), send: (method, params) => new Promise((res, rej) => { const i = ++id; pending.set(i, (msg) => (msg.error ? rej(new Error(msg.error.message)) : res(msg.result))); ws.send(JSON.stringify({ id: i, method, params })); }) };
 }
 async function evalIn(c, expr) {
   const r = await c.send("Runtime.evaluate", { expression: expr, awaitPromise: true, returnByValue: true });
@@ -108,13 +109,54 @@ function ask(line) {
   });
 }
 
-/** The person, through the speakers. Resolves when they stop talking. */
+/** LIVE_FEED=1: the person's side is synthesised to a file and played into the page as its microphone,
+ *  for a room where the speakers are muted or nothing may be said aloud. Everything after the
+ *  microphone — recognition, turn-taking, the reply, its speech and a barge-in — is the same. */
+const FEED = process.env.LIVE_FEED === "1";
+let page = null, said = 0;
+
+/** The person, through the speakers (or the feed). Resolves when they stop talking. */
 function say(text) {
   note("say", text);
+  if (FEED) {
+    const file = path.join(scratch, `say-${++said}.wav`);
+    execFileSync("say", ["-v", SAY_VOICE, "-r", process.env.LIVE_SAY_RATE ?? "185", "-o", file, "--data-format=LEI16@48000", text]);
+    return evalIn(page, `window.__feed(${JSON.stringify(fs.readFileSync(file).toString("base64"))})`);
+  }
   return new Promise((resolve) => { const p = spawn("say", ["-v", SAY_VOICE, "-r", process.env.LIVE_SAY_RATE ?? "185", "-a", SPEAKERS, `[[volm ${process.env.LIVE_SAY_VOLUME ?? "0.35"}]] ${text}`]); p.on("close", resolve); });
 }
 
 let electron = null, recorder = null;
+
+/** Records the page's frames for `seconds` into `out`, each held until the next arrived. Returns a
+ *  recorder shaped like a child process: an exitCode, a close event, and kill. */
+async function screencast(c, out, seconds) {
+  const dir = fs.mkdtempSync(path.join(scratch, "cast-"));
+  const frames = [];
+  let done = false;
+  const listeners = [];
+  const rec = { exitCode: null, on: (_e, fn) => listeners.push(fn), kill: () => finish() };
+  c.on("Page.screencastFrame", (f) => {
+    if (done) return;
+    const file = path.join(dir, `${String(frames.length).padStart(5, "0")}.jpg`);
+    fs.writeFileSync(file, Buffer.from(f.data, "base64"));
+    frames.push({ file, t: f.metadata.timestamp });
+    void c.send("Page.screencastFrameAck", { sessionId: f.sessionId }).catch(() => {});
+  });
+  await c.send("Page.startScreencast", { format: "jpeg", quality: 85, everyNthFrame: 1 });
+  const finish = async () => {
+    if (done) return;
+    done = true;
+    await c.send("Page.stopScreencast").catch(() => {});
+    const list = frames.map((f, i) => `file '${f.file}'\nduration ${((frames[i + 1]?.t ?? f.t + 0.04) - f.t).toFixed(3)}`).join("\n");
+    fs.writeFileSync(path.join(dir, "list.txt"), `ffconcat version 1.0\n${list}\nfile '${frames.at(-1)?.file}'\n`);
+    if (frames.length) execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", path.join(dir, "list.txt"), "-vf", "fps=30,scale=trunc(iw/2)*2:trunc(ih/2)*2", "-pix_fmt", "yuv420p", "-c:v", "libx264", out]);
+    rec.exitCode = 0;
+    for (const fn of listeners) fn();
+  };
+  setTimeout(() => void finish(), seconds * 1000);
+  return rec;
+}
 /** The view's timeline, written even when a run fails part-way: it is what says why. */
 let watcher = null, recordStart = 0;
 function writeTimeline() {
@@ -230,8 +272,9 @@ async function main() {
   const pid = await until(() => { try { return Number(execFileSync("pgrep", ["-f", wrapper], { encoding: "utf8" }).split("\n")[0]) || null; } catch { return null; } }, 30_000, "electron");
   electron = { kill: (sig) => { try { process.kill(pid, sig); } catch { /* gone */ } } };
   const targets = () => fetch(`http://127.0.0.1:${CDP_PORT}/json/list`).then((r) => r.json()).catch(() => []);
-  const page = await until(async () => (await targets()).find((t) => t.type === "page" && t.url.startsWith("file://")), 60_000, "renderer");
-  const c = cdp(page.webSocketDebuggerUrl);
+  const target = await until(async () => (await targets()).find((t) => t.type === "page" && t.url.startsWith("file://")), 60_000, "renderer");
+  const c = cdp(target.webSocketDebuggerUrl);
+  page = c;
   await c.ready;
   await c.send("Runtime.enable");
   await c.send("Page.enable");
@@ -278,6 +321,25 @@ async function main() {
       if (want?.audio?.echoCancellation) window.__liveMicLabel = stream.getAudioTracks()[0]?.label ?? null;
       return stream;
     };
+    if (${FEED}) {
+      const feed = new AudioContext({ sampleRate: 48000 });
+      const into = feed.createMediaStreamDestination();
+      window.__feed = async (b64) => {
+        await feed.resume();
+        const buffer = await feed.decodeAudioData(Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0)).buffer);
+        const node = feed.createBufferSource();
+        node.buffer = buffer;
+        node.connect(into);
+        node.start();
+        return new Promise((resolve) => { node.onended = () => resolve(buffer.duration); });
+      };
+      window.__feedStream = into.stream;
+      navigator.mediaDevices.getUserMedia = async (want) => {
+        if (!want?.audio?.echoCancellation) return gum(want);
+        window.__liveMicLabel = "feed";
+        return into.stream.clone();
+      };
+    }
     // LIVE_TAP: keep what the page's microphone processor is handed, frame by frame, with the time
     // each frame arrived — what the recogniser was given, to listen to and to check for gaps.
     window.__tap = { frames: 0, chunks: [], at: [], rate: 0 };
@@ -325,13 +387,14 @@ async function main() {
   if (ready.phase === "unavailable") throw new Error(`voice mode did not start: ${ready.state}`);
   check("voice mode opens over the window, listening", ready.phase === "listening", ready);
   const devices = await evalIn(c, `({ mic: window.__liveMic, opened: window.__liveMicLabel, sink: window.__liveSink })`);
-  check("the Mac's own microphone and speakers are in use", !!devices.mic && devices.opened?.includes(MIC_LABEL) && !!devices.sink, devices);
+  if (FEED) check("the person's side is the feed, and Realm's voice goes to the Mac's own speakers", devices.opened === "feed" && !!devices.sink, devices);
+  else check("the Mac's own microphone and speakers are in use", !!devices.mic && devices.opened?.includes(MIC_LABEL) && !!devices.sink, devices);
   if (!SPEECH) { await uiOnly(c, api, voiceSession.id); api.close(); return; }
 
   // The room, recorded by the app (it holds the microphone grant): no echo cancellation, so what the
   // movie hears is what the microphone heard — the person and Realm both.
   await evalIn(c, `(async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    const stream = window.__feedStream?.clone() ?? await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
     const rec = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
     window.__voiceTape = { rec, chunks: [], stream };
     rec.ondataavailable = (e) => window.__voiceTape.chunks.push(e.data);
@@ -343,7 +406,11 @@ async function main() {
   const b = JSON.parse(await ask("bounds"));
   const video = path.join(shots, `${THEME}-screen.mov`);
   const seconds = Number(process.env.LIVE_SECONDS ?? 95);
-  recorder = spawn("screencapture", ["-v", "-x", "-V", String(seconds), "-R", `${b.x},${b.y},${b.width},${b.height}`, video]);
+  // The window's own frames, as the renderer paints them (LIVE_SCREENCAST=0: the screen, with
+  // screencapture). A locked or occluded screen records nothing but the lock screen; the
+  // renderer's frames are the window's whatever is in front of it.
+  if (process.env.LIVE_SCREENCAST === "0") recorder = spawn("screencapture", ["-v", "-x", "-V", String(seconds), "-R", `${b.x},${b.y},${b.width},${b.height}`, video]);
+  else recorder = await screencast(c, video, seconds);
   recordStart = Date.now();
   await sleep(1500);
   const w = watch(c);
@@ -382,7 +449,7 @@ async function main() {
     const spoken = ev.map((e) => e.event).filter((e) => e.type === "user_message" && e.payload.spoken);
     return spoken.length >= 2 ? spoken.at(-1) : null;
   }, 20_000, "the barge-in's message");
-  check("talking over the reply sends what was said", /two plus two|2 \+ 2/i.test(second.payload.text), second.payload.text);
+  check("talking over the reply sends what was said", /(two|2) plus (two|2)|2 \+ 2/i.test(second.payload.text), second.payload.text);
   await until(async () => { const v = await view(c); return v?.phase === "speaking" && v.live ? v : null; }, 60_000, "the answer read aloud");
   await sleep(800);
   await shot(c, "5-answer-spoken");
@@ -404,7 +471,7 @@ async function main() {
   fs.writeFileSync(tape, Buffer.from(audio, "base64"));
   await new Promise((r) => (recorder.exitCode !== null ? r() : recorder.on("close", r)));
   const movie = path.join(shots, `voice-mode-${THEME}.mov`);
-  execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-i", video, "-i", tape, "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-shortest", movie]);
+  execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-i", video, "-i", tape, "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-af", "apad", "-t", String(seconds), movie]);
   note("movie", movie);
   await evalIn(c, `document.querySelector('.voice-control[aria-label="End voice mode"]')?.click(), true`);
   await until(async () => !(await view(c)), 5_000, "voice mode to close");
