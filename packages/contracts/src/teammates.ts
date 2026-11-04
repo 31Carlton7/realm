@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AgentKindSchema, IdSchema } from "./entities";
+import { SessionOutcomeSchema } from "./session-outcome";
 
 /**
  * A teammate is a permanent agent in a space that you message.
@@ -121,6 +122,9 @@ export const TeammateTaskSessionSchema = z.object({
   state: TeammateStateSchema,
   updatedAt: z.number().int(),
   unread: z.boolean(),
+  /** What it produced, once it has stopped: read for its computer's list only (`teammates.sessions`),
+   *  absent on the sidebar's rows. */
+  outcome: SessionOutcomeSchema.nullable().optional(),
 });
 export type TeammateTaskSession = z.infer<typeof TeammateTaskSessionSchema>;
 

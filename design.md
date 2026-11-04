@@ -1083,14 +1083,22 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   under it — on its sidebar row's disclosure and on its computer — never hidden, and never loose in
   the space's session list as well: a thing reached two ways is listed once. Work handed to another
   teammate nests under the session that asked for it, counted with a ↳ on that session's row.
-- A teammate's computer is a tab of its chat's side panel, as Reason draws its right panel: the
-  machine and its state in words with Stop beside it while anything runs; Files, Terminal and
-  Simulator, which open in its folder as the panel's own "+" would; then Sessions, newest first, eight
-  of them before Show all. A row ends in ONE mark: the amber dot while it waits on you, the spinner
-  while it works, else its age. Unread is the title's weight, never a dot, so amber is the only colour
-  in the list. Quiet rows on the panel's ground — no boxes, no cards, no chips. A session opens beside
-  the chat as a peek, and opens properly from there; its right-click is the sidebar row's menu, since
-  this list is where the session is reached.
+- A teammate's computer is a tab of its chat's side panel, and it is a report read from the top
+  (the owner, 11-04: "you probably couldn't tell me what this is"). The head says in plain words what
+  is live ("2 sessions working · 1 needs you"), what its sessions hold open on this Mac, and what today
+  came to, and its Stop names what it stops ("Stop 2 sessions"). Now is the live work as a soft card:
+  the session waiting on you first, with Answer, then each working session with its current step,
+  how long it has run and the spinner. Done lists finished sessions by day, eight before Show all,
+  hand-offs nested one step under the session that asked, and each row ends in a quiet outcome chip —
+  a pull request opened or merged, a release shipped, or Failed with its reason — read only off what
+  the session's log recorded; no chip is the answer when nothing was. On this Mac is a second soft
+  card of the terminals, devices and browser tabs its sessions hold open, each with its state, Open,
+  and Stop while there is anything to stop. Every row wears the icon of the teammate it runs on, so
+  the `<handle> - ` prefix comes off its title. The signals are the sidebar's: bold is unread, the
+  spinner is working, and amber is only for needs you and failed — no green or blue dots. Wide
+  (about 760 px), Done stands in its own column beside Now and On this Mac; narrow, it comes between
+  them, so what the teammate is doing and what it finished both come before what it holds. A session
+  opens beside the chat as a peek, and its right-click is the sidebar row's menu.
 - The Lead stands first in the Team list and wears a small star, and is otherwise one of the team.
   What a teammate needs from you is said on its row and in Needs you, as for any session; a question
   it asks is Realm's one question card, which already says who asks.

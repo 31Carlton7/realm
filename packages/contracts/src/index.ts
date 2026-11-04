@@ -27,6 +27,7 @@ export * from "./memory-learning";
 export * from "./memory-library";
 export * from "./session-events";
 export * from "./session-facts";
+export * from "./session-outcome";
 export * from "./notifications";
 export * from "./remote";
 export * from "./review";
