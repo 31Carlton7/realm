@@ -233,4 +233,13 @@ describe("FakeAdapter edits that land", () => {
     expect(readFileSync(join(cwd, "a.ts"), "utf8")).toBe("x\n");
     expect(existsSync(join(cwd, "..", "escape.ts"))).toBe(false);
   });
+  it("an echo step says back the message it was handed, attachments and all", async () => {
+    const a = new FakeAdapter({ script: [{ on: "plan", emit: [{ kind: "echo" }] }] });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    await h.send({ text: "a plan with <tab kind=\"browser\">", attachments: [{ path: "/tmp/shot.png", mime: "image/png" }] });
+    const said: string[] = [];
+    for await (const e of h.events) { if (e.type === "assistant_text") said.push(e.payload.text); if (e.type === "status" && e.payload.status === "idle" && said.length) break; }
+    expect(said).toEqual(["echo: a plan with <tab kind=\"browser\">\nattached: /tmp/shot.png (image/png)"]);
+    await h.dispose();
+  });
 });

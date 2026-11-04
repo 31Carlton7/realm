@@ -89,10 +89,11 @@ const TYPE_LABEL: Record<MentionOption["kind"], string> = { mac: "Skill", agent:
 /** What a pane is called where it has no address or file to show. */
 const TAB_KIND_LABEL: Record<TabEntry["kind"], string> = { browser: "Browser", documents: "Documents", terminal: "Terminal", simulator: "Simulator" };
 
-/** A pane's quiet line: a page's address without its scheme, a document's file, or what it is. */
-export function tabDetail(t: TabEntry): string {
+/** A pane's quiet line: a page's address without its scheme, a document's file by its name, or what
+ *  it is. */
+export function tabDetail(t: Pick<TabEntry, "kind" | "url" | "path">): string {
   if (t.url) return t.url.replace(/^https?:\/\//, "").replace(/\/$/, "");
-  if (t.path) return t.path;
+  if (t.path) return basenameOf(t.path);
   return TAB_KIND_LABEL[t.kind];
 }
 

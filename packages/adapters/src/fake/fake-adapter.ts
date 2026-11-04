@@ -10,6 +10,9 @@ export type FakeStep =
    *  arrive. Without it the whole message lands in one burst, which is all a test needs and too
    *  fast for anything that animates arrival (the prose's fade) to be seen doing it. */
   | { kind: "text"; text: string; paceMs?: number }
+  /** Say back the message exactly as the adapter was handed it, with the files attached to it — what
+   *  a scripted turn whose text matched a trigger needs to show what reached the engine. */
+  | { kind: "echo" }
   /** `apply` makes a `Write` or an `Edit` really happen, in the session's working directory: what lets
    *  a scripted turn leave a checkout that checkpoints, diffs and the turn's edit summary can measure.
    *  A failed edit (the text to replace is not there) settles the call as an error, as a real one would. */
@@ -128,6 +131,7 @@ export class FakeAdapter implements AgentAdapter {
         }
         if (st.kind === "rateLimit") { q.push(sessionEvent("rate_limit", st.payload)); continue; }
         if (st.kind === "usage") { reported = true; q.push(sessionEvent("usage", { costUsd: st.costUsd, inputTokens: 10, outputTokens: 10, numTurns: 1 })); continue; }
+        if (st.kind === "echo") { sayAll([`echo: ${msg.text}`, ...msg.attachments.map((a) => `attached: ${a.path} (${a.mime})`)].join("\n")); continue; }
         if (st.kind === "idle") { sayAll(st.text ?? "Nothing has changed since the last turn."); continue; }
         if (st.kind === "list") {
           const seen = gateway ? await gateway.list().catch((e: unknown) => ({ error: (e as Error).message ?? String(e) })) : { error: "no Realm gateway was handed to this session" };

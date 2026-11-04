@@ -86,7 +86,7 @@ export function SentTabRow({ tabs, favicons, onOpen }: { tabs: readonly TabCard[
   return (
     <ul className="msg-user-files msg-user-tabs" aria-label="Tabs">
       {tabs.map((t) => {
-        const detail = t.closed ? "Was closed" : [tabDetail({ ...t, favicon: "" }), formatAttachmentSize(t.bytes)].join(" · ");
+        const detail = t.closed ? "Was closed" : [tabDetail(t), formatAttachmentSize(t.bytes)].join(" · ");
         return (
           <li key={t.itemId}>
             <span className="attach-tile" data-layout="card" data-tab={t.kind}>

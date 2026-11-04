@@ -67,6 +67,7 @@ describe("the @ list's Tabs", () => {
     // A row says what the pane is: a page by its address, a document by its file.
     expect(option("Pricing").querySelector(".mention-row-desc")?.textContent).toBe("127.0.0.1:4100/pricing");
     expect(option("All open tabs").querySelector(".mention-row-desc")?.textContent).toBe("2 tabs");
+    expect(option("Documents").querySelector(".mention-row-desc")?.textContent).toBe("notes.md");
   });
 
   it("ranks on screen, then open behind a tab or off screen with its session, then the rest", () => {
