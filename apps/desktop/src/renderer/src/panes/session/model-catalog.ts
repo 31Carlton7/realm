@@ -1,5 +1,5 @@
 import { AGENT_FAST_MODE, AGENT_META, AGENT_MODELS, AGENT_NOTES, DEFAULT_MODEL_LABEL, MODEL_NOTES, SELECTABLE_AGENT_KINDS, canonicalModelKey, fastSupportKey, formatContext, formatPrice, type AgentKind, type ModelInfo } from "@realm/contracts";
-import { sessionModelLabel, type EffortChoice, type EffortOptions } from "@realm/view";
+import { sessionModelId, sessionModelLabel, type EffortChoice, type EffortOptions } from "@realm/view";
 import { agentAvailability, availabilityNote } from "../../state/agent-availability";
 import type { AgentProbe } from "../../state/store";
 
@@ -48,7 +48,8 @@ export type ModelRow = {
   alternates: AgentKind[];
   /** Why this row cannot be picked right now; `null` when it can. */
   blockedReason: string | null;
-  /** The model this session is actually on — at most one row, and always one when rows exist. */
+  /** The model this session is actually on: at most one row, and none while nothing has said which
+   *  model an un-pinned session runs. */
   selected: boolean;
   /** Starred by the user (persisted as canonical keys, so a favourite survives a harness switch). */
   favorite: boolean;
@@ -96,11 +97,13 @@ export type ModelRow = {
  *    answered without models).
  * 3. **The single DEFAULT_MODEL_LABEL row** — a kind with no list at all.
  *
- * `model === null` means the user has pinned nothing and the adapter is running its own default. That
- * still marks a row: the first of the kind's list, so the effort and fast-mode answers have a model to
- * read. The chip does not name that row; it says what `sessionModelLabel` knows of the default.
+ * `model === null` means the user has pinned nothing and the adapter is running its own default. The
+ * row marked is the one `sessionModelId` names, the same model the chip does: what the session's
+ * handshake reported (`ran`), else the catalog's marked default, else the explicit default row. Before
+ * any of them has said, no row is marked, and the effort and fast-mode answers fall back to what the
+ * harness says of its default.
  */
-export function modelRows({ kind, model, agentProbe, canSwitchAgent, handoff = false, favorites = [], also = [] }: {
+export function modelRows({ kind, model, agentProbe, canSwitchAgent, handoff = false, favorites = [], also = [], ran = null }: {
   kind: AgentKind; model: string | null; agentProbe: AgentProbe[]; canSwitchAgent: boolean;
   /** The session has run, but can still move to another agent by handing over — a fresh conversation
    *  briefed with a summary of this one. Every route is offered, as before its first message. */
@@ -111,6 +114,8 @@ export function modelRows({ kind, model, agentProbe, canSwitchAgent, handoff = f
    *  but a scheduled task may be put on wherever this Realm runs one — the checks that drive the app
    *  schedule their work on it. */
   also?: readonly AgentKind[];
+  /** The model the session's newest handshake reported, which marks the row while none is pinned. */
+  ran?: string | null;
 }): ModelRow[] {
   // The session's own kind leads, then the rest of the offered set. Leading with it is what makes the
   // tie-break above fall out for free: the first harness to claim a model is the current one whenever
@@ -121,13 +126,9 @@ export function modelRows({ kind, model, agentProbe, canSwitchAgent, handoff = f
   const noteOf = new Map<AgentKind, string | null>(kinds.map((k) => [k, availabilityNote(agentAvailability(k, agentProbe))]));
   const favorite = new Set(favorites);
 
-  // Which id counts as "what this session is running" on its own harness. Resolved once, up front,
-  // because the two list sources answer it differently and the row loop should not re-litigate that.
-  const ownProbed = agentProbe.find((p) => p.kind === kind)?.models ?? null;
-  const ownLive = ownProbed !== null && ownProbed.length > 0;
-  const selectedId = model !== null ? model
-    : ownLive ? (ownProbed.find((m) => m.isDefault)?.id ?? null) // the model the catalog runs un-pinned, else the explicit default row
-    : (AGENT_MODELS[kind][0]?.id ?? null);    // static lists pin their first entry as the default
+  // Which id counts as "what this session is running" on its own harness. Null marks the explicit
+  // default row where the list has one, and so nothing in a curated list.
+  const selectedId = sessionModelId(kind, model, agentProbe, ran);
 
   const byKey = new Map<string, ModelRow>();
   const rows: ModelRow[] = [];
@@ -477,10 +478,12 @@ export function fastModeAvailability({ kind, model, init, agentProbe, remembered
   const said = own ?? heardFast(kind, model, agentProbe, remembered);
   if (!said) return { state: "unknown" };
   if (said.can) return { state: "offered", source: said.source };
+  // The model the answer is about, as the tick names it, is never its own alternative.
+  const about = sessionModelId(kind, model, agentProbe, init?.model ?? null);
   const alternatives: string[] = [];
   for (const r of rows) {
     const id = r.ids[kind];
-    if (id === undefined || id === null || id === model) continue;
+    if (id === undefined || id === null || id === about) continue;
     if (heardFast(kind, id, agentProbe, remembered)?.can) alternatives.push(modelLabel({ ...r, kind }));
   }
   return { state: "unavailable", source: said.source, alternatives: alternatives.slice(0, 3) };

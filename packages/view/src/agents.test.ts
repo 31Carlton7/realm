@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { sessionModelLabel } from "./agents";
+import { sessionModelId, sessionModelLabel } from "./agents";
+
+describe("sessionModelId", () => {
+  const marked = [{ kind: "claude" as const, models: [{ id: "claude-fable-5-1", label: "Claude Fable 5.1" }, { id: "claude-opus-5-5", label: "Claude Opus 5.5", isDefault: true }] }];
+
+  it("is the pinned model, else what the handshake reported, else the probe's marked default, else null", () => {
+    expect(sessionModelId("claude", "claude-haiku-4-5", marked, "claude-sonnet-5-5")).toBe("claude-haiku-4-5");
+    expect(sessionModelId("claude", null, marked, "claude-sonnet-5-5[1m]")).toBe("claude-sonnet-5-5");
+    expect(sessionModelId("claude", null, marked)).toBe("claude-opus-5-5");
+    expect(sessionModelId("claude", null, [])).toBeNull();
+  });
+});
 
 describe("sessionModelLabel", () => {
   const marked = [{ kind: "claude" as const, models: [{ id: "claude-fable-5-1", label: "Claude Fable 5.1" }, { id: "claude-opus-5-5", label: "Claude Opus 5.5", isDefault: true }] }];
