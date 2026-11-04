@@ -382,7 +382,8 @@ SessionRow {
   updatedAt: ms,
   agentName?: string,     the agent as the desktop names it ("Claude", "GitHub Copilot")
   agentMark?: string,     the mark the desktop draws for it: a vendor's ("claude", "openai") or a glyph ("bot")
-  modelLabel?: string,    the model as the desktop's chip names it ("Opus 5.5"), or its default's name
+  modelLabel?: string,    the model as the desktop's chip names it ("Opus 5.5"); with none given, see
+                          "A session with no model" below
   createdAt?: ms,         when the session was made
   effort?: string|null,   the reasoning level it was given, or null for the model's own
   permissionMode?: string,
@@ -568,6 +569,14 @@ order, so its first page is the space's five on Home, and `more` says whether a 
 larger id. Every read of the same lists orders them the same way, so pages neither repeat nor skip a
 session.
 
+**A session with no model** runs its agent CLI's own default, and `modelLabel` names what is known
+of it: once it has run, the model its newest handshake (`init`) reported, on `session.open`'s row and
+in `session.options`; before then, the model the Mac's probe marks as the CLI's default. Where the probe
+marks none and the agent's models are Realm's curated list (Claude, DeepSeek), it is "Default" rather
+than the list's first model, which the CLI may not run. Home's and a space's rows read no handshakes,
+so a row there names the probe's default. A default's row in `AgentOptions.models` is named the same
+way: by the handshake in `session.options`, by the probe alone in `agents.list`.
+
 **A session's settings are the desktop's chips.** `session.options` answers with the session's agent,
 as `AgentOptions`, and what it is on now:
 
@@ -575,7 +584,7 @@ as `AgentOptions`, and what it is on now:
 SessionOptions {
   agent: AgentOptions,
   model: string|null,          the model it was given, or null for its agent's default
-  modelLabel: string,          the model as the chip names it, its default's name while none is given
+  modelLabel: string,          the model as the chip names it; with none given, as SessionRow's
   effort: string|null,
   permissionMode: string|null, as SessionRow's
   midTurn: "queue"|"steer",    what a message typed while a turn runs does on this Mac (`sessions.midTurnMode`)

@@ -32,6 +32,20 @@ export type OptionsInput = {
 /** The probe as `modelLabel` and `effortOptions` take every agent's: a list, empty when none answered. */
 export const probeList = (input: OptionsInput): ProbeRow[] => (input.probe ? [input.probe] : []);
 
+/**
+ * The model a session is on, as the phone names it. A pinned model is named as the desktop's chip
+ * names it. One with none pinned runs its CLI's own default: once it has run, that is the model its
+ * newest handshake reported (`ran`); before then, the one the CLI's list marks as its default. Where
+ * no list marks one, Claude's would be the head of Realm's curated list, a guess this Mac's CLI may
+ * not run, so it says "Default" instead.
+ */
+export function sessionModelLabel(kind: AgentKind, model: string | null, probe: readonly ProbeRow[], ran: string | null = null): string {
+  if (model !== null) return modelLabel(kind, model, probe);
+  if (ran) return modelLabel(kind, ran.replace(/\[[^\]]*\]$/, ""), probe);
+  const marked = probe.find((p) => p.kind === kind)?.models?.some((m) => m.isDefault) ?? false;
+  return marked || AGENT_MODELS[kind].length === 0 ? modelLabel(kind, null, probe) : "Default";
+}
+
 /** What `session.configure` and `session.create` ask for, as the phone names it. */
 type Choices = Omit<MobileParams<"session.configure">, "id">;
 
@@ -81,7 +95,7 @@ export function agentOptions(kind: AgentKind, input: OptionsInput, pinned: strin
   const probe = probeList(input);
   const models = modelList(kind, input.probe).filter((m) => m.id !== null || pinned === null).map(({ id }) => {
     const e = perModel ? levels(kind, id, input) : null;
-    return { id, label: modelLabel(kind, id, probe), ...(e && e.levels.length > 0 ? { efforts: e.levels, defaultEffort: e.defaultId } : {}) };
+    return { id, label: sessionModelLabel(kind, id, probe, input.init?.model ?? null), ...(e && e.levels.length > 0 ? { efforts: e.levels, defaultEffort: e.defaultId } : {}) };
   });
   const own = perModel ? null : levels(kind, null, input);
   return {
@@ -115,7 +129,7 @@ export function changesFor(
   if (c.effort !== undefined && c.effort !== current.effort) {
     const taken = levelsPerModel(kind) ? levels(kind, model, input).levels : offered.efforts;
     if (c.effort !== null && !taken.some((l) => l.id === c.effort)) {
-      throw new ChoiceRefused(taken.length === 0 ? `${modelLabel(kind, model, probeList(input))} takes no reasoning level.` : `${c.effort} isn't a reasoning level this model takes.`);
+      throw new ChoiceRefused(taken.length === 0 ? `${sessionModelLabel(kind, model, probeList(input))} takes no reasoning level.` : `${c.effort} isn't a reasoning level this model takes.`);
     }
     out.effort = c.effort;
   }
