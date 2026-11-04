@@ -204,7 +204,7 @@ describe("session.seen", () => {
 
 describe("a home row's unread mark", () => {
   it("waits, as the sidebar's does, until the last sub-agent its session started is done", async () => {
-    // A lead that ended its turn while its sub-agent still runs (#271), and the same lead once it is done.
+    // A lead that ended its turn while its sub-agent still runs, and the same lead once it is done.
     const lists = (status: Session["status"]): Lists => ({
       sessions: [
         session("lead", "s1", { seenSeq: 3, lastEventSeq: 9 }),

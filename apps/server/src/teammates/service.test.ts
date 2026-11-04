@@ -133,7 +133,7 @@ describe("a teammate's unread mark", () => {
     await app.team.message(cto.id, "start a survey");
     await waitFor(() => app.sessions.listAll().some((s) => s.dispatchedBy?.sessionId === home));
     const task = app.sessions.listAll().find((s) => s.dispatchedBy?.sessionId === home)!;
-    // The chat has ended its turn and the task it started is still going (#271): not unread yet.
+    // The chat has ended its turn and the task it started is still going: not unread yet.
     await waitFor(() => app.sessions.get(home).status === "idle" && events(home).some((e) => e.type === "assistant_text"));
     expect(app.sessions.get(task.id).status).toBe("running");
     expect(app.team.get(cto.id).unread).toBe(false);

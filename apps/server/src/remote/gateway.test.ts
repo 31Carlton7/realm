@@ -1031,7 +1031,7 @@ describe("Plan 29's parity: what a phone hears, at the moment it hears it", () =
   });
 
   it("tells the phone to read home again when a session is read on the Mac, so its unread mark clears there too", async () => {
-    // THE MUTANT: no case for `session.seen`, and a row read on the Mac stayed unread on the phone (#271).
+    // THE MUTANT: no case for `session.seen`, and a row read on the Mac stayed unread on the phone.
     const { phone, broadcast } = await fakeMac({ sessions: [], items: [] });
     let heard = 0;
     phone.on("home.changed", () => { heard += 1; });

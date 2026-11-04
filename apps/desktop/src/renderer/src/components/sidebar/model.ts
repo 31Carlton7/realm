@@ -1,5 +1,5 @@
 import type { Item, Profile, Session, SessionStatus, Space } from "@realm/contracts";
-import { isChild, leadsWithAgentsAtWork, liveItems, listedIds, nestChildren, rootLeadOf, sessionItems, sessionOf } from "@realm/view";
+import { agentsAtWork, isChild, liveItems, listedIds, nestChildren, rootLeadOf, sessionItems, sessionOf } from "@realm/view";
 import { isUnread, STATUS_LABEL } from "../../state/attention";
 import { spaceActivity } from "../../state/store";
 import { groupByDay, type DayGroup } from "./chat-feed";
@@ -177,15 +177,6 @@ export function agentsWaiting(s: SidebarState, listed: ReadonlySet<string> = lis
 export function listedSessions(s: SidebarState): SessionRow[] {
   // A teammate's chat and the sessions it started are listed under the teammate (TeamSection), once.
   return nestChildren(sessionRows(s)).map((n) => n.row).filter((r) => !r.item.archived && !r.session?.teammateId);
-}
-
-/** The sessions with a sub-agent still running or waiting under them (`leadsWithAgentsAtWork`): rows
- *  that are not unread yet, whatever their own log says. */
-export function agentsAtWork(s: SidebarState): Set<string> {
-  return leadsWithAgentsAtWork(Object.entries(s.sessionStatus), (id) => {
-    const session = sessionOf(s, id);
-    return isChild(session) ? session?.dispatchedBy?.sessionId ?? null : null;
-  });
 }
 
 /** A session item as a row, with the live facts laid over it. `waiting` and `atWork` are

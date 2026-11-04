@@ -1,4 +1,5 @@
 import type { SessionStatus } from "@realm/contracts";
+import { isChild, sessionOf, type NeedsYouState } from "./needs-you";
 
 /**
  * The sessions whose sub-agents are still at work, at any depth: a lead with a child running or
@@ -23,4 +24,13 @@ export function leadsWithAgentsAtWork(statuses: Iterable<readonly [string, Sessi
     }
   }
   return leads;
+}
+
+/** `leadsWithAgentsAtWork` over a window's or a server's lists: the session rows that are not unread
+ *  yet, whatever their own log says. */
+export function agentsAtWork(s: Pick<NeedsYouState, "sessions" | "allSessions" | "sessionStatus">): Set<string> {
+  return leadsWithAgentsAtWork(Object.entries(s.sessionStatus), (id) => {
+    const session = sessionOf(s, id);
+    return isChild(session) ? session?.dispatchedBy?.sessionId ?? null : null;
+  });
 }

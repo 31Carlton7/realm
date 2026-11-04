@@ -89,7 +89,7 @@ describe("allSessions — a row for every session, in every profile", () => {
 
   it("selecting another profile's session reads it, though only `allSessions` holds its row", async () => {
     // THE MUTANT: `markSessionSeen` reading `sessions` alone. It returned before marking anything,
-    // so the row's ring stayed on after it was opened (#271).
+    // so the row's ring stayed on after it was opened.
     const { api, store } = await boot({ ...elsewhere(), sessions: [session("se3", "s3", { seenSeq: 2, lastEventSeq: 6 })] });
     store.setState({ transcripts: { ...store.getState().transcripts, se3: { lastSeq: 6, t: emptyTranscript() } } });
     expect(isUnread(store.getState().allSessions["se3"]!)).toBe(true);

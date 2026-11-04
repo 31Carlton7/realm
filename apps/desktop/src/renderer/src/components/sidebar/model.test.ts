@@ -110,7 +110,7 @@ describe("listedSessions — what the sidebar lists as a row", () => {
   });
 
   it("is not unread while a sub-agent it started is still at work, and is once the last one is done", () => {
-    // The lead ended its turn with two sub-agents going (#271): one still running, one done.
+    // The lead ended its turn with two sub-agents going: one still running, one done.
     const lead = { id: "lead", space: "hw", session: { seenSeq: 3, lastEventSeq: 9 } };
     const child = (id: string, status: SessionStatus) =>
       ({ id, space: "hw", status, session: { dispatchedBy: { kind: "agent_run" as const, sessionId: "lead" }, seenSeq: 0, lastEventSeq: 4 } });
