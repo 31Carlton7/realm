@@ -1,4 +1,4 @@
-import { basenameOf, bareToolName, formatAttachmentSize, isImageMime, mimeForPath } from "@realm/contracts";
+import { basenameOf, bareToolName, movedSentence, formatAttachmentSize, isImageMime, mimeForPath } from "@realm/contracts";
 import { Marked } from "marked";
 import { REALM_MARK_PATH, REALM_MARK_VIEWBOX } from "../../../components/RealmMark";
 import { grammarFor, grammarForPath } from "../rich/highlight";
@@ -10,7 +10,6 @@ import { editStat, editTarget, failureReason, mcpParts, readTarget, resultEditSt
 import { goalTurnLabel, type Block, type Transcript } from "../transcript-model";
 import { hideHomeFolders, scrubSecrets } from "./scrub";
 import { DEFAULT_SHARE_OPTIONS, type ShareOptions } from "./options";
-import { movedSentence } from "../move-place";
 import { PAGE_SCRIPT, PAGE_SCRIPT_HASH, pageStyle } from "./style";
 
 /**

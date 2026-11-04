@@ -110,6 +110,13 @@ describe("the Move sheet", () => {
     expect(stays).toHaveTextContent("Rewinding to before the move");
   });
 
+  it("hedges a native resume, since the engine may fall back to notes", async () => {
+    await mount({ moveOptions: { conversation: "native" } });
+    pick("realm/fix-tests");
+    const goes = await within(await sheet()).findByRole("region", { name: "Goes with it" });
+    expect(goes).toHaveTextContent("The conversation. Fake agent picks up where it left off, or from notes if it can't.");
+  });
+
   it("sends Move now, leaving this checkout's changes by default", async () => {
     const { api, store } = await mount();
     pick("realm/fix-tests");
@@ -248,20 +255,20 @@ describe("a move in the transcript", () => {
     moveId: "m1", from: place("envA", envA.path, "main"), to: place("envB", envB.path, "realm/fix-tests"),
     conversation: "native" as const, changedFiles: 2, leftBehind: ["the terminal"], preface: "p",
     note: "Moved from /Users/me/realm to /Users/me/Realm/worktrees/fix-tests. The conversation continued." }) };
-  const moving = (step: "snapshot" | "boot") => ({ seq: -1, sessionId: "se1", ephemeral: true, event: sessionEvent("moving", { moveId: "m1", step }) });
+  const moving = (seq: number, step: "snapshot" | "boot") => ({ seq, sessionId: "se1", ephemeral: false, event: sessionEvent("moving", { moveId: "m1", step }) });
 
   it("draws the progress row from the moving event, and the moved line in its place", async () => {
-    // THE MUTANT: the ephemeral `moving` dropped with the rest of the ephemeral events — no row at all.
     const { store, api } = await mount({ status: "moving" });
-    act(() => store.getState().applySessionEvent(moving("snapshot")));
+    act(() => store.getState().applySessionEvent(moving(3, "snapshot")));
     const row = await screen.findByRole("status", { name: "Moving: Saving a checkpoint" });
     expect(row.querySelector('[data-state="now"]')).toHaveTextContent("Saving a checkpoint");
     // A done step is its check, its name kept for the reader and the tooltip.
     expect(row.querySelector('[data-state="done"]')).toHaveTextContent("Checking");
     expect(row.querySelector('[data-state="done"]')).toHaveAttribute("title", "Checking");
     expect(row.querySelector('[data-state="done"] .visually-hidden')).toHaveTextContent("Checking");
-    act(() => store.getState().applySessionEvent(moving("boot")));
+    act(() => store.getState().applySessionEvent(moving(4, "boot")));
     expect(await screen.findByRole("status", { name: "Moving: Starting Fake agent" })).toBeInTheDocument();
+    expect(screen.getAllByRole("status", { name: /^Moving/ })).toHaveLength(1);
     fireEvent.click(within(screen.getByRole("status", { name: "Moving: Starting Fake agent" })).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(api.calls).toContain("cancelSessionMove:se1"));
 

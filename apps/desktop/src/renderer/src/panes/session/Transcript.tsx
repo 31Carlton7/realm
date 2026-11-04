@@ -1,6 +1,6 @@
 import { Icon, TeammateIcon } from "@realm/ui";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { LINK_SERVICE_META, MAC_SKILL_ID, chipRuns, mediaCandidatesIn, teammateWords, type MentionRef, type SessionMode, type Teammate, type SessionStatus, type AskAnswers, type Checkpoint, type TurnChanges } from "@realm/contracts";
+import { LINK_SERVICE_META, MAC_SKILL_ID, chipRuns, movedSentence, mediaCandidatesIn, teammateWords, type MentionRef, type SessionMode, type Teammate, type SessionStatus, type AskAnswers, type Checkpoint, type TurnChanges } from "@realm/contracts";
 import { AttachmentTile } from "./AttachmentTile";
 import { fileMark } from "./mention-sources";
 import { CommandCopy } from "../../components/CommandCopy";
@@ -29,7 +29,7 @@ import { useEnterTracker } from "./transcript-enter";
 import { TranscriptSummary } from "./TranscriptSummary";
 import { ReportFold } from "../agents-tab/ReportFold";
 import { MoveProgress, moveStepLabel } from "./MoveProgress";
-import { moveFailureReason, moveLeftAsItWas, movedSentence } from "./move-place";
+import { moveFailureReason, moveLeftAsItWas } from "./move-place";
 import { MediaStrip } from "./media/MediaView";
 import { useMediaFiles } from "./media/use-media";
 import { NEAR_END_PX, SETTLE_MS, applyScrollTop, markOf, recallScroll, rememberScroll, type ScrollMark } from "../scroll-memory";

@@ -1,19 +1,4 @@
-import { basenameOf, type MovePlace } from "@realm/contracts";
 import { tildePath } from "../documents/home-model";
-
-/** One end of a move by its folder, and its branch when that says something the folder does not:
- *  a worktree's `realm/<folder>` branch is the folder's name again. */
-export function placeName(p: Pick<MovePlace, "cwd" | "branch">): string {
-  const folder = basenameOf(p.cwd);
-  if (!p.branch || p.branch === folder || p.branch === `realm/${folder}`) return folder;
-  return `${folder} (${p.branch})`;
-}
-
-/** The moved line. Paths stay in its tooltip; the line names each end by folder and branch. */
-export function movedSentence(b: { from: MovePlace; to: MovePlace; conversation: "native" | "notes" }): string {
-  const how = b.conversation === "native" ? "The conversation continued." : "The conversation continued from notes.";
-  return `Moved from ${placeName(b.from)} to ${placeName(b.to)}. ${how}`;
-}
 
 /** A path inside an error's wording: from a `/` or `~/` up to a space or punctuation that ends it. */
 const PATH_IN_TEXT = /(?<![\w.~])~?\/[^\s,;:'"()]*\/[^\s,;:'"()]*/g;

@@ -1,7 +1,6 @@
-import { basenameOf } from "@realm/contracts";
+import { basenameOf, movedSentence } from "@realm/contracts";
 import type { Block, Transcript } from "./transcript-model";
 import { toolSummary } from "./tool-summary";
-import { movedSentence } from "./move-place";
 
 /**
  * A session as a Markdown document.

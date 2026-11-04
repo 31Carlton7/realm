@@ -125,7 +125,7 @@ export function MoveSheet({ sessionId, to }: { sessionId: string; to: MoveTarget
           <section className="move-group" aria-label="Goes with it">
             <h4 className="move-group-head">Goes with it</h4>
             <ul className="move-list">
-              <li><Icon name="check" size={12} />The conversation. {agent} {options.conversation === "native" ? "resumes exactly" : "continues from notes"}.</li>
+              <li><Icon name="check" size={12} />The conversation. {agent} {options.conversation === "native" ? "picks up where it left off, or from notes if it can't" : "continues from notes"}.</li>
               {options.changedFiles > 0 && <li><Icon name="check" size={12} />{filesWord(options.changedFiles)}</li>}
               <li><Icon name="check" size={12} />Its attachments</li>
             </ul>
