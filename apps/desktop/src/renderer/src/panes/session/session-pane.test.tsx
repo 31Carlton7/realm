@@ -1424,13 +1424,14 @@ describe("prompter model picker", () => {
 
   it("never hides a session's own kind, even one that is not offered fresh", async () => {
     // `fake` is the dev adapter and absent from SELECTABLE_AGENT_KINDS; a fake session that could not
-    // see itself would show a list with nothing selected.
+    // see itself would have no row to pick its own model from.
     await mountFresh({ agentKind: "fake" });
     openPicker();
     expect(rowNames()).toEqual(["Fake", "Fable 5.1", "Fable 5", "Opus 5.5", "Opus 5", "Sonnet 5.5", "Sonnet 5", "Haiku 5.5", "Haiku 4.5",
       "DeepSeek V4 Pro", "DeepSeek V4 Flash",
       "Codex", "Cursor", "Gemini", "OpenCode", "GitHub Copilot", "goose", "Qwen Code", "Grok", "fx", "OpenHands", "Hermes"]);
-    expect(screen.getByRole("option", { name: "Fake" })).toHaveAttribute("aria-selected", "true");
+    // Pinned to nothing, and nothing has said what that runs, so nothing is ticked.
+    expect(screen.getByRole("option", { name: "Fake" })).toHaveAttribute("aria-selected", "false");
   });
 
   it("marks an unavailable CLI but keeps it pickable — the install card is where picking it leads", async () => {
@@ -1830,6 +1831,51 @@ function fakeHub() {
   };
   return new TerminalHub(transport, () => ({ term, fit: { fit() {} } }));
 }
+
+describe("the picker for a session that pinned no model", () => {
+  const box = () => screen.getByRole("textbox", { name: /message/i });
+  const ticked = () => screen.getAllByRole("option").filter((o) => o.getAttribute("aria-selected") === "true").map((o) => o.querySelector(".mp-row-name")?.textContent);
+  // Fable 5.1 heads the curated list and takes two levels here, so a track built from its row says so.
+  const info = (key: string, efforts: string[]) => ({ [canonicalModelKey(key)]: { key: canonicalModelKey(key), label: key, vendor: "", priceIn: null, priceOut: null, context: null, efforts, blurb: null } });
+  const modelInfo = { ...info("Claude Fable 5.1", ["low", "medium"]), ...info("Claude Opus 5.5", ["low", "medium", "high", "xhigh"]) };
+
+  async function mountUnpinned(events: ReturnType<typeof sessionEvent>[]) {
+    const api = fakeApi({ sessions: [session("se1", "s1", { status: "idle", agentKind: "claude", model: null, lastEventSeq: events.length })] });
+    const store = createAppStore(api); await store.getState().boot();
+    store.setState({ modelInfo, sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: events.length, t: reduceAll(events) } } });
+    render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
+    return { api, store };
+  }
+
+  it("ticks nothing before anything has answered, and the effort track offers Claude Code's levels at its default", async () => {
+    await mountUnpinned([]);
+    expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("DefaultHigh");
+    openPicker();
+    expect(ticked()).toEqual([]);
+    const track = screen.getByRole("slider", { name: "Effort" });
+    expect(track).toHaveAttribute("aria-valuetext", "High");
+    expect(track).toHaveAttribute("aria-valuemax", "4"); // low, medium, high, xhigh, max
+  });
+
+  it("ticks the model its handshake reported, and reads the effort track off that row", async () => {
+    await mountUnpinned([sessionEvent("init", { providerSessionId: "p", model: "claude-opus-5-5[1m]", tools: [], cwd: "/w" })]);
+    expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("Opus 5.5High");
+    openPicker();
+    expect(ticked()).toEqual(["Opus 5.5"]);
+    expect(screen.getByRole("slider", { name: "Effort" })).toHaveAttribute("aria-valuemax", "3"); // low, medium, high, xhigh
+  });
+
+  it("still sends no model: the tick is what ran, not a pick", async () => {
+    const { api, store } = await mountUnpinned([sessionEvent("init", { providerSessionId: "p", model: "claude-opus-5-5", tools: [], cwd: "/w" })]);
+    openPicker();
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.change(box(), { target: { value: "go", selectionStart: 2, selectionEnd: 2 } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(api.sent).toEqual([{ id: "se1", text: "go", attachments: [] }]));
+    expect(api.calls.filter((c) => c.startsWith("setSessionOptions") || c.startsWith("setSessionAgent"))).toEqual([]);
+    expect(store.getState().sessions.se1?.model).toBeNull();
+  });
+});
 
 describe("the session's terminal (W4)", () => {
   beforeEach(() => { vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} unobserve() {} }); });

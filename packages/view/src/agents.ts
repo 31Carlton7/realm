@@ -20,17 +20,24 @@ export function modelLabel(kind: AgentKind, id: string | null, probe: readonly {
 }
 
 /**
- * The model a session is on, as the chip names it. A pinned model is named by `modelLabel`. One with
- * none pinned runs its CLI's own default: once it has run, that is the model its newest handshake
- * reported (`ran`); before then, the one the CLI's list marks as its default. Where no list marks one,
- * Claude's would be the head of Realm's curated list, a guess this Mac's CLI may not run, so it
- * says "Default" instead.
+ * The model a session is on, by id: the pinned one, else the one its newest handshake reported
+ * (`ran`), else the one its CLI's list marks as its default. Null when none of them has said, which
+ * is not a guess at the head of Realm's curated list: this Mac's CLI may run something else.
+ */
+export function sessionModelId(kind: AgentKind, model: string | null, probe: Parameters<typeof modelLabel>[2], ran: string | null = null): string | null {
+  if (model !== null) return model;
+  if (ran) return ran.replace(/\[[^\]]*\]$/, "");
+  return probe.find((p) => p.kind === kind)?.models?.find((m) => m.isDefault)?.id ?? null;
+}
+
+/**
+ * The model a session is on, as the chip names it: `sessionModelId`'s model by `modelLabel`, and
+ * "Default" while nothing has said which one that is. An agent with no curated list keeps its own
+ * default's name.
  */
 export function sessionModelLabel(kind: AgentKind, model: string | null, probe: Parameters<typeof modelLabel>[2], ran: string | null = null): string {
-  if (model !== null) return modelLabel(kind, model, probe);
-  if (ran) return modelLabel(kind, ran.replace(/\[[^\]]*\]$/, ""), probe);
-  const marked = probe.find((p) => p.kind === kind)?.models?.some((m) => m.isDefault) ?? false;
-  return marked || AGENT_MODELS[kind].length === 0 ? modelLabel(kind, null, probe) : "Default";
+  const id = sessionModelId(kind, model, probe, ran);
+  return id !== null || AGENT_MODELS[kind].length === 0 ? modelLabel(kind, id, probe) : "Default";
 }
 
 /** The setting the desktop keeps the agent of the session last made or switched to under: what its

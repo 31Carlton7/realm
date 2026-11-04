@@ -59,12 +59,11 @@ describe("modelRows with a probe catalog", () => {
     expect(rows.filter((r) => r.kind === "acp:cursor").map((r) => r.modelId)).toContain("default[]");
   });
 
-  it("keeps the curated static list (and its first-row-selected rule) when the probe has no models", () => {
+  it("keeps the curated static list when the probe has no models", () => {
     for (const models of [null, undefined, []] as const) {
       const rows = modelRows({ kind: "claude", model: null, agentProbe: [probe("claude", models as AgentProbe["models"])], canSwitchAgent: true });
       const claude = rows.filter((r) => r.kind === "claude");
       expect(claude.map((r) => r.modelId)).toEqual(["claude-fable-5-1", "claude-fable-5", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5", "claude-sonnet-5", "claude-haiku-5-5", "claude-haiku-4-5"]);
-      expect(claude[0]!.selected).toBe(true); // static lists pin first row = adapter default (presets.test.ts)
     }
   });
 
@@ -82,6 +81,63 @@ describe("modelRows with a probe catalog", () => {
     // Still the session's own harness wherever it offers the model, so its own picks cost no switch.
     expect(rows.find((r) => r.selected)?.kind).toBe("codex");
     expect(rows.some((r) => r.kind === "claude")).toBe(true);
+  });
+});
+
+describe("the row a session that pinned no model ticks", () => {
+  // The levels the public catalog lists differ, so the effort track says which row it read.
+  const info: Record<string, ModelInfo> = {
+    [canonicalModelKey("Claude Fable 5.1")]: { key: "fable", label: "Claude Fable 5.1", vendor: "", priceIn: null, priceOut: null, context: null, efforts: ["low", "medium"], blurb: null },
+    [canonicalModelKey("Claude Opus 5.5")]: { key: "opus", label: "Claude Opus 5.5", vendor: "", priceIn: null, priceOut: null, context: null, efforts: ["low", "medium", "high", "xhigh"], blurb: null },
+  };
+  const unpinned = (agentProbe: AgentProbe[], ran: string | null = null, model: string | null = null) => {
+    const rows = modelRows({ kind: "claude", model, agentProbe, canSwitchAgent: true, ran });
+    const ticked = rows.filter((r) => r.selected).map((r) => r.modelId);
+    // The Composer's own lookup: the effort track reads the ticked row's catalog entry.
+    const levels = effortOptions({ kind: "claude", model, agentProbe, info: info[rows.find((r) => r.selected)?.key ?? ""], remembered: {} });
+    return { rows, ticked, levels: levels.levels.map((l) => l.id), defaultId: levels.defaultId, label: chipLabel("claude", model, rows, agentProbe, ran) };
+  };
+
+  it("ticks no row before anything has answered, and its effort and fast mode read nothing of Fable 5.1's", () => {
+    const { rows, ticked, levels, defaultId, label } = unpinned([]);
+    expect(ticked).toEqual([]);
+    expect(label).toBe("Default");
+    // Every level Claude Code takes, and its documented default, rather than Fable 5.1's two.
+    expect(levels).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(defaultId).toBe("high");
+    expect(fastModeAvailability({ kind: "claude", model: null, agentProbe: [], remembered: { "claude:claude-fable-5-1": true }, rows })).toEqual({ state: "unknown" });
+  });
+
+  it("ticks the model the session's handshake reported, and takes the effort levels from its row", () => {
+    const { ticked, levels, label } = unpinned([], "claude-opus-5-5[1m]");
+    expect(ticked).toEqual(["claude-opus-5-5"]);
+    expect(label).toBe("Opus 5.5");
+    expect(levels).toEqual(["low", "medium", "high", "xhigh"]);
+    // What ran beats what the probe marks, as it does on the chip.
+    const marked = [probe("claude", [{ id: "claude-opus-5-5", label: "Claude Opus 5.5" }, { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", isDefault: true }])];
+    expect(unpinned(marked, "claude-opus-5-5").ticked).toEqual(["claude-opus-5-5"]);
+  });
+
+  it("ticks the probe's marked default while nothing has run", () => {
+    const marked = [probe("claude", [{ id: "claude-fable-5-1", label: "Claude Fable 5.1" }, { id: "claude-opus-5-5", label: "Claude Opus 5.5", isDefault: true }])];
+    const { ticked, levels, label } = unpinned(marked);
+    expect(ticked).toEqual(["claude-opus-5-5"]);
+    expect(label).toBe("Opus 5.5");
+    expect(levels).toEqual(["low", "medium", "high", "xhigh"]);
+  });
+
+  it("ticks a pinned model as before, whatever the handshake reported", () => {
+    const { ticked, levels, label } = unpinned([], "claude-opus-5-5", "claude-fable-5-1");
+    expect(ticked).toEqual(["claude-fable-5-1"]);
+    expect(label).toBe("Fable 5.1");
+    expect(levels).toEqual(["low", "medium"]);
+  });
+
+  it("never offers the model that ran as its own fast-mode alternative", () => {
+    const { rows } = unpinned([], "claude-opus-5-5");
+    const fast = fastModeAvailability({ kind: "claude", model: null, init: { model: "claude-opus-5-5", supportsFastMode: false }, agentProbe: [],
+      remembered: { "claude:claude-opus-5-5": true, "claude:claude-sonnet-5": true }, rows });
+    expect(fast).toEqual({ state: "unavailable", source: "session", alternatives: ["Sonnet 5"] });
   });
 });
 

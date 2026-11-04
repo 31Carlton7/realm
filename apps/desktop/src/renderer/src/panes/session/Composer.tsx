@@ -1110,8 +1110,8 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
   // fast-mode answer all read the same rows: two independent `modelRows` calls could disagree about
   // which harness a model resolved to.
   const rows = useMemo(
-    () => modelRows({ kind, model: session.model, agentProbe, canSwitchAgent, handoff: handsOver, favorites: modelFavorites }),
-    [kind, session.model, agentProbe, canSwitchAgent, handsOver, modelFavorites]);
+    () => modelRows({ kind, model: session.model, agentProbe, canSwitchAgent, handoff: handsOver, favorites: modelFavorites, ran: sessionInit?.model ?? null }),
+    [kind, session.model, agentProbe, canSwitchAgent, handsOver, modelFavorites, sessionInit?.model]);
   /* The active model's context window, joined through the SAME canonical key the picker's rows use —
      the session stores a per-harness wire id (`gpt-5.3-codex[reasoning=medium]`), which no catalog is
      keyed by, so the selected ROW is the only thing that can bridge the two. Null whenever the

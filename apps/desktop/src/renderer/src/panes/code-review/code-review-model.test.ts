@@ -80,14 +80,17 @@ describe("the reviewer", () => {
     // GPT-6 Luna runs through Codex and through Cursor; a reviewer is offered Codex alone, so the
     // picker's row draws no Cursor route beside it. THE MUTANT: routes left as modelRows gave them.
     expect(rows.find((r) => r.label === "GPT-6 Luna")).toMatchObject({ kind: "codex", harnesses: ["codex"], alternates: [] });
-    // The pick is the one row ticked; the scripted agent's, added after, never is.
-    expect(rows.filter((r) => r.selected).map((r) => r.label)).toEqual(["Claude Fable 5.1"]);
+    // A pick of no model ticks nothing until something names the default; a pinned one is the one row
+    // ticked, and the scripted agent's, added after, never is.
+    expect(rows.filter((r) => r.selected)).toEqual([]);
+    const pinned = reviewerRows({ kind: "claude", model: "claude-opus-5-5", agentProbe: probe, favorites: [] });
+    expect(pinned.filter((r) => r.selected).map((r) => r.label)).toEqual(["Claude Opus 5.5"]);
   });
 
   it("lists the scripted agent once, and only where this Realm runs one", () => {
     expect(reviewerRows({ kind: "claude", model: null, agentProbe: probe.slice(0, 2), favorites: [] }).some((r) => r.kind === "fake")).toBe(false);
     const own = reviewerRows({ kind: "fake", model: null, agentProbe: probe, favorites: [] });
-    expect(own.filter((r) => r.kind === "fake").map((r) => [r.label, r.selected])).toEqual([["Fake", true]]);
+    expect(own.filter((r) => r.kind === "fake").map((r) => r.label)).toEqual(["Fake"]);
   });
 
   it("says why a review cannot start now, or nothing when it can", () => {
