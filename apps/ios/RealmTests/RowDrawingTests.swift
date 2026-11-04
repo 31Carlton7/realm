@@ -309,7 +309,7 @@ struct SessionRowTests {
         #expect(SessionRowView.spoken(lead(.idle, 0), now: now) == "Lead, 3 sub-agents, Realm, Claude, 2m ago")
         #expect(SessionRowView.spoken(lead(.idle, 1), now: now) == "Lead, 1 sub-agent needs you, Realm, Claude, 2m ago")
         // Its press-and-hold lists them; a row with none has no such action.
-        #expect(RowActions(row: lead(.idle, 0), connected: false).menu == [.pin, .rename, .archive, .subagents])
+        #expect(RowActions(row: lead(.idle, 0), connected: false).menu == [.pin, .rename, .archive, .fork, .moveToSpace, .switchAgent, .subagents, .delete])
         #expect(!RowActions(row: lead(.idle, 0), connected: false).isOff(.subagents))
         #expect(!RowActions(row: Self.row, connected: true).menu.contains(.subagents))
     }

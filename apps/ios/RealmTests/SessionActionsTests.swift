@@ -118,7 +118,7 @@ struct RowActionsTests {
         let actions = RowActions(row: Staged.relay, connected: true)
         #expect(actions.leading == [.pin])
         #expect(actions.trailing == [.archive, .rename])
-        #expect(actions.menu == [.pin, .rename, .archive])
+        #expect(actions.menu == [.pin, .rename, .archive, .fork, .moveToSpace, .switchAgent, .delete])
         #expect(actions.menu.allSatisfy { !actions.isOff($0) })
     }
 
@@ -127,13 +127,50 @@ struct RowActionsTests {
         let actions = RowActions(row: Staged.toggle.pinnedRow, connected: true)
         #expect(actions.leading == [.unpin])
         #expect(actions.trailing == [.archive, .rename, .stop])
-        #expect(actions.menu == [.unpin, .rename, .archive, .stop])
+        #expect(actions.menu == [.unpin, .rename, .archive, .fork, .moveToSpace, .switchAgent, .stop, .delete])
+    }
+
+    /// A teammate's chat is the teammate's: the desktop's menu for it neither forks, moves, switches nor
+    /// deletes it, so the phone's does not.
+    @Test func aTeammatesChatKeepsToItsRow() {
+        let actions = RowActions(row: Staged.toggle, connected: true, teammateChat: true)
+        #expect(actions.menu == [.pin, .rename, .archive, .stop])
+        #expect(actions.trailing == [.archive, .rename, .stop])
+    }
+
+    /// A sub-agent is its lead's: none of the four either, whether or not it runs.
+    @Test func aSubagentKeepsToItsRow() {
+        let child = { (status: SessionStatus) in
+            SessionRow(id: "child", title: "Read the relay", spaceId: "realm", spaceName: "Realm", agent: "claude", model: nil, status: status,
+                       needsYou: false, unread: false, updatedAt: 90, leadId: "lead")
+        }
+        #expect(RowActions(row: child(.idle), connected: true).menu == [.pin, .rename, .archive])
+        #expect(RowActions(row: child(.running), connected: true).menu == [.pin, .rename, .archive, .stop])
+    }
+
+    /// Delete is the last of a press-and-hold, never a swipe: a swipe would draw the row as gone.
+    @Test func deleteIsLastAndNeverASwipe() {
+        let actions = RowActions(row: Staged.toggle, connected: true)
+        #expect(actions.menu.last == .delete)
+        #expect(!actions.leading.contains(.delete) && !actions.trailing.contains(.delete))
+    }
+
+    /// Fork names the session's own agent first, "on", and each other one the Mac can run, "onto".
+    @Test func forkOffersTheOwnAgentFirstThenTheOthersItCanRun() {
+        let agent = { (kind: String, name: String, available: Bool) in
+            AgentOptions(kind: kind, name: name, mark: kind, available: available, note: nil, models: [], efforts: [], defaultEffort: nil,
+                         modes: [], permissions: [], steerNote: "")
+        }
+        let agents = [agent("codex", "Codex", true), agent("claude", "Claude", true), agent("gemini", "Gemini", false)]
+        #expect(ForkChoice.choices(for: Staged.relay, agents: agents).map(\.title) == ["Fork on Claude", "Fork onto Codex"])
+        #expect(ForkChoice.choices(for: Staged.relay, agents: agents).map(\.agent) == [nil, "codex"])
+        #expect(ForkChoice.choices(for: Staged.relay, agents: nil).map(\.title) == ["Fork on Claude"], "before the Mac says its agents")
     }
 
     /// Away from the Mac what changes its row is off; Stop keeps its place, and says why it cannot go.
     @Test func awayFromTheMacOnlyStopStaysOn() {
         let actions = RowActions(row: Staged.toggle, connected: false)
-        #expect([RowAction.pin, .rename, .archive].allSatisfy(actions.isOff))
+        #expect([RowAction.pin, .rename, .archive, .fork, .moveToSpace, .switchAgent, .delete].allSatisfy(actions.isOff))
         #expect(!actions.isOff(.stop))
     }
 

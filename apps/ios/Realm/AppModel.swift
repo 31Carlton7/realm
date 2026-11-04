@@ -16,6 +16,8 @@ enum Route: Hashable {
     case review(String)
     case scheduled
     case usage
+    /// The turns saved in the profile Home shows, as the desktop's Library ▸ Saved lists them.
+    case saved
     /// Every teammate of the profile Home shows, space by space.
     case team
 }
@@ -120,6 +122,12 @@ final class AppModel {
     var renaming: RenameDraft?
     /// The lead whose sub-agents' sheet a row's press-and-hold opened over Home, while it is up.
     var subagentsShown: String?
+    /// The session whose Move to space sheet is up.
+    var movingToSpace: SessionRow?
+    /// The session whose Switch agent sheet is up.
+    var switchingAgent: SessionRow?
+    /// The session Delete asks about, while its confirmation is up.
+    var deleting: SessionRow?
     /// The teammate whose Edit sheet is up.
     var teammateEditing: String?
     /// The space a New teammate sheet is up for.

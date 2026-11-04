@@ -342,7 +342,8 @@ struct SessionSettingsSheet: View {
 /// away with Done.
 struct SettingsSheetFrame<Content: View>: View {
     let title: String
-    let kind: String
+    /// The agent whose mark stands beside the title, or nil for a sheet about no one agent.
+    let kind: String?
     let mark: String?
     @ViewBuilder let content: Content
     @Environment(\.dismiss) private var dismiss
@@ -358,7 +359,7 @@ struct SettingsSheetFrame<Content: View>: View {
                 .toolbar {
                     ToolbarItem(placement: .principal) {
                         HStack(spacing: 6) {
-                            AgentMark(kind: kind, mark: mark, colored: true, size: 17, relativeTo: .headline)
+                            if let kind { AgentMark(kind: kind, mark: mark, colored: true, size: 17, relativeTo: .headline) }
                             Text(title)
                                 .font(.headline)
                                 .foregroundStyle(Palette.ink)
@@ -453,9 +454,34 @@ struct SettingsForm: View {
         }
     }
 
-    /// A choice: its name, a line under it where it needs one, and a check on the one chosen, which is a
-    /// spinner while the change is on its way.
     private func row(_ title: String, line: String?, chosen: Bool, busy: Bool, choose: @escaping () -> Void) -> some View {
+        ChoiceRow(title: title, line: line, chosen: chosen, busy: busy, choose: choose)
+    }
+
+    private func pick(_ changes: SessionChanges, _ setting: SessionSetting) {
+        picks += 1
+        choose(changes, setting)
+    }
+
+    private var effort: Binding<String?> {
+        Binding(get: { options.effort }, set: { pick(SessionChanges(effort: .some($0)), .effort) })
+    }
+
+    private var mode: Binding<SessionMode> {
+        Binding(get: { options.mode }, set: { pick(SessionChanges(mode: $0), .mode) })
+    }
+}
+
+/// A choice in a settings sheet: its name, a line under it where it needs one, and a check on the one
+/// chosen, which is a spinner while the change is on its way.
+struct ChoiceRow: View {
+    let title: String
+    let line: String?
+    let chosen: Bool
+    let busy: Bool
+    let choose: () -> Void
+
+    var body: some View {
         Button(action: choose) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -485,18 +511,5 @@ struct SettingsForm: View {
         .buttonStyle(.plain)
         .listRowBackground(Fill.card)
         .accessibilityAddTraits(chosen ? .isSelected : [])
-    }
-
-    private func pick(_ changes: SessionChanges, _ setting: SessionSetting) {
-        picks += 1
-        choose(changes, setting)
-    }
-
-    private var effort: Binding<String?> {
-        Binding(get: { options.effort }, set: { pick(SessionChanges(effort: .some($0)), .effort) })
-    }
-
-    private var mode: Binding<SessionMode> {
-        Binding(get: { options.mode }, set: { pick(SessionChanges(mode: $0), .mode) })
     }
 }

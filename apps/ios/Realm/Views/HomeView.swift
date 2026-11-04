@@ -233,7 +233,11 @@ extension SessionRow {
     var displayTitle: String { title.isEmpty ? "Untitled session" : title }
 
     /// A turn is under way, or waits on the person: Stop has something to stop.
-    var isWorking: Bool { status == .running || status == .waiting }
+    var isWorking: Bool { status.isWorking }
+}
+
+extension SessionStatus {
+    var isWorking: Bool { self == .running || self == .waiting }
 }
 
 /// What a row says about its session, at the end of its first line: the state a person would act on
