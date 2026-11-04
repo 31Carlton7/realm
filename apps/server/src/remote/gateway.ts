@@ -21,7 +21,15 @@ import type { MacIdentity, PairedPhone, PhoneStore } from "./store";
  * stream simply have no path out.
  */
 
-export type PushPayload = { kind: "permission" | "question" | "finished" | "failed" | "blocked" | "test"; title: string; body: string; session: string | null };
+export type PushPayload = {
+  kind: "permission" | "question" | "finished" | "failed" | "blocked" | "test"; title: string; body: string; session: string | null;
+  /** The request a permission push asks about, which its Allow and Deny answer. */
+  request?: string;
+  /** The notification category the phone files the push under, which says what it can answer from the
+   *  notification (PROTOCOL.md §4.3). Absent, the phone files it under its kind and offers nothing. */
+  category?: PushCategory;
+};
+export type PushCategory = "permission" | "permission.space" | "permission.site" | "reply";
 export type PushResult = { ok: boolean; status: number; reason: string | null };
 
 type Window = { id: string; secret: Buffer; expiresAt: number; url: string; timer: NodeJS.Timeout; expired: boolean };

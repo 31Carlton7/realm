@@ -296,6 +296,20 @@ A push is sealed by the Mac to one phone with the `push` prologue. Its payload i
  "title":"<string>","body":"<string>","session":"<sessionId>"|null}
 ```
 
+Two fields may follow, and a phone that does not know them ignores them:
+
+```
+"category":"permission"|"permission.space"|"permission.site"|"reply",   what the notification answers
+"request":"<requestId>"                                                  the request Allow and Deny answer
+```
+
+- `permission` offers Allow, Allow always and Deny, the desktop card's answers. `permission.space` names
+  Allow always "Always allow in this space" (`computer_act`), and `permission.site` names it "Always allow
+  on this site" (a password filled on its own site). Each answers with `session.answer`.
+- `reply` takes a message for `session`, sent with `session.send`.
+- Absent, the push is filed under its `kind` and answered in the app: a question, a plan, a blocked run,
+  a test, or a push from a Mac before this field.
+
 The receiver drops any id it has already seen, and anything whose `at` is more than 24 h old.
 
 ## 5. Transport framing

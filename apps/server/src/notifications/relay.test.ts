@@ -128,7 +128,21 @@ describe("the phone transport (Plan 28)", () => {
     const [row] = service.list({ cursor: null, limit: 10 }).notifications.filter((n) => n.category === "permission");
     // Once — an absorbed repeat is one story — and never for a category a person need not come back for.
     expect(phone.sent).toEqual([{ category: "permission", title: "Fix the login flow", body: "Run ls", spaceName: null,
-      id: row!.id, refId: "req-1", sessionId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" }]);
+      id: row!.id, refId: "req-1", sessionId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", tool: { name: "Bash", onSite: false } }]);
+  });
+
+  it("names the tool a permission would run, and a password filled on its own site, for the notification's answers", () => {
+    const { phone, service } = setup();
+    const fill = (requestId: string, input: Record<string, unknown>) =>
+      sessionEvent("permission_request", { requestId, toolName: "browser_fill_credential", input, title: "Fill your password", suggestions: [] });
+    service.handleSessionEvent(session(), fill("req-site", { page: "https://github.com/login" }));
+    service.handleSessionEvent(session(), fill("req-new", { generate: true }));
+    service.handleSessionEvent(session({ status: "running" }), sessionEvent("status", { status: "idle" }));
+    expect(phone.sent.map((n) => n.tool ?? null)).toEqual([
+      { name: "browser_fill_credential", onSite: true },
+      { name: "browser_fill_credential", onSite: false },
+      null,
+    ]);
   });
 
   it("says what the row cannot: that a request is a question, what it asks, and that a turn failed", () => {

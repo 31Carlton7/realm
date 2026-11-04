@@ -10,8 +10,14 @@ public struct PushPayload: Codable, Sendable, Equatable {
     public let title: String
     public let body: String
     public let session: String?
+    /// The request a permission push asks about, which its Allow and Deny answer. Absent from a Mac
+    /// before notification answers.
+    public let request: String?
+    /// What the notification answers (`NotificationAnswer.categories`). Absent, it answers nothing.
+    public let category: String?
 
-    public init(v: Int = 1, id: String, at: Millis, kind: String, title: String, body: String, session: String?) {
+    public init(v: Int = 1, id: String, at: Millis, kind: String, title: String, body: String, session: String?,
+                request: String? = nil, category: String? = nil) {
         self.v = v
         self.id = id
         self.at = at
@@ -19,6 +25,8 @@ public struct PushPayload: Codable, Sendable, Equatable {
         self.title = title
         self.body = body
         self.session = session
+        self.request = request
+        self.category = category
     }
 }
 

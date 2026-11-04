@@ -23,13 +23,11 @@ final class NotificationService: UNNotificationServiceExtension {
               let rewritten = content.mutableCopy() as? UNMutableNotificationContent else { return nil }
         rewritten.title = payload.title
         rewritten.body = payload.body
-        // The kind names the category the app registered, which says what the moment is when
-        // previews are hidden.
-        rewritten.categoryIdentifier = payload.kind
-        if let session = payload.session {
-            rewritten.threadIdentifier = session
-            rewritten.userInfo["session"] = session
-        }
+        // The category the app registered for it: what the moment is when previews are hidden, and the
+        // answers it offers. Those answer with the session and the request left in `userInfo`.
+        rewritten.categoryIdentifier = NotificationAnswer.category(of: payload)
+        if let session = payload.session { rewritten.threadIdentifier = session }
+        for (key, value) in NotificationAnswer.userInfo(of: payload) { rewritten.userInfo[key] = value }
         return rewritten
     }
 }

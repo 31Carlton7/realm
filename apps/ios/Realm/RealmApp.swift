@@ -51,9 +51,25 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         [.banner, .list, .sound]
     }
 
-    /// A tap on a notification opens its session. The extension leaves the session's id in `userInfo`.
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        let session = response.notification.request.content.userInfo["session"] as? String
-        await MainActor.run { model.show(session: session) }
+    /// A tap on a notification opens its session; Allow, Deny or Reply on it answers without opening the
+    /// app. The extension leaves the session's id, and a request's, in `userInfo`.
+    ///
+    /// The completion is called on the main thread: UIKit takes the app's snapshot when it is called, and
+    /// the async form of this method calls it from wherever the task ended.
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                            withCompletionHandler completionHandler: @escaping @Sendable () -> Void) {
+        let content = response.notification.request.content
+        let answer = NotificationAnswer(action: response.actionIdentifier, userInfo: content.userInfo,
+                                        text: (response as? UNTextInputNotificationResponse)?.userText)
+        let tapped = response.actionIdentifier == UNNotificationDefaultActionIdentifier
+        let session = content.userInfo["session"] as? String, title = content.title
+        Task { @MainActor in
+            if let answer {
+                await model.send(answer, titled: title)
+            } else if tapped {
+                model.show(session: session)
+            }
+            completionHandler()
+        }
     }
 }

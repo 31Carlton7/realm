@@ -7,7 +7,7 @@ import { openDatabase } from "../db/database";
 import type { RelayedNotification } from "../notifications/relay";
 import { SettingsStore } from "../store/settings";
 import type { PushPayload } from "./gateway";
-import { collapseId, PhonePushes, PUSH_HOLD_MS, pushLine, stillWaiting } from "./push";
+import { collapseId, PhonePushes, PUSH_HOLD_MS, pushCategory, pushLine, stillWaiting } from "./push";
 
 type Sent = { phoneId: string; payload: PushPayload; o: { urgent: boolean; collapse: string | null; badge: number | null } };
 
@@ -36,11 +36,13 @@ function rig(o: { phones?: string[]; away?: boolean } = {}) {
     titleOf: (id) => (id === SESSION ? "Fix the login flow" : null),
   });
   /** A surfaced feed row, and what the relay hands the phone transport for it. */
-  const moment = (n: Partial<Notification> & Pick<Notification, "id" | "category">, hint?: RelayedNotification["hint"]): RelayedNotification => {
+  const moment = (n: Partial<Notification> & Pick<Notification, "id" | "category">, hint?: RelayedNotification["hint"],
+    tool?: RelayedNotification["tool"]): RelayedNotification => {
     const row: Notification = { spaceId: null, sessionId: SESSION, refId: `ref-${n.id}`, title: "Untitled session", body: "Allow Bash?", createdAt: 0, readAt: null,
       actedAt: n.category === "session_done" ? 1 : null, ...n };
     rows.set(row.id, row);
-    return { category: row.category, title: row.title, body: row.body, id: row.id, refId: row.refId, sessionId: row.sessionId, ...(hint ? { hint } : {}) };
+    return { category: row.category, title: row.title, body: row.body, id: row.id, refId: row.refId, sessionId: row.sessionId, ...(hint ? { hint } : {}),
+      ...(tool ? { tool } : {}) };
   };
   return { sent, rows, settings, presence, pushes, moment, phones };
 }
@@ -55,6 +57,8 @@ describe("pushes to a paired phone (Plan 28, When the phone buzzes)", () => {
     await vi.runOnlyPendingTimersAsync();
     expect(r.sent.map((s) => s.phoneId)).toEqual(["phoneA", "phoneB"]);
     expect(r.sent[0]!.payload).toEqual({ kind: "permission", title: "Fix the login flow", body: "Allow Bash?", session: SESSION });
+    // A moment from a Mac that did not say which tool asked offers no answers on the notification.
+    expect(r.sent[0]!.payload).not.toHaveProperty("category");
     expect(r.sent[0]!.o).toEqual({
       urgent: true,
       // The feed's own dedup key, hashed: a repeat replaces the push before it, and the relay learns nothing.
@@ -146,6 +150,41 @@ describe("pushes to a paired phone (Plan 28, When the phone buzzes)", () => {
     vi.advanceTimersByTime(PUSH_HOLD_MS);
     r.presence.set(true);
     expect(r.sent).toEqual([]);
+  });
+});
+
+describe("what a push's notification answers", () => {
+  it("a permission carries its request and the desktop card's answers; a finished or failed turn takes a reply", () => {
+    const r = rig({ away: true, phones: ["phoneA"] });
+    r.pushes.send(r.moment({ id: "p", category: "permission", refId: "req-1" }, undefined, { name: "Bash", onSite: false }));
+    r.pushes.send(r.moment({ id: "d", category: "session_done", refId: SESSION, body: "Finished a turn" }));
+    r.pushes.send(r.moment({ id: "f", category: "session_done", refId: SESSION, body: "Failed" }, { kind: "failed" }));
+    expect(r.sent.map((s) => ({ category: s.payload.category, request: s.payload.request }))).toEqual([
+      { category: "permission", request: "req-1" },
+      { category: "reply", request: undefined },
+      { category: "reply", request: undefined },
+    ]);
+    expect(r.sent[0]!.payload).toEqual({ kind: "permission", title: "Fix the login flow", body: "Allow Bash?", session: SESSION,
+      category: "permission", request: "req-1" });
+    expect(r.sent[1]!.payload).not.toHaveProperty("request");
+  });
+
+  it("names Allow always's scope as the desktop card does: a space for computer_act, a site for a password on its own page", () => {
+    const at = (name: string, onSite = false) => pushCategory({ sessionId: SESSION, refId: "req-1", tool: { name, onSite } }, "permission");
+    expect(at("Bash")).toBe("permission");
+    expect(at("computer_act")).toBe("permission.space");
+    expect(at("browser_fill_credential", true)).toBe("permission.site");
+    expect(at("browser_fill_credential", false)).toBe("permission");
+  });
+
+  it("leaves to the app what a notification cannot answer: a plan, a question, a blocked run, and anything without a session", () => {
+    const tool = { name: "Bash", onSite: false };
+    expect(pushCategory({ sessionId: SESSION, refId: "req-1", tool: { name: "ExitPlanMode", onSite: false } }, "permission")).toBeNull();
+    expect(pushCategory({ sessionId: SESSION, refId: "req-1", tool: { name: "AskUserQuestion", onSite: false } }, "question")).toBeNull();
+    expect(pushCategory({ sessionId: SESSION, refId: "run-1" }, "blocked")).toBeNull();
+    expect(pushCategory({ sessionId: null, refId: "req-1", tool }, "permission")).toBeNull();
+    expect(pushCategory({ sessionId: SESSION, refId: null, tool }, "permission")).toBeNull();
+    expect(pushCategory({ sessionId: null, refId: "run-1" }, "finished")).toBeNull();
   });
 });
 

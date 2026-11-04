@@ -79,7 +79,7 @@ export class NotificationsService {
 
   /** The one write path — dedup rule, toggle check, broadcast. */
   private notify(input: { category: NotificationCategory; spaceId: string | null; sessionId: string | null; refId: string | null; title: string; body: string | null; acted: boolean;
-    hint?: RelayedNotification["hint"] }): void {
+    hint?: RelayedNotification["hint"]; tool?: RelayedNotification["tool"] }): void {
     if (!this.enabled(input.category)) return;
     let surfaced: Notification | null = null;
     const open = input.refId ? this.d.store.findOpen(input.category, input.refId) : null;
@@ -97,7 +97,8 @@ export class NotificationsService {
     // lunchtime. The category gate lives in the relay, beside the destinations it reads.
     if (surfaced) this.d.relay?.send({ category: input.category, title: input.title, body: input.body,
       spaceName: input.spaceId ? this.d.spaces?.get(input.spaceId)?.name ?? null : null,
-      id: surfaced.id, refId: surfaced.refId, sessionId: surfaced.sessionId, ...(input.hint ? { hint: input.hint } : {}) });
+      id: surfaced.id, refId: surfaced.refId, sessionId: surfaced.sessionId, ...(input.hint ? { hint: input.hint } : {}),
+      ...(input.tool ? { tool: input.tool } : {}) });
   }
 
   /** Stamp a key's open row resolved (if any) and say how it ended. */
@@ -122,8 +123,10 @@ export class NotificationsService {
       // A phone shows a question as the question itself, not as "Allow AskUserQuestion?".
       const asked = ev.payload.ask?.questions[0]?.prompt;
       const question = ev.payload.ask !== undefined || ev.payload.toolName === "AskUserQuestion";
+      const onSite = ev.payload.toolName === "browser_fill_credential" && typeof (ev.payload.input as { page?: unknown } | null)?.page === "string";
       this.notify({ category: "permission", spaceId: session.spaceId, sessionId: session.id, refId: ev.payload.requestId,
         title: this.askerTitle(session), body: ev.payload.title || ev.payload.toolName, acted: false,
+        tool: { name: ev.payload.toolName, onSite },
         ...(question ? { hint: { kind: "question" as const, ...(asked ? { line: asked } : {}) } } : {}) });
       return;
     }

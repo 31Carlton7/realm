@@ -988,6 +988,7 @@ struct AppResourceTests {
     }
 
     @Test func everyKindOfPushHasACategory() {
-        #expect(Set(NotificationKinds.categories.map(\.identifier)) == ["permission", "question", "finished", "failed", "blocked", "test"])
+        #expect(Set(NotificationKinds.categories.map(\.identifier)) == ["permission", "question", "finished", "failed", "blocked", "test",
+                                                                          "permission.space", "permission.site", "reply"])
     }
 }
