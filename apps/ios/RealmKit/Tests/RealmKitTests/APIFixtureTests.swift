@@ -40,7 +40,7 @@ struct APIFixtureTests {
         #expect(first.agentMark == "claude")
         #expect(first.modelLabel == "Opus 5.5")
         #expect(first.modelDisplayName == "Opus 5.5")
-        #expect(home.needsYou[1].modelDisplayName == "GPT-5.6", "a model nobody pinned is named by its default")
+        #expect(home.needsYou[1].modelDisplayName == "GPT-6 Astra", "a model nobody pinned is named by the default its CLI marks")
         #expect(home.spaces.map(\.iconKind) == [.glyph, .emoji, .picture])
         #expect(home.spaces[0].glyph == "code")
         #expect(home.spaces[1].emoji == "🌊")

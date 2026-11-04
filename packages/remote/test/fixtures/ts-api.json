@@ -39,7 +39,7 @@
           "updatedAt": 1790000100000,
           "agentName": "Codex",
           "agentMark": "openai",
-          "modelLabel": "GPT-5.6",
+          "modelLabel": "GPT-6 Astra",
           "createdAt": 1789900000000,
           "effort": null,
           "permissionMode": "default",
@@ -182,7 +182,7 @@
               "updatedAt": 1790000100000,
               "agentName": "Codex",
               "agentMark": "openai",
-              "modelLabel": "GPT-5.6",
+              "modelLabel": "GPT-6 Astra",
               "createdAt": 1789900000000,
               "effort": null,
               "permissionMode": "default",
@@ -279,7 +279,7 @@
           "updatedAt": 1790000100000,
           "agentName": "Codex",
           "agentMark": "openai",
-          "modelLabel": "GPT-5.6",
+          "modelLabel": "GPT-6 Astra",
           "createdAt": 1789900000000,
           "effort": null,
           "permissionMode": "default",
@@ -466,7 +466,7 @@
           "updatedAt": 1790000100000,
           "agentName": "Codex",
           "agentMark": "openai",
-          "modelLabel": "GPT-5.6",
+          "modelLabel": "GPT-6 Astra",
           "createdAt": 1789900000000,
           "effort": null,
           "permissionMode": "default",
@@ -609,7 +609,7 @@
               "updatedAt": 1790000100000,
               "agentName": "Codex",
               "agentMark": "openai",
-              "modelLabel": "GPT-5.6",
+              "modelLabel": "GPT-6 Astra",
               "createdAt": 1789900000000,
               "effort": null,
               "permissionMode": "default",
@@ -686,7 +686,7 @@
           "updatedAt": 1790000100000,
           "agentName": "Codex",
           "agentMark": "openai",
-          "modelLabel": "GPT-5.6",
+          "modelLabel": "GPT-6 Astra",
           "createdAt": 1789900000000,
           "effort": null,
           "permissionMode": "default",
@@ -1703,7 +1703,7 @@
         "models": [
           {
             "id": null,
-            "label": "GPT-5.6",
+            "label": "GPT-6 Astra",
             "efforts": [
               {
                 "id": "low",
@@ -1795,7 +1795,7 @@
         "steerNote": "Sends now, into the turn Codex is already running. Nothing is interrupted."
       },
       "model": null,
-      "modelLabel": "GPT-5.6",
+      "modelLabel": "GPT-6 Astra",
       "effort": null,
       "permissionMode": "default",
       "midTurn": "steer",
@@ -2105,7 +2105,7 @@
         "models": [
           {
             "id": null,
-            "label": "GPT-5.6",
+            "label": "GPT-6 Astra",
             "efforts": [
               {
                 "id": "low",
@@ -2197,7 +2197,7 @@
         "steerNote": "Sends now, into the turn Codex is already running. Nothing is interrupted."
       },
       "model": null,
-      "modelLabel": "GPT-5.6",
+      "modelLabel": "GPT-6 Astra",
       "effort": null,
       "permissionMode": "plan",
       "midTurn": "steer",
@@ -2477,7 +2477,7 @@
           "models": [
             {
               "id": null,
-              "label": "GPT-5.6",
+              "label": "GPT-6 Astra",
               "efforts": [
                 {
                   "id": "low",

@@ -39,8 +39,8 @@ struct ComposerFixtureTests {
     @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
     func theDefaultIsARowWithoutAnIdAndAnAgentWithoutRungsHasNone() throws {
         let codex = try Self.options("session.options:codex")
-        #expect(codex.model == nil && codex.modelLabel == "GPT-5.6")
-        #expect(codex.currentModel == ModelChoice(id: nil, label: "GPT-5.6", efforts: codex.currentModel?.efforts,
+        #expect(codex.model == nil && codex.modelLabel == "GPT-6 Astra")
+        #expect(codex.currentModel == ModelChoice(id: nil, label: "GPT-6 Astra", efforts: codex.currentModel?.efforts,
                                                   defaultEffort: codex.currentModel?.defaultEffort))
         #expect(codex.agent.steerNote == "Sends now, into the turn Codex is already running. Nothing is interrupted.")
         let cursor = try Self.options("session.options:cursor")
