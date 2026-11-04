@@ -174,6 +174,7 @@ function VoiceWindow({ sessionId, held }: { sessionId: string; held: boolean }) 
         </button>
         {canStop ? (
           <button type="button" className="voice-talk" aria-label="Stop" title="Stop (Esc)" onClick={() => void vs?.interrupt()}>
+            {/* off-ladder: the one primary control, a 64-px disc, sized as the voice view's and not a row's. */}
             <Icon name="stop" size={24} />
           </button>
         ) : (
@@ -182,6 +183,7 @@ function VoiceWindow({ sessionId, held }: { sessionId: string; held: boolean }) 
             onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); vs?.press(); }}
             onPointerUp={() => vs?.release()} onPointerCancel={() => vs?.release()}
             onKeyDown={(e) => { if (e.key === "Enter") vs?.press(); }} onKeyUp={(e) => { if (e.key === "Enter") vs?.release(); }}>
+            {/* off-ladder: the one primary control, a 64-px disc, sized as the voice view's and not a row's. */}
             <Icon name="mic" size={24} />
           </button>
         )}

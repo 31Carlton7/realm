@@ -1330,6 +1330,9 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // the room it leaves under the last row (`slack`): both read off the laid-out list at the pick.
       // Used with 0px fallbacks, so a held picker that never receives them is merely unpadded.
       "--mp-floor", "--mp-slack",
+      // A voice mode bar's height (voice/VoiceView.tsx), 0–1, set on each bar every frame from the
+      // voice it follows.
+      "--level",
     ]);
     const used = new Set([...css.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]!));
     expect([...used].filter((n) => !defined.has(n) && !n.startsWith("--dsg-")).sort()).toEqual([]);

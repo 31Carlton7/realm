@@ -106,7 +106,7 @@ describe("macOS consent packaging (Settings → Permissions can only work if the
     // The mutant: Electron's boilerplate ("This app needs access to …"), which tells nobody anything.
     expect(builder).not.toMatch(/This app needs access to/);
     const strings = builder.match(/NS\w+UsageDescription: >-\n(?:\s{6}.+\n)+/g) ?? [];
-    expect(strings).toHaveLength(7);
+    expect(strings).toHaveLength(8);
     for (const s of strings) expect(s).toContain("Realm");
   });
 
