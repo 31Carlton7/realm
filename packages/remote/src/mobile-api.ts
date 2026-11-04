@@ -170,10 +170,18 @@ export const RowSchema = z.discriminatedUnion("kind", [
     ...rowBase, kind: z.literal("user"), text: z.string(),
     /** What was sent with it, each file by its path on the Mac, which `session.file` previews. */
     attachments: z.array(z.object({ path: z.string(), name: z.string(), mime: z.string() })).optional(),
+    /** Another teammate wrote it, with `team_message`: its words stand under that teammate, not in the
+     *  person's bubble. */
+    teammateId: Id.optional(),
   }),
   z.object({ ...rowBase, kind: z.literal("assistant"), text: z.string(), streaming: z.boolean() }),
   z.object({ ...rowBase, kind: z.literal("thinking"), text: z.string() }),
-  z.object({ ...rowBase, kind: z.literal("tool"), name: z.string(), summary: z.string(), state: z.enum(["running", "done", "error"]), detail: z.string().nullable() }),
+  z.object({
+    ...rowBase, kind: z.literal("tool"), name: z.string(), summary: z.string(), state: z.enum(["running", "done", "error"]), detail: z.string().nullable(),
+    /** A message to a teammate (`team_message`): the teammate it went to, by its id where the space has
+     *  it, and the words, without the "From @handle: " put in front of them for the agent. */
+    teammate: z.object({ id: Id.nullable(), handle: z.string(), message: z.string() }).optional(),
+  }),
   z.object({
     ...rowBase, kind: z.literal("request"), requestId: z.string(), tool: z.string(), title: z.string(), summary: z.string(),
     state: z.enum(["pending", "allowed", "denied"]), questions: z.array(QuestionSchema).nullable(),
@@ -237,6 +245,9 @@ export const SubagentSchema = z.object({
 });
 export type Subagent = z.infer<typeof SubagentSchema>;
 
+/** A teammate's mark: a shape and a colour, each by the desktop's name for it. */
+const TeammateIconSchema = z.object({ shape: z.string().min(1).max(40), color: z.string().min(1).max(40) });
+
 /** A space's teammate, as its Team list names it. */
 export const TeammateSchema = z.object({
   id: Id,
@@ -249,6 +260,24 @@ export const TeammateSchema = z.object({
   lead: z.boolean(),
   /** Its chat, when it has one; `teammate.chat` makes one for a teammate that has none. */
   chatId: Id.nullable(),
+  /** Its mark, by the desktop's names: one of its eight shapes in one of its twelve colours. */
+  icon: TeammateIconSchema.optional(),
+  /** As its sidebar row's dot says it: idle, working, or waiting on the person. */
+  state: z.enum(["idle", "working", "needs-you"]).optional(),
+  /** When that state began. Null while idle. */
+  stateSince: z.number().nullable().optional(),
+  /** Its chat has something the person has not read. */
+  unread: z.boolean().optional(),
+  /** What it is doing: the title of its live task session, else of the newest one it started. Null
+   *  for a teammate that has started none. */
+  activity: z.string().nullable().optional(),
+  /** When that session last moved. */
+  activityAt: z.number().nullable().optional(),
+  /** What it runs on and how freely, as its Edit sheet chooses them. */
+  agentKind: z.string().optional(),
+  model: z.string().nullable().optional(),
+  effort: z.string().nullable().optional(),
+  permissionMode: z.string().optional(),
 });
 export type Teammate = z.infer<typeof TeammateSchema>;
 /** What a session's info sheet says beyond its row. Every part is optional: a Mac leaves out what it
@@ -563,6 +592,22 @@ export const MobileCalls = {
   "teammate.chat": { params: z.object({ id: Id }), result: z.object({ id: Id }) },
   /** Where a session runs, what it has cost, and its files: what its info sheet says beyond its row. */
   "session.info": { params: z.object({ id: Id }), result: SessionInfoSchema },
+  /** A change to a teammate from its Edit sheet; anything left out keeps its value. */
+  "teammate.update": {
+    params: z.object({
+      id: Id,
+      name: z.string().trim().min(1).max(60).optional(),
+      brief: z.string().trim().max(20_000).optional(),
+      icon: TeammateIconSchema.optional(),
+      agentKind: z.string().min(1).max(64).optional(),
+      /** Null for the agent's own default. */
+      model: z.string().min(1).max(200).nullable().optional(),
+      effort: z.string().min(1).max(64).nullable().optional(),
+      permissionMode: z.enum(["default", "acceptEdits", "bypassPermissions"]).optional(),
+      lead: z.boolean().optional(),
+    }),
+    result: z.object({ teammate: TeammateSchema }),
+  },
   /** Every agent's plan limits, and this month's spend. */
   "usage.get": { params: z.object({}), result: z.object({ limits: z.array(PlanLimitsSchema), spend: SpendSchema }) },
   /** What teams have handed back for review and is still open, across every space, newest first. */

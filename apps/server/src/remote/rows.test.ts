@@ -242,6 +242,38 @@ describe("the phone's rows", () => {
     expect(row?.kind === "user" && row.attachments?.map((a) => a.path)).toEqual(sent);
   });
 
+  it("draws a message to a teammate as that teammate, by the server's own reading of `to`, without the prefix its words were sent with", () => {
+    const p = new SessionProjector();
+    p.knowTeam([{ id: "id-cto", handle: "cto", lead: true }, { id: "id-designer", handle: "designer", lead: false }]);
+    p.apply(persisted(sessionEvent("tool_call", { toolUseId: "t1", name: "mcp__realm__realm-team__team_message", input: { to: "@Designer", message: "From @cto: From @cto: Ship the icons" }, parentToolUseId: null })));
+    p.apply(persisted(sessionEvent("tool_call", { toolUseId: "t2", name: "team_message", input: { to: "lead", message: "Done" }, parentToolUseId: null })));
+    p.apply(persisted(sessionEvent("tool_call", { toolUseId: "t3", name: "team_message", input: { to: "intern", message: "Hi" }, parentToolUseId: null })));
+    p.apply(persisted(sessionEvent("tool_call", { toolUseId: "t4", name: "team_list", input: {}, parentToolUseId: null })));
+    // THE MUTANTS: `@Designer` read as written, `lead` left unresolved, the prefix kept, or another tool given a teammate.
+    expect(p.all().map((r) => (r.kind === "tool" ? r.teammate ?? null : r.kind))).toEqual([
+      { id: "id-designer", handle: "designer", message: "Ship the icons" },
+      { id: "id-cto", handle: "cto", message: "Done" },
+      { id: null, handle: "intern", message: "Hi" },
+      null,
+    ]);
+    p.apply(persisted(sessionEvent("tool_result", { toolUseId: "t1", content: "Sent to @designer", isError: false })));
+    p.apply(persisted(sessionEvent("tool_result", { toolUseId: "t3", content: "No teammate @intern", isError: true })));
+    // A refused one is the tool call it was, with its error; an answered one is still the teammate.
+    expect(p.all()[0]).toMatchObject({ state: "done", teammate: { id: "id-designer" } });
+    expect(p.all()[2]).toMatchObject({ state: "error", detail: "No teammate @intern" });
+    expect(p.all()[2]).not.toHaveProperty("teammate");
+    for (const row of p.all()) expect(RowSchema.safeParse(row).success).toBe(true);
+  });
+
+  it("draws another teammate's message in a chat as that teammate's words, and the person's own as theirs", () => {
+    const p = new SessionProjector();
+    p.apply(persisted(sessionEvent("user_message", { text: "From @cto: Look at the plan", attachments: [], from: { sessionId: "cto-chat", title: "CTO", teammateId: "id-cto" } })));
+    p.apply(persisted(sessionEvent("user_message", { text: "From @cto: is how it starts", attachments: [] })));
+    // THE MUTANTS: the sender dropped, or the person's own words that happen to start so cut short.
+    expect(p.all()).toMatchObject([{ kind: "user", text: "Look at the plan", teammateId: "id-cto" }, { kind: "user", text: "From @cto: is how it starts" }]);
+    expect(p.all()[1]).not.toHaveProperty("teammateId");
+  });
+
   it("names a tool call by what it touches", () => {
     expect(summarize("Read", { file_path: "/a/b.ts" })).toBe("/a/b.ts");
     // A long path loses its folders, never its file's name, which is what the phone's line shows.

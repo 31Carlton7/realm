@@ -1048,8 +1048,29 @@
           "detail": "Tests  12 passed"
         },
         {
-          "key": "r:q-open",
+          "key": "u:6",
           "seq": 6,
+          "kind": "user",
+          "text": "Settle the toggle with the designer first",
+          "teammateId": "01JTEAMMATE000000000000001"
+        },
+        {
+          "key": "t:t-team",
+          "seq": 7,
+          "kind": "tool",
+          "name": "mcp__realm__realm-team__team_message",
+          "summary": "@designer",
+          "state": "running",
+          "detail": null,
+          "teammate": {
+            "id": "01JTEAMMATE000000000000002",
+            "handle": "designer",
+            "message": "Is the toggle's design settled?"
+          }
+        },
+        {
+          "key": "r:q-open",
+          "seq": 8,
           "kind": "request",
           "requestId": "q-open",
           "tool": "mcp__linear__create_issue",
@@ -1132,7 +1153,7 @@
         },
         {
           "key": "r:q-done",
-          "seq": 8,
+          "seq": 10,
           "kind": "request",
           "requestId": "q-done",
           "tool": "mcp__linear__create_issue",
@@ -1224,7 +1245,7 @@
         },
         {
           "key": "p:p1",
-          "seq": 9,
+          "seq": 11,
           "kind": "plan",
           "text": null,
           "steps": [
@@ -1240,7 +1261,7 @@
         },
         {
           "key": "r:x1",
-          "seq": 10,
+          "seq": 12,
           "kind": "request",
           "requestId": "x1",
           "tool": "ExitPlanMode",
@@ -1263,21 +1284,21 @@
           }
         },
         {
-          "key": "e:11",
-          "seq": 11,
+          "key": "e:13",
+          "seq": 13,
           "kind": "notice",
           "text": "Context compacted"
         },
         {
           "key": "c:01JCHECKPOINT0000000000000",
-          "seq": 12,
+          "seq": 14,
           "kind": "notice",
           "text": "Changed 2 files: theme.ts, new-name.ts",
           "checkpointId": "01JCHECKPOINT0000000000000"
         },
         {
           "key": "m:7",
-          "seq": 13,
+          "seq": 15,
           "kind": "notice",
           "text": "Made 3 files: slide.png, notes.md, walkthrough.mp4",
           "files": [
@@ -1296,8 +1317,8 @@
           ]
         },
         {
-          "key": "e:14",
-          "seq": 14,
+          "key": "e:16",
+          "seq": 16,
           "kind": "error",
           "text": "Claude hit its usage limit",
           "hint": "Continue on Codex"
@@ -2960,7 +2981,20 @@
           "handle": "cto",
           "brief": "Owns the architecture and reviews every migration.",
           "lead": true,
-          "chatId": "01JCTOCHAT0000000000000000"
+          "chatId": "01JCTOCHAT0000000000000000",
+          "icon": {
+            "shape": "hexagon",
+            "color": "violet"
+          },
+          "state": "working",
+          "stateSince": 1790000100000,
+          "unread": false,
+          "activity": "Review the theme migration",
+          "activityAt": 1790000200000,
+          "agentKind": "claude",
+          "model": "claude-opus-5-5",
+          "effort": "high",
+          "permissionMode": "acceptEdits"
         },
         {
           "id": "01JTEAMMATE000000000000002",
@@ -2969,7 +3003,20 @@
           "handle": "designer",
           "brief": "Keeps the app and the site on one design.",
           "lead": false,
-          "chatId": null
+          "chatId": null,
+          "icon": {
+            "shape": "cloud",
+            "color": "teal"
+          },
+          "state": "idle",
+          "stateSince": null,
+          "unread": true,
+          "activity": "Icon set",
+          "activityAt": 1789990000000,
+          "agentKind": "codex",
+          "model": null,
+          "effort": null,
+          "permissionMode": "default"
         }
       ]
     },
@@ -3027,6 +3074,30 @@
           "at": 1790000000000
         }
       ]
+    },
+    "teammate.update": {
+      "teammate": {
+        "id": "01JTEAMMATE000000000000002",
+        "spaceId": "sp1",
+        "name": "Design lead",
+        "handle": "designer",
+        "brief": "Keeps the app and the site on one design.",
+        "lead": false,
+        "chatId": null,
+        "icon": {
+          "shape": "flower",
+          "color": "pink"
+        },
+        "state": "idle",
+        "stateSince": null,
+        "unread": true,
+        "activity": "Icon set",
+        "activityAt": 1789990000000,
+        "agentKind": "codex",
+        "model": "gpt-5.5",
+        "effort": null,
+        "permissionMode": "bypassPermissions"
+      }
     },
     "usage.get": {
       "limits": [

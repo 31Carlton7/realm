@@ -455,7 +455,7 @@ export class RemoteGateway {
         for (const c of this.channels.values()) if (c.ctx.sessions.has(p.sessionId)) this.subagentsChanged(c, p.sessionId);
         return;
       }
-      case "spaces.changed": case "items.changed": case "notifications.changed":
+      case "spaces.changed": case "items.changed": case "notifications.changed": case "teammates.changed":
         this.homeChanged();
         return;
       case "schedules.changed": case "runs.changed":

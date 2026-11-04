@@ -3,13 +3,13 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import {
   AGENT_META, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, isSecretPath, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, readEffortSupport,
-  resolveMidTurnMode, SELECTABLE_AGENT_KINDS, type AgentKind, type DelegatedChild, type IconAsset, type Item, type Machine, type MethodResult, type ModelInfo,
-  type PendingMove, type QueuedPrompt, type Schedule, type Session, type Space, type StoredSessionEvent, type TurnChanges,
+  resolveMidTurnMode, SELECTABLE_AGENT_KINDS, TeammateIconSchema, type AgentKind, type DelegatedChild, type IconAsset, type Item, type Machine, type MethodResult, type ModelInfo,
+  type PendingMove, type QueuedPrompt, type Schedule, type Session, type Space, type StoredSessionEvent, type Teammate, type TurnChanges,
 } from "@realm/contracts";
 import { givenAttachmentName, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
 import {
   MobileCalls, RECENT_LIMIT, SEND_LIMITS, type Home, type MobileErrorCode, type MobileMethod, type MobileParams, type MobileResult, type MoveOptions, type QueuedMessage,
-  type ScheduledTask, type Screen, type SessionOptions, type SessionRow, type Subagent,
+  type ScheduledTask, type Screen, type SessionOptions, type SessionRow, type Subagent, type Teammate as PhoneTeammate,
 } from "@realm/remote";
 import {
   FALLBACK_AGENT, isChild, isLive, LAST_AGENT_SETTING, modelLabel, needsYou, nestChildren, QUICK_CHAT_SETTING, quickChatIdOf, subagentState, upcomingOrder, type NeedsYouState,
@@ -31,6 +31,21 @@ import { scheduledTask } from "./work";
  * desktop's own RPC methods — the same handlers, validation and broadcasts as the desktop gets. The
  * phone never names an RPC method; it names a mobile.v1 call, and only these exist.
  */
+
+/** A teammate as a phone's Team list draws it: its row in the sidebar, what it is working on, and what
+ *  its Edit sheet shows. What it is doing is the session it works in now, else the newest it started,
+ *  by its task — the "cto - " its title starts with is the row's name already. */
+export function phoneTeammate(t: Teammate): PhoneTeammate {
+  const live = t.taskSessions.find((s) => s.state !== "idle");
+  const doing = live ?? (t.state === "idle" ? t.taskSessions[0] : undefined);
+  const prefix = `${t.handle} - `;
+  return {
+    id: t.id, spaceId: t.spaceId, name: t.name, handle: t.handle, brief: t.brief, lead: t.lead, chatId: t.homeSessionId,
+    icon: t.icon, state: t.state, stateSince: t.stateSince, unread: t.unread,
+    activity: doing ? (doing.title.startsWith(prefix) ? doing.title.slice(prefix.length) : doing.title) : null, activityAt: doing?.updatedAt ?? null,
+    agentKind: t.agentKind, model: t.model, effort: t.effort, permissionMode: t.permissionMode,
+  };
+}
 
 export class MobileError extends Error {
   constructor(readonly code: MobileErrorCode, message: string) { super(message); }
@@ -235,6 +250,7 @@ export class MobileApi {
         case "teammates.list": return await this.teammates(rpc);
         case "teammate.chat": return { id: (await rpc.call("teammates.home", { id: p.id as string })).sessionId };
         case "session.info": return await this.info(rpc, p.id as string);
+        case "teammate.update": return await this.updateTeammate(rpc, p as MobileParams<"teammate.update">);
         case "usage.get": return await this.usage(rpc);
         // Review went with the first Teams: the phone's Review screen is told there is nothing in it,
         // and a review it still holds is gone, rather than either being an error it cannot read.
@@ -500,6 +516,8 @@ export class MobileApi {
     const rpc = ctx.rpc;
     try {
       const session = await rpc.call("sessions.get", { id });
+      // A Team that cannot be read leaves a message to a teammate named by its handle alone.
+      entry.projector.knowTeam(await rpc.call("teammates.list", { spaceId: session.spaceId, archived: false }).catch(() => []));
       const read = await rpc.call("sessions.queued", { id });
       // What a broadcast carried before the read is in it; one from here on is newer than it.
       entry.queued = null;
@@ -624,9 +642,7 @@ export class MobileApi {
   private async teammates(rpc: RpcPort): Promise<MobileResult<"teammates.list">> {
     const spaces = await rpc.call("spaces.list", {});
     const each = await Promise.all(spaces.map((sp) => rpc.call("teammates.list", { spaceId: sp.id, archived: false })));
-    return {
-      teammates: each.flat().map((t) => ({ id: t.id, spaceId: t.spaceId, name: t.name, handle: t.handle, brief: t.brief, lead: t.lead, chatId: t.homeSessionId })),
-    };
+    return { teammates: each.flat().map(phoneTeammate) };
   }
 
   /** Where a session runs, what its turns have cost as Settings ▸ Usage counts it, and the files it made
@@ -657,6 +673,18 @@ export class MobileApi {
       ...(measured ? { usage: { costUsd: totals.costUsd, estimated: totals.estimatedUsd > 0, inputTokens, outputTokens: totals.outputTokens, turns: totals.turns } } : {}),
       files: [...newest.values()],
     };
+  }
+
+  /** The Edit sheet's save, answered with the teammate as the Team list now names it. */
+  private async updateTeammate(rpc: RpcPort, p: MobileParams<"teammate.update">): Promise<MobileResult<"teammate.update">> {
+    // mobile.v1 names a shape, a colour and an agent as strings; the desktop's own lists say which exist.
+    const { icon, agentKind, ...rest } = p;
+    const shape = icon === undefined ? undefined : TeammateIconSchema.safeParse(icon);
+    if (shape && !shape.success) throw new MobileError("INVALID_PARAMS", `unknown icon ${icon!.shape} ${icon!.color}`);
+    const agent = agentKind === undefined ? undefined : AgentKindSchema.safeParse(agentKind);
+    if (agent && !agent.success) throw new MobileError("INVALID_PARAMS", `unknown agent ${agentKind}`);
+    const edit = { ...rest, ...(shape?.success ? { icon: shape.data } : {}), ...(agent?.success ? { agentKind: agent.data } : {}) };
+    return { teammate: phoneTeammate(await rpc.call("teammates.update", edit)) };
   }
 
   /** Every agent's plan as Settings ▸ Usage draws it, and this calendar month's spend on the Mac's clock,
