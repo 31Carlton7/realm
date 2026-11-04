@@ -16,7 +16,7 @@ import { tabDetail } from "./mention-sources";
 const fmtChars = (n: number): string => n.toLocaleString("en-US");
 
 /** The card's second line before sending, and the sentence its tip says when the line is a warning. */
-export function draftTabLine(card: TabCard | null): { line: string; flag: "truncated" | "large" | "closed" | null; tip: string | null } {
+function draftTabLine(card: TabCard | null): { line: string; flag: "truncated" | "large" | "closed" | null; tip: string | null } {
   if (!card) return { line: "Reading…", flag: null, tip: null };
   if (card.closed) return { line: "Closed", flag: "closed", tip: "This pane is closed, so nothing of it will be sent." };
   const size = formatAttachmentSize(card.bytes);
@@ -82,7 +82,7 @@ export function UserTabs({ tabs }: { tabs: readonly TabCard[] }) {
 
 /** The sent message's cards, above its bubble. `favicons` are the space's panes' icons by item id,
  *  which the transcript does not keep. */
-export function SentTabRow({ tabs, favicons, onOpen }: { tabs: readonly TabCard[]; favicons: Readonly<Record<string, string>>; onOpen: (card: TabCard) => void }) {
+function SentTabRow({ tabs, favicons, onOpen }: { tabs: readonly TabCard[]; favicons: Readonly<Record<string, string>>; onOpen: (card: TabCard) => void }) {
   return (
     <ul className="msg-user-files msg-user-tabs" aria-label="Tabs">
       {tabs.map((t) => {

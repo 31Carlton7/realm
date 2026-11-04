@@ -902,7 +902,8 @@ export class SessionService {
     // The blocks ride the same way and in this order: what the user picked ON a page or in Realm's
     // window, who else they pointed at, the files and apps they named, then the panes they handed
     // over. Appended to the user's own text rather than sent as a system note, because all three agent
-    // wires take one markdown string and nothing else. A pick in Realm's window names its picture only if it is still attached.
+    // wires take one markdown string and nothing else. A pick in Realm's window names its picture only
+    // if it is still attached.
     const context = elementContext(msg.elements ?? [], msg.attachments) + sessionRefContext(msg.sessionRefs ?? [])
       + mentionRefContext(refs, { macSkill: mac ? this.canonical(mac.path) : null, missing: files.missing, withheld: files.withheld })
       + (msg.tabs?.context ?? "") + (msg.note ?? "");

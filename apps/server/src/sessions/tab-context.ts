@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  capTabText, isSecretPath, pageWithFields, tabBlock, tabsContext, utf8Bytes,
+  TAB_KINDS, capTabText, isSecretPath, pageWithFields, tabBlock, tabsContext, utf8Bytes,
   type Attachment, type BrowserDescribeResult, type BrowserReadResult, type Item, type TabCard, type TabEntry, type TabKind, type TabRef,
 } from "@realm/contracts";
 import { prefixedAttachmentName, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
@@ -29,8 +29,6 @@ export type TabContextDeps = {
   home: string;
 };
 
-const KINDS = new Set<string>(["browser", "documents", "terminal", "simulator"]);
-
 /** One pane, read: its card, its block for the agent, and the picture it attaches. */
 type ReadTab = { card: TabCard; block: string; image?: Attachment };
 
@@ -43,7 +41,7 @@ export class TabContextReader {
 
   /** The space's panes the `@` list offers, in the space's own order. */
   list(spaceId: string): TabEntry[] {
-    return this.d.items.list(spaceId).filter((i) => !i.archived && KINDS.has(i.kind)).map((i) => {
+    return this.d.items.list(spaceId).filter((i) => !i.archived && (TAB_KINDS as readonly string[]).includes(i.kind)).map((i) => {
       const entry: TabEntry = { itemId: i.id, kind: i.kind as TabKind, title: i.title, favicon: i.favicon ?? "" };
       if (i.kind === "browser") { const url = this.d.browsers.get(i.refId)?.url; if (url) entry.url = url; }
       if (i.kind === "documents") { const path = this.documentPath(i.refId); if (path) entry.path = path; }
