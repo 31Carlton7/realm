@@ -1525,10 +1525,11 @@ describe("prompter model picker", () => {
     });
 
     it("Enter picks the highlighted row after arrowing down", async () => {
-      // The highlight opens on the current model (Fable 5.1, the default), so one step down is Fable 5.
+      // Nothing is ticked, so nothing is highlighted: the first step lights Fable 5.1, the second Fable 5.
       const { store } = await mountFresh();
       openPicker();
       const search = screen.getByRole("combobox", { name: "Search models" });
+      fireEvent.keyDown(search, { key: "ArrowDown" });
       fireEvent.keyDown(search, { key: "ArrowDown" });
       fireEvent.keyDown(search, { key: "Enter" });
       await waitFor(() => expect(store.getState().sessions.se1?.model).toBe("claude-fable-5"));
@@ -1669,7 +1670,8 @@ describe("prompter model picker", () => {
       openPicker();
       fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
       fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
-      fireEvent.keyDown(searchBox(), { key: "ArrowDown" }); // Claude Opus 5, three rows under the current Fable 5.1
+      fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
+      fireEvent.keyDown(searchBox(), { key: "ArrowDown" }); // Claude Opus 5, the fourth row
       fireEvent.keyDown(searchBox(), { key: "Enter", altKey: true });
       await waitFor(() => expect(store.getState().modelFavorites).toEqual([canonicalModelKey("Claude Opus 5")]));
       expect(store.getState().sessions.se1?.model).toBeNull(); // ⌥↩ stars; it does not pick
@@ -1681,6 +1683,7 @@ describe("prompter model picker", () => {
       // whichever model slid into that slot, not the one the user was looking at.
       const { store } = await mountFresh();
       openPicker();
+      fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
       fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
       fireEvent.keyDown(searchBox(), { key: "ArrowDown" });
       fireEvent.keyDown(searchBox(), { key: "ArrowDown" }); // Claude Opus 5

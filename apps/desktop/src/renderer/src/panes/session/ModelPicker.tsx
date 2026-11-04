@@ -229,7 +229,9 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, swit
   }, [anchorRef]);
   const [query, setQuery] = useState("");
   /** The highlighted row by id, starting on the current model. Anchored to the ROW rather than an
-   *  index: ⌥↩ re-sorts a starred row into Favourites from under the highlight. */
+   *  index: ⌥↩ re-sorts a starred row into Favourites from under the highlight. Null with an empty
+   *  search highlights nothing, so a session with no ticked row does not open looking like it runs
+   *  the first one; ↓ or a search lights a row. */
   const [activeKey, setActiveKey] = useState<string | null>(() => rows.find((r) => r.selected)?.id ?? null);
   /** The harness chosen for a row with more than one, where the user changed it with ←/→ or picked it
    *  through one. Keyed by row, so re-routing one model never re-routes the next one looked at. */
@@ -262,6 +264,13 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, swit
   const wrap = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLDivElement>(null);
   useAutoHideScrollbar(list);
+  // Once PLACED, not at mount: until then the picker is `visibility: hidden`, which takes no focus.
+  const focusedIn = useRef(false);
+  useEffect(() => {
+    if (!pos || focusedIn.current) return;
+    focusedIn.current = true;
+    search.current?.focus();
+  }, [pos]);
   useLayoutEffect(() => {
     const el = ref.current;
     if (height !== null && el && el.scrollHeight > height) setHeight(el.scrollHeight);
@@ -274,7 +283,7 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, swit
   const locked = queried.filter((r) => r.blockedReason).length;
   // Numbered by position in the list, so the badges read 1, 2, 3 down the page.
   const shortcuts = useMemo(() => shown.filter((r) => r.favorite).slice(0, MAX_SHORTCUTS), [shown]);
-  const cur = Math.max(0, shown.findIndex((r) => r.id === activeKey));
+  const cur = activeKey === null && query === "" ? -1 : Math.max(0, shown.findIndex((r) => r.id === activeKey));
   const activeRow = shown[cur];
   const routeOf = (r: ModelRow): AgentKind => (routes[r.id] && r.harnesses.includes(routes[r.id]!) ? routes[r.id]! : r.kind);
   const waysOf = (r: ModelRow): AgentKind[] => (r.alternates.length > 0 ? [r.kind, ...r.alternates] : []);
@@ -381,7 +390,7 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, swit
     else if (e.key === "Enter" && asking) { e.preventDefault(); void confirmSwitch(); }
     else if (e.key === "Enter") { e.preventDefault(); if (activeRow) pick(activeRow, routeOf(activeRow)); }
     // ⌘1…⌘9 pick a favourite. Free to bind here: the window's ⌘-digit space binding does not run
-    // while this search field, autofocused for the popover's whole life, holds the keyboard.
+    // while this search field, focused for the popover's whole life, holds the keyboard.
     else if (e.metaKey && e.key >= "1" && e.key <= "9") { e.preventDefault(); pick(shortcuts[Number(e.key) - 1]); }
   };
 
@@ -396,8 +405,8 @@ function ModelPopover({ kind, name, rows, info, anchorRef, onClose, onPick, swit
       data-held={height !== null || undefined} data-closing={closing || undefined} data-eggs={eggs || undefined} inert={closing}>
       <div className="mp-search">
         <Icon name="search" size={14} />
-        {/* Autofocused because the picker opens for typing — the command palette's bargain. */}
-        <input ref={search} autoFocus type="text" value={query} placeholder="Search models" aria-label="Search models"
+        {/* Focused on open because the picker opens for typing — the command palette's bargain. */}
+        <input ref={search} type="text" value={query} placeholder="Search models" aria-label="Search models"
           role="combobox" aria-expanded aria-controls="mp-list" aria-activedescendant={activeRow ? `mp-${activeRow.id}` : undefined}
           onChange={(e) => { setQuery(e.target.value); setActiveKey(null); setTuning(false); setHeight(null); if (!switching) setAsking(null); }} onKeyDown={onKeyDown} />
       </div>

@@ -60,6 +60,50 @@ describe("the current choice", () => {
   });
 });
 
+describe("no current choice", () => {
+  // No pin, no init event, no probe default: nothing is ticked.
+  const unticked = () => mount({ rows: rowsFor({ model: null, agentProbe: [] }), model: null });
+
+  it("opens with the keyboard in the search, no row highlighted and no strip", () => {
+    const { picked } = unticked();
+    expect(document.querySelectorAll(".mp-check")).toHaveLength(0);
+    expect(search()).toHaveFocus();
+    expect(active()).toBeNull();
+    expect(search()).not.toHaveAttribute("aria-activedescendant");
+    expect(document.querySelector(".mp-about")).toBeNull();
+    expect(picked).toEqual([]);
+  });
+
+  it("takes the keyboard only once it is shown, since a hidden search takes no focus", () => {
+    // jsdom focuses a `visibility: hidden` input anyway; Chromium does not.
+    const shownWhenFocused: string[] = [];
+    const focus = HTMLInputElement.prototype.focus;
+    vi.spyOn(HTMLInputElement.prototype, "focus").mockImplementation(function (this: HTMLInputElement, ...a) {
+      shownWhenFocused.push(this.closest<HTMLElement>(".model-picker")?.style.visibility ?? "");
+      focus.apply(this, a);
+    });
+    unticked();
+    expect(shownWhenFocused).toEqual(["visible"]);
+    expect(search()).toHaveFocus();
+  });
+
+  it("lights the first row and its strip on ↓, still picking nothing", () => {
+    const { picked } = unticked();
+    fireEvent.keyDown(search(), { key: "ArrowDown" });
+    const first = screen.getAllByRole("option")[0]!;
+    expect(active()).toBe(first);
+    expect(search()).toHaveAttribute("aria-activedescendant", first.id);
+    expect(document.querySelector(".mp-about-name")).toHaveTextContent(first.querySelector(".mp-row-name")!.textContent!);
+    expect(picked).toEqual([]);
+  });
+
+  it("highlights the first match once a search is typed", () => {
+    unticked();
+    fireEvent.change(search(), { target: { value: "sonnet" } });
+    expect(active()).toBe(screen.getAllByRole("option")[0]);
+  });
+});
+
 describe("picking", () => {
   it("is one click on a row, and the picker stays open for how the model runs", async () => {
     /* The owner, 10-05: "if I change the model, the modal always closes … Only when clicking outside
