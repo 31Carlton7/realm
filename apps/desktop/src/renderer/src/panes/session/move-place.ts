@@ -1,3 +1,4 @@
+import { basenameOf, type Environment, type MoveTarget } from "@realm/contracts";
 import { tildePath } from "../documents/home-model";
 
 /** A path inside an error's wording: from a `/` or `~/` up to a space or punctuation that ends it. */
@@ -46,4 +47,11 @@ export function shortPath(path: string, max = 44): string {
     tail.unshift(seg);
   }
   return [...parts.slice(0, head), ...(i >= head ? ["…"] : []), ...tail].join("/");
+}
+
+/** The destination in the words the prompter's queue uses while a move waits. */
+export function moveTargetLabel(to: MoveTarget, environments: Record<string, Environment>): string {
+  if (to.kind === "worktree") return "a new worktree";
+  const env = environments[to.environmentId];
+  return env ? env.branch ?? basenameOf(env.path) : "another checkout";
 }

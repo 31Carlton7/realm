@@ -29,6 +29,7 @@ import { orchestratorOrder } from "../agents-tab/subagent-state";
 import { useAsSubagent } from "../agents-tab/SubagentViewer";
 import { useSelectInRealm } from "../../app-pick/start";
 import { PathMenu, asRef } from "./PathMenu";
+import { moveTargetLabel } from "./move-place";
 import { useSpaceTint } from "../../components/sidebar/use-sidebar-model";
 import type { SlashCommand } from "./slash-commands";
 import { MediaSessionContext } from "../../components/viewer/open";
@@ -229,7 +230,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const spaces = useApp((s) => s.spaces);
   const moveSessionToSpace = useApp((s) => s.moveSessionToSpace);
   const cancelSessionMove = useApp((s) => s.cancelSessionMove);
-  const pendingMoveTo = useApp((s) => s.pendingMoves[id]?.to ?? null);
+  const pendingMoveTo = useApp((s) => { const to = s.pendingMoves[id]; return to ? moveTargetLabel(to, s.environments) : null; });
   const openSession = useApp((s) => s.openSession);
   const sendMessage = useApp((s) => s.sendMessage);
   const interruptSession = useApp((s) => s.interruptSession);

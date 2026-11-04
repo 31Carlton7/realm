@@ -732,7 +732,7 @@ export function App() {
     const offT = rpc().on("session.status", ({ sessionId, status }) => store.getState().applySessionStatus(sessionId, status));
     // The queue behind a running turn. Applied in every window for the reason the statuses are: the
     // session's pane may be open in any of them, and the payload is a handful of short strings.
-    const offQ = rpc().on("session.queue", ({ sessionId, queued }) => store.getState().applySessionQueue(sessionId, queued));
+    const offQ = rpc().on("session.queue", ({ sessionId, queued, move }) => store.getState().applySessionQueue(sessionId, queued, move));
     // A turn saved or unsaved — from this window's track, another's, or the Library — is the same set in
     // every window, which is also how a Library list open in one hears about a bookmark pressed in another.
     const offSaved = rpc().on("session.saved", ({ sessionId, seqs }) => store.getState().applySavedTurns(sessionId, seqs));

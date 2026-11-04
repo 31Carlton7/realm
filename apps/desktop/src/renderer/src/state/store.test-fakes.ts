@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack, type UnlockPolicy, unlockPolicyRank } from "@realm/contracts";
-import type { MoveOptions, GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpSignInOptions, McpTool, MemoryClaudeBackfill, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
+import type { MoveOptions, PendingMove, GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpSignInOptions, McpTool, MemoryClaudeBackfill, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, BranchList, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
 import type { Account, CliStatus, DelegatedChild, LayaStatus, ModelInfo, ResourcePolicies, ResourceReport, Schedule, SearchResults, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
@@ -201,6 +201,8 @@ export type FakeData = {
   sessions?: Session[]; sessionEvents?: Record<string, StoredSessionEvent[]>;
   /** What `sessions.moveOptions` answers, by session id. Absent: a quiet checkout with nothing pending. */
   moveOptions?: Record<string, Partial<MoveOptions>>;
+  /** The `move` that `sessions.queued` answers, by session id. Absent: nothing waiting to move. */
+  queuedMoves?: Record<string, PendingMove>;
   /** What `accounts.list` answers: each CLI's own account first, as a fresh home has them. */
   accounts?: Account[];
   importScan?: ImportScan; importResult?: ImportResult;
@@ -535,6 +537,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     ],
     sessionEvents: overrides.sessionEvents ?? {},
     moveOptions: overrides.moveOptions ?? {},
+    queuedMoves: overrides.queuedMoves ?? {},
     sessionTerminals: overrides.sessionTerminals ?? {},
     gitInfo: overrides.gitInfo ?? {},
     diffs: overrides.diffs ?? {},
@@ -1495,7 +1498,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       const at = before === null ? queuedPrompts.length : queuedPrompts.findIndex((x) => x.id === before);
       queuedPrompts.splice(at < 0 ? queuedPrompts.length : at, 0, q);
     },
-    sessionQueue: async () => queuedPrompts,
+    sessionQueue: async (id) => ({ queued: queuedPrompts, move: data.queuedMoves[id] ?? null }),
     planLimits: async () => { calls.push("planLimits"); return planLimitRows; },
     recordFeedback: async (id, messageId, rating) => { calls.push(`recordFeedback:${id}:${messageId}=${rating ?? "none"}`); },
     savedTurns: async (id) => { calls.push(`savedTurns:${id}`); return data.savedTurns[id] ?? []; },

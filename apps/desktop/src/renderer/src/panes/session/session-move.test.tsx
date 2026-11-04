@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { sessionEvent, type Environment, type MoveOptions, type SessionStatus } from "@realm/contracts";
+import { sessionEvent, type Environment, type MoveOptions, type PendingMove, type SessionStatus } from "@realm/contracts";
 import { StoreContext, createAppStore, useApp } from "../../state/store";
 import { fakeApi, item, session } from "../../state/store.test-fakes";
 import { SessionPane } from "./SessionPane";
@@ -19,8 +19,8 @@ function Host() {
 }
 
 /** A session that has RUN (its first message is behind it) in the space's own folder, with a worktree beside it. */
-async function mount({ status = "idle", moveOptions = {}, permission = false, worktree = envB }: {
-  status?: SessionStatus; moveOptions?: Partial<MoveOptions>; permission?: boolean; worktree?: Environment;
+async function mount({ status = "idle", moveOptions = {}, permission = false, worktree = envB, queuedMove }: {
+  status?: SessionStatus; moveOptions?: Partial<MoveOptions>; permission?: boolean; worktree?: Environment; queuedMove?: PendingMove;
 } = {}) {
   const events = [sessionEvent("user_message", { text: "fix the tests", attachments: [] }),
     ...(permission ? [sessionEvent("permission_request", { requestId: "r1", toolName: "Bash", title: "Run rm -rf build", input: { command: "rm -rf build" }, suggestions: [] })] : [])];
@@ -30,6 +30,7 @@ async function mount({ status = "idle", moveOptions = {}, permission = false, wo
     environments: { s1: [envA, worktree] },
     gitInfo: { [envA.path]: { branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0 } },
     moveOptions: { se1: { from: place("envA", envA.path, "main"), ...moveOptions } },
+    ...(queuedMove ? { queuedMoves: { se1: queuedMove } } : {}),
   });
   const store = createAppStore(api); await store.getState().boot();
   await store.getState().openSession("se1");
@@ -217,12 +218,16 @@ describe("the Move sheet", () => {
     await waitFor(() => expect(moveCall(api.calls)).toMatchObject({ when: "stop" }));
   });
 
+  const toFixTests = { kind: "environment" as const, environmentId: "envB" };
+
   it("mid-turn, Move after this turn queues it, and the queue's Cancel calls it off", async () => {
     // THE MUTANT: no pending entry — the move waits with nothing on screen saying so.
     const { api, store } = await mount({ status: "running" });
     pick("realm/fix-tests");
     fireEvent.click(await within(await sheet()).findByRole("button", { name: "Move after this turn" }));
     await waitFor(() => expect(moveCall(api.calls)).toMatchObject({ when: "after-turn" }));
+    // The server says so on the queue before it answers the move.
+    act(() => store.getState().applySessionQueue("se1", [], { moveId: "m1", to: toFixTests, step: null }));
     const queue = await screen.findByRole("region", { name: "Queued move" });
     expect(queue).toHaveTextContent("Move after this turn");
     expect(queue).toHaveTextContent("to realm/fix-tests");
@@ -230,6 +235,23 @@ describe("the Move sheet", () => {
     await waitFor(() => expect(api.calls).toContain("cancelSessionMove:se1"));
     expect(screen.queryByRole("region", { name: "Queued move" })).toBeNull();
     expect(store.getState().pendingMoves).toEqual({});
+  });
+
+  it("shows a queued move the server already holds when the pane opens, as after a reload", async () => {
+    // THE MUTANT: the chip read from what this window asked for, so a reload loses it.
+    const { api, store } = await mount({ status: "running", queuedMove: { moveId: "m1", to: toFixTests, step: null } });
+    const queue = await screen.findByRole("region", { name: "Queued move" });
+    expect(queue).toHaveTextContent("Move after this turn");
+    expect(queue).toHaveTextContent("to realm/fix-tests");
+    fireEvent.click(within(queue).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(api.calls).toContain("cancelSessionMove:se1"));
+    expect(screen.queryByRole("region", { name: "Queued move" })).toBeNull();
+
+    // Once it starts, the transcript's progress row says so instead.
+    act(() => store.getState().applySessionQueue("se1", [], { moveId: "m2", to: { kind: "worktree" }, step: null }));
+    expect(await screen.findByRole("region", { name: "Queued move" })).toHaveTextContent("to a new worktree");
+    act(() => store.getState().applySessionQueue("se1", [], { moveId: "m2", to: { kind: "worktree" }, step: "preflight" }));
+    expect(screen.queryByRole("region", { name: "Queued move" })).toBeNull();
   });
 
   it("waits on an open permission before it can move after the turn; Stop and move stays", async () => {
