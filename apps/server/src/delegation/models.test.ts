@@ -134,7 +134,7 @@ describe("a harness named on its own runs its default", () => {
     expect(choice("Claude")).toMatchObject({ kind: "claude", model: null });
   });
 
-  it("names the default a harness's own list marks, not Realm's guess at it (#276)", () => {
+  it("names the default a harness's own list marks, not Realm's guess at it", () => {
     const rows = probes({ claude: { models: [{ id: "claude-fable-5-1", label: "Claude Fable 5.1" }, { id: "claude-opus-5-5", label: "Claude Opus 5.5", isDefault: true }] } });
     expect(choice("Claude", { probes: rows })).toEqual({ kind: "claude", model: null, label: "Claude Opus 5.5" });
     // A family name still means its newest model, whatever the default is.

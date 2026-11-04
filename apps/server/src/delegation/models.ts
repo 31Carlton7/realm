@@ -17,7 +17,7 @@ import { AGENT_META, AGENT_MODELS, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, 
 /** What resolution reads from one agent's probe — the subset of `ProbeResult` it needs. */
 export type ProbedAgent = {
   kind: AgentKind; available: boolean; loggedIn: boolean | null; reason: string | null;
-  models?: readonly { id: string; label: string }[] | null;
+  models?: readonly { id: string; label: string; isDefault?: boolean }[] | null;
 };
 
 /**
@@ -79,6 +79,13 @@ function tokensOf(name: string): string[] {
 /** Whether a label is a raw wire id (`claude-fable-5-1`) rather than a written name — model-rows'
  *  rule, for the same choice: which of two names for one model to show. */
 const looksLikeId = (label: string): boolean => /^[a-z0-9][a-z0-9._-]*$/.test(label);
+
+/** What a harness runs when nothing is pinned, by the name its own model list gives it — Opus 5.5 on
+ *  an account whose Claude CLI defaults to Opus. `DEFAULT_MODEL_LABEL` only where the list says nothing. */
+export function defaultModelLabel(kind: AgentKind, probes: readonly ProbedAgent[]): string {
+  const own = probes.find((p) => p.kind === kind)?.models?.find((m) => m.isDefault);
+  return own ? withoutParams(own.label) : DEFAULT_MODEL_LABEL[kind];
+}
 
 /** The kinds a delegation may consider, in the order a tie goes to: the vendor's own CLI ahead of a
  *  proxy (Fable through `claude`, not Cursor), then anything else registered (`fake`). */
@@ -235,7 +242,7 @@ export function resolveModelName(name: string, models: readonly DelegableModel[]
     if (kind && kind !== h) return { ok: false, reason: "conflict", message: `refused: "${name}" names ${harnessLabel(h)}, but constraints.agentKind asks for ${harnessLabel(kind)}. Drop one of them.` };
     if (opts.kinds.includes(h)) {
       const probe = opts.probes?.find((p) => p.kind === h);
-      if (readyOf(probe)) return { ok: true, choice: { kind: h, model: null, label: DEFAULT_MODEL_LABEL[h] } };
+      if (readyOf(probe)) return { ok: true, choice: { kind: h, model: null, label: defaultModelLabel(h, opts.probes ?? []) } };
       notReady = unready(harnessLabel(h), probe);
     }
   }

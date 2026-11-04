@@ -160,7 +160,7 @@ describe("the lead's agent is told on its next message", () => {
     b.close();
   });
 
-  it("names the model a teammate with none pinned runs as its CLI's default (#276)", async () => {
+  it("names the model a teammate with none pinned runs as its CLI's default", async () => {
     const b = await boot({ claudeModels: [{ id: "claude-fable-5-1", label: "Claude Fable 5.1" }, { id: "claude-opus-5-5", label: "Claude Opus 5.5", isDefault: true }] });
     await app.sessions.probe();
     const { childId } = await b.call<{ childId: string }>("delegation.addTeammate", { sessionId: b.leadId, agentKind: "claude", brief: "Write the tests" });

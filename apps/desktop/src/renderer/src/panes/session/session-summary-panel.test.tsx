@@ -330,6 +330,12 @@ describe("the session's context", () => {
     expect(rows.map((r) => r.label)).toEqual(["folder", "Claude", "permission"]);
   });
 
+  it("names an unpinned model as the CLI's own default, not Realm's guess at it", () => {
+    const probe = [{ kind: "claude" as const, models: [{ id: "claude-opus-5-5", label: "Claude Opus 5.5", isDefault: true }] }];
+    const rows = contextRows({ session: { ...base(), model: null, effort: null }, env: null, git: null, memory: null, servers: [], probe });
+    expect(rows.find((r) => r.label === "Claude")?.value).toBe("Opus 5.5");
+  });
+
   it("names Plan and Ask as the mode rather than the parked permission behind them", () => {
     const rows = contextRows({ session: fakeSession("se1", "s1", { permissionMode: "plan" }), env: null, git: null, memory: null, servers: [] });
     expect(rows.find((r) => r.label === "permission")?.value).toBe("Plan");

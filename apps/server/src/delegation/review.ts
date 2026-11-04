@@ -164,7 +164,7 @@ export class ReviewService {
     if (!env) return err(`environment ${parsed.data.environmentId} does not exist.`);
     if (env.spaceId !== ctx.spaceId) return err("refused: that environment belongs to another space — a review runs only in its caller's own space.");
     let started;
-    try { started = this.start(env.id, { sessionId: ctx.sessionId, agentKind: parent.agentKind }); }
+    try { started = this.start(env.id, { sessionId: ctx.sessionId, agentKind: parent.agentKind, model: parent.model }); }
     catch (e) { return err(e instanceof Error ? e.message : String(e)); }
     const settled = await started.settled;
     const identity = JSON.stringify({ sessionId: started.childId, title: started.title });
@@ -184,7 +184,7 @@ export class ReviewService {
 
   /* --------------------------------------- the flow ------------------------------------------ */
 
-  private start(environmentId: string, parent: { sessionId: string; agentKind: AgentKind } | null): { childId: string; itemId: string; title: string; settled: Promise<SettledRun> } {
+  private start(environmentId: string, parent: { sessionId: string; agentKind: AgentKind; model: string | null } | null): { childId: string; itemId: string; title: string; settled: Promise<SettledRun> } {
     const env = this.d.environments.get(environmentId);
     if (!env) throw new NotFoundError("environment", environmentId);
     if (this.active.has(environmentId)) throw new RpcError("REVIEW_IN_FLIGHT", "a review of this checkout is already running; wait for its verdict");
@@ -196,7 +196,9 @@ export class ReviewService {
     const agentKind = requestedKind && AGENT_SUPPORTS_PLAN_MODE[requestedKind] ? requestedKind : (this.d.fallbackKind ?? "claude");
     const label = env.branch ?? env.path.replace(/\/+$/, "").split("/").pop() ?? env.path;
     const created = this.d.sessions.create({
-      spaceId: env.spaceId, agentKind, projectId: null, environmentId: env.id, model: null, effort: null,
+      // The requester's model on the requester's harness, as agent_run's children; a fallback harness
+      // runs its own default, because the requester's id names nothing there.
+      spaceId: env.spaceId, agentKind, projectId: null, environmentId: env.id, model: agentKind === parent?.agentKind ? parent.model : null, effort: null,
       permissionMode: PLAN_PERMISSION_MODE, // HARD: never the parent's mode, never a requested one
       title: clip(`Review: ${label}`, 40),
       dispatchedBy: { sessionId: parent?.sessionId ?? null, kind: "review" },

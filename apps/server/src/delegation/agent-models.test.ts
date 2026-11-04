@@ -211,7 +211,7 @@ describe("no model named", () => {
     expect(seen.claude[0]!.model).toBe("claude-opus-5-5");
   });
 
-  // The owner's Claude CLI runs Opus 5.5 when nothing is pinned, and says so in its model list (#276).
+  // The owner's Claude CLI runs Opus 5.5 when nothing is pinned, and says so in its model list.
   const OPUS_DEFAULT: AgentModel[] = [{ id: "claude-fable-5-1", label: "Claude Fable 5.1" }, { id: "claude-opus-5-5", label: "Claude Opus 5.5", isDefault: true }];
 
   it("a lead on its CLI's default hands a child that same default, and names it as the CLI does", async () => {
