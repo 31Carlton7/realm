@@ -10935,7 +10935,8 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .tm-head-role { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--rl-text-dim); }
 
 /* Its computer: quiet rows on the panel's ground, as Reason draws its right panel — no boxes. */
-.tm-computer { height: 100%; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 12px 12px 20px; }
+/* The slot is a flex row: without flex the column shrinks to its longest title and the rows stop short. */
+.tm-computer { flex: 1; min-width: 0; height: 100%; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 12px 12px 20px; }
 .tm-machine { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 0 8px; color: var(--rl-text-dim); }
 .tm-machine-name { font-weight: var(--fw-label); color: var(--rl-text-bright); }
 .tm-machine-state { display: flex; align-items: center; gap: 6px; font-size: 13px; }
@@ -10948,8 +10949,8 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .tm-sessions { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
 /* How far in a session's line stands: one step for each hand-off above it (`--tm-depth`, on the item). */
 .tm-sessions > li { --tm-depth: 0; }
-/* A session's line: its title takes the slack and gives it back first; the hand-off count, the age
-   and the dot keep fixed slots, so every row's age and dot stand in one column. */
+/* A session's line: its title takes the slack and gives it back first; the hand-off count and the
+   trail keep fixed slots, so every row's age, spinner or dot stands in one column. */
 .tm-session { width: 100%; display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 8px 0 calc(8px + var(--tm-depth) * 16px);
   border-radius: var(--r-ctl); text-align: left; font-size: 13px; color: var(--rl-text-dim); }
 .tm-session:hover { background: var(--rl-hover); }
@@ -10957,8 +10958,13 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .tm-session-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tm-handoff-mark { flex: none; color: var(--rl-text-faint); }
 .tm-handoffs, .tm-age { flex: none; font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
-.tm-age { min-width: 24px; text-align: right; }
-.tm-dot { flex: none; width: 6px; display: grid; place-items: center; }
+.tm-trail { flex: none; min-width: 24px; display: flex; justify-content: flex-end; align-items: center; color: var(--rl-text-faint); }
+/* The spinner is dots, not a stroke: in the faint ink of an age it all but disappears. */
+.tm-trail .spinner { color: var(--rl-text-dim); }
+.tm-sessions .rename { margin-left: calc(var(--tm-depth) * 16px); width: calc(100% - var(--tm-depth) * 16px); }
+.tm-more { align-self: flex-start; display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 0 8px;
+  border-radius: var(--r-ctl); font-size: 13px; color: var(--rl-text-dim); }
+.tm-more:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 .tm-empty { margin: 4px 8px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
 
 /* New teammate: the icon maker as Grok draws it — the big preview, the eight shapes in the chosen

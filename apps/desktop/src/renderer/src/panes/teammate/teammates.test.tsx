@@ -392,6 +392,116 @@ describe("a teammate's computer", () => {
   });
 });
 
+describe("a teammate's Sessions, on its computer", () => {
+  /** cto's work, out of order: one working and unread, one waiting on you, two more unread (one a hand-off), and the
+   *  hand-off nested under the session that asked for it. */
+  const work = () => [
+    task("old", { title: "polish - quiet labels", updatedAt: 1 }),
+    task("mid", { title: "polish - move sheet P1", updatedAt: 5 }),
+    task("live", { title: "polish - space rail tiles", state: "working", unread: true, updatedAt: 9 }),
+    task("child", { title: "polish - move notices", parentId: "mid", unread: true, updatedAt: 7 }),
+    task("wait", { title: "polish - light mode depth", state: "needs-you", updatedAt: 3 }),
+    task("new", { title: "polish - type ladder", unread: true, updatedAt: 4 }),
+  ];
+
+  async function mount(tasks: TeammateTaskSession[]) {
+    const cto = teammate("cto", "s1", { name: "cto", homeSessionId: "home-cto", taskSessions: tasks });
+    const api = fakeApi(team({
+      teammates: [cto],
+      items: { s1: [sessionItem("home-cto", "cto"), ...tasks.map((t) => sessionItem(t.id, t.title))] },
+      sessions: [session("home-cto", "s1", { title: "cto", teammateId: "cto", teammateHome: true }), ...tasks.map((t) => session(t.id, "s1", { title: t.title, teammateId: "cto" }))],
+    }));
+    const store = createAppStore(api); await store.getState().boot();
+    await act(() => store.getState().refreshTeammates());
+    render(<StoreContext.Provider value={store}><ComputerPane item={item("i-comp", "s1", { kind: "computer", refId: "cto", title: "Computer" })} visible /></StoreContext.Provider>);
+    await waitFor(() => expect(api.calls).toContain("teammateSessions:cto"));
+    return { api, store, cto };
+  }
+  const rows = () => [...document.querySelectorAll<HTMLElement>(".tm-sessions > li")];
+  const row = (title: string) => rows().find((r) => r.querySelector(".tm-session-title")?.textContent === title)!;
+
+  it("lists them newest first, with a hand-off one step in under the session that asked", async () => {
+    await mount(work());
+    // THE MUTANTS: oldest first; the hand-off at the top level; no count on the parent.
+    expect(rows().map((r) => r.querySelector(".tm-session-title")!.textContent)).toEqual([
+      "polish - space rail tiles", "polish - move sheet P1", "polish - move notices", "polish - type ladder", "polish - light mode depth", "polish - quiet labels"]);
+    expect(rows().map((r) => r.style.getPropertyValue("--tm-depth"))).toEqual(["0", "0", "1", "0", "0", "0"]);
+    expect(row("polish - move sheet P1").querySelector(".tm-handoffs")).toHaveTextContent("↳ 1");
+  });
+
+  it("marks each with one thing at its far end: the amber dot, the spinner or its age, and unread in bold", async () => {
+    await mount(work());
+    const trail = (title: string) => row(title).querySelector(".tm-trail")!;
+    // THE MUTANTS: a dot for working or for unread; the age beside a spinner; bold read off the mark.
+    expect(trail("polish - light mode depth").querySelector('.status-dot[data-status="waiting_permission"]')).not.toBeNull();
+    expect(trail("polish - space rail tiles").querySelector(".spinner")).not.toBeNull();
+    expect(trail("polish - space rail tiles").querySelector(".tm-age, .status-dot")).toBeNull();
+    expect(trail("polish - type ladder").querySelector(".tm-age")).not.toBeNull();
+    expect(document.querySelectorAll(".tm-sessions .status-dot")).toHaveLength(1);
+    expect(rows().filter((r) => r.querySelector("[data-unread]")).map((r) => r.querySelector(".tm-session-title")!.textContent)).toEqual([
+      "polish - space rail tiles", "polish - move notices", "polish - type ladder"]);
+    expect(screen.getByRole("button", { name: /^polish - light mode depth — needs you,/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^polish - space rail tiles — working,/ })).toBeInTheDocument();
+  });
+
+  it("opens a session on a click, beside the chat", async () => {
+    const { store } = await mount(work());
+    const peekSession = vi.fn(async () => true);
+    act(() => store.setState({ peekSession }));
+    fireEvent.click(screen.getByRole("button", { name: /^polish - move notices/ }));
+    // THE MUTANT: a click that opens the row's parent, or nothing.
+    await waitFor(() => expect(peekSession).toHaveBeenCalledWith("child", "s1"));
+  });
+
+  it("opens it in place when there is no chat on screen to look beside", async () => {
+    const { store } = await mount(work());
+    const revealSession = vi.fn(async () => true);
+    act(() => store.setState({ peekSession: vi.fn(async () => false), revealSession }));
+    fireEvent.click(screen.getByRole("button", { name: /^polish - quiet labels/ }));
+    // THE MUTANT: a refused peek that leaves the click doing nothing.
+    await waitFor(() => expect(revealSession).toHaveBeenCalledWith("old", "s1"));
+  });
+
+  it("renames and archives from the row's menu, as the sidebar row did", async () => {
+    const { api } = await mount(work());
+    const menu = async (title: string) => {
+      fireEvent.contextMenu(row(title).querySelector("button")!, { clientX: 10, clientY: 10 });
+      return within(await screen.findByRole("menu", { name: `Actions for ${title}` }));
+    };
+    fireEvent.click((await menu("polish - type ladder")).getByRole("menuitem", { name: "Rename" }));
+    const input = screen.getByRole("textbox", { name: "Rename polish - type ladder" });
+    fireEvent.change(input, { target: { value: "polish - type scale" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    // THE MUTANT: a rename written to the item while the row keeps the old title.
+    await waitFor(() => expect(row("polish - type scale")).toBeDefined());
+    fireEvent.click((await menu("polish - quiet labels")).getByRole("menuitem", { name: "Archive" }));
+    // THE MUTANT: an archived session still listed on the computer.
+    await waitFor(() => expect(row("polish - quiet labels")).toBeUndefined());
+    expect(api.calls).not.toContain("deleteItem:i-old");
+  });
+
+  it("shows eight, then all of them on Show all", async () => {
+    await mount(Array.from({ length: 11 }, (_, i) => task(`t${i}`, { title: `task ${i}`, updatedAt: i })));
+    // THE MUTANTS: no cap; a cap that keeps the oldest; a count of the hidden ones only.
+    expect(rows()).toHaveLength(8);
+    expect(rows()[0]).toHaveTextContent("task 10");
+    fireEvent.click(screen.getByRole("button", { name: "Show all 11" }));
+    expect(rows()).toHaveLength(11);
+    fireEvent.click(screen.getByRole("button", { name: "Show fewer" }));
+    expect(rows()).toHaveLength(8);
+  });
+
+  it("takes in a session the moment it starts, at the top", async () => {
+    const { store, cto } = await mount(work());
+    cto.taskSessions = [task("fresh", { title: "polish - rail badges", state: "working", updatedAt: 20 }), ...cto.taskSessions];
+    // What `teammates.changed` does: the space's teammates are read again, and the computers held with them.
+    await act(() => store.getState().refreshTeammates("s1"));
+    // THE MUTANT: a list read once when the computer opened.
+    await waitFor(() => expect(rows()[0]).toHaveTextContent("polish - rail badges"));
+    expect(rows()).toHaveLength(7);
+  });
+});
+
 describe("the New teammate sheet", () => {
   async function mountSheet(id?: string) {
     const api = fakeApi(team());
