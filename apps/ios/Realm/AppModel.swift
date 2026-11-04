@@ -848,6 +848,26 @@ final class AppModel {
         }
     }
 
+    /// The goal strip's controls. The strip shows the Mac's answer at once; its event follows.
+    func controlGoal(_ action: GoalAction, in sessionId: String) async {
+        guard let api, isConnected else {
+            show(toast: "Connect to your Mac to change the goal.")
+            return
+        }
+        do {
+            store.goalChanged(try await api.controlGoal(id: sessionId, action: action), in: sessionId)
+        } catch {
+            report(error)
+        }
+    }
+
+    /// A new objective is a new `/goal`, as on the desktop: the composer takes the old one to edit, and
+    /// sending it replaces the goal.
+    func editGoal(in sessionId: String) {
+        guard let goal = store.transcript(sessionId).goal else { return }
+        composerDrafts[sessionId] = "/goal \(goal.objective)"
+    }
+
     /// Where the session can be moved to. A Mac before moves has no such call, and its session no chip.
     func loadMoveOptions(_ sessionId: String) async {
         guard let api, isConnected else { return }
