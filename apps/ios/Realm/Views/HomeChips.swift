@@ -57,6 +57,7 @@ struct HomeChips: View {
                 .padding(.trailing, 8)
         }
         .padding(.vertical, 6)
+        // On the ground, so no row reads through the chips; the list's soft edge fades out under them.
         .background(Ground.transcript)
         .sensoryFeedback(.selection, trigger: filter)
         // A chip whose sessions are gone leaves the list on All, never on an empty choice.

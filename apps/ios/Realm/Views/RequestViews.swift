@@ -471,12 +471,14 @@ struct QuestionSheet: View {
             }
             .scrollContentBackground(.hidden)
             .background(Ground.grouped)
+            .softEdges(ground: Ground.grouped)
             .navigationTitle("\(asker) asks")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Not now") { dismiss() }
                 }
+                .sharedBackgroundVisibility(.hidden)
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Send") {
                         model.submit(draft)
@@ -484,6 +486,7 @@ struct QuestionSheet: View {
                     }
                     .disabled(!draft.isComplete)
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
         }
         .presentationDetents([.large])
@@ -668,12 +671,14 @@ struct PlanSheet: View {
                 .padding(16)
             }
             .background(Ground.transcript)
+            .softEdges(ground: Ground.transcript)
             .navigationTitle("A plan to approve")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Not now") { dismiss() }
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
             .safeAreaBar(edge: .bottom) {
                 AnswerButtons(decline: "Keep planning", accept: "Implement this plan",

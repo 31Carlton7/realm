@@ -217,12 +217,14 @@ private struct QueueSheet: View {
                 .padding(16)
             }
             .background(Ground.grouped)
+            .softEdges(ground: Ground.grouped)
             .navigationTitle(QueueWords.title(max(1, queued.count)))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Close", systemImage: "xmark") { dismiss() }
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
         }
         .presentationDetents([.medium, .large])
@@ -453,12 +455,14 @@ struct QueueEditSheet: View {
             }
             .scrollContentBackground(.hidden)
             .background(Ground.grouped)
+            .softEdges(ground: Ground.grouped)
             .navigationTitle("Edit queued message")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
+                .sharedBackgroundVisibility(.hidden)
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         saved = true
@@ -467,6 +471,7 @@ struct QueueEditSheet: View {
                     }
                     .disabled(empty)
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
         }
         .presentationDetents([.medium, .large])

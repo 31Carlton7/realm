@@ -218,6 +218,7 @@ struct ReviewsView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(Ground.transcript)
+        .softEdges(ground: Ground.transcript)
         .overlay {
             if let reviews, reviews.isEmpty {
                 ContentUnavailableView("Nothing to review", systemImage: "tray",
@@ -319,6 +320,7 @@ struct ReviewView: View {
             }
         }
         .background(Ground.transcript)
+        .softEdges(ground: Ground.transcript)
         .overlay {
             if detail == nil {
                 if let problem {
@@ -646,12 +648,14 @@ private struct DecisionNoteSheet: View {
             }
             .scrollContentBackground(.hidden)
             .background(Ground.grouped)
+            .softEdges(ground: Ground.grouped)
             .navigationTitle(note.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
+                .sharedBackgroundVisibility(.hidden)
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
                         Task {
@@ -665,6 +669,7 @@ private struct DecisionNoteSheet: View {
                     .tint(note.decision == .reject ? Palette.red : nil)
                     .disabled(sending || !note.canSend(text))
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
         }
         .presentationDetents([.medium, .large])

@@ -46,12 +46,13 @@ struct TeamSection: View {
             }
             if !archived.isEmpty { ArchivedTeam(teammates: archived) }
         } header: {
-            HStack {
-                SectionHead(title: "Team") {
-                    Image(systemName: "person.2").foregroundStyle(Palette.ink2)
-                }
-                Spacer()
+            // The button over the head rather than beside it, so the head's ground runs edge to edge.
+            SectionHead(title: "Team") {
+                Image(systemName: "person.2").foregroundStyle(Palette.ink2)
+            }
+            .overlay(alignment: .trailing) {
                 NewTeammateButton(spaceId: (teammates.first ?? archived.first)?.spaceId ?? spaces.first?.id)
+                    .padding(.trailing, 16)
             }
         }
     }
@@ -103,13 +104,16 @@ struct TeamView: View {
         .listSectionSpacing(HomeView.sectionSpacing)
         .scrollContentBackground(.hidden)
         .background(Ground.transcript)
+        .softEdges(ground: Ground.transcript)
         .navigationTitle("Team")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 NewTeammateButton(spaceId: teammates.first { shown.contains($0.spaceId) }?.spaceId ?? spaces.first?.id)
             }
+            .sharedBackgroundVisibility(.hidden)
             ToolbarItem(placement: .topBarTrailing) { EditButton() }
+            .sharedBackgroundVisibility(.hidden)
         }
         .refreshable { await model.work.loadTeam() }
     }

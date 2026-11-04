@@ -24,12 +24,13 @@ struct SpaceView: View {
                 Section {
                     ForEach(team) { teammate in TeammateLink(teammate: teammate) }
                 } header: {
-                    HStack {
-                        SectionHead(title: "Team") {
-                            Image(systemName: "person.2").foregroundStyle(Palette.ink2)
-                        }
-                        Spacer()
+                    // The button over the head rather than beside it, so the head's ground runs edge to edge.
+                    SectionHead(title: "Team") {
+                        Image(systemName: "person.2").foregroundStyle(Palette.ink2)
+                    }
+                    .overlay(alignment: .trailing) {
                         NewTeammateButton(spaceId: spaceId)
+                            .padding(.trailing, 16)
                     }
                 }
             }
@@ -67,6 +68,7 @@ struct SpaceView: View {
         .listSectionSpacing(HomeView.sectionSpacing)
         .scrollContentBackground(.hidden)
         .background(Ground.transcript)
+        .softEdges(ground: Ground.transcript)
         .overlay {
             if !words.isEmpty, shown.isEmpty {
                 NoResults(query: words, why: pages.more
@@ -86,7 +88,9 @@ struct SpaceView: View {
                 }
             }
         }
-        .searchable(text: $query, prompt: "Search \(space?.name ?? "this space")")
+        .safeAreaBar(edge: .bottom) {
+            SearchBar(prompt: "Search \(space?.name ?? "this space")", query: $query) { query = "" }
+        }
         .refreshable { await load(next: false) }
         .onChange(of: home) { _, home in
             // Home hears of every change the Mac makes: what it says of sessions here is newer.

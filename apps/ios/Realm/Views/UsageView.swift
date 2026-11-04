@@ -151,6 +151,7 @@ struct UsageView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Ground.grouped)
+        .softEdges(ground: Ground.grouped)
         .overlay {
             if usage == nil {
                 if model.work.unsupported || !model.isConnected {

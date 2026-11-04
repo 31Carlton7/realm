@@ -98,16 +98,17 @@ struct TeammateSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", systemImage: "xmark") { dismiss() }
                 }
+                .sharedBackgroundVisibility(.hidden)
                 ToolbarItem(placement: .confirmationAction) {
                     if saving {
                         ProgressView()
                     } else {
                         Button("Save", systemImage: "checkmark") { save() }
-                            .buttonStyle(.glassProminent)
                             .disabled(!canSave)
                             .accessibilityIdentifier("teammate-save")
                     }
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
         }
         .onAppear {
@@ -182,16 +183,17 @@ struct NewTeammateSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", systemImage: "xmark") { dismiss() }
                 }
+                .sharedBackgroundVisibility(.hidden)
                 ToolbarItem(placement: .confirmationAction) {
                     if creating {
                         ProgressView()
                     } else {
                         Button("Create", systemImage: "checkmark") { create() }
-                            .buttonStyle(.glassProminent)
                             .disabled(!canCreate)
                             .accessibilityIdentifier("teammate-create")
                     }
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
         }
         .interactiveDismissDisabled(creating || !draft.name.isEmpty)
@@ -348,6 +350,7 @@ private struct TeammateForm<Handle: View, Place: View>: View {
         }
         .scrollContentBackground(.hidden)
         .background(Ground.grouped)
+        .softEdges(ground: Ground.grouped)
     }
 
     /// Another agent starts on its own default model and reasoning.

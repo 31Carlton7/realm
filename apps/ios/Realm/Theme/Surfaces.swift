@@ -30,8 +30,8 @@ enum Ground {
     static let transcript = Color.dynamic(light: "Page", dark: "Canvas")
 }
 
-/// The fills Realm's own surfaces wear. They stay solid: glass belongs to the chrome that floats over
-/// content, never to the content.
+/// The fills Realm's own surfaces wear. They stay solid, and so does the chrome over them: the phone
+/// draws no glass and no material anywhere.
 enum Fill {
     /// A card in the transcript, a row on Home.
     static let card = Palette.surface
@@ -63,6 +63,20 @@ struct GreyButtonStyle: ButtonStyle {
     }
 }
 
+/// A chip over the composer — Review changes, a suggested reply, who is working: a card's capsule
+/// lifted as the composer under it is, with the words in ink.
+struct ChipButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(Palette.ink)
+            .padding(.horizontal, 14)
+            .frame(minHeight: 36)
+            .background(configuration.isPressed ? Palette.hover : Fill.card, in: Capsule())
+            .floatingLift()
+            .contentShape(Capsule())
+    }
+}
+
 private struct CapsuleLabel: View {
     let configuration: ButtonStyleConfiguration
     let fill: Color
@@ -87,6 +101,125 @@ extension View {
     /// floats its own: a soft shadow and no edge.
     func floatingLift() -> some View {
         shadow(color: .black.opacity(0.08), radius: 14, y: 4)
+    }
+}
+
+extension View {
+    /// A bar over scrolling content, as Photos draws its own: what passes under it blurs softly and
+    /// fades into the ground toward the screen's edge, so the bar's words stay legible with no band of
+    /// glass or material behind them and no line where the content stops. Applied to the scroll view,
+    /// inside any `safeAreaBar`, so the fade covers the bars' whole height.
+    func softEdges(_ edges: Edge.Set = [.top, .bottom], ground: Color) -> some View {
+        modifier(SoftEdges(edges: edges, ground: ground))
+    }
+
+    /// A list's pinned section head: Realm's ground behind it from edge to edge, and under it a fade
+    /// deep enough that the line passing beneath has gone before it reaches the head's words. The
+    /// 12-point fade it had let the top half of that line read through.
+    func pinnedOnGround() -> some View {
+        background(Ground.transcript)
+            .background(alignment: .bottom) {
+                LinearGradient(stops: [
+                    .init(color: Ground.transcript, location: 0),
+                    .init(color: Ground.transcript.opacity(0.97), location: 0.5),
+                    .init(color: Ground.transcript.opacity(0.7), location: 0.8),
+                    .init(color: Ground.transcript.opacity(0), location: 1),
+                ], startPoint: .top, endPoint: .bottom)
+                .frame(height: 28)
+                .offset(y: 28)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+    }
+
+    /// The way back from a pushed screen: the chevron on the bar's own ground, where iOS would draw it
+    /// in a circle of glass, and the edge swipe as before.
+    func backOnGround() -> some View {
+        modifier(BackOnGround())
+    }
+}
+
+/// The scroll edge's blur, and over it the ground deepening toward the screen's edge, as tall as the
+/// bars the content scrolls under — the safe area there — and nothing where there is none. Not the
+/// scroll view's content insets: a short transcript anchored to its foot pads those to the top.
+private struct SoftEdges: ViewModifier {
+    let edges: Edge.Set
+    let ground: Color
+    @State private var bars = EdgeInsets()
+
+    /// How far past a bar the fade runs out, so the line just under the bar's words has already
+    /// softened rather than reading through them.
+    private static let overrun: CGFloat = 24
+
+    func body(content: Content) -> some View {
+        content
+            .scrollEdgeEffectStyle(.soft, for: edges)
+            .onGeometryChange(for: EdgeInsets.self, of: \.safeAreaInsets) { bars = $0 }
+            .overlay {
+                VStack(spacing: 0) {
+                    if edges.contains(.top) {
+                        fade(.top).frame(height: bars.top + Self.overrun)
+                    }
+                    Spacer(minLength: 0)
+                    if edges.contains(.bottom) {
+                        fade(.bottom).frame(height: bars.bottom + Self.overrun)
+                    }
+                }
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+    }
+
+    private func fade(_ edge: VerticalEdge) -> LinearGradient {
+        LinearGradient(stops: [
+            .init(color: ground.opacity(0.95), location: 0),
+            .init(color: ground.opacity(0.85), location: 0.6),
+            .init(color: ground.opacity(0.55), location: 0.82),
+            .init(color: ground.opacity(0), location: 1),
+        ], startPoint: edge == .top ? .top : .bottom, endPoint: edge == .top ? .bottom : .top)
+    }
+}
+
+private struct BackOnGround: ViewModifier {
+    @Environment(\.dismiss) private var dismiss
+
+    func body(content: Content) -> some View {
+        content
+            .navigationBarBackButtonHidden()
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Back", systemImage: "chevron.backward") { dismiss() }
+                }
+                .sharedBackgroundVisibility(.hidden)
+            }
+            .background(SwipeBack().frame(width: 0, height: 0))
+    }
+}
+
+/// A hidden back button takes the edge swipe with it. This hands the swipe back to the navigation
+/// controller, for as long as there is a screen under the top one to go back to.
+private struct SwipeBack: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> Probe { Probe() }
+    func updateUIViewController(_ probe: Probe, context: Context) {}
+
+    final class Probe: UIViewController {
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            // The edge's swipe and, since iOS 26, the one from anywhere in the content.
+            for gesture in [navigationController?.interactivePopGestureRecognizer,
+                            navigationController?.interactiveContentPopGestureRecognizer] {
+                gesture?.delegate = Pops.shared
+            }
+        }
+    }
+
+    final class Pops: NSObject, UIGestureRecognizerDelegate {
+        static let shared = Pops()
+
+        func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
+            ((gesture.view?.next as? UINavigationController)?.viewControllers.count ?? 0) > 1
+        }
     }
 }
 

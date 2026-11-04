@@ -121,6 +121,7 @@ struct ScreensSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close", systemImage: "xmark") { dismiss() }
                 }
+                .sharedBackgroundVisibility(.hidden)
                 if screens.count > 1, let screen {
                     ToolbarItem(placement: .topBarTrailing) {
                         Menu {
@@ -135,6 +136,7 @@ struct ScreensSheet: View {
                         .accessibilityLabel("Screen, \(screen.name)")
                         .accessibilityIdentifier("screen-picker")
                     }
+                    .sharedBackgroundVisibility(.hidden)
                 }
             }
         }

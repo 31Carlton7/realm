@@ -157,6 +157,7 @@ struct ScheduledView: View {
         .listRowSpacing(12)
         .scrollContentBackground(.hidden)
         .background(Ground.transcript)
+        .softEdges(ground: Ground.transcript)
         .overlay {
             if let tasks, tasks.isEmpty {
                 ContentUnavailableView("No scheduled tasks", systemImage: "calendar.badge.clock",

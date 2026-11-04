@@ -191,12 +191,14 @@ struct NewSessionSheet: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .background(Ground.grouped)
+            .softEdges(ground: Ground.grouped)
             .navigationTitle("New session")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
         }
         .presentationBackground(Ground.grouped)

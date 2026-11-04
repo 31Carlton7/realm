@@ -37,6 +37,7 @@ struct PairView: View {
                     Button("Cancel") { dismiss() }
                         .disabled(model.pairing.isBusy)
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
         }
         .fullScreenCover(isPresented: $scanning) {
@@ -119,6 +120,7 @@ struct PairView: View {
             .frame(maxWidth: .infinity)
         }
         .scrollBounceBehavior(.basedOnSize)
+        .softEdges(ground: Ground.grouped)
         // At the accessibility sizes the actions are most of a screen: pinned, they would cover the
         // title and the steps for good, so there they scroll with the rest.
         .safeAreaBar(edge: .bottom) {
@@ -309,16 +311,19 @@ private struct PasteLinkSheet: View {
             }
             .scrollContentBackground(.hidden)
             .background(Ground.grouped)
+            .softEdges(ground: Ground.grouped)
             .navigationTitle("Paste the link")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
+                .sharedBackgroundVisibility(.hidden)
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Pair", action: pair)
                         .disabled(link.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
         }
         .presentationDetents([.medium, .large])
@@ -331,7 +336,7 @@ private struct PasteLinkSheet: View {
 }
 
 /// The camera, full screen, until it reads a Realm pairing code. What it says floats over the picture
-/// on glass, as the system's camera controls do.
+/// on a card, and Cancel under it is the grey button.
 struct ScannerScreen: View {
     let onCode: (String) -> Void
     @Environment(\.dismiss) private var dismiss
@@ -348,22 +353,19 @@ struct ScannerScreen: View {
                 return false
             }
             .ignoresSafeArea()
-            GlassEffectContainer(spacing: 12) {
-                VStack(spacing: 12) {
-                    Label(notOurs ? "That code is not a Realm pairing code." : "Point the camera at the code on your Mac.",
-                          systemImage: notOurs ? "exclamationmark.triangle.fill" : "qrcode.viewfinder")
-                        .font(.body.weight(.medium))
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 14)
-                        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous))
-                        .contentTransition(.opacity)
-                    Button("Cancel") { dismiss() }
-                        .font(.body.weight(.semibold))
-                        .buttonStyle(.glass)
-                        .buttonBorderShape(.capsule)
-                        .controlSize(.large)
-                }
+            VStack(spacing: 12) {
+                Label(notOurs ? "That code is not a Realm pairing code." : "Point the camera at the code on your Mac.",
+                      systemImage: notOurs ? "exclamationmark.triangle.fill" : "qrcode.viewfinder")
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(Palette.ink)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 14)
+                    .background(Fill.card, in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous))
+                    .floatingLift()
+                    .contentTransition(.opacity)
+                Button("Cancel") { dismiss() }
+                    .buttonStyle(GreyButtonStyle())
             }
             .padding(20)
         }
