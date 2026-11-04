@@ -26,7 +26,7 @@ struct SpaceView: View {
                 } header: {
                     HStack {
                         SectionHead(title: "Team") {
-                            Image(systemName: "person.2.fill").foregroundStyle(Palette.ink2)
+                            Image(systemName: "person.2").foregroundStyle(Palette.ink2)
                         }
                         Spacer()
                         NewTeammateButton(spaceId: spaceId)
@@ -64,6 +64,7 @@ struct SpaceView: View {
             }
         }
         .listStyle(.plain)
+        .listSectionSpacing(HomeView.sectionSpacing)
         .scrollContentBackground(.hidden)
         .background(Ground.transcript)
         .overlay {
