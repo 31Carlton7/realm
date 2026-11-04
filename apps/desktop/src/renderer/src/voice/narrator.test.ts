@@ -3,7 +3,7 @@ import { emptyTranscript, type Block, type PendingPermission, type Transcript } 
 import { Narrator, TOOL_STATUS_GAP_MS, permissionPrompt, toolStatus } from "./narrator";
 
 const t = (blocks: Block[], pendingPermissions: PendingPermission[] = []): Transcript => ({ ...emptyTranscript(), blocks, pendingPermissions });
-const reply = (text: string, streaming = true): Block => ({ kind: "assistant", messageId: "m1", text, streaming, ts: 0 });
+const reply = (text: string, streaming = true, messageId = "m1"): Block => ({ kind: "assistant", messageId, text, streaming, ts: 0 });
 const tool = (id: string, name: string, input: Record<string, unknown> = {}, extra: Partial<Extract<Block, { kind: "tool" }>> = {}): Block =>
   ({ kind: "tool", toolUseId: id, name, input, result: null, ts: 0, ...extra });
 
@@ -13,7 +13,7 @@ describe("Narrator", () => {
     const n = new Narrator(before.blocks.length, "Claude");
     // THE MUTANT: start from the top — opening voice mode on a long session reads the whole log.
     expect(n.next(before, 0, true)).toEqual([]);
-    expect(n.next(t([...before.blocks, { kind: "user", text: "and?", ts: 1 }, { ...reply("New answer.", false), messageId: "m2" }]), 0, true)).toEqual(["New answer."]);
+    expect(n.next(t([...before.blocks, { kind: "user", text: "and?", ts: 1 }, reply("New answer.", false, "m2")]), 0, true)).toEqual(["New answer."]);
   });
 
   it("follows a reply as it streams and finishes it when it settles", () => {

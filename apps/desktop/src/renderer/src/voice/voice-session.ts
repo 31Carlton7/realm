@@ -8,7 +8,8 @@ import type { VoicePrefs } from "./voice-prefs";
 
 /** The session voice mode talks to, as far as voice mode needs it. */
 export interface VoiceSessionPort {
-  transcript(): Transcript;
+  /** Null until the session's transcript has loaded. */
+  transcript(): Transcript | null;
   /** Running or waiting on a permission: a turn is in flight. */
   busy(): boolean;
   subscribe(cb: () => void): () => void;
@@ -24,7 +25,7 @@ export type VoiceSnapshot = {
   phase: VoicePhase;
   /** What is being heard right now, as the recogniser has it so far. */
   partial: string;
-  /** The last thing said to the agent, and the last sentence Realm said back. */
+  /** The last thing said to the agent, and the sentence Realm is saying now: null when it is quiet. */
   heard: string | null;
   said: string | null;
   muted: boolean;
@@ -54,7 +55,6 @@ const RECENT = 6;
  */
 export class VoiceSession {
   private readonly turns = new TurnTaker();
-  private readonly narrator: Narrator;
   private snapshot: VoiceSnapshot = { phase: "starting", partial: "", heard: null, said: null, muted: false, held: false, problem: null, microphoneDenied: false };
   private listeners = new Set<() => void>();
   private offs: (() => void)[] = [];
@@ -65,8 +65,11 @@ export class VoiceSession {
   private prerollSize = 0;
   private outgoing: Int16Array[] = [];
   private outgoingSize = 0;
-  /** Sentences sent to the helper and not yet fully played: a hush drops them all. */
-  private live = new Set<string>();
+  /** Sentences sent to the helper and not yet synthesised in full, by id: a hush drops them all. */
+  private live = new Map<string, string>();
+  /** When each sentence starts playing, on the audio clock, in the order they play. */
+  private playing: { text: string; at: number }[] = [];
+  private narrator: Narrator | null = null;
   private spoken = 0;
   private recent: string[] = [];
   private tick: ReturnType<typeof setInterval> | null = null;
@@ -80,7 +83,8 @@ export class VoiceSession {
     prefs: () => VoicePrefs;
     now?: () => number;
   }) {
-    this.narrator = new Narrator(deps.session.transcript().blocks.length, deps.agentName);
+    const t = deps.session.transcript();
+    if (t) this.narrator = new Narrator(t.blocks.length, deps.agentName);
   }
 
   private now(): number { return this.deps.now?.() ?? performance.now(); }
@@ -132,8 +136,8 @@ export class VoiceSession {
     if (this.stopped) { audio.stop(); return; }
     this.started = true;
     this.offs.push(session.subscribe(() => this.narrate()));
-    // The phase reads the audio clock, which moves without telling anyone.
-    this.tick = setInterval(() => this.update({}), 100);
+    // The phase and the sentence on screen read the audio clock, which moves without telling anyone.
+    this.tick = setInterval(() => this.update({ said: this.sayingNow() }), 100);
     this.update({});
     this.narrate();
   }
@@ -233,7 +237,13 @@ export class VoiceSession {
 
   private onHelper(e: HelperEvent): void {
     if (this.stopped) return;
-    if (e.t === "audio") { if (this.live.has(e.id)) this.deps.audio.play(decodePcm(e.pcm), e.rate); return; }
+    if (e.t === "audio") {
+      const text = this.live.get(e.id);
+      if (text === undefined) return;
+      const at = this.deps.audio.play(decodePcm(e.pcm), e.rate);
+      if (this.playing.at(-1)?.text !== text) this.playing.push({ text, at });
+      return;
+    }
     if (e.t === "spoken") { this.live.delete(e.id); return; }
     if (e.t === "error") { this.update({ problem: e.message }); return; }
     if (e.turn !== this.turn) return;
@@ -258,7 +268,7 @@ export class VoiceSession {
       this.hush();
     }
     const { session } = this.deps;
-    const pending = session.transcript().pendingPermissions.find((p) => !p.ask);
+    const pending = session.transcript()?.pendingPermissions.find((p) => !p.ask);
     const heard = interpret(text, { permissionPending: !!pending });
     this.update({ partial: "" });
     if (heard.kind === "nothing") return;
@@ -272,23 +282,37 @@ export class VoiceSession {
     this.deps.helper.command({ t: "hush" });
     this.deps.audio.hush();
     this.live.clear();
-    this.narrator.skipTo(this.deps.session.transcript().blocks.length);
-    this.update({});
+    this.playing = [];
+    this.narrator?.skipTo(this.deps.session.transcript()?.blocks.length ?? 0);
+    this.update({ said: null });
+  }
+
+  /** The sentence the speakers are playing now: the last one whose audio has started. */
+  private sayingNow(): string | null {
+    if (!this.speaking()) { this.playing = []; return null; }
+    const now = this.deps.audio.clock();
+    while (this.playing.length > 1 && this.playing[1]!.at <= now) this.playing.shift();
+    const first = this.playing[0];
+    return first && first.at <= now ? first.text : null;
   }
 
   private narrate(): void {
     if (!this.started || this.stopped) return;
-    const lines = this.narrator.next(this.deps.session.transcript(), this.now(), !this.speaking());
+    const t = this.deps.session.transcript();
+    if (!t) return;
+    // Everything in the transcript when it is first seen was there before voice mode opened, and is
+    // not read: only what arrives after.
+    if (!this.narrator) { this.narrator = new Narrator(t.blocks.length, this.deps.agentName); return; }
+    const lines = this.narrator.next(t, this.now(), !this.speaking());
     for (const text of lines) this.say(text);
     this.update({});
   }
 
   private say(text: string): void {
     const id = `s${++this.spoken}`;
-    this.live.add(id);
+    this.live.set(id, text);
     this.recent = [...this.recent, text].slice(-RECENT);
     const { voice, rate } = this.deps.prefs();
     this.deps.helper.command({ t: "speak", id, text, ...(voice ? { voice } : {}), rate });
-    this.update({ said: text });
   }
 }

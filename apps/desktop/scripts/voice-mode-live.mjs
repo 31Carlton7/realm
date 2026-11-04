@@ -4,12 +4,15 @@
  *   LIVE_THEME=dark|light LIVE_SHOT_DIR=<dir> node apps/desktop/scripts/voice-mode-live.mjs
  *
  * A scratch home, one session on Claude Haiku (the cheapest model — two short turns a run, billed to
- * the signed-in account), and the person's side played through the speakers with `say`, so it reaches
+ * the signed-in account) and every other session on the fake agent, and the person's side played through the speakers with `say`, so it reaches
  * the app the way a voice does: through the air and the microphone. It records the window with
  * `screencapture` and the room with the app's own microphone, and muxes the two into one movie.
  *
- * What it shows: words heard as they are said, the message sent when the speaker stops, the reply read
- * back, and a barge-in — talking over the reply stops it.
+ * What it shows, in either theme: words heard as they are said, the message sent when the speaker
+ * stops, the reply read back with each sentence on screen as it is spoken, and a barge-in — talking
+ * over the reply stops it, and what was said is sent and answered. Beside the movie it writes the
+ * view's timeline (phase, bar levels, caption) and the helper's audio log, which is the evidence
+ * that Realm's voice was produced and when.
  *
  * It TAKES OVER THE SCREEN: the window comes to the front for the recording. Keep hands off. The first
  * run on a Mac raises macOS's microphone prompt for the test Electron; the script waits for a person
@@ -108,10 +111,18 @@ function ask(line) {
 /** The person, through the speakers. Resolves when they stop talking. */
 function say(text) {
   note("say", text);
-  return new Promise((resolve) => { const p = spawn("say", ["-v", SAY_VOICE, "-r", "185", "-a", SPEAKERS, text]); p.on("close", resolve); });
+  return new Promise((resolve) => { const p = spawn("say", ["-v", SAY_VOICE, "-r", process.env.LIVE_SAY_RATE ?? "185", "-a", SPEAKERS, text]); p.on("close", resolve); });
 }
 
 let electron = null, recorder = null;
+/** The view's timeline, written even when a run fails part-way: it is what says why. */
+let watcher = null, recordStart = 0;
+function writeTimeline() {
+  if (!watcher) return;
+  watcher.stop();
+  const lines = watcher.log.map((e) => `${((e.t - recordStart) / 1000).toFixed(1)} ${e.phase} [${e.side} ${e.bars.map((x) => x.toFixed(2)).join(" ")}]${e.quiet ? " quiet:" + e.quiet : ""} ${e.caption}`);
+  fs.writeFileSync(path.join(shots, `${THEME}-timeline.txt`), lines.join("\n") + "\n");
+}
 /** LIVE_SPEECH=0: the views alone, on the fake agent — for a room where nothing may be said aloud. */
 const SPEECH = process.env.LIVE_SPEECH !== "0";
 
@@ -121,15 +132,15 @@ async function uiOnly(c, api, id) {
   check("push-to-talk only: the view says to hold Space", /Hold Space/.test((await view(c)).state), (await view(c)).state);
   // A spoken message, as voice mode sends one, to the fake agent: its reply is read back.
   await api.call("sessions.send", { id, text: "What changed in the build today?", attachments: [], spoken: true });
-  const speaking = await until(async () => { const v = await view(c); return v?.phase === "speaking" && v.realm ? v : null; }, 30_000, "the reply read aloud");
+  const speaking = await until(async () => { const v = await view(c); return v?.phase === "speaking" && v.live ? v : null; }, 30_000, "the reply read aloud");
   await sleep(400);
   await shot(c, "ui-2-speaking");
-  check("the reply is read back, its sentence on screen", !!speaking.realm, speaking);
+  check("the reply is read back, its sentence on screen", !!speaking.caption, speaking);
   await until(async () => (await view(c))?.phase === "listening", 60_000, "back to listening");
-  await evalIn(c, `[...document.querySelectorAll('.voice-control')].find((b) => b.textContent.includes('Mute'))?.click(), true`);
+  await evalIn(c, `document.querySelector('.voice-control[aria-label="Mute"]')?.click(), true`);
   await sleep(300);
   await shot(c, "ui-3-muted");
-  await evalIn(c, `[...document.querySelectorAll('.voice-control')].find((b) => b.textContent.includes('End'))?.click(), true`);
+  await evalIn(c, `document.querySelector('.voice-control[aria-label="End voice mode"]')?.click(), true`);
   await until(async () => !(await view(c)), 5_000, "voice mode to close");
   await sleep(800);
   await shot(c, "ui-4-transcript");
@@ -142,6 +153,25 @@ async function uiOnly(c, api, id) {
   await shot(c, "ui-5-settings");
 }
 
+/** How the page's microphone frames arrived (every one should come about 21 ms after the last), and
+ *  under LIVE_TAP the audio itself as a 16-bit WAV at the context's rate. */
+async function saveTap(c, name) {
+  const tap = await evalIn(c, `(() => { const t = window.__tap; const gaps = t.at.slice(1).map((x, i) => x - t.at[i]);
+    let pcm = ''; if (t.chunks.length) { const n = t.chunks.reduce((a, x) => a + x.length, 0); const out = new Int16Array(n); let o = 0;
+      for (const ch of t.chunks) for (let i = 0; i < ch.length; i++) out[o++] = Math.max(-32768, Math.min(32767, Math.round(ch[i] * 32767)));
+      const b = new Uint8Array(out.buffer); for (let i = 0; i < b.length; i += 0x8000) pcm += String.fromCharCode(...b.subarray(i, i + 0x8000)); pcm = btoa(pcm); }
+    t.chunks = [];
+    return { frames: t.frames, rate: t.rate, span: t.at.length ? t.at.at(-1) - t.at[0] : 0, maxGap: Math.max(0, ...gaps), late: gaps.filter((g) => g > 60).length, pcm };
+  })()`);
+  note("microphone frames", { frames: tap.frames, rate: tap.rate, expectedFrames: Math.round(tap.span / 1000 * tap.rate / 1024), maxGapMs: Math.round(tap.maxGap), lateFrames: tap.late });
+  if (!tap.pcm) return;
+  const data = Buffer.from(tap.pcm, "base64");
+  const head = Buffer.alloc(44);
+  head.write("RIFF", 0); head.writeUInt32LE(36 + data.length, 4); head.write("WAVEfmt ", 8); head.writeUInt32LE(16, 16); head.writeUInt16LE(1, 20); head.writeUInt16LE(1, 22);
+  head.writeUInt32LE(tap.rate, 24); head.writeUInt32LE(tap.rate * 2, 28); head.writeUInt16LE(2, 32); head.writeUInt16LE(16, 34); head.write("data", 36); head.writeUInt32LE(data.length, 40);
+  fs.writeFileSync(path.join(shots, `${THEME}-tap-${name}.wav`), Buffer.concat([head, data]));
+}
+
 async function shot(c, name) {
   const { data } = await c.send("Page.captureScreenshot", {});
   const file = path.join(shots, `${THEME}-${name}.png`);
@@ -149,13 +179,17 @@ async function shot(c, name) {
   note("shot", file);
 }
 
-/** What the voice view shows now. */
+/** What the voice view shows now: its phase, the head, the caption, whose voice the bars follow and
+ *  how high they stand, and whether the window has gone quiet (which would hold the bars still). */
 const view = (c) => evalIn(c, `(() => {
   const v = document.querySelector('.voice-view');
   if (!v) return null;
-  const words = (side) => v.querySelector('.voice-side[data-side=' + side + '] .voice-words')?.textContent ?? '';
-  return { phase: v.dataset.phase, live: !!v.querySelector('.voice-words[data-live]'), mine: words('mine'), realm: words('realm'),
-    state: v.querySelector('.voice-state')?.textContent ?? '' };
+  const caption = v.querySelector('.voice-caption');
+  const bars = v.querySelector('.voice-bars');
+  return { phase: v.dataset.phase, head: v.querySelector('.voice-name')?.textContent ?? '', caption: caption?.textContent ?? '',
+    live: caption?.dataset.tone === 'live', side: bars?.dataset.side ?? '', state: v.querySelector('.voice-state')?.textContent ?? '',
+    bars: [...(bars?.children ?? [])].map((b) => Number(b.style.getPropertyValue('--level') || 0)),
+    quiet: document.documentElement.getAttribute('data-quiet') };
 })()`);
 
 /** Polls the view every 150 ms in the background, so a phase that lasts half a second is still seen. */
@@ -217,8 +251,11 @@ async function main() {
     await api.call("sessions.setAgent", { id: voiceSession.id, agentKind: "fake" });
     await api.call("settings.set", { key: "ui.voice", value: { handsFree: false } });
   } else {
-    if (voiceSession.agentKind !== "claude") await api.call("sessions.setAgent", { id: voiceSession.id, agentKind: "claude" });
-    await api.call("sessions.setOptions", { id: voiceSession.id, model: MODEL });
+    if (process.env.LIVE_AGENT === "fake") await api.call("sessions.setAgent", { id: voiceSession.id, agentKind: "fake" });
+    else {
+      if (voiceSession.agentKind !== "claude") await api.call("sessions.setAgent", { id: voiceSession.id, agentKind: "claude" });
+      await api.call("sessions.setOptions", { id: voiceSession.id, model: MODEL });
+    }
   }
   await api.call("settings.set", { key: "ui.theme", value: THEME });
   await c.send("Page.reload");
@@ -237,7 +274,29 @@ async function main() {
     navigator.mediaDevices.getUserMedia = async (want) => {
       const id = await pick("audioinput", ${JSON.stringify(MIC_LABEL)});
       window.__liveMic = id ?? null;
-      return gum(id && want?.audio ? { ...want, audio: { ...(typeof want.audio === "object" ? want.audio : {}), deviceId: { exact: id } } } : want);
+      // LIVE_MIC_PROCESSING overrides the page's own constraints (e.g. {"noiseSuppression":false}), to
+      // find which of Chromium's stages a recognition problem comes from.
+      const override = ${process.env.LIVE_MIC_PROCESSING ?? "{}"};
+      return gum(id && want?.audio ? { ...want, audio: { ...(typeof want.audio === "object" ? want.audio : {}), ...(want.audio?.echoCancellation ? override : {}), deviceId: { exact: id } } } : want);
+    };
+    // LIVE_TAP: keep what the page's microphone processor is handed, frame by frame, with the time
+    // each frame arrived — what the recogniser was given, to listen to and to check for gaps.
+    window.__tap = { frames: 0, chunks: [], at: [], rate: 0 };
+    const make = AudioContext.prototype.createScriptProcessor;
+    AudioContext.prototype.createScriptProcessor = function (...args) {
+      const node = make.apply(this, args);
+      const ctx = this;
+      let handler = null;
+      Object.defineProperty(node, "onaudioprocess", { configurable: true, get: () => handler, set: (fn) => {
+        if (handler) node.removeEventListener("audioprocess", handler);
+        handler = fn && ((e) => {
+          const t = window.__tap; t.frames += 1; t.rate = ctx.sampleRate; t.at.push(performance.now());
+          if (${process.env.LIVE_TAP === "1"}) t.chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+          fn(e);
+        });
+        if (handler) node.addEventListener("audioprocess", handler);
+      } });
+      return node;
     };
     const Base = window.AudioContext;
     window.AudioContext = class extends Base {
@@ -249,6 +308,12 @@ async function main() {
   note("microphone grant before", mic?.state);
   if (mic?.state !== "granted") console.log("ACTION macOS is asking whether Electron may use the microphone: click Allow. (The script waits up to five minutes.)");
 
+  // Realm's voice, as the helper hands it over: every run of audio with its length, and each sentence's
+  // end — the evidence that sound was produced, beside the room recording that has it.
+  await evalIn(c, `(() => { window.__tts = []; window.realm.voice.onEvent((e) => {
+    if (e.t === 'audio') window.__tts.push({ t: Date.now(), e: 'audio', id: e.id, s: atob(e.pcm).length / 2 / e.rate });
+    else if (e.t === 'spoken' || e.t === 'final') window.__tts.push({ t: Date.now(), e: e.t, id: e.id, text: e.text });
+  }); return true; })()`);
   await evalIn(c, `document.querySelector('.composer-voice').click(), true`);
   const ready = await until(async () => { const v = await view(c); return v && v.phase !== "starting" ? v : null; }, 300_000, "voice mode to start");
   if (ready.phase === "unavailable") throw new Error(`voice mode did not start: ${ready.state}`);
@@ -267,64 +332,63 @@ async function main() {
     rec.start(1000);
     return true;
   })()`);
+  await ask("front");
+  await sleep(400);
   const b = JSON.parse(await ask("bounds"));
   const video = path.join(shots, `${THEME}-screen.mov`);
   const seconds = Number(process.env.LIVE_SECONDS ?? 95);
   recorder = spawn("screencapture", ["-v", "-x", "-V", String(seconds), "-R", `${b.x},${b.y},${b.width},${b.height}`, video]);
-  const recordStart = Date.now();
+  recordStart = Date.now();
   await sleep(1500);
   const w = watch(c);
+  watcher = w;
 
   // ── 1. A question, said aloud: its words appear as they are heard, and it goes when the speaker stops.
-  const first = THEME === "dark" ? "Tell me a short story about a lighthouse keeper, in about six sentences." : "Name three primary colors, in one short sentence.";
+  const first = THEME === "dark" ? "Tell me a short story about a lighthouse keeper, in about six sentences." : "Describe a quiet morning at the beach, in about six sentences.";
   const saying = say(first);
-  await until(async () => { const v = await view(c); return v?.live && v.mine.split(" ").length >= 2 ? v : null; }, 15_000, "partial words");
+  const partial = await until(async () => { const v = await view(c); return v?.phase === "hearing" && v.caption.split(" ").length >= 2 ? v : null; }, 15_000, "partial words");
   await shot(c, "2-partial-words");
+  check("words appear as they are heard, under bars that follow the microphone", partial.side === "mine", partial);
   await saying;
+  await saveTap(c, "first");
   const sent = await until(async () => {
     const ev = await api.call("sessions.events", { id: voiceSession.id });
     return ev.map((e) => e.event).find((e) => e.type === "user_message" && e.payload.spoken) ?? null;
   }, 15_000, "the spoken message");
-  check("the message is sent once the speaker stops, marked spoken", sent.payload.spoken === true, sent.payload.text);
-  await until(async () => (await view(c))?.phase === "speaking", 60_000, "the reply read aloud");
-  await sleep(1200);
+  check("the message is sent once the speaker stops, marked spoken, as said", /lighthouse|beach/i.test(sent.payload.text), sent.payload.text);
+  const reading = await until(async () => { const v = await view(c); return v?.phase === "speaking" && v.live && v.bars.some((x) => x > 0.15) ? v : null; }, 60_000, "the reply read aloud");
+  await sleep(600);
   await shot(c, "3-reply-spoken");
+  check("the reply is read aloud: its sentence under bars that follow Realm's voice", reading.side === "realm" && !!reading.caption, reading);
 
-  // ── 2. A barge-in.
-  if (THEME === "dark") {
-    await sleep(2500);
-    const before = await view(c);
-    const barge = Date.now();
-    await say("Actually, wait. What is two plus two?");
-    const after = await until(async () => { const v = await view(c); return v && v.phase !== "speaking" ? v : null; }, 10_000, "speech to stop");
-    note("barge-in", { stoppedAfterMs: Date.now() - barge, before: before.realm, after: after.phase });
-    await shot(c, "4-barge-in");
-    const second = await until(async () => {
-      const ev = await api.call("sessions.events", { id: voiceSession.id });
-      const spoken = ev.map((e) => e.event).filter((e) => e.type === "user_message" && e.payload.spoken);
-      return spoken.length >= 2 ? spoken.at(-1) : null;
-    }, 20_000, "the barge-in's message");
-    check("talking over the reply sends what was said", /two plus two/i.test(second.payload.text), second.payload.text);
-  } else {
-    await until(async () => (await view(c))?.phase === "listening", 60_000, "the reply to finish");
-    await say("Now tell me a short story about a lighthouse keeper, in about six sentences.");
-    await until(async () => (await view(c))?.phase === "speaking", 60_000, "the story read aloud");
-    await sleep(3500);
-    const barge = Date.now();
-    await say("Stop.");
-    const after = await until(async () => { const v = await view(c); return v && v.phase !== "speaking" && v.phase !== "hearing" ? v : null; }, 10_000, "speech to stop");
-    note("barge-in", { stoppedAfterMs: Date.now() - barge, after: after.phase });
-    await shot(c, "4-barge-in-stop");
+  // ── 2. A barge-in: talking over the reply stops it, and what was said is sent.
+  await sleep(2500);
+  const before = await view(c);
+  const barge = Date.now();
+  const interrupting = say("Actually, wait. What is two plus two?");
+  void interrupting.then(() => saveTap(c, "barge"));
+  const after = await until(async () => { const v = await view(c); return v && v.phase !== "speaking" ? v : null; }, 10_000, "speech to stop");
+  note("barge-in", { stoppedAfterMs: Date.now() - barge, before: before.caption, after: after.phase });
+  await shot(c, "4-barge-in");
+  await interrupting;
+  const second = await until(async () => {
     const ev = await api.call("sessions.events", { id: voiceSession.id });
     const spoken = ev.map((e) => e.event).filter((e) => e.type === "user_message" && e.payload.spoken);
-    check("\"stop\" stops Realm and is not sent as a message", spoken.every((e) => !/^stop/i.test(e.payload.text)), spoken.map((e) => e.payload.text));
-  }
+    return spoken.length >= 2 ? spoken.at(-1) : null;
+  }, 20_000, "the barge-in's message");
+  check("talking over the reply sends what was said", /two plus two|2 \+ 2/i.test(second.payload.text), second.payload.text);
+  await until(async () => { const v = await view(c); return v?.phase === "speaking" && v.live ? v : null; }, 60_000, "the answer read aloud");
+  await sleep(800);
+  await shot(c, "5-answer-spoken");
   await until(async () => (await view(c))?.phase === "listening", 60_000, "back to listening");
   await sleep(1500);
-  await shot(c, "5-listening-again");
-  w.stop();
-  const phases = w.log.map((e) => `${((e.t - recordStart) / 1000).toFixed(1)} ${e.phase}${e.live ? " live:" + e.mine : ""}${e.realm ? " realm:" + e.realm.slice(0, 50) : ""}`);
-  fs.writeFileSync(path.join(shots, `${THEME}-timeline.txt`), phases.join("\n") + "\n");
+  await shot(c, "6-listening-again");
+  writeTimeline();
+  const tts = await evalIn(c, `window.__tts`);
+  fs.writeFileSync(path.join(shots, `${THEME}-tts.log`), tts.map((e) => `${((e.t - recordStart) / 1000).toFixed(2)} ${e.e} ${e.id ?? ""} ${e.s ? e.s.toFixed(2) + "s of audio" : ""}${e.text ? " " + e.text : ""}`).join("\n") + "\n");
+  check("Realm's voice was produced: seconds of synthesised audio arrived", tts.filter((e) => e.e === "audio").reduce((n, e) => n + e.s, 0) > 2);
+  check("the bars moved with both voices", w.log.some((e) => e.side === "mine" && e.bars.some((x) => x > 0.15)) && w.log.some((e) => e.side === "realm" && e.bars.some((x) => x > 0.15)));
+  check("the window never went quiet during the recording", w.log.every((e) => !e.quiet || e.quiet === "idle"), [...new Set(w.log.map((e) => e.quiet))]);
 
   // ── 3. Out of voice mode: the transcript holds all of it, the spoken messages marked.
   const elapsed = (Date.now() - recordStart) / 1000;
@@ -336,7 +400,7 @@ async function main() {
   const movie = path.join(shots, `voice-mode-${THEME}.mov`);
   execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-i", video, "-i", tape, "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-shortest", movie]);
   note("movie", movie);
-  await evalIn(c, `[...document.querySelectorAll('.voice-control')].find((b) => b.textContent.includes('End'))?.click(), true`);
+  await evalIn(c, `document.querySelector('.voice-control[aria-label="End voice mode"]')?.click(), true`);
   await until(async () => !(await view(c)), 5_000, "voice mode to close");
   await sleep(800);
   await shot(c, "6-transcript");
@@ -351,6 +415,7 @@ try {
   process.exitCode = 1;
   console.log(`${at()}s FAIL ${e instanceof Error ? e.message : String(e)}`);
 } finally {
+  writeTimeline();
   if (recorder && recorder.exitCode === null) recorder.kill("SIGKILL");
   electron?.kill("SIGTERM");
   await sleep(1500);

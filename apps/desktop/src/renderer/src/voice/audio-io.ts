@@ -10,15 +10,20 @@ export const SPEECH_RATE = 16_000;
 
 export interface VoiceAudio {
   start(onFrame: (level: number, samples: Int16Array) => void): Promise<void>;
-  play(samples: Int16Array, rate: number): void;
+  /** Queue one run of Realm's voice after what is already queued; returns when it will start, on
+   *  the audio clock. */
+  play(samples: Int16Array, rate: number): number;
+  /** The audio clock, in seconds. */
+  clock(): number;
   /** Stop what is playing and everything scheduled after it. */
   hush(): void;
   /** Turn Realm's voice down while it is not yet clear the person is interrupting. */
   duck(on: boolean): void;
   /** Whether Realm's voice is playing, or has only just stopped (its echo is still in the room). */
   readonly talking: boolean;
-  /** The last few milliseconds of each side, for the waveforms: null before start. */
-  wave(side: "mine" | "realm", into: Float32Array<ArrayBuffer>): boolean;
+  /** How loud each band of the speech range is on one side right now, 0–1, one per slot of `into`.
+   *  False before start. */
+  bands(side: "mine" | "realm", into: Float32Array): boolean;
   stop(): void;
 }
 
@@ -45,6 +50,25 @@ export function rms(input: Float32Array): number {
   return Math.sqrt(sum / Math.max(1, input.length));
 }
 
+/** Where a voice's energy is: from its fundamental to the top of its consonants. */
+const SPEECH_LOW_HZ = 90, SPEECH_HIGH_HZ = 4_000;
+
+/**
+ * An analyser's bins folded into `into.length` bands across the speech range, spaced evenly in pitch
+ * rather than in hertz, so the low bands are not one bin wide and the high ones a hundred. Each band
+ * is the mean of its bins, 0–1.
+ */
+export function speechBands(bins: Uint8Array, hzPerBin: number, into: Float32Array): void {
+  const n = into.length;
+  for (let b = 0; b < n; b++) {
+    const lo = Math.floor((SPEECH_LOW_HZ * (SPEECH_HIGH_HZ / SPEECH_LOW_HZ) ** (b / n)) / hzPerBin);
+    const hi = Math.max(lo + 1, Math.floor((SPEECH_LOW_HZ * (SPEECH_HIGH_HZ / SPEECH_LOW_HZ) ** ((b + 1) / n)) / hzPerBin));
+    let sum = 0;
+    for (let i = lo; i < hi && i < bins.length; i++) sum += bins[i]!;
+    into[b] = sum / (hi - lo) / 255;
+  }
+}
+
 export class WebVoiceAudio implements VoiceAudio {
   private ctx: AudioContext | null = null;
   private mic: MediaStream | null = null;
@@ -52,6 +76,7 @@ export class WebVoiceAudio implements VoiceAudio {
   private gain: GainNode | null = null;
   private mineAnalyser: AnalyserNode | null = null;
   private realmAnalyser: AnalyserNode | null = null;
+  private bins = new Uint8Array(512);
   private playing = new Set<AudioBufferSourceNode>();
   private until = 0;
 
@@ -62,6 +87,7 @@ export class WebVoiceAudio implements VoiceAudio {
     const source = ctx.createMediaStreamSource(this.mic);
     this.mineAnalyser = ctx.createAnalyser();
     this.mineAnalyser.fftSize = 1024;
+    this.mineAnalyser.smoothingTimeConstant = 0.6;
     source.connect(this.mineAnalyser);
     // A ScriptProcessor rather than a worklet: a worklet's module has to be fetched, and the window's
     // page is a file the renderer's CSP and file:// both make awkward to fetch from. This one writes
@@ -76,13 +102,14 @@ export class WebVoiceAudio implements VoiceAudio {
     this.gain = ctx.createGain();
     this.realmAnalyser = ctx.createAnalyser();
     this.realmAnalyser.fftSize = 1024;
+    this.realmAnalyser.smoothingTimeConstant = 0.6;
     this.gain.connect(this.realmAnalyser);
     this.realmAnalyser.connect(ctx.destination);
   }
 
-  play(samples: Int16Array, rate: number): void {
+  play(samples: Int16Array, rate: number): number {
     const ctx = this.ctx;
-    if (!ctx || !this.gain || samples.length === 0) return;
+    if (!ctx || !this.gain || samples.length === 0) return this.clock();
     const buffer = ctx.createBuffer(1, samples.length, rate);
     const channel = buffer.getChannelData(0);
     for (let i = 0; i < samples.length; i++) channel[i] = samples[i]! / 32768;
@@ -94,7 +121,10 @@ export class WebVoiceAudio implements VoiceAudio {
     this.until = at + buffer.duration;
     this.playing.add(node);
     node.onended = () => this.playing.delete(node);
+    return at;
   }
+
+  clock(): number { return this.ctx?.currentTime ?? 0; }
 
   hush(): void {
     for (const node of this.playing) { try { node.stop(); } catch { /* not started */ } }
@@ -112,10 +142,11 @@ export class WebVoiceAudio implements VoiceAudio {
     return !!this.ctx && this.until > 0 && this.ctx.currentTime < this.until + TAIL_S;
   }
 
-  wave(side: "mine" | "realm", into: Float32Array<ArrayBuffer>): boolean {
+  bands(side: "mine" | "realm", into: Float32Array): boolean {
     const analyser = side === "mine" ? this.mineAnalyser : this.realmAnalyser;
-    if (!analyser) return false;
-    analyser.getFloatTimeDomainData(into);
+    if (!analyser || !this.ctx) return false;
+    analyser.getByteFrequencyData(this.bins);
+    speechBands(this.bins, this.ctx.sampleRate / analyser.fftSize, into);
     return true;
   }
 

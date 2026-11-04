@@ -5,6 +5,8 @@ import { createAppStore } from "../state/store";
 import { fakeApi, item, profile, session, space } from "../state/store.test-fakes";
 import { emptyTranscript, reduceTranscript } from "../panes/session/transcript-model";
 import { HOLD_MS, VoiceButton } from "./VoiceButton";
+import { STARTING, captionOf } from "./VoiceView";
+import { speechBands } from "./audio-io";
 import { DEFAULT_VOICE_PREFS, VOICE_PREFS_KEY, readVoicePrefs } from "./voice-prefs";
 
 afterEach(() => { vi.useRealTimers(); });
@@ -74,5 +76,35 @@ describe("VoiceButton", () => {
     // THE MUTANT: the release's click opens it a second time, hands-free, over the held turn.
     fireEvent.click(mic);
     expect(onVoice.mock.calls).toEqual([[false], [true]]);
+  });
+});
+
+describe("the caption under the bars", () => {
+  const at = { ...STARTING, heard: "What is two plus two?", said: "It is four." };
+  it("is the words heard, then the question while the agent works, then the sentence being spoken", () => {
+    expect(captionOf({ ...at, phase: "hearing", partial: "what is two" })).toEqual({ text: "what is two", tone: "live" });
+    expect(captionOf({ ...at, phase: "working", said: null })).toEqual({ text: "What is two plus two?", tone: "quiet" });
+    expect(captionOf({ ...at, phase: "speaking" })).toEqual({ text: "It is four.", tone: "live" });
+  });
+  it("is empty while Realm only listens", () => {
+    // THE MUTANT: the last reply stays up — a stale sentence reads as the prompt for the next turn.
+    expect(captionOf({ ...at, phase: "listening" }).text).toBe("");
+  });
+});
+
+describe("speechBands", () => {
+  it("puts a low voice in the low band and a hiss in the high one", () => {
+    const hzPerBin = 48_000 / 1024;
+    const bins = new Uint8Array(512);
+    bins[Math.round(150 / hzPerBin)] = 255;
+    const out = new Float32Array(5);
+    speechBands(bins, hzPerBin, out);
+    expect(out[0]).toBeGreaterThan(0);
+    expect(out.slice(1).every((v) => v === 0)).toBe(true);
+    bins.fill(0);
+    bins[Math.round(3_500 / hzPerBin)] = 255;
+    speechBands(bins, hzPerBin, out);
+    expect(out[4]).toBeGreaterThan(0);
+    expect(out.slice(0, 4).every((v) => v === 0)).toBe(true);
   });
 });
