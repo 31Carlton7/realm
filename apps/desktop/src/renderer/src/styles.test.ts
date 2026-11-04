@@ -1001,16 +1001,35 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     expect([...new Set(heavy)].sort(), "draw it at var(--hairline-w), or say why it is structural").toEqual([]);
   });
 
-  it("every edge fade is the same strength, because they all read the same tokens", () => {
-    /* They were three hand-tuned copies at blur(3px)/blur(11px)/88%, which is how "the blurs are too
-       strong" became one note about the whole app rather than about a surface. Strength is in
-       tokens now, so subtler is one edit and no two fades can disagree. */
-    const fades = RULES.filter((r) => /backdrop-filter:\s*blur/.test(r.body) && !/blur\(0/.test(r.body));
-    const literal = fades.filter((r) => /backdrop-filter:\s*blur\(\d/.test(r.body)).flatMap((r) => r.selectors);
-    /* Two named exceptions, both scrims rather than edge fades: they obscure on purpose, where a
-       fade's whole job is to go unnoticed. The drop target dims a pane under a dragged file, and the
-       media button's disc sits over a video frame it has to stay legible against. */
-    expect(literal.filter((sel) => !sel.includes(".session-drop") && !sel.includes(".media-play")).sort()).toEqual([]);
+  it("only the edge blur filters its backdrop: no glass anywhere else", () => {
+    /* The owner, 11-04: "I don't want this liquid glass like nav background anywhere else in the app".
+       A backdrop-filter is how a translucent slab gets made, so the only rules allowed one are the
+       edge blur's two layers, which paint no colour and sit where chrome meets a scroller. A menu, a
+       sheet, a card or a button that wants depth gets a plain surface and its shadow instead. */
+    const filtering = RULES.filter((r) => /(^|;|\s)(-webkit-)?backdrop-filter:\s*(?!none)/.test(r.body)).flatMap((r) => r.selectors);
+    expect([...new Set(filtering)].sort()).toEqual([".edge-blur::after", ".edge-blur::before"]);
+    // Both layers read the strength tokens, so "subtler" is one edit and no two bands can disagree.
+    expect(bodiesFor(".edge-blur::before").join(" ")).toContain("backdrop-filter: blur(var(--fade-blur-near))");
+    expect(bodiesFor(".edge-blur::after").join(" ")).toContain("backdrop-filter: blur(var(--fade-blur-far))");
+    // A band paints nothing of its own: a fill under the blur would be the slab this replaced.
+    for (const sel of [".edge-blur", ".edge-blur::before", ".edge-blur::after"]) {
+      expect(bodiesFor(sel).join(" "), sel).not.toMatch(/background/);
+    }
+    /* Its parent is the backdrop root, so the blur takes the content and never the window ground:
+       over a translucent pane a blur that reached the ground laid a grey stripe with a step at its
+       end (measured on a real capture). */
+    for (const sel of [".transcript-wrap", ".page-scroll"]) expect(bodiesFor(sel).join(" "), sel).toMatch(/opacity: 0\.99/);
+    // And nothing in a component sets one inline where the stylesheet cannot see it.
+    const inline: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of readdirSync(dir)) {
+        const file = join(dir, name);
+        if (statSync(file).isDirectory()) walk(file);
+        else if (/\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) && /backdropFilter|backdrop-filter/.test(readFileSync(file, "utf8"))) inline.push(file);
+      }
+    };
+    walk(repoFile("apps/desktop/src/renderer/src"));
+    expect(inline.filter((f) => !f.endsWith("ScrollFades.tsx"))).toEqual([]);
   });
 
   it("nothing is set below 11px, the type scale's own floor for a tiny label", () => {
@@ -1582,20 +1601,14 @@ describe("Plan 9 W1 — the BUI bridge", () => {
        its padding box. This test is the cheap half; the pixels are the real one. */
     const edge = RULES.filter((r) => r.selectors.some((sel) => /(^|\s)\.main$/.test(sel.trim())) && r.body.includes("border-left"))
       .flatMap((r) => r.selectors);
-    // Unconditional now: collapsed, the rail is still beside the panes (Plan 27), so the line is still
-    // between two surfaces rather than a stray rule down the window's own edge.
-    // Collapsed, there is no sidebar for it to stand against: the frame's rim takes the sheet's left
-    // edge from it, round the corner, and the border goes rather than doubling the rim.
+    // Unconditional: collapsed, the rail is still beside the panes (Plan 27), so the line is still
+    // between two surfaces rather than a stray rule down the window's own edge — and folded it is the
+    // only line there, since the panes no longer carry a rim or a corner of their own.
     // First run has neither the rail nor the sidebar beside it (`.app[data-first-run]`), so there is
     // nothing for the line to stand between and it goes with them.
-    // FOLDED, not collapsed: the line rides the column's edge all the way in, and goes only once the
-    // column has gone (App.tsx, useSidebarFolded) — at the click it left the sidebar unbounded for
-    // the length of the motion.
-    expect(edge).toEqual([".app > .main", ".app[data-sidebar-folded] > .main", ".app[data-first-run] > .main"]);
+    expect(edge).toEqual([".app > .main", ".app[data-first-run] > .main"]);
     expect(bodiesFor(".app[data-first-run] > .main").join(" ")).toContain("border-left: 0");
     expect(bodiesFor(".app > .main").join(" ")).toContain("var(--rl-line)");
-    expect(bodiesFor(".app[data-sidebar-folded] > .main").join(" ")).toContain("border-left: 0");
-    expect(bodiesFor(".app[data-sidebar-folded] .main::before").join(" ")).toMatch(/border-left: var\(--hairline-w\) solid var\(--rl-line-strong\)/);
     // And no inset shadow creeps back onto .main to say the same thing twice, invisibly.
     expect(bodiesFor(".main").join(" ")).not.toContain("box-shadow: inset");
   });
@@ -1613,12 +1626,12 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     // THE second-ground mutant: give .main or a pane a color-mix over --page too. The window looks
     // better on a nice wallpaper and every pane's body text starts depending on it.
     const translucent = RULES.filter((r) => /background:[^;]*var\(--sidebar-ground\)/.test(r.body)).flatMap((r) => r.selectors);
-    // Chrome only: the rail, the sidebar, the head row across the window (the panes' top band, the
-    // page's bar) and the frame's corner where the sheet meets the rail. Never a pane's BODY — the
-    // panes' ground below the head row is --pane-ground, painted once by `.main`.
-    expect(translucent.sort()).toEqual([".app-rail", ".app[data-sidebar-folded] .main::after", ".app[data-sidebar-folded] > .main",
-      ".main", ".sidebar"].sort());
-    expect(bodiesFor(".main").join(" ")).toMatch(/var\(--pane-ground\)\) 0 var\(--frame-top\)/);
+    // The sidebar's column only: the rail and the sidebar. Never the panes, bar row included — the
+    // head row over them was the sidebar's ground once, and read as a glass band across the reading
+    // (the owner, 11-04). The panes are --pane-ground, painted once by `.main`, top to bottom.
+    expect(translucent.sort()).toEqual([".app-rail", ".sidebar"].sort());
+    expect(bodiesFor(".main").join(" ")).toContain("background: var(--pane-ground)");
+    expect(bodiesFor(".main").join(" ")).not.toContain("--chrome-tint");
   });
 
   it("the ground's alpha is driven, defaulted opaque in CSS, and overridden by reduced transparency", () => {
@@ -1926,13 +1939,11 @@ describe("Plan 9 W3 — composer + chrome in BUI language", () => {
       }
     }
 
-    /* Low power used to go further: the fade bands stopped filtering their backdrop, and so did the
-       transcripts in unfocused panes — two backdrop layers per transcript, fourteen in a seven-pane
-       window, re-filtering on every frame an agent wrote into them. There is nothing left to turn
-       off. The dissolve is a mask on the scroller and filters nothing at any setting, which is the
-       same saving taken once instead of per state. THE mutant: a backdrop-filter creeping back onto
-       a fade, which would reintroduce the cost AND smudge the translucent pane under it. */
-    expect(css, "a fade may not filter its backdrop again").not.toMatch(/backdrop-filter: blur[^;]*;\s*[^}]*mask-image: linear-gradient\(to (bottom|top)/);
+    /* Low power drops the edge blur's two backdrop layers, which re-filter on every frame an agent
+       writes under them; the mask still fades the edge. Only under Low Power: a blur that left with
+       focus would change the window as someone clicked back into it. */
+    expect(bodiesFor(':root[data-quiet="always"] .edge-blur').join(" ")).toContain("display: none");
+    expect(RULES.flatMap((r) => r.selectors)).not.toContain(":root[data-quiet] .edge-blur");
 
     // One ping per session, in the pane you are in — not a second forever-animating dot per sidebar row.
     expect(bodiesFor(".item-status::after").join(" ")).toContain("content: none");

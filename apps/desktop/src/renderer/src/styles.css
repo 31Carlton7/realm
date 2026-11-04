@@ -504,13 +504,14 @@ kbd { font: 11px var(--font-mono); }
    between two surfaces rather than down the window's own edge. */
 .app > .main { border-left: var(--hairline-w) solid var(--rl-line); }
 
-/* ── The window's frame (Codex's) ─────────────────────────────────────────────────────────────────
-   Chrome and a sheet. The rail and the 40px head row across the whole window — the traffic lights,
-   the sidebar's head, the top bar of every pane — are one ground: the sidebar's, a step off it
-   (`--chrome-tint`). Below that row and beside the rail the work sits in one sheet, the sidebar's list
-   and the panes, under a rim that runs along its top and down its left edge and rounds the corner
-   where the two meet. The sheet keeps the grounds it had — the sidebar's translucency, the panes' —
-   so nothing about what shows through it changes; what moved is the chrome, a step out of it.
+/* ── The window's frame ───────────────────────────────────────────────────────────────────────────
+   The rail and the sidebar's 40px head row are chrome: the sidebar's ground, a step off it
+   (`--chrome-tint`). Below that row the sidebar's list sits in a sheet under a rim that runs along its
+   top and down its left edge and rounds the corner. The panes take none of it: their bar row is the
+   panes' own ground, so a pane is one plain surface from its bar down and its content dissolves into
+   the bar through the edge blur rather than meeting a strip. The row used to be the chrome across the
+   whole window, and over the panes that read as a frosted glass band — the sidebar's translucency
+   laid over the reading (the owner, 11-04: "I don't want this liquid glass like nav background").
    The rim is `--rl-line-strong`, the rung lighter than both sides of it, which is what Codex's is:
    measured off its window, the chrome at 60 and its sheet at 47, the rim at 65. The corner's outside
    is tinted by a quarter-disc (`radial-gradient`) rather than by rounding the sheet itself, because
@@ -520,41 +521,19 @@ kbd { font: 11px var(--font-mono); }
 .app-rail { background: linear-gradient(var(--chrome-tint), var(--chrome-tint)), var(--sidebar-ground); }
 /* The column's rim and corner are the COLUMN's, which does not slide: it closes from its right edge,
    so the sheet's corner stays where it always is, at the rail, until the column has gone. */
-.sidebar::before, .main::before { content: ""; position: absolute; z-index: 1; pointer-events: none;
-  top: var(--frame-top); left: 0; right: 0; border-top: var(--hairline-w) solid var(--rl-line-strong); }
-.sidebar::before { bottom: 0; border-left: var(--hairline-w) solid var(--rl-line-strong); border-top-left-radius: var(--frame-r); }
+.sidebar::before { content: ""; position: absolute; z-index: 1; pointer-events: none;
+  top: var(--frame-top); left: 0; right: 0; bottom: 0; border-top: var(--hairline-w) solid var(--rl-line-strong);
+  border-left: var(--hairline-w) solid var(--rl-line-strong); border-top-left-radius: var(--frame-r); }
 .sidebar::after { content: ""; position: absolute; z-index: 1; pointer-events: none; top: var(--frame-top); left: 0;
   width: var(--frame-r); height: var(--frame-r);
   background: radial-gradient(circle at 100% 100%, transparent calc(var(--frame-r) - 0.5px), var(--chrome-tint) var(--frame-r)); }
-/* The panes' one ground, below the head row only; the row itself is the chrome the sidebar's is. Laid
-   from the BORDER box: from the padding box, the half-pixel under the border was left unpainted, and the
-   desktop showed through it as a dark seam down the panes' left edge. */
-.main { position: relative; background-origin: border-box; background:
-  linear-gradient(var(--chrome-tint), var(--chrome-tint)) top / 100% var(--frame-top) no-repeat,
-  linear-gradient(var(--sidebar-ground), var(--sidebar-ground)) top / 100% var(--frame-top) no-repeat,
-  linear-gradient(var(--pane-ground), var(--pane-ground)) 0 var(--frame-top) / 100% 100% no-repeat; }
-/* Folded, the sheet starts at the panes: they take the left edge and the corner, and the line that
-   stood between the sidebar and them has nothing to stand between — the rail is chrome, as the row is.
-   The corner is a HOLE in the panes' ground (a quarter-disc of it, and nothing outside the curve), so
-   the chrome laid there composites on the desktop exactly as the rail beside it does. Over the panes'
-   own translucent ground the same tint read a shade darker than the rail.
-   FOLDED rather than collapsed: the corner is the column's for as long as any of the column is on
-   screen, and changes hands when it has finished closing (App.tsx, `useSidebarFolded`) — handed over
-   at the click, the panes drew a rounded corner at an edge that was still beside the sidebar. */
-.app[data-sidebar-folded] > .main { border-left: 0; background:
-  linear-gradient(var(--chrome-tint), var(--chrome-tint)) top / 100% var(--frame-top) no-repeat,
-  linear-gradient(var(--sidebar-ground), var(--sidebar-ground)) top / 100% var(--frame-top) no-repeat,
-  radial-gradient(circle at 100% 100%, var(--pane-ground) calc(var(--frame-r) - 0.5px), transparent var(--frame-r)) 0 var(--frame-top) / var(--frame-r) var(--frame-r) no-repeat,
-  linear-gradient(var(--pane-ground), var(--pane-ground)) var(--frame-r) var(--frame-top) / 100% var(--frame-r) no-repeat,
-  linear-gradient(var(--pane-ground), var(--pane-ground)) 0 calc(var(--frame-top) + var(--frame-r)) / 100% 100% no-repeat;
-  background-origin: border-box; }
-.app[data-sidebar-folded] .main::before { bottom: 0; border-left: var(--hairline-w) solid var(--rl-line-strong); border-top-left-radius: var(--frame-r); }
-.app[data-sidebar-folded] .main::after { content: ""; position: absolute; z-index: 1; pointer-events: none; top: var(--frame-top); left: 0;
-  width: var(--frame-r); height: var(--frame-r);
-  background: radial-gradient(circle at 100% 100%, transparent calc(var(--frame-r) - 0.5px), var(--chrome-tint) var(--frame-r)),
-    radial-gradient(circle at 100% 100%, transparent calc(var(--frame-r) - 0.5px), var(--sidebar-ground) var(--frame-r)); }
+/* The panes' one ground, the head row included. Laid from the BORDER box: from the padding box, the
+   half-pixel under the border was left unpainted, and the desktop showed through it as a dark seam
+   down the panes' left edge. Folded, the rail beside them is chrome and the line between is this
+   same border. */
+.main { position: relative; background-origin: border-box; background: var(--pane-ground); }
 /* A page over the panes covers their bars too; their titles would show through the page's own bar,
-   which is clear so that the head row under it is the chrome everywhere else in the row (below). */
+   which is clear over the page's ground (below). */
 :root:has(.page-overlay) .main .panel-bar { visibility: hidden; }
 /* …and so would the dividers between them: below the head row the page's ground covers them, but in
    the row the bar is clear, and a split's divider ran on up through it as a stray rule beside the
@@ -2443,10 +2422,8 @@ button.panel-title:hover { background: var(--rl-hover); }
    10-04). `.main` makes no stacking context, so the rung above still ranks it against the window. */
 .page-overlay { position: absolute; z-index: 35; inset: 0;
   display: flex; flex-direction: column; min-width: 0;
-  /* Its ground below the head row only: the row is the panes' chrome showing through the page's bar
-     (the window's frame). */
-  background: linear-gradient(var(--rl-panel), var(--rl-panel)) 0 var(--frame-top) / 100% 100% no-repeat;
-  background-origin: border-box; outline: none;
+  /* One plain ground, its bar included, as a pane's is. */
+  background: var(--rl-panel); background-origin: border-box; outline: none;
   animation: rl-page-in var(--dur-base) var(--ease-out-strong); }
 /* A rise and a fade, not a slide: the page replaces what was there rather than arriving from a
    direction, and a horizontal move would imply it came from the sidebar it is not part of. */
@@ -2464,8 +2441,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    the bar is even at both ends rather than tight round a button that is not there. */
 .page-overlay-bar { flex: none; display: flex; align-items: center; gap: 8px; min-height: var(--frame-top);
   padding: 0 14px;
-  /* Clear: the head row's chrome under it is `.main`'s, painted the way the rest of the row is — a
-     tint laid here again would double it, and an opaque ground would part it from the row. */
+  /* Clear: the page's own ground runs under it. */
   background: none;
   /* The window moves by its top row, and while a page is up this bar IS that row. The pane bars it
      covers are hidden with the panes, so their drag regions go with them, and without its own the
@@ -2473,27 +2449,11 @@ button.panel-title:hover { background: var(--rl-hover); }
      clickable put in it opts back out, as a pane bar's buttons do. */
   -webkit-app-region: drag; }
 .page-overlay-bar button { -webkit-app-region: no-drag; }
-/* The frame's rim, carried over the panes it covers: along its top, and — folded, where it meets the
-   rail — down its left edge and round the corner. `.main`'s own rim stands down while a page is up,
-   or the two would draw the corner's curve twice through the hole below. Open, the page stands against
-   the sidebar, and the line between them is `.main`'s own border, which the page sits beside rather
-   than over now that it is laid out in `.main`. */
-:root:has(.page-overlay) .main::before { display: none; }
-.page-overlay::before { content: ""; position: absolute; z-index: 1; pointer-events: none;
-  top: var(--frame-top); left: 0; right: 0; border-top: var(--hairline-w) solid var(--rl-line-strong); }
-.app[data-sidebar-folded] .page-overlay::before { bottom: 0; border-left: var(--hairline-w) solid var(--rl-line-strong); border-top-left-radius: var(--frame-r); }
-/* Folded, the page's ground keeps the same hole at the corner the panes' does, so the chrome `.main`
-   lays there shows through it. */
-.app[data-sidebar-folded] .page-overlay { background:
-  radial-gradient(circle at 100% 100%, var(--rl-panel) calc(var(--frame-r) - 0.5px), transparent var(--frame-r)) 0 var(--frame-top) / var(--frame-r) var(--frame-r) no-repeat,
-  linear-gradient(var(--rl-panel), var(--rl-panel)) var(--frame-r) var(--frame-top) / 100% var(--frame-r) no-repeat,
-  linear-gradient(var(--rl-panel), var(--rl-panel)) 0 calc(var(--frame-top) + var(--frame-r)) / 100% 100% no-repeat;
-  background-origin: border-box; }
 .page-overlay-mark { flex: none; color: var(--rl-text-faint); }
 .page-overlay-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
 .page-overlay-body { flex: 1; min-height: 0; min-width: 0; display: flex; }
-/* The page's own ground would cover the frame's corner; over the panes the overlay's ground is the page's. */
+/* Over the panes the overlay's ground is the page's. */
 .page-overlay .page { background: transparent; }
 
 /* ── Quick chat: a session in a window instead of a pane ──────────────────────────────
@@ -3722,6 +3682,49 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
 }
 [data-dissolve~="start"] { --dissolve-top: var(--fade-top-h, 40px); }
 [data-dissolve~="end"] { --dissolve-bottom: var(--fade-h, 68px); }
+
+/* The edge blur (`EdgeBlur` in ScrollFades.tsx): where chrome sits over a scroller — the pane bar
+   and the prompter over the transcript, the pane bar over a page's column — the content blurs
+   progressively as it reaches the bar, as it does under Photos' toolbar. Two layers per band, both
+   ramped in by their masks so neither has an edge: a shallow blur right at the boundary, and a
+   deeper one over the band's outer part. The fade itself is the scroller's mask above; the bands
+   paint no colour, so there is no slab, only less detail. It is the one place a backdrop-filter is
+   allowed (styles.test.ts holds it there).
+   Right inset = the 10px scrollbar: the thumb is chrome, and one blurred halfway down reads as a
+   scrollbar that stops short. */
+/* The scroller's parent is the bands' backdrop root, so they blur the content and never the window
+   ground behind it: over a translucent pane, a blur that reached the ground filtered the window's own
+   transparency and laid a grey stripe with a step at its end (measured on a real capture, 2–4 levels).
+   Opacity is the backdrop-root trigger that leaves `position: fixed` children alone. */
+.transcript-wrap, .page-scroll { opacity: 0.999; }
+.edge-blur { position: absolute; left: 0; right: 10px; pointer-events: none; z-index: 1;
+  opacity: 0; transition: opacity var(--dur-fast) ease; }
+.edge-blur[data-on] { opacity: 1; }
+.edge-blur[data-edge="top"] { top: 0; height: var(--fade-top-h, 40px); }
+.edge-blur[data-edge="bottom"] { bottom: 0; height: var(--fade-h, 68px); }
+.edge-blur::before, .edge-blur::after { content: ""; position: absolute; inset: 0; }
+.edge-blur::before { backdrop-filter: blur(var(--fade-blur-near)); -webkit-backdrop-filter: blur(var(--fade-blur-near)); }
+.edge-blur::after { backdrop-filter: blur(var(--fade-blur-far)); -webkit-backdrop-filter: blur(var(--fade-blur-far)); }
+.edge-blur[data-edge="bottom"]::before {
+  mask-image: linear-gradient(to bottom, transparent 0, #000 60%); -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 60%); }
+.edge-blur[data-edge="bottom"]::after {
+  mask-image: linear-gradient(to bottom, transparent 30%, #000 78%); -webkit-mask-image: linear-gradient(to bottom, transparent 30%, #000 78%); }
+.edge-blur[data-edge="top"]::before {
+  mask-image: linear-gradient(to top, transparent 0, #000 60%); -webkit-mask-image: linear-gradient(to top, transparent 0, #000 60%); }
+.edge-blur[data-edge="top"]::after {
+  mask-image: linear-gradient(to top, transparent 30%, #000 78%); -webkit-mask-image: linear-gradient(to top, transparent 30%, #000 78%); }
+/* A page's column bleeds past `.page-scroll` for focus rings; the bands follow the column's clip. */
+.page-scroll > .edge-blur { left: calc(-1 * var(--page-bleed)); right: calc(-1 * var(--page-bleed)); }
+.page-scroll > .edge-blur[data-edge="top"] { top: calc(-1 * var(--page-bleed)); }
+.session-pane[data-composer="hero"] .edge-blur { display: none; }
+/* Low Power: the bands re-filter on every frame an agent writes under them, so they go and the mask
+   alone fades the edge. Not merely unfocused — a blur that came and went with focus would be the one
+   thing in the window to change as someone clicked back into it. */
+:root[data-quiet="always"] .edge-blur { display: none; }
+/* Asked for less translucency: the mask still fades the edge; the blur goes. */
+@media (prefers-reduced-transparency: reduce) {
+  .edge-blur::before, .edge-blur::after { backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
 
 /* The same on its side, for a strip that scrolls sideways. A horizontal scroller that dissolved by
    some other recipe would be a second material for one idea. */
@@ -5892,7 +5895,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
    card declares none. The hint is a label, not a scrim: pointer-events off, so the drop still lands. */
 .composer[data-dropping] { box-shadow: 0 0 0 2px var(--rl-accent), var(--shadow-card); }
 .composer-drop-hint { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
-  border-radius: var(--r-squircle); corner-shape: squircle; background: color-mix(in srgb, var(--rl-raised) 82%, transparent);
+  border-radius: var(--r-squircle); corner-shape: squircle; background: var(--rl-raised);
   font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
 /* Send↔stop morph (§6): accent circle at Ara refresh §2's 32px, wearing the shared icon swap in the
    motion block — both icons in the DOM, `data-state` picking which one is up.
@@ -6637,7 +6640,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 }
 /* The hint lies inset:0 over the card, so it takes the card's own radius or it would square off
    inside a rounded corner. No ring: the card underneath is already wearing the drop target's. */
-:root[data-squircle] .composer-drop-hint { --sq-fill: color-mix(in srgb, var(--rl-raised) 82%, transparent); }
+:root[data-squircle] .composer-drop-hint { --sq-fill: var(--rl-raised); }
 /* Every tab above the card is drawn by one rule: the frame fill, the card's ring, and a square
    bottom edge, because whatever arrives underneath — the next tab, or the card itself on z-index 1
    — paints over it. So what the ring actually draws on any of them is the band's top and sides.
@@ -9923,7 +9926,6 @@ span.documents-name:hover { background: none; }
 .media-play {
   position: absolute; inset: 0; margin: auto; width: 52px; height: 52px; display: grid; place-items: center;
   border: none; border-radius: var(--r-pill); color: #fff; background: rgb(0 0 0 / .55);
-  backdrop-filter: blur(8px);
   transition: transform var(--dur-swap) var(--ease-out-strong), background-color var(--dur-swap) var(--ease-out-strong);
 }
 .media-play:hover { transform: scale(1.06); background: rgb(0 0 0 / .7); }
