@@ -44,7 +44,9 @@ struct MoveTests {
         // The desktop's sentence, which says how the conversation went from the moved event's own field.
         #expect(texts[0] == "Moved from realm (main) to tidy-settings (tidy-settings). The conversation continued.")
         #expect(texts[2] == "Moved from tidy-settings (tidy-settings) to realm (main). The conversation continued from notes.")
-        #expect(notices.map(\.noticeDetail) == ["~/realm → ~/Realm/worktrees/realm/tidy-settings", "Setting up the checkout", "~/Realm/worktrees/realm/tidy-settings → ~/realm"])
+        // A failed move is one sentence from its step and where the session still is; the Mac's reason waits for a tap.
+        #expect(texts[1] == "Couldn't move this session while setting up the checkout. It's still in tidy-settings (tidy-settings).")
+        #expect(notices.map(\.noticeDetail) == ["~/realm → ~/Realm/worktrees/realm/tidy-settings", "another session started working in that checkout", "~/Realm/worktrees/realm/tidy-settings → ~/realm"])
         // Every other row says nothing of moves.
         let others = try APIFixtureTests.opened().rows
         #expect(others.allSatisfy { $0.move == nil })

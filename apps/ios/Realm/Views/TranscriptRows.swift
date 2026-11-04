@@ -1145,16 +1145,16 @@ private struct NoticeLine: View {
 
 /// A move of the session, said in the middle as a notice is: under way with a spinner, then where it
 /// went, or why it stayed, in its tone. The desktop keeps a move's paths in a tooltip; here a tap shows
-/// them.
+/// them, or a failed move's reason as the Mac gave it.
 private struct MoveLine: View {
     let text: String
-    /// The paths from and to, or where a failed move stopped and why.
+    /// The paths from and to, or why a failed move stopped.
     let detail: String?
     let move: MoveMark
-    @State private var showsPaths = false
+    @State private var showsDetail = false
 
     var body: some View {
-        VStack(spacing: 2) {
+        VStack(spacing: 4) {
             // A spinner has no baseline of its own, and would sit below the words on theirs.
             HStack(alignment: move == .moving ? .center : .firstTextBaseline, spacing: 6) {
                 switch move {
@@ -1168,16 +1168,19 @@ private struct MoveLine: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(Palette.orange)
                 }
-                sentence
+                Text(text)
                     .foregroundStyle(move == .failed ? Palette.ink : Palette.ink2)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if move == .moved, showsPaths, let detail {
+            if showsDetail, let detail {
+                // A reason is often git's own output, read line by line from the left.
                 Text(detail)
                     .mono(.caption)
                     .foregroundStyle(Palette.ink3)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
+                    .lineLimit(move == .failed ? 6 : 2)
+                    .truncationMode(move == .failed ? .tail : .middle)
+                    .multilineTextAlignment(move == .failed ? .leading : .center)
+                    .frame(maxWidth: .infinity, alignment: move == .failed ? .leading : .center)
             }
         }
         .font(.footnote)
@@ -1185,18 +1188,10 @@ private struct MoveLine: View {
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         .onTapGesture {
-            if move == .moved, detail != nil { withAnimation(.easeOut(duration: 0.2)) { showsPaths.toggle() } }
+            if move != .moving, detail != nil { withAnimation(.easeOut(duration: 0.2)) { showsDetail.toggle() } }
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("move-\(move.rawValue)")
-    }
-
-    /// A failed move's step goes on the end of its sentence, quieter, as the desktop sets it beside.
-    private var sentence: Text {
-        if move == .failed, let detail {
-            return Text("\(text) \(Text(detail).foregroundStyle(Palette.ink3))")
-        }
-        return Text(text)
     }
 }
 

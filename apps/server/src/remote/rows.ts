@@ -1,4 +1,4 @@
-import { movedSentence, type AskCard, type AskQuestion, type MoveStep, type PendingMove, type QueuedPrompt, type SessionEvent, type SessionEventType, type StoredSessionEvent } from "@realm/contracts";
+import { movedSentence, placeName, type AskCard, type AskQuestion, type MovePlace, type MoveStep, type PendingMove, type QueuedPrompt, type SessionEvent, type SessionEventType, type StoredSessionEvent } from "@realm/contracts";
 import { givenAttachmentName } from "@realm/contracts/src/temp-attachments";
 import type { PendingMove as PhonePendingMove, QueuedMessage, Row } from "@realm/remote";
 import { questionOf } from "@realm/view";
@@ -85,6 +85,13 @@ export function moveStepLabel(step: MoveStep, agent: string): string {
     case "boot": return `Starting ${agent}`;
     case "commit": return "Finishing";
   }
+}
+
+/** A failed move in one sentence, as the desktop leads its line: the step it stopped at, and where the session still is. */
+function moveFailedSentence(step: MoveStep, agent: string, from: Pick<MovePlace, "cwd" | "branch"> | undefined): string {
+  const label = moveStepLabel(step, agent);
+  const still = from ? `It's still in ${placeName(from)}.` : "It's still where it was.";
+  return `Couldn't move this session while ${label.charAt(0).toLowerCase()}${label.slice(1)}. ${still}`;
 }
 
 /** A path as the Mac's home shortens it. */
@@ -192,10 +199,15 @@ export class SessionProjector {
           detail: `${tilde(from.cwd, this.o.home ?? null)} → ${tilde(to.cwd, this.o.home ?? null)}`, move: "moved",
         });
       }
+      // The sentence names the step and where the session still is; the Mac's reason, git's own words
+      // often, waits under it for a tap.
       case "move_failed": {
-        const { step, reason, note } = ev.payload;
-        const detail = note.includes(reason) ? moveStepLabel(step, this.agent) : `${moveStepLabel(step, this.agent)} · ${reason}`;
-        return put({ key: `mv:${ev.payload.moveId}`, seq, kind: "notice", text: note, detail, move: "failed" });
+        const { step, reason, note, from } = ev.payload;
+        const left = note.split(", as it was. ")[1]?.trim();
+        return put({
+          key: `mv:${ev.payload.moveId}`, seq, kind: "notice", text: moveFailedSentence(step, this.agent, from),
+          detail: left ? `${reason}\n${left}` : reason, move: "failed",
+        });
       }
       case "plan": {
         const row: PlanRow = { key: `p:${ev.payload.planId}`, seq, kind: "plan", text: ev.payload.text ?? null, steps: ev.payload.steps ?? null };

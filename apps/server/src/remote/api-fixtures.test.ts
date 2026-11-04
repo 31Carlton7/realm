@@ -164,6 +164,7 @@ async function generate(): Promise<Record<string, unknown>> {
       }),
       sessionEvent("move_failed", {
         moveId: "01JMOVE0000000000000000002", step: "place", reason: "another session started working in that checkout",
+        from: { machine: null, environmentId: WORKTREE, cwd: "/Users/me/Realm/worktrees/realm/tidy-settings", branch: "tidy-settings" },
         note: "Could not move this session: another session started working in that checkout. It is still in ~/Realm/worktrees/realm/tidy-settings, as it was.",
       }),
       sessionEvent("moved", {

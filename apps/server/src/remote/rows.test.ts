@@ -156,16 +156,13 @@ describe("the phone's rows", () => {
     expect(p.hint).toBeNull();
   });
 
-  it("draws a move as one row that follows its steps and becomes the notice of how it ended", () => {
+  it("draws how a move ended as a notice today's phones already know, in the row its progress was", () => {
     const p = new SessionProjector();
     const place = { machine: null, environmentId: "01J00000000000000000000000", cwd: "/r", branch: null };
-    p.apply(persisted(sessionEvent("moving", { moveId: "m", step: "preflight" })));
-    p.apply(persisted(sessionEvent("moving", { moveId: "m", step: "place" })));
-    expect(p.all()).toEqual([expect.objectContaining({ key: "mv:m", kind: "notice", text: "Moving · Setting up the checkout" })]);
-    p.apply(persisted(sessionEvent("moved", { moveId: "m", from: place, to: { ...place, cwd: "/w" }, conversation: "native", changedFiles: 0, leftBehind: [], preface: "p", note: "Moved from r to w. The conversation continued." })));
-    p.apply(persisted(sessionEvent("moving", { moveId: "n", step: "boot" })));
+    p.apply(ephemeral(sessionEvent("moving", { moveId: "m", step: "place" })));
+    p.apply(persisted(sessionEvent("moved", { moveId: "m", from: place, to: { ...place, cwd: "/w" }, conversation: "native", changedFiles: 0, leftBehind: [], preface: "p", note: "Moved from /r to /w. The conversation continued." })));
     p.apply(persisted(sessionEvent("move_failed", { moveId: "n", step: "boot", reason: "x", note: "Could not move this session: x." })));
-    expect(p.all()).toMatchObject([{ key: "mv:m", text: "Moved from r to w. The conversation continued." }, { key: "mv:n", text: "Could not move this session: x." }]);
+    expect(p.all()).toMatchObject([{ kind: "notice", text: "Moved from r to w. The conversation continued." }, { kind: "notice", text: "Couldn't move this session while starting the agent. It's still where it was." }]);
     for (const r of p.all()) expect(RowSchema.safeParse(r).success).toBe(true);
   });
 
@@ -186,10 +183,22 @@ describe("the phone's rows", () => {
       detail: "~/realm → ~/Realm/worktrees/x/feat-theme",
     });
     p.apply(ephemeral(sessionEvent("moving", { moveId: "n", step: "boot" })));
-    p.apply(persisted(sessionEvent("move_failed", { moveId: "n", step: "boot", reason: "x", note: "Could not move this session: x. It is still in ~/realm, as it was." })));
-    expect(p.all()[2]).toMatchObject({ key: "mv:n", move: "failed", text: "Could not move this session: x. It is still in ~/realm, as it was.", detail: "Starting Claude" });
-    p.apply(persisted(sessionEvent("move_failed", { moveId: "o", step: "place", reason: "the disk is full", note: "Could not move this session. It is still in ~/realm, as it was." })));
-    expect(p.all()[3]).toMatchObject({ detail: "Setting up the checkout · the disk is full" });
+    p.apply(persisted(sessionEvent("move_failed", { moveId: "n", step: "boot", reason: "x", from: place, note: "Could not move this session: x. It is still in ~/realm, as it was." })));
+    expect(p.all()[2]).toMatchObject({ key: "mv:n", move: "failed", text: "Couldn't move this session while starting Claude. It's still in realm (main).", detail: "x" });
+    for (const r of p.all()) expect(RowSchema.safeParse(r).success).toBe(true);
+  });
+
+  it("says a failed move in one sentence from its step and where the session still is, and keeps git's words for the tap", () => {
+    const p = new SessionProjector({ attachmentsDir: null, home: "/Users/me" });
+    p.agent = "Claude";
+    const from = { machine: null, environmentId: "01J00000000000000000000000", cwd: "/Users/me/realm", branch: "main" };
+    const reason = "Command failed: git -c core.fsmonitor= worktree add -b realm/x /var/folders/tmp/x HEAD\nPreparing worktree (new branch 'realm/x')";
+    const left = "The changes it merged into ~/Realm/worktrees/x were left as they were.";
+    p.apply(persisted(sessionEvent("move_failed", { moveId: "n", step: "place", reason, from, note: `Could not move this session: ${reason}. It is still in ~/realm, as it was. ${left}` })));
+    expect(p.all()[0]).toMatchObject({ move: "failed", text: "Couldn't move this session while setting up the checkout. It's still in realm (main).", detail: `${reason}\n${left}` });
+    // A failure written before the event kept its place, or whose checkout was gone, still reads as a sentence.
+    p.apply(persisted(sessionEvent("move_failed", { moveId: "o", step: "freeze", reason: "the agent would not stop", note: "Could not move this session: the agent would not stop. It is still in ~/realm, as it was." })));
+    expect(p.all()[1]).toMatchObject({ text: "Couldn't move this session while pausing Claude. It's still where it was.", detail: "the agent would not stop" });
     for (const r of p.all()) expect(RowSchema.safeParse(r).success).toBe(true);
   });
 

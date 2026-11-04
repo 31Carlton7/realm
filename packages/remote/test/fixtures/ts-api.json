@@ -3285,8 +3285,8 @@
           "key": "mv:01JMOVE0000000000000000002",
           "seq": 3,
           "kind": "notice",
-          "text": "Could not move this session: another session started working in that checkout. It is still in ~/Realm/worktrees/realm/tidy-settings, as it was.",
-          "detail": "Setting up the checkout",
+          "text": "Couldn't move this session while setting up the checkout. It's still in tidy-settings (tidy-settings).",
+          "detail": "another session started working in that checkout",
           "move": "failed"
         },
         {

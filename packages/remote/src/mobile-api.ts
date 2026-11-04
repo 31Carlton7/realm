@@ -196,7 +196,7 @@ export const RowSchema = z.discriminatedUnion("kind", [
     /** A notice about moving the session: `moving` while it goes (the same row then says how it
      *  ended), `moved` once it runs in the new place, `failed` when it stayed where it was. */
     move: z.enum(["moving", "moved", "failed"]).optional(),
-    /** A quieter second line: a move's paths, from and to, or the step a failed move stopped at and why. */
+    /** Shown on a tap: a move's paths, from and to, or why a failed move stopped, in the Mac's own words. */
     detail: z.string().optional(),
   }),
   z.object({ ...rowBase, kind: z.literal("error"), text: z.string(), hint: z.string().nullable() }),
