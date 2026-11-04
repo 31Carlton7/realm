@@ -23,6 +23,18 @@ struct StoreTests {
         #expect(transcript.row(forKey: "a") == nil)
     }
 
+    /// A session's saved turns are the set the Mac last sent, whether or not it is open, or still opening.
+    @MainActor
+    @Test func theSavedSetIsTheOneLastHeard() {
+        let store = RealmStore()
+        store.beginOpening("s1")
+        store.apply(.sessionSaved(SessionSavedEvent(id: "s1", seqs: [2, 5])))
+        #expect(store.saved["s1"] == [2, 5])
+        store.apply(.sessionSaved(SessionSavedEvent(id: "s1", seqs: [])))
+        #expect(store.saved["s1"] == [])
+        #expect(store.saved["s2"] == nil)
+    }
+
     @MainActor
     @Test func rowsThatBeatTheOpenResponseAreAppliedAfterIt() throws {
         let store = RealmStore()

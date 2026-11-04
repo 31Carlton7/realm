@@ -25,6 +25,9 @@ public final class RealmStore {
     /// Question cards answered part way, by request id: put away, not sent.
     public private(set) var drafts: [String: AnswerDraft] = [:]
     public var latency = LatencySamples()
+    /// Each session's saved turns, by their prompts' `seq`s, as the Mac last said them or this phone
+    /// last changed them. Absent until asked for or heard.
+    public var saved: [String: Set<Int>] = [:]
 
     /// Rows that arrived for a session while its `session.open` was still on its way back.
     @ObservationIgnored private var opening: [String: [TranscriptRow]] = [:]
@@ -191,6 +194,8 @@ public final class RealmStore {
             } else {
                 transcripts[update.id]?.todos = update.todos
             }
+        case .sessionSaved(let update):
+            saved[update.id] = Set(update.seqs)
         case .homeChanged, .workChanged, .sessionSubagents, .pairResult, .unknown:
             break
         }

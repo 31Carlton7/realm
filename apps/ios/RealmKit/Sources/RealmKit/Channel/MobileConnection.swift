@@ -478,6 +478,62 @@ public struct MobileAPI: Sendable {
         try await connection.call("session.cancelMove", params: SessionID(id: id), as: CancelledMove.self).cancelled
     }
 
+    /// Deletes the session, as the desktop's Delete does: its agent stops, and its transcript and row go.
+    public func deleteSession(id: String) async throws {
+        _ = try await connection.call("session.delete", params: SessionID(id: id), as: Acknowledged.self)
+    }
+
+    /// A new session forked from this one as it is now, onto `agent` where it names another: a new
+    /// worktree and the conversation carried in as text, so it is given a few minutes.
+    public func forkSession(id: String, agent: String? = nil) async throws -> SessionRow {
+        struct Params: Encodable, Sendable { let id: String; let agent: String? }
+        return try await connection.call("session.fork", params: Params(id: id, agent: agent), as: MovedSession.self,
+                                         timeout: .seconds(180)).session
+    }
+
+    /// Moves the session to another space, as the sidebar's Move to space… does.
+    public func moveToSpace(id: String, spaceId: String) async throws -> SessionRow {
+        struct Params: Encodable, Sendable { let id: String; let spaceId: String }
+        return try await connection.call("session.moveToSpace", params: Params(id: id, spaceId: spaceId), as: MovedSession.self).session
+    }
+
+    /// Moves the session onto another agent, on its own default model. The Mac writes a summary of the
+    /// conversation for it first, so it is given a few minutes.
+    public func switchAgent(id: String, agent: String) async throws -> SessionRow {
+        struct Params: Encodable, Sendable { let id: String; let agent: String }
+        return try await connection.call("session.switchAgent", params: Params(id: id, agent: agent), as: MovedSession.self,
+                                         timeout: .seconds(180)).session
+    }
+
+    /// The logins the session's agent can run on, and the one it runs on now.
+    public func accounts(id: String) async throws -> SessionAccounts {
+        try await connection.call("session.accounts", params: SessionID(id: id), as: SessionAccounts.self)
+    }
+
+    public func setAccount(id: String, accountId: String) async throws -> SessionRow {
+        struct Params: Encodable, Sendable { let id: String; let accountId: String }
+        return try await connection.call("session.setAccount", params: Params(id: id, accountId: accountId), as: MovedSession.self).session
+    }
+
+    /// The session's saved turns, by their prompts' `seq`s.
+    public func saved(id: String) async throws -> [Int] {
+        struct Answer: Decodable, Sendable { let seqs: [Int] }
+        return try await connection.call("session.saved", params: SessionID(id: id), as: Answer.self).seqs
+    }
+
+    /// Saves or unsaves one turn by its prompt's row, and answers with the session's saved turns.
+    public func setSaved(id: String, seq: Int, saved: Bool) async throws -> [Int] {
+        struct Params: Encodable, Sendable { let id: String; let seq: Int; let saved: Bool }
+        struct Answer: Decodable, Sendable { let seqs: [Int] }
+        return try await connection.call("session.setSaved", params: Params(id: id, seq: seq, saved: saved), as: Answer.self).seqs
+    }
+
+    /// Every turn saved in a profile's sessions, the newest saved first.
+    public func savedTurns(profileId: String) async throws -> SavedTurns {
+        struct Params: Encodable, Sendable { let profileId: String }
+        return try await connection.call("saved.list", params: Params(profileId: profileId), as: SavedTurns.self)
+    }
+
     /// The agents a new session could be given, and the one the Mac starts with.
     public func agents() async throws -> AgentList {
         try await connection.call("agents.list", as: AgentList.self)

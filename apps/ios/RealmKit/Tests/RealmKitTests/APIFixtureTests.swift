@@ -157,6 +157,31 @@ struct APIFixtureTests {
         #expect(cleared.text == nil)
     }
 
+    /// A fork, a move to another space, a switch of agent or of login each answer with the row as it is
+    /// now; the logins name the CLI's own; saved turns are their prompts' seqs.
+    @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
+    func theSessionActionsDecode() throws {
+        struct Moved: Decodable { let session: SessionRow }
+        let fork = try Self.decode(Moved.self, "calls", "session.fork").session
+        #expect(fork.title == "Fork: Theme column" && fork.spaceId == "sp1")
+        #expect(try Self.decode(Moved.self, "calls", "session.moveToSpace").session.spaceName == "Deck")
+        let switched = try Self.decode(Moved.self, "calls", "session.switchAgent").session
+        #expect(switched.agent == "codex" && switched.agentName == "Codex")
+        _ = try Self.decode(Moved.self, "calls", "session.setAccount")
+        let logins = try Self.decode(SessionAccounts.self, "calls", "session.accounts")
+        #expect(logins.current == "default-claude")
+        #expect(logins.accounts.map(\.detail) == ["me@example.com", nil])
+        let saved = try Self.decode(SavedTurns.self, "calls", "saved.list")
+        #expect(saved.total == 1 && saved.entries.first?.seq == 2 && saved.entries.first?.spaceName == "Realm")
+        let events = try JSONSerialization.jsonObject(with: Self.part(["events", "session.saved"])) as? [Any] ?? []
+        let event = Envelope.classify(try JSONSerialization.data(withJSONObject: ["event": "session.saved", "payload": events[0]]))
+        guard case .event(.sessionSaved(let update)) = event else {
+            Issue.record("session.saved did not decode")
+            return
+        }
+        #expect(update == SessionSavedEvent(id: "01JSESSION00000000000000000", seqs: [2, 5]))
+    }
+
     /// The phone's card, answering the open question, sends exactly what the Mac's own card keeps.
     @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
     func theCardsAnswerIsTheOneTheMacKeeps() throws {

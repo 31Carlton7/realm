@@ -1968,6 +1968,8 @@ public enum MobileEvent: Sendable {
     case sessionGoal(SessionGoalEvent)
     /// An open session's to-do list changed: the whole list.
     case sessionTodos(SessionTodosEvent)
+    /// An open session's saved turns changed, here or on the Mac: the whole set.
+    case sessionSaved(SessionSavedEvent)
     case homeChanged
     /// Reviews or scheduled tasks changed somewhere: they are read again.
     case workChanged
