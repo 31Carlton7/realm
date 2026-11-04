@@ -466,16 +466,13 @@ struct WorkFixtureWordsTests {
         #expect(states == [.working, .done, .cancelled])
     }
 
+    /// Review batches went with the first Teams: the Mac answers an empty list, and Home's head counts nothing to review.
     @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
-    func everyReviewsStageIsOneThePhoneActsOn() throws {
+    func theMacHasNoReviewsWaiting() throws {
         struct List: Decodable { let reviews: [ReviewSummary] }
-        struct Decided: Decodable { let review: ReviewSummary }
         let reviews = try Self.call(List.self, "reviews.list").reviews
-        #expect(reviews.map { ReviewStage($0.state) } == [.changes, .waiting])
-        #expect(ReviewStage(try Self.call(Decided.self, "review.decide").review.state) == .approved)
-        #expect(ReviewStage(try Self.call(Decided.self, "review.decide:changes").review.state) == .changes)
-        // Only the one waiting for a decision is counted at Home's head.
-        #expect(WorkHead.lines(reviews: reviews, schedules: nil).map(\.words) == ["1 to review"])
+        #expect(reviews.isEmpty)
+        #expect(WorkHead.lines(reviews: reviews, schedules: nil).isEmpty)
     }
 
     @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))

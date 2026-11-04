@@ -250,11 +250,17 @@ struct SessionRowTests {
                                 model: "claude-opus-5-5", status: .waiting, needsYou: true, unread: true,
                                 updatedAt: 1_790_000_000_000, agentName: "Claude", agentMark: "claude", modelLabel: "Opus 5.5")
 
-    @Test func aRowDrawsItsTitleStateAndModel() throws {
+    /// The quiet line under the title says the state worth acting on, and what the session is about only
+    /// when there is no such state.
+    @Test func aRowDrawsItsTitleAndStateElseItsModel() throws {
         let words = try Drawing.words(SessionRowView(row: Self.row, space: nil).environment(AppModel()))
         #expect(words.contains("Add the dark-mode toggle"), "\(words)")
-        #expect(words.contains("Waiting on you"), "\(words)")
-        #expect(words.contains("Opus 5.5"), "\(words)")
+        #expect(words.contains("Waiting on you") && !words.contains("Opus 5.5"), "\(words)")
+        let resting = SessionRow(id: "s2", title: "Add the dark-mode toggle", spaceId: "sp1", spaceName: "Realm", agent: "claude",
+                                 model: "claude-opus-5-5", status: .idle, needsYou: false, unread: false,
+                                 updatedAt: 1_790_000_000_000, agentName: "Claude", agentMark: "claude", modelLabel: "Opus 5.5")
+        let restingWords = try Drawing.words(SessionRowView(row: resting, space: nil).environment(AppModel()))
+        #expect(restingWords.contains("Opus 5.5") && !restingWords.contains("Waiting"), "\(restingWords)")
     }
 
     /// At the largest accessibility size nothing shares a line with the state, and it all still draws.
