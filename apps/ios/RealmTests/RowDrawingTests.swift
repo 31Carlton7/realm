@@ -100,11 +100,11 @@ struct RowDrawingTests {
             let row = TranscriptRow(key: "mv:1", seq: 4, content: .notice(text: text), move: move, noticeDetail: detail)
             return try Drawing.words(TranscriptRowView(row: row, sessionId: "s1").environment(AppModel()))
         }
-        let moved = try words(.moved, "Moved from realm (main) to feat-x (feat-x). The conversation continued.", "~/realm → ~/w/feat-x")
+        let moved = try words(.moved, "Moved from realm (main) to feat-x. The conversation continued.", "~/realm → ~/w/feat-x")
         #expect(moved.contains("Moved from realm (main)") && !moved.contains("~/w/feat-x"), "\(moved)")
         let failed = try words(.failed, "Couldn't move this session while setting up the checkout. It's still in realm (main).", "Command failed: git worktree add")
         #expect(failed.contains("Couldn't move this session") && !failed.contains("Command failed"), "\(failed)")
-        #expect(try words(.moving, "Moving · Starting Claude", nil).contains("Starting Claude"))
+        #expect(try words(.moving, "Moving · Starting the agent", nil).contains("Starting the agent"))
     }
 
     /// The light face draws the same words: no ink there has gone to the paper's colour.

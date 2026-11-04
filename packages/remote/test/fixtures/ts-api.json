@@ -3286,7 +3286,7 @@
           "seq": 3,
           "kind": "notice",
           "text": "Couldn't move this session while setting up the checkout. It's still in tidy-settings.",
-          "detail": "another session started working in that checkout",
+          "detail": "another session started working in that checkout\nThe changes it merged into ~/realm are still there, since another session is working there.",
           "move": "failed"
         },
         {
