@@ -21,6 +21,30 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-8-2",
+    title: "Realm v2.8.2",
+    date: "2026-11-04",
+    version: "v2.8.2",
+    area: "Release",
+    summary:
+      "A teammate's Computer tab shows what it is doing on this Mac, sub-agents run on their parent's model, and Realm Mobile replies draw math, diagrams and charts.",
+    body: [
+      { kind: "h", text: "Teammates and sub-agents" },
+      { kind: "ul", items: [
+        "**A teammate's Computer tab says what it is doing on this Mac:** what needs you, what is working, and what each finished session opened, merged or shipped.",
+        "**Sub-agents run on the model their parent runs,** and every label shows the model they really run.",
+        "**A session row is marked unread once its sub-agents finish,** not before, and selecting it clears the mark.",
+      ] },
+      { kind: "h", text: "Realm Mobile" },
+      { kind: "ul", items: [
+        "**Replies draw math, diagrams, charts and comparisons.**",
+        "**The composer has slash commands and @mentions.**",
+        "**Answer a permission or reply straight from a notification.**",
+        "**Amber is the only colour a state wears.**",
+      ] },
+    ],
+  },
+  {
     slug: "v2-8-1",
     title: "Realm v2.8.1",
     date: "2026-11-04",
