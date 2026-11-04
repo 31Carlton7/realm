@@ -41,9 +41,9 @@ function standIn(kind: AgentKind, models: AgentModel[] | null, counts: { probes:
   return { adapter, seen };
 }
 
-async function boot(opts: { parentKind?: AgentKind; parentModel?: string | null; parentMode?: string; leadScript?: FakeScript; cursorScript?: FakeScript } = {}) {
+async function boot(opts: { parentKind?: AgentKind; parentModel?: string | null; parentMode?: string; leadScript?: FakeScript; cursorScript?: FakeScript; claudeModels?: AgentModel[] } = {}) {
   const counts = { probes: 0 };
-  const claude = standIn("claude", null, counts, [...(opts.leadScript ?? []), ...CHILD]);
+  const claude = standIn("claude", opts.claudeModels ?? null, counts, [...(opts.leadScript ?? []), ...CHILD]);
   const codex = standIn("codex", CODEX, counts);
   const cursor = standIn("acp:cursor", CURSOR, counts, opts.cursorScript);
   app = await createApp({
@@ -211,6 +211,36 @@ describe("no model named", () => {
     expect(seen.claude[0]!.model).toBe("claude-opus-5-5");
   });
 
+  // The owner's Claude CLI runs Opus 5.5 when nothing is pinned, and says so in its model list (#276).
+  const OPUS_DEFAULT: AgentModel[] = [{ id: "claude-fable-5-1", label: "Claude Fable 5.1" }, { id: "claude-opus-5-5", label: "Claude Opus 5.5", isDefault: true }];
+
+  it("a lead on its CLI's default hands a child that same default, and names it as the CLI does", async () => {
+    const { ctx, seen } = await boot({ parentKind: "claude", parentModel: null, claudeModels: OPUS_DEFAULT });
+    await app.sessions.probe();
+    const r = await app.agentRuns.start(ctx, { goal: "go" });
+    expect(children(ctx)[0]).toMatchObject({ agentKind: "claude", model: null });
+    expect(text(r)).toContain("on Claude · Claude Opus 5.5");
+    expect(text(r)).not.toContain("Fable");
+    await waitFor(() => seen.claude.length === 1);
+    expect(seen.claude[0]!.model ?? null).toBeNull();
+  });
+
+  it("agent_run names the same default in its report", async () => {
+    const { ctx } = await boot({ parentKind: "claude", parentModel: null, claudeModels: OPUS_DEFAULT });
+    await app.sessions.probe();
+    const r = await app.agentRuns.run(ctx, { goal: "go" });
+    expect(text(r)).toContain("Claude · Claude Opus 5.5");
+    expect(text(r)).not.toContain("Fable");
+  });
+
+  it("a harness named alone runs and is named as its default", async () => {
+    const { ctx } = await boot({ parentKind: "codex", parentModel: "gpt-6-luna", claudeModels: OPUS_DEFAULT });
+    await app.sessions.probe();
+    const r = await app.agentRuns.start(ctx, { goal: "go", constraints: { model: "Claude" } });
+    expect(children(ctx)[0]).toMatchObject({ agentKind: "claude", model: null });
+    expect(text(r)).toContain("on Claude · Claude Opus 5.5");
+  });
+
   it("a child on ANOTHER harness takes that harness's default, never the lead's foreign id", async () => {
     const { ctx } = await boot({ parentKind: "claude", parentModel: "claude-opus-5-5" });
     await app.agentRuns.start(ctx, { goal: "go", constraints: { agentKind: "codex" } });
@@ -355,6 +385,15 @@ describe("the lead's list of its sub-agents", () => {
     expect(r.models).toContainEqual(expect.objectContaining({ label: "GPT-6 Luna", kind: "codex", id: "gpt-6-luna", ready: true }));
     // One row per model: Fable through Claude and through Cursor is one Fable, on Claude.
     expect(r.models.filter((m) => m.label === "Claude Fable 5.1")).toEqual([expect.objectContaining({ kind: "claude" })]);
+    c.close();
+  });
+
+  it("delegation.models names an unpinned lead's model as its CLI's default", async () => {
+    const { ctx } = await boot({ parentKind: "claude", parentModel: null, claudeModels: [{ id: "claude-opus-5-5", label: "Claude Opus 5.5", isDefault: true }] });
+    await app.sessions.probe();
+    const c = await client(app.port);
+    const r = await c.call<{ own: { kind: string; label: string } }>("delegation.models", { sessionId: ctx.sessionId });
+    expect(r.own).toEqual({ kind: "claude", label: "Claude Opus 5.5" });
     c.close();
   });
 });

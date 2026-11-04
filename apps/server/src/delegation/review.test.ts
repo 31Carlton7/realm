@@ -58,7 +58,7 @@ function initRepo(dir: string): void {
   git(dir, "add", "."); git(dir, "commit", "-m", "init");
 }
 
-async function boot(opts: { script?: FakeScript; delayMs?: number; parentKind?: "fake" | "claude" | "acp:cursor"; parentMode?: string;
+async function boot(opts: { script?: FakeScript; delayMs?: number; parentKind?: "fake" | "claude" | "acp:cursor"; parentModel?: string | null; parentMode?: string;
   timeouts?: { budgetMs: number; pollMs: number } } = {}) {
   const home = tempDir("realm-rv-");
   const fake = new FakeAdapter({ script: opts.script ?? REVIEW_SCRIPT, delayMs: opts.delayMs ?? 5 });
@@ -70,7 +70,7 @@ async function boot(opts: { script?: FakeScript; delayMs?: number; parentKind?: 
   });
   const profile = new ProfilesStore(app.db).create({ name: "P", icon: "x", color: "#000" });
   const space = new SpacesStore(app.db, home).create({ profileId: profile.id, name: "S", icon: "folder" });
-  const parent = app.sessions.create({ spaceId: space.id, agentKind: opts.parentKind ?? "fake", projectId: null, model: null, effort: null, permissionMode: opts.parentMode ?? "default" });
+  const parent = app.sessions.create({ spaceId: space.id, agentKind: opts.parentKind ?? "fake", projectId: null, model: opts.parentModel ?? null, effort: null, permissionMode: opts.parentMode ?? "default" });
   const env = new EnvironmentsStore(app.db).ensurePrimary(space.id);
   return { home, fake, spaceId: space.id, folder: space.folderPath, parentId: parent.session.id, envId: env.id };
 }
@@ -113,6 +113,24 @@ describe("the read-only cap — hard, per agent kind (the write-permission mutan
     expect(reviewer.permissionMode).toBe(PLAN_PERMISSION_MODE);
     expect(reviewer.dispatchedBy).toEqual({ sessionId: null, kind: "review" });
     await waitFor(() => app.reviews.get(envId) !== null);
+  });
+
+  it("a reviewer on its requester's harness runs the requester's model", async () => {
+    const { spaceId, parentId, envId } = await boot({ parentKind: "claude", parentModel: "claude-opus-5-5" });
+    await app.reviews.runTool({ sessionId: parentId, spaceId }, { environmentId: envId });
+    expect(reviewerOf(spaceId)).toMatchObject({ agentKind: "claude", model: "claude-opus-5-5" });
+  });
+
+  it("a reviewer runs the harness default when its requester pinned none, as the requester does", async () => {
+    const { spaceId, parentId, envId } = await boot({ parentKind: "claude" });
+    await app.reviews.runTool({ sessionId: parentId, spaceId }, { environmentId: envId });
+    expect(reviewerOf(spaceId)).toMatchObject({ agentKind: "claude", model: null });
+  });
+
+  it("a fallback reviewer never takes the requester's model, which names nothing on another harness", async () => {
+    const { spaceId, parentId, envId } = await boot({ parentKind: "acp:cursor", parentModel: "composer-2" });
+    await app.reviews.runTool({ sessionId: parentId, spaceId }, { environmentId: envId });
+    expect(reviewerOf(spaceId)).toMatchObject({ agentKind: "fake", model: null });
   });
 
   it("an ACP parent's reviewer FALLS BACK in kind — plan mode on acp:cursor would be a label with no enforcement", async () => {

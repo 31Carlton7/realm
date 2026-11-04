@@ -66,6 +66,10 @@ describe("modelLabel", () => {
     expect(modelLabel("claude", "claude-fable-5-1", probe)).toBe(modelLabel("claude", null, probe));
     expect(modelLabel("acp:cursor", "gpt-5.3-codex[reasoning=medium]", probe)).toBe("gpt-5.3-codex");
   });
+  it("names an unpinned model as the CLI's own default where its list marks one (#276)", () => {
+    const opus = [{ kind: "claude" as const, models: [{ id: "claude-fable-5-1", label: "Claude Fable 5.1" }, { id: "claude-opus-5-5", label: "Claude Opus 5.5", isDefault: true }] }];
+    expect(modelLabel("claude", null, opus)).toBe("Opus 5.5");
+  });
 });
 
 describe("the row's words", () => {
