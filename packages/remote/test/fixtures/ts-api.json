@@ -3205,7 +3205,7 @@
           "key": "mv:01JMOVE0000000000000000003",
           "seq": 4,
           "kind": "notice",
-          "text": "Moved from tidy-settings (tidy-settings) to realm (main). The conversation continued from notes.",
+          "text": "Moved from ~/Realm/worktrees/realm/tidy-settings to ~/realm. The conversation was carried as notes.",
           "detail": "~/Realm/worktrees/realm/tidy-settings → ~/realm",
           "move": "moved"
         }
