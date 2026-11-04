@@ -21,6 +21,35 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-8-1",
+    title: "Realm v2.8.1",
+    date: "2026-11-04",
+    version: "v2.8.1",
+    area: "Release",
+    summary:
+      "A new sidebar with your spaces on a rail and everything that needs you in one place, plus your team on the phone.",
+    body: [
+      { kind: "h", text: "A new sidebar" },
+      { kind: "ul", items: [
+        "**Your spaces sit on a rail,** and the column shows one space at a time.",
+        "**Needs you gathers what is waiting** across every space.",
+        "**Your avatar on the rail switches profiles.**",
+        "**A teammate's sessions now live in its Computer panel.**",
+      ] },
+      { kind: "h", text: "Fixes" },
+      { kind: "ul", items: [
+        "**A reply that is still streaming survives a reload.**",
+        "**A queued move survives a reload.**",
+      ] },
+      { kind: "h", text: "Realm Mobile" },
+      { kind: "ul", items: [
+        "**Your team on the phone.**",
+        "**A calmer Sub-agents sheet.**",
+        "**The Move sheet names real folders.**",
+      ] },
+    ],
+  },
+  {
     slug: "v2-8-0",
     title: "Realm v2.8.0",
     date: "2026-11-04",
