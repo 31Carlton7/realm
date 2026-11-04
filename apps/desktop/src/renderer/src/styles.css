@@ -11066,8 +11066,11 @@ body:has(> .voice-view[data-open]) .app { visibility: hidden; }
 .voice-space-name { flex: 0 1 auto; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-dim); }
 .voice-who .panel-crumb-sep { margin-left: 0; }
 .voice-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-bright); }
+/* The bars hold still: the stack hangs from a fixed top, so the bars' middle (48px is half their
+   box) sits 32px above the window's, and the caption and the line under it grow downward. Centring
+   the stack moved the bars every time a caption came or went. */
 .voice-stage { flex: 1; min-height: 0; width: min(560px, calc(100% - 48px)); margin: 0 auto; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 20px; }
+  align-items: center; gap: 20px; padding-top: calc(50vh - var(--frame-top) - 48px - 32px); }
 /* Each bar is a pill whose height is its band's level (--level, 0–1, set per frame), from a dot at
    rest to the box's full height. */
 .voice-bars { display: flex; align-items: center; justify-content: center; gap: 10px; height: 96px; }

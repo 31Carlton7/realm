@@ -92,6 +92,14 @@ describe("the caption under the bars", () => {
     expect(captionOf({ ...at, phase: "working", said: null })).toEqual({ text: "What is two plus two?", tone: "quiet" });
     expect(captionOf({ ...at, phase: "speaking" })).toEqual({ text: "It is four.", tone: "live" });
   });
+  it("sits under the bars, so nothing above them changes when it appears", async () => {
+    const { store } = await mount();
+    store.getState().openVoice("a", false);
+    render(<StoreContext.Provider value={store}><VoiceView /></StoreContext.Provider>);
+    // THE MUTANT: the caption or the line moved above the bars, where its height would push them down.
+    const stage = [...document.querySelector(".voice-stage")!.children].map((el) => el.className);
+    expect(stage.slice(0, 3)).toEqual(["voice-bars", "voice-caption", "voice-state"]);
+  });
   it("is empty while Realm only listens", () => {
     // THE MUTANT: the last reply stays up — a stale sentence reads as the prompt for the next turn.
     expect(captionOf({ ...at, phase: "listening" }).text).toBe("");
