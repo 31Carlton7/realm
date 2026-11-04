@@ -34,13 +34,6 @@ function Place({ path, branch }: { path: string; branch: string | null }) {
   </>;
 }
 
-/** The destination in the words the prompter's queue uses while a move waits. */
-function moveTargetLabel(to: MoveTarget, options: Pick<MoveOptions, "environments">): string {
-  if (to.kind === "worktree") return "a new worktree";
-  const env = options.environments.find((e) => e.environmentId === to.environmentId);
-  return env ? env.branch ?? basenameOf(env.path) : "another checkout";
-}
-
 function Destination({ to, options }: { to: MoveTarget; options: MoveOptions }) {
   if (to.kind === "worktree") {
     return <span className="move-new">New worktree{options.from.branch && <> off <span className="move-branch">{options.from.branch}</span></>}</span>;
@@ -98,7 +91,7 @@ export function MoveSheet({ sessionId, to }: { sessionId: string; to: MoveTarget
     if (!options) return;
     setStarting(true);
     setRefused(null);
-    moveSession(sessionId, to, { keepSourceChanges, when, toLabel: moveTargetLabel(to, options), busy }).then(
+    moveSession(sessionId, to, { keepSourceChanges, when }).then(
       () => { if (open.current) closeSheet(); },
       (e: unknown) => { if (!open.current) return; setStarting(false); setRefused(moveRefusal(e, agent)); },
     );

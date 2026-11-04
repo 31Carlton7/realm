@@ -21,7 +21,7 @@ import {
   AGENT_SIGNIN_DEFAULT, AGENT_SIGNIN_KEY, DEFAULT_NOTIFICATION_SOUND_VOLUME, DEFAULT_PERMISSION_MODE_KEY, MID_TURN_MODE_KEY, resolveMidTurnMode, type MidTurnMode, NOTIFICATIONS_DESKTOP_KEY, NOTIFICATIONS_DISABLED_KEY, NOTIFICATIONS_IMESSAGE_KEY, NOTIFICATIONS_SLACK_WEBHOOK_KEY, NOTIFICATIONS_SOUND_KEY, NOTIFICATIONS_SOUND_VOLUME_KEY, NOTIFICATION_CATEGORIES, PERMISSION_MODES, MODEL_FAVORITES_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, readEffortSupport, readFastSupport, EDITOR_CURSOR_BLINK_KEY, TERMINALS_CURSOR_BLINK_DEFAULT, TERMINALS_CURSOR_BLINK_KEY, TERMINALS_CURSOR_STYLE_DEFAULT, TERMINALS_CURSOR_STYLE_KEY, terminalCaretShape, isTerminalColorScheme, TERMINALS_COLORS_DEFAULT, TERMINALS_COLORS_KEY, type TerminalColorScheme, TERMINALS_HISTORY_DEFAULT, TERMINALS_HISTORY_KEY, parseSpaceIcon, type ModelInfo, isReducedMotionPref, REDUCED_MOTION_DEFAULT, REDUCED_MOTION_KEY, type ReducedMotionPref, COMPUTER_PROVIDER_NAME, isTerminalDockEdge, TERMINALS_DOCK_DEFAULT, TERMINALS_DOCK_KEY, type TerminalDockEdge, POWER_PREVENT_SLEEP_DEFAULT, POWER_PREVENT_SLEEP_KEY, FILES_OPEN_IN_KEY, isOpenFilesIn, type OpenFilesIn, isLinksOpenIn, LINKS_OPEN_IN_DEFAULT, LINKS_OPEN_IN_KEY, type LinksOpenIn, type EditorId, type InstalledEditor,
   type DestinationPageKind, type NotificationCategory, type NavEntry, type PaneHistory, type DocumentEntry, type DocumentKind, type DocumentWorkspace,
   parseScriptCommandId, DEFAULT_KEYBINDINGS,
-  type MoveOptions, type MoveTarget, type MoveWhen,
+  type MoveOptions, type MoveTarget, type MoveWhen, type PendingMove,
   type Account, type AgentKind, type AgentSignIn, type Attachment, type Keybinding, type LibraryEntry, type LibraryQuery, type FailoverPolicy, type LayaMode, type LayaStatus, type CliJobEnd, type CliJobOutput, type CliJobStart, type CliStatus, type BrowserCredential, type BrowserPickedElement, type Passkey, type DelegatedRun, type ElementChip, type BrowserCredentialInput, type Checkpoint, type TurnChanges, type DiffSummary, type Environment, type FileDiff, type GitInfo, type IconAsset, type ImportApplyParams, type ImportResult, type ImportScan, type Item, type GuideProgress, type Lecture, type PlynnImportResult, type PlynnMeeting, type StartLectureResult, type Layout, type LayoutLeaf, type MachineImageProgress, type MachineState, type SimulatorState, type Goal, type GoalStatus, type UnlockedEggPack, type McpCall, type McpOauthStatus, type McpServer, type McpSignInOptions, type McpServerStatus, type McpTransport, type MemoryClaudeBackfill, type MemoryClaudeImport, type MemoryLibraryEntry, type MemoryLibraryFile, type MemoryLibrarySource, type MemoryLibraryType, type MemoryRemoteCheck, type MemoryRepoCommit, type MemoryRepoScope, type MemoryRepoState, type MemorySources, type MemoryState, type MethodResult, type Notification, type PlanLimits, type Profile, type Project, type QueuedPrompt, type RestorePreview, type RestoreResult, type ReviewResult, type SearchResults, type Session, type SessionMode, type SessionStatus, type Ship, type ShipResult, type Skill, type SkillDetail, type UserCommand, type Script, type ScriptInput, type SandboxState, type ExecutionSandboxPrefs, type ProjectGrepResult, type ProjectFilesResult, type Space, type SpaceGroups, type StoredSessionEvent, type WorktreeAck, type WorktreeStatus, type SkillSource, type Run, type RunAttempt, type RunState, type Schedule, type CreateScheduleInput, type UpdateScheduleInput, type UsageBudget, type UsageBucketKind, type UsageDay, type UsageRecords, type UsageSummary, type ResourceReport, type ResourcePolicies, type ResourcePolicyKey, type FreeAction,
 } from "@realm/contracts";
 import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
@@ -406,7 +406,8 @@ export type Api = TeammatesApi & {
   editQueuedPrompt(id: string, queuedId: string, text: string): Promise<boolean>;
   /** `sessions.moveQueued` — put a queued message in front of `before`, or last when it is null. */
   moveQueuedPrompt(id: string, queuedId: string, before: string | null): Promise<void>;
-  sessionQueue(id: string): Promise<QueuedPrompt[]>;
+  /** `sessions.queued` — the messages waiting behind the turn, and any move waiting or under way. */
+  sessionQueue(id: string): Promise<{ queued: QueuedPrompt[]; move: PendingMove | null }>;
   /** `limits.get` — every provider's plan quota as last reported. */
   planLimits(): Promise<PlanLimits[]>;
   recordFeedback(id: string, messageId: string, rating: Rating | null): Promise<void>;
@@ -1323,10 +1324,10 @@ export type AppState = TeammatesSlice & {
   /** Messages waiting for a session's current turn to end, oldest first, from `session.queue`. The
    *  key is dropped when a queue empties, so a session with nothing waiting holds nothing here. */
   sessionQueues: Record<string, QueuedPrompt[]>;
-  /** A move asked for with "Move after this turn", waiting for the turn to end, and where it goes —
-   *  the prompter's queue says so and can call it off. Dropped when the move starts, ends or is
-   *  cancelled. */
-  pendingMoves: Record<string, { to: string }>;
+  /** Where a move asked for with "Move after this turn" goes, while it waits for the turn to end:
+   *  the server's queue `move` with no step yet, from `session.queue` and `sessions.queued`. The
+   *  prompter's queue says so and can call it off. Dropped once the move starts, ends or is cancelled. */
+  pendingMoves: Record<string, MoveTarget>;
   /** The turns the reader saved in each session, as their prompts' event seqs, from `sessions.saved`
    *  and kept current by `session.saved`. A session not read yet holds nothing here. */
   savedTurns: Record<string, number[]>;
@@ -2174,7 +2175,7 @@ export type AppState = TeammatesSlice & {
    *  called directly only where a caller must see the stream's current text without waiting. */
   flushSessionDeltas(): void;
   applySessionStatus(sessionId: string, status: SessionStatus): void;
-  applySessionQueue(sessionId: string, queued: QueuedPrompt[]): void;
+  applySessionQueue(sessionId: string, queued: QueuedPrompt[], move?: PendingMove | null): void;
   applyPlanLimits(limits: PlanLimits[]): void;
   refreshPlanLimits(): Promise<void>;
   refreshSessionQueue(sessionId: string): Promise<void>;
@@ -2281,9 +2282,9 @@ export type AppState = TeammatesSlice & {
    *  server's "session" default) AND move the session into it — one action, so creating without
    *  selecting cannot happen. */
   moveSessionToNewWorktree(sessionId: string): Promise<void>;
-  /** Move a STARTED session (the Move sheet). `toLabel` is what the queue says while an `after-turn`
-   *  move waits. Resolves when the move is done or queued; a refusal rejects, for the sheet to say. */
-  moveSession(sessionId: string, to: MoveTarget, opts: { keepSourceChanges: boolean; when: MoveWhen; toLabel: string; busy: boolean }): Promise<void>;
+  /** Move a STARTED session (the Move sheet). Resolves when the move is done or queued; a refusal
+   *  rejects, for the sheet to say. */
+  moveSession(sessionId: string, to: MoveTarget, opts: { keepSourceChanges: boolean; when: MoveWhen }): Promise<void>;
   cancelSessionMove(sessionId: string): Promise<void>;
   /** What the Move sheet shows before anything happens (`sessions.moveOptions`). */
   sessionMoveOptions(sessionId: string): Promise<MoveOptions>;
@@ -6171,7 +6172,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           void get().run(async () => { const row = await api.getSession(ev.sessionId); if (get().sessions[row.id]) mergeSession(row); });
         }
         const type = ev.event.type;
-        if (type === "moving" || type === "moved" || type === "move_failed") dropPendingMove(ev.sessionId);
         if (type === "moved") void get().run(() => settleMove(ev.sessionId));
         /** This event makes no other write: the line, and the log's length, are the whole of it. */
         const lineOnly = () => { if (also) set(also); };
@@ -6232,15 +6232,19 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       applyPlanLimits(limits) { set({ planLimits: limits }); },
       async refreshPlanLimits() { set({ planLimits: await api.planLimits() }); },
-      applySessionQueue(sessionId, queued) {
+      applySessionQueue(sessionId, queued, move = null) {
         // An empty queue drops its key rather than storing `[]`: the prompter asks "is anything
         // waiting", and one shape for "no" is fewer than two.
         const rest = { ...get().sessionQueues };
         if (queued.length === 0) delete rest[sessionId]; else rest[sessionId] = queued;
-        set({ sessionQueues: rest });
+        // A move with a step is under way, and the transcript's progress row says so instead.
+        const pendingMoves = { ...get().pendingMoves };
+        if (move && move.step === null) pendingMoves[sessionId] = move.to; else delete pendingMoves[sessionId];
+        set({ sessionQueues: rest, pendingMoves });
       },
       async refreshSessionQueue(sessionId) {
-        get().applySessionQueue(sessionId, await api.sessionQueue(sessionId));
+        const { queued, move } = await api.sessionQueue(sessionId);
+        get().applySessionQueue(sessionId, queued, move);
       },
       async refreshSavedTurns(sessionId) {
         get().applySavedTurns(sessionId, await api.savedTurns(sessionId));
@@ -6654,15 +6658,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // …then select it. Creating without selecting is the named mutant this line kills.
         await get().setSessionEnvironment(sessionId, env.id);
       },
-      async moveSession(sessionId, to, { keepSourceChanges, when, toLabel, busy }) {
-        const waits = busy && when === "after-turn";
-        if (waits) set({ pendingMoves: { ...get().pendingMoves, [sessionId]: { to: toLabel } } });
-        try {
-          mergeSession(await api.moveSession(sessionId, to, keepSourceChanges, when));
-        } catch (e) {
-          if (waits) dropPendingMove(sessionId);
-          throw e;
-        }
+      async moveSession(sessionId, to, { keepSourceChanges, when }) {
+        mergeSession(await api.moveSession(sessionId, to, keepSourceChanges, when));
       },
       sessionMoveOptions(sessionId) { return api.sessionMoveOptions(sessionId); },
       async cancelSessionMove(sessionId) {
