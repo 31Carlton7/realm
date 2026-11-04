@@ -1480,6 +1480,44 @@ public struct FilePreview: Decodable, Sendable, Hashable {
     }
 }
 
+/// `session.fileData`: a piece of a file's own bytes, starting at byte `from`; `next` is where the next
+/// piece starts, nil once this one ends the file.
+public struct FilePiece: Decodable, Sendable, Hashable {
+    public let path: String
+    public let name: String
+    public let size: Int
+    public let mime: String
+    public let from: Int
+    public let data: Data
+    public let next: Int?
+
+    private enum CodingKeys: String, CodingKey { case path, name, size, mime, from, data, next }
+
+    public init(path: String, name: String, size: Int, mime: String, from: Int, data: Data, next: Int?) {
+        self.path = path
+        self.name = name
+        self.size = size
+        self.mime = mime
+        self.from = from
+        self.data = data
+        self.next = next
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        path = try c.decode(String.self, forKey: .path)
+        name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
+        size = try c.decode(Int.self, forKey: .size)
+        mime = (try? c.decodeIfPresent(String.self, forKey: .mime)) ?? ""
+        from = try c.decode(Int.self, forKey: .from)
+        guard let data = Data(base64Encoded: try c.decode(String.self, forKey: .data)) else {
+            throw DecodingError.dataCorruptedError(forKey: .data, in: c, debugDescription: "not base64")
+        }
+        self.data = data
+        next = try c.decodeIfPresent(Int.self, forKey: .next)
+    }
+}
+
 /// `space.icon`: a space's own picture.
 public struct SpacePicture: Decodable, Sendable, Hashable {
     public let mime: String

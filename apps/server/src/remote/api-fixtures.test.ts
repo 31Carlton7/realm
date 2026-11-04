@@ -15,7 +15,8 @@ import { channel, fakeRpc, jpegHeader, machine, machineState, pngHeader, profile
  * mobile.v1's answers as the Mac writes them, for RealmKit to decode (PROTOCOL.md §9): `home.get` for
  * every profile and for one, with a pinned row, a space's pages, `session.open` over a session that
  * holds every row kind (its first message with files sent with it) and two messages waiting in its
- * queue, the turn's changes and a page of its diff, each preview `session.file` makes, a space's
+ * queue, the turn's changes and a page of its diff, each preview `session.file` makes, a made file's
+ * bytes, a space's
  * picture, three agents' session options and a change to them, every agent a new session can have;
  * the queue, the lead's sub-agents (one working, two ended), the plans and the month's spend, an empty
  * Review (it went with the first Teams), the scheduled tasks and one run now, the screens the theme column's space has open and a frame of one, a rename with a pin and an
@@ -308,6 +309,7 @@ async function generate(): Promise<Record<string, unknown>> {
       "session.file:text": await call("session.file", { id: S, path: made[1]!.path }),
       "session.file:none": await call("session.file", { id: S, path: made[2]!.path }),
       "session.file:attachment": await call("session.file", { id: S, path: sent[0]!.path }),
+      "session.fileData": await call("session.fileData", { id: S, path: made[1]!.path, from: 0 }),
       "space.icon": await call("space.icon", { id: "sp3" }),
       "session.options": await call("session.options", { id: S }),
       "session.options:codex": await call("session.options", { id: CODEX }),

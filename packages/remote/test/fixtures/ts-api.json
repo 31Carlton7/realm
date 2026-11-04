@@ -1414,6 +1414,15 @@
         "data": "anBlZw=="
       }
     },
+    "session.fileData": {
+      "path": "/Users/me/Desktop/Deck/notes.md",
+      "name": "notes.md",
+      "size": 28,
+      "mime": "text/markdown",
+      "from": 0,
+      "data": "IyBEZWNrIG5vdGVzCgpUaHJlZSBzbGlkZXMuCg==",
+      "next": null
+    },
     "space.icon": {
       "mime": "image/png",
       "data": "YSBwaWN0dXJl"

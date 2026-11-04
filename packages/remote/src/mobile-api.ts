@@ -405,6 +405,13 @@ export const FilePreviewSchema = z.object({
   ]),
 });
 
+/** One piece of a file's own bytes, for a phone that opens the whole file: `data` is bytes `from` on,
+ *  base64; `next` is where the next piece starts, null at the end. */
+export const FileDataSchema = z.object({
+  path: z.string(), name: z.string(), size: z.number().int(), mime: z.string(),
+  from: z.number().int(), data: z.string(), next: z.number().int().nullable(),
+});
+
 /** A simulator or a machine the session's space has open on the Mac: a pane with a screen in it. */
 export const ScreenSchema = z.object({
   id: Id,
@@ -545,6 +552,12 @@ export const MobileCalls = {
   /** A bounded preview of a file the session's turns made, or of one sent with a message: only a file a
    *  `files_made` or a `user_message` of this session listed. */
   "session.file": { params: z.object({ id: Id, path: z.string().min(1).max(4096) }), result: FilePreviewSchema },
+  /** The file itself, a piece at a time, for a phone that plays, shares or saves it: the same files
+   *  `session.file` previews, and only those. */
+  "session.fileData": {
+    params: z.object({ id: Id, path: z.string().min(1).max(4096), from: z.number().int().min(0).default(0) }),
+    result: FileDataSchema,
+  },
   /** A space's own picture, for an icon `home.get` calls a picture. */
   "space.icon": {
     params: z.object({ id: Id }),

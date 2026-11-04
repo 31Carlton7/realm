@@ -1,3 +1,4 @@
+import CryptoKit
 import Observation
 import PhotosUI
 import RealmKit
@@ -849,6 +850,31 @@ final class AppModel {
         thumbnails[Self.previewKey(path, sessionId)]
     }
 
+    /// A file a turn made or a message took, whole, on this phone: what the gallery plays, opens in Quick
+    /// Look and shares. Fetched from the Mac once and kept in the cache, which the system may clear.
+    func wholeFile(_ path: String, name: String, in sessionId: String, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+        let destination = Self.wholeFile(path, name: name, in: sessionId)
+        if FileManager.default.fileExists(atPath: destination.path) { return destination }
+        guard let api, isConnected else { throw ChannelError.notConnected }
+        try await FileFetch.fetch(to: destination, progress: progress) { from in
+            try await api.fileData(id: sessionId, path: path, from: from)
+        }
+        return destination
+    }
+
+    /// A file `wholeFile` already brought to this phone; nil for one it has not.
+    func keptFile(_ path: String, name: String, in sessionId: String) -> URL? {
+        let kept = Self.wholeFile(path, name: name, in: sessionId)
+        return FileManager.default.fileExists(atPath: kept.path) ? kept : nil
+    }
+
+    private static let wholeFiles = URL.cachesDirectory.appending(path: "Files", directoryHint: .isDirectory)
+
+    private static func wholeFile(_ path: String, name: String, in sessionId: String) -> URL {
+        let digest = SHA256.hash(data: Data(previewKey(path, sessionId).utf8)).map { String(format: "%02x", $0) }.joined()
+        return wholeFiles.appending(path: digest, directoryHint: .isDirectory).appending(path: name.replacingOccurrences(of: "/", with: "-"))
+    }
+
     private static func previewKey(_ path: String, _ sessionId: String) -> String { "\(sessionId)\u{0}\(path)" }
     private static let previewsKept = 12
 
@@ -929,6 +955,7 @@ final class AppModel {
         thumbnails = [:]
         previews = [:]
         previewOrder = []
+        try? FileManager.default.removeItem(at: Self.wholeFiles)
         askedThumbnails = []
         turnChanges = [:]
         workingSince = [:]
@@ -1032,6 +1059,8 @@ final class AppModel {
             case .connectionLost: return "The connection to the relay dropped while pairing. Try again."
             case .timedOut: return "Pairing took too long. Make a new link and try again."
             }
+        case FileFetch.Problem.changed(let name):
+            return "\(name) changed on your Mac while it was on its way. Try again."
         case let error as ChannelError:
             switch error {
             case .notConnected: return "Not connected to your Mac."

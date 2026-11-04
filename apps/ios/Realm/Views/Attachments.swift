@@ -294,39 +294,43 @@ struct AttachmentStrip: View {
 }
 
 /// The files that went with a message, under it: pictures as tiles the Mac sends small copies of, as
-/// a turn's made files are drawn, and other files as chips. Each opens the Mac's preview of it.
+/// a turn's made files are drawn, and other files as chips. A tap on one, or a swipe right across them,
+/// opens them all in the gallery.
 struct SentFiles: View {
     let files: [SentFile]
     let sessionId: String
-    @State private var previewing: SentFile?
+    @State private var opening: GalleryOpening?
 
     var body: some View {
+        let pages = GalleryPages(files)
         let pictures = files.filter(\.isImage)
         let others = files.filter { !$0.isImage }
         VStack(alignment: .trailing, spacing: 6) {
             if !pictures.isEmpty {
                 TrailingFlow(spacing: 6) {
                     ForEach(pictures, id: \.path) { file in
-                        Button { previewing = file } label: {
+                        Button { opening = GalleryOpening(page: pages.page(of: file)) } label: {
                             SentPicture(file: file, sessionId: sessionId)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(file.name)
-                        .accessibilityHint("Opens a preview")
+                        .accessibilityHint("Opens the message's files")
                     }
                 }
             }
             ForEach(others, id: \.path) { file in
-                Button { previewing = file } label: {
+                Button { opening = GalleryOpening(page: pages.page(of: file)) } label: {
                     AttachmentChip(name: file.name, size: nil)
                         .background(Fill.bubble, in: RoundedRectangle(cornerRadius: Radius.thumbnail, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .accessibilityHint("Opens a preview")
+                .accessibilityHint("Opens the message's files")
             }
         }
-        .sheet(item: $previewing) { file in
-            FilePreviewSheet(path: file.path, name: file.name, sessionId: sessionId)
+        .gesture(GallerySwipe { opening = GalleryOpening(page: 0) })
+        .accessibilityAction(named: "Show all files") { opening = GalleryOpening(page: 0) }
+        .fullScreenCover(item: $opening) { opening in
+            AttachmentGallery(pages: pages, sessionId: sessionId, page: opening.page)
         }
     }
 }

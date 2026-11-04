@@ -530,6 +530,12 @@ public struct MobileAPI: Sendable {
         return try await connection.call("session.file", params: Params(id: id, path: path), as: FilePreview.self)
     }
 
+    /// A piece of one of the files `file(id:path:)` previews, from byte `from`.
+    public func fileData(id: String, path: String, from: Int) async throws -> FilePiece {
+        struct Params: Encodable, Sendable { let id: String; let path: String; let from: Int }
+        return try await connection.call("session.fileData", params: Params(id: id, path: path, from: from), as: FilePiece.self)
+    }
+
     /// A space's own picture, for a space whose icon is one.
     /// The simulators and machines open in the session's space, live ones first.
     public func screens(id: String) async throws -> [SessionScreen] {
