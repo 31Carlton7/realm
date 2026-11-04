@@ -487,9 +487,13 @@ else keeps its own name, whatever it looks like.
 | `session.holdQueued` | `{id, queuedId, held: bool}` | `{ok: true}` |
 | `session.editQueued` | `{id, queuedId, text}` | `{ok: true}` |
 | `session.subagents` | `{id}` | `{subagents: [Subagent]}` |
-| `teammates.list` | `{}` | `{teammates: [{id, spaceId, name, handle, brief, lead: bool, chatId: string\|null, icon?: {shape, color}, state?, stateSince?, unread?, activity?, activityAt?, agentKind?, model?, effort?, permissionMode?}]}` |
+| `teammates.list` | `{archived?: bool}` | `{teammates: [{id, spaceId, name, handle, brief, lead: bool, chatId: string\|null, icon?: {shape, color}, state?, stateSince?, unread?, activity?, activityAt?, agentKind?, model?, effort?, permissionMode?, group?: string\|null, archived?: bool}]}` |
 | `teammate.chat` | `{id}` | `{id}`: the teammate's chat, a session like any other |
 | `teammate.update` | `{id, name?, brief?, icon?, agentKind?, model?, effort?, permissionMode?, lead?}` | `{teammate}`: as `teammates.list` names it now |
+| `teammate.create` | `{spaceId, name, handle?, brief?, icon?, agentKind, model?, effort?, permissionMode, lead?}` | `{teammate}` |
+| `teammate.archive` | `{id, archived?: bool}` | `{teammate}` |
+| `teammates.setLead` | `{spaceId, id: string\|null}` | `{teammates: [Teammate]}`: the space's, in order |
+| `teammates.reorder` | `{spaceId, order: [{id, group: string\|null}]}` | `{teammates: [Teammate]}`: the space's, in order |
 | `usage.get` | `{}` | `{limits: [PlanLimits], spend: Spend}` |
 | `reviews.list` | `{}` | `{reviews: [ReviewSummary]}` |
 | `review.get` | `{id}` | `{review: ReviewSummary, items: [ReviewItem]}` |
@@ -508,7 +512,7 @@ else keeps its own name, whatever it looks like.
 | `session.stop` | `{id}` | `{ok: true}` |
 | `session.seen` | `{id, seq}` | `{ok: true}`. It marks the session read up to `seq`, and never moves backwards. |
 | `session.create` | `{spaceId, agent, text, model?, effort?, mode?, permission?, attachments?: [Upload]}` | `{id}` |
-| `agents.list` | `{}` | `{agents: [AgentOptions], defaultAgent: string\|null, midTurn: "queue"\|"steer", attachments: Limits}` |
+| `agents.list` | `{}` | `{agents: [AgentOptions], defaultAgent: string\|null, midTurn: "queue"\|"steer", attachments: Limits, lastModels?: {[agent]: string\|null}, teammatePermission?}` |
 | `session.changes` | `{id, checkpointId}` | `{checkpointId, files: [{path, oldPath, status, additions, deletions}], totalFiles}` |
 | `session.diff` | `{id, checkpointId, path, from?: int = 0}` | `{path, oldPath, status, binary, additions, deletions, lines: [string], from, next: int\|null, total, truncated, truncatedReason}` |
 | `session.file` | `{id, path}` | `{path, name, size, mime, preview: {kind: "image", mime, data} \| {kind: "text", text, truncated} \| {kind: "none", reason}}` |
@@ -740,6 +744,26 @@ A Mac from before these fields leaves them out, and a phone draws the teammate w
 reasoning level, permission (one of the three rungs the desktop sheet offers) and whether it is the
 Lead. Anything left out keeps its value. It answers with the teammate as `teammates.list` would name
 it. A teammate the Mac does not have is `NOT_FOUND`.
+
+**The Team is made and kept from a phone as from the Mac.** `teammate.create` is the New teammate
+sheet's Create (`teammates.create`): a name, what it does, an icon, an agent, model and level, one of
+the three permission rungs, and whether it is the Lead. A `handle` left out is made from the name and
+numbered where another teammate has it; one sent is lowercase letters, digits and dashes, and one the
+space already has is `INVALID_PARAMS` with the Mac's words ("@cto is already a teammate here"). The
+Mac makes the teammate's chat with it. `agents.list` says what the sheet starts on, as the desktop's
+does: `lastModels`, the model each agent's last message was sent on (null for its default), and
+`teammatePermission`, the permission new sessions start in where that is one of the three rungs, else
+`default`.
+
+`teammates.setLead` makes a teammate its space's Lead, taking it from the one that was, or leaves the
+space with none (`id: null`); an archived teammate is `FORBIDDEN`. `teammate.archive` puts one away
+(`teammates.archive`): it leaves the Team list and stops being the Lead, and its sessions stay where
+they are. `archived: false` brings it back, under a handle nobody took meanwhile.
+`teammates.list` with `archived: true` names only the ones put away, each with `archived: true`; a Mac
+from before it names its listed teammates instead, which a phone tells by `archived` being absent.
+`teammates.reorder` is the Team list dragged into a new order (`teammates.reorder`): every teammate in
+the space, top to bottom, each with the section (`group`) it sits in. The Lead stays first whatever
+the order says. Each of these answers as `teammates.list` names teammates, and sends `home.changed`.
 
 A message an agent sends a teammate (`team_message`) is a `tool` row carrying `teammate`: the id of
 the teammate it went to, resolved as the server resolves `to` (its handle, `@handle` or `lead`), null
@@ -988,6 +1012,9 @@ phone read, and what bounds it:
   Its folder, clock and task sessions' list stay on the Mac.
 - **`teammate.update`**: a teammate's name, brief, icon, model, permission and Lead. Its folder,
   group and clock are not changed from a phone.
+- **`teammate.create`**, **`teammate.archive`**, **`teammates.setLead`** and **`teammates.reorder`**:
+  a new teammate, in the space's own folder with no clock; a teammate put away or brought back; the
+  space's Lead; and the Team list's order. A teammate is never deleted from a phone.
 - **`usage.get`**: each agent's plan as its provider last reported it, and this month's spend and
   budget (`usage.budget`), with its five heaviest sessions' names and costs.
 - **`reviews.list`**, **`review.get`** and **`review.decide`**: what the space's teams sent to Review,

@@ -2,9 +2,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import {
-  AGENT_META, AGENT_SKILL_SUPPORT, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, isSecretPath, keepLiveRefs, MAC_SKILL_ID, mentionIds, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, readEffortSupport,
+  AGENT_META, AGENT_SKILL_SUPPORT, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, isSecretPath, keepLiveRefs, MAC_SKILL_ID, mentionIds, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, PERMISSION_MODES, readEffortSupport,
   resolveMidTurnMode, runnableCommands, SELECTABLE_AGENT_KINDS, TeammateIconSchema, withStreamed, type AgentKind, type DelegatedChild, type IconAsset, type Item, type Machine, type MethodResult, type ModelInfo,
-  type PendingMove, type QueuedPrompt, type Schedule, type Session, type Skill, type Space, type StoredSessionEvent, type Teammate, type TurnChanges,
+  type PendingMove, type QueuedPrompt, type Schedule, type Session, type Skill, type Space, type StoredSessionEvent, type Teammate, type TeammateIcon, type TurnChanges,
 } from "@realm/contracts";
 import { givenAttachmentName, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
 import {
@@ -12,7 +12,7 @@ import {
   type ScheduledTask, type Screen, type SessionOptions, type SessionRow, type Subagent, type Teammate as PhoneTeammate,
 } from "@realm/remote";
 import {
-  agentsAtWork, FALLBACK_AGENT, isChild, isLive, LAST_AGENT_SETTING, modelLabel, needsYou, nestChildren, QUICK_CHAT_SETTING, quickChatIdOf, subagentState, upcomingOrder, type NeedsYouState,
+  agentsAtWork, FALLBACK_AGENT, isChild, isLive, LAST_AGENT_SETTING, LAST_MODELS_SETTING, modelLabel, needsYou, nestChildren, QUICK_CHAT_SETTING, quickChatIdOf, subagentState, upcomingOrder, type NeedsYouState,
 } from "@realm/view";
 import { resolveDefaultPermissionMode } from "../sessions/service";
 import { tildify } from "../skills/discovery";
@@ -43,8 +43,17 @@ export function phoneTeammate(t: Teammate): PhoneTeammate {
     id: t.id, spaceId: t.spaceId, name: t.name, handle: t.handle, brief: t.brief, lead: t.lead, chatId: t.homeSessionId,
     icon: t.icon, state: t.state, stateSince: t.stateSince, unread: t.unread,
     activity: doing ? (doing.title.startsWith(prefix) ? doing.title.slice(prefix.length) : doing.title) : null, activityAt: doing?.updatedAt ?? null,
-    agentKind: t.agentKind, model: t.model, effort: t.effort, permissionMode: t.permissionMode,
+    agentKind: t.agentKind, model: t.model, effort: t.effort, permissionMode: t.permissionMode, group: t.group, archived: t.archived,
   };
+}
+
+/** A shape, a colour and an agent, which mobile.v1 names as strings, as the desktop's own lists have them. */
+function desktopNames(icon: { shape: string; color: string } | undefined, agentKind: string | undefined): { icon?: TeammateIcon; agentKind?: AgentKind } {
+  const shape = icon === undefined ? undefined : TeammateIconSchema.safeParse(icon);
+  if (shape && !shape.success) throw new MobileError("INVALID_PARAMS", `unknown icon ${icon!.shape} ${icon!.color}`);
+  const agent = agentKind === undefined ? undefined : AgentKindSchema.safeParse(agentKind);
+  if (agent && !agent.success) throw new MobileError("INVALID_PARAMS", `unknown agent ${agentKind}`);
+  return { ...(shape?.success ? { icon: shape.data } : {}), ...(agent?.success ? { agentKind: agent.data } : {}) };
 }
 
 export class MobileError extends Error {
@@ -247,10 +256,14 @@ export class MobileApi {
         }
         case "session.editQueued": return await this.editQueued(rpc, p as MobileParams<"session.editQueued">);
         case "session.subagents": return await this.subagents(ctx, p.id as string);
-        case "teammates.list": return await this.teammates(rpc);
+        case "teammates.list": return await this.teammates(rpc, p.archived === true);
         case "teammate.chat": return { id: (await rpc.call("teammates.home", { id: p.id as string })).sessionId };
         case "session.info": return await this.info(rpc, p.id as string);
         case "teammate.update": return await this.updateTeammate(rpc, p as MobileParams<"teammate.update">);
+        case "teammate.create": return await this.createTeammate(rpc, p as MobileParams<"teammate.create">);
+        case "teammate.archive": return { teammate: phoneTeammate(await rpc.call("teammates.archive", { id: p.id as string, archived: p.archived as boolean })) };
+        case "teammates.setLead": return { teammates: (await rpc.call("teammates.setLead", { spaceId: p.spaceId as string, id: p.id as string | null })).map(phoneTeammate) };
+        case "teammates.reorder": return { teammates: (await rpc.call("teammates.reorder", p as MobileParams<"teammates.reorder">)).map(phoneTeammate) };
         case "usage.get": return await this.usage(rpc);
         // Review went with the first Teams: the phone's Review screen is told there is nothing in it,
         // and a review it still holds is gone, rather than either being an error it cannot read.
@@ -324,7 +337,7 @@ export class MobileApi {
         const code: MobileErrorCode = e.code === "NOT_FOUND" || e.code === "SESSION_NOT_LIVE" || e.code === "INVALID_PARAMS" ? e.code
           : e.code === "TREE_GONE" || e.code === "NOT_A_REPOSITORY" ? "NOT_FOUND"
           : e.code === "TEAM_REVIEW_STATE" || e.code === "SCHEDULE_BUSY" || e.code === "TEAMMATE_ARCHIVED" ? "FORBIDDEN"
-          : e.code === "TEAM_REVIEW_INVALID" ? "INVALID_PARAMS" : "INTERNAL";
+          : e.code === "TEAM_REVIEW_INVALID" || e.code === "TEAMMATE_HANDLE_TAKEN" || e.code === "TEAMMATE_WRONG_SPACE" ? "INVALID_PARAMS" : "INTERNAL";
         throw new MobileError(code, e.message);
       }
       throw new MobileError("INTERNAL", (e as Error).message);
@@ -470,11 +483,19 @@ export class MobileApi {
   /** Every agent a new session can be given, as the desktop's new session offers them, and the one its
    *  "+" would reach for. */
   private async agents(rpc: RpcPort): Promise<MobileResult<"agents.list">> {
-    const [probe, shared, last] = await Promise.all([this.probes(rpc), this.shared(rpc), rpc.call("settings.get", { key: LAST_AGENT_SETTING })]);
+    const [probe, shared, last, models] = await Promise.all([
+      this.probes(rpc), this.shared(rpc), rpc.call("settings.get", { key: LAST_AGENT_SETTING }), rpc.call("settings.get", { key: LAST_MODELS_SETTING }),
+    ]);
     const kinds: readonly AgentKind[] = SELECTABLE_AGENT_KINDS;
     const agents = kinds.map((kind) => agentOptions(kind, optionsInput(probe.find((r) => r.kind === kind) ?? null, null, shared)));
     const defaultAgent = kinds.find((k) => k === last.value) ?? FALLBACK_AGENT;
-    return { agents, defaultAgent, midTurn: shared.midTurn, attachments: { ...SEND_LIMITS } };
+    // As the desktop's New teammate sheet starts: on the model last sent on, in the permission new
+    // sessions start in where that is one of the sheet's three rungs.
+    const held = typeof models.value === "object" && models.value !== null ? models.value : {};
+    const lastModels = Object.fromEntries(Object.entries(held)
+      .filter((e): e is [string, string | null] => typeof e[1] === "string" || e[1] === null));
+    const rung = PERMISSION_MODES.find((m) => m.id === shared.defaultPermission);
+    return { agents, defaultAgent, midTurn: shared.midTurn, attachments: { ...SEND_LIMITS }, lastModels, teammatePermission: rung?.id ?? "default" };
   }
 
   /** A new session in a space, on what the phone chose, sent its first message. The choices are
@@ -697,9 +718,9 @@ export class MobileApi {
   }
 
   /** Every space's teammates, space by space in the sidebar's order, each space's in its Team list's. */
-  private async teammates(rpc: RpcPort): Promise<MobileResult<"teammates.list">> {
+  private async teammates(rpc: RpcPort, archived: boolean): Promise<MobileResult<"teammates.list">> {
     const spaces = await rpc.call("spaces.list", {});
-    const each = await Promise.all(spaces.map((sp) => rpc.call("teammates.list", { spaceId: sp.id, archived: false })));
+    const each = await Promise.all(spaces.map((sp) => rpc.call("teammates.list", { spaceId: sp.id, archived })));
     return { teammates: each.flat().map(phoneTeammate) };
   }
 
@@ -735,14 +756,17 @@ export class MobileApi {
 
   /** The Edit sheet's save, answered with the teammate as the Team list now names it. */
   private async updateTeammate(rpc: RpcPort, p: MobileParams<"teammate.update">): Promise<MobileResult<"teammate.update">> {
-    // mobile.v1 names a shape, a colour and an agent as strings; the desktop's own lists say which exist.
     const { icon, agentKind, ...rest } = p;
-    const shape = icon === undefined ? undefined : TeammateIconSchema.safeParse(icon);
-    if (shape && !shape.success) throw new MobileError("INVALID_PARAMS", `unknown icon ${icon!.shape} ${icon!.color}`);
-    const agent = agentKind === undefined ? undefined : AgentKindSchema.safeParse(agentKind);
-    if (agent && !agent.success) throw new MobileError("INVALID_PARAMS", `unknown agent ${agentKind}`);
-    const edit = { ...rest, ...(shape?.success ? { icon: shape.data } : {}), ...(agent?.success ? { agentKind: agent.data } : {}) };
+    const edit = { ...rest, ...desktopNames(icon, agentKind) };
     return { teammate: phoneTeammate(await rpc.call("teammates.update", edit)) };
+  }
+
+  /** The New teammate sheet's Create: the Mac makes the handle from the name when the phone sent none,
+   *  and makes the teammate's chat with it. */
+  private async createTeammate(rpc: RpcPort, p: MobileParams<"teammate.create">): Promise<MobileResult<"teammate.create">> {
+    const { icon, agentKind, ...rest } = p;
+    const { agentKind: kind, ...named } = desktopNames(icon, agentKind);
+    return { teammate: phoneTeammate(await rpc.call("teammates.create", { ...rest, ...named, agentKind: kind! })) };
   }
 
   /** Every agent's plan as Settings ▸ Usage draws it, and this calendar month's spend on the Mac's clock,
