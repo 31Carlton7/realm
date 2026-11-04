@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.8.2 - 2026-11-04
+
+- Sub-agents run on the model their parent runs, and every label shows the model they really run.
+- A session row is marked unread once its sub-agents finish, not before, and selecting it clears the mark.
+- A teammate's Computer tab says what it is doing on this Mac: what needs you, what is working, and what each finished session opened, merged or shipped.
+- Realm Mobile: replies draw math, diagrams, charts and comparisons; the composer has slash commands and @mentions; answer a permission or reply straight from a notification; amber is the only colour a state wears.
+
 ## v2.8.1 - 2026-11-04
 
 - A new sidebar: your spaces sit on a rail and the column shows one space at a time, Needs you gathers what is waiting across everything, and your avatar on the rail switches profiles.
