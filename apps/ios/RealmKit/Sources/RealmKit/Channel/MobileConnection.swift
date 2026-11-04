@@ -493,13 +493,16 @@ public struct MobileAPI: Sendable {
     }
 
     /// `attachments` go only to a Mac that answers `session.options`: an older one would drop them.
+    /// `mentionRefs` say what each `@[label]` in `text` names; they go only to a Mac that answers
+    /// `session.composer`, since an older one refuses a field it does not know.
     public func send(id: String, text: String, delivery: Delivery? = nil, attachments: [AttachmentUpload] = [],
-                     timeout: Duration? = nil) async throws {
+                     mentionRefs: [MentionRef] = [], timeout: Duration? = nil) async throws {
         struct Params: Encodable, Sendable {
             let id: String
             let text: String
             let delivery: Delivery?
             let attachments: [AttachmentUpload]
+            let mentionRefs: [MentionRef]
             func encode(to encoder: Encoder) throws {
                 var c = encoder.container(keyedBy: Key.self)
                 try c.encode(id, forKey: .id)
@@ -507,11 +510,38 @@ public struct MobileAPI: Sendable {
                 try c.encodeIfPresent(delivery, forKey: .delivery)
                 // Left out when empty, so a message without files reads to an older Mac as it always did.
                 if !attachments.isEmpty { try c.encode(attachments, forKey: .attachments) }
+                if !mentionRefs.isEmpty { try c.encode(mentionRefs, forKey: .mentionRefs) }
             }
-            enum Key: String, CodingKey { case id, text, delivery, attachments }
+            enum Key: String, CodingKey { case id, text, delivery, attachments, mentionRefs }
         }
-        _ = try await connection.call("session.send", params: Params(id: id, text: text, delivery: delivery, attachments: attachments),
+        _ = try await connection.call("session.send",
+                                      params: Params(id: id, text: text, delivery: delivery, attachments: attachments, mentionRefs: mentionRefs),
                                       as: Acknowledged.self, timeout: timeout)
+    }
+
+    /// The person's own commands and the skills the session's agent can be handed: what the composer's
+    /// `/` and `@` list beside what the phone holds. A Mac from before them answers METHOD_NOT_FOUND.
+    public func composer(id: String) async throws -> ComposerLists {
+        try await connection.call("session.composer", params: SessionID(id: id), as: ComposerLists.self)
+    }
+
+    /// The files in the session's folder that best match `query`.
+    public func mentionFiles(id: String, query: String) async throws -> [MentionFile] {
+        struct Params: Encodable, Sendable { let id: String; let query: String }
+        struct Answer: Decodable, Sendable { let files: [MentionFile] }
+        return try await connection.call("session.mentionFiles", params: Params(id: id, query: query), as: Answer.self).files
+    }
+
+    /// One of the person's own commands filled in with `args`, for the composer to hold.
+    public func expandCommand(id: String, name: String, args: String) async throws -> ExpandedCommand {
+        struct Params: Encodable, Sendable { let id: String; let name: String; let args: String }
+        return try await connection.call("session.expandCommand", params: Params(id: id, name: name, args: args), as: ExpandedCommand.self)
+    }
+
+    /// Starts a goal: the session works towards `objective` across turns.
+    public func startGoal(id: String, objective: String) async throws {
+        struct Params: Encodable, Sendable { let id: String; let objective: String }
+        _ = try await connection.call("session.goal", params: Params(id: id, objective: objective), as: Acknowledged.self)
     }
 
     /// `answers` maps a question's text to the chosen label; several labels for a multi-select

@@ -21,7 +21,7 @@ extension MobileAPI: OutboxTransport {
         switch item.payload {
         case .message(let text):
             try await send(id: item.sessionId, text: text, delivery: item.delivery, attachments: files,
-                           timeout: Self.deliveryTimeout(for: files))
+                           mentionRefs: item.mentionRefs, timeout: Self.deliveryTimeout(for: files))
         case .answer(let requestId, let decision, let answers):
             try await answer(id: item.sessionId, requestId: requestId, decision: decision,
                              values: item.answerValues ?? answers?.mapValues(AnswerValue.one), timeout: Self.deliveryTimeout)

@@ -41,10 +41,13 @@ public struct OutgoingItem: Codable, Sendable, Identifiable, Equatable {
     /// What a message does if it reaches a turn under way: whatever the Mac is set to (`auto`), or what
     /// the person chose. `auto` on an item saved before there was a choice.
     public let delivery: Delivery
+    /// What each `@[label]` in a message's words names. None on an answer, or on an item saved before
+    /// messages named anything.
+    public let mentionRefs: [MentionRef]
 
     public init(id: UUID = UUID(), sessionId: String, payload: Payload, createdAt: Date = Date(), state: State = .waiting,
                 afterSeq: Int, answerValues: [String: AnswerValue]? = nil, attachments: [OutgoingAttachment] = [],
-                delivery: Delivery = .auto) {
+                delivery: Delivery = .auto, mentionRefs: [MentionRef] = []) {
         self.id = id
         self.sessionId = sessionId
         self.payload = payload
@@ -54,10 +57,11 @@ public struct OutgoingItem: Codable, Sendable, Identifiable, Equatable {
         self.answerValues = answerValues
         self.attachments = attachments
         self.delivery = delivery
+        self.mentionRefs = mentionRefs
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, sessionId, payload, createdAt, state, afterSeq, answerValues, attachments, delivery
+        case id, sessionId, payload, createdAt, state, afterSeq, answerValues, attachments, delivery, mentionRefs
     }
 
     /// An outbox saved by an earlier build still reads: what it did not know about is absent.
@@ -72,6 +76,7 @@ public struct OutgoingItem: Codable, Sendable, Identifiable, Equatable {
         answerValues = try c.decodeIfPresent([String: AnswerValue].self, forKey: .answerValues)
         attachments = try c.decodeIfPresent([OutgoingAttachment].self, forKey: .attachments) ?? []
         delivery = try c.decodeIfPresent(Delivery.self, forKey: .delivery) ?? .auto
+        mentionRefs = try c.decodeIfPresent([MentionRef].self, forKey: .mentionRefs) ?? []
     }
 
     public var isMessage: Bool {
