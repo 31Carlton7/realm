@@ -15,6 +15,35 @@ const Id = z.string().min(1).max(64);
 
 export const SessionStatusSchema = z.enum(["idle", "running", "waiting", "error", "ended"]);
 
+/** Where a session's goal stands, in the desktop's words (`GoalStatusSchema`): `active` is the only one
+ *  that starts its own next turn; `paused`, `blocked` and `budget_limited` are stops a resume lifts. */
+export const GoalStatusSchema = z.enum(["active", "paused", "blocked", "budget_limited", "complete", "abandoned"]);
+
+/** The objective a session works towards across turns, as the desktop's goal strip draws it. */
+export const GoalSchema = z.object({
+  objective: z.string(),
+  status: GoalStatusSchema,
+  /** Turns run under it, the first one included. */
+  turns: z.number().int(),
+  tokensUsed: z.number().int(),
+  /** Its ceiling in tokens, or null for none. */
+  tokenBudget: z.number().int().nullable(),
+  /** Why it stopped, in the agent's words or Realm's, or null. */
+  note: z.string().nullable(),
+  startedAt: z.number(),
+  updatedAt: z.number(),
+});
+export type Goal = z.infer<typeof GoalSchema>;
+
+/** One item of the agent's to-do list (TodoWrite), in the order the agent wrote them. `activeForm` is
+ *  what an item in progress says it is doing ("Running the suite"), or null where the agent gave none. */
+export const TodoSchema = z.object({
+  content: z.string(),
+  status: z.enum(["pending", "in_progress", "completed"]),
+  activeForm: z.string().nullable(),
+});
+export type Todo = z.infer<typeof TodoSchema>;
+
 export const SessionRowSchema = z.object({
   id: Id,
   title: z.string(),
@@ -56,6 +85,9 @@ export const SessionRowSchema = z.object({
   /** Being moved to another checkout. `status` says `running` meanwhile, which is all a phone from
    *  before moves knows to wait on. */
   moving: z.boolean().optional(),
+  /** The goal it pursues, as the desktop's strip names it: its status and its objective. Absent for
+   *  a session with none, and from a Mac before goals reached the phone. */
+  goal: z.object({ status: GoalStatusSchema, objective: z.string() }).optional(),
 });
 export type SessionRow = z.infer<typeof SessionRowSchema>;
 
@@ -230,8 +262,12 @@ export const RowSchema = z.discriminatedUnion("kind", [
     /** A notice about moving the session: `moving` while it goes (the same row then says how it
      *  ended), `moved` once it runs in the new place, `failed` when it stayed where it was. */
     move: z.enum(["moving", "moved", "failed"]).optional(),
-    /** Shown on a tap: a move's paths, from and to, or why a failed move stopped, in the Mac's own words. */
+    /** Shown on a tap: a move's paths, from and to, or why a failed move stopped, in the Mac's own words;
+     *  for a goal's turn, the prompt Realm sent. */
     detail: z.string().optional(),
+    /** A turn the session's goal started rather than anyone typing it: `continuation`, or `budget` for
+     *  the handover a spent budget asks for. `text` says so in the desktop's words; `detail` is the prompt. */
+    goal: z.enum(["continuation", "budget"]).optional(),
   }),
   z.object({ ...rowBase, kind: z.literal("error"), text: z.string(), hint: z.string().nullable() }),
   z.object({ ...rowBase, kind: z.literal("unknown"), type: z.string() }),
@@ -600,6 +636,10 @@ export const MobileCalls = {
       queued: z.array(QueuedMessageSchema).optional(),
       /** The move queued behind the turn or under way when the session opened, or null. */
       move: PendingMoveSchema.nullable().optional(),
+      /** The session's goal, or null for none. */
+      goal: GoalSchema.nullable().optional(),
+      /** The agent's to-do list as it stands: its newest TodoWrite, empty for none. */
+      todos: z.array(TodoSchema).optional(),
     }),
   },
   "session.close": { params: z.object({ id: Id }), result: Ok },
@@ -716,6 +756,12 @@ export const MobileCalls = {
   },
   /** Starts a goal: the session works towards `objective` across turns, as the desktop's `/goal` does. */
   "session.goal": { params: z.object({ id: Id, objective: z.string().trim().min(1).max(8_000) }), result: Ok },
+  /** The goal strip's controls: pause an active goal, resume a stopped one, mark one done, or drop it.
+   *  Answers with the goal as it now stands, or null once dropped. */
+  "session.goalControl": {
+    params: z.object({ id: Id, action: z.enum(["pause", "resume", "done", "drop"]) }),
+    result: z.object({ goal: GoalSchema.nullable() }),
+  },
   /** The session's model, reasoning, mode and permissions, and what each could be changed to. */
   "session.options": { params: z.object({ id: Id }), result: SessionOptionsSchema },
   /** Changes what the composer's chips show; a field left out stays as it is. Leaving Plan or Ask for
@@ -815,6 +861,10 @@ export const MobileEvents = {
   "session.subagents": z.object({ id: Id }),
   /** Reviews or scheduled tasks changed somewhere: `reviews.list` and `schedules.list` read them again. */
   "work.changed": z.object({}),
+  /** An open session's goal changed: started, stopped, resumed, counted a turn, or dropped (null). */
+  "session.goal": z.object({ id: Id, goal: GoalSchema.nullable() }),
+  /** An open session's to-do list changed: the whole list, as the agent's newest TodoWrite has it. */
+  "session.todos": z.object({ id: Id, todos: z.array(TodoSchema) }),
   "pair.result": z.union([
     z.object({ ok: z.literal(true), phoneId: z.string() }),
     z.object({ ok: z.literal(false), reason: z.enum(["declined", "expired"]) }),

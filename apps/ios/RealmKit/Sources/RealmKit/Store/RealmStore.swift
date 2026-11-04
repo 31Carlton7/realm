@@ -32,6 +32,9 @@ public final class RealmStore {
     @ObservationIgnored private var openingHint: [String: String?] = [:]
     /// A queue that changed while its session was opening, newer than the open's.
     @ObservationIgnored private var openingQueue: [String: SessionQueueEvent] = [:]
+    /// A goal or to-do list that changed while its session was opening, newer than the open's.
+    @ObservationIgnored private var openingGoal: [String: Goal?] = [:]
+    @ObservationIgnored private var openingTodos: [String: [TodoItem]] = [:]
     @ObservationIgnored private var watches: [RowWatch] = []
     /// The seq each session was last marked read up to, by this phone.
     @ObservationIgnored private var seenUpTo: [String: Int] = [:]
@@ -104,6 +107,10 @@ public final class RealmStore {
         transcript.hint = opened.hint
         transcript.queued = opened.queued
         transcript.move = opened.move
+        transcript.goal = opened.goal
+        transcript.todos = opened.todos ?? []
+        if let goal = openingGoal.removeValue(forKey: opened.session.id) { transcript.goal = goal }
+        if let todos = openingTodos.removeValue(forKey: opened.session.id) { transcript.todos = todos }
         if let early = opening.removeValue(forKey: opened.session.id) { transcript.upsert(early) }
         if let hint = openingHint.removeValue(forKey: opened.session.id) { transcript.hint = hint }
         if let update = openingQueue.removeValue(forKey: opened.session.id) {
@@ -118,6 +125,8 @@ public final class RealmStore {
         opening[sessionId] = nil
         openingHint[sessionId] = nil
         openingQueue[sessionId] = nil
+        openingGoal[sessionId] = nil
+        openingTodos[sessionId] = nil
     }
 
     public func closeSession(_ sessionId: String) {
@@ -125,7 +134,14 @@ public final class RealmStore {
         opening[sessionId] = nil
         openingHint[sessionId] = nil
         openingQueue[sessionId] = nil
+        openingGoal[sessionId] = nil
+        openingTodos[sessionId] = nil
         outbox.forgetDelivered(in: sessionId)
+    }
+
+    /// The goal as the Mac answered a control with it: the strip shows it before the event comes.
+    public func goalChanged(_ goal: Goal?, in sessionId: String) {
+        transcripts[sessionId]?.goal = goal
     }
 
     /// The Mac's row for a session the person renamed or pinned here: an open session's title follows it.
@@ -162,6 +178,18 @@ public final class RealmStore {
                 transcripts[update.id]?.queued = update.queued
                 transcripts[update.id]?.move = update.move
                 settleOutbox(in: update.id)
+            }
+        case .sessionGoal(let update):
+            if opening[update.id] != nil {
+                openingGoal[update.id] = .some(update.goal)
+            } else {
+                transcripts[update.id]?.goal = update.goal
+            }
+        case .sessionTodos(let update):
+            if opening[update.id] != nil {
+                openingTodos[update.id] = update.todos
+            } else {
+                transcripts[update.id]?.todos = update.todos
             }
         case .homeChanged, .workChanged, .sessionSubagents, .pairResult, .unknown:
             break

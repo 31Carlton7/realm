@@ -692,6 +692,9 @@ struct SessionRowView: View {
                     if let subagents = RowSubagents(row), subagents.waiting == 0 {
                         SubagentCount(words: subagents.words, dotted: !dynamicTypeSize.isAccessibilitySize)
                     }
+                    if let goal = row.shownGoal {
+                        RowGoal(goal: goal, dotted: !dynamicTypeSize.isAccessibilitySize)
+                    }
                 }
             }
         }
@@ -707,6 +710,7 @@ struct SessionRowView: View {
         var parts = [row.displayTitle]
         if let state = RowState(row) { parts.append(state.word) }
         if let subagents = RowSubagents(row), subagents.waiting == 0 { parts.append(subagents.words) }
+        if let goal = row.shownGoal { parts.append("Goal \(goal.status.label)") }
         if row.unread { parts.append("Unread") }
         if row.pinned == true { parts.append("Pinned") }
         parts.append(contentsOf: [row.spaceName, row.agentDisplayName].filter { !$0.isEmpty })

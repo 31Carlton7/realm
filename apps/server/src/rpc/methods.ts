@@ -913,6 +913,7 @@ export function registerMethods(d: Deps): void {
   reg("simulators.act", (p) => d.simulators.act(p.simulatorId, p.act));
 
   reg("goals.get", (p) => ({ goal: d.goals.get(p.sessionId) }));
+  reg("goals.list", () => ({ goals: d.goals.list() }));
   reg("goals.start", async (p) => ({ goal: await d.goals.start(p.sessionId, p.objective, p.tokenBudget) }));
   reg("goals.set", (p) => ({ goal: d.goals.set(p.sessionId, p.status, p.note) }));
   reg("goals.resume", async (p) => ({ goal: await d.goals.resume(p.sessionId) }));

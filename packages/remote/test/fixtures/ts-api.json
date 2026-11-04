@@ -24,7 +24,11 @@
           "effort": "high",
           "permissionMode": "acceptEdits",
           "activityAt": 1790000000000,
-          "pinned": false
+          "pinned": false,
+          "goal": {
+            "status": "active",
+            "objective": "Ship the theme column: migration, backfill and a down step, with the suite green."
+          }
         },
         {
           "id": "01JCODEX000000000000000000",
@@ -75,7 +79,11 @@
               "effort": "high",
               "permissionMode": "acceptEdits",
               "activityAt": 1790000000000,
-              "pinned": false
+              "pinned": false,
+              "goal": {
+                "status": "active",
+                "objective": "Ship the theme column: migration, backfill and a down step, with the suite green."
+              }
             },
             {
               "id": "01JREALM000000000000000001",
@@ -155,7 +163,11 @@
               "effort": null,
               "permissionMode": "default",
               "activityAt": 1789928000000,
-              "pinned": false
+              "pinned": false,
+              "goal": {
+                "status": "blocked",
+                "objective": "Audit the sign-in sheet against the design."
+              }
             }
           ],
           "more": 2
@@ -304,7 +316,11 @@
           "effort": "high",
           "permissionMode": "acceptEdits",
           "activityAt": 1790000000000,
-          "pinned": false
+          "pinned": false,
+          "goal": {
+            "status": "active",
+            "objective": "Ship the theme column: migration, backfill and a down step, with the suite green."
+          }
         },
         {
           "id": "01JREALM000000000000000001",
@@ -384,7 +400,11 @@
           "effort": null,
           "permissionMode": "default",
           "activityAt": 1789928000000,
-          "pinned": false
+          "pinned": false,
+          "goal": {
+            "status": "blocked",
+            "objective": "Audit the sign-in sheet against the design."
+          }
         },
         {
           "id": "01JREALM000000000000000005",
@@ -451,7 +471,11 @@
           "effort": "high",
           "permissionMode": "acceptEdits",
           "activityAt": 1790000000000,
-          "pinned": false
+          "pinned": false,
+          "goal": {
+            "status": "active",
+            "objective": "Ship the theme column: migration, backfill and a down step, with the suite green."
+          }
         },
         {
           "id": "01JCODEX000000000000000000",
@@ -502,7 +526,11 @@
               "effort": "high",
               "permissionMode": "acceptEdits",
               "activityAt": 1790000000000,
-              "pinned": false
+              "pinned": false,
+              "goal": {
+                "status": "active",
+                "objective": "Ship the theme column: migration, backfill and a down step, with the suite green."
+              }
             },
             {
               "id": "01JREALM000000000000000001",
@@ -582,7 +610,11 @@
               "effort": null,
               "permissionMode": "default",
               "activityAt": 1789928000000,
-              "pinned": false
+              "pinned": false,
+              "goal": {
+                "status": "blocked",
+                "objective": "Audit the sign-in sheet against the design."
+              }
             }
           ],
           "more": 2
@@ -711,7 +743,11 @@
           "effort": "high",
           "permissionMode": "acceptEdits",
           "activityAt": 1790000000000,
-          "pinned": false
+          "pinned": false,
+          "goal": {
+            "status": "active",
+            "objective": "Ship the theme column: migration, backfill and a down step, with the suite green."
+          }
         },
         {
           "id": "01JREALM000000000000000001",
@@ -791,7 +827,11 @@
           "effort": null,
           "permissionMode": "default",
           "activityAt": 1789928000000,
-          "pinned": false
+          "pinned": false,
+          "goal": {
+            "status": "blocked",
+            "objective": "Audit the sign-in sheet against the design."
+          }
         },
         {
           "id": "01JREALM000000000000000005",
@@ -855,7 +895,11 @@
           "effort": "high",
           "permissionMode": "acceptEdits",
           "activityAt": 1790000000000,
-          "pinned": false
+          "pinned": false,
+          "goal": {
+            "status": "active",
+            "objective": "Ship the theme column: migration, backfill and a down step, with the suite green."
+          }
         },
         {
           "id": "01JREALM000000000000000001",
@@ -940,7 +984,11 @@
           "effort": null,
           "permissionMode": "default",
           "activityAt": 1789928000000,
-          "pinned": false
+          "pinned": false,
+          "goal": {
+            "status": "blocked",
+            "objective": "Audit the sign-in sheet against the design."
+          }
         },
         {
           "id": "01JREALM000000000000000005",
@@ -1004,7 +1052,11 @@
         "effort": "high",
         "permissionMode": "acceptEdits",
         "activityAt": 1790000000000,
-        "pinned": false
+        "pinned": false,
+        "goal": {
+          "status": "active",
+          "objective": "Ship the theme column: migration, backfill and a down step, with the suite green."
+        }
       },
       "rows": [
         {
@@ -1050,13 +1102,30 @@
         {
           "key": "u:6",
           "seq": 6,
+          "kind": "notice",
+          "text": "Realm continued this goal",
+          "detail": "Continue working towards this objective:\n\nShip the theme column: migration, backfill and a down step, with the suite green.\n\nThis is turn 4. You have used 412,000 tokens on this objective so far. The objective persists across turns, so ending a turn is not a reason to shrink it — take the next real step towards the end state that was asked for, rather than redefining success as whatever fits in this turn.\n\nStart by deciding what the last turn actually achieved. Work that changed something, finished something, or produced evidence that changes what to do next is progress; restating a status or writing a plan you did not carry out is not. If the last turn made no progress, do something different this turn.\n\nCall the `mcp__realm__realm-goal__update_goal` tool (Realm's `update_goal`; load it with your tool search first if it is deferred) with `complete` only when every requirement is met and you can show it — evidence, not intent, not a plausible summary, and never because you are running low on budget. End it with `blocked` only once the same obstacle has stopped you on three turns in a row and you have no safe action left; the first appearance of a problem is a thing to work around, not a wall.",
+          "goal": "continuation"
+        },
+        {
+          "key": "t:t-todo",
+          "seq": 8,
+          "kind": "tool",
+          "name": "TodoWrite",
+          "summary": "Updated the to-do list",
+          "state": "done",
+          "detail": "Todos have been modified successfully."
+        },
+        {
+          "key": "u:9",
+          "seq": 9,
           "kind": "user",
           "text": "Settle the toggle with the designer first",
           "teammateId": "01JTEAMMATE000000000000001"
         },
         {
           "key": "t:t-team",
-          "seq": 7,
+          "seq": 10,
           "kind": "tool",
           "name": "mcp__realm__realm-team__team_message",
           "summary": "@designer",
@@ -1070,7 +1139,7 @@
         },
         {
           "key": "r:q-open",
-          "seq": 8,
+          "seq": 11,
           "kind": "request",
           "requestId": "q-open",
           "tool": "mcp__linear__create_issue",
@@ -1153,7 +1222,7 @@
         },
         {
           "key": "r:q-done",
-          "seq": 10,
+          "seq": 13,
           "kind": "request",
           "requestId": "q-done",
           "tool": "mcp__linear__create_issue",
@@ -1245,7 +1314,7 @@
         },
         {
           "key": "p:p1",
-          "seq": 11,
+          "seq": 14,
           "kind": "plan",
           "text": null,
           "steps": [
@@ -1261,7 +1330,7 @@
         },
         {
           "key": "r:x1",
-          "seq": 12,
+          "seq": 15,
           "kind": "request",
           "requestId": "x1",
           "tool": "ExitPlanMode",
@@ -1284,21 +1353,21 @@
           }
         },
         {
-          "key": "e:13",
-          "seq": 13,
+          "key": "e:16",
+          "seq": 16,
           "kind": "notice",
           "text": "Context compacted"
         },
         {
           "key": "c:01JCHECKPOINT0000000000000",
-          "seq": 14,
+          "seq": 17,
           "kind": "notice",
           "text": "Changed 2 files: theme.ts, new-name.ts",
           "checkpointId": "01JCHECKPOINT0000000000000"
         },
         {
           "key": "m:7",
-          "seq": 15,
+          "seq": 18,
           "kind": "notice",
           "text": "Made 3 files: slide.png, notes.md, walkthrough.mp4",
           "files": [
@@ -1317,8 +1386,8 @@
           ]
         },
         {
-          "key": "e:16",
-          "seq": 16,
+          "key": "e:19",
+          "seq": 19,
           "kind": "error",
           "text": "Claude hit its usage limit",
           "hint": "Continue on Codex"
@@ -1348,7 +1417,34 @@
           ]
         }
       ],
-      "move": null
+      "move": null,
+      "goal": {
+        "objective": "Ship the theme column: migration, backfill and a down step, with the suite green.",
+        "status": "active",
+        "turns": 3,
+        "tokensUsed": 412000,
+        "tokenBudget": null,
+        "note": null,
+        "startedAt": 1789999000000,
+        "updatedAt": 1790000000000
+      },
+      "todos": [
+        {
+          "content": "Add the theme column",
+          "status": "completed",
+          "activeForm": "Adding the theme column"
+        },
+        {
+          "content": "Backfill existing rows",
+          "status": "in_progress",
+          "activeForm": "Backfilling existing rows"
+        },
+        {
+          "content": "Write the down step",
+          "status": "pending",
+          "activeForm": "Writing the down step"
+        }
+      ]
     },
     "session.changes": {
       "checkpointId": "01JCHECKPOINT0000000000000",
@@ -3609,7 +3705,75 @@
       "hasMore": false,
       "hint": null,
       "queued": [],
-      "move": null
+      "move": null,
+      "goal": null,
+      "todos": []
+    },
+    "session.open:blocked": {
+      "session": {
+        "id": "01JREALM000000000000000004",
+        "title": "Audit the sign-in sheet",
+        "spaceId": "sp1",
+        "spaceName": "Realm",
+        "agent": "claude",
+        "model": "claude-opus-5-5",
+        "status": "idle",
+        "needsYou": false,
+        "unread": false,
+        "updatedAt": 1789928000000,
+        "agentName": "Claude",
+        "agentMark": "claude",
+        "modelLabel": "Opus 5.5",
+        "createdAt": 1789000000003,
+        "effort": null,
+        "permissionMode": "default",
+        "activityAt": 1789928000000,
+        "pinned": false,
+        "goal": {
+          "status": "blocked",
+          "objective": "Audit the sign-in sheet against the design."
+        }
+      },
+      "rows": [],
+      "hasMore": false,
+      "hint": null,
+      "queued": [],
+      "move": null,
+      "goal": {
+        "objective": "Audit the sign-in sheet against the design.",
+        "status": "blocked",
+        "turns": 6,
+        "tokensUsed": 1500000,
+        "tokenBudget": 2000000,
+        "note": "The design file is not in the repository, and three turns could not find it.",
+        "startedAt": 1789900000000,
+        "updatedAt": 1789950000000
+      },
+      "todos": []
+    },
+    "session.goalControl": {
+      "goal": {
+        "objective": "Ship the theme column: migration, backfill and a down step, with the suite green.",
+        "status": "paused",
+        "turns": 3,
+        "tokensUsed": 412000,
+        "tokenBudget": null,
+        "note": "You paused it.",
+        "startedAt": 1789999000000,
+        "updatedAt": 1790000400000
+      }
+    },
+    "session.goalControl:resume": {
+      "goal": {
+        "objective": "Audit the sign-in sheet against the design.",
+        "status": "active",
+        "turns": 6,
+        "tokensUsed": 1500000,
+        "tokenBudget": 2000000,
+        "note": null,
+        "startedAt": 1789900000000,
+        "updatedAt": 1790000400000
+      }
     },
     "session.moveOptions": {
       "mac": "MacBook Pro",
@@ -3661,7 +3825,11 @@
         "effort": "high",
         "permissionMode": "acceptEdits",
         "activityAt": 1790000000000,
-        "pinned": false
+        "pinned": false,
+        "goal": {
+          "status": "active",
+          "objective": "Ship the theme column: migration, backfill and a down step, with the suite green."
+        }
       }
     },
     "session.cancelMove": {
@@ -3717,7 +3885,9 @@
           "kind": "worktree"
         },
         "step": "place"
-      }
+      },
+      "goal": null,
+      "todos": []
     },
     "session.update": {
       "session": {
@@ -3806,6 +3976,41 @@
     ],
     "work.changed": [
       {}
+    ],
+    "session.goal": [
+      {
+        "id": "01JSESSION00000000000000000",
+        "goal": {
+          "objective": "Ship the theme column: migration, backfill and a down step, with the suite green.",
+          "status": "active",
+          "turns": 3,
+          "tokensUsed": 412000,
+          "tokenBudget": null,
+          "note": null,
+          "startedAt": 1789999000000,
+          "updatedAt": 1790000000000
+        }
+      },
+      {
+        "id": "01JSESSION00000000000000000",
+        "goal": null
+      }
+    ],
+    "session.todos": [
+      {
+        "id": "01JSESSION00000000000000000",
+        "todos": [
+          {
+            "content": "Add the theme column",
+            "status": "completed",
+            "activeForm": "Adding the theme column"
+          }
+        ]
+      },
+      {
+        "id": "01JSESSION00000000000000000",
+        "todos": []
+      }
     ]
   },
   "answer": {

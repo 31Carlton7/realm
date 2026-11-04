@@ -436,7 +436,7 @@ private struct SessionFoot: View {
                         composing.wrappedValue = true
                     }
                 }
-                CurrentStepCard(sessionId: sessionId)
+                WorkDock(sessionId: sessionId)
                     .padding(.horizontal, 12)
                 QueueStrip(sessionId: sessionId)
                     .padding(.horizontal, 12)

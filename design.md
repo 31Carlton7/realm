@@ -1084,6 +1084,12 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   "Thinking" — and what floats over the composer is only what wants a press: the link's trouble,
   the way back to the newest row. A "Working" capsule over the queue read as a button and said what
   the bar's subtitle already said (the owner, 10-26: "looks ugly in general").
+- Over the phone's composer, what the turn is doing, the goal it serves and how far the agent's plan
+  has got are one dock, never a card each (the owner, 11-04: three stacked cards read as clutter).
+  Its first line is the plan's item under way, else the turn's step, with the clock; under it, in
+  the quieter words, the goal and the plan's count over its hairline. Each part opens its own thing:
+  the goal its sheet, the plan its items in place. Between turns it is only the goal and the plan,
+  and its one colour is amber for Blocked; working is the spinner, in ink.
 - A phone's row never takes more width than it is offered. One work line set at its own width — a
   connector's full name, `mcp__realm__realm-agent__agent_start` — widened the column, and every row
   and the composer under them slid off the screen's left edge. The verb yields last but can still be

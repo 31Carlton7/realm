@@ -54,15 +54,24 @@ struct CurrentStep: Equatable {
     }
 }
 
-/// The card over the composer, as Manus keeps one: what the session is doing now and for how long,
-/// beside a small live picture of the simulator or machine its space has open. Pressed, it opens the
-/// screens. It is there while a turn runs, and while the space has a screen to show.
-struct CurrentStepCard: View {
+/// The one dock over the composer, as Manus keeps one card there: what the session is doing now and
+/// for how long, and under it, quieter, the goal it works toward and how far the agent's plan has got.
+/// Each part opens its own thing — the step the screens, the goal its sheet, the plan its items, in
+/// place. Idle, it is only the goal and the plan; with neither, and no screen, it is not there.
+struct WorkDock: View {
     let sessionId: String
     @Environment(AppModel.self) private var model
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var thumbnail: UIImage?
     @State private var screensShown = false
+    @State private var goalShown = false
+    @State private var planOpen: Bool
+
+    init(sessionId: String, planOpen: Bool = false) {
+        self.sessionId = sessionId
+        _planOpen = State(initialValue: planOpen)
+    }
 
     /// The picture's longer side: the smallest the Mac makes, which is plenty for a thumbnail.
     static let thumbnailSide = 320
@@ -74,100 +83,199 @@ struct CurrentStepCard: View {
         let step = CurrentStep.of(transcript)
         let screens = model.sessionScreens[sessionId] ?? []
         let live = screens.first(where: \.live)
-        if step != nil || !screens.isEmpty {
-            Button {
-                screensShown = true
-            } label: {
-                HStack(spacing: 12) {
-                    tile(step: step, screens: screens, live: live)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(step?.words ?? live?.name ?? screens.first?.name ?? "")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(Palette.ink)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        second(step: step, screens: screens, live: live)
-                            .font(.footnote)
-                            .foregroundStyle(Palette.ink2)
-                            .lineLimit(1)
+        let goal = transcript.goal
+        let plan = transcript.todos.isEmpty ? nil : TodoProgress(transcript.todos)
+        let now = step != nil || !screens.isEmpty
+        if now || goal != nil || plan != nil {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 10) {
+                    if now { tile(step: step, screens: screens, live: live) }
+                    VStack(alignment: .leading, spacing: 3) {
+                        if now { headline(step: step, plan: plan, screens: screens, live: live) }
+                        if goal != nil || plan != nil { context(goal: goal, plan: plan, alone: !now) }
                     }
-                    Spacer(minLength: 0)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(10)
-                .frame(minHeight: 56)
-                .contentShape(RoundedRectangle(cornerRadius: Radius.card - 4, style: .continuous))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                if planOpen, let plan {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(plan.items.enumerated()), id: \.offset) { _, item in
+                                TodoLine(item: item)
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 8)
+                    }
+                    .scrollBounceBehavior(.basedOnSize)
+                    .frame(maxHeight: 240)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(.opacity)
+                }
             }
-            .buttonStyle(StepCardPress())
-            .disabled(screens.isEmpty)
-            .accessibilityElement(children: .combine)
-            .accessibilityHint(screens.isEmpty ? "" : ScreenWords.hint(screens))
-            .accessibilityIdentifier("current-step")
+            .background(Fill.card, in: RoundedRectangle(cornerRadius: Radius.card - 4, style: .continuous))
+            .floatingLift()
+            .animation(Motion.animation(reduceMotion), value: planOpen)
             .task(id: Watch(screen: live, connected: model.isConnected, active: scenePhase == .active)) {
                 await watch(live)
-            }
-            .sheet(isPresented: $screensShown) {
-                ScreensSheet(sessionId: sessionId)
             }
             .transition(.opacity)
         }
     }
 
-    /// The thumbnail of the live screen, or the glyph of what there is: the turn's work while it has no
-    /// picture, the screen's kind once the turn is over. The tile takes the picture's way up — a phone
-    /// stands, a Mac's window lies down — so neither is cropped to a sliver.
+    /// The first line: the plan's item under way, else the step the turn is on, and the turn's clock —
+    /// or, between turns, the screen the space has open and where it stands. Pressed, it opens the
+    /// screens; with none, the plan; with neither, it is only words.
     @ViewBuilder
-    private func tile(step: CurrentStep?, screens: [SessionScreen], live: SessionScreen?) -> some View {
-        let picture = live == nil ? nil : thumbnail
-        let size = Self.tileSize(picture?.size)
-        ZStack {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Fill.well)
-            if let picture {
-                Image(uiImage: picture)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: size.width, height: size.height)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .transition(.opacity)
-            } else if step != nil {
-                Image(systemName: "progress.indicator")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Tone.working.agentColor)
-                    .restingPulse(when: true)
+    private func headline(step: CurrentStep?, plan: TodoProgress?, screens: [SessionScreen], live: SessionScreen?) -> some View {
+        let words = step.map { plan?.activeWords ?? $0.words } ?? live?.name ?? screens.first?.name ?? ""
+        let line = HStack(spacing: 0) {
+            Text(words)
+                .foregroundStyle(Palette.ink)
+                .lineLimit(1)
+                .truncationMode(plan?.activeWords == nil ? .middle : .tail)
+            second(step: step, screens: screens, live: live)
+                .fontWeight(.regular)
+                .foregroundStyle(Palette.ink2)
+                .lineLimit(1)
+                .fixedSize()
+        }
+        .font(.subheadline.weight(.medium))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        Group {
+            if !screens.isEmpty || plan != nil {
+                Button {
+                    if !screens.isEmpty { screensShown = true } else { planOpen.toggle() }
+                } label: { line }
+                .buttonStyle(.plain)
             } else {
-                Image(systemName: ScreenWords.glyph(screens))
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Palette.ink2)
+                line
             }
         }
-        .frame(width: size.width, height: size.height)
-        .accessibilityHidden(true)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint(screens.isEmpty ? "" : ScreenWords.hint(screens))
+        .accessibilityIdentifier("current-step")
+        .sheet(isPresented: $screensShown) {
+            ScreensSheet(sessionId: sessionId)
+        }
     }
 
-    /// A standing tile for a standing picture, a lying one otherwise and before any picture.
-    static func tileSize(_ picture: CGSize?) -> CGSize {
-        guard let picture, picture.height > picture.width else { return CGSize(width: 52, height: 38) }
-        return CGSize(width: 30, height: 46)
-    }
-
-    /// The card's second line: the turn's clock while it runs — only from a start this phone saw — and
-    /// otherwise where the screen stands.
+    /// After the first line's words: the turn's clock while it runs — only from a start this phone saw —
+    /// and otherwise where the screen stands.
     @ViewBuilder
     private func second(step: CurrentStep?, screens: [SessionScreen], live: SessionScreen?) -> some View {
         if step != nil, let since = model.workingSince[sessionId] {
             TimelineView(.periodic(from: since, by: 1)) { context in
-                Text(CurrentStep.clock(context.date.timeIntervalSince(since)))
+                Text(" · \(CurrentStep.clock(context.date.timeIntervalSince(since)))")
                     .monospacedDigit()
                     .accessibilityLabel(PillWords.elapsed(context.date.timeIntervalSince(since), spoken: true))
             }
         } else if step != nil {
-            Text(live.map { "\($0.name) · Live" } ?? "Working")
+            if live != nil { Text(" · Live") }
         } else if let live {
-            Text(["Live", live.detail].compactMap { $0 }.joined(separator: " · "))
+            Text(([" · Live"] + [live.detail].compactMap { $0 }).joined(separator: " · "))
         } else if let first = screens.first {
-            Text("Not running")
+            Text(" · Not running")
                 .accessibilityLabel("\(first.name) isn't running")
         }
+    }
+
+    /// The line under it, in the quieter words: the goal, then the plan's count over its hairline. Alone,
+    /// between turns, it is the dock's only line, and takes the first line's size.
+    private func context(goal: Goal?, plan: TodoProgress?, alone: Bool) -> some View {
+        HStack(spacing: 8) {
+            if let goal {
+                Button { goalShown = true } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        Image(systemName: goal.status.symbol)
+                            .foregroundStyle(goal.status.tone.agentColor)
+                        // Pursuing goes without saying while the turn's spinner says it.
+                        if goal.status != .active || alone {
+                            Text(goal.status.label)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(goal.status.tone.agentColor)
+                                .fixedSize()
+                        }
+                        Text(goal.objective)
+                            .foregroundStyle(alone ? Palette.ink : Palette.ink2)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if plan == nil, let facts = goal.facts {
+                            Text(facts)
+                                .monospacedDigit()
+                                .foregroundStyle(Palette.ink3)
+                                .lineLimit(1)
+                                .fixedSize()
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Goal, \(goal.status.label): \(goal.objective)\(goal.facts.map { ", \($0)" } ?? "")")
+                .accessibilityHint("Shows the goal and its controls")
+                .accessibilityIdentifier("goal-pill")
+                .sheet(isPresented: $goalShown) {
+                    GoalSheet(sessionId: sessionId)
+                }
+            }
+            if let plan {
+                Button { planOpen.toggle() } label: {
+                    HStack(spacing: 6) {
+                        if goal == nil {
+                            Image(systemName: plan.allDone ? "checkmark.circle" : "checklist")
+                        }
+                        Text(plan.count)
+                            .monospacedDigit()
+                        ProgressTrack(done: plan.done, total: plan.total)
+                            .frame(width: 36)
+                        Image(systemName: "chevron.down")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Palette.ink3)
+                            .rotationEffect(.degrees(planOpen ? 180 : 0))
+                    }
+                    .foregroundStyle(Palette.ink2)
+                    .fixedSize()
+                    .frame(maxWidth: goal == nil ? .infinity : nil, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Plan, \(plan.done) of \(plan.total) done\(plan.activeWords.map { ", \($0)" } ?? "")")
+                .accessibilityValue(planOpen ? "Open" : "Closed")
+                .accessibilityIdentifier("todo-strip")
+            }
+        }
+        .font(alone ? .subheadline : .footnote)
+    }
+
+    /// The thumbnail of the live screen, or the mark of what there is: the turn's spinner while it has
+    /// no picture, the screen's kind once the turn is over. The tile takes the picture's way up — a phone
+    /// stands, a Mac's window lies down — so neither is cropped to a sliver.
+    @ViewBuilder
+    private func tile(step: CurrentStep?, screens: [SessionScreen], live: SessionScreen?) -> some View {
+        if live != nil, let thumbnail {
+            let size = Self.tileSize(thumbnail.size)
+            Image(uiImage: thumbnail)
+                .resizable()
+                .scaledToFill()
+                .frame(width: size.width, height: size.height)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .transition(.opacity)
+                .accessibilityHidden(true)
+        } else {
+            Image(systemName: step != nil ? "progress.indicator" : ScreenWords.glyph(screens))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(step != nil ? Tone.working.agentColor : Palette.ink2)
+                .restingPulse(when: step != nil)
+                .frame(width: 20)
+                .accessibilityHidden(true)
+        }
+    }
+
+    /// A standing tile for a standing picture, a lying one otherwise.
+    static func tileSize(_ picture: CGSize) -> CGSize {
+        picture.height > picture.width ? CGSize(width: 30, height: 46) : CGSize(width: 52, height: 38)
     }
 
     private struct Watch: Equatable {
@@ -176,7 +284,7 @@ struct CurrentStepCard: View {
         let active: Bool
     }
 
-    /// A small picture of the live screen now and then, for as long as the card shows one and the app
+    /// A small picture of the live screen now and then, for as long as the dock shows one and the app
     /// is in front.
     private func watch(_ screen: SessionScreen?) async {
         guard let screen, model.isConnected, scenePhase == .active else { return }
@@ -192,15 +300,5 @@ struct CurrentStepCard: View {
                 try? await Task.sleep(for: .seconds(10))
             }
         }
-    }
-}
-
-/// The current step's card: Manus's white card with its soft lift, a step deeper while pressed.
-private struct StepCardPress: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .background(configuration.isPressed ? Palette.hover : Fill.card,
-                        in: RoundedRectangle(cornerRadius: Radius.card - 4, style: .continuous))
-            .floatingLift()
     }
 }

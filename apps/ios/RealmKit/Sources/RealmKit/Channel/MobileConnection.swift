@@ -544,6 +544,13 @@ public struct MobileAPI: Sendable {
         _ = try await connection.call("session.goal", params: Params(id: id, objective: objective), as: Acknowledged.self)
     }
 
+    /// Pauses, resumes, marks done or drops the session's goal; the goal as it now stands, nil once dropped.
+    public func controlGoal(id: String, action: GoalAction) async throws -> Goal? {
+        struct Params: Encodable, Sendable { let id: String; let action: GoalAction }
+        struct Answer: Decodable, Sendable { let goal: Goal? }
+        return try await connection.call("session.goalControl", params: Params(id: id, action: action), as: Answer.self).goal
+    }
+
     /// `answers` maps a question's text to the chosen label; several labels for a multi-select
     /// question are joined with ", ", as Phase 1's question card did.
     public func answer(id: String, requestId: String, decision: Decision, answers: [String: String]? = nil,

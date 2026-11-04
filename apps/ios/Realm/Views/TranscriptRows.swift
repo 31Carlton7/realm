@@ -46,6 +46,8 @@ struct TranscriptRowView: View {
                 MadeFilesRow(files: files, sessionId: sessionId, summary: text)
             } else if let move = row.move {
                 MoveLine(text: text, detail: row.noticeDetail, move: move)
+            } else if row.goalTurn != nil {
+                GoalTurnLine(text: text, prompt: row.noticeDetail)
             } else {
                 NoticeLine(text: text)
             }

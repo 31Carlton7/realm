@@ -1,10 +1,10 @@
 import {
-  appendDelta, bareToolName, moveFailedSentence, normalizeHandle, TEAM_MESSAGE_TOOL, teammateByHandle, teammateWords,
+  appendDelta, bareToolName, goalTurnLabel, moveFailedSentence, normalizeHandle, TEAM_MESSAGE_TOOL, teammateByHandle, teammateWords,
   type AskCard, type AskQuestion, type MoveStep, type PendingMove, type QueuedPrompt, type SessionEvent, type SessionEventType, type StoredSessionEvent,
 } from "@realm/contracts";
 import { givenAttachmentName } from "@realm/contracts/src/temp-attachments";
-import type { PendingMove as PhonePendingMove, QueuedMessage, Row } from "@realm/remote";
-import { questionOf } from "@realm/view";
+import type { PendingMove as PhonePendingMove, QueuedMessage, Row, Todo } from "@realm/remote";
+import { parseTodos, questionOf } from "@realm/view";
 
 /**
  * Folds a session's events into the rows a phone draws (PROTOCOL.md §8). Every event kind is named in
@@ -104,6 +104,8 @@ export class SessionProjector {
   private hinted: { text: string; throughSeq: number } | null = null;
   /** The session's space's teammates, which a message to `lead` or `@cto` is resolved against. */
   private team: readonly TeamMember[] = [];
+  /** The agent's to-do list as its newest TodoWrite wrote it. */
+  private plan: Todo[] = [];
 
   /** `attachmentsDir` is the Realm home's `tmp/attachments`: a file there was written under a random
    *  prefix, which a row leaves out of its name. `home` is the Mac's home folder, which the paths under
@@ -118,6 +120,9 @@ export class SessionProjector {
 
   /** The suggested next message, or null. */
   get hint(): string | null { return this.hinted?.text ?? null; }
+
+  /** The agent's to-do list as it stands, as the desktop's strip above the prompter draws it. */
+  get todos(): Todo[] { return this.plan; }
 
   all(): Row[] { return [...this.rows.values()]; }
 
@@ -138,6 +143,11 @@ export class SessionProjector {
       // previews one.
       case "user_message": {
         this.hinted = null;
+        // A turn the goal sent itself is the desktop's one attributed line, never a bubble the person
+        // would believe they typed; the prompt behind it waits under a tap, as it does there.
+        if (ev.payload.goal) {
+          return put({ key: `u:${seq}`, seq, kind: "notice", text: goalTurnLabel(ev.payload.goal), detail: ev.payload.text, goal: ev.payload.goal });
+        }
         const files = ev.payload.attachments.map((a) => ({ path: a.path, name: givenAttachmentName(a.path, this.o.attachmentsDir), mime: a.mime }));
         const teammateId = ev.payload.from?.teammateId;
         return put({
@@ -156,6 +166,9 @@ export class SessionProjector {
       case "tool_call": {
         if (REQUEST_TOOLS.has(ev.payload.name)) return [];
         const { input } = ev.payload;
+        // Each TodoWrite restates the whole list; a sub-agent's is its own, not the session's. An
+        // empty or unreadable one drops the list rather than reaching back for an older one.
+        if (ev.payload.name === "TodoWrite" && !ev.payload.parentToolUseId) this.plan = parseTodos(input) ?? [];
         const to = bareToolName(ev.payload.name) === TEAM_MESSAGE_TOOL && typeof input.to === "string" ? input.to : null;
         const teammate = to === null ? null : teammateByHandle(this.team, to);
         return put({

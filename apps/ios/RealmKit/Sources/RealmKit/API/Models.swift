@@ -108,13 +108,15 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
     /// Being moved to another checkout, while `status` says running. Nil from a Mac before moves, and
     /// whenever it is not moving.
     public let moving: Bool?
+    /// The goal it pursues, by where it stands and what it is. Nil for none, and from a Mac before goals.
+    public let goal: GoalMark?
 
     public init(id: String, title: String, spaceId: String, spaceName: String, agent: String, model: String?,
                 status: SessionStatus, needsYou: Bool, unread: Bool, updatedAt: Millis,
                 agentName: String? = nil, agentMark: String? = nil, modelLabel: String? = nil,
                 createdAt: Millis? = nil, effort: String? = nil, permissionMode: String? = nil, activityAt: Millis? = nil, pinned: Bool? = nil,
                 leadId: String? = nil, subagents: Int? = nil, subagentsWaiting: Int? = nil, subagentWaiting: String? = nil,
-                moving: Bool? = nil) {
+                moving: Bool? = nil, goal: GoalMark? = nil) {
         self.id = id
         self.title = title
         self.spaceId = spaceId
@@ -138,6 +140,7 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
         self.subagentsWaiting = subagentsWaiting
         self.subagentWaiting = subagentWaiting
         self.moving = moving
+        self.goal = goal
     }
 
     /// The status as this phone shows it: Moving while the Mac moves the session.
@@ -157,7 +160,7 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
         case id, title, spaceId, spaceName, agent, model, status, needsYou, unread, updatedAt, agentName, agentMark, modelLabel
         case createdAt, effort, permissionMode, activityAt, pinned
         case leadId, subagents, subagentsWaiting, subagentWaiting
-        case moving
+        case moving, goal
     }
 
     public init(from decoder: Decoder) throws {
@@ -185,6 +188,7 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
         subagentsWaiting = try? c.decodeIfPresent(Int.self, forKey: .subagentsWaiting)
         subagentWaiting = try? c.decodeIfPresent(String.self, forKey: .subagentWaiting)
         moving = try? c.decodeIfPresent(Bool.self, forKey: .moving)
+        goal = try? c.decodeIfPresent(GoalMark.self, forKey: .goal)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -212,6 +216,7 @@ public struct SessionRow: Codable, Sendable, Hashable, Identifiable {
         try c.encodeIfPresent(subagentsWaiting, forKey: .subagentsWaiting)
         try c.encodeIfPresent(subagentWaiting, forKey: .subagentWaiting)
         try c.encodeIfPresent(moving, forKey: .moving)
+        try c.encodeIfPresent(goal, forKey: .goal)
     }
 
     /// The mode the session is in, read from its stored permission mode. Nil where the Mac did not say.
@@ -472,12 +477,15 @@ public struct TranscriptRow: Codable, Sendable, Hashable, Identifiable {
     /// A user row another teammate wrote: that teammate's id. Its words stand under it, not in the
     /// person's bubble.
     public let fromTeammate: String?
+    /// A notice that is a turn the session's goal started itself; its `noticeDetail` is the prompt
+    /// Realm sent. Nil on every other row, and from a Mac before goals reached the phone.
+    public let goalTurn: GoalTurn?
 
     public var id: String { key }
 
     public init(key: String, seq: Int, content: Content, checkpointId: String? = nil, madeFiles: [MadeFile]? = nil,
                 sentFiles: [SentFile]? = nil, move: MoveMark? = nil, noticeDetail: String? = nil,
-                teammateCall: TeammateCall? = nil, fromTeammate: String? = nil) {
+                teammateCall: TeammateCall? = nil, fromTeammate: String? = nil, goalTurn: GoalTurn? = nil) {
         self.key = key
         self.seq = seq
         self.content = content
@@ -488,10 +496,11 @@ public struct TranscriptRow: Codable, Sendable, Hashable, Identifiable {
         self.noticeDetail = noticeDetail
         self.teammateCall = teammateCall
         self.fromTeammate = fromTeammate
+        self.goalTurn = goalTurn
     }
 
     private enum CodingKeys: String, CodingKey {
-        case key, seq, kind, type
+        case key, seq, kind, type, goal
         case text, streaming, name, summary, state, detail
         case requestId, tool, title, questions, steps, hint
         case asker, message, answers, plan, checkpointId, files, move
@@ -520,6 +529,7 @@ public struct TranscriptRow: Codable, Sendable, Hashable, Identifiable {
         noticeDetail = kind == "notice" ? try? c.decodeIfPresent(String.self, forKey: .detail) : nil
         teammateCall = try? c.decodeIfPresent(TeammateCall.self, forKey: .teammateCall)
         fromTeammate = try? c.decodeIfPresent(String.self, forKey: .fromTeammate)
+        goalTurn = kind == "notice" ? try? c.decodeIfPresent(GoalTurn.self, forKey: .goal) : nil
     }
 
     private static func decodeContent(kind: String, _ c: KeyedDecodingContainer<CodingKeys>) throws -> Content {
@@ -617,6 +627,7 @@ public struct TranscriptRow: Codable, Sendable, Hashable, Identifiable {
         try c.encodeIfPresent(noticeDetail, forKey: .detail)
         try c.encodeIfPresent(teammateCall, forKey: .teammateCall)
         try c.encodeIfPresent(fromTeammate, forKey: .fromTeammate)
+        try c.encodeIfPresent(goalTurn, forKey: .goal)
     }
 }
 
@@ -1089,14 +1100,21 @@ public struct OpenedSession: Codable, Sendable, Hashable {
     public let queued: [QueuedMessage]?
     /// The move queued behind the turn or under way when it opened, or nil.
     public let move: PendingMove?
+    /// The session's goal, or nil for none.
+    public let goal: Goal?
+    /// The agent's to-do list as it stands; nil from a Mac before it said.
+    public let todos: [TodoItem]?
 
-    public init(session: SessionRow, rows: [TranscriptRow], hasMore: Bool, hint: String? = nil, queued: [QueuedMessage]? = nil, move: PendingMove? = nil) {
+    public init(session: SessionRow, rows: [TranscriptRow], hasMore: Bool, hint: String? = nil, queued: [QueuedMessage]? = nil, move: PendingMove? = nil,
+                goal: Goal? = nil, todos: [TodoItem]? = nil) {
         self.session = session
         self.rows = rows
         self.hasMore = hasMore
         self.hint = hint
         self.queued = queued
         self.move = move
+        self.goal = goal
+        self.todos = todos
     }
 }
 
@@ -1946,6 +1964,10 @@ public enum MobileEvent: Sendable {
     case sessionQueue(SessionQueueEvent)
     /// An open session's sub-agents changed; `session.subagents` reads them.
     case sessionSubagents(id: String)
+    /// An open session's goal changed, or was dropped.
+    case sessionGoal(SessionGoalEvent)
+    /// An open session's to-do list changed: the whole list.
+    case sessionTodos(SessionTodosEvent)
     case homeChanged
     /// Reviews or scheduled tasks changed somewhere: they are read again.
     case workChanged

@@ -4,7 +4,7 @@ import { basename, dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import {
-  AGENT_MODELS, PERMISSION_MODES, SELECTABLE_AGENT_KINDS, sessionEvent, steerNote, type DelegatedChild, type FileDiff, type Item, type MethodName, type PlanLimits,
+  AGENT_MODELS, PERMISSION_MODES, SELECTABLE_AGENT_KINDS, sessionEvent, steerNote, type DelegatedChild, type FileDiff, type Goal, type Item, type MethodName, type PlanLimits,
   type QueuedPrompt, type Run, type Schedule, type Session, type StoredSessionEvent, type Teammate, type TeammateTaskSession,
   type TurnChanges, type UsageSessionRow,
 } from "@realm/contracts";
@@ -1947,5 +1947,62 @@ describe("the composer's / and @ lists", () => {
       expect(await r.call("session.send", { text: "@[x] read it", mentionRefs: [{ kind: "file", label: "x", path }] }), path).toMatchObject({ ok: false, code: "INVALID_PARAMS" });
     }
     expect(r.sent).toEqual([]);
+  });
+});
+
+describe("a session's goal from the phone", () => {
+  const goal = (sessionId: string, status: Goal["status"], extra: Partial<Goal> = {}): Goal =>
+    ({ sessionId, objective: `Finish ${sessionId}`, status, tokenBudget: null, tokensUsed: 0, turns: 1, note: null, startedAt: 1, updatedAt: 2, ...extra });
+  function rig(goals: Goal[]) {
+    const asked: [string, Record<string, unknown>][] = [];
+    const hold = (method: string, answer: (p: Record<string, unknown>) => unknown) => ((p: Record<string, unknown>) => { asked.push([method, p]); return answer(p); }) as never;
+    const rpc = fakeRpc({ sessions: [session("a", "s1"), session("b", "s1"), session("c", "s1")], items: [item("a", "s1", "A"), item("b", "s1", "B"), item("c", "s1", "C")], goals }, {
+      "goals.set": hold("goals.set", (p) => ({ goal: { ...goal(p.sessionId as string, p.status as Goal["status"]), note: p.note } })),
+      "goals.resume": hold("goals.resume", (p) => {
+        if (p.sessionId === "c") throw new RpcCallError("INVALID_ARGUMENT", "that goal is already running");
+        return { goal: goal(p.sessionId as string, "active") };
+      }),
+      "goals.clear": hold("goals.clear", () => ({ ok: true })),
+    });
+    return { asked, call: (method: string, params: Record<string, unknown>) => attempt(api(), rpc, method, params) };
+  }
+
+  it("names each row's goal on Home, and none on a session pursuing nothing", async () => {
+    const r = rig([goal("a", "active"), goal("b", "blocked", { note: "No design file." })]);
+    const got = await r.call("home.get", {});
+    const rows = HomeSchema.parse((got as { result: unknown }).result).spaces[0]!.sessions;
+    expect(Object.fromEntries(rows.map((s) => [s.id, s.goal ?? null]))).toEqual({
+      a: { status: "active", objective: "Finish a" }, b: { status: "blocked", objective: "Finish b" }, c: null,
+    });
+  });
+
+  it("opens a session with its goal, and with none", async () => {
+    const r = rig([goal("a", "budget_limited", { tokenBudget: 1_000, tokensUsed: 1_000, note: "Budget spent." })]);
+    const opened = MobileCalls["session.open"].result.parse(((await r.call("session.open", { id: "a" })) as { result: unknown }).result);
+    expect(opened.goal).toEqual({ objective: "Finish a", status: "budget_limited", turns: 1, tokensUsed: 1_000, tokenBudget: 1_000, note: "Budget spent.", startedAt: 1, updatedAt: 2 });
+    expect(opened.session.goal).toEqual({ status: "budget_limited", objective: "Finish a" });
+    expect(opened.todos).toEqual([]);
+    const none = MobileCalls["session.open"].result.parse(((await r.call("session.open", { id: "b" })) as { result: unknown }).result);
+    expect(none.goal).toBeNull();
+  });
+
+  it("pauses, marks done, resumes and drops as the desktop's strip does, in its words", async () => {
+    const r = rig([goal("a", "active")]);
+    expect(await r.call("session.goalControl", { id: "a", action: "pause" })).toMatchObject({ ok: true, result: { goal: { status: "paused", note: "You paused it." } } });
+    expect(await r.call("session.goalControl", { id: "a", action: "done" })).toMatchObject({ ok: true, result: { goal: { status: "complete", note: "Marked done by you." } } });
+    expect(await r.call("session.goalControl", { id: "b", action: "resume" })).toMatchObject({ ok: true, result: { goal: { status: "active" } } });
+    expect(await r.call("session.goalControl", { id: "a", action: "drop" })).toEqual({ ok: true, result: { goal: null } });
+    expect(r.asked).toEqual([
+      ["goals.set", { sessionId: "a", status: "paused", note: "You paused it." }],
+      ["goals.set", { sessionId: "a", status: "complete", note: "Marked done by you." }],
+      ["goals.resume", { sessionId: "b" }],
+      ["goals.clear", { sessionId: "a" }],
+    ]);
+  });
+
+  it("refuses a resume the Mac refuses, in the Mac's words, and an action it does not know", async () => {
+    const r = rig([goal("c", "active")]);
+    expect(await r.call("session.goalControl", { id: "c", action: "resume" })).toEqual({ ok: false, code: "FORBIDDEN", message: "that goal is already running" });
+    expect(await r.call("session.goalControl", { id: "c", action: "edit" })).toMatchObject({ ok: false, code: "INVALID_PARAMS" });
   });
 });

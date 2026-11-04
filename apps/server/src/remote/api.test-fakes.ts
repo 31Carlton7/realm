@@ -1,4 +1,4 @@
-import type { Item, Machine, MachineState, MethodName, MethodParams, MethodResult, Profile, QueuedPrompt, Session, Simulator, SimulatorState, Space } from "@realm/contracts";
+import type { Goal, Item, Machine, MachineState, MethodName, MethodParams, MethodResult, Profile, QueuedPrompt, Session, Simulator, SimulatorState, Space } from "@realm/contracts";
 import type { ChannelContext } from "./api";
 import type { RpcPort } from "./rpc-port";
 
@@ -37,7 +37,7 @@ export const jpegHeader = (width: number, height: number): Buffer => Buffer.from
   0x03, 0x01, 0x22, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01, 0xff, 0xd9,
 ]);
 
-export type Lists = { profiles?: Profile[]; spaces?: Space[]; sessions: Session[]; items: Item[]; settings?: Record<string, unknown>; queued?: Record<string, QueuedPrompt[]> };
+export type Lists = { profiles?: Profile[]; spaces?: Space[]; sessions: Session[]; items: Item[]; settings?: Record<string, unknown>; queued?: Record<string, QueuedPrompt[]>; goals?: Goal[] };
 
 /** The desktop's RPC as `home.get` reads it: `items.listAll` leaves archived rows out, as the store does. */
 export function fakeRpc(h: Lists, more: Partial<Record<MethodName, (p: never) => unknown>> = {}): RpcPort & { calls: string[] } {
@@ -59,6 +59,8 @@ export function fakeRpc(h: Lists, more: Partial<Record<MethodName, (p: never) =>
       case "sessions.events": return [];
       case "sessions.streaming": return { seq: 0, message: null };
       case "sessions.queued": return { queued: h.queued?.[(params as { id: string }).id] ?? [] };
+      case "goals.list": return { goals: h.goals ?? [] };
+      case "goals.get": return { goal: h.goals?.find((g) => g.sessionId === (params as { sessionId: string }).sessionId) ?? null };
       default: throw new Error(`the fake has no ${method}`);
     }
   };

@@ -3,12 +3,12 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import {
-  normalizeAnswers, sessionEvent, type AskCard, type DelegatedChild, type FileDiff, type Item, type PendingMove, type PlanLimits, type QueuedPrompt, type Run, type Schedule,
+  goalContinuationPrompt, normalizeAnswers, sessionEvent, type AskCard, type DelegatedChild, type FileDiff, type Goal, type Item, type PendingMove, type PlanLimits, type QueuedPrompt, type Run, type Schedule,
   type Session, type SessionEvent, type Space, type StoredSessionEvent, type Teammate, type TeammateTaskSession, type UsageSessionRow,
 } from "@realm/contracts";
 import { tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
 import { MobileCalls, MobileEvents, RowSchema, type MobileEvent } from "@realm/remote";
-import { MobileApi } from "./api";
+import { MobileApi, phoneGoal } from "./api";
 import { pendingMove } from "./rows";
 import { channel, fakeRpc, jpegHeader, machine, machineState, pngHeader, profile, simulator, simulatorState } from "./api.test-fakes";
 
@@ -154,12 +154,25 @@ async function generate(): Promise<Record<string, unknown>> {
     { id: "01JQUEUED00000000000000002", text: "Use this sketch for the toggle", attachments: [{ path: sketch, mime: "image/png" }], ts: 1_790_000_070_000, held: false },
   ];
 
+  // The theme column pursues a goal three turns in; an older session's goal hit the same wall three times.
+  const goal: Goal = { sessionId: S, objective: "Ship the theme column: migration, backfill and a down step, with the suite green.", status: "active",
+    tokenBudget: null, tokensUsed: 412_000, turns: 3, note: null, startedAt: 1_789_999_000_000, updatedAt: 1_790_000_000_000 };
+  const blocked: Goal = { sessionId: OLDER[3]!, objective: "Audit the sign-in sheet against the design.", status: "blocked", tokenBudget: 2_000_000,
+    tokensUsed: 1_500_000, turns: 6, note: "The design file is not in the repository, and three turns could not find it.", startedAt: 1_789_900_000_000, updatedAt: 1_789_950_000_000 };
   const evs: SessionEvent[] = [
     sessionEvent("user_message", { text: "File the issue, then plan the column", attachments: sent }, 1_790_000_000_000),
     sessionEvent("thinking", { messageId: "k1", text: "Linear first." }),
     sessionEvent("assistant_text", { messageId: "m1", text: "Filing it in **Linear**." }),
     sessionEvent("tool_call", { toolUseId: "t1", name: "Bash", input: { command: "pnpm test --silent" }, parentToolUseId: null }),
     sessionEvent("tool_result", { toolUseId: "t1", content: "Tests  12 passed", isError: false }),
+    // The session's goal sent its next turn itself, and the agent wrote its to-do list.
+    sessionEvent("user_message", { text: goalContinuationPrompt(goal, "mcp__realm__realm-goal__update_goal"), attachments: [], goal: "continuation" }),
+    sessionEvent("tool_call", { toolUseId: "t-todo", name: "TodoWrite", parentToolUseId: null, input: { todos: [
+      { content: "Add the theme column", status: "completed", activeForm: "Adding the theme column" },
+      { content: "Backfill existing rows", status: "in_progress", activeForm: "Backfilling existing rows" },
+      { content: "Write the down step", status: "pending", activeForm: "Writing the down step" },
+    ] } }),
+    sessionEvent("tool_result", { toolUseId: "t-todo", content: "Todos have been modified successfully.", isError: false }),
     // The Lead's word in the session, and the agent asking the designer, still waiting on its answer.
     sessionEvent("user_message", { text: "From @cto: Settle the toggle with the designer first", attachments: [], from: { sessionId: CTO_CHAT, title: "CTO", teammateId: CTO } }),
     sessionEvent("tool_call", { toolUseId: "t-team", name: "mcp__realm__realm-team__team_message", input: { to: "@designer", message: "Is the toggle's design settled?" }, parentToolUseId: null }),
@@ -294,6 +307,7 @@ async function generate(): Promise<Record<string, unknown>> {
     spaces: [space("sp1", "Realm", "code"), space("sp2", "Deck", "emoji:🌊"), space("sp3", "School", "asset:01JASSET", "p2")],
     sessions,
     items,
+    goals: [goal, blocked],
     settings: {
       "ui.lastAgentKind": "codex", "sessions.midTurnMode": "steer", "sessions.defaultPermissionMode": "acceptEdits",
       "ui.lastModels": { claude: "claude-opus-5-5", codex: null },
@@ -383,6 +397,8 @@ async function generate(): Promise<Record<string, unknown>> {
       { name: "tidy", description: "Tidy the imports in the files this turn changed", argumentHint: null, body: "Tidy the imports.", path: "/Users/me/realm/commands/tidy.md", valid: true, reason: null, shadowedBy: null },
     ] })) as never,
     "commands.expand": ((p: { args: string }) => ({ command: {}, text: `Write the changelog for ${p.args}.`, missing: [] })) as never,
+    "goals.set": ((p: { status: Goal["status"]; note: string | null }) => ({ goal: { ...goal, status: p.status, note: p.note, updatedAt: 1_790_000_400_000 } })) as never,
+    "goals.resume": (() => ({ goal: { ...blocked, status: "active", note: null, updatedAt: 1_790_000_400_000 } })) as never,
     "mentions.files": (() => ({ hits: [{ path: "src/theme.ts", score: 12, marks: [] }, { path: "apps/ios/Realm/Theme/Palette.swift", score: 7, marks: [] }], truncated: false, source: "git" })) as never,
   });
   const api = new MobileApi({ macName: () => "MacBook Pro", reportsDir: "/nonexistent", realmHome: home, userHome: "/Users/me", dev: false, downscale: async () => Buffer.from("jpeg") });
@@ -443,6 +459,9 @@ async function generate(): Promise<Record<string, unknown>> {
       "session.screens": await call("session.screens", { id: S }),
       "session.screen": frame,
       "session.open:moved": await call("session.open", { id: OLDER[0]!, limit: 200 }),
+      "session.open:blocked": await call("session.open", { id: OLDER[3]!, limit: 200 }),
+      "session.goalControl": await call("session.goalControl", { id: S, action: "pause" }),
+      "session.goalControl:resume": await call("session.goalControl", { id: OLDER[3]!, action: "resume" }),
       "session.moveOptions": await call("session.moveOptions", { id: S }),
       "session.move": await call("session.move", { id: S, to: { kind: "worktree" }, when: "after-turn" }),
       "session.cancelMove": await call("session.cancelMove", { id: S }),
@@ -458,6 +477,8 @@ async function generate(): Promise<Record<string, unknown>> {
       "session.queue": [{ id: S, queued: api.queuedMessages(queued) }, { id: S, queued: [] }, { id: OLDER[1]!, queued: [], move: pendingMove(AFTER_TURN) }],
       "session.subagents": [{ id: S }],
       "work.changed": [{}],
+      "session.goal": [{ id: S, goal: phoneGoal(goal) }, { id: S, goal: null }],
+      "session.todos": [{ id: S, todos: [{ content: "Add the theme column", status: "completed", activeForm: "Adding the theme column" }] }, { id: S, todos: [] }],
     },
     answer: {
       /** The open question's picks, by label, and words of the person's own, as the phone's card holds them. */

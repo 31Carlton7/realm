@@ -48,6 +48,11 @@ const fake = () => new FakeAdapter({ script: [
     { kind: "plan", planId: "p1", steps: [{ text: "Add the column", status: "pending" }, { text: "Backfill it", status: "pending" }] },
     { kind: "tool", name: "ExitPlanMode", needsPermission: true, input: { plan: "## Theme column\n\nAdd it, then backfill it." }, result: "Approved" },
   ] },
+  { on: "list the steps", emit: [{ kind: "tool", name: "TodoWrite", input: { todos: [
+    { content: "Read the notes", status: "completed", activeForm: "Reading the notes" },
+    { content: "Write the summary", status: "in_progress", activeForm: "Writing the summary" },
+    { content: "Send it", status: "pending", activeForm: "Sending it" },
+  ] }, result: "Todos have been modified successfully." }] },
   // A turn that takes a few seconds, so messages sent during it wait in the queue.
   { on: "take your time", emit: [{ kind: "text", text: Array.from({ length: 30 }, (_, i) => `word${i}`).join(" "), paceMs: 120 }] },
   // The edit changes the file's size: one of the same size, made in the second git last looked at it,
@@ -509,6 +514,48 @@ describe("Plan 28: a paired phone, in process", () => {
     const cleared = phone.waitFor("session.hint", (p) => { const e = MobileEvents["session.hint"].parse(p); return e.text === null ? e : undefined; });
     await phone.call("session.send", { id, text: "hello" });
     expect(await cleared).toEqual({ id, text: null });
+    phone.close();
+  });
+
+  it("shows a goal's own turns as the desktop's line, never the prompt as the person's bubble, and the goal as it changes", async () => {
+    const r = await boot();
+    const id = await newSession(r);
+    const phone = await pairPhone(r);
+    await phone.call("session.open", { id });
+    const started = phone.waitFor("session.goal", (p) => { const e = MobileEvents["session.goal"].parse(p); return e.goal?.status === "active" ? e : undefined; });
+    // The scripted agent only echoes, so the goal continues three times and then stops itself as blocked.
+    const blocked = phone.waitFor("session.goal", (p) => { const e = MobileEvents["session.goal"].parse(p); return e.goal?.status === "blocked" ? e : undefined; }, 15_000);
+    await phone.call("session.goal", { id, objective: "say hello" });
+    expect((await started).goal).toMatchObject({ objective: "say hello", turns: 0 });
+    expect((await blocked).goal).toMatchObject({ objective: "say hello", note: expect.stringContaining("made no progress") });
+    const opened = MobileCalls["session.open"].result.parse(await phone.call("session.open", { id }));
+    const people = opened.rows.filter((row) => row.kind === "user");
+    expect(people.map((row) => row.kind === "user" && row.text)).toEqual(["say hello"]);
+    const turns = opened.rows.filter((row) => row.kind === "notice" && row.goal === "continuation");
+    expect(turns.length).toBeGreaterThan(0);
+    expect(turns[0]).toMatchObject({ text: "Realm continued this goal", detail: expect.stringContaining("update_goal") });
+    expect(opened.goal).toMatchObject({ status: "blocked" });
+    expect(opened.session.goal).toEqual({ status: "blocked", objective: "say hello" });
+    const dropped = phone.waitFor("session.goal", (p) => { const e = MobileEvents["session.goal"].parse(p); return e.goal === null ? e : undefined; });
+    expect(await phone.call("session.goalControl", { id, action: "drop" })).toEqual({ goal: null });
+    expect(await dropped).toEqual({ id, goal: null });
+    phone.close();
+  });
+
+  it("sends the agent's to-do list as it writes it, and opens with it", async () => {
+    const r = await boot();
+    const id = await newSession(r);
+    const phone = await pairPhone(r);
+    await phone.call("session.open", { id });
+    const listed = phone.waitFor("session.todos", (p) => { const e = MobileEvents["session.todos"].parse(p); return e.todos.length ? e : undefined; });
+    await phone.call("session.send", { id, text: "list the steps" });
+    const steps = [
+      { content: "Read the notes", status: "completed", activeForm: "Reading the notes" },
+      { content: "Write the summary", status: "in_progress", activeForm: "Writing the summary" },
+      { content: "Send it", status: "pending", activeForm: "Sending it" },
+    ];
+    expect(await listed).toEqual({ id, todos: steps });
+    expect(MobileCalls["session.open"].result.parse(await phone.call("session.open", { id })).todos).toEqual(steps);
     phone.close();
   });
 
