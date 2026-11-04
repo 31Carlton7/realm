@@ -138,9 +138,11 @@ export const liveApi = (): Api => ({
   memorySources: (sessionId) => rpc().call("memory.sources", { sessionId }),
   // `elements` is omitted rather than sent empty: a message with no element chips must put exactly
   // the bytes on this wire that it did before chips existed.
-  sendMessage: async (id, text, attachments, mentions, elements, delivery, sessionRefs, mentionRefs) => {
-    await rpc().call("sessions.send", { id, text, attachments, mentions, ...(elements?.length ? { elements } : {}), ...(sessionRefs?.length ? { sessionRefs } : {}), ...(mentionRefs?.length ? { mentionRefs } : {}), ...(delivery && delivery !== "auto" ? { delivery } : {}) });
+  sendMessage: async (id, text, attachments, mentions, elements, delivery, sessionRefs, mentionRefs, tabs) => {
+    await rpc().call("sessions.send", { id, text, attachments, mentions, ...(elements?.length ? { elements } : {}), ...(sessionRefs?.length ? { sessionRefs } : {}), ...(mentionRefs?.length ? { mentionRefs } : {}), ...(tabs?.length ? { tabs } : {}), ...(delivery && delivery !== "auto" ? { delivery } : {}) });
   },
+  listTabs: (sessionId) => rpc().call("tabs.list", { sessionId }),
+  previewTab: (sessionId, tab) => rpc().call("tabs.preview", { sessionId, tab }),
   mentionFiles: (sessionId, query, limit) => rpc().call("mentions.files", { sessionId, query, ...(limit ? { limit } : {}) }),
   interruptSession: async (id) => { await rpc().call("sessions.interrupt", { id }); },
   dequeuePrompt: async (id, queuedId) => { await rpc().call("sessions.dequeue", { id, queuedId }); },

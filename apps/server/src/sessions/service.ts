@@ -1,7 +1,7 @@
 import { realpathSync, statSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { ENGINE_IDLE_MINUTES_DEFAULT, ENGINE_IDLE_MINUTES_KEY, AGENT_MEMORY_CHANNEL, AGENT_SESSION_RESUME, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, handoffContextKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, moveFailedSentence, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type MoveOptions, type MoveTarget, type MoveWhen, type PendingMove, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type StreamedMessage, type AskAnswers, type AskCard } from "@realm/contracts";
+import { ENGINE_IDLE_MINUTES_DEFAULT, ENGINE_IDLE_MINUTES_KEY, AGENT_MEMORY_CHANNEL, AGENT_SESSION_RESUME, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, handoffContextKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, moveFailedSentence, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type MoveOptions, type MoveTarget, type MoveWhen, type PendingMove, type SessionRef, type TabRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type StreamedMessage, type AskAnswers, type AskCard } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, RestartRequiredError, type AdapterRegistry, type AgentAdapter, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -34,6 +34,7 @@ import type { AppViewRef, MemorySources } from "@realm/contracts";
 import { SecretAnswers } from "./secret-answers";
 import { MTIME_SLACK_MS, sweepTurnMedia, turnSearchRoots } from "./turn-media";
 import type { SettledTurn } from "../goals/service";
+import type { GatheredTabs } from "./tab-context";
 
 /**
  * One message as the prompter hands it over. `elements` are the browser-pane elements the user picked
@@ -61,7 +62,12 @@ export type SendMessage = { text: string; attachments: { path: string; mime: str
   /** Realm's word to the agent about what changed around it since its last message — the teammates it
    *  was given. On the wire after the user's text, and never on the transcript, which keeps what the
    *  user typed. */
-  note?: string };
+  note?: string;
+  /** The panes the user handed over as cards, as the prompter named them; read once, at `send`, into
+   *  `tabs` — so a message that waits in the queue sends what the user saw as they pressed send. */
+  tabRefs?: TabRef[];
+  /** The cards as read: kept on the transcript, their blocks and screenshots on the wire. */
+  tabs?: GatheredTabs };
 
 /* The placeholder a session wears until its first message names it. Not "<Agent> session": the
  * agent is already shown on the row, and repeating it there says nothing about WHICH session this
@@ -260,6 +266,8 @@ export class SessionService {
     /** Failover (fallbacks + forks). Optional so a server built without it behaves exactly as
      *  before: no retries, no handoffs, an error is an error. */
     failover?: FailoverHooks;
+    /** Reads the panes a message hands over as cards (`TabContextReader`). Absent, cards are dropped. */
+    tabs?: { gather(spaceId: string, refs: readonly TabRef[]): Promise<GatheredTabs> };
     /** What a switch hands the incoming agent (`sessions/handover.ts`): the hand-off note, written on
      *  the frontier model and saved under Realm's home. Optional — without it a switch still happens,
      *  carrying the conversation verbatim, and writes no file. */
@@ -511,6 +519,7 @@ export class SessionService {
    */
   async send(id: string, msg: SendMessage, delivery: "auto" | "queue" | "steer" = "auto"): Promise<void> {
     await this.switching.get(id)?.catch(() => {});
+    if (msg.tabRefs?.length && this.d.tabs) msg = { ...msg, tabs: await this.d.tabs.gather(this.get(id).spaceId, msg.tabRefs) };
     // `waiting_permission` counts: the turn has not ended, it is blocked on a card the user has not
     // answered. The prompter draws both states the same way for the same reason, and a message typed
     // against an open permission card is the one most likely to be a correction.
@@ -815,7 +824,8 @@ export class SessionService {
     // which stay the files the user attached — the chip already shows a mentioned file.
     const refs = this.mentionedRefs(msg);
     this.onEvent(id, sessionEvent("user_message", { text: msg.text, attachments: msg.attachments, ...(msg.goal ? { goal: msg.goal } : {}),
-      ...(msg.scheduled ? { scheduled: msg.scheduled } : {}), ...(msg.from ? { from: msg.from } : {}), ...(refs.length ? { refs } : {}) }));
+      ...(msg.scheduled ? { scheduled: msg.scheduled } : {}), ...(msg.from ? { from: msg.from } : {}), ...(refs.length ? { refs } : {}),
+      ...(msg.tabs?.cards.length ? { tabs: msg.tabs.cards } : {}) }));
     await handle.send(this.resolveMentions(id, msg));
   }
 
@@ -890,12 +900,14 @@ export class SessionService {
     const mac = library.find((x) => x.id === MAC_SKILL_ID && x.valid);
     const files = this.refAttachments(refs);
     // The blocks ride the same way and in this order: what the user picked ON a page or in Realm's
-    // window, who else they pointed at, then the files and apps they named. Appended to the user's own
-    // text rather than sent as a system note, because all three agent wires take one markdown string
-    // and nothing else. A pick in Realm's window names its picture only if it is still attached.
+    // window, who else they pointed at, the files and apps they named, then the panes they handed
+    // over. Appended to the user's own text rather than sent as a system note, because all three agent
+    // wires take one markdown string and nothing else. A pick in Realm's window names its picture only
+    // if it is still attached.
     const context = elementContext(msg.elements ?? [], msg.attachments) + sessionRefContext(msg.sessionRefs ?? [])
-      + mentionRefContext(refs, { macSkill: mac ? this.canonical(mac.path) : null, missing: files.missing, withheld: files.withheld }) + (msg.note ?? "");
-    const attachments = [...msg.attachments, ...files.attach];
+      + mentionRefContext(refs, { macSkill: mac ? this.canonical(mac.path) : null, missing: files.missing, withheld: files.withheld })
+      + (msg.tabs?.context ?? "") + (msg.note ?? "");
+    const attachments = [...msg.attachments, ...files.attach, ...(msg.tabs?.images ?? [])];
     if (tokens.length === 0) return { text: msg.text + context, attachments };
     let skill: SkillMention | undefined;
     if (AGENT_SKILL_SUPPORT[s.agentKind] === "injected" && this.live.get(id)?.skillsInjected) {

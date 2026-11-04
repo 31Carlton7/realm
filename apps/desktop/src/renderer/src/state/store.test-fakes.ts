@@ -6,6 +6,7 @@ import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mime
 import type { Account, CliStatus, DelegatedChild, LayaStatus, ModelInfo, ResourcePolicies, ResourceReport, Schedule, SearchResults, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
 import { TEAMMATE_CLOCK_PROMPT, type MemoryLibraryEntry, type MemoryLibraryFile, type MemoryLibrarySource, type SavedTurn, type Teammate, type TeammateSchedule, type TeammateScheduleInput } from "@realm/contracts";
 import { PRODUCTION_REMOTE_RELAY, type PairRequest, type PairedPhone, type RemoteStatus } from "@realm/contracts";
+import type { TabCard, TabEntry, TabRef } from "@realm/contracts";
 import { RpcError } from "../rpc/client";
 
 /** Zeroed usage totals — the shape every row of a `UsageSummary` carries. */
@@ -316,6 +317,10 @@ export type FakeData = {
    *  default: a test that is not about apps should see no Apps group at all. */
   installedApps?: InstalledApp[];
   appIcons?: Record<string, string>;
+  /** The space's panes `tabs.list` offers the `@` list, keyed by session id, and the card
+   *  `tabs.preview` answers for each by item id. None by default. */
+  spaceTabs?: Record<string, TabEntry[]>;
+  tabCards?: Record<string, TabCard>;
   /** Each session's checkout, as `mentions.files` ranks it. Keyed by session id. */
   workspaceFiles?: Record<string, string[]>;
   /** What `cli.status` answers. Empty by default: a test that is not about the CLI manager should
@@ -473,7 +478,7 @@ export type FakeApi = Api & {
   destroyedBrowserViews: string[];
   /** Every `sendMessage`, with the attachments that actually went on the wire. `mentions` is present
    *  only when non-empty, so mention-free assertions stay byte-for-byte what they always were. */
-  sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[]; elements?: ElementChip[]; delivery?: "auto" | "queue" | "steer"; mentionRefs?: MentionRef[] }[];
+  sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[]; elements?: ElementChip[]; delivery?: "auto" | "queue" | "steer"; mentionRefs?: MentionRef[]; tabs?: TabRef[] }[];
   /** What `scripts.save` was handed, verbatim — the fields a form sends are the thing worth
    *  asserting, and the `calls` log only carries an id. */
   savedScripts: { spaceId: string; script: ScriptInput }[];
@@ -509,7 +514,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
   const calls: string[] = [];
   const disposed: string[] = [];
   const destroyedBrowserViews: string[] = [];
-  const sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[]; elements?: ElementChip[]; delivery?: "auto" | "queue" | "steer"; mentionRefs?: MentionRef[] }[] = [];
+  const sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[]; elements?: ElementChip[]; delivery?: "auto" | "queue" | "steer"; mentionRefs?: MentionRef[]; tabs?: TabRef[] }[] = [];
   /** What `scripts.save` was handed, verbatim. A typed capture beside `sent`, because the fields a
    *  form sends are the thing worth asserting and the `calls` log only carries an id. */
   const savedScripts: { spaceId: string; script: ScriptInput }[] = [];
@@ -597,6 +602,8 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     failover: overrides.failover ?? DEFAULT_FAILOVER_POLICY,
     editors: overrides.editors ?? [],
     installedApps: overrides.installedApps ?? [],
+    spaceTabs: overrides.spaceTabs ?? {},
+    tabCards: overrides.tabCards ?? {},
     appIcons: overrides.appIcons ?? {},
     workspaceFiles: overrides.workspaceFiles ?? {},
     laya: overrides.laya ?? { mode: "off", installed: false, runtime: { state: "not-installed", python: { path: "/opt/homebrew/bin/python3.13", version: "3.13.12" } }, stepsLogged: 0, dir: "/Users/u/Realm/laya", assist: { available: false, reason: "No checkpoint has been evaluated yet. Train Laya on this Mac first; Assist unlocks when one scores 95% on held-out steps.", threshold: null, accuracy: null } },
@@ -1183,9 +1190,14 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       data.sessions = data.sessions.filter((x) => x.id !== id);
       for (const [sid, rows] of Object.entries(data.items)) data.items[sid] = rows.filter((x) => x.refId !== id);
     },
-    sendMessage: async (id, text, attachments, mentions, elements, delivery, sessionRefs, mentionRefs) => {
+    sendMessage: async (id, text, attachments, mentions, elements, delivery, sessionRefs, mentionRefs, tabs) => {
       calls.push(`sendMessage:${id}=${text}${attachments.length ? ` +[${attachments.map((a) => `${a.path}:${a.mime}`).join(",")}]` : ""}`);
-      sent.push({ id, text, attachments, ...(mentions.length ? { mentions } : {}), ...(elements?.length ? { elements } : {}), ...(sessionRefs?.length ? { sessionRefs } : {}), ...(mentionRefs?.length ? { mentionRefs } : {}), ...(delivery && delivery !== "auto" ? { delivery } : {}) });
+      sent.push({ id, text, attachments, ...(mentions.length ? { mentions } : {}), ...(elements?.length ? { elements } : {}), ...(sessionRefs?.length ? { sessionRefs } : {}), ...(mentionRefs?.length ? { mentionRefs } : {}), ...(tabs?.length ? { tabs } : {}), ...(delivery && delivery !== "auto" ? { delivery } : {}) });
+    },
+    listTabs: async (sessionId) => ({ tabs: data.spaceTabs[sessionId] ?? [] }),
+    previewTab: async (_sessionId, tab) => {
+      calls.push(`previewTab:${tab.itemId}`);
+      return data.tabCards[tab.itemId] ?? { ...tab, bytes: 0, truncated: false, closed: true };
     },
     mentionFiles: async (sessionId, query, limit) => {
       calls.push(`mentionFiles:${sessionId}:${query}`);

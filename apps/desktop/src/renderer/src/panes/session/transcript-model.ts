@@ -1,4 +1,4 @@
-import { appendDelta, bareToolName, type MovePlace, type MoveStep, type AcpSessionMode, type AppViewRef, type AskAnswers, type AskCard, type MentionRef, type SessionEvent, type SessionEventPayload, type TurnChanges, type FilesMade } from "@realm/contracts";
+import { appendDelta, bareToolName, type MovePlace, type MoveStep, type AcpSessionMode, type AppViewRef, type AskAnswers, type AskCard, type MentionRef, type SessionEvent, type TabCard, type SessionEventPayload, type TurnChanges, type FilesMade } from "@realm/contracts";
 import { questionOf } from "@realm/view";
 
 export type PlanStep = NonNullable<SessionEventPayload<"plan">["steps"]>[number];
@@ -11,6 +11,8 @@ export type Block =
   | { kind: "user"; text: string; attachments?: { path: string; mime: string }[]; from?: { sessionId: string; title: string; teammateId?: string }; goal?: "continuation" | "budget";
       /** What the message's `@[…]` chips named, so each keeps its mark in the log. */
       refs?: MentionRef[];
+      /** The panes handed over as cards, as they were read when it was sent. */
+      tabs?: TabCard[];
       /** A scheduled task's run began here (the event's `scheduled`). `text` is the task's instructions
        *  alone: the note Realm appended for the agent is taken out of it, and kept here. */
       scheduled?: { task: string; note: string; scheduleId?: string };
@@ -334,7 +336,7 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
       const open = t.run ? null : unsettledTurn(t.blocks);
       if (open) blocks.splice(t.blocks.length, 0, derivedRun(open, open.lastTs));
       const scheduled = e.payload.scheduled;
-      blocks.push({ kind: "user", text: scheduled ? withoutNote(e.payload.text, scheduled.note) : e.payload.text, ...(e.payload.attachments.length ? { attachments: e.payload.attachments } : {}), ...(e.payload.from ? { from: e.payload.from } : {}), ...(e.payload.goal ? { goal: e.payload.goal } : {}), ...(e.payload.refs?.length ? { refs: e.payload.refs } : {}), ...(scheduled ? { scheduled } : {}), ...(seq !== undefined ? { seq } : {}), ts: e.ts });
+      blocks.push({ kind: "user", text: scheduled ? withoutNote(e.payload.text, scheduled.note) : e.payload.text, ...(e.payload.attachments.length ? { attachments: e.payload.attachments } : {}), ...(e.payload.from ? { from: e.payload.from } : {}), ...(e.payload.goal ? { goal: e.payload.goal } : {}), ...(e.payload.refs?.length ? { refs: e.payload.refs } : {}), ...(e.payload.tabs?.length ? { tabs: e.payload.tabs } : {}), ...(scheduled ? { scheduled } : {}), ...(seq !== undefined ? { seq } : {}), ts: e.ts });
       return { ...t, blocks, promptHint: null };
     }
     case "assistant_delta": {

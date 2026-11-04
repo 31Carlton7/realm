@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { PlanAlertSchema, PlanLimitsUnavailableSchema, PlanWindowSchema } from "./plan-limits";
 import { MentionRefSchema } from "./mention-refs";
+import { MAX_TAB_REFS, TabCardSchema } from "./tab-context";
 import { AskAnswersSchema, AskCardSchema } from "./ui-ask";
 import { AppViewRefSchema } from "./mcp-apps";
 import { MoveConversationSchema, MovePlaceSchema, MoveStepSchema } from "./session-move";
@@ -34,6 +35,10 @@ const P = {
      *  user attached: a mentioned file is a chip in the sentence, and a tile above it would be the
      *  same file shown twice. Optional, so every row written before mentions existed still parses. */
     refs: z.array(MentionRefSchema).optional(),
+    /** The panes the user handed over as cards (`tab-context.ts`), as they were read when it was sent:
+     *  the log draws each card and opens its pane on a click. What the agent was handed of them rides
+     *  on the wire alone. Optional, so every row written before tabs existed still parses. */
+    tabs: z.array(TabCardSchema).max(MAX_TAB_REFS).optional(),
   }),
   assistant_text: z.object({ messageId: z.string(), text: z.string() }),
   /** `at` is where the delta starts in the text streamed so far for its message, stamped by the server

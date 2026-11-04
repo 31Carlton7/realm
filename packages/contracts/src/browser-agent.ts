@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { KEY_MODIFIERS } from "./key-chord";
 import type { BrowserLoadError } from "./browser-load-error";
+import type { PageField } from "./tab-context";
 
 /**
  * The browser agent bridge's op payloads (Plan 11 W3) — the vocabulary realm-server (where the
@@ -227,7 +228,9 @@ export type BrowserSnapshotElement = {
  */
 export type BrowserPageActivity = { loading: boolean; requests: number; quietMs: number };
 /** `loadError`: as on a snapshot — a page that did not load has no text of its own. */
-export type BrowserReadResult = { text: string; loadError?: BrowserLoadError | null };
+export type BrowserReadResult = { text: string; loadError?: BrowserLoadError | null;
+  /** The page's filled-in fields, secret ones hidden — only when the read asked for them (`fields`). */
+  fields?: PageField[] };
 /** `loadError`: the capture is of the empty document Chromium commits for a failed load. */
 export type BrowserScreenshotResult = { data: string; mimeType: string; loadError?: BrowserLoadError | null };
 export type BrowserNavigateResult = { url: string | null };

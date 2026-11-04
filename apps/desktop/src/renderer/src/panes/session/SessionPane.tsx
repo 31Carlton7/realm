@@ -1,6 +1,6 @@
 import { Icon, type IconName } from "@realm/ui";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
-import { AGENT_META, AGENT_SKILL_SUPPORT, MAC_SKILL_ID, PLAN_PERMISSION_MODE, basenameOf, defaultAccountId, hasAccounts, offeredModes, sessionModeOf, type Item, type LinkChip, type MentionRef, type UnlabelledRef, type SessionMode, type Skill, runnableCommands, type UserCommand, type TurnChanges } from "@realm/contracts";
+import { AGENT_META, AGENT_SKILL_SUPPORT, MAC_SKILL_ID, PLAN_PERMISSION_MODE, basenameOf, defaultAccountId, hasAccounts, offeredModes, sessionModeOf, type Item, type LinkChip, type MentionRef, type UnlabelledRef, type SessionMode, type TabEntry, type Skill, runnableCommands, type UserCommand, type TurnChanges } from "@realm/contracts";
 
 /** A stable empty list for the commands selector. A fresh `[]` in the selector is a new reference on
  *  every render, which is how a zustand subscription turns into a render loop. */
@@ -8,7 +8,7 @@ const EMPTY_COMMANDS: readonly UserCommand[] = Object.freeze([]);
 
 /** Stable empty array for `useSyncExternalStore`: a fresh `[]` per render reads as a change forever. */
 const NO_LINKS: LinkChip[] = [];
-import { spaceIsPlainFolder, useApp, type PickedAttachment } from "../../state/store";
+import { spaceIsPlainFolder, useApp, type DraftTab, type PickedAttachment } from "../../state/store";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import type { PaneProps } from "../registry";
 import type { MenuItem } from "../../components/Menu";
@@ -40,6 +40,7 @@ const NO_ATTACHMENTS: PickedAttachment[] = [];
 const NO_SKILLS: Skill[] = [];
 const NO_MENTIONS: string[] = [];
 const NO_REFS: MentionRef[] = [];
+const NO_TABS: DraftTab[] = [];
 const NO_SAVED: number[] = [];
 
 const STATUS_LABEL = { idle: "Idle", running: "Running", waiting_permission: "Needs permission", error: "Error", ended: "Ended", moving: "Moving" } as const;
@@ -561,6 +562,12 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const onMentionOpen = useCallback(() => { run(() => loadInstalledApps()); run(() => refreshComputerAccess()); }, [run, loadInstalledApps, refreshComputerAccess]);
   const ensureIcons = useCallback((paths: readonly string[]) => { void ensureAppIcons(paths); }, [ensureAppIcons]);
   const addRef = useCallback((ref: UnlabelledRef, candidates: readonly string[]) => addMentionRef(id, ref, candidates), [id, addMentionRef]);
+  const spaceTabsFor = useApp((st) => st.spaceTabs);
+  const addDraftTabs = useApp((st) => st.addDraftTabs);
+  const removeDraftTab = useApp((st) => st.removeDraftTab);
+  const draftTabs = useApp((st) => st.draftTabs[id] ?? NO_TABS);
+  const mentionTabs = useCallback(() => spaceTabsFor(id), [id, spaceTabsFor]);
+  const addTabs = useCallback((tabs: readonly TabEntry[]) => addDraftTabs(id, tabs), [id, addDraftTabs]);
   const cwd = session?.cwd ?? "";
   // Its own sub-agents that are sessions: `@Write the tests` passes the message to that one too.
   const subagents = useSessionSubagents(id);
@@ -571,8 +578,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const spaceTeammates = useApp((st) => st.teammates[item.spaceId]);
   const teammate = spaceTeammates?.find((t) => t.homeSessionId === id) ?? null;
   const mentionTeammates = useMemo(() => (spaceTeammates ?? []).filter((t) => t.homeSessionId !== id), [spaceTeammates, id]);
-  const mentionSources = useMemo(() => ({ cwd, mac: macSkill, apps: installedApps, appIcons, accessibility, accessibilityAction, files: mentionFiles, library: mentionLibrary, onOpen: onMentionOpen, ensureIcons, addRef, teammates: mentionTeammates, agents: mentionAgents }),
-    [cwd, macSkill, installedApps, appIcons, accessibility, accessibilityAction, mentionFiles, mentionLibrary, onMentionOpen, ensureIcons, addRef, mentionTeammates, mentionAgents]);
+  const mentionSources = useMemo(() => ({ cwd, mac: macSkill, apps: installedApps, appIcons, accessibility, accessibilityAction, files: mentionFiles, library: mentionLibrary, onOpen: onMentionOpen, ensureIcons, addRef, teammates: mentionTeammates, agents: mentionAgents, tabs: mentionTabs, addTabs }),
+    [cwd, macSkill, installedApps, appIcons, accessibility, accessibilityAction, mentionFiles, mentionLibrary, onMentionOpen, ensureIcons, addRef, mentionTeammates, mentionAgents, mentionTabs, addTabs]);
   /* The apps the log's own messages named keep their icons after a relaunch: asked for once each,
      when the transcript first carries them. */
   const loggedApps = useMemo(() => [...new Set(transcript.blocks.flatMap((b) => (b.kind === "user" && b.refs ? b.refs.flatMap((r) => (r.kind === "app" ? [r.path] : [])) : [])))].join("\n"),
@@ -803,7 +810,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
               onDone={() => run(() => setGoalStatus(id, "complete", "Marked done by you."))} />}
             sessionInit={transcript.init} fastSupport={fastSupport} effortSupport={effortSupport}
             links={draftLinks} onLinkPaste={(url) => addLinkChip(id, url)}
-            mentions={mentionSources} refs={draftRefs} selectInRealm={selectInRealm}
+            mentions={mentionSources} refs={draftRefs} tabs={draftTabs} onRemoveTab={(itemId) => removeDraftTab(id, itemId)} selectInRealm={selectInRealm}
             queued={queued ?? []} midTurnMode={midTurnMode} planLimits={planLimits}
             queueActions={queueActions} />}
       {/* Last child and BELOW the prompter's dock, so the glow passes under the card exactly as the

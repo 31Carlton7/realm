@@ -6,7 +6,7 @@ import { Menu, type MenuItem } from "../../components/Menu";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import { useFileDrop } from "../../components/use-file-drop";
 import { useItemDrop } from "../../components/use-item-drop";
-import type { AgentProbe, PickedAttachment, SessionOptions, SubmitKey } from "../../state/store";
+import type { AgentProbe, DraftTab, PickedAttachment, SessionOptions, SubmitKey } from "../../state/store";
 import { agentAvailability, availabilityNote } from "../../state/agent-availability";
 import { MentionPicker, mentionOptionId, mentionQueryAt } from "./MentionPicker";
 import { fileMark, labelCandidatesFor, mentionOptions, mentionRows, refFor, useMentionAnswers, type MentionRow, type MentionSources } from "./mention-sources";
@@ -21,6 +21,7 @@ import { CHILD_ORIGINS } from "../session-labels";
 import { heroGreeting } from "./greeting";
 import { appendQuote, chipAround, chipSpans, continueList, deleteChipAt, highlightSegments, indentList, isChipKind, removeChip, stepOverChip, toggleList, type DraftEdit } from "./draft-format";
 import { AttachmentTile } from "./AttachmentTile";
+import { DraftTabRow } from "./TabCards";
 import { ComposerQueue, type QueueActions } from "./ComposerQueue";
 import { whenLabel } from "../schedules/SchedulesPage";
 import { TodoStrip } from "./TodoStrip";
@@ -139,6 +140,7 @@ function LimitRow({ limits }: { limits: PlanLimits | null }) {
 /** Stable, so a Composer with no references does not get a new array on every render. */
 const NO_SESSION_REFS: readonly SessionRef[] = [];
 const NO_REFS: readonly MentionRef[] = [];
+const NO_TABS: readonly DraftTab[] = [];
 const NO_QUEUE_ACTIONS: QueueActions = { onRelease: () => {}, onDrop: () => {}, onBeginEdit: async () => false, onSaveEdit: () => {}, onCancelEdit: () => {}, onMove: () => {} };
 const NO_SPACES: readonly { id: string; name: string }[] = [];
 
@@ -391,7 +393,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onSwitchAgent, account, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, onMoveSession, pendingMove = null, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
+export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onSwitchAgent, account, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, onMoveSession, pendingMove = null, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, tabs = NO_TABS, onRemoveTab, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** The checkout's changed files (`workspace.diff`), for the pill over the card. */
   changes?: DiffSummary | null;
@@ -565,6 +567,8 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
   /** The draft's named files and apps (store `draftRefs`): what an `@[label]` token stands for, so the
    *  mirror can wear the right mark on it. */
   refs?: readonly MentionRef[];
+  /** The panes picked from the `@` list's Tabs, as cards beside the draft (store `draftTabs`). */
+  tabs?: readonly DraftTab[]; onRemoveTab?: (itemId: string) => void;
   /** The + menu's Select in Realm (app-pick/): put the in-app element picker up for this prompter. */
   selectInRealm?: { onSelect: () => void; kbd?: string };
 }) {
@@ -782,7 +786,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
   const mentionMatches = useMemo((): MentionRow[] => {
     if (!mentionToken) return [];
     const options = mentionOptions({ mac: macSkill, skills: mentionSkills, files: answers.files, cwd: mentions?.cwd ?? session.cwd,
-      library: answers.library, apps: mentions?.apps ?? [], teammates: mentions?.teammates ?? [], agents: mentions?.agents ?? [] });
+      library: answers.library, apps: mentions?.apps ?? [], teammates: mentions?.teammates ?? [], agents: mentions?.agents ?? [], tabs: answers.tabs });
     return mentionRows(options, mentionToken.query, { accessibility: mentions?.accessibility ?? null });
   }, [mentionToken, macSkill, mentionSkills, answers, mentions, session.cwd]);
   /* The icons the list and the draft's chips are about to draw, fetched once each. Keyed on the
@@ -824,6 +828,14 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
    *  delimiter the send-time scan expects. */
   const pickMention = (row: MentionRow) => {
     if (!mentionToken) return;
+    // A pane is a card beside the draft, not a token in it: the `@` and what was typed after it go.
+    if (row.kind === "tab" || row.kind === "tabs") {
+      mentions?.addTabs?.(row.kind === "tab" ? [row.tab] : row.tabs);
+      onDraftChange(draft.slice(0, mentionToken.start) + draft.slice(mentionToken.end).replace(/^ /, ""));
+      pendingSel.current = { start: mentionToken.start, end: mentionToken.start };
+      setMentionActive(0);
+      return;
+    }
     let token: string;
     if (row.kind === "skill") token = `@${row.skill.id}`;
     else if (row.kind === "mac") token = `@${MAC_SKILL_ID}`;
@@ -957,8 +969,9 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
   // Attachment-only messages (Plan 14 W5): a send needs text OR at least one attachment this agent
   // will actually receive. Attachments whose disposition is `ignored` — today only the fake agent's,
   // which reads none of them — can't carry a message by themselves, because the adapter would deliver
-  // literally nothing, so they don't unlock the button and its tooltip says why.
-  const deliverable = attachments.some((a) => attachmentDisposition(kind, a.mime) !== "ignored");
+  // literally nothing, so they don't unlock the button and its tooltip says why. A tab's card goes as
+  // text, which every agent reads, so one carries a message by itself.
+  const deliverable = attachments.some((a) => attachmentDisposition(kind, a.mime) !== "ignored") || tabs.length > 0;
 
   /* While a turn runs the corner button is Stop, so a message typed into the box has no button of its
      own and the keyboard is its only route. The tooltip on the one button that IS there is where that
@@ -1226,6 +1239,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
         <LimitRow limits={planLimits} />
         <ComposerQueue kind={kind} queued={queued} running={running} submitKey={submitKey} actions={queueActions ?? NO_QUEUE_ACTIONS} pendingMove={pendingMove} />
         <AttachmentRow kind={kind} attachments={attachments} onRemove={onRemoveAttachment} />
+        <DraftTabRow tabs={tabs} onRemove={onRemoveTab ?? (() => {})} />
         <SessionRefRow refs={sessionRefs} onRemove={onRemoveSessionRef ?? (() => {})} />
         {/* A mention whose skill vanished after typing (W4): warning tone, same row language as the
             attachment fates — the last moment the degradation is actionable is before send. */}

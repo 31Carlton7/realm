@@ -1,4 +1,4 @@
-import { MAC_SKILL_ID, basenameOf, documentKindFor, fileLabelCandidates, isImageMime, isSecretPath, matchPath, mimeForPath, type AgentKind, type InstalledApp, type LibraryEntry, type Skill, type Teammate, type UnlabelledRef } from "@realm/contracts";
+import { MAC_SKILL_ID, MAX_TAB_REFS, allItems, basenameOf, documentKindFor, fileLabelCandidates, isImageMime, isSecretPath, matchPath, mimeForPath, type AgentKind, type InstalledApp, type Layout, type LibraryEntry, type SidePane, type Skill, type TabEntry, type Teammate, type UnlabelledRef } from "@realm/contracts";
 import type { IconName } from "@realm/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { STATE_LABEL, type SubagentState } from "../agents-tab/subagent-state";
@@ -6,7 +6,7 @@ import { briefLine } from "../../state/teammates-slice";
 
 /**
  * The prompter's one `@` list: files in the session's workspace, the Library, skills, the apps on
- * this Mac, and @Mac — the `mac` skill, which drives this Mac's own apps.
+ * this Mac, the space's panes (its tabs), and @Mac — the `mac` skill, which drives this Mac's own apps.
  *
  * Two shapes, by whether anything has been typed. A bare `@` is a short tour in a fixed order, each
  * kind under a quiet head, a few of each: nothing has been asked yet, so the list says what CAN be
@@ -28,7 +28,38 @@ export type MentionOption =
   | { kind: "role"; key: string; name: string; teammate: Teammate }
   /** One of this session's own sub-agents — one the person added, or one its agent started: sending
    *  passes it the message. */
-  | { kind: "agent"; key: string; name: string; sessionId: string; state: SubagentState; agentKind: AgentKind | null };
+  | { kind: "agent"; key: string; name: string; sessionId: string; state: SubagentState; agentKind: AgentKind | null }
+  /** One of the space's panes — a browser tab, a document, a terminal, a simulator: picking it puts
+   *  its card beside the draft, and sending hands the agent what it shows (`tab-context.ts`). */
+  | { kind: "tab"; key: string; name: string; tab: SpaceTab }
+  /** Every open pane at once, as one row. */
+  | { kind: "tabs"; key: string; name: string; tabs: SpaceTab[] };
+
+/** A pane as the `@` list offers it: the server's entry, and whether the window has it open — on
+ *  screen, or a tab behind one — which is what puts it first. */
+export type SpaceTab = TabEntry & { open: boolean };
+
+/** The row that hands over every open pane. */
+export const ALL_TABS_NAME = "All open tabs";
+
+/**
+ * The space's panes, the ones the window holds first: on screen, then open behind another tab or in
+ * a session's side pane that is off screen, then the rest — each group in the space's own order.
+ */
+export function rankTabs(entries: readonly TabEntry[], layout: Layout, sidePanes: Readonly<Record<string, SidePane>>): SpaceTab[] {
+  const shown = new Set<string>();
+  const open = new Set<string>();
+  const visit = (l: Layout) => {
+    if (l.type === "leaf") { if (l.itemId) shown.add(l.itemId); for (const t of l.tabs ?? []) open.add(t); return; }
+    l.children.forEach(visit);
+  };
+  visit(layout);
+  for (const id of allItems(layout)) open.add(id);
+  for (const side of Object.values(sidePanes)) for (const t of side.tabs) open.add(t);
+  const rank = (e: TabEntry) => (shown.has(e.itemId) ? 0 : open.has(e.itemId) ? 1 : 2);
+  return entries.map((e, i) => ({ e, i, r: rank(e) })).sort((a, b) => a.r - b.r || a.i - b.i)
+    .map(({ e, r }) => ({ ...e, open: r < 2 }));
+}
 
 /** One row as the picker draws it: the option, the quiet line after its name, and — in the tour —
  *  the head of the group it opens. */
@@ -43,17 +74,27 @@ export type FileHit = { path: string };
 
 /** How many of each kind the tour shows. A bare `@` is a sample, not an inventory: typing is how
  *  the rest is reached, and a tour longer than the popover hides its last group behind a scroll. */
-export const TOUR_CAPS = { agent: 4, role: 4, file: 4, library: 3, skill: 5, app: 5 } as const;
+export const TOUR_CAPS = { agent: 4, role: 4, tab: 5, file: 4, library: 3, skill: 5, app: 5 } as const;
 /** How many of each kind a typed answer may hold, so one kind with a thousand weak matches (files,
  *  on one letter) cannot push every other kind off the list. */
-export const RANKED_CAPS = { mac: 1, agent: 4, role: 4, skill: 4, app: 6, file: 6, library: 4 } as const;
+export const RANKED_CAPS = { mac: 1, agent: 4, role: 4, tabs: 1, tab: 5, skill: 4, app: 6, file: 6, library: 4 } as const;
 /** The order kinds break ties in — the special row, then what names a capability, then data. */
-const KIND_ORDER: Record<MentionOption["kind"], number> = { mac: 0, agent: 1, role: 1, skill: 2, app: 3, file: 4, library: 5 };
+const KIND_ORDER: Record<MentionOption["kind"], number> = { mac: 0, agent: 1, role: 1, skill: 2, app: 3, tabs: 4, tab: 4, file: 4, library: 5 };
 
 /** What @Mac says about itself in the list. */
 export const MAC_DETAIL = "Calendar, Reminders, Contacts and more on this Mac";
 
-const TYPE_LABEL: Record<MentionOption["kind"], string> = { mac: "Skill", agent: "Agent", role: "Teammate", skill: "Skill", file: "File", library: "Library", app: "Computer use" };
+const TYPE_LABEL: Record<MentionOption["kind"], string> = { mac: "Skill", agent: "Agent", role: "Teammate", skill: "Skill", file: "File", library: "Library", app: "Computer use", tab: "Tab", tabs: "Tabs" };
+
+/** What a pane is called where it has no address or file to show. */
+const TAB_KIND_LABEL: Record<TabEntry["kind"], string> = { browser: "Browser", documents: "Documents", terminal: "Terminal", simulator: "Simulator" };
+
+/** A pane's quiet line: a page's address without its scheme, or what kind of pane it is. A document is
+ *  named by its file already, so its line is its kind. */
+export function tabDetail(t: Pick<TabEntry, "kind" | "url">): string {
+  if (t.url) return t.url.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  return TAB_KIND_LABEL[t.kind];
+}
 
 /** The glyph a named file wears — what kind of file, at a glance. */
 export function fileMark(path: string): IconName {
@@ -66,7 +107,9 @@ const dirOf = (rel: string): string => { const cut = rel.lastIndexOf("/"); retur
 
 /** Every option this session could name, unranked — the sources joined, and nothing listed twice. */
 export function mentionOptions(src: { mac: Skill | null; skills: readonly Skill[]; files: readonly FileHit[]; cwd: string; library: readonly LibraryEntry[]; apps: readonly InstalledApp[]; teammates?: readonly Teammate[];
-  agents?: readonly SessionAgent[] }): MentionOption[] {
+  agents?: readonly SessionAgent[]; tabs?: readonly SpaceTab[] }): MentionOption[] {
+  const tabs = src.tabs ?? [];
+  const open = tabs.filter((t) => t.open).slice(0, MAX_TAB_REFS);
   const root = src.cwd.replace(/\/+$/, "");
   const files: MentionOption[] = src.files.filter((f) => !isSecretPath(f.path)).map((f) => ({ kind: "file", key: `file:${f.path}`, name: basenameOf(f.path), rel: f.path, path: `${root}/${f.path}` }));
   const filePaths = new Set(files.map((f) => (f as Extract<MentionOption, { kind: "file" }>).path));
@@ -80,6 +123,8 @@ export function mentionOptions(src: { mac: Skill | null; skills: readonly Skill[
     ...(src.mac ? [{ kind: "mac", key: "mac", name: MAC_SKILL_ID, skill: src.mac } as MentionOption] : []),
     ...(src.agents ?? []).map((a): MentionOption => ({ kind: "agent", key: `agent:${a.id}`, name: a.title, sessionId: a.id, state: a.state, agentKind: a.agentKind })),
     ...(src.teammates ?? []).map((t): MentionOption => ({ kind: "role", key: `role:${t.id}`, name: t.handle, teammate: t })),
+    ...(open.length > 0 ? [{ kind: "tabs", key: "tabs:all", name: ALL_TABS_NAME, tabs: open } as MentionOption] : []),
+    ...tabs.map((t): MentionOption => ({ kind: "tab", key: `tab:${t.itemId}`, name: t.title || TAB_KIND_LABEL[t.kind], tab: t })),
     ...files,
     ...library,
     // @Mac is the `mac` skill; it is listed once, as itself.
@@ -103,6 +148,8 @@ export function scoreOption(o: MentionOption, query: string): { score: number; l
     : o.kind === "skill" ? [o.skill.id, o.skill.name]
     : o.kind === "mac" ? [MAC_SKILL_ID, "macOS"]
     : o.kind === "role" ? [o.name, o.teammate.name]
+    : o.kind === "tab" ? [o.name, ...(o.tab.url ? [tabDetail(o.tab)] : []), ...(o.tab.path ? [basenameOf(o.tab.path)] : [])]
+    : o.kind === "tabs" ? [o.name, "tabs"]
     : [o.name];
   const q = query.toLowerCase();
   let best: { score: number; len: number } | null = null;
@@ -127,6 +174,8 @@ function detailOf(o: MentionOption, ranked: boolean, accessibility: boolean | nu
     : o.kind === "mac" ? MAC_DETAIL
     : o.kind === "role" ? teammateDetail(o.teammate)
     : o.kind === "agent" ? `${STATE_LABEL[o.state]} · gets the message too`
+    : o.kind === "tab" ? tabDetail(o.tab)
+    : o.kind === "tabs" ? (o.tabs.length === 1 ? "1 tab" : `${o.tabs.length} tabs`)
     // What the mention does to an app, and — said, not hidden — when macOS has not let it happen.
     : accessibility === false ? "needs Accessibility" : "";
   if (o.kind === "app") return detail ? `${TYPE_LABEL.app} · ${detail}` : TYPE_LABEL.app;
@@ -134,7 +183,7 @@ function detailOf(o: MentionOption, ranked: boolean, accessibility: boolean | nu
   return detail ? `${TYPE_LABEL[o.kind]} · ${detail}` : TYPE_LABEL[o.kind];
 }
 
-const HEAD: Record<Exclude<MentionOption["kind"], "mac">, string> = { agent: "In this session", role: "Team", file: "Files", library: "Library", skill: "Skills", app: "Apps" };
+const HEAD: Record<Exclude<MentionOption["kind"], "mac" | "tabs">, string> = { agent: "In this session", role: "Team", tab: "Tabs", file: "Files", library: "Library", skill: "Skills", app: "Apps" };
 
 /** A teammate's line in the list: what it does, and that naming it hands it the message. */
 function teammateDetail(t: Teammate): string {
@@ -161,22 +210,24 @@ export function mentionRows(options: readonly MentionOption[], query: string, op
     const out: MentionRow[] = [];
     const mac = options.find((o) => o.kind === "mac");
     if (mac) out.push({ ...mac, detail: detailOf(mac, false, a11y) });
-    for (const kind of ["agent", "role", "file", "library", "skill", "app"] as const) {
+    for (const kind of ["agent", "role", "tab", "file", "library", "skill", "app"] as const) {
       let group = options.filter((o) => o.kind === kind);
+      // The tabs open with the one row that takes every open tab, under the group's head.
+      if (kind === "tab") group = [...options.filter((o) => o.kind === "tabs"), ...group.slice(0, TOUR_CAPS.tab)];
       if (kind === "app") {
         group = [...group].sort((x, y) => {
           const dx = (x as Extract<MentionOption, { kind: "app" }>).app.dock, dy = (y as Extract<MentionOption, { kind: "app" }>).app.dock;
           return (dx ?? Infinity) - (dy ?? Infinity) || x.name.localeCompare(y.name, undefined, { sensitivity: "base" });
         });
       }
-      group.slice(0, TOUR_CAPS[kind]).forEach((o, i) => out.push({ ...o, detail: detailOf(o, false, a11y), ...(i === 0 ? { head: HEAD[kind] } : {}) }));
+      group.slice(0, kind === "tab" ? group.length : TOUR_CAPS[kind]).forEach((o, i) => out.push({ ...o, detail: detailOf(o, false, a11y), ...(i === 0 ? { head: HEAD[kind] } : {}) }));
     }
     return out;
   }
   const scored: { o: MentionOption; score: number; len: number }[] = [];
   const order = (x: { o: MentionOption; score: number; len: number }, y: { o: MentionOption; score: number; len: number }) =>
     y.score - x.score || x.len - y.len || KIND_ORDER[x.o.kind] - KIND_ORDER[y.o.kind] || (x.o.name < y.o.name ? -1 : x.o.name > y.o.name ? 1 : 0);
-  for (const kind of ["mac", "agent", "role", "skill", "app", "file", "library"] as const) {
+  for (const kind of ["mac", "agent", "role", "tabs", "tab", "skill", "app", "file", "library"] as const) {
     const hits = options.filter((o) => o.kind === kind).flatMap((o) => { const s = scoreOption(o, q); return s === null ? [] : [{ o, ...s }]; });
     hits.sort(order);
     scored.push(...hits.slice(0, RANKED_CAPS[kind]));
@@ -222,6 +273,10 @@ export type MentionSources = {
   /** The one click that gets Accessibility from where it was missed — Allow (or Repair, for a grant
    *  macOS stopped honouring) — with its label and what it will do. Absent where nothing can ask. */
   accessibilityAction?: { label: string; title: string | null; busy: boolean; run(): void } | null;
+  /** The space's panes, the window's open ones first (`rankTabs`), read when the list opens. */
+  tabs?(): Promise<SpaceTab[]>;
+  /** Put these panes' cards beside the draft. */
+  addTabs?(tabs: readonly SpaceTab[]): void;
   /** The checkout's files ranked against `query` (the server's `mentions.files`). */
   files(query: string): Promise<FileHit[]>;
   /** The Library's files whose names contain `query`, newest first. */
@@ -238,14 +293,22 @@ export type MentionSources = {
  * so a row the new query rules out never lingers for a round trip. An answer that arrives after a
  * newer one was asked for is dropped.
  */
-export function useMentionAnswers(src: MentionSources | undefined, query: string | null): { files: FileHit[]; library: LibraryEntry[] } {
+export function useMentionAnswers(src: MentionSources | undefined, query: string | null): { files: FileHit[]; library: LibraryEntry[]; tabs: SpaceTab[] } {
   const [answer, setAnswer] = useState<{ files: FileHit[]; library: LibraryEntry[] }>({ files: [], library: [] });
+  const [tabs, setTabs] = useState<SpaceTab[]>([]);
   const asked = useRef(0);
   const open = query !== null;
   // Keyed on the source's FUNCTIONS, which the pane holds still, never on the object: it is rebuilt
   // whenever an icon arrives, and a fetch keyed on it would ask the server again for every icon.
-  const onOpen = src?.onOpen, files = src?.files, library = src?.library;
+  const onOpen = src?.onOpen, files = src?.files, library = src?.library, listTabs = src?.tabs;
   useEffect(() => { if (open) onOpen?.(); }, [open, onOpen]);
+  // The panes are read once per opening rather than per keystroke: the typed word only narrows them.
+  useEffect(() => {
+    if (!open || !listTabs) return;
+    let live = true;
+    void listTabs().catch(() => [] as SpaceTab[]).then((t) => { if (live) setTabs(t); });
+    return () => { live = false; };
+  }, [open, listTabs]);
   useEffect(() => {
     if (!files || !library || query === null) return;
     const n = ++asked.current;
@@ -255,8 +318,8 @@ export function useMentionAnswers(src: MentionSources | undefined, query: string
     return () => { live = false; };
   }, [files, library, query]);
   return useMemo(() => {
-    if (!query?.trim()) return answer;
+    if (!query?.trim()) return { ...answer, tabs };
     const q = query.trim();
-    return { files: answer.files.filter((f) => matchPath(f.path, q)), library: answer.library.filter((e) => matchPath(e.name, q)) };
-  }, [answer, query]);
+    return { files: answer.files.filter((f) => matchPath(f.path, q)), library: answer.library.filter((e) => matchPath(e.name, q)), tabs };
+  }, [answer, tabs, query]);
 }

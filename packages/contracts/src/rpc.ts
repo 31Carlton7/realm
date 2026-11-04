@@ -52,6 +52,7 @@ import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectur
 import { ExecutionSandboxPolicySchema, ExecutionSandboxPrefsSchema } from "./execution-sandbox";
 import { AskAnswersSchema } from "./ui-ask";
 import { TerminalProgramSchema, TerminalStatusSchema } from "./terminal-programs";
+import { MAX_TAB_REFS, TAB_KINDS, TabCardSchema, TabRefSchema } from "./tab-context";
 
 export const RpcRequestSchema = z.object({ id: z.string(), method: z.string(), params: z.unknown() });
 export const RpcErrorSchema = z.object({ code: z.string(), message: z.string() });
@@ -1647,6 +1648,16 @@ export const Methods = {
     }),
     result: ProjectFilesResultSchema,
   },
+  /** The panes of a session's space that the `@` list can hand over as context (`tab-context.ts`):
+   *  its browser tabs, documents, terminals and simulators, unarchived, with a page's address and a
+   *  document's open file. Which of them are on screen is the window's to say, not the server's. */
+  "tabs.list": {
+    params: z.object({ sessionId: IdSchema }),
+    result: z.object({ tabs: z.array(z.object({ itemId: IdSchema, kind: z.enum(TAB_KINDS), title: z.string(), favicon: z.string(), url: z.string().optional(), path: z.string().optional() })) }),
+  },
+  /** Read one pane as a send would, and say what it comes to — its size, and whether it was cut —
+   *  without keeping any of it. What the card in the prompter shows before sending. */
+  "tabs.preview": { params: z.object({ sessionId: IdSchema, tab: TabRefSchema }), result: TabCardSchema },
   /** `git add` for exactly these paths — per file, not per hunk. See git-write.ts for why. */
   "workspace.stage": { params: z.object({ cwd: z.string(), paths: z.array(z.string()).min(1) }), result: z.object({ ok: z.literal(true) }) },
   /** Take these paths back out of the index. Never touches the working tree. */
@@ -2096,14 +2107,14 @@ export const Methods = {
   /** `mentions`: the skill ids the prompter recognised as `@`-mentions in `text` (Plan 8 W4). The
    *  server re-validates each against the live library before anything resolves — a raw `@name` never
    *  reaches an agent wire, and a stale id degrades to plain text (see `mentions.ts`). */
-  /** `text` may be empty ONLY when attachments carry the message (Plan 14 W5 — attachment-only
+  /** `text` may be empty ONLY when attachments or tabs carry the message (Plan 14 W5 — attachment-only
    *  sends). A message with neither is nothing at all and is refused here, not by an adapter.
    *
    *  `elements` is OPTIONAL rather than defaulted, and the prompter omits the key outright when the
    *  draft has no element chips — so a message that never touched a browser pane puts exactly the
    *  bytes on this wire that it always has. */
-  "sessions.send":   { params: z.object({ id: IdSchema, text: z.string(), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]), mentions: z.array(SkillIdSchema).max(32).default([]), elements: z.array(ElementChipSchema).max(MAX_ELEMENT_CHIPS).optional(), sessionRefs: z.array(SessionRefSchema).max(MAX_SESSION_REFS).optional(), mentionRefs: z.array(MentionRefSchema).max(MAX_MENTION_REFS).optional(), delivery: z.enum(["auto", "queue", "steer"]).default("auto") })
-    .refine((p) => p.text.length > 0 || p.attachments.length > 0, { message: "a message needs text or at least one attachment" }), result: z.object({ ok: z.literal(true) }) },
+  "sessions.send":   { params: z.object({ id: IdSchema, text: z.string(), attachments: z.array(z.object({ path: z.string(), mime: z.string() })).default([]), mentions: z.array(SkillIdSchema).max(32).default([]), elements: z.array(ElementChipSchema).max(MAX_ELEMENT_CHIPS).optional(), sessionRefs: z.array(SessionRefSchema).max(MAX_SESSION_REFS).optional(), mentionRefs: z.array(MentionRefSchema).max(MAX_MENTION_REFS).optional(), tabs: z.array(TabRefSchema).max(MAX_TAB_REFS).optional(), delivery: z.enum(["auto", "queue", "steer"]).default("auto") })
+    .refine((p) => p.text.length > 0 || p.attachments.length > 0 || (p.tabs?.length ?? 0) > 0, { message: "a message needs text, an attachment or a tab" }), result: z.object({ ok: z.literal(true) }) },
   /** Drop one message off the queue before its turn comes. `queuedId` rather than an index: the queue
    *  drains on its own as turns settle, so an index the prompter read a moment ago may already name a
    *  different message. Unknown ids are a no-op — the drain that removed it got there first. */

@@ -1,7 +1,7 @@
 import { CONNECTORS, connectorServerName, describeLink, expandLinkChips, keepLiveLinks, linkChipLabel, type LinkChip , type StoredTheme, type InstalledFont, type CatalogFont, MAX_SESSION_REFS, type SessionRef, type DelegationOutcome, type DelegatedChild, type DelegableModel, type AddTeammate } from "@realm/contracts";
 import { CARET_DEFAULT, CARET_KEY, parseCaretPrefs, type CaretPrefs, type CaretShape, type UnlockPolicy, type UnlockPolicyStatus } from "@realm/contracts";
 import { destinationTarget, pageHidesSidebar } from "./page-item";
-import { MAC_SKILL_ID, keepLiveRefs, mentionRefLabel, type AppViewRef, type InstalledApp, type MentionRef, type UnlabelledRef } from "@realm/contracts";
+import { MAC_SKILL_ID, MAX_TAB_REFS, keepLiveRefs, mentionRefLabel, type AppViewRef, type InstalledApp, type MentionRef, type TabCard, type TabEntry, type TabRef, type UnlabelledRef } from "@realm/contracts";
 import type { SavedTurn } from "@realm/contracts";
 import { memoryLearningKey, memoryLearningOn } from "@realm/contracts";
 import { attachmentDisposition } from "@realm/contracts";
@@ -48,6 +48,7 @@ import { emptyTranscript, lastUserMessage, prependTranscript, reduceTranscript, 
 import { CARRIED_LIMIT, CARRIED_TYPES, EARLIER_EVENTS, TAIL_EVENTS, readBack } from "./transcript-paging";
 import { activityOf, type SessionActivity } from "./session-activity";
 import { exportFileName, exportSessionMarkdown } from "../panes/session/export-session";
+import { rankTabs, type SpaceTab } from "../panes/session/mention-sources";
 import type { SharedSession } from "../panes/session/share/page";
 import { draftRun, withOptions } from "../panes/session/draft-run";
 import { usableModel } from "../panes/session/model-catalog";
@@ -98,6 +99,9 @@ export type SessionOptions = { model?: string; effort?: string | null; permissio
 /** A pending attachment as the prompter holds it. `path`/`mime` are the wire fields; `name` labels the
  *  chip and `size` is what the MAX_ATTACHMENT_BYTES check reads — neither is transmitted. */
 export type PickedAttachment = Attachment & { name: string; size: number };
+/** A pane's card in a draft: the pane as the `@` list offered it, and its preview once read (null
+ *  while the read is on its way). */
+export type DraftTab = TabEntry & { card: TabCard | null };
 export { FALLBACK_AGENT };
 export type PermissionDecision = "allow" | "allow_always" | "deny";
 /** Where a sidebar row was dropped on a pane: an edge splits there, center replaces the pane's item.
@@ -390,7 +394,11 @@ export type Api = TeammatesApi & {
   memorySources(sessionId: string): Promise<MemorySources>;
   /** `mentions` are the skill ids the draft's `@`-tokens were recognised as; the server re-validates
    *  and resolves them so a raw `@name` never reaches an agent (contracts/mentions.ts). */
-  sendMessage(id: string, text: string, attachments: Attachment[], mentions: string[], elements?: ElementChip[], delivery?: "auto" | "queue" | "steer", sessionRefs?: SessionRef[], mentionRefs?: MentionRef[]): Promise<void>;
+  sendMessage(id: string, text: string, attachments: Attachment[], mentions: string[], elements?: ElementChip[], delivery?: "auto" | "queue" | "steer", sessionRefs?: SessionRef[], mentionRefs?: MentionRef[], tabs?: TabRef[]): Promise<void>;
+  /** The session's space's panes the `@` list can hand over (`tabs.list`). */
+  listTabs(sessionId: string): Promise<{ tabs: TabEntry[] }>;
+  /** One pane read as a send would read it, for its card's size (`tabs.preview`). */
+  previewTab(sessionId: string, tab: TabRef): Promise<TabCard>;
   /** `mentions.files` — the session's checkout ranked for the `@` list, secrets left out server-side. */
   mentionFiles(sessionId: string, query: string, limit?: number): Promise<ProjectFilesResult>;
   interruptSession(id: string): Promise<void>;
@@ -1510,6 +1518,9 @@ export type AppState = TeammatesSlice & {
   /** Per session: what the draft's `@[…]` tokens for files, Library items and apps stand for, kept
    *  alive by the rule the other sidecars follow — an entry lives while its token does. */
   draftRefs: Record<string, MentionRef[]>;
+  /** Per session: the panes picked from the `@` list's Tabs, as cards beside the box. No token in the
+   *  text, like `draftSessionRefs`: a card is a thing attached, and goes when its × is pressed. */
+  draftTabs: Record<string, DraftTab[]>;
   /** The apps on this Mac as main last listed them, or null before the `@` list first asked. */
   installedApps: InstalledApp[] | null;
   /** App icons by bundle path: a data URL, or null for an app whose icon main could not read. */
@@ -2409,6 +2420,14 @@ export type AppState = TeammatesSlice & {
   /** Point this draft at another session. Answers why it refused, so the pane can say so. */
   addSessionRef(sessionId: string, ref: SessionRef): "ok" | "self" | "duplicate" | "full";
   removeSessionRef(sessionId: string, refId: string): void;
+  /** The space's panes for the `@` list, the window's open ones first. */
+  spaceTabs(sessionId: string): Promise<SpaceTab[]>;
+  /** Put these panes' cards beside the draft and read each one's size. A pane already there, or past
+   *  `MAX_TAB_REFS`, is left out. */
+  addDraftTabs(sessionId: string, tabs: readonly TabEntry[]): void;
+  removeDraftTab(sessionId: string, itemId: string): void;
+  /** A sent card was clicked: go to its pane, or say it is closed. */
+  openTabCard(card: TabCard): Promise<void>;
   /** Register a pasted link as a chip and hand back the chip, or null for a URL Realm cannot name
    *  (`describeLink`) — in which case the paste goes through as text. The composer inserts the
    *  token at its caret; this only owns the sidecar, which is why it does not touch the draft. */
@@ -4571,7 +4590,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       laya: null,
       savedTurns: {}, savedTurnsRev: 0, promptFor: null,
       spacePageTab: {}, spaceSessionsView: {}, sessionReplies: {}, profilePageTab: {}, settingsPageTab: "general", libraryTab: {}, memoryLibraryRev: 0, librarySkill: {}, mcpPanelSpaceId: null,
-      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionActivityAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, accounts: [], accountSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, unlockPolicy: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, computerAwaiting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
+      sessions: {}, sessionStatus: {}, sessionActivity: {}, sessionSpace: {}, sessionUpdatedAt: {}, sessionActivityAt: {}, allSessions: {}, transcripts: {}, agentProbe: [], agentsProbed: false, cliStatus: [], cliJobs: {}, agentSignIns: {}, accounts: [], accountSignIns: {}, modelCheck: null, settingsPrefs: null, tccRows: null, credentials: null, credentialStatus: null, passkeys: null, credentialsProfileId: null, unlockPolicy: null, macAccess: null, macGranting: null, macGrantQueue: [], computerAccess: null, computerRequesting: null, computerAwaiting: null, updateStatus: null, drafts: {}, pendingAttachments: {}, draftMentions: {}, draftElements: {}, draftSessionRefs: {}, draftLinks: {}, draftRefs: {}, draftTabs: {}, installedApps: null, appIcons: {}, spaceSkills: {}, skillsRoot: "", spaceCommands: {}, spaceScripts: {}, spaceMemory: {}, sessionMemorySources: {}, planReturn: {}, gitInfo: {}, iconAssets: {}, modelFavorites: [], fastSupport: {}, effortSupport: {}, modelInfo: {}, spaceSkillSources: {},
       diffs: {}, diffLoading: {}, patches: {}, commitMessages: {}, shipResults: {}, shipping: {}, reviews: {}, reviewing: {},
       worktreeStatuses: {}, worktreeBranches: {}, worktreeAckStale: null,
       checkpoints: {}, ships: {}, runs: {}, schedules: {}, scheduleRuns: {}, selectedRunId: {}, runAttempts: {}, delegatedRuns: {}, subagents: {}, dismissedSubagents: {}, agentsAsk: {}, agentsShown: {}, reportsOpen: {}, checkpointPreview: null, checkpointAckStale: false, restoreResult: null, envCheckpoints: {}, diffTurns: {}, turnPatches: {},
@@ -5603,8 +5622,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           const { [it.refId]: _dsr, ...draftSessionRefs } = get().draftSessionRefs; // likewise
           const { [it.refId]: _dl, ...draftLinks } = get().draftLinks;
           const { [it.refId]: _drf, ...draftRefs } = get().draftRefs;
+          const { [it.refId]: _dt, ...draftTabs } = get().draftTabs;
           const { [it.refId]: _ac, ...sessionActivity } = get().sessionActivity;
-          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, draftRefs, planReturn, sessionSpace, sessionUpdatedAt, sessionActivityAt, allSessions, sessionTerminals, sessionDock, sessionActivity });
+          set({ sessionStatus, sessions, drafts, pendingAttachments, draftMentions, draftElements, draftSessionRefs, draftLinks, draftRefs, draftTabs, planReturn, sessionSpace, sessionUpdatedAt, sessionActivityAt, allSessions, sessionTerminals, sessionDock, sessionActivity });
         }
       },
       async splitFocused(dir) {
@@ -6338,6 +6358,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const refs = get().draftSessionRefs[id] ?? [];
         // The named files and apps, re-derived from the FINAL text like the elements above.
         const named = keepLiveRefs(text, get().draftRefs[id] ?? []);
+        // The panes' cards, which have no token to re-derive from: what is beside the box goes.
+        const tabs = get().draftTabs[id] ?? [];
         // The prompter empties its box as this goes. A send that fails puts the draft back, chips and
         // all, unless something new has been typed there since — the attachments above stay for the
         // same reason.
@@ -6346,7 +6368,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           draftLinks: get().draftLinks[id] ?? [], draftRefs: get().draftRefs[id] ?? [],
         } : null;
         try {
-          await api.sendMessage(id, wire, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements, undefined, refs, named);
+          await api.sendMessage(id, wire, pending.map(({ path, mime }) => ({ path, mime })), mentions, elements, undefined, refs, named,
+            tabs.map(({ itemId, kind, title }) => ({ itemId, kind, title })));
         } catch (e) {
           if (draft && !get().drafts[id]) {
             set({ drafts: { ...get().drafts, [id]: draft.drafts }, draftMentions: { ...get().draftMentions, [id]: draft.draftMentions },
@@ -6358,6 +6381,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // The quick chat's model is a throwaway choice, not the one the next session should start on.
         if (get().quickChat?.sessionId !== id) rememberSentOn(id);
         if (refs.length) set({ draftSessionRefs: { ...get().draftSessionRefs, [id]: [] } });
+        if (tabs.length) {
+          const sent = new Set(tabs.map((t) => t.itemId));
+          set({ draftTabs: { ...get().draftTabs, [id]: (get().draftTabs[id] ?? []).filter((t) => !sent.has(t.itemId)) } });
+        }
         // Only AFTER the send lands, and only the ones that went: a rejected send that also emptied the
         // chip row would leave the user with no record of what they had attached, and a file dragged in
         // while the request was in flight was never part of this message.
@@ -7001,6 +7028,38 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       removeSessionRef(sessionId, refId) {
         const refs = get().draftSessionRefs[sessionId] ?? [];
         set({ draftSessionRefs: { ...get().draftSessionRefs, [sessionId]: refs.filter((r) => r.sessionId !== refId) } });
+      },
+      async spaceTabs(sessionId) {
+        const { tabs } = await api.listTabs(sessionId);
+        const view = get().view;
+        return rankTabs(tabs, get().layout ?? view?.layout ?? { type: "leaf", id: "", itemId: null }, view?.sidePanes ?? {});
+      },
+      addDraftTabs(sessionId, tabs) {
+        const have = get().draftTabs[sessionId] ?? [];
+        const added = tabs.filter((t, i) => !have.some((h) => h.itemId === t.itemId) && tabs.findIndex((x) => x.itemId === t.itemId) === i)
+          .slice(0, Math.max(0, MAX_TAB_REFS - have.length))
+          .map(({ itemId, kind, title, favicon, url, path }): DraftTab => ({ itemId, kind, title, favicon, ...(url ? { url } : {}), ...(path ? { path } : {}), card: null }));
+        if (added.length === 0) return;
+        set({ draftTabs: { ...get().draftTabs, [sessionId]: [...have, ...added] } });
+        for (const t of added) {
+          void api.previewTab(sessionId, { itemId: t.itemId, kind: t.kind, title: t.title })
+            .catch((): TabCard => ({ itemId: t.itemId, kind: t.kind, title: t.title, bytes: 0, truncated: false, closed: true }))
+            .then((card) => {
+              // Removed while it was read: the answer is for a card that is no longer there.
+              const now = get().draftTabs[sessionId] ?? [];
+              if (!now.some((x) => x.itemId === t.itemId)) return;
+              set({ draftTabs: { ...get().draftTabs, [sessionId]: now.map((x) => (x.itemId === t.itemId ? { ...x, card } : x)) } });
+            });
+        }
+      },
+      removeDraftTab(sessionId, itemId) {
+        const tabs = get().draftTabs[sessionId] ?? [];
+        set({ draftTabs: { ...get().draftTabs, [sessionId]: tabs.filter((t) => t.itemId !== itemId) } });
+      },
+      async openTabCard(card) {
+        const item = get().items.find((i) => i.id === card.itemId && !i.archived);
+        if (!item) { get().toast({ text: `${card.title || "That tab"} is closed.`, tone: "info", icon: card.kind }); return; }
+        await get().openItem(item.id);
       },
       addElementChip(sessionId, element) {
         const draft = get().drafts[sessionId] ?? "";
