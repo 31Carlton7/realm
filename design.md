@@ -1085,9 +1085,12 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   teammate nests under the session that asked for it, counted with a ↳ on that session's row.
 - A teammate's computer is a tab of its chat's side panel, as Reason draws its right panel: the
   machine and its state in words with Stop beside it while anything runs; Files, Terminal and
-  Simulator, which open in its folder as the panel's own "+" would; then Sessions, newest first, each
-  with its age and its dot. Quiet rows on the panel's ground — no boxes, no cards, no chips. A session
-  opens beside the chat as a peek, and opens properly from there.
+  Simulator, which open in its folder as the panel's own "+" would; then Sessions, newest first, eight
+  of them before Show all. A row ends in ONE mark: the amber dot while it waits on you, the spinner
+  while it works, else its age. Unread is the title's weight, never a dot, so amber is the only colour
+  in the list. Quiet rows on the panel's ground — no boxes, no cards, no chips. A session opens beside
+  the chat as a peek, and opens properly from there; its right-click is the sidebar row's menu, since
+  this list is where the session is reached.
 - The Lead stands first in the Team list and wears a small star, and is otherwise one of the team.
   What a teammate needs from you is said on its row and in Needs you, as for any session; a question
   it asks is Realm's one question card, which already says who asks.
