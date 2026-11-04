@@ -73,8 +73,7 @@ function VoiceWindow({ sessionId, held }: { sessionId: string; held: boolean }) 
   const name = teammate?.name ?? (session ? AGENT_META[session.agentKind].label : "The agent");
   const title = teammate?.name ?? (session?.title.trim() || name);
   const [snap, setSnap] = useState<VoiceSnapshot>(STARTING);
-  // Once the view has faded in, the window under it steps out, so what shows through is the
-  // window's material and not the panes.
+  // Once the view has faded in, the window under it stops painting.
   const [opened, setOpened] = useState(() => prefersReducedMotion());
   const ctl = useRef<VoiceSession | null>(null);
   const audio = useRef<VoiceAudio | null>(null);

@@ -5245,9 +5245,12 @@ describe("voice mode", () => {
     expect(bodiesFor('.voice-view[data-phase="working"] .voice-bars > span').join(" ")).toContain("animation: rl-voice-working");
     expect(css).toMatch(/@keyframes rl-voice-working/);
     expect(bodiesFor('.voice-key[data-key="end"] .voice-disc').join(" ")).toContain("background: var(--rl-danger-fill)");
-    // On the panes' ground, so the window's material shows under it and its caption keeps the
-    // reading's contrast.
-    expect(bodiesFor(".voice-view").join(" ")).toContain("background: var(--pane-ground)");
+  });
+  it("covers the window in the opaque working ground, with no material or blur behind it", () => {
+    // THE MUTANT: the view back on --pane-ground, an alpha of the canvas the window's material shows through.
+    const view = bodiesFor(".voice-view").join(" ");
+    expect(view).toContain("background: var(--rl-panel)");
+    expect(view).not.toMatch(/pane-ground|backdrop-filter|transparent/);
   });
   it("hangs the stack from a fixed top, so the bars stay put while a caption comes and goes", () => {
     // THE MUTANT: the stack centred again — the bars jump about 90px each time the caption appears.
