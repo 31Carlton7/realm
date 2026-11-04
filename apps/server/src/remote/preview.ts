@@ -18,6 +18,7 @@ import type { MobileResult } from "@realm/remote";
  */
 
 export type FilePreview = MobileResult<"session.file">;
+export type FileData = MobileResult<"session.fileData">;
 
 /** The longer side of a picture the phone is sent, in pixels. */
 export const PREVIEW_MAX_PX = 1024;
@@ -25,6 +26,10 @@ export const PREVIEW_MAX_PX = 1024;
 export const PREVIEW_MAX_BYTES = 512 * 1024;
 /** How much of a text file's head is sent. */
 export const TEXT_HEAD_BYTES = 16 * 1024;
+/** How much of a file one `session.fileData` answer carries. */
+export const FILE_PIECE_BYTES = 512 * 1024;
+/** The largest file a phone is sent whole: a few minutes of video, and a few hundred answers. */
+export const FILE_DATA_MAX_BYTES = 256 * 1024 * 1024;
 /** A picture larger than this is not opened at all: `sips` would spend seconds on it. */
 const IMAGE_MAX_INPUT_BYTES = 64 * 1024 * 1024;
 
@@ -83,11 +88,17 @@ async function head(path: string, bytes: number): Promise<Buffer> {
   }
 }
 
-export async function filePreview(path: string, o: { downscale?: Downscale } = {}): Promise<FilePreview> {
+/** The plain file at `path`, or a refusal: a link could point anywhere. */
+async function plainFile(path: string) {
   if (!isAbsolute(path)) throw new PreviewRefused("Realm previews a file by its full path on this Mac.");
   const s = await lstat(path);
   if (s.isSymbolicLink()) throw new PreviewRefused("That is a link to another file, and Realm previews only the file a turn made.");
   if (!s.isFile()) throw new PreviewRefused("That is not a file.");
+  return s;
+}
+
+export async function filePreview(path: string, o: { downscale?: Downscale } = {}): Promise<FilePreview> {
+  const s = await plainFile(path);
   const mime = mimeForPath(path);
   const base = { path, name: basename(path), size: s.size, mime };
 
@@ -112,4 +123,23 @@ export async function filePreview(path: string, o: { downscale?: Downscale } = {
   const text = textOf(cut ? bytes.subarray(0, TEXT_HEAD_BYTES) : bytes, cut);
   if (text === null) return { ...base, preview: { kind: "none", reason: "This file has no preview on the phone." } };
   return { ...base, preview: { kind: "text", text, truncated: cut } };
+}
+
+/** FILE_PIECE_BYTES of the file at `path`, from byte `from`. Each piece says the file's size, so a phone
+ *  sees a file that changed between two pieces. */
+export async function fileData(path: string, from: number): Promise<FileData> {
+  const s = await plainFile(path);
+  if (s.size > FILE_DATA_MAX_BYTES) throw new PreviewRefused("This file is too large to open on the phone.");
+  const f = await open(path, "r");
+  try {
+    const buf = Buffer.alloc(Math.max(0, Math.min(FILE_PIECE_BYTES, s.size - from)));
+    const { bytesRead } = await f.read(buf, 0, buf.length, from);
+    const next = from + bytesRead;
+    return {
+      path, name: basename(path), size: s.size, mime: mimeForPath(path),
+      from, data: buf.subarray(0, bytesRead).toString("base64"), next: next < s.size && bytesRead > 0 ? next : null,
+    };
+  } finally {
+    await f.close();
+  }
 }

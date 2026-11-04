@@ -1,5 +1,5 @@
 import { LINK_SERVICE_META, MAC_SKILL_ID, elementChipToken, scanElementChips, type LinkChip, type MentionRef, type SessionRef, type UnlabelledRef } from "@realm/contracts";
-import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, formatAttachmentSize, isDirectoryMime, steerInterrupts, steerNote, tightestWindow, currentAlert, type AcpSessionMode, type MidTurnMode, type PlanLimits, type AgentKind, type DiffSummary, type Environment, type GitInfo, type McpServer, type ModelInfo, type QueuedPrompt, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
+import { AGENT_META, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_MODEL_LABEL, SELECTABLE_AGENT_KINDS, AGENT_SUPPORTS_PLAN_MODE, PERMISSION_MODES, SESSION_MODES, acpAskMode, acpPlanMode, sessionModeOf, attachmentDisposition, attachmentNote, attachmentSummary, basenameOf, formatAttachmentSize, isDirectoryMime, steerInterrupts, steerNote, tightestWindow, currentAlert, type AcpSessionMode, type MidTurnMode, type PlanLimits, type AgentKind, type DiffSummary, type Environment, type GitInfo, type McpServer, type ModelInfo, type QueuedPrompt, type MoveTarget, type Session, type SessionMode, type SessionStatus, type Skill } from "@realm/contracts";
 import { Icon, type IconName } from "@realm/ui";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
@@ -391,7 +391,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onSwitchAgent, account, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
+export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onSwitchAgent, account, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, onMoveSession, pendingMove = null, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** The checkout's changed files (`workspace.diff`), for the pill over the card. */
   changes?: DiffSummary | null;
@@ -506,6 +506,11 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
   onSelectEnvironment?: (environmentId: string) => void;
   /** Absent where the space is a plain folder: it has no worktrees, so the menu offers none. */
   onNewWorktree?: () => void;
+  /** A started session's selector: picking another checkout, or New worktree, asks to move it there
+   *  (the Move sheet) rather than switching. Absent, a started session's chip is a label. */
+  onMoveSession?: (to: MoveTarget) => void;
+  /** A move waiting for this turn to end, which the queue says and can call off. */
+  pendingMove?: { to: string; onCancel: () => void } | null;
   /** The profile's other spaces, for the chip's "Move to …" rows (Plan 27). A new session goes to the
    *  space of the session in focus; this is where that guess is corrected, on the same before-the-
    *  first-message terms as the checkout — and the server's guard is the enforcement, as there. */
@@ -923,22 +928,31 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
   // named by its branch, and wears the branch.
   const spaceMark = spaceIcon ? <SpaceIcon icon={spaceIcon} size={12} /> : "folder";
   const envIcon = currentEnv?.kind === "worktree" ? "branch" : spaceMark;
-  // Menu only while the session has no events — ChipMenu with no items degrades to a caret-less label,
-  // exactly the after-first-message rule. Same guard the agent switch reads; the server enforces it
-  // regardless, so this is the honest affordance, not the enforcement. A plain folder's session with
+  // Before the first event a pick switches the checkout outright; ChipMenu with no items degrades to a
+  // caret-less label. Same guard the agent switch reads; the server enforces it regardless, so this is
+  // the honest affordance, not the enforcement. A plain folder's session with
   // nowhere to move to has nothing to choose at all, and gets the label too rather than a menu whose
   // one row is the checkout it is already in.
   const choosable = environments.length > 1 || onNewWorktree !== undefined || otherSpaces.length > 0;
-  const envItems: MenuItem[] = !canSwitchAgent || !choosable ? [] : [
-    ...environments.map((e): MenuItem => ({ label: environmentLabel(e, spaceName), checked: e.id === session.environmentId, onSelect: () => onSelectEnvironment?.(e.id),
+  // A started session moves instead (the Move sheet), and only between checkouts: another space is the
+  // sidebar's to offer. While a move is waiting or under way there is nothing to pick.
+  const movable = !canSwitchAgent && onMoveSession !== undefined && status !== "moving" && pendingMove === null
+    && (environments.length > 1 || onNewWorktree !== undefined);
+  const checkoutItems = (pick: (environmentId: string) => void, newWorktree: () => void): MenuItem[] => [
+    ...environments.map((e): MenuItem => ({ label: environmentLabel(e, spaceName), checked: e.id === session.environmentId, onSelect: () => pick(e.id),
       icon: e.kind === "worktree" ? <Icon name="branch" size={16} /> : spaceIcon ? <SpaceIcon icon={spaceIcon} size={16} /> : <Icon name="folder" size={16} /> })),
     ...(onNewWorktree ? [
       ...(environments.length > 0 ? [{ kind: "separator" } as MenuItem] : []),
-      { label: "New worktree…", onSelect: onNewWorktree },
+      { label: "New worktree…", onSelect: newWorktree },
     ] : []),
-    ...(otherSpaces.length > 0 ? [{ kind: "separator" } as MenuItem] : []),
-    ...otherSpaces.map((sp): MenuItem => ({ label: `Move to ${sp.name}`, onSelect: () => onMoveToSpace?.(sp.id) })),
   ];
+  const envItems: MenuItem[] = movable
+    ? checkoutItems((id) => { if (id !== session.environmentId) onMoveSession({ kind: "environment", environmentId: id }); }, () => onMoveSession({ kind: "worktree" }))
+    : !canSwitchAgent || !choosable ? [] : [
+      ...checkoutItems((id) => onSelectEnvironment?.(id), () => onNewWorktree?.()),
+      ...(otherSpaces.length > 0 ? [{ kind: "separator" } as MenuItem] : []),
+      ...otherSpaces.map((sp): MenuItem => ({ label: `Move to ${sp.name}`, onSelect: () => onMoveToSpace?.(sp.id) })),
+    ];
 
   // Attachment-only messages (Plan 14 W5): a send needs text OR at least one attachment this agent
   // will actually receive. Attachments whose disposition is `ignored` — today only the fake agent's,
@@ -1210,7 +1224,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
           neutral: a colour that is always on is a colour that says nothing. */}
       <div className="composer" data-mode={mode} data-dropping={drop.dropping || itemDrop.dropping || undefined} {...bothDrops}>
         <LimitRow limits={planLimits} />
-        <ComposerQueue kind={kind} queued={queued} running={running} submitKey={submitKey} actions={queueActions ?? NO_QUEUE_ACTIONS} />
+        <ComposerQueue kind={kind} queued={queued} running={running} submitKey={submitKey} actions={queueActions ?? NO_QUEUE_ACTIONS} pendingMove={pendingMove} />
         <AttachmentRow kind={kind} attachments={attachments} onRemove={onRemoveAttachment} />
         <SessionRefRow refs={sessionRefs} onRemove={onRemoveSessionRef ?? (() => {})} />
         {/* A mention whose skill vanished after typing (W4): warning tone, same row language as the
@@ -1433,7 +1447,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
           </span>
         )}
         <ChipMenu ariaLabel="Workspace" icon={envIcon} tint={spaceTint} label={envLabel} items={envItems}
-          title={`Workspace: ${envLabel}${gitInfo && currentEnv?.kind !== "worktree" ? ` on ${gitInfo.branch}` : ""}${canSwitchAgent ? "" : " — a session's checkout can only change before its first message"}`} />
+          title={`Workspace: ${envLabel}${gitInfo && currentEnv?.kind !== "worktree" ? ` on ${gitInfo.branch}` : ""}${canSwitchAgent || movable ? "" : " — a session's checkout can only change before its first message"}`} />
         {/* The branch group is NOT here any more — it has the over-strip above the card (see there
             for why). What is left is standing context: the machine, the workspace, and the meter.
             None of it is user data of unbounded length now, so nothing on this row has to yield. */}

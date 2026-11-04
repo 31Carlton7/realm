@@ -1099,6 +1099,86 @@ public struct Teammate: Codable, Sendable, Hashable, Identifiable {
     }
 }
 
+/// What a session's info sheet says beyond its row: where it runs, what its turns have cost, and its
+/// files. A Mac leaves out what it does not know, and a part this phone cannot read is left out with it
+/// rather than the whole.
+public struct SessionInfo: Codable, Sendable, Hashable {
+    public let runsOn: RunsOn?
+    public let usage: SessionUsage?
+    /// Newest first.
+    public let files: [SessionFile]?
+
+    public init(runsOn: RunsOn?, usage: SessionUsage?, files: [SessionFile]?) {
+        self.runsOn = runsOn
+        self.usage = usage
+        self.files = files
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        runsOn = try? c.decodeIfPresent(RunsOn.self, forKey: .runsOn)
+        usage = try? c.decodeIfPresent(SessionUsage.self, forKey: .usage)
+        files = try? c.decodeIfPresent([SessionFile].self, forKey: .files)
+    }
+}
+
+/// Where a session runs: the Mac, and the checkout on it.
+public struct RunsOn: Codable, Sendable, Hashable {
+    public let machine: String
+    /// "primary" for the space's own folder, "checkout" for another checkout of it, "worktree" for a git
+    /// worktree Realm made.
+    public let checkout: String
+    /// The checkout's folder, under `~` where it is in the person's home.
+    public let folder: String
+    /// Nil until something on the Mac has asked git.
+    public let branch: String?
+
+    public init(machine: String, checkout: String, folder: String, branch: String?) {
+        self.machine = machine
+        self.checkout = checkout
+        self.folder = folder
+        self.branch = branch
+    }
+}
+
+/// What a session's turns have cost, as the desktop's Usage page counts it. Input counts cached input too.
+public struct SessionUsage: Codable, Sendable, Hashable {
+    public let costUsd: Double
+    /// Some of the cost is the catalog's list price for tokens the agent reported, not dollars it stated.
+    public let estimated: Bool
+    public let inputTokens: Double
+    public let outputTokens: Double
+    public let turns: Int
+
+    public init(costUsd: Double, estimated: Bool, inputTokens: Double, outputTokens: Double, turns: Int) {
+        self.costUsd = costUsd
+        self.estimated = estimated
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.turns = turns
+    }
+}
+
+/// A file a session's turns made, or one sent to it: one `session.file` previews.
+public struct SessionFile: Codable, Sendable, Hashable, Identifiable {
+    public let path: String
+    public let name: String
+    /// Bytes, where the turn that made it said.
+    public let size: Double?
+    public let sent: Bool
+    public let at: Millis
+
+    public var id: String { path }
+
+    public init(path: String, name: String, size: Double?, sent: Bool, at: Millis) {
+        self.path = path
+        self.name = name
+        self.size = size
+        self.sent = sent
+        self.at = at
+    }
+}
+
 /// One window of a plan's quota: how much of it is used, and when it starts again.
 public struct PlanWindow: Codable, Sendable, Hashable, Identifiable {
     public let id: String
@@ -1421,6 +1501,44 @@ public struct FilePreview: Decodable, Sendable, Hashable {
         default:
             preview = .unknown(kind: kind)
         }
+    }
+}
+
+/// `session.fileData`: a piece of a file's own bytes, starting at byte `from`; `next` is where the next
+/// piece starts, nil once this one ends the file.
+public struct FilePiece: Decodable, Sendable, Hashable {
+    public let path: String
+    public let name: String
+    public let size: Int
+    public let mime: String
+    public let from: Int
+    public let data: Data
+    public let next: Int?
+
+    private enum CodingKeys: String, CodingKey { case path, name, size, mime, from, data, next }
+
+    public init(path: String, name: String, size: Int, mime: String, from: Int, data: Data, next: Int?) {
+        self.path = path
+        self.name = name
+        self.size = size
+        self.mime = mime
+        self.from = from
+        self.data = data
+        self.next = next
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        path = try c.decode(String.self, forKey: .path)
+        name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
+        size = try c.decode(Int.self, forKey: .size)
+        mime = (try? c.decodeIfPresent(String.self, forKey: .mime)) ?? ""
+        from = try c.decode(Int.self, forKey: .from)
+        guard let data = Data(base64Encoded: try c.decode(String.self, forKey: .data)) else {
+            throw DecodingError.dataCorruptedError(forKey: .data, in: c, debugDescription: "not base64")
+        }
+        self.data = data
+        next = try c.decodeIfPresent(Int.self, forKey: .next)
     }
 }
 

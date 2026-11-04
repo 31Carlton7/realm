@@ -15,6 +15,7 @@ import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
 import { fakeRpc, session as fakeSession, type Lists } from "./api.test-fakes";
 import { RemoteGateway } from "./gateway";
+import { FILE_PIECE_BYTES } from "./preview";
 import { REMOTE_IDENTITY_KEY } from "./keys";
 import { collapseId } from "./push";
 import { loopbackRpc, type RpcPort } from "./rpc-port";
@@ -532,6 +533,27 @@ describe("Plan 28: a paired phone, in process", () => {
     expect(await phone.call("session.file", { id, path: join(dir, "deck.md") })).toMatchObject({ name: "deck.md", preview: { kind: "text", text: "# The deck\n\nThree slides.\n" } });
     for (const path of [join(dir, "private.md"), "/etc/hosts", join(r.home, "realm.db")]) {
       await expect(phone.call("session.file", { id, path }), path).rejects.toMatchObject({ code: "FORBIDDEN" });
+    }
+    phone.close();
+  });
+
+  it("sends a file a session made whole, a piece at a time, and nothing it did not make", async () => {
+    const r = await boot();
+    const id = await newSession(r);
+    const dir = tempDir("realm-made-");
+    const clip = Buffer.alloc(FILE_PIECE_BYTES + 1_000, 7);
+    writeFileSync(join(dir, "clip.mov"), clip);
+    writeFileSync(join(dir, "private.mov"), clip);
+    r.app.sessions.publishServerEvent(id, sessionEvent("files_made", { settledAt: 1, files: [{ path: join(dir, "clip.mov"), size: clip.length }], totalFiles: 1 }));
+    const phone = await pairPhone(r);
+    await phone.call("session.open", { id });
+    const first = MobileCalls["session.fileData"].result.parse(await phone.call("session.fileData", { id, path: join(dir, "clip.mov") }));
+    expect(first).toMatchObject({ name: "clip.mov", mime: "video/quicktime", size: clip.length, from: 0, next: FILE_PIECE_BYTES });
+    const last = MobileCalls["session.fileData"].result.parse(await phone.call("session.fileData", { id, path: join(dir, "clip.mov"), from: first.next }));
+    expect(last).toMatchObject({ from: FILE_PIECE_BYTES, next: null });
+    expect(Buffer.concat([Buffer.from(first.data, "base64"), Buffer.from(last.data, "base64")])).toEqual(clip);
+    for (const path of [join(dir, "private.mov"), "/etc/hosts", join(r.home, "realm.db")]) {
+      await expect(phone.call("session.fileData", { id, path }), path).rejects.toMatchObject({ code: "FORBIDDEN" });
     }
     phone.close();
   });

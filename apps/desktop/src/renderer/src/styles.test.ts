@@ -5208,3 +5208,19 @@ describe("code scrolls sideways (the owner, 10-13)", () => {
     expect(bodiesFor(".documents-rich .documents-rich-surface pre").join(" ")).toContain("white-space: pre");
   });
 });
+
+describe("a move's rows in the transcript", () => {
+  const moveRules = RULES.filter((r) => r.selectors.some((s) => s.includes("[data-move") || s.startsWith(".move-failed")));
+
+  it("read from the left and wrap, so the moved line's destination is never cut", () => {
+    expect(bodiesFor(".msg-handoff[data-move]").join(" ")).toContain("text-align: left");
+    for (const rule of moveRules) {
+      expect(rule.body, rule.selectors.join(", ")).not.toMatch(/white-space: nowrap|text-overflow: ellipsis/);
+    }
+    expect(bodiesFor(".msg-handoff[data-move]::before").join(" ")).toContain("display: none");
+  });
+
+  it("hold a failed move's reason to two lines", () => {
+    expect(bodiesFor(".move-failed-reason").join(" ")).toContain("-webkit-line-clamp: 2");
+  });
+});

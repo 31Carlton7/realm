@@ -1414,6 +1414,15 @@
         "data": "anBlZw=="
       }
     },
+    "session.fileData": {
+      "path": "/Users/me/Desktop/Deck/notes.md",
+      "name": "notes.md",
+      "size": 28,
+      "mime": "text/markdown",
+      "from": 0,
+      "data": "IyBEZWNrIG5vdGVzCgpUaHJlZSBzbGlkZXMuCg==",
+      "next": null
+    },
     "space.icon": {
       "mime": "image/png",
       "data": "YSBwaWN0dXJl"
@@ -2964,6 +2973,58 @@
     },
     "teammate.chat": {
       "id": "01JDESIGNERCHAT00000000000"
+    },
+    "session.info": {
+      "runsOn": {
+        "machine": "MacBook Pro",
+        "checkout": "worktree",
+        "folder": "/Users/me/Desktop/Deck",
+        "branch": "theme-column"
+      },
+      "usage": {
+        "costUsd": 18.42,
+        "estimated": false,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "turns": 1
+      },
+      "files": [
+        {
+          "path": "/Users/me/Desktop/Deck/slide.png",
+          "name": "slide.png",
+          "size": 1024,
+          "sent": false,
+          "at": 1790000040000
+        },
+        {
+          "path": "/Users/me/Desktop/Deck/notes.md",
+          "name": "notes.md",
+          "size": 1024,
+          "sent": false,
+          "at": 1790000040000
+        },
+        {
+          "path": "/Users/me/Desktop/Deck/walkthrough.mp4",
+          "name": "walkthrough.mp4",
+          "size": 1024,
+          "sent": false,
+          "at": 1790000040000
+        },
+        {
+          "path": "/Users/me/Realm/tmp/attachments/3f9a1c2b4d5e-IMG_0042.jpg",
+          "name": "IMG_0042.jpg",
+          "size": null,
+          "sent": true,
+          "at": 1790000000000
+        },
+        {
+          "path": "/Users/me/Realm/tmp/attachments/8c1d2e3f4a5b-brief.pdf",
+          "name": "brief.pdf",
+          "size": null,
+          "sent": true,
+          "at": 1790000000000
+        }
+      ]
     },
     "usage.get": {
       "limits": [

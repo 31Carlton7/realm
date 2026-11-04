@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { basename, join } from "node:path";
 import {
   AGENT_META, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, isSecretPath, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, readEffortSupport,
   resolveMidTurnMode, SELECTABLE_AGENT_KINDS, type AgentKind, type DelegatedChild, type IconAsset, type Item, type Machine, type MethodResult, type ModelInfo,
@@ -14,9 +15,10 @@ import {
   FALLBACK_AGENT, isChild, isLive, LAST_AGENT_SETTING, modelLabel, needsYou, nestChildren, QUICK_CHAT_SETTING, quickChatIdOf, subagentState, upcomingOrder, type NeedsYouState,
 } from "@realm/view";
 import { resolveDefaultPermissionMode } from "../sessions/service";
+import { tildify } from "../skills/discovery";
 import { diffPage } from "./changes";
 import { agentOptions, changesFor, ChoiceRefused, probeList, type InitFacts, type OptionsInput, type ProbeRow } from "./options";
-import { filePreview, PreviewRefused, sipsDownscale, type Downscale } from "./preview";
+import { fileData, filePreview, PreviewRefused, sipsDownscale, type Downscale } from "./preview";
 import { queuedMessage, SessionProjector } from "./rows";
 import { RpcCallError, type RpcPort } from "./rpc-port";
 import { frameSide, machineScreen, phoneMayWatch, SCREEN_DEADLINE_MS, screenFrame, screenOrder, simulatorScreen } from "./screens";
@@ -226,6 +228,7 @@ export class MobileApi {
         case "session.subagents": return await this.subagents(ctx, p.id as string);
         case "teammates.list": return await this.teammates(rpc);
         case "teammate.chat": return { id: (await rpc.call("teammates.home", { id: p.id as string })).sessionId };
+        case "session.info": return await this.info(rpc, p.id as string);
         case "usage.get": return await this.usage(rpc);
         // Review went with the first Teams: the phone's Review screen is told there is nothing in it,
         // and a review it still holds is gone, rather than either being an error it cannot read.
@@ -266,6 +269,7 @@ export class MobileApi {
         }
         case "session.diff": return await this.diff(rpc, p.id as string, p.checkpointId as string, p.path as string, p.from as number);
         case "session.file": return await this.file(rpc, p.id as string, p.path as string);
+        case "session.fileData": return await this.fileData(rpc, p.id as string, p.path as string, p.from as number);
         case "space.icon": return await this.spaceIcon(rpc, p.id as string);
         case "session.screens": return { screens: (await this.screens(rpc, p.id as string)).shown.sort(screenOrder) };
         case "session.screen": return await this.screen(rpc, p as MobileParams<"session.screen">);
@@ -577,6 +581,36 @@ export class MobileApi {
     };
   }
 
+  /** Where a session runs, what its turns have cost as Settings ▸ Usage counts it, and the files it made
+   *  or was sent, newest first, the newest mention of each — leaving out any `session.file` refuses. */
+  private async info(rpc: RpcPort, id: string): Promise<MobileResult<"session.info">> {
+    const s = await rpc.call("sessions.get", { id });
+    const [env, summary, made, sent] = await Promise.all([
+      rpc.call("environments.get", { id: s.environmentId }), rpc.call("usage.summary", { from: s.createdAt, to: Date.now(), spaceId: s.spaceId }),
+      this.eventsOf(rpc, id, "files_made"), this.eventsOf(rpc, id, "user_message"),
+    ]);
+    const totals = summary.sessions.find((r) => r.id === id)?.totals;
+    const inputTokens = totals ? totals.inputTokens + totals.cacheReadTokens + totals.cacheWriteTokens : 0;
+    const measured = totals !== undefined && totals.unmeasuredSessions === 0 && (totals.costUsd > 0 || inputTokens + totals.outputTokens > 0);
+    const files: NonNullable<MobileResult<"session.info">["files"]> = [];
+    for (const ev of made) {
+      if (ev.event.type === "files_made") for (const f of ev.event.payload.files) files.push({ path: f.path, name: basename(f.path), size: f.size, sent: false, at: ev.event.ts });
+    }
+    for (const ev of sent) {
+      if (ev.event.type !== "user_message") continue;
+      for (const a of ev.event.payload.attachments) files.push({ path: a.path, name: givenAttachmentName(a.path, tempAttachmentDir(this.o.realmHome)), size: null, sent: true, at: ev.event.ts });
+    }
+    const newest = new Map<string, (typeof files)[number]>();
+    for (const f of files.sort((a, b) => b.at - a.at)) {
+      if (!isSecretPath(f.path) && !newest.has(f.path)) newest.set(f.path, f);
+    }
+    return {
+      runsOn: { machine: this.o.macName(), checkout: env.kind, folder: tildify(env.path, homedir()), branch: env.branch },
+      ...(measured ? { usage: { costUsd: totals.costUsd, estimated: totals.estimatedUsd > 0, inputTokens, outputTokens: totals.outputTokens, turns: totals.turns } } : {}),
+      files: [...newest.values()],
+    };
+  }
+
   /** Every agent's plan as Settings ▸ Usage draws it, and this calendar month's spend on the Mac's clock,
    *  its heaviest sessions by the names their rows have. */
   private async usage(rpc: RpcPort): Promise<MobileResult<"usage.get">> {
@@ -644,6 +678,19 @@ export class MobileApi {
    *  message waiting in its queue carries — and of nothing else: the path must be one a `files_made` or
    *  a `user_message` of this session listed, or the queue holds, exactly as it was listed. */
   private async file(rpc: RpcPort, id: string, path: string): Promise<MobileResult<"session.file">> {
+    await this.mayRead(rpc, id, path);
+    // Named as its user row names it: a file a phone or a paste sent, without the prefix it was written under.
+    return { ...await this.preview(path), name: givenAttachmentName(path, tempAttachmentDir(this.o.realmHome)) };
+  }
+
+  /** A piece of one of the files `session.file` previews, and of no other. */
+  private async fileData(rpc: RpcPort, id: string, path: string, from: number): Promise<MobileResult<"session.fileData">> {
+    await this.mayRead(rpc, id, path);
+    return { ...await this.read(() => fileData(path, from)), name: givenAttachmentName(path, tempAttachmentDir(this.o.realmHome)) };
+  }
+
+  /** Refuses a path no `files_made` or `user_message` of the session listed, nor its queue holds. */
+  private async mayRead(rpc: RpcPort, id: string, path: string): Promise<void> {
     const [made, sent, { queued }] = await Promise.all([
       this.eventsOf(rpc, id, "files_made"), this.eventsOf(rpc, id, "user_message"), rpc.call("sessions.queued", { id }),
     ]);
@@ -654,16 +701,22 @@ export class MobileApi {
     if (!listed.has(path)) throw new MobileError("FORBIDDEN", "That file is not one this session made or was sent.");
     // A message on the Mac can carry any file someone picked, a key among them; a phone is never sent one.
     if (isSecretPath(path)) throw new MobileError("FORBIDDEN", "That file holds a secret, so Realm does not send it to a phone.");
-    // Named as its user row names it: a file a phone or a paste sent, without the prefix it was written under.
-    return { ...await this.preview(path), name: givenAttachmentName(path, tempAttachmentDir(this.o.realmHome)) };
   }
 
   /** `filePreview`, its refusals and a file gone since it was listed said as mobile.v1 says them;
    *  `check` runs first, and refuses by throwing `PreviewRefused`. */
   private async preview(path: string, check?: () => Promise<void>): Promise<MobileResult<"session.file">> {
-    try {
+    return this.read(async () => {
       await check?.();
       return await filePreview(path, { downscale: this.o.downscale });
+    });
+  }
+
+  /** A read of a file a phone asked for, its refusals and a file gone since it was listed said as
+   *  mobile.v1 says them. */
+  private async read<T>(reading: () => Promise<T>): Promise<T> {
+    try {
+      return await reading();
     } catch (e) {
       if (e instanceof PreviewRefused) throw new MobileError("FORBIDDEN", e.message);
       if ((e as NodeJS.ErrnoException).code === "ENOENT") throw new MobileError("NOT_FOUND", "That file is no longer on this Mac.");

@@ -15,7 +15,8 @@ import { channel, fakeRpc, jpegHeader, machine, machineState, pngHeader, profile
  * mobile.v1's answers as the Mac writes them, for RealmKit to decode (PROTOCOL.md §9): `home.get` for
  * every profile and for one, with a pinned row, a space's pages, `session.open` over a session that
  * holds every row kind (its first message with files sent with it) and two messages waiting in its
- * queue, the turn's changes and a page of its diff, each preview `session.file` makes, a space's
+ * queue, the turn's changes and a page of its diff, each preview `session.file` makes, a made file's
+ * bytes, a space's
  * picture, three agents' session options and a change to them, every agent a new session can have;
  * the queue, the lead's sub-agents (one working, two ended), a space's teammates and one's chat, the plans and the month's spend, an empty
  * Review (it went with the first Teams), the scheduled tasks and one run now, the screens the theme column's space has open and a frame of one, a rename with a pin and an
@@ -123,7 +124,7 @@ async function generate(): Promise<Record<string, unknown>> {
   ];
 
   const evs: SessionEvent[] = [
-    sessionEvent("user_message", { text: "File the issue, then plan the column", attachments: sent }),
+    sessionEvent("user_message", { text: "File the issue, then plan the column", attachments: sent }, 1_790_000_000_000),
     sessionEvent("thinking", { messageId: "k1", text: "Linear first." }),
     sessionEvent("assistant_text", { messageId: "m1", text: "Filing it in **Linear**." }),
     sessionEvent("tool_call", { toolUseId: "t1", name: "Bash", input: { command: "pnpm test --silent" }, parentToolUseId: null }),
@@ -138,7 +139,7 @@ async function generate(): Promise<Record<string, unknown>> {
       { path: "src/theme.ts", oldPath: null, status: "modified", additions: 2, deletions: 1 },
       { path: "src/new-name.ts", oldPath: "src/old-name.ts", status: "renamed", additions: 0, deletions: 0 },
     ] }),
-    sessionEvent("files_made", { settledAt: 7, files: made, totalFiles: 3 }),
+    sessionEvent("files_made", { settledAt: 7, files: made, totalFiles: 3 }, 1_790_000_040_000),
     sessionEvent("error", { message: "Claude hit its usage limit", failure: "usage_limit", fix: { title: "Switch agent", hint: "Continue on Codex", command: null } }),
     sessionEvent("prompt_hint", { text: "Approve the plan and run the migration", throughSeq: 14 }),
   ];
@@ -273,6 +274,8 @@ async function generate(): Promise<Record<string, unknown>> {
     "delegation.running": ((p: { sessionId: string }) => ({ running: p.sessionId === S ? [{ sessionId: WORKER, startedAt: 1_789_999_500_000, detached: true, owned: true }] : [] })) as never,
     "limits.get": (() => ({ limits: plans })) as never,
     "usage.summary": (() => month) as never,
+    // A worktree of the deck's folder, on a branch git has been asked about.
+    "environments.get": ((p: { id: string }) => ({ id: p.id, spaceId: "sp1", path: dir, branch: "theme-column", kind: "worktree", portBlockStart: null, createdAt: 0, updatedAt: 0 })) as never,
     "schedules.list": ((p: { spaceId: string }) => tasks[p.spaceId] ?? []) as never,
     "schedules.runNow": ((p: { id: string }) => ({ ...tasks.sp1!.find((t) => t.id === p.id)!, lastRunAt: 1_790_000_400_000, lastRunId: NOW_RUN })) as never,
     "runs.get": ((p: { id: string }) => (runs[p.id] ? { run: runs[p.id], attempts: [] } : null)) as never,
@@ -317,6 +320,7 @@ async function generate(): Promise<Record<string, unknown>> {
       "session.file:text": await call("session.file", { id: S, path: made[1]!.path }),
       "session.file:none": await call("session.file", { id: S, path: made[2]!.path }),
       "session.file:attachment": await call("session.file", { id: S, path: sent[0]!.path }),
+      "session.fileData": await call("session.fileData", { id: S, path: made[1]!.path, from: 0 }),
       "space.icon": await call("space.icon", { id: "sp3" }),
       "session.options": await call("session.options", { id: S }),
       "session.options:codex": await call("session.options", { id: CODEX }),
@@ -329,6 +333,7 @@ async function generate(): Promise<Record<string, unknown>> {
       "session.subagents": await call("session.subagents", { id: S }),
       "teammates.list": await call("teammates.list", {}),
       "teammate.chat": await call("teammate.chat", { id: DESIGNER }),
+      "session.info": await call("session.info", { id: S }),
       "usage.get": await call("usage.get", {}),
       "reviews.list": await call("reviews.list", {}),
       "schedules.list": await call("schedules.list", {}),

@@ -480,6 +480,7 @@ else keeps its own name, whatever it looks like.
 | `session.changes` | `{id, checkpointId}` | `{checkpointId, files: [{path, oldPath, status, additions, deletions}], totalFiles}` |
 | `session.diff` | `{id, checkpointId, path, from?: int = 0}` | `{path, oldPath, status, binary, additions, deletions, lines: [string], from, next: int\|null, total, truncated, truncatedReason}` |
 | `session.file` | `{id, path}` | `{path, name, size, mime, preview: {kind: "image", mime, data} \| {kind: "text", text, truncated} \| {kind: "none", reason}}` |
+| `session.fileData` | `{id, path, from?: int = 0}` | `{path, name, size, mime, from, data, next: int\|null}`: `data` is up to 512 KB of the file from `from`, base64 |
 | `space.icon` | `{id}` | `{mime, data}`: base64 |
 | `session.screens` | `{id}` | `{screens: [Screen]}`: the live first, then by name |
 | `session.screen` | `{id, screenId, kind: "simulator"\|"machine", maxSide?: number = 1000}` | `{mime: "image/jpeg", data, width: int, height: int, capturedAt: ms}`: `data` is base64 |
@@ -832,6 +833,9 @@ phone read, and what bounds it:
   a file that exists to hold a secret (a key, an `.env`), whatever sent it. Its `name` is its user
   row's: the name the person gave it. A picture is sent as a JPEG at most 1024 px on its longer side
   and 512 KB; a text as at most its first 16 KB; anything else as nothing but its name, size and type.
+- **`session.fileData`**: the bytes of one of the files `session.file` would preview, refused as it
+  refuses, 512 KB to an answer, so a phone can play a video, open a document in Quick Look, or share
+  and save the file. A file over 256 MB is refused (`FORBIDDEN`).
 - **`session.send`** and **`session.create`**: they write a phone's files, and only into the Realm
   home's `tmp/attachments`, under names the Mac makes. A folder there that is a link elsewhere is not
   written through. The phone names no path.

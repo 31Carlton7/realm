@@ -530,6 +530,12 @@ public struct MobileAPI: Sendable {
         return try await connection.call("session.file", params: Params(id: id, path: path), as: FilePreview.self)
     }
 
+    /// A piece of one of the files `file(id:path:)` previews, from byte `from`.
+    public func fileData(id: String, path: String, from: Int) async throws -> FilePiece {
+        struct Params: Encodable, Sendable { let id: String; let path: String; let from: Int }
+        return try await connection.call("session.fileData", params: Params(id: id, path: path, from: from), as: FilePiece.self)
+    }
+
     /// A space's own picture, for a space whose icon is one.
     /// The simulators and machines open in the session's space, live ones first.
     public func screens(id: String) async throws -> [SessionScreen] {
@@ -642,6 +648,11 @@ public struct MobileAPI: Sendable {
     public func teammateChat(id: String) async throws -> String {
         struct Answer: Decodable, Sendable { let id: String }
         return try await connection.call("teammate.chat", params: SessionID(id: id), as: Answer.self).id
+    }
+
+    /// Where a session runs, what it has cost, and its files: what its info sheet says beyond its row.
+    public func info(id: String) async throws -> SessionInfo {
+        try await connection.call("session.info", params: SessionID(id: id), as: SessionInfo.self)
     }
 
     /// Every agent's plan limits, and this month's spend.

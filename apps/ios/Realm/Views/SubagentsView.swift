@@ -260,7 +260,7 @@ struct SubagentsSheet: View {
 
 /// One sub-agent: its goal, then its model, where it stands and for how long, then its report folded
 /// to a few lines — or why Realm stopped it, where it did.
-private struct SubagentRow: View {
+struct SubagentRow: View {
     let subagent: Subagent
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .body) private var glyph: CGFloat = 20

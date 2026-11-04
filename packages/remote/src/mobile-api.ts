@@ -243,6 +243,40 @@ export const TeammateSchema = z.object({
   chatId: Id.nullable(),
 });
 export type Teammate = z.infer<typeof TeammateSchema>;
+/** What a session's info sheet says beyond its row. Every part is optional: a Mac leaves out what it
+ *  does not know, and a phone draws only what came. */
+export const SessionInfoSchema = z.object({
+  /** Where the session runs: the Mac, and the checkout on it. */
+  runsOn: z.object({
+    machine: z.string(),
+    /** The space's own folder, another checkout of it, or a git worktree Realm made. */
+    checkout: z.enum(["primary", "checkout", "worktree"]),
+    /** The checkout's folder, under `~` where it is in the person's home. */
+    folder: z.string(),
+    /** Null until something on the Mac has asked git. */
+    branch: z.string().nullable(),
+  }).optional(),
+  /** What its turns have cost, for an engine that reports usage; absent for one that does not, and
+   *  before its first turn. Input counts cached input too. */
+  usage: z.object({
+    costUsd: z.number(),
+    /** Some of the cost is the catalog's list price for tokens the agent reported, not dollars it stated. */
+    estimated: z.boolean(),
+    inputTokens: z.number(),
+    outputTokens: z.number(),
+    turns: z.number().int(),
+  }).optional(),
+  /** The files its turns made and the ones sent to it, newest first: each one `session.file` previews. */
+  files: z.array(z.object({
+    path: z.string(),
+    name: z.string(),
+    /** Bytes, where the turn that made it said. */
+    size: z.number().nullable(),
+    sent: z.boolean(),
+    at: z.number(),
+  })).optional(),
+});
+export type SessionInfo = z.infer<typeof SessionInfoSchema>;
 
 /** One window of a plan's quota: how much of it is used, and when it starts again. */
 const PlanWindowSchema = z.object({
@@ -385,6 +419,13 @@ export const FilePreviewSchema = z.object({
   ]),
 });
 
+/** One piece of a file's own bytes, for a phone that opens the whole file: `data` is bytes `from` on,
+ *  base64; `next` is where the next piece starts, null at the end. */
+export const FileDataSchema = z.object({
+  path: z.string(), name: z.string(), size: z.number().int(), mime: z.string(),
+  from: z.number().int(), data: z.string(), next: z.number().int().nullable(),
+});
+
 /** A simulator or a machine the session's space has open on the Mac: a pane with a screen in it. */
 export const ScreenSchema = z.object({
   id: Id,
@@ -466,6 +507,8 @@ export const MobileCalls = {
   "teammates.list": { params: z.object({}), result: z.object({ teammates: z.array(TeammateSchema) }) },
   /** A teammate's chat, made for one that has none yet: the session a phone sends it messages in. */
   "teammate.chat": { params: z.object({ id: Id }), result: z.object({ id: Id }) },
+  /** Where a session runs, what it has cost, and its files: what its info sheet says beyond its row. */
+  "session.info": { params: z.object({ id: Id }), result: SessionInfoSchema },
   /** Every agent's plan limits, and this month's spend. */
   "usage.get": { params: z.object({}), result: z.object({ limits: z.array(PlanLimitsSchema), spend: SpendSchema }) },
   /** What teams have handed back for review and is still open, across every space, newest first. */
@@ -527,6 +570,12 @@ export const MobileCalls = {
   /** A bounded preview of a file the session's turns made, or of one sent with a message: only a file a
    *  `files_made` or a `user_message` of this session listed. */
   "session.file": { params: z.object({ id: Id, path: z.string().min(1).max(4096) }), result: FilePreviewSchema },
+  /** The file itself, a piece at a time, for a phone that plays, shares or saves it: the same files
+   *  `session.file` previews, and only those. */
+  "session.fileData": {
+    params: z.object({ id: Id, path: z.string().min(1).max(4096), from: z.number().int().min(0).default(0) }),
+    result: FileDataSchema,
+  },
   /** A space's own picture, for an icon `home.get` calls a picture. */
   "space.icon": {
     params: z.object({ id: Id }),
