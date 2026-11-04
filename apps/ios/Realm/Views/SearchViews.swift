@@ -25,13 +25,16 @@ struct SearchHitsSection: View {
 
     var body: some View {
         let spaces = Dictionary(home.spaces.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        Section {
-            ForEach(found.hits) { hit in
-                SearchHitLink(hit: hit, space: spaces[hit.session.spaceId])
-            }
-        } header: {
-            SectionHead(title: found.hits.count == 1 ? "1 session" : "\(found.hits.count) sessions") {
-                Image(systemName: "magnifyingglass").foregroundStyle(Palette.ink2)
+        // With no hits, Home's empty state says so, and a head counting none would say it twice.
+        if !found.hits.isEmpty {
+            Section {
+                ForEach(found.hits) { hit in
+                    SearchHitLink(hit: hit, space: spaces[hit.session.spaceId])
+                }
+            } header: {
+                SectionHead(title: found.hits.count == 1 ? "1 session" : "\(found.hits.count) sessions") {
+                    Image(systemName: "magnifyingglass").foregroundStyle(Palette.ink2)
+                }
             }
         }
     }
@@ -42,9 +45,13 @@ private struct SearchHitLink: View {
     let hit: SearchHit
     let space: Space?
     @Environment(AppModel.self) private var model
+    @Environment(\.dismissSearch) private var dismissSearch
 
     var body: some View {
         Button {
+            // Pushed over a search still under way, the session comes back to a Home with neither its
+            // bar nor the field, and no way out. Put away first, it comes back to Home as it was.
+            dismissSearch()
             model.searchMatches[hit.session.id] = hit.message?.seq
             model.path.append(.session(hit.session.id))
         } label: {
