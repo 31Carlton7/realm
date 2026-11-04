@@ -1075,6 +1075,30 @@ public struct Subagent: Codable, Sendable, Hashable, Identifiable {
     }
 }
 
+/// A space's teammate, as its Team list names it.
+public struct Teammate: Codable, Sendable, Hashable, Identifiable {
+    public let id: String
+    public let spaceId: String
+    public let name: String
+    public let handle: String
+    /// What it does, in the person's words.
+    public let brief: String
+    /// The space's Lead, listed first.
+    public let lead: Bool
+    /// Its chat, when it has one; `teammateChat` makes one for a teammate that has none.
+    public let chatId: String?
+
+    public init(id: String, spaceId: String, name: String, handle: String, brief: String, lead: Bool, chatId: String?) {
+        self.id = id
+        self.spaceId = spaceId
+        self.name = name
+        self.handle = handle
+        self.brief = brief
+        self.lead = lead
+        self.chatId = chatId
+    }
+}
+
 /// What a session's info sheet says beyond its row: where it runs, what its turns have cost, and its
 /// files. A Mac leaves out what it does not know, and a part this phone cannot read is left out with it
 /// rather than the whole.

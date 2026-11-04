@@ -18,7 +18,7 @@ import { channel, fakeRpc, jpegHeader, machine, machineState, pngHeader, profile
  * queue, the turn's changes and a page of its diff, each preview `session.file` makes, a made file's
  * bytes, a space's
  * picture, three agents' session options and a change to them, every agent a new session can have;
- * the queue, the lead's sub-agents (one working, two ended), the plans and the month's spend, an empty
+ * the queue, the lead's sub-agents (one working, two ended), a space's teammates and one's chat, the plans and the month's spend, an empty
  * Review (it went with the first Teams), the scheduled tasks and one run now, the screens the theme column's space has open and a frame of one, a rename with a pin and an
  * archive; and every event but `session.rows` and `session.status` —
  * every one made by the real projector and the real `MobileApi`, over a fake of the desktop's RPC.
@@ -57,6 +57,11 @@ const PHONE = "01JSIMULATOR00000000000002";
 const TEXTEDIT = "01JMACHINE0000000000000001";
 const GUEST = "01JMACHINE0000000000000002";
 const STUDIO = "01JMACHINE0000000000000003";
+/** The Realm space's teammates and their chats. */
+const CTO = "01JTEAMMATE000000000000001";
+const DESIGNER = "01JTEAMMATE000000000000002";
+const CTO_CHAT = "01JCTOCHAT0000000000000000";
+const DESIGNER_CHAT = "01JDESIGNERCHAT00000000000";
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 /** Far enough ahead that no window has reset whenever this runs, and far enough back that one has. */
@@ -282,6 +287,12 @@ async function generate(): Promise<Record<string, unknown>> {
       machines: [machine(TEXTEDIT, "sp1", "TextEdit", "mac"), machine(STUDIO, "sp1", "Studio", "vnc"), machine(GUEST, "sp1", "Ubuntu", "qemu")],
       states: [machineState(TEXTEDIT, "running"), machineState(STUDIO, "running"), machineState(GUEST, "off")],
     })) as never,
+    // The Realm space's Team: its Lead, and a designer whose chat is made the first time it is asked for.
+    "teammates.list": ((p: { spaceId: string }) => (p.spaceId !== "sp1" ? [] : [
+      { id: CTO, spaceId: "sp1", handle: "cto", name: "CTO", brief: "Owns the architecture and reviews every migration.", lead: true, homeSessionId: CTO_CHAT },
+      { id: DESIGNER, spaceId: "sp1", handle: "designer", name: "Designer", brief: "Keeps the app and the site on one design.", lead: false, homeSessionId: null },
+    ])) as never,
+    "teammates.home": ((p: { id: string }) => ({ sessionId: p.id === CTO ? CTO_CHAT : DESIGNER_CHAT })) as never,
     "simulators.capture": (() => ({ data: pngHeader(1206, 2622).toString("base64"), mimeType: "image/png", width: 1206, height: 2622 })) as never,
   });
   const api = new MobileApi({ macName: () => "MacBook Pro", reportsDir: "/nonexistent", realmHome: home, dev: false, downscale: async () => Buffer.from("jpeg") });
@@ -320,6 +331,8 @@ async function generate(): Promise<Record<string, unknown>> {
       "session.queue": await call("session.queue", { id: S }),
       "session.file:queued": await call("session.file", { id: S, path: sketch }),
       "session.subagents": await call("session.subagents", { id: S }),
+      "teammates.list": await call("teammates.list", {}),
+      "teammate.chat": await call("teammate.chat", { id: DESIGNER }),
       "session.info": await call("session.info", { id: S }),
       "usage.get": await call("usage.get", {}),
       "reviews.list": await call("reviews.list", {}),

@@ -637,6 +637,19 @@ public struct MobileAPI: Sendable {
         return try await connection.call("session.subagents", params: SessionID(id: id), as: Answer.self).subagents
     }
 
+    /// Every space's teammates, each space's Lead first. A Mac older than teammates answers
+    /// `METHOD_NOT_FOUND`.
+    public func teammates() async throws -> [Teammate] {
+        struct Answer: Decodable, Sendable { let teammates: [Teammate] }
+        return try await connection.call("teammates.list", as: Answer.self).teammates
+    }
+
+    /// The session that is a teammate's chat, made on the Mac when it has none yet.
+    public func teammateChat(id: String) async throws -> String {
+        struct Answer: Decodable, Sendable { let id: String }
+        return try await connection.call("teammate.chat", params: SessionID(id: id), as: Answer.self).id
+    }
+
     /// Where a session runs, what it has cost, and its files: what its info sheet says beyond its row.
     public func info(id: String) async throws -> SessionInfo {
         try await connection.call("session.info", params: SessionID(id: id), as: SessionInfo.self)

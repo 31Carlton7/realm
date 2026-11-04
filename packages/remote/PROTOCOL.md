@@ -460,6 +460,8 @@ else keeps its own name, whatever it looks like.
 | `session.holdQueued` | `{id, queuedId, held: bool}` | `{ok: true}` |
 | `session.editQueued` | `{id, queuedId, text}` | `{ok: true}` |
 | `session.subagents` | `{id}` | `{subagents: [Subagent]}` |
+| `teammates.list` | `{}` | `{teammates: [{id, spaceId, name, handle, brief, lead: bool, chatId: string\|null}]}` |
+| `teammate.chat` | `{id}` | `{id}`: the teammate's chat, a session like any other |
 | `usage.get` | `{}` | `{limits: [PlanLimits], spend: Spend}` |
 | `reviews.list` | `{}` | `{reviews: [ReviewSummary]}` |
 | `review.get` | `{id}` | `{review: ReviewSummary, items: [ReviewItem]}` |
@@ -653,6 +655,13 @@ Subagent {
 - `session.subagents` (the event) says the list changed: one started, settled, was collected, or
   changed its status. It is sent to phones with the lead open, once for changes that come together.
 
+**A teammate's chat is a session.** `teammates.list` names every space's teammates, space by space,
+each space's Lead first and the rest in its Team list's order; archived ones are left out.
+`chatId` is the session that is its chat, null until it has one. `teammate.chat` answers with the session that is the teammate's chat (`teammates.home`), making it
+when the teammate has none yet or its chat was deleted. A phone opens and sends to it as to any
+session. An archived teammate has no chat to give. A Mac older than these calls answers
+`METHOD_NOT_FOUND`, and a phone offers no teammates.
+
 **Usage is Settings ▸ Usage.** `usage.get` answers with each agent's plan, as the page draws it, and
 this calendar month's spend:
 
@@ -842,6 +851,8 @@ phone read, and what bounds it:
   it; a phone sends, removes, holds and edits only those, and an edit keeps the files they carry.
 - **`session.subagents`**: the sessions that session started, each as a row, with the task each was
   handed, how it ended and its last answer.
+- **`teammates.list`** and **`teammate.chat`**: each teammate's name, handle and brief, and the
+  session that is its chat. Its model, folder, clock and task sessions stay on the Mac.
 - **`usage.get`**: each agent's plan as its provider last reported it, and this month's spend and
   budget (`usage.budget`), with its five heaviest sessions' names and costs.
 - **`reviews.list`**, **`review.get`** and **`review.decide`**: what the space's teams sent to Review,

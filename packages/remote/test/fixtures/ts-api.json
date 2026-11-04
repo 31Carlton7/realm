@@ -2949,6 +2949,31 @@
         }
       ]
     },
+    "teammates.list": {
+      "teammates": [
+        {
+          "id": "01JTEAMMATE000000000000001",
+          "spaceId": "sp1",
+          "name": "CTO",
+          "handle": "cto",
+          "brief": "Owns the architecture and reviews every migration.",
+          "lead": true,
+          "chatId": "01JCTOCHAT0000000000000000"
+        },
+        {
+          "id": "01JTEAMMATE000000000000002",
+          "spaceId": "sp1",
+          "name": "Designer",
+          "handle": "designer",
+          "brief": "Keeps the app and the site on one design.",
+          "lead": false,
+          "chatId": null
+        }
+      ]
+    },
+    "teammate.chat": {
+      "id": "01JDESIGNERCHAT00000000000"
+    },
     "session.info": {
       "runsOn": {
         "machine": "MacBook Pro",
