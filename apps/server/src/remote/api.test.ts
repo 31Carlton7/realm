@@ -1792,3 +1792,84 @@ describe("moving a session from the phone", () => {
     expect(await api().handle(channel(rpc), "session.cancelMove", { id: "a" })).toEqual({ cancelled: true });
   });
 });
+
+describe("the composer's / and @ lists", () => {
+  const skill = (id: string, extra: { enabled?: boolean; valid?: boolean } = {}) =>
+    ({ id, name: id === "mac" ? "Mac" : `${id} skill`, description: `What ${id} does`, path: `/skills/${id}/SKILL.md`, enabled: true, valid: true, ...extra });
+  const command = (name: string, extra: { valid?: boolean; shadowedBy?: string | null; argumentHint?: string | null } = {}) =>
+    ({ name, description: `Run ${name}`, argumentHint: null, body: "Review $ARGUMENTS", path: `/commands/${name}.md`, valid: true, reason: null, shadowedBy: null, ...extra });
+  function rig(agentKind: Session["agentKind"] = "claude") {
+    const sent: Record<string, unknown>[] = [];
+    const asked: Record<string, unknown>[] = [];
+    const rpc = fakeRpc({ sessions: [session("s1", "sp1", { agentKind, cwd: "/Users/me/realm/" })], items: [] }, {
+      "skills.list": (() => ({ root: "/skills", skills: [skill("review"), skill("off", { enabled: false }), skill("broken", { valid: false }), skill("mac", { enabled: false })] })) as never,
+      "commands.list": (() => ({ root: "/commands", commands: [command("ship", { argumentHint: "<what>" }), command("lint"), command("bad", { valid: false }), command("old", { shadowedBy: "/x.md" })] })) as never,
+      "commands.expand": ((p: Record<string, unknown>) => { asked.push(p); return { command: command("ship"), text: "Ship the docs and $2", missing: ["$2"] }; }) as never,
+      "mentions.files": ((p: Record<string, unknown>) => { asked.push(p); return { hits: [{ path: "src/auth.ts", score: 9, marks: [] }, { path: ".env", score: 8, marks: [] }], truncated: false, source: "git" }; }) as never,
+      "goals.start": ((p: Record<string, unknown>) => { asked.push(p); return { goal: {} }; }) as never,
+      "sessions.send": ((p: Record<string, unknown>) => { sent.push(p); return { ok: true }; }) as never,
+    });
+    return { rpc, sent, asked, call: (method: string, params: Record<string, unknown>) => attempt(api(), rpc, method, { id: "s1", ...params }) };
+  }
+
+  it("lists the runnable commands and the skills the agent can be handed, with the mac skill on or off", async () => {
+    const r = rig();
+    const got = await r.call("session.composer", {});
+    expect(got).toEqual({ ok: true, result: {
+      commands: [{ name: "ship", description: "Run ship", argumentHint: "<what>" }, { name: "lint", description: "Run lint", argumentHint: null }],
+      skills: [{ id: "review", name: "review skill", description: "What review does" }, { id: "mac", name: "Mac", description: "What mac does" }],
+    } });
+    expect(MobileCalls["session.composer"].result.safeParse((got as { result: unknown }).result).success).toBe(true);
+  });
+
+  it("offers an agent that is not given Realm's skills only the mac skill", async () => {
+    const got = await rig("acp:cursor").call("session.composer", {});
+    expect((got as { result: { skills: { id: string }[] } }).result.skills.map((k) => k.id)).toEqual(["mac"]);
+  });
+
+  it("names the folder's files where they are, and never one that holds a secret", async () => {
+    const r = rig();
+    expect(await r.call("session.mentionFiles", { query: "au" })).toEqual({ ok: true, result: { files: [{ path: "/Users/me/realm/src/auth.ts", rel: "src/auth.ts" }] } });
+    expect(r.asked).toEqual([{ sessionId: "s1", query: "au" }]);
+  });
+
+  it("fills in a command in the session's space, leaving what the args did not reach", async () => {
+    const r = rig();
+    expect(await r.call("session.expandCommand", { name: "ship", args: "the docs" })).toEqual({ ok: true, result: { text: "Ship the docs and $2", missing: ["$2"] } });
+    expect(r.asked).toEqual([{ spaceId: "sp1", name: "ship", args: "the docs" }]);
+  });
+
+  it("starts a goal on its objective, and refuses one with no words", async () => {
+    const r = rig();
+    expect(await r.call("session.goal", { objective: "  ship the release notes " })).toEqual({ ok: true, result: { ok: true } });
+    expect(r.asked).toEqual([{ sessionId: "s1", objective: "ship the release notes", tokenBudget: null }]);
+    expect(await r.call("session.goal", { objective: "   " })).toMatchObject({ ok: false, code: "INVALID_PARAMS" });
+  });
+
+  it("sends a teammate, a file and a skill as the desktop's prompter does, and drops a ref whose token was deleted", async () => {
+    const r = rig();
+    const text = "@[designer] look at @[auth.ts] with @review, not me@review.dev";
+    const got = await r.call("session.send", { text, mentionRefs: [
+      { kind: "role", label: "designer", roleId: "t1" }, { kind: "file", label: "auth.ts", path: "/Users/me/realm/src/auth.ts" },
+      { kind: "role", label: "cto", roleId: "t2" },
+    ] });
+    expect(got).toEqual({ ok: true, result: { ok: true } });
+    expect(r.sent).toEqual([{ id: "s1", text, attachments: [], delivery: "auto", mentions: ["review"],
+      mentionRefs: [{ kind: "role", label: "designer", roleId: "t1" }, { kind: "file", label: "auth.ts", path: "/Users/me/realm/src/auth.ts" }] }]);
+  });
+
+  it("sends words with no @ as they always went, without reading the skills", async () => {
+    const r = rig();
+    await r.call("session.send", { text: "plain words" });
+    expect(r.sent).toEqual([{ id: "s1", text: "plain words", attachments: [], delivery: "auto" }]);
+    expect(r.rpc.calls).not.toContain("skills.list");
+  });
+
+  it("refuses a file outside the session's folder, or one that holds a secret, and sends nothing", async () => {
+    const r = rig();
+    for (const path of ["/etc/passwd", "/Users/me/realm/../.ssh/id_ed25519", "/Users/me/realm/.env"]) {
+      expect(await r.call("session.send", { text: "@[x] read it", mentionRefs: [{ kind: "file", label: "x", path }] }), path).toMatchObject({ ok: false, code: "INVALID_PARAMS" });
+    }
+    expect(r.sent).toEqual([]);
+  });
+});

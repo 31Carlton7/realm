@@ -120,6 +120,32 @@ const AttachmentUploadSchema = z.object({
   data: z.string().min(1),
 });
 
+/** What an `@[label]` in a message's words names, as the desktop's prompter keeps it beside its draft:
+ *  a teammate, which is handed the message in its own chat, or a file in the session's folder. A label
+ *  is at most the desktop's chip's 56 characters. */
+const MentionRefSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("role"), label: z.string().min(1).max(56), roleId: z.string().min(1).max(40) }),
+  z.object({ kind: z.literal("file"), label: z.string().min(1).max(56), path: z.string().min(2).max(4096) }),
+]);
+export type MentionRef = z.infer<typeof MentionRefSchema>;
+
+/** One of the person's own `/` commands, from `<space>/commands`, `~/Realm/commands` or `~/.claude/commands`. */
+export const UserCommandSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  /** What it takes after its name (`<file> [--fix]`): one that names none runs on nothing. */
+  argumentHint: z.string().nullable(),
+});
+export type UserCommand = z.infer<typeof UserCommandSchema>;
+
+/** A skill the session's agent can be handed by `@id`. */
+export const MentionSkillSchema = z.object({ id: z.string(), name: z.string(), description: z.string() });
+export type MentionSkill = z.infer<typeof MentionSkillSchema>;
+
+/** A file in the session's folder an `@` can name: `path` is where it is, `rel` where it is in the folder. */
+export const MentionFileSchema = z.object({ path: z.string(), rel: z.string() });
+export type MentionFile = z.infer<typeof MentionFileSchema>;
+
 const MidTurnSchema = z.enum(["queue", "steer"]);
 
 /** A session's settings as the composer shows them, and what each could be changed to. */
@@ -631,9 +657,30 @@ export const MobileCalls = {
     params: z.object({
       id: Id, text: z.string().max(100_000), delivery: z.enum(["auto", "queue", "steer"]).default("auto"),
       attachments: z.array(AttachmentUploadSchema).max(SEND_LIMITS.maxCount).default([]),
+      /** What each `@[label]` in `text` names. One whose token is no longer in the words is dropped. */
+      mentionRefs: z.array(MentionRefSchema).max(12).optional(),
     }),
     result: Ok,
   },
+  /** What the composer's `/` and `@` lists offer that the phone does not already hold: the person's
+   *  own commands and the skills the session's agent can be handed. */
+  "session.composer": {
+    params: z.object({ id: Id }),
+    result: z.object({ commands: z.array(UserCommandSchema), skills: z.array(MentionSkillSchema) }),
+  },
+  /** The files in the session's folder that best match `query`, as the desktop's `@` list ranks them. */
+  "session.mentionFiles": {
+    params: z.object({ id: Id, query: z.string().max(200).default("") }),
+    result: z.object({ files: z.array(MentionFileSchema) }),
+  },
+  /** One of the person's own commands, filled in with `args`: the words the composer then holds. A
+   *  `$2` the args did not reach stays in `text`, and is named in `missing`. */
+  "session.expandCommand": {
+    params: z.object({ id: Id, name: z.string().min(1).max(64), args: z.string().max(8_000).default("") }),
+    result: z.object({ text: z.string(), missing: z.array(z.string()) }),
+  },
+  /** Starts a goal: the session works towards `objective` across turns, as the desktop's `/goal` does. */
+  "session.goal": { params: z.object({ id: Id, objective: z.string().trim().min(1).max(8_000) }), result: Ok },
   /** The session's model, reasoning, mode and permissions, and what each could be changed to. */
   "session.options": { params: z.object({ id: Id }), result: SessionOptionsSchema },
   /** Changes what the composer's chips show; a field left out stays as it is. Leaving Plan or Ask for

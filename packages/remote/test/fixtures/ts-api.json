@@ -3277,6 +3277,48 @@
         }
       }
     },
+    "session.composer": {
+      "commands": [
+        {
+          "name": "changelog",
+          "description": "Write the changelog for a release",
+          "argumentHint": "<version>"
+        },
+        {
+          "name": "tidy",
+          "description": "Tidy the imports in the files this turn changed",
+          "argumentHint": null
+        }
+      ],
+      "skills": [
+        {
+          "id": "code-review",
+          "name": "Code review",
+          "description": "Review the diff for bugs before it ships"
+        },
+        {
+          "id": "mac",
+          "name": "mac",
+          "description": "Calendar, Reminders, Contacts and more on this Mac"
+        }
+      ]
+    },
+    "session.mentionFiles": {
+      "files": [
+        {
+          "path": "/tmp/src/theme.ts",
+          "rel": "src/theme.ts"
+        },
+        {
+          "path": "/tmp/apps/ios/Realm/Theme/Palette.swift",
+          "rel": "apps/ios/Realm/Theme/Palette.swift"
+        }
+      ]
+    },
+    "session.expandCommand": {
+      "text": "Write the changelog for 2.8.0.",
+      "missing": []
+    },
     "session.screens": {
       "screens": [
         {
