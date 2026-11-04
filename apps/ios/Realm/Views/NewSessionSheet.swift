@@ -217,6 +217,12 @@ struct NewSessionSheet: View {
             }
         }
         .task { await model.loadAgents() }
+        .onAppear {
+            guard let shared = model.sharedNewSession else { return }
+            spaceId = shared.spaceId
+            agentKind = shared.agent
+            model.sharedNewSession = nil
+        }
         // Once the sheet is up rather than as it comes: a field still on its way in cannot take the keyboard.
         .task { focused = true }
     }

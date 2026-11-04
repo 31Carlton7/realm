@@ -237,6 +237,20 @@ export const SubagentSchema = z.object({
 });
 export type Subagent = z.infer<typeof SubagentSchema>;
 
+/** A space's teammate, as its Team list names it. */
+export const TeammateSchema = z.object({
+  id: Id,
+  spaceId: Id,
+  name: z.string(),
+  handle: z.string(),
+  /** What it does, in the person's words. */
+  brief: z.string(),
+  /** The space's Lead, listed first. */
+  lead: z.boolean(),
+  /** Its chat, when it has one; `teammate.chat` makes one for a teammate that has none. */
+  chatId: Id.nullable(),
+});
+export type Teammate = z.infer<typeof TeammateSchema>;
 /** What a session's info sheet says beyond its row. Every part is optional: a Mac leaves out what it
  *  does not know, and a phone draws only what came. */
 export const SessionInfoSchema = z.object({
@@ -529,6 +543,10 @@ export const MobileCalls = {
   "session.editQueued": { params: z.object({ id: Id, queuedId: z.string().min(1), text: z.string().max(100_000) }), result: Ok },
   /** The sub-agents a session started, newest first, as its Agents tab lists them. */
   "session.subagents": { params: z.object({ id: Id }), result: z.object({ subagents: z.array(SubagentSchema) }) },
+  /** Every space's teammates, in each space's Team order, archived ones left out. */
+  "teammates.list": { params: z.object({}), result: z.object({ teammates: z.array(TeammateSchema) }) },
+  /** A teammate's chat, made for one that has none yet: the session a phone sends it messages in. */
+  "teammate.chat": { params: z.object({ id: Id }), result: z.object({ id: Id }) },
   /** Where a session runs, what it has cost, and its files: what its info sheet says beyond its row. */
   "session.info": { params: z.object({ id: Id }), result: SessionInfoSchema },
   /** Every agent's plan limits, and this month's spend. */

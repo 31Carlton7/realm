@@ -41,6 +41,12 @@ struct Toast: Equatable, Identifiable {
     static func == (a: Toast, b: Toast) -> Bool { a.id == b.id }
 }
 
+/// A share's new session: the agent and the space it was shared to.
+struct SharedNewSession: Equatable {
+    let agent: String
+    let spaceId: String
+}
+
 /// Everything the screens act through: pairing, the connection to the Mac, the cache, what waits to
 /// be sent, notifications and where the person is.
 @MainActor
@@ -105,6 +111,12 @@ final class AppModel {
     /// The agents a new session could be given, as the Mac last said; nil until it answers `agents.list`,
     /// and Home's compose button with it.
     var agentList: AgentList?
+    /// A share from another app to a new session, its files and words already in the new session's
+    /// composer: Home opens the sheet on the agent and the space it was shared to.
+    var sharedNewSession: SharedNewSession?
+    /// Every space's teammates, as the Mac last said; nil until it answers, and from a Mac older than
+    /// teammates.
+    var teammates: [Teammate]?
     /// The queued messages a Send now, an edit or a removal is on its way to the Mac for, by session.
     var queueCalls: [String: Set<String>] = [:]
     /// The person asked to pair again over the Mac this phone shows (after the Mac removed it).
@@ -127,6 +139,11 @@ final class AppModel {
     @ObservationIgnored private var autoDiagnosticsStarted = false
     @ObservationIgnored private var pendingSession: String?
     @ObservationIgnored private var cache: RealmCache?
+    @ObservationIgnored private let shareInbox = ShareInbox.shared()
+    /// Teammates' chats the Mac named for shares waiting to be taken, by teammate; each is used by the
+    /// next `takeShares` and then forgotten, so a chat deleted since is asked for again.
+    @ObservationIgnored private var teammateChats: [String: String] = [:]
+    @ObservationIgnored private var chatsAsked: Set<String> = []
     /// Every write to the cache, in the order it was made: a later outbox must never be overwritten by
     /// an earlier one still on its way to disk.
     @ObservationIgnored private let disk = DispatchQueue(label: "co.charmtechnologies.realm.ios.cache", qos: .utility)
@@ -250,6 +267,11 @@ final class AppModel {
 
     /// A link the system handed the app: the scheme, a Universal Link, or a code the scanner read.
     func open(url: URL) {
+        // `realm-mobile://share`: the share extension, once it has put a share in the inbox.
+        if url.scheme == "realm-mobile", url.host() == "share" {
+            takeShares()
+            return
+        }
         open(pairingText: url.absoluteString)
     }
 
@@ -377,6 +399,7 @@ final class AppModel {
         switch phase {
         case .active:
             if store.pairedMac != nil, connection == nil, launched { connect() }
+            takeShares()
             Task { await refreshNotificationStatus() }
         case .background:
             saveEverything()
@@ -540,6 +563,11 @@ final class AppModel {
             store.showHome(home)
             rowEdits.caughtUp(with: home, ask: ask)
             if let cache { disk.async { try? cache.saveHome(home) } }
+            if agentList == nil { await loadAgents() }
+            await loadTeammates()
+            saveShareTargets()
+            // A share to a teammate made while the Mac was away waits for it to name the chat.
+            takeShares()
             // The badge says what Needs you says: the same moments the Mac's pushes are for.
             try? await UNUserNotificationCenter.current().setBadgeCount(home.needsYou.count)
             // A Mac's first answer names its profiles, and with them the one shown by default: its own
@@ -791,6 +819,121 @@ final class AppModel {
         }
     }
 
+    /// What other apps shared into Realm, each into the composer it was shared to: a session's, or the
+    /// new session's. Then the last one opens. A picture the Mac cannot show is made a JPEG as a picked
+    /// file is; anything else is moved in whole, never read. What the Mac would refuse is left out, and
+    /// a toast says why.
+    func takeShares() {
+        guard let inbox = shareInbox, store.pairedMac != nil else { return }
+        inbox.removeAbandoned(olderThan: 3_600)
+        var opens: ShareTarget?
+        for item in inbox.pending() {
+            let key: String
+            var opening = item.target
+            switch item.target {
+            case .session(let id): key = id
+            case .newSession: key = NewSessionDefaults.draft
+            case .teammate(let id):
+                // Its chat is a session only the Mac can name: the share waits in the inbox until it has.
+                guard let chat = teammateChats[id] else {
+                    askForChat(ofTeammate: id)
+                    continue
+                }
+                key = chat
+                opening = .session(id: chat)
+            }
+            let limits = sessionOptions[key]?.attachments ?? agentList?.attachments
+            for file in item.files {
+                let url = inbox.url(of: file, in: item)
+                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                if let limits, let refusal = AttachmentLimits.refusal(file.name, size: size, joining: draftAttachments[key] ?? [], limits: limits) {
+                    show(toast: refusal)
+                    continue
+                }
+                do {
+                    let mime = FilePrep.mime(of: file.name)
+                    if mime.hasPrefix("image/"), !FilePrep.inlinePictures.contains(mime) {
+                        let picture = FilePrep.prepared(try Data(contentsOf: url), name: file.name)
+                        draftAttachments[key, default: []].append(try store.files.keep(picture.data, name: picture.name, mime: picture.mime))
+                    } else {
+                        draftAttachments[key, default: []].append(try store.files.keep(movingFileAt: url, name: file.name, mime: mime))
+                    }
+                } catch {
+                    show(toast: "\(file.name) could not be kept on this iPhone. \(error.localizedDescription)")
+                }
+            }
+            if !item.text.isEmpty {
+                let typed = composerDrafts[key] ?? ""
+                composerDrafts[key] = typed.isEmpty ? item.text : "\(typed)\n\(item.text)"
+            }
+            inbox.remove(item.id)
+            opens = opening
+        }
+        teammateChats = [:]
+        switch opens {
+        case .session(let id):
+            settingsShown = false
+            path = [.session(id)]
+        case .newSession(let agent, let spaceId):
+            settingsShown = false
+            path = []
+            sharedNewSession = SharedNewSession(agent: agent, spaceId: spaceId)
+        case .teammate, nil:
+            break
+        }
+    }
+
+    /// Asks the Mac for a teammate's chat, then takes the shares again. A chat the Mac refuses — the
+    /// teammate archived or gone — puts that teammate's shares away with a toast; one that did not
+    /// arrive leaves them for the next time the Mac is back.
+    private func askForChat(ofTeammate id: String) {
+        guard let api, isConnected, chatsAsked.insert(id).inserted else { return }
+        Task {
+            do {
+                let chat = try await api.teammateChat(id: id)
+                chatsAsked.remove(id)
+                teammateChats[id] = chat
+                takeShares()
+            } catch {
+                chatsAsked.remove(id)
+                guard case ChannelError.rpc(let refusal) = error else { return }
+                let name = teammates?.first { $0.id == id }?.name ?? "That teammate"
+                show(toast: "What you shared could not go to \(name). \(refusal.message)")
+                for item in shareInbox?.pending() ?? [] where item.target == .teammate(id: id) { shareInbox?.remove(item.id) }
+            }
+        }
+    }
+
+    /// Every space's teammates, for the share extension to offer.
+    func loadTeammates() async {
+        guard let api, isConnected else { return }
+        do {
+            teammates = try await api.teammates()
+        } catch ChannelError.rpc(let error) where error.code == "METHOD_NOT_FOUND" {
+            teammates = nil
+        } catch {
+            // What the Mac last said stands until the next Home.
+        }
+    }
+
+    /// What the share extension offers, from what Home and the agents last said: the sessions Home
+    /// lists first, the spaces of the profile it shows, the agents that can start a session, and those
+    /// spaces' teammates, whose chats are offered as teammates rather than again as sessions.
+    func saveShareTargets() {
+        guard let inbox = shareInbox, let home = store.home else { return }
+        let chats = Set((teammates ?? []).compactMap(\.chatId))
+        var seen = Set<String>()
+        let sessions = (home.needsYou + (home.recent ?? home.spaces.flatMap(\.sessions)))
+            .filter { !chats.contains($0.id) && seen.insert($0.id).inserted }
+            .sorted { $0.lastActivity > $1.lastActivity }
+        let spaces = NewSessionDefaults.spaces(home, choice: profileChoice)
+        let targets = ShareTargets(macName: home.mac.name, sessions: Array(sessions.prefix(30)), spaces: spaces,
+                                   agents: agentList.map(NewSessionDefaults.agents)?.filter(\.available) ?? [],
+                                   spaceId: NewSessionDefaults.space(lastUsed: lastSpace, in: spaces)?.id,
+                                   teammates: teammates?.filter { teammate in spaces.contains { $0.id == teammate.spaceId } })
+        disk.async { try? inbox.saveTargets(targets) }
+    }
+
     #if DEBUG
     @ObservationIgnored private var photoStaged = false
 
@@ -994,9 +1137,13 @@ final class AppModel {
 
     private func forgetFetched() {
         everConnected = false
-        // A draft's files were for that Mac's sessions.
+        // A draft's files were for that Mac's sessions, and so is every share still waiting.
         store.files.remove(draftAttachments.values.joined())
         draftAttachments = [:]
+        shareInbox?.removeAll()
+        sharedNewSession = nil
+        teammates = nil
+        teammateChats = [:]
         work.forget()
         sessionOptions = [:]
         optionsUnanswered = []

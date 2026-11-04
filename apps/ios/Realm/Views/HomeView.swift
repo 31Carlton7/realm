@@ -179,6 +179,9 @@ struct HomeView: View {
             NewSessionSheet()
                 .navigationTransition(.zoom(sourceID: "new-session", in: settingsZoom))
         }
+        .onChange(of: model.sharedNewSession, initial: true) { _, shared in
+            if shared != nil { newSessionShown = true }
+        }
     }
 }
 
