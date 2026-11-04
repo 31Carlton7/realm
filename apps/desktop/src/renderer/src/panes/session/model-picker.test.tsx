@@ -31,7 +31,7 @@ function mount({ rows = rowsFor(), kind = "claude" as AgentKind, model = "claude
   overflow?: OverflowGroup[]; fast?: FastMode; info?: Record<string, ModelInfo>; switchAgent?: SwitchAgent; account?: AccountControl } = {}) {
   const picked: [AgentKind, string | null][] = [];
   const starred: string[] = [];
-  render(<ModelPicker kind={kind} model={model} effort={effort} rows={rows} info={info} switchAgent={switchAgent} account={account}
+  render(<ModelPicker kind={kind} model={model} agentProbe={[]} effort={effort} rows={rows} info={info} switchAgent={switchAgent} account={account}
     onToggleFavorite={(k) => starred.push(k)} onPick={(k, m) => picked.push([k, m])} overflow={overflow} fast={fast} />);
   fireEvent.click(screen.getByRole("button", { name: "Model" }));
   return { picked, starred };
@@ -127,7 +127,7 @@ describe("picking", () => {
        mark. THE MUTANT: read the live rows (`holdRows` skipped). */
     const picked: [AgentKind, string | null][] = [];
     const ui = (kind: AgentKind, model: string | null) => (
-      <ModelPicker kind={kind} model={model} rows={rowsFor({ kind, model })} info={{}}
+      <ModelPicker kind={kind} model={model} agentProbe={[]} rows={rowsFor({ kind, model })} info={{}}
         onToggleFavorite={() => {}} onPick={(k, m) => picked.push([k, m])} />
     );
     const { rerender } = render(ui("claude", "claude-opus-5"));
@@ -568,7 +568,7 @@ describe("how it runs", () => {
   it("charges the bolt and runs a glint along the track when fast mode goes on, and is quiet when it goes off", () => {
     const LEVELS3 = LEVELS;
     const effort = { levels: LEVELS3, value: "medium", defaultId: "medium", onChange: () => {} } as EffortControl;
-    const ui = (on: boolean) => <ModelPicker kind="claude" model="claude-opus-5" effort={effort} rows={rowsFor()} info={{}}
+    const ui = (on: boolean) => <ModelPicker kind="claude" model="claude-opus-5" agentProbe={[]} effort={effort} rows={rowsFor()} info={{}}
       onToggleFavorite={() => {}} onPick={() => {}} fast={fastMode({ on })} />;
     const { rerender } = render(ui(false));
     fireEvent.click(screen.getByRole("button", { name: "Model" }));

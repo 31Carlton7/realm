@@ -54,7 +54,7 @@ export function AddSubAgent({ session, anchorRef, canWorktree, onClose }: {
       <div className="subagent-pop-row">
         <span>Runs on</span>
         {/* The prompter's picker, opened from in here: part of this popover while it is up. */}
-        <ModelPicker kind={pick.kind} model={pick.model} rows={catalog.rows} info={catalog.info} eggs={eggs}
+        <ModelPicker kind={pick.kind} model={pick.model} agentProbe={catalog.agentProbe} rows={catalog.rows} info={catalog.info} eggs={eggs}
           onToggleFavorite={(key) => run(() => toggleModelFavorite(key))} onPick={(kind, model) => setPick({ kind, model })} />
       </div>
       <label className="field">

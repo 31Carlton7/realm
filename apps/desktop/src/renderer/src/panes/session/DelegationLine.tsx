@@ -3,7 +3,7 @@ import { Icon } from "@realm/ui";
 import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { Spinner } from "../../components/Spinner";
 import { useApp } from "../../state/store";
-import { STATE_VERB, isLive, modelLabel, subagentElapsed, subagentState, taskTitle, type SubagentState } from "../agents-tab/subagent-state";
+import { STATE_VERB, isLive, sessionModelLabel, subagentElapsed, subagentState, taskTitle, type SubagentState } from "../agents-tab/subagent-state";
 import { delegatedChildIds, harnessState, labelOf } from "./DelegatedRuns";
 import { formatDuration, type ToolBlock } from "./tool-group";
 
@@ -50,7 +50,7 @@ export function DelegationLine({ block, sessionStatus, enter = false }: { block:
   const runningFor = useElapsed(child?.startedAt ?? block.ts, ticking);
   const elapsed = child && !isLive(state) ? subagentElapsed(child, state, Date.now()) : runningFor;
   const named = (block.input.constraints as { model?: unknown } | undefined)?.model;
-  const model = child ? modelLabel(child.session.agentKind, child.session.model, probe) : typeof named === "string" ? named : null;
+  const model = child ? sessionModelLabel(child.session.agentKind, child.session.model, probe) : typeof named === "string" ? named : null;
   const kind = child?.session.agentKind ?? null;
   // The child's own title once it exists; before that, the name the call gave it.
   const task = taskTitle(child?.session.title ?? (typeof block.input.title === "string" ? block.input.title : null), goal, "Sub-agent");

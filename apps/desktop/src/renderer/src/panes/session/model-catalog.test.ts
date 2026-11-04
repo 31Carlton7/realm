@@ -289,9 +289,23 @@ describe("names", () => {
   });
 
   it("names the chip from the session's own row, a pinned id nothing lists, or the harness default", () => {
-    expect(chipLabel("claude", "claude-opus-5-5", rows)).toBe("Opus 5.5");
-    expect(chipLabel("claude", "claude-retired-9", modelRows({ kind: "claude", model: "claude-retired-9", canSwitchAgent: true, agentProbe: [] }))).toBe("claude-retired-9");
-    expect(chipLabel("acp:hermes", null, [])).toBe(DEFAULT_MODEL_LABEL["acp:hermes"]);
+    expect(chipLabel("claude", "claude-opus-5-5", rows, [])).toBe("Opus 5.5");
+    expect(chipLabel("claude", "claude-retired-9", modelRows({ kind: "claude", model: "claude-retired-9", canSwitchAgent: true, agentProbe: [] }), [])).toBe("claude-retired-9");
+    expect(chipLabel("acp:hermes", null, [], [])).toBe(DEFAULT_MODEL_LABEL["acp:hermes"]);
+  });
+
+  it("names a session that pinned no model by what its CLI ran or marks, and Default before either has said", () => {
+    const chip = (agentProbe: AgentProbe[], ran: string | null = null) =>
+      chipLabel("claude", null, modelRows({ kind: "claude", model: null, canSwitchAgent: true, agentProbe }), agentProbe, ran);
+    // Fable 5.1 heads Realm's curated list, but nothing says this Mac's Claude Code runs it (#248).
+    expect(chip([])).not.toBe("Fable 5.1");
+    expect(chip([])).toBe("Default");
+    expect(chip([], "claude-opus-5-5[1m]")).toBe("Opus 5.5");
+    const marked = [probe("claude", [{ id: "claude-fable-5-1", label: "Claude Fable 5.1" }, { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", isDefault: true }])];
+    expect(chip(marked)).toBe("Sonnet 5.5");
+    expect(chip(marked, "claude-opus-5-5")).toBe("Opus 5.5");
+    // A pinned model is named as before, whatever an earlier turn reported.
+    expect(chipLabel("claude", "claude-haiku-4-5", modelRows({ kind: "claude", model: "claude-haiku-4-5", canSwitchAgent: true, agentProbe: [] }), [], "claude-opus-5-5")).toBe("Haiku 4.5");
   });
 });
 

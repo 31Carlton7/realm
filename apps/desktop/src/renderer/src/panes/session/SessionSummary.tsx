@@ -2,7 +2,7 @@ import { Icon, type IconName } from "@realm/ui";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { AGENT_META, PERMISSION_MODES, SESSION_MODES, documentKindFor, planLabel, sessionModeOf, tightestWindow, currentAlert, windowHasReset, type AgentKind, type Environment, type GitInfo, type Item, type McpServer, type MemorySources, type PlanLimits, type Session } from "@realm/contracts";
-import { modelLabel } from "@realm/view";
+import { sessionModelLabel } from "@realm/view";
 import { useApp } from "../../state/store";
 import { ScrollFades } from "../../components/ScrollFades";
 import { Sheet } from "../../components/Sheet";
@@ -419,7 +419,7 @@ export function ContextSection({ sessionId, onClose }: { sessionId: string; onCl
 /** The rows, as data, so the test can hold the rule for each without a DOM. */
 export function contextRows({ session, env, git, memory, servers, probe = [] }: {
   session: Session; env: Environment | null; git: GitInfo | null; memory: MemorySources | null; servers: McpServer[];
-  probe?: Parameters<typeof modelLabel>[2];
+  probe?: Parameters<typeof sessionModelLabel>[2];
 }): ContextRow[] {
   const out: ContextRow[] = [];
   const folder = session.cwd.replace(/\/+$/, "").split("/").pop() || session.cwd;
@@ -443,7 +443,7 @@ export function contextRows({ session, env, git, memory, servers, probe = [] }: 
       title: `${git.dirty} uncommitted ${git.dirty === 1 ? "file" : "files"}${counted ? ` · +${git.additions} −${git.deletions} lines` : ""}`,
     });
   }
-  const model = session.model ?? modelLabel(session.agentKind, null, probe);
+  const model = session.model ?? sessionModelLabel(session.agentKind, null, probe);
   const effort = session.effort ? ` · ${session.effort}` : "";
   out.push({ icon: AGENT_META[session.agentKind].icon, label: AGENT_META[session.agentKind].label, value: `${model}${effort}` });
   const mode = sessionModeOf(session.permissionMode);

@@ -16,7 +16,7 @@ import { useElapsed } from "../session/use-elapsed";
 import { ReportFold } from "./ReportFold";
 import { SubagentBrief } from "./SubagentBrief";
 import { StateMark } from "./StateMark";
-import { STATE_LABEL, childTitle, isLive, modelLabel, subagentElapsed, subagentState, type SubagentState } from "./subagent-state";
+import { STATE_LABEL, childTitle, isLive, sessionModelLabel, subagentElapsed, subagentState, type SubagentState } from "./subagent-state";
 
 /**
  * One sub-agent, opened in its lead's Agents tab: what it is, where it stands, what it is doing and
@@ -235,7 +235,7 @@ function ChildView({ leadId, child, onKeyDownCapture }: { leadId: string; child:
   const brief = useAskedFor(child.goal, transcript?.blocks, { beside: leadId, environmentId: child.session.environmentId, cwd: child.session.cwd });
   return (
     <Frame title={title} onKeyDownCapture={onKeyDownCapture}
-      facts={<Facts state={state} elapsed={elapsed} kind={kind} model={`${modelLabel(kind, child.session.model, probe)} on ${AGENT_META[kind].label}`} where={whereLabel(env)} />}
+      facts={<Facts state={state} elapsed={elapsed} kind={kind} model={`${sessionModelLabel(kind, child.session.model, probe)} on ${AGENT_META[kind].label}`} where={whereLabel(env)} />}
       result={ended && child.report ? <Result id={id} text={child.report} failed={state === "failed" || state === "timeout"} /> : null}
       foot={<ChildFoot leadId={leadId} child={child} title={title} state={state} />}>
       {transcript && (

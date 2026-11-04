@@ -1,5 +1,5 @@
 import { AGENT_FAST_MODE, AGENT_META, AGENT_MODELS, AGENT_NOTES, DEFAULT_MODEL_LABEL, MODEL_NOTES, SELECTABLE_AGENT_KINDS, canonicalModelKey, fastSupportKey, formatContext, formatPrice, type AgentKind, type ModelInfo } from "@realm/contracts";
-import type { EffortChoice, EffortOptions } from "@realm/view";
+import { sessionModelLabel, type EffortChoice, type EffortOptions } from "@realm/view";
 import { agentAvailability, availabilityNote } from "../../state/agent-availability";
 import type { AgentProbe } from "../../state/store";
 
@@ -97,8 +97,8 @@ export type ModelRow = {
  * 3. **The single DEFAULT_MODEL_LABEL row** — a kind with no list at all.
  *
  * `model === null` means the user has pinned nothing and the adapter is running its own default. That
- * still marks a row: the frontier model, which is the first of the kind's list and the one the chip
- * already names via `DEFAULT_MODEL_LABEL` (presets.test.ts pins the two to each other).
+ * still marks a row: the first of the kind's list, so the effort and fast-mode answers have a model to
+ * read. The chip does not name that row; it says what `sessionModelLabel` knows of the default.
  */
 export function modelRows({ kind, model, agentProbe, canSwitchAgent, handoff = false, favorites = [], also = [] }: {
   kind: AgentKind; model: string | null; agentProbe: AgentProbe[]; canSwitchAgent: boolean;
@@ -385,10 +385,12 @@ export function agentRowHint(row: ModelRow): string | null {
 }
 
 /** What the prompter's chip names: the session's own row, a pinned id no list carries (a model retired
- *  since), or the harness's default label — never silently another model's name. */
-export function chipLabel(kind: AgentKind, model: string | null, rows: ModelRow[]): string {
+ *  since), or, with none pinned, the default `sessionModelLabel` names from the probe and the model the
+ *  session last reported (`ran`) — never silently another model's name. */
+export function chipLabel(kind: AgentKind, model: string | null, rows: ModelRow[], agentProbe: readonly AgentProbe[], ran: string | null = null): string {
+  if (model === null) return sessionModelLabel(kind, null, agentProbe, ran);
   const selected = rows.find((r) => r.selected);
-  return selected ? modelLabel(selected) : model ?? DEFAULT_MODEL_LABEL[kind];
+  return selected ? modelLabel(selected) : model;
 }
 
 /** The chip's tooltip, which spells the whole thing out — the model's full name, the harness it runs

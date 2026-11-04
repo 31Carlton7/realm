@@ -110,9 +110,10 @@ describe("a task's runs", () => {
     const card = await screen.findByRole("complementary", { name: "Morning triage details" });
     expect(within(card).getByText("Every day at 9:00 AM")).toBeInTheDocument();
     expect(within(card).getByText(GOAL)).toBeInTheDocument();
-    // The model in the prompter chip's words, and its tooltip: the scripted agent takes no level.
-    expect(card.querySelector(".sched-model")).toHaveTextContent(/^Fake$/);
-    expect(card.querySelector(".sched-model")).toHaveAttribute("title", "Fake through Fake agent");
+    // The model in the prompter chip's words, and its tooltip: the scripted agent takes no level, and no
+    // probe has said which model it runs by default.
+    expect(card.querySelector(".sched-model")).toHaveTextContent(/^Default$/);
+    expect(card.querySelector(".sched-model")).toHaveAttribute("title", "Default through Fake agent");
     expect(within(card).getByText(/^0 outputs$/)).toBeInTheDocument();
   });
 
@@ -128,7 +129,7 @@ describe("a task's runs", () => {
     await waitFor(() => expect(line("Morning triage")).toHaveTextContent(/^Opus 5Max$/));
     expect(line("Morning triage").querySelector(".chip-fast")).not.toBeNull();
     expect(line("Morning triage")).toHaveAttribute("title", "Claude Opus 5 through Claude · Max effort · fast mode");
-    expect(line("Digest")).toHaveTextContent(/^Fable 5\.1High$/);
+    expect(line("Digest")).toHaveTextContent(/^DefaultHigh$/);
     expect(line("Digest").querySelector(".chip-fast")).toBeNull();
     fireEvent.click(task("Morning triage"));
     const card = await screen.findByRole("complementary", { name: "Morning triage details" });

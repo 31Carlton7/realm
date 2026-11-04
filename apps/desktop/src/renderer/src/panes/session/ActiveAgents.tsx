@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Menu, type MenuItem } from "../../components/Menu";
 import { useApp } from "../../state/store";
 import { StateMark } from "../agents-tab/StateMark";
-import { STATE_LABEL, isLive, modelLabel, orchestratorOrder, type SubagentState } from "../agents-tab/subagent-state";
+import { STATE_LABEL, isLive, orchestratorOrder, sessionModelLabel, type SubagentState } from "../agents-tab/subagent-state";
 import { useOpenChild } from "./DelegatedRuns";
 import { stripAgents, useSessionSubagents, type SessionSubagent } from "./session-subagents";
 import { formatDuration } from "./tool-group";
@@ -100,7 +100,7 @@ export function ActiveAgents({ sessionId, agents, onMessage }: {
     }
     const child = a.source === "delegated" ? children.find((c) => c.session.id === a.id) : undefined;
     const on = child
-      ? `${AGENT_META[child.session.agentKind].label} · ${modelLabel(child.session.agentKind, child.session.model, agentProbe)}`
+      ? `${AGENT_META[child.session.agentKind].label} · ${sessionModelLabel(child.session.agentKind, child.session.model, agentProbe)}`
       : leadKind ? `inside ${AGENT_META[leadKind].label}` : null;
     const task = child?.goal?.split("\n")[0]?.trim() || null;
     const took = formatDuration(Math.max(0, (a.endedAt ?? now) - a.startedAt));

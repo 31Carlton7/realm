@@ -17,7 +17,7 @@ import { canSend, delegationBrief, type BriefPick } from "./brief";
 import { ModelChooser, OWN } from "./ModelChooser";
 import { StateMark } from "./StateMark";
 import { SubagentSwitch, SubagentViewer, findChild, whereLabel, type ShownSubagent } from "./SubagentViewer";
-import { STATE_LABEL, childTitle, isLive, modelLabel, orchestratorOrder, reportSummary, rollup, spentMs, subagentElapsed, subagentState, type SubagentState } from "./subagent-state";
+import { STATE_LABEL, childTitle, isLive, orchestratorOrder, reportSummary, rollup, sessionModelLabel, spentMs, subagentElapsed, subagentState, type SubagentState } from "./subagent-state";
 
 /** How many models the composer offers as one-click chips before the rest are a chooser away. */
 const CHIPS = 5;
@@ -234,7 +234,7 @@ function SubagentCard({ child, leadId, tabLead, nested = false }: { child: Deleg
   const elapsed = ticking ? runningFor : subagentElapsed(child, state, now);
   const spent = spentMs(child, state, now);
   const kind = child.session.agentKind;
-  const model = modelLabel(kind, child.session.model, probe);
+  const model = sessionModelLabel(kind, child.session.model, probe);
   const title = childTitle(child);
   const doing = ticking ? latestDoing(liveDoing, child.activity) : null;
   const summary = !ticking && child.report ? reportSummary(child.report) : "";
