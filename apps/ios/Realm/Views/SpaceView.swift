@@ -24,8 +24,12 @@ struct SpaceView: View {
                 Section {
                     ForEach(team) { teammate in TeammateLink(teammate: teammate) }
                 } header: {
-                    SectionHead(title: "Team") {
-                        Image(systemName: "person.2.fill").foregroundStyle(Palette.ink2)
+                    HStack {
+                        SectionHead(title: "Team") {
+                            Image(systemName: "person.2.fill").foregroundStyle(Palette.ink2)
+                        }
+                        Spacer()
+                        NewTeammateButton(spaceId: spaceId)
                     }
                 }
             }

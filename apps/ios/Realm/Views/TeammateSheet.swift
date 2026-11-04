@@ -13,6 +13,22 @@ struct TeammateDraft: Equatable {
     var permissionMode: String
     var lead: Bool
 
+    /// A new teammate, as the Mac's sheet starts one: no name, an icon rolled for it, the agent last
+    /// used on the model last sent on it, and the permission new sessions start in.
+    init(agents: AgentList?) {
+        name = ""
+        brief = ""
+        shape = TeammateShape.allCases.randomElement()!.rawValue
+        color = TeammatePalette.colors.randomElement()!.name
+        let agent = agents?.agents.first { $0.kind == agents?.defaultAgent } ?? agents?.agents.first
+        agentKind = agent?.kind
+        let last = agent.flatMap { agents?.lastModels?[$0.kind] } ?? nil
+        model = agent?.models.contains { $0.id == last } == true ? last : nil
+        effort = nil
+        permissionMode = agents?.teammatePermission ?? "default"
+        lead = false
+    }
+
     init(_ teammate: Teammate) {
         name = teammate.name
         brief = teammate.brief
@@ -63,8 +79,15 @@ struct TeammateSheet: View {
         NavigationStack {
             Group {
                 if let teammate, let binding = Binding($draft) {
-                    TeammateForm(draft: binding, teammate: teammate, agents: model.agentList?.agents ?? [], failure: failure)
-                        .disabled(saving)
+                    TeammateForm(draft: binding, agents: model.agentList?.agents ?? [], failure: failure,
+                                 note: "Its folder, group and check-in schedule are changed in Realm on your Mac.") {
+                        LabeledContent("Handle") {
+                            Text("@\(teammate.handle)").mono(.subheadline).foregroundStyle(Palette.ink2)
+                        }
+                    } place: {
+                        EmptyView()
+                    }
+                    .disabled(saving)
                 } else {
                     ContentUnavailableView("This teammate is not on your Mac any more", systemImage: "person.crop.circle.badge.questionmark")
                 }
@@ -101,12 +124,12 @@ struct TeammateSheet: View {
     }
 
     private func save() {
-        guard let draft, let start else { return }
+        guard let draft, let start, let teammate = model.work.teammate(teammateId) else { return }
         saving = true
         failure = nil
         Task {
             do {
-                try await model.work.save(draft.edit(from: start), to: teammateId)
+                try await model.work.save(draft.edit(from: start), to: teammate)
                 dismiss()
             } catch {
                 failure = "Not saved: \(AppModel.describe(error))"
@@ -116,11 +139,136 @@ struct TeammateSheet: View {
     }
 }
 
-private struct TeammateForm: View {
+/// The New teammate sheet, as the Mac's: a name and the handle made from it, how it looks, what it
+/// does, the space it joins, what it runs on and how freely, and whether it is the Lead. Every field but
+/// the name starts on a working default, so a name and Create is the whole of making one. Create opens
+/// its chat, as the Mac's does.
+struct NewTeammateSheet: View {
+    let spaces: [Space]
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft: TeammateDraft
+    @State private var spaceId: String
+    /// The handle typed, or nil while it follows the name.
+    @State private var handle: String?
+    @State private var creating = false
+    @State private var failure: String?
+
+    init(spaces: [Space], spaceId: String, agents: AgentList?) {
+        self.spaces = spaces
+        _draft = State(initialValue: TeammateDraft(agents: agents))
+        _spaceId = State(initialValue: spaceId)
+    }
+
+    var body: some View {
+        NavigationStack {
+            TeammateForm(draft: $draft, agents: model.agentList?.agents ?? [], failure: failure,
+                         note: "It works in the space's folder. A check-in schedule is set in Realm on your Mac.") {
+                HandleField(handle: handleText, derived: TeammateWords.handle(from: draft.name), problem: handleProblem)
+            } place: {
+                if spaces.count > 1 {
+                    Section {
+                        Picker("Space", selection: $spaceId) {
+                            ForEach(spaces) { space in Text(space.name).tag(space.id) }
+                        }
+                        .accessibilityIdentifier("teammate-space")
+                    }
+                }
+            }
+            .disabled(creating)
+            .navigationTitle("New teammate")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", systemImage: "xmark") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if creating {
+                        ProgressView()
+                    } else {
+                        Button("Create", systemImage: "checkmark") { create() }
+                            .buttonStyle(.glassProminent)
+                            .disabled(!canCreate)
+                            .accessibilityIdentifier("teammate-create")
+                    }
+                }
+            }
+        }
+        .interactiveDismissDisabled(creating || !draft.name.isEmpty)
+    }
+
+    private var handleText: Binding<String> {
+        Binding(get: { handle ?? "" }, set: { typed in
+            let plain = typed.hasPrefix("@") ? String(typed.dropFirst()) : typed
+            handle = plain.isEmpty ? nil : plain
+        })
+    }
+
+    /// The Mac's words for a handle it would refuse, said as it is typed.
+    private var handleProblem: String? { handle.flatMap(TeammateWords.handleProblem) }
+
+    private var canCreate: Bool {
+        model.isConnected && draft.agentKind != nil && !draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && handleProblem == nil
+    }
+
+    private func create() {
+        guard let agentKind = draft.agentKind else { return }
+        creating = true
+        failure = nil
+        let new = NewTeammate(spaceId: spaceId, name: draft.name.trimmingCharacters(in: .whitespacesAndNewlines), handle: handle,
+                              brief: draft.brief, icon: TeammateIcon(shape: draft.shape, color: draft.color), agentKind: agentKind,
+                              model: draft.model, effort: draft.effort, permissionMode: draft.permissionMode, lead: draft.lead)
+        Task {
+            do {
+                let made = try await model.work.create(new)
+                dismiss()
+                await model.openTeammate(made)
+            } catch {
+                failure = "Not created: \(AppModel.describe(error))"
+                creating = false
+            }
+        }
+    }
+}
+
+/// The handle, made from the name until the person types one of their own.
+private struct HandleField: View {
+    @Binding var handle: String
+    let derived: String
+    let problem: String?
+
+    var body: some View {
+        LabeledContent {
+            HStack(spacing: 0) {
+                Text("@").foregroundStyle(Palette.ink3)
+                TextField(derived, text: $handle)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.asciiCapable)
+                    .accessibilityIdentifier("teammate-handle")
+            }
+            .mono(.body)
+        } label: {
+            Text("Handle")
+        }
+        if let problem {
+            Text(problem)
+                .font(.footnote)
+                .foregroundStyle(Palette.red)
+                .accessibilityIdentifier("teammate-handle-problem")
+        }
+    }
+}
+
+/// What the Edit and New teammate sheets share: the mark and its choices, the name with the handle the
+/// sheet shows, what it does, where it goes, what it runs on, how freely it acts, and the Lead.
+private struct TeammateForm<Handle: View, Place: View>: View {
     @Binding var draft: TeammateDraft
-    let teammate: Teammate
     let agents: [AgentOptions]
     let failure: String?
+    let note: String
+    @ViewBuilder let handle: Handle
+    @ViewBuilder let place: Place
 
     var body: some View {
         let agent = agents.first { $0.kind == draft.agentKind }
@@ -140,14 +288,14 @@ private struct TeammateForm: View {
                     .textInputAutocapitalization(.words)
                     .autocorrectionDisabled()
                     .accessibilityIdentifier("teammate-name")
-                LabeledContent("Handle") {
-                    Text("@\(teammate.handle)").mono(.subheadline).foregroundStyle(Palette.ink2)
-                }
+                handle
             }
             Section("What it does") {
                 TextField("What it owns, how it works, and what it brings back.", text: $draft.brief, axis: .vertical)
                     .lineLimit(3...8)
+                    .accessibilityIdentifier("teammate-brief")
             }
+            place
             Section("Runs on") {
                 if agents.isEmpty {
                     LabeledContent("Agent", value: draft.agentKind.map(AgentNames.label) ?? "—")
@@ -194,7 +342,7 @@ private struct TeammateForm: View {
                 if let failure {
                     Text(failure).foregroundStyle(Palette.red)
                 } else {
-                    Text("Its folder, group and check-in schedule are changed in Realm on your Mac.")
+                    Text(note)
                 }
             }
         }

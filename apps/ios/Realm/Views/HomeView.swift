@@ -75,8 +75,11 @@ struct HomeView: View {
                         }
                     }
                 }
-                if filter == .all, !listing.isFiltered, !team.isEmpty, let home {
-                    TeamSection(teammates: team, spaces: TeamListing.spaces(of: team, in: home))
+                if filter == .all, !listing.isFiltered, let home {
+                    let archived = TeamListing.teammates(model.work.archivedTeammates, in: home, choice: choice)
+                    if !team.isEmpty || !archived.isEmpty {
+                        TeamSection(teammates: team, spaces: TeamListing.spaces(of: team, in: home), archived: archived)
+                    }
                 }
                 ForEach(filter == .all ? listing.sections : []) { section in
                     Section {

@@ -65,4 +65,34 @@ struct TeamTests {
         #expect(TeammateState.needsYou.tone == .waiting && TeammateState.working.tone == .working && TeammateState.idle.tone == .quiet)
         #expect(TeammateCallState.needsYou.tone == .waiting && TeammateCallState.working.tone == .working && TeammateCallState.done.tone == .done)
     }
+
+    /// A new teammate starts as the Mac's sheet starts one: the agent last used, on the model last sent
+    /// on with it where that is still offered, in the permission new sessions start in.
+    @Test func aNewTeammateStartsOnTheMacsDefaults() {
+        let agents = [NewSessionTests.agent("claude", "Claude"), NewSessionTests.agent("codex", "Codex")]
+        let list = AgentList(agents: agents, defaultAgent: "codex", midTurn: .queue, attachments: NewSessionTests.limits,
+                             lastModels: ["codex": "claude-sonnet-5", "claude": nil], teammatePermission: "acceptEdits")
+        let draft = TeammateDraft(agents: list)
+        #expect(draft.agentKind == "codex" && draft.model == "claude-sonnet-5" && draft.permissionMode == "acceptEdits")
+        #expect(draft.name.isEmpty && !draft.lead)
+        let gone = AgentList(agents: agents, defaultAgent: "codex", midTurn: .queue, attachments: NewSessionTests.limits,
+                             lastModels: ["codex": "gpt-4"])
+        #expect(TeammateDraft(agents: gone).model == nil && TeammateDraft(agents: gone).permissionMode == "default")
+    }
+
+    /// A drag that would put another teammate above the Lead, or that moved nothing, is not sent.
+    @Test func aDragKeepsTheLeadOnTop() {
+        let team = [Self.teammate("cto", lead: true), Self.teammate("designer"), Self.teammate("qa")]
+        #expect(TeamOrder.moved(team, from: [2], to: 1)?.map(\.id) == ["cto", "qa", "designer"])
+        #expect(TeamOrder.moved(team, from: [1], to: 0) == nil)
+        #expect(TeamOrder.moved(team, from: [1], to: 1) == nil)
+    }
+
+    /// A space's Team as the Mac answers it takes that space's place in the list, the others untouched.
+    @Test func aSpacesNewTeamTakesItsPlace() {
+        let list = [Self.teammate("cto", lead: true), Self.teammate("designer"), Self.teammate("tutor", space: "thesis")]
+        let led = [Self.teammate("designer", lead: true), Self.teammate("cto")]
+        #expect(WorkModel.replacing("realm", with: led, in: list).map(\.id) == ["designer", "cto", "tutor"])
+        #expect(WorkModel.replacing("site", with: [Self.teammate("web", space: "site")], in: list).map(\.id) == ["cto", "designer", "tutor", "web"])
+    }
 }
