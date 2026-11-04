@@ -213,6 +213,16 @@ enum Tone {
         case .done: Palette.green
         }
     }
+
+    /// The colour an agent's state wears: a sub-agent's, a teammate's, a message to one. Amber is the
+    /// only colour there, and only where it needs you or failed; working is said by its spinner, done
+    /// and at rest by their glyph or nothing, all in the quiet ink.
+    var agentColor: Color {
+        switch self {
+        case .waiting, .failed: Palette.orange
+        case .quiet, .working, .done: Palette.ink2
+        }
+    }
 }
 
 private struct GlyphColumn: ViewModifier {

@@ -59,4 +59,10 @@ struct TeamTests {
         draft.permissionMode = "acceptEdits"
         #expect(draft.edit(from: start) == TeammateEdit(agentKind: "codex", model: .some(nil), permissionMode: "acceptEdits", lead: true))
     }
+
+    /// A teammate, and a message to one, wear amber only while it needs you.
+    @Test func aTeammateIsAmberOnlyWhileItNeedsYou() {
+        #expect(TeammateState.needsYou.tone == .waiting && TeammateState.working.tone == .working && TeammateState.idle.tone == .quiet)
+        #expect(TeammateCallState.needsYou.tone == .waiting && TeammateCallState.working.tone == .working && TeammateCallState.done.tone == .done)
+    }
 }
