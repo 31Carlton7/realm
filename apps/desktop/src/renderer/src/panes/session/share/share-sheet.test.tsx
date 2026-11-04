@@ -76,7 +76,7 @@ describe("gathering a session to share", () => {
     expect(shared.transcript.blocks.at(-1)).toMatchObject({ kind: "assistant", text: "The last word." });
     expect(shared.title).toBe("Stream it");
     expect(shared.space).toBe("Versed");
-    expect(shared.agent).toBe("Fake agent · Fake");
+    expect(shared.agent).toBe("Fake agent · Default");
     // The Bash prompt and its answer; the question is a card of its own, so it is not here twice.
     expect(shared.permissions).toEqual([expect.objectContaining({ requestId: "r1", toolName: "Bash", decision: "allow_always" })]);
     expect(shared.children.d1).toEqual([expect.objectContaining({ title: "README pass", agent: "Codex · gpt-6-luna" })]);

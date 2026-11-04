@@ -278,10 +278,10 @@ describe("SessionPane", () => {
     await waitFor(() => expect(track).toHaveAttribute("aria-valuetext", "High"));
   });
 
-  it("model chip shows DEFAULT_MODEL_LABEL for the kind while session.model is null, and the chosen model after", async () => {
+  it("model chip says Default while session.model is null and nothing has named the default, and the chosen model after", async () => {
     const { store } = await mount("idle", reduceAll([]));
     const chip = screen.getByRole("button", { name: "Model" });
-    expect(chip).toHaveTextContent("Fake"); // DEFAULT_MODEL_LABEL.fake
+    expect(chip).toHaveTextContent("Default");
     // The chip wears the agent's mark again (prompter rework) — but `fake` has no vendor, so its
     // glyph is the generic Hugeicons bot, never a brand mark.
     expect(chip.querySelector("[data-brand]")).toBeNull();

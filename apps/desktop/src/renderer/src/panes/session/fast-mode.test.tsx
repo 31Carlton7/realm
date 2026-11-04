@@ -83,7 +83,7 @@ describe("the prompter's fast-mode bolt", () => {
     const { api, store } = await mount([]);
     await openPicker();
     expect(bolt()).toHaveAttribute("aria-pressed", "false");
-    expect(bolt()!.getAttribute("title")).toContain("The first turn checks whether Fable 5.1 can run it.");
+    expect(bolt()!.getAttribute("title")).toContain("The first turn checks whether the default model can run it.");
     noNote();
     const line = fastNote();
     fireEvent.click(bolt()!);

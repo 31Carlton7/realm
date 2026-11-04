@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { PERMISSION_MODES, type AgentKind, type ModelInfo, type Schedule } from "@realm/contracts";
-import { FALLBACK_AGENT, useApp } from "../../state/store";
+import { FALLBACK_AGENT, useApp, type AgentProbe } from "../../state/store";
 import { ModelChipText, ModelPicker, type OverflowGroup } from "../session/ModelPicker";
 import {
   chipLabel, chipTitle, effortCurrent, effortOptions, fastModeAvailability, fastModeTip, modelRows,
@@ -14,7 +14,7 @@ import type { Draft } from "./schedule-model";
  * The scripted agent is offered where this Realm runs one, as the checks that drive the app schedule
  * their work on it.
  */
-export type RunCatalog = { rows: ModelRow[]; info: Record<string, ModelInfo>; levels: EffortOptions; fast: FastAvailability; tip: string };
+export type RunCatalog = { rows: ModelRow[]; info: Record<string, ModelInfo>; levels: EffortOptions; fast: FastAvailability; tip: string; agentProbe: AgentProbe[] };
 
 export function useRunCatalog(kind: AgentKind, model: string | null): RunCatalog {
   const agentProbe = useApp((s) => s.agentProbe);
@@ -27,7 +27,7 @@ export function useRunCatalog(kind: AgentKind, model: string | null): RunCatalog
       also: agentProbe.some((p) => p.kind === "fake") ? ["fake"] : [] });
     const levels = effortOptions({ kind, model, agentProbe, info: info[rows.find((r) => r.selected)?.key ?? ""], remembered: effortSupport });
     const fast = fastModeAvailability({ kind, model, agentProbe, remembered: fastSupport, rows });
-    return { rows, info, levels, fast, tip: fastModeTip(kind, model, agentProbe) };
+    return { rows, info, levels, fast, tip: fastModeTip(kind, model, agentProbe), agentProbe };
   }, [kind, model, agentProbe, favorites, info, effortSupport, fastSupport]);
 }
 
@@ -72,7 +72,7 @@ export function ScheduleRunPicker({ draft, catalog, onChange }: {
     : { on: draft.fastMode, state: null, reason: null, requested: null, onChange: (on) => onChange({ fastMode: on }),
         availability: catalog.fast, tip: catalog.tip };
   return (
-    <ModelPicker kind={kind} model={draft.model} effort={effort} rows={catalog.rows} info={catalog.info}
+    <ModelPicker kind={kind} model={draft.model} agentProbe={catalog.agentProbe} effort={effort} rows={catalog.rows} info={catalog.info}
       onToggleFavorite={(key) => run(() => toggleModelFavorite(key))}
       onPick={(agentKind, model) => onChange({ agentKind, model })} fast={fast} overflow={PERMISSIONS} eggs={eggs} />
   );
@@ -87,11 +87,11 @@ export function ScheduleRunText({ schedule }: { schedule: Schedule }) {
   const c = schedule.constraints;
   const kind = c?.agentKind ?? FALLBACK_AGENT, model = c?.model ?? null;
   const catalog = useRunCatalog(kind, model);
-  const label = chipLabel(kind, model, catalog.rows);
+  const label = chipLabel(kind, model, catalog.rows, catalog.agentProbe);
   const level = catalog.levels.levels.length > 0 ? effortCurrent({ ...catalog.levels, value: c?.effort ?? null }).choice?.label ?? null : null;
   // Worn as the chip wears it: asked for, of a harness that can be asked, on a model nothing has said cannot.
   const fast = c?.fastMode === true && catalog.fast.state !== "none" && catalog.fast.state !== "unavailable";
-  const full = catalog.rows.find((r) => r.selected)?.label ?? label;
+  const full = (model !== null && catalog.rows.find((r) => r.selected)?.label) || label;
   return (
     <span className="sched-model" title={chipTitle(full, kind, level, fast)}>
       <ModelChipText kind={kind} label={label} level={level} fast={fast} />

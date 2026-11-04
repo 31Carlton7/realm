@@ -234,7 +234,7 @@ describe("Review with…", () => {
   it("runs a read-only reviewer on the picked model, in the place questions go, and posts nothing", async () => {
     await mount();
     await openRequest();
-    fireEvent.click(screen.getByRole("button", { name: "Review with Fable 5.1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review with Default" }));
     await waitFor(() => expect(called("codeReview.review")).toHaveLength(1));
     expect(called("codeReview.review")[0]!.params).toEqual({ ref, profileId: "p1", spaceId: "s1", projectId: null, agentKind: "claude", model: null, effort: null, fastMode: false });
     expect(await screen.findByRole("button", { name: "Reviewing…" })).toBeDisabled();
@@ -264,7 +264,7 @@ describe("Review with…", () => {
     await mount();
     await openRequest();
     const group = screen.getByRole("group", { name: "Review with a model" });
-    const body = within(group).getByRole("button", { name: "Review with Fable 5.1" });
+    const body = within(group).getByRole("button", { name: "Review with Default" });
     const chevron = within(group).getByRole("button", { name: "Review instructions" });
     expect(body.querySelector('svg[data-brand="claude"]')).not.toBeNull();
     // Two targets in one group, the body first: the chevron is the second stop for Tab.
@@ -339,7 +339,7 @@ describe("Review with…", () => {
     detail = { ...DETAIL, additions: 0, deletions: 0, changedFiles: 0 };
     await mount();
     await openRequest();
-    const body = screen.getByRole("button", { name: "Review with Fable 5.1" });
+    const body = screen.getByRole("button", { name: "Review with Default" });
     expect(body).toBeDisabled();
     expect(body).toHaveAttribute("title", "This pull request changes no files, so there is nothing to review");
     expect(screen.getByRole("button", { name: "Review instructions" })).toBeEnabled();
@@ -353,7 +353,7 @@ describe("Review with…", () => {
     fireEvent.click(screen.getByRole("radio", { name: /Changes/ }));
     const note = (await screen.findByText("Carry the partial token.")).closest(".cr-note")!;
     const by = note.querySelector(".cr-note-by")!;
-    expect(by).toHaveTextContent("Fable 5.1");
+    expect(by).toHaveTextContent("Default");
     expect(by.querySelector('svg[data-brand="claude"]')).not.toBeNull();
   });
 
@@ -375,7 +375,7 @@ describe("Review with…", () => {
     const chip = within(sheet).getByRole("button", { name: "Model" });
     expect(chip.querySelector(".chip-effort")).toHaveTextContent("Max");
     expect(chip.querySelector(".chip-fast")).not.toBeNull();
-    const body = screen.getByRole("button", { name: "Review with Fable 5.1 Max in fast mode" });
+    const body = screen.getByRole("button", { name: "Review with Default Max in fast mode" });
     expect(body.querySelector(".cr-level")).toHaveTextContent("Max");
     // The profile's as each was set: there is no Save for a pick.
     expect(called("codeReview.setReviewerPick").at(-1)!.params).toEqual({ profileId: "p1", pick: { agentKind: "claude", model: null, effort: "max", fastMode: true } });
@@ -428,19 +428,19 @@ describe("Review with…", () => {
     await mount();
     await openRequest();
     const head = within(await screen.findByRole("region", { name: "Review" })).getByText(/^Review by/);
-    expect(head).toHaveTextContent("Review by Fable 5.1 XHigh");
+    expect(head).toHaveTextContent("Review by Default XHigh");
     expect(head.querySelector(".cr-level")).toHaveTextContent("XHigh");
     fireEvent.click(screen.getByRole("radio", { name: /Changes/ }));
     const note = (await screen.findByText("Carry the partial token.")).closest(".cr-note")!;
-    expect(note.querySelector(".cr-note-by")).toHaveTextContent("Fable 5.1 XHigh");
+    expect(note.querySelector(".cr-note-by")).toHaveTextContent("Default XHigh");
   });
 
   it("while a review runs at a level, says it over the run and in the body's tooltip", async () => {
     review = { ...REVIEW, effort: "xhigh", state: "running", summary: "", findings: [], finishedAt: null };
     await mount();
     await openRequest();
-    expect(await screen.findByRole("button", { name: "Reviewing…" })).toHaveAttribute("title", "Fable 5.1 at XHigh effort is reviewing this pull request");
-    expect(within(screen.getByRole("region", { name: "Review" })).getByText(/is reviewing…$/)).toHaveTextContent("Fable 5.1 XHigh is reviewing…");
+    expect(await screen.findByRole("button", { name: "Reviewing…" })).toHaveAttribute("title", "Default at XHigh effort is reviewing this pull request");
+    expect(within(screen.getByRole("region", { name: "Review" })).getByText(/is reviewing…$/)).toHaveTextContent("Default XHigh is reviewing…");
   });
 
   it("keeps the profile's instructions from the chevron, with an example a press away, and Save and run runs", async () => {

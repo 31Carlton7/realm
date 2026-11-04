@@ -1412,7 +1412,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
             {/* ONE chip, not two. A harness is only ever chosen FOR a model, so that choice lives on
                 the model's own row in the picker, where there is one. The chip still wears the
                 harness's mark, so nothing a harness chip said is lost. */}
-            <ModelPicker kind={kind} model={session.model} effort={effort} rows={rows} info={modelInfo}
+            <ModelPicker kind={kind} model={session.model} agentProbe={agentProbe} ran={sessionInit?.model ?? null} effort={effort} rows={rows} info={modelInfo}
               onToggleFavorite={onToggleModelFavorite}
               onPick={onPickModel} fast={fast} eggs={eggs} account={account}
               switchAgent={handsOver && onSwitchAgent ? { busy: status === "running" || status === "waiting_permission", onSwitch: onSwitchAgent } : undefined} />

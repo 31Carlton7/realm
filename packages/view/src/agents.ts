@@ -19,6 +19,20 @@ export function modelLabel(kind: AgentKind, id: string | null, probe: readonly {
   return rest !== null && /^[A-Za-z]+(\s|$)/.test(rest) ? rest : label;
 }
 
+/**
+ * The model a session is on, as the chip names it. A pinned model is named by `modelLabel`. One with
+ * none pinned runs its CLI's own default: once it has run, that is the model its newest handshake
+ * reported (`ran`); before then, the one the CLI's list marks as its default. Where no list marks one,
+ * Claude's would be the head of Realm's curated list, a guess this Mac's CLI may not run, so it
+ * says "Default" instead.
+ */
+export function sessionModelLabel(kind: AgentKind, model: string | null, probe: Parameters<typeof modelLabel>[2], ran: string | null = null): string {
+  if (model !== null) return modelLabel(kind, model, probe);
+  if (ran) return modelLabel(kind, ran.replace(/\[[^\]]*\]$/, ""), probe);
+  const marked = probe.find((p) => p.kind === kind)?.models?.some((m) => m.isDefault) ?? false;
+  return marked || AGENT_MODELS[kind].length === 0 ? modelLabel(kind, null, probe) : "Default";
+}
+
 /** The setting the desktop keeps the agent of the session last made or switched to under: what its
  *  "+" and ⌘N reach for next, and what a new session started from Realm Mobile is offered first. */
 export const LAST_AGENT_SETTING = "ui.lastAgentKind";

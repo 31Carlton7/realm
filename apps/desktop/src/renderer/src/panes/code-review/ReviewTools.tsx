@@ -24,7 +24,7 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
  *  name does not — and the level it was started at, where one was asked for. */
 export function useReviewerName(kind: AgentKind, model: string | null, effort: string | null): { label: string; level: string | null } {
   const agentProbe = useApp((s) => s.agentProbe);
-  const label = useMemo(() => chipLabel(kind, model, modelRows({ kind, model, agentProbe, canSwitchAgent: false })), [kind, model, agentProbe]);
+  const label = useMemo(() => chipLabel(kind, model, modelRows({ kind, model, agentProbe, canSwitchAgent: false }), agentProbe), [kind, model, agentProbe]);
   return { label, level: effort ? formatEffort(effort) : null };
 }
 
@@ -102,7 +102,7 @@ export function ReviewWith({ pr, detail, profileId, place, review, onStarted }: 
   const fast: FastMode | undefined = catalog.fast.state === "none" ? undefined
     : { on: pick.fastMode, state: null, reason: null, requested: null, onChange: (on) => choose({ fastMode: on }), availability: catalog.fast, tip: catalog.tip };
   const runs = reviewRun(pick, catalog);
-  const label = chipLabel(kind, model, catalog.rows);
+  const label = chipLabel(kind, model, catalog.rows, agentProbe);
   const level = runs.effort ? formatEffort(runs.effort) : null;
   const [open, setOpen] = useState(false);
   const more = useRef<HTMLButtonElement>(null);
@@ -154,6 +154,7 @@ function InstructionsPopover({ anchorRef, profileId, pick, rows, effort, fast, o
   const { pos, closing, close } = useAnchoredPopover({ ref, anchorRef, align: "right", onClose, returnFocusRef: anchorRef, exit: true });
   const run = useApp((s) => s.run);
   const modelInfo = useApp((s) => s.modelInfo);
+  const agentProbe = useApp((s) => s.agentProbe);
   const eggs = useApp((s) => s.easterEggs);
   const probeAgents = useApp((s) => s.probeAgents);
   const refreshModelFavorites = useApp((s) => s.refreshModelFavorites);
@@ -191,7 +192,7 @@ function InstructionsPopover({ anchorRef, profileId, pick, rows, effort, fast, o
             keys, and the card under the list for the level and fast mode — a pick leaves it open, so
             a model and how it runs are set in one visit. Opened from in here it is part of this
             popover while it is up (use-anchored-popover). */}
-        <ModelPicker kind={pick.agentKind} model={pick.model} effort={effort} fast={fast} rows={rows} info={modelInfo} eggs={eggs}
+        <ModelPicker kind={pick.agentKind} model={pick.model} agentProbe={agentProbe} effort={effort} fast={fast} rows={rows} info={modelInfo} eggs={eggs}
           onToggleFavorite={(key) => run(() => toggleModelFavorite(key))} onPick={onPick} />
       </div>
       <textarea ref={field} className="cr-field" rows={5} aria-label="Review instructions" disabled={text === null}

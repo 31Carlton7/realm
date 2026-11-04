@@ -18,7 +18,7 @@ const LEVELS = ["low", "medium", "high", "xhigh", "max"].map((id) => ({ id, labe
 const fast = (on: boolean): FastMode => ({ on, state: null, reason: null, requested: null, onChange: () => {},
   availability: { state: "offered", source: "session" }, tip: "Fast mode: faster responses, at a higher cost." });
 const picker = (effort: string | null, fastOn = false, eggs = false) => (
-  <ModelPicker kind="claude" model={null} effort={{ levels: LEVELS, value: effort, defaultId: "high", onChange: () => {} }} rows={rows} info={{}}
+  <ModelPicker kind="claude" model={null} agentProbe={[]} effort={{ levels: LEVELS, value: effort, defaultId: "high", onChange: () => {} }} rows={rows} info={{}}
     onToggleFavorite={() => {}} onPick={() => {}} fast={fast(fastOn)} eggs={eggs} />
 );
 

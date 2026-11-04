@@ -1,5 +1,5 @@
 import { AGENT_META, type AgentKind, type DelegatedChild, type Session, type SessionEvent } from "@realm/contracts";
-import { modelLabel } from "../../agents-tab/subagent-state";
+import { sessionModelLabel } from "../../agents-tab/subagent-state";
 import { delegatedChildIds } from "../DelegatedRuns";
 import { isDelegationLine } from "../tool-group";
 import { questionOf, reduceAll, type Transcript } from "../transcript-model";
@@ -27,7 +27,7 @@ export type GatherDeps = {
 
 /** "Claude · Opus 5.5": the harness and the model, as the picker names them. */
 export const agentLine = (kind: AgentKind, model: string | null, probe: Probe): string =>
-  `${AGENT_META[kind].label} · ${modelLabel(kind, model, probe)}`;
+  `${AGENT_META[kind].label} · ${sessionModelLabel(kind, model, probe)}`;
 
 /**
  * The transcript, and the permission prompts it no longer holds. The transcript model keeps only the

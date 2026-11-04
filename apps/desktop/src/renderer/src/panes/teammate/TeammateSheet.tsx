@@ -252,7 +252,7 @@ function TeammateModel({ f, onChange }: { f: Fields; onChange: (patch: Partial<F
   const effort: EffortControl | undefined = catalog.levels.levels.length === 0 ? undefined
     : { ...catalog.levels, value: f.effort, onChange: (id) => onChange({ effort: id }) };
   return (
-    <ModelPicker kind={f.agentKind} model={f.model} effort={effort} rows={catalog.rows} info={catalog.info}
+    <ModelPicker kind={f.agentKind} model={f.model} agentProbe={catalog.agentProbe} effort={effort} rows={catalog.rows} info={catalog.info}
       onToggleFavorite={(key) => run(() => toggleModelFavorite(key))}
       onPick={(agentKind, model) => onChange({ agentKind, model })} eggs={eggs} />
   );

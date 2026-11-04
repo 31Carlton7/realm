@@ -11,6 +11,7 @@ import {
   formatEffort, groupRows, holdRows, isHarnessDefault, modelAbout, modelIdOn, modelLabel, type EffortControl, type FastMode, type ModelRow,
 } from "./model-catalog";
 import { prefersReducedMotion } from "../../reduced-motion";
+import type { AgentProbe } from "../../state/store";
 
 export { formatEffort };
 
@@ -126,9 +127,13 @@ function useChipSweep(ref: RefObject<HTMLButtonElement | null>, effort: string |
  * - **Open until you leave it.** A pick changes the model and leaves the card to set its level and its
  *   speed in the same visit; a click outside, the chip again, or Escape put the picker away.
  */
-export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite, onPick, switchAgent, account, overflow, fast, eggs = false }: {
+export function ModelPicker({ kind, model, agentProbe, ran = null, effort, rows, info, onToggleFavorite, onPick, switchAgent, account, overflow, fast, eggs = false }: {
   kind: AgentKind;
   model: string | null;
+  /** What names the chip while no model is pinned: the probe's marked default, and the model the
+   *  session's handshake reported once it has run. */
+  agentProbe: readonly AgentProbe[];
+  ran?: string | null;
   /** The session's reasoning level and what its model takes, or absent where the harness takes none —
    *  the chip's grey suffix names the level in force. */
   effort?: EffortControl;
@@ -151,9 +156,9 @@ export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite,
 }) {
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  const label = chipLabel(kind, model, rows);
+  const label = chipLabel(kind, model, rows, agentProbe, ran);
   // The tooltip spells the whole thing out, the vendor's word included, for anyone who needs it.
-  const fullName = rows.find((r) => r.selected)?.label ?? label;
+  const fullName = (model !== null && rows.find((r) => r.selected)?.label) || label;
   const bolt = fast ? fastModeShown(fast) : false;
   // The level in force, by name — the session's own, or the model's default where one is named.
   const level = effort && effort.levels.length > 0 ? effortCurrent(effort).choice?.label ?? null : null;
@@ -170,7 +175,7 @@ export function ModelPicker({ kind, model, effort, rows, info, onToggleFavorite,
         <ModelChipText kind={kind} label={label} level={level} fast={bolt} />
         <Icon name="chevronDown" size={12} className="chip-caret" />
       </button>
-      {open && <ModelPopover kind={kind} name={label} rows={rows} info={info} anchorRef={btn} onClose={() => setOpen(false)} onPick={onPick}
+      {open && <ModelPopover kind={kind} name={label === "Default" ? "the default model" : label} rows={rows} info={info} anchorRef={btn} onClose={() => setOpen(false)} onPick={onPick}
         switchAgent={switchAgent} account={account} onToggleFavorite={onToggleFavorite} effort={effort} overflow={overflow} fast={fast} eggs={eggs} />}
     </>
   );

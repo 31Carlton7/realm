@@ -23,7 +23,7 @@ export function subagentElapsed(child: DelegatedChild, state: SubagentState, now
 
 /** A model id's name, as the picker names it under its harness (`@realm/view`, where Realm Mobile's
  *  rows read it too). */
-export { modelLabel } from "@realm/view";
+export { modelLabel, sessionModelLabel } from "@realm/view";
 
 /** What a sub-agent's row is titled with: its own title — the name its lead gave the task, or the
  *  one Realm read out of the goal — and the goal's first line only for a child with none. The rest
