@@ -25,7 +25,7 @@ const ABBREVIATIONS = /(?:^|\s)(?:e\.g|i\.e|etc|vs|mr|mrs|ms|dr|st|no|approx|cf)
 
 /** The kind of a line, or null while too little of it has arrived to say: a line that has only
  *  reached "`" or "-" may yet be a fence or a list item. */
-export function lineKind(line: string, complete: boolean): LineKind | null {
+function lineKind(line: string, complete: boolean): LineKind | null {
   if (!line.trim()) return complete ? "blank" : null;
   // A fence's language is the rest of its line, and "diff" is said differently from code: wait for it.
   if (FENCE.test(line)) return complete ? "fence" : null;
