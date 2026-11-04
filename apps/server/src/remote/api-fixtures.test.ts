@@ -54,6 +54,8 @@ const NOW_RUN = "01JRUN00000000000000000003";
 const BRIEF_SESSION = "01JBRIEF000000000000000000";
 /** The Realm space's screens: two simulators, a Mac at an address, a guest that is off, and this Mac's
  *  TextEdit, which a phone is not shown. */
+/** The theme column forked from a phone. */
+const FORK = "01JFORK0000000000000000000";
 const SIM = "01JSIMULATOR00000000000001";
 const PHONE = "01JSIMULATOR00000000000002";
 const TEXTEDIT = "01JMACHINE0000000000000001";
@@ -399,6 +401,37 @@ async function generate(): Promise<Record<string, unknown>> {
     "commands.expand": ((p: { args: string }) => ({ command: {}, text: `Write the changelog for ${p.args}.`, missing: [] })) as never,
     "goals.set": ((p: { status: Goal["status"]; note: string | null }) => ({ goal: { ...goal, status: p.status, note: p.note, updatedAt: 1_790_000_400_000 } })) as never,
     "goals.resume": (() => ({ goal: { ...blocked, status: "active", note: null, updatedAt: 1_790_000_400_000 } })) as never,
+    // The session actions: a checkpoint taken for a fork and the fork it makes, a move to another space,
+    // a switch of agent and of account, and the theme column's one saved turn.
+    "checkpoints.capture": ((p: { environmentId: string; sessionId: string }) => ({ id: "01JCHECKPOINT0000000000000", environmentId: p.environmentId, sessionId: p.sessionId, kind: "manual" })) as never,
+    "sessions.fork": (() => {
+      sessions.push(session(FORK, "sp1", { title: "Fork: Theme column", lastEventSeq: 0, createdAt: 1_790_000_600_000, activityAt: 1_790_000_600_000, dispatchedBy: { kind: "fork", sessionId: S } }));
+      items.push(item(FORK, "sp1", "Fork: Theme column"));
+      return { session: sessions.at(-1), itemId: `i-${FORK}`, environment: {} };
+    }) as never,
+    "sessions.moveToSpace": ((p: { id: string; spaceId: string }) => {
+      const at = sessions.findIndex((x) => x.id === p.id);
+      sessions[at] = { ...sessions[at]!, spaceId: p.spaceId };
+      items[items.findIndex((it) => it.refId === p.id)]!.spaceId = p.spaceId;
+      return sessions[at];
+    }) as never,
+    "sessions.switchAgent": ((p: { sessionId: string; agentKind: Session["agentKind"]; model: string | null }) => {
+      const at = sessions.findIndex((x) => x.id === p.sessionId);
+      sessions[at] = { ...sessions[at]!, agentKind: p.agentKind, model: p.model };
+      return sessions[at];
+    }) as never,
+    "accounts.list": (() => ({ accounts: [
+      { id: "default-claude", kind: "claude", label: "Default", configDir: null, signedIn: true, email: "me@example.com", plan: "max", createdAt: 0 },
+      { id: "01JACCOUNT0000000000000000", kind: "claude", label: "Work", configDir: "/Users/me/Realm/accounts/work", signedIn: null, email: null, plan: null, createdAt: 0 },
+      { id: "default-codex", kind: "codex", label: "Default", configDir: null, signedIn: true, email: "me@example.com", plan: "pro", createdAt: 0 },
+    ] })) as never,
+    "sessions.setAccount": ((p: { id: string; accountId: string | null }) => ({ ...sessions.find((x) => x.id === p.id)!, accountId: p.accountId })) as never,
+    "sessions.saved": (() => ({ seqs: [2] })) as never,
+    "sessions.setSaved": ((p: { seq: number; saved: boolean }) => ({ seqs: p.saved ? [2, p.seq] : [2] })) as never,
+    "library.saved": (() => ({ total: 1, entries: [{
+      sessionId: S, seq: 2, savedAt: 1_790_000_300_000, ts: 1_790_000_000_000, text: "Add a theme column to the settings table", attachments: [], goal: null,
+      reply: "Added the column and a migration for it.", sessionTitle: "Theme column", spaceId: "sp1",
+    }] })) as never,
     "mentions.files": (() => ({ hits: [{ path: "src/theme.ts", score: 12, marks: [] }, { path: "apps/ios/Realm/Theme/Palette.swift", score: 7, marks: [] }], truncated: false, source: "git" })) as never,
   });
   const api = new MobileApi({ macName: () => "MacBook Pro", reportsDir: "/nonexistent", realmHome: home, userHome: "/Users/me", dev: false, downscale: async () => Buffer.from("jpeg") });
@@ -470,6 +503,14 @@ async function generate(): Promise<Record<string, unknown>> {
       // Last, because they change the lists every call above reads.
       "session.update": await call("session.update", { id: OLDER[5]!, title: "Write the 2.0.3 changelog", pinned: true }),
       "session.update:archived": await call("session.update", { id: OLDER[3]!, archived: true }),
+      "session.saved": await call("session.saved", { id: S }),
+      "session.setSaved": await call("session.setSaved", { id: S, seq: 5, saved: true }),
+      "saved.list": await call("saved.list", { profileId: "p1" }),
+      "session.accounts": await call("session.accounts", { id: S }),
+      "session.setAccount": await call("session.setAccount", { id: S, accountId: "01JACCOUNT0000000000000000" }),
+      "session.switchAgent": await call("session.switchAgent", { id: OLDER[4]!, agent: "codex", model: "gpt-6-astra" }),
+      "session.moveToSpace": await call("session.moveToSpace", { id: OLDER[0]!, spaceId: "sp2" }),
+      "session.fork": await call("session.fork", { id: S }),
     },
     events: {
       "session.hint": [{ id: S, text: "Approve the plan and run the migration" }, { id: S, text: null }],
@@ -479,6 +520,7 @@ async function generate(): Promise<Record<string, unknown>> {
       "work.changed": [{}],
       "session.goal": [{ id: S, goal: phoneGoal(goal) }, { id: S, goal: null }],
       "session.todos": [{ id: S, todos: [{ content: "Add the theme column", status: "completed", activeForm: "Adding the theme column" }] }, { id: S, todos: [] }],
+      "session.saved": [{ id: S, seqs: [2, 5] }],
     },
     answer: {
       /** The open question's picks, by label, and words of the person's own, as the phone's card holds them. */
@@ -527,7 +569,7 @@ describe("mobile.v1 fixtures for RealmKit (PROTOCOL.md §9)", () => {
     const calls = new Set(Object.keys((await generate()).calls as Record<string, unknown>).map((k) => k.split(":")[0]));
     // These answer `{ok: true}`, `{at}` or `{id}`: there is nothing in them for a phone to decode wrongly.
     const plain = ["ping", "session.close", "session.send", "session.answer", "session.stop", "session.seen", "session.create", "debug.report",
-      "session.sendQueuedNow", "session.removeQueued", "session.holdQueued", "session.editQueued", "session.goal",
+      "session.sendQueuedNow", "session.removeQueued", "session.holdQueued", "session.editQueued", "session.goal", "session.delete",
       // Review went with the first Teams: these answer only that a review is not found.
       "review.get", "review.decide", "review.file"];
     expect(Object.keys(MobileCalls).filter((m) => !plain.includes(m) && !calls.has(m))).toEqual([]);

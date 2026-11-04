@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import {
-  AGENT_META, AGENT_SKILL_SUPPORT, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, isSecretPath, keepLiveRefs, MAC_SKILL_ID, mentionIds, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, PERMISSION_MODES, readEffortSupport,
+  AGENT_META, AGENT_SKILL_SUPPORT, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, defaultAccountId, hasAccounts, isSecretPath, keepLiveRefs, MAC_SKILL_ID, mentionIds, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, PERMISSION_MODES, readEffortSupport,
   resolveMidTurnMode, runnableCommands, SELECTABLE_AGENT_KINDS, TeammateIconSchema, withStreamed, type AgentKind, type DelegatedChild, type IconAsset, type Item, type Machine, type MethodResult, type ModelInfo,
   type Goal, type PendingMove, type QueuedPrompt, type Schedule, type Session, type Skill, type Space, type StoredSessionEvent, type Teammate, type TeammateIcon, type TurnChanges,
 } from "@realm/contracts";
@@ -97,6 +97,21 @@ export const ICON_MAX_BYTES = 256 * 1024;
 
 /** The desktop's refusals of a move, which a phone shows as they are worded. */
 const MOVE_REFUSALS = new Set(["SESSION_MOVE_REFUSED", "SESSION_BUSY", "SESSION_SWITCHING", "ENVIRONMENT_BUSY", "ENVIRONMENT_WRONG_SPACE", "BAD_REQUEST", "MOVE_FAILED", "MOVE_CANCELLED", "MOVE_STOPS_WORK"]);
+
+/** The desktop's refusals of a fork, a move to another space, a switch of agent or of account, which
+ *  a phone shows as they are worded: a turn still running, a switch already under way, a checkpoint
+ *  that cannot be forked, an account that is not the agent's. */
+const ACTION_REFUSALS = new Set(["SESSION_BUSY", "SESSION_SWITCHING", "AGENT_UNAVAILABLE", "BAD_REQUEST", "FORK_NO_SESSION", "FORK_SESSION_GONE", "CHECKPOINT_GONE", "NOT_A_REPOSITORY"]);
+
+/** `call`'s answer, with a refusal the desktop words for the person made FORBIDDEN in its words. */
+async function refusable<T>(call: Promise<T>): Promise<T> {
+  try {
+    return await call;
+  } catch (e) {
+    if (e instanceof RpcCallError && ACTION_REFUSALS.has(e.code)) throw new MobileError("FORBIDDEN", e.message);
+    throw e;
+  }
+}
 
 /** `moving` goes out as `running`: a phone on today's build knows no other word for "busy, wait". */
 const mobileStatus = (s: Session["status"]): SessionRow["status"] => (s === "waiting_permission" ? "waiting" : s === "moving" ? "running" : s);
@@ -327,6 +342,22 @@ export class MobileApi {
         case "session.moveOptions": return await this.moveOptions(rpc, p.id as string);
         case "session.move": return await this.move(rpc, p as MobileParams<"session.move">);
         case "session.cancelMove": return await rpc.call("sessions.cancelMove", { id: p.id as string });
+        case "session.delete": await rpc.call("sessions.delete", { id: p.id as string }); return { ok: true };
+        case "session.fork": return await this.fork(rpc, p as MobileParams<"session.fork">);
+        case "session.moveToSpace": {
+          await rpc.call("sessions.moveToSpace", { id: p.id as string, spaceId: p.spaceId as string });
+          return { session: await this.listedRow(rpc, p.id as string) };
+        }
+        case "session.switchAgent": {
+          const agentKind = desktopNames(undefined, p.agent as string).agentKind!;
+          await refusable(rpc.call("sessions.switchAgent", { sessionId: p.id as string, agentKind, model: (p.model as string | null | undefined) ?? null }));
+          return { session: await this.listedRow(rpc, p.id as string) };
+        }
+        case "session.accounts": return await this.accounts(rpc, p.id as string);
+        case "session.setAccount": return await this.setAccount(rpc, p.id as string, p.accountId as string);
+        case "session.saved": return await rpc.call("sessions.saved", { id: p.id as string });
+        case "session.setSaved": return await rpc.call("sessions.setSaved", { id: p.id as string, seq: p.seq as number, saved: p.saved as boolean });
+        case "saved.list": return await this.savedTurns(rpc, p.profileId as string);
         case "debug.report": {
           if (!this.o.dev) throw new MobileError("FORBIDDEN", "debug.report is for development builds");
           mkdirSync(this.o.reportsDir, { recursive: true });
@@ -716,6 +747,56 @@ export class MobileApi {
     const { listed, row } = await this.listing(rpc);
     const moved = listed.find((s) => s.id === p.id) ?? await rpc.call("sessions.get", { id: p.id });
     return { session: row(moved) };
+  }
+
+  /** A session's row as Home lists it now, or as it stands where no list does. */
+  private async listedRow(rpc: RpcPort, id: string): Promise<SessionRow> {
+    const { listed, row } = await this.listing(rpc);
+    return row(listed.find((s) => s.id === id) ?? await rpc.call("sessions.get", { id }));
+  }
+
+  /** A fork of the session as it is now: a checkpoint taken for it this moment, then the desktop's own
+   *  Fork… from that checkpoint, onto `agent` where it names another. */
+  private async fork(rpc: RpcPort, p: MobileParams<"session.fork">): Promise<MobileResult<"session.fork">> {
+    const s = await rpc.call("sessions.get", { id: p.id });
+    const agentKind = p.agent === undefined ? undefined : desktopNames(undefined, p.agent).agentKind;
+    const checkpoint = await refusable(rpc.call("checkpoints.capture", { environmentId: s.environmentId, sessionId: s.id, label: "Fork" }));
+    const { session } = await refusable(rpc.call("sessions.fork", { checkpointId: checkpoint.id, ...(agentKind && agentKind !== s.agentKind ? { agentKind } : {}) }));
+    return { session: await this.listedRow(rpc, session.id) };
+  }
+
+  /** The accounts of the session's agent, as its picker's Account list names them, and the one in force:
+   *  the session's own, or its CLI's where it names none. */
+  private async accounts(rpc: RpcPort, id: string): Promise<MobileResult<"session.accounts">> {
+    const s = await rpc.call("sessions.get", { id });
+    if (!hasAccounts(s.agentKind)) return { accounts: [], current: null };
+    const { accounts } = await rpc.call("accounts.list", {});
+    const mine = accounts.filter((a) => a.kind === s.agentKind);
+    return {
+      accounts: mine.map((a) => ({ id: a.id, label: a.label, email: a.email, cliDefault: a.configDir === null, signedIn: a.signedIn })),
+      current: s.accountId ?? defaultAccountId(s.agentKind),
+    };
+  }
+
+  /** The desktop's pick of an account: the CLI's own goes as null, as its picker sends it. */
+  private async setAccount(rpc: RpcPort, id: string, accountId: string): Promise<MobileResult<"session.setAccount">> {
+    const s = await rpc.call("sessions.get", { id });
+    const own = hasAccounts(s.agentKind) && accountId === defaultAccountId(s.agentKind);
+    await refusable(rpc.call("sessions.setAccount", { id, accountId: own ? null : accountId }));
+    return { session: await this.listedRow(rpc, id) };
+  }
+
+  /** Library ▸ Saved for one profile, each turn with its space's name. */
+  private async savedTurns(rpc: RpcPort, profileId: string): Promise<MobileResult<"saved.list">> {
+    const [{ entries, total }, spaces] = await Promise.all([rpc.call("library.saved", { profileId }), rpc.call("spaces.list", {})]);
+    const spaceName = spaceNames(spaces);
+    return {
+      entries: entries.map((e) => ({
+        sessionId: e.sessionId, seq: e.seq, savedAt: e.savedAt, at: e.ts, text: e.text, attachments: e.attachments,
+        reply: e.reply, sessionTitle: e.sessionTitle, spaceId: e.spaceId, spaceName: spaceName(e.spaceId),
+      })),
+      total,
+    };
   }
 
   /** New words for a queued message, which keeps its files and its place, and lets go of its hold. */
