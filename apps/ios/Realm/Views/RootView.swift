@@ -22,6 +22,7 @@ struct RootView: View {
                             case .review(let id): ReviewView(reviewId: id)
                             case .scheduled: ScheduledView()
                             case .usage: UsageView()
+                            case .team: TeamView()
                             }
                         }
                 }
@@ -29,6 +30,10 @@ struct RootView: View {
                 // A lead's sub-agents, from its row's press-and-hold.
                 .sheet(item: subagentsLead) { lead in
                     SubagentsSheet(sessionId: lead.id)
+                }
+                // A teammate's Edit sheet, from its row or its chat's menu.
+                .sheet(item: teammateEditing) { shown in
+                    TeammateSheet(teammateId: shown.id)
                 }
                 // A link opened while a Mac is paired pairs over the top of it.
                 .sheet(isPresented: pairingOverTheTop) {
@@ -55,6 +60,10 @@ struct RootView: View {
 
     private var subagentsLead: Binding<ShownLead?> {
         Binding(get: { model.subagentsShown.map(ShownLead.init) }, set: { model.subagentsShown = $0?.id })
+    }
+
+    private var teammateEditing: Binding<ShownLead?> {
+        Binding(get: { model.teammateEditing.map(ShownLead.init) }, set: { model.teammateEditing = $0?.id })
     }
 
     private var pairingOverTheTop: Binding<Bool> {

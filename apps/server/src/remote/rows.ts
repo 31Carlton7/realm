@@ -1,4 +1,7 @@
-import { moveFailedSentence, type AskCard, type AskQuestion, type MoveStep, type PendingMove, type QueuedPrompt, type SessionEvent, type SessionEventType, type StoredSessionEvent } from "@realm/contracts";
+import {
+  bareToolName, moveFailedSentence, normalizeHandle, TEAM_MESSAGE_TOOL, teammateByHandle, teammateWords,
+  type AskCard, type AskQuestion, type MoveStep, type PendingMove, type QueuedPrompt, type SessionEvent, type SessionEventType, type StoredSessionEvent,
+} from "@realm/contracts";
 import { givenAttachmentName } from "@realm/contracts/src/temp-attachments";
 import type { PendingMove as PhonePendingMove, QueuedMessage, Row } from "@realm/remote";
 import { questionOf } from "@realm/view";
@@ -84,6 +87,9 @@ const MOVE_STEP_LABEL: Record<MoveStep, string> = {
   place: "Setting up the checkout", boot: "Starting the agent", commit: "Finishing",
 };
 
+/** What a projector needs of the session's space's Team to say who a `team_message` went to. */
+export type TeamMember = { id: string; handle: string; lead: boolean };
+
 /** Who asks, as the desktop's card names them: the agent, or a server by the name the person gave it. */
 const askerOf = (card: AskCard): string => (card.asker.kind === "server" ? `${card.asker.name}'s MCP server` : card.asker.name);
 
@@ -96,11 +102,16 @@ export class SessionProjector {
   private lastPlan: PlanRow | null = null;
   /** The suggested next message, the desktop's way: the newest `prompt_hint`, until a message is sent. */
   private hinted: { text: string; throughSeq: number } | null = null;
+  /** The session's space's teammates, which a message to `lead` or `@cto` is resolved against. */
+  private team: readonly TeamMember[] = [];
 
   /** `attachmentsDir` is the Realm home's `tmp/attachments`: a file there was written under a random
    *  prefix, which a row leaves out of its name. `home` is the Mac's home folder, which the paths under
    *  a moved line are shortened against. */
   constructor(private readonly o: { attachmentsDir: string | null; home?: string } = { attachmentsDir: null }) {}
+
+  /** Sets the Team a `team_message` is resolved against, before the history is folded. */
+  knowTeam(team: readonly TeamMember[]): void { this.team = team; }
 
   /** The latest persisted seq seen — what a live event must be newer than to count. */
   get seq(): number { return this.lastSeq; }
@@ -128,7 +139,11 @@ export class SessionProjector {
       case "user_message": {
         this.hinted = null;
         const files = ev.payload.attachments.map((a) => ({ path: a.path, name: givenAttachmentName(a.path, this.o.attachmentsDir), mime: a.mime }));
-        return put({ key: `u:${seq}`, seq, kind: "user", text: ev.payload.text, ...(files.length ? { attachments: files } : {}) });
+        const teammateId = ev.payload.from?.teammateId;
+        return put({
+          key: `u:${seq}`, seq, kind: "user", text: teammateId ? teammateWords(ev.payload.text) : ev.payload.text,
+          ...(files.length ? { attachments: files } : {}), ...(teammateId ? { teammateId } : {}),
+        });
       }
       case "assistant_delta": {
         const key = `m:${ev.payload.messageId}`;
@@ -140,12 +155,23 @@ export class SessionProjector {
       case "thinking": return put({ key: `k:${ev.payload.messageId}`, seq, kind: "thinking", text: ev.payload.text });
       case "tool_call": {
         if (REQUEST_TOOLS.has(ev.payload.name)) return [];
-        return put({ key: `t:${ev.payload.toolUseId}`, seq, kind: "tool", name: ev.payload.name, summary: summarize(ev.payload.name, ev.payload.input), state: "running", detail: null });
+        const { input } = ev.payload;
+        const to = bareToolName(ev.payload.name) === TEAM_MESSAGE_TOOL && typeof input.to === "string" ? input.to : null;
+        const teammate = to === null ? null : teammateByHandle(this.team, to);
+        return put({
+          key: `t:${ev.payload.toolUseId}`, seq, kind: "tool", name: ev.payload.name, summary: summarize(ev.payload.name, input), state: "running", detail: null,
+          ...(to !== null ? { teammate: {
+            id: teammate?.id ?? null, handle: teammate?.handle ?? normalizeHandle(to),
+            message: teammateWords(typeof input.message === "string" ? input.message : ""),
+          } } : {}),
+        });
       }
       case "tool_result": {
         const prev = this.rows.get(`t:${ev.payload.toolUseId}`);
         if (prev?.kind !== "tool") return [];
-        return put({ ...prev, seq, state: ev.payload.isError ? "error" : "done", detail: clip(ev.payload.content, DETAIL_LIMIT) });
+        // A message to a teammate that was refused is drawn as the tool call it was, with its error.
+        const { teammate: _sent, ...plain } = prev;
+        return put({ ...(ev.payload.isError ? plain : prev), seq, state: ev.payload.isError ? "error" : "done", detail: clip(ev.payload.content, DETAIL_LIMIT) });
       }
       case "background_task": return put({ key: `e:${seq}:${ev.payload.toolUseId}`, seq, kind: "notice", text: ev.payload.status === "running" ? "A background task started" : "A background task stopped" });
       case "permission_request": {

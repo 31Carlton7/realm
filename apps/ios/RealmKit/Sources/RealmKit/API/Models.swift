@@ -467,11 +467,17 @@ public struct TranscriptRow: Codable, Sendable, Hashable, Identifiable {
     /// A notice's quieter second line: a move's paths, from and to, or the step a failed move stopped
     /// at and why. Nil from a Mac before moves, and on every other row.
     public let noticeDetail: String?
+    /// A tool row that is a message to a teammate (`team_message`): who it went to and what it said.
+    public let teammateCall: TeammateCall?
+    /// A user row another teammate wrote: that teammate's id. Its words stand under it, not in the
+    /// person's bubble.
+    public let fromTeammate: String?
 
     public var id: String { key }
 
     public init(key: String, seq: Int, content: Content, checkpointId: String? = nil, madeFiles: [MadeFile]? = nil,
-                sentFiles: [SentFile]? = nil, move: MoveMark? = nil, noticeDetail: String? = nil) {
+                sentFiles: [SentFile]? = nil, move: MoveMark? = nil, noticeDetail: String? = nil,
+                teammateCall: TeammateCall? = nil, fromTeammate: String? = nil) {
         self.key = key
         self.seq = seq
         self.content = content
@@ -480,6 +486,8 @@ public struct TranscriptRow: Codable, Sendable, Hashable, Identifiable {
         self.sentFiles = sentFiles
         self.move = move
         self.noticeDetail = noticeDetail
+        self.teammateCall = teammateCall
+        self.fromTeammate = fromTeammate
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -488,6 +496,8 @@ public struct TranscriptRow: Codable, Sendable, Hashable, Identifiable {
         case requestId, tool, title, questions, steps, hint
         case asker, message, answers, plan, checkpointId, files, move
         case sentFiles = "attachments"
+        case teammateCall = "teammate"
+        case fromTeammate = "teammateId"
     }
 
     public init(from decoder: Decoder) throws {
@@ -508,6 +518,8 @@ public struct TranscriptRow: Codable, Sendable, Hashable, Identifiable {
         move = try? c.decodeIfPresent(MoveMark.self, forKey: .move)
         // A tool's `detail` is its content's own.
         noticeDetail = kind == "notice" ? try? c.decodeIfPresent(String.self, forKey: .detail) : nil
+        teammateCall = try? c.decodeIfPresent(TeammateCall.self, forKey: .teammateCall)
+        fromTeammate = try? c.decodeIfPresent(String.self, forKey: .fromTeammate)
     }
 
     private static func decodeContent(kind: String, _ c: KeyedDecodingContainer<CodingKeys>) throws -> Content {
@@ -603,6 +615,22 @@ public struct TranscriptRow: Codable, Sendable, Hashable, Identifiable {
         try c.encodeIfPresent(sentFiles, forKey: .sentFiles)
         try c.encodeIfPresent(move, forKey: .move)
         try c.encodeIfPresent(noticeDetail, forKey: .detail)
+        try c.encodeIfPresent(teammateCall, forKey: .teammateCall)
+        try c.encodeIfPresent(fromTeammate, forKey: .fromTeammate)
+    }
+}
+
+/// A message an agent sent a teammate: the teammate, by its id where its space has it (nil for a
+/// handle nobody there answers to), its handle, and the words as the teammate reads them.
+public struct TeammateCall: Codable, Sendable, Hashable {
+    public let id: String?
+    public let handle: String
+    public let message: String
+
+    public init(id: String?, handle: String, message: String) {
+        self.id = id
+        self.handle = handle
+        self.message = message
     }
 }
 
@@ -1112,7 +1140,9 @@ public struct Subagent: Codable, Sendable, Hashable, Identifiable {
     }
 }
 
-/// A space's teammate, as its Team list names it.
+/// A space's teammate, as its Team list names it: who it is, the session that is its chat, and what
+/// its sidebar row shows. Everything after `chatId` is left out by a Mac from before teammates' rows
+/// were drawn on a phone, and a part this phone cannot read is left out rather than the whole.
 public struct Teammate: Codable, Sendable, Hashable, Identifiable {
     public let id: String
     public let spaceId: String
@@ -1124,8 +1154,24 @@ public struct Teammate: Codable, Sendable, Hashable, Identifiable {
     public let lead: Bool
     /// Its chat, when it has one; `teammateChat` makes one for a teammate that has none.
     public let chatId: String?
+    public let icon: TeammateIcon?
+    public let state: TeammateState?
+    /// When that state began; nil while idle.
+    public let stateSince: Double?
+    /// Its chat has something the person has not read.
+    public let unread: Bool?
+    /// The task it is working on, else the newest it started: what its row says it is doing.
+    public let activity: String?
+    public let activityAt: Double?
+    public let agentKind: String?
+    public let model: String?
+    public let effort: String?
+    public let permissionMode: String?
 
-    public init(id: String, spaceId: String, name: String, handle: String, brief: String, lead: Bool, chatId: String?) {
+    public init(id: String, spaceId: String, name: String, handle: String, brief: String, lead: Bool, chatId: String?,
+                icon: TeammateIcon? = nil, state: TeammateState? = nil, stateSince: Double? = nil, unread: Bool? = nil,
+                activity: String? = nil, activityAt: Double? = nil, agentKind: String? = nil, model: String? = nil,
+                effort: String? = nil, permissionMode: String? = nil) {
         self.id = id
         self.spaceId = spaceId
         self.name = name
@@ -1133,6 +1179,107 @@ public struct Teammate: Codable, Sendable, Hashable, Identifiable {
         self.brief = brief
         self.lead = lead
         self.chatId = chatId
+        self.icon = icon
+        self.state = state
+        self.stateSince = stateSince
+        self.unread = unread
+        self.activity = activity
+        self.activityAt = activityAt
+        self.agentKind = agentKind
+        self.model = model
+        self.effort = effort
+        self.permissionMode = permissionMode
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, spaceId, name, handle, brief, lead, chatId, icon, state, stateSince, unread, activity, activityAt, agentKind, model, effort, permissionMode
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        spaceId = try c.decode(String.self, forKey: .spaceId)
+        name = try c.decode(String.self, forKey: .name)
+        handle = try c.decode(String.self, forKey: .handle)
+        brief = try c.decode(String.self, forKey: .brief)
+        lead = try c.decode(Bool.self, forKey: .lead)
+        chatId = try c.decodeIfPresent(String.self, forKey: .chatId)
+        icon = try? c.decodeIfPresent(TeammateIcon.self, forKey: .icon)
+        state = try? c.decodeIfPresent(TeammateState.self, forKey: .state)
+        stateSince = try? c.decodeIfPresent(Double.self, forKey: .stateSince)
+        unread = try? c.decodeIfPresent(Bool.self, forKey: .unread)
+        activity = try? c.decodeIfPresent(String.self, forKey: .activity)
+        activityAt = try? c.decodeIfPresent(Double.self, forKey: .activityAt)
+        agentKind = try? c.decodeIfPresent(String.self, forKey: .agentKind)
+        model = try? c.decodeIfPresent(String.self, forKey: .model)
+        effort = try? c.decodeIfPresent(String.self, forKey: .effort)
+        permissionMode = try? c.decodeIfPresent(String.self, forKey: .permissionMode)
+    }
+}
+
+/// A teammate's mark: one flat shape in one colour, by the desktop's names for them. A shape or a colour
+/// this phone does not know is drawn as the nearest it has (`TeammateMark`), never refused.
+public struct TeammateIcon: Codable, Sendable, Hashable {
+    public let shape: String
+    public let color: String
+
+    public init(shape: String, color: String) {
+        self.shape = shape
+        self.color = color
+    }
+}
+
+/// Where a teammate stands, as its sidebar row's dot says it. A state this phone does not know reads
+/// as idle.
+public enum TeammateState: String, Codable, Sendable, Hashable {
+    case idle
+    case working
+    case needsYou = "needs-you"
+
+    public init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .idle
+    }
+}
+
+/// A change to a teammate from its Edit sheet (`teammate.update`): only what was changed is sent.
+public struct TeammateEdit: Encodable, Sendable, Hashable {
+    public var name: String?
+    public var brief: String?
+    public var icon: TeammateIcon?
+    public var agentKind: String?
+    /// `.some(nil)` for the agent's own default.
+    public var model: String??
+    public var effort: String??
+    public var permissionMode: String?
+    public var lead: Bool?
+
+    public init(name: String? = nil, brief: String? = nil, icon: TeammateIcon? = nil, agentKind: String? = nil, model: String?? = nil,
+                effort: String?? = nil, permissionMode: String? = nil, lead: Bool? = nil) {
+        self.name = name
+        self.brief = brief
+        self.icon = icon
+        self.agentKind = agentKind
+        self.model = model
+        self.effort = effort
+        self.permissionMode = permissionMode
+        self.lead = lead
+    }
+
+    public var isEmpty: Bool { self == TeammateEdit() }
+
+    private enum CodingKeys: String, CodingKey { case name, brief, icon, agentKind, model, effort, permissionMode, lead }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(name, forKey: .name)
+        try c.encodeIfPresent(brief, forKey: .brief)
+        try c.encodeIfPresent(icon, forKey: .icon)
+        try c.encodeIfPresent(agentKind, forKey: .agentKind)
+        // A model or level set back to the default is sent as null; one not touched is not sent.
+        if let model { try c.encode(model, forKey: .model) }
+        if let effort { try c.encode(effort, forKey: .effort) }
+        try c.encodeIfPresent(permissionMode, forKey: .permissionMode)
+        try c.encodeIfPresent(lead, forKey: .lead)
     }
 }
 

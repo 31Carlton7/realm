@@ -2,9 +2,10 @@ import Observation
 import RealmKit
 
 /// What the Mac keeps beyond Home that the phone shows: Teams' open reviews and the scheduled tasks,
-/// which Home's head and its menu count; the plans' limits and this month's spend; and the sub-agents
-/// of each session opened here. Asked when the channel opens and again when the Mac says they changed
-/// (`work.changed`, `session.subagents`); what was last known stays while the Mac is away.
+/// which Home's head and its menu count; the plans' limits and this month's spend; each space's
+/// teammates; and the sub-agents of each session opened here. Asked when the channel opens and again
+/// when the Mac says they changed (`work.changed`, `session.subagents`); what was last known stays
+/// while the Mac is away.
 @MainActor
 @Observable
 final class WorkModel {
@@ -22,6 +23,10 @@ final class WorkModel {
     private(set) var info: [String: SessionInfo] = [:]
     /// The Mac is older than `session.info`: the sheet says what the row says, and does not ask again.
     private(set) var infoUnsupported = false
+    /// Every space's teammates, each space's Lead first, as the Mac last listed them; nil until it has.
+    private(set) var teammates: [Teammate]?
+    /// The Mac is older than teammates: Home has no Team, and nothing asks again.
+    private(set) var teamUnsupported = false
 
     /// The Mac's calls while this phone is connected to it; nil while it is away.
     @ObservationIgnored var api: @MainActor () -> MobileAPI? = { nil }
@@ -30,6 +35,7 @@ final class WorkModel {
     @ObservationIgnored private var asks = 0
     @ObservationIgnored private var shown = 0
     @ObservationIgnored private var subagentAsks: [String: Int] = [:]
+    @ObservationIgnored private var teamAsks = 0
 
     /// Reviews and scheduled tasks, read again.
     func refresh() async {
@@ -61,6 +67,45 @@ final class WorkModel {
         } catch {
             noteRefusal(error)
         }
+    }
+
+    /// The teammates, read again with Home: a teammate's state is its sessions', and the share
+    /// extension offers them.
+    func loadTeam() async {
+        guard let api = api(), !teamUnsupported else { return }
+        teamAsks += 1
+        let ask = teamAsks
+        do {
+            let list = try await api.teammates()
+            guard ask == teamAsks else { return }
+            teammates = list
+        } catch {
+            if case ChannelError.rpc(let refusal) = error, refusal.code == "METHOD_NOT_FOUND" { teamUnsupported = true }
+        }
+    }
+
+    func teammate(_ id: String) -> Teammate? { teammates?.first { $0.id == id } }
+
+    /// The teammate whose chat this session is.
+    func teammate(chat sessionId: String) -> Teammate? { teammates?.first { $0.chatId == sessionId } }
+
+    /// The session a teammate's chat is, made on the Mac the first time it is asked for.
+    func chat(of teammate: Teammate) async throws -> String {
+        if let chatId = teammate.chatId { return chatId }
+        guard let api = api() else { throw ChannelError.notConnected }
+        let chatId = try await api.teammateChat(id: teammate.id)
+        await loadTeam()
+        return chatId
+    }
+
+    /// Saves an Edit sheet; the list takes the teammate as the Mac now names it at once.
+    func save(_ edit: TeammateEdit, to teammateId: String) async throws {
+        guard let api = api() else { throw ChannelError.notConnected }
+        let saved = try await api.updateTeammate(id: teammateId, edit)
+        teamAsks += 1
+        teammates = teammates?.map { $0.id == saved.id ? saved : $0 }
+        // A new Lead is a change to the one it took over from as well.
+        if edit.lead != nil { await loadTeam() }
     }
 
     /// Where a session runs, what it has cost and its files, read again each time its sheet opens.
@@ -122,6 +167,8 @@ final class WorkModel {
         unsupported = false
         info = [:]
         infoUnsupported = false
+        teammates = nil
+        teamUnsupported = false
     }
 
     /// A Mac older than these calls says it has no such method: nothing here asks it again.

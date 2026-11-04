@@ -277,6 +277,13 @@ struct SessionMenu: View {
     var body: some View {
         let actions = RowActions(row: row, connected: model.isConnected)
         Menu {
+            // A teammate's chat has the teammate's own rows at the top, as its menu does on the Mac.
+            if let teammate = model.work.teammate(chat: row.id) {
+                Section {
+                    Button("Edit \(teammate.name)…", systemImage: "pencil") { model.teammateEditing = teammate.id }
+                        .disabled(!model.isConnected)
+                }
+            }
             ForEach(actions.menu.filter { $0 != .stop }) { action in
                 Button(action.title, systemImage: action.symbol) {
                     model.perform(action, on: row)

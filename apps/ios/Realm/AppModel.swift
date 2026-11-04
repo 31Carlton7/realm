@@ -16,6 +16,8 @@ enum Route: Hashable {
     case review(String)
     case scheduled
     case usage
+    /// Every teammate of the profile Home shows, space by space.
+    case team
 }
 
 enum PairingStatus: Equatable {
@@ -108,15 +110,14 @@ final class AppModel {
     var renaming: RenameDraft?
     /// The lead whose sub-agents' sheet a row's press-and-hold opened over Home, while it is up.
     var subagentsShown: String?
+    /// The teammate whose Edit sheet is up.
+    var teammateEditing: String?
     /// The agents a new session could be given, as the Mac last said; nil until it answers `agents.list`,
     /// and Home's compose button with it.
     var agentList: AgentList?
     /// A share from another app to a new session, its files and words already in the new session's
     /// composer: Home opens the sheet on the agent and the space it was shared to.
     var sharedNewSession: SharedNewSession?
-    /// Every space's teammates, as the Mac last said; nil until it answers, and from a Mac older than
-    /// teammates.
-    var teammates: [Teammate]?
     /// The queued messages a Send now, an edit or a removal is on its way to the Mac for, by session.
     var queueCalls: [String: Set<String>] = [:]
     /// The person asked to pair again over the Mac this phone shows (after the Mac removed it).
@@ -551,6 +552,15 @@ final class AppModel {
         if profileChoice != before { Task { await refreshHome() } }
     }
 
+    /// A teammate's chat, opened as any session is; asked of the Mac the first time, when it has none.
+    func openTeammate(_ teammate: Teammate) async {
+        do {
+            path.append(.session(try await work.chat(of: teammate)))
+        } catch {
+            report(error)
+        }
+    }
+
     func refreshHome() async {
         guard let api, isConnected else { return }
         homeAsks += 1
@@ -564,7 +574,7 @@ final class AppModel {
             rowEdits.caughtUp(with: home, ask: ask)
             if let cache { disk.async { try? cache.saveHome(home) } }
             if agentList == nil { await loadAgents() }
-            await loadTeammates()
+            await work.loadTeam()
             saveShareTargets()
             // A share to a teammate made while the Mac was away waits for it to name the chat.
             takeShares()
@@ -897,22 +907,10 @@ final class AppModel {
             } catch {
                 chatsAsked.remove(id)
                 guard case ChannelError.rpc(let refusal) = error else { return }
-                let name = teammates?.first { $0.id == id }?.name ?? "That teammate"
+                let name = work.teammate(id)?.name ?? "That teammate"
                 show(toast: "What you shared could not go to \(name). \(refusal.message)")
                 for item in shareInbox?.pending() ?? [] where item.target == .teammate(id: id) { shareInbox?.remove(item.id) }
             }
-        }
-    }
-
-    /// Every space's teammates, for the share extension to offer.
-    func loadTeammates() async {
-        guard let api, isConnected else { return }
-        do {
-            teammates = try await api.teammates()
-        } catch ChannelError.rpc(let error) where error.code == "METHOD_NOT_FOUND" {
-            teammates = nil
-        } catch {
-            // What the Mac last said stands until the next Home.
         }
     }
 
@@ -921,6 +919,7 @@ final class AppModel {
     /// spaces' teammates, whose chats are offered as teammates rather than again as sessions.
     func saveShareTargets() {
         guard let inbox = shareInbox, let home = store.home else { return }
+        let teammates = work.teammates
         let chats = Set((teammates ?? []).compactMap(\.chatId))
         var seen = Set<String>()
         let sessions = (home.needsYou + (home.recent ?? home.spaces.flatMap(\.sessions)))
@@ -1142,7 +1141,6 @@ final class AppModel {
         draftAttachments = [:]
         shareInbox?.removeAll()
         sharedNewSession = nil
-        teammates = nil
         teammateChats = [:]
         work.forget()
         sessionOptions = [:]

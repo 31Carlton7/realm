@@ -15,12 +15,32 @@ struct SpaceView: View {
         let space = home?.spaces.first { $0.id == spaceId }
         let rows = model.rowEdits.applied(to: pages.loaded ? pages.rows : (space?.sessions ?? []))
         let words = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let shown = rows.filter { $0.matches(words) }
+        let team = (model.work.teammates ?? []).filter { $0.spaceId == spaceId }
+        // A teammate's chat is listed as the teammate, above, and not again here, except in a search.
+        let chats = words.isEmpty ? Set(team.compactMap(\.chatId)) : []
+        let shown = rows.filter { $0.matches(words) && !chats.contains($0.id) }
         List {
-            ForEach(shown) { row in
-                SessionLink(row: row, space: nil)
-                    // No head above the first row: a line there would rule off the bar.
-                    .listRowSeparator(row.id == shown.first?.id ? .hidden : .automatic, edges: .top)
+            if words.isEmpty, !team.isEmpty {
+                Section {
+                    ForEach(team) { teammate in TeammateLink(teammate: teammate) }
+                } header: {
+                    SectionHead(title: "Team") {
+                        Image(systemName: "person.2.fill").foregroundStyle(Palette.ink2)
+                    }
+                }
+            }
+            Section {
+                ForEach(shown) { row in
+                    SessionLink(row: row, space: nil)
+                        // No head above the first row: a line there would rule off the bar.
+                        .listRowSeparator(row.id == shown.first?.id ? .hidden : .automatic, edges: .top)
+                }
+            } header: {
+                if words.isEmpty, !team.isEmpty {
+                    SectionHead(title: "Sessions") {
+                        Image(systemName: "text.bubble").foregroundStyle(Palette.ink2)
+                    }
+                }
             }
             if words.isEmpty {
                 if model.isConnected, !pages.loaded || pages.more {

@@ -395,10 +395,10 @@ then the fields its kind adds:
 
 | `kind` | Fields |
 |---|---|
-| `user` | `text`, `attachments?: [{path, name, mime}]` |
+| `user` | `text`, `attachments?: [{path, name, mime}]`, `teammateId?` |
 | `assistant` | `text`, `streaming: bool` |
 | `thinking` | `text` |
-| `tool` | `name`, `summary`, `state: "running"\|"done"\|"error"`, `detail: string\|null` |
+| `tool` | `name`, `summary`, `state: "running"\|"done"\|"error"`, `detail: string\|null`, `teammate?: {id: string\|null, handle, message}` |
 | `request` | `requestId`, `tool`, `title`, `summary`, `state: "pending"\|"allowed"\|"denied"`, `questions: [Question] \| null`, `asker?`, `message?`, `answers?`, `plan?: {text: string\|null, steps: [{text, status}] \| null}` |
 | `plan` | `text: string\|null`, `steps: [{text, status}] \| null` |
 | `notice` | `text`, `checkpointId?`, `files?: [{path, size}]`, `move?: "moving"\|"moved"\|"failed"`, `detail?` |
@@ -473,8 +473,9 @@ else keeps its own name, whatever it looks like.
 | `session.holdQueued` | `{id, queuedId, held: bool}` | `{ok: true}` |
 | `session.editQueued` | `{id, queuedId, text}` | `{ok: true}` |
 | `session.subagents` | `{id}` | `{subagents: [Subagent]}` |
-| `teammates.list` | `{}` | `{teammates: [{id, spaceId, name, handle, brief, lead: bool, chatId: string\|null}]}` |
+| `teammates.list` | `{}` | `{teammates: [{id, spaceId, name, handle, brief, lead: bool, chatId: string\|null, icon?: {shape, color}, state?, stateSince?, unread?, activity?, activityAt?, agentKind?, model?, effort?, permissionMode?}]}` |
 | `teammate.chat` | `{id}` | `{id}`: the teammate's chat, a session like any other |
+| `teammate.update` | `{id, name?, brief?, icon?, agentKind?, model?, effort?, permissionMode?, lead?}` | `{teammate}`: as `teammates.list` names it now |
 | `usage.get` | `{}` | `{limits: [PlanLimits], spend: Spend}` |
 | `reviews.list` | `{}` | `{reviews: [ReviewSummary]}` |
 | `review.get` | `{id}` | `{review: ReviewSummary, items: [ReviewItem]}` |
@@ -678,6 +679,24 @@ each space's Lead first and the rest in its Team list's order; archived ones are
 when the teammate has none yet or its chat was deleted. A phone opens and sends to it as to any
 session. An archived teammate has no chat to give. A Mac older than these calls answers
 `METHOD_NOT_FOUND`, and a phone offers no teammates.
+
+Each teammate also carries what its sidebar row shows: its `icon` (a shape and a colour, by the
+desktop's names), its `state` (`idle`, `working`, `needs-you`) since `stateSince`, whether its chat is
+`unread`, and `activity`, the title of its live task session or else its newest one, with when that
+session last moved. `agentKind`, `model`, `effort` and `permissionMode` are what its Edit sheet shows.
+A Mac from before these fields leaves them out, and a phone draws the teammate without them.
+`home.changed` is sent when a teammate changes, as when a session does.
+
+`teammate.update` is the Edit sheet's save (`teammates.update`): its name, brief, icon, model and
+reasoning level, permission (one of the three rungs the desktop sheet offers) and whether it is the
+Lead. Anything left out keeps its value. It answers with the teammate as `teammates.list` would name
+it. A teammate the Mac does not have is `NOT_FOUND`.
+
+A message an agent sends a teammate (`team_message`) is a `tool` row carrying `teammate`: the id of
+the teammate it went to, resolved as the server resolves `to` (its handle, `@handle` or `lead`), null
+where the space has none by that name; the handle; and the words without the "From @handle: " the
+server puts in front of them. In the teammate's own chat, that message is a `user` row with the
+sender's `teammateId`, its text without the prefix.
 
 **Usage is Settings ▸ Usage.** `usage.get` answers with each agent's plan, as the page draws it, and
 this calendar month's spend:
@@ -910,8 +929,11 @@ phone read, and what bounds it:
   it; a phone sends, removes, holds and edits only those, and an edit keeps the files they carry.
 - **`session.subagents`**: the sessions that session started, each as a row, with the task each was
   handed, how it ended and its last answer.
-- **`teammates.list`** and **`teammate.chat`**: each teammate's name, handle and brief, and the
-  session that is its chat. Its model, folder, clock and task sessions stay on the Mac.
+- **`teammates.list`** and **`teammate.chat`**: each teammate's name, handle, brief, icon, state,
+  model and permission, the title of the session it is working in, and the session that is its chat.
+  Its folder, clock and task sessions' list stay on the Mac.
+- **`teammate.update`**: a teammate's name, brief, icon, model, permission and Lead. Its folder,
+  group and clock are not changed from a phone.
 - **`usage.get`**: each agent's plan as its provider last reported it, and this month's spend and
   budget (`usage.budget`), with its five heaviest sessions' names and costs.
 - **`reviews.list`**, **`review.get`** and **`review.decide`**: what the space's teams sent to Review,

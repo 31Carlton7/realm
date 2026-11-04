@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import {
   normalizeAnswers, sessionEvent, type AskCard, type DelegatedChild, type FileDiff, type Item, type PendingMove, type PlanLimits, type QueuedPrompt, type Run, type Schedule,
-  type Session, type SessionEvent, type Space, type StoredSessionEvent, type UsageSessionRow,
+  type Session, type SessionEvent, type Space, type StoredSessionEvent, type Teammate, type TeammateTaskSession, type UsageSessionRow,
 } from "@realm/contracts";
 import { tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
 import { MobileCalls, MobileEvents, RowSchema, type MobileEvent } from "@realm/remote";
@@ -15,11 +15,11 @@ import { channel, fakeRpc, jpegHeader, machine, machineState, pngHeader, profile
 /**
  * mobile.v1's answers as the Mac writes them, for RealmKit to decode (PROTOCOL.md §9): `home.get` for
  * every profile and for one, with a pinned row, a space's pages, `session.open` over a session that
- * holds every row kind (its first message with files sent with it) and two messages waiting in its
+ * holds every row kind (its first message with files sent with it, a teammate's word and a message to another) and two messages waiting in its
  * queue, the turn's changes and a page of its diff, each preview `session.file` makes, a made file's
  * bytes, a space's
  * picture, three agents' session options and a change to them, every agent a new session can have;
- * the queue, the lead's sub-agents (one working, two ended), a space's teammates and one's chat, the plans and the month's spend, an empty
+ * the queue, the lead's sub-agents (one working, two ended), a space's teammates (one working, one idle) with one's chat and an edit to one, the plans and the month's spend, an empty
  * Review (it went with the first Teams), the scheduled tasks and one run now, the screens the theme column's space has open and a frame of one, a rename with a pin and an
  * archive, a move queued behind a turn and a session opened mid-move; and every event but `session.rows` and `session.status` —
  * every one made by the real projector and the real `MobileApi`, over a fake of the desktop's RPC.
@@ -108,6 +108,23 @@ const card: AskCard = {
   ],
 };
 
+const task = (id: string, title: string, teammateId: string, state: TeammateTaskSession["state"], updatedAt: number): TeammateTaskSession =>
+  ({ id, title, teammateId, parentId: null, state, updatedAt, unread: false });
+const teammate = (id: string, handle: string, name: string, brief: string, extra: Partial<Teammate>): Teammate => ({
+  id, spaceId: "sp1", handle, name, brief, icon: { shape: "circle", color: "blue" }, agentKind: "claude", model: null, effort: null, permissionMode: "default",
+  folder: "/tmp", lead: false, group: null, sortOrder: 0, archived: false, homeSessionId: null, schedule: null, createdAt: 0, updatedAt: 0,
+  state: "idle", stateSince: null, unread: false, liveTask: null, taskSessions: [], ...extra,
+});
+const cto = teammate(CTO, "cto", "CTO", "Owns the architecture and reviews every migration.", {
+  lead: true, homeSessionId: CTO_CHAT, icon: { shape: "hexagon", color: "violet" }, model: "claude-opus-5-5", effort: "high", permissionMode: "acceptEdits",
+  state: "working", stateSince: 1_790_000_100_000, liveTask: "cto - Review the theme migration",
+  taskSessions: [task("01JCTOTASK0000000000000001", "cto - Review the theme migration", CTO, "working", 1_790_000_200_000)],
+});
+const designer = teammate(DESIGNER, "designer", "Designer", "Keeps the app and the site on one design.", {
+  icon: { shape: "cloud", color: "teal" }, agentKind: "codex", unread: true,
+  taskSessions: [task("01JDESIGNTASK0000000000001", "designer - Icon set", DESIGNER, "idle", 1_789_990_000_000)],
+});
+
 async function generate(): Promise<Record<string, unknown>> {
   const dir = tempDir("realm-api-fixture-");
   writeFileSync(join(dir, "notes.md"), "# Deck notes\n\nThree slides.\n");
@@ -136,6 +153,9 @@ async function generate(): Promise<Record<string, unknown>> {
     sessionEvent("assistant_text", { messageId: "m1", text: "Filing it in **Linear**." }),
     sessionEvent("tool_call", { toolUseId: "t1", name: "Bash", input: { command: "pnpm test --silent" }, parentToolUseId: null }),
     sessionEvent("tool_result", { toolUseId: "t1", content: "Tests  12 passed", isError: false }),
+    // The Lead's word in the session, and the agent asking the designer, still waiting on its answer.
+    sessionEvent("user_message", { text: "From @cto: Settle the toggle with the designer first", attachments: [], from: { sessionId: CTO_CHAT, title: "CTO", teammateId: CTO } }),
+    sessionEvent("tool_call", { toolUseId: "t-team", name: "mcp__realm__realm-team__team_message", input: { to: "@designer", message: "Is the toggle's design settled?" }, parentToolUseId: null }),
     sessionEvent("permission_request", { requestId: "q-open", toolName: "mcp__linear__create_issue", input: {}, title: "Linear asks", suggestions: [], ask: card }),
     sessionEvent("permission_request", { requestId: "q-done", toolName: "mcp__linear__create_issue", input: {}, title: "Linear asks", suggestions: [], ask: card }),
     sessionEvent("permission_response", { requestId: "q-done", decision: "allow", answers: { team: "eng", labels: ["bug", "Regression"], token: "••••••", ship: "yes" } }),
@@ -335,10 +355,9 @@ async function generate(): Promise<Record<string, unknown>> {
     "sessions.move": ((p: { id: string }) => sessions.find((x) => x.id === p.id)) as never,
     "sessions.cancelMove": (() => ({ cancelled: true })) as never,
     // The Realm space's Team: its Lead, and a designer whose chat is made the first time it is asked for.
-    "teammates.list": ((p: { spaceId: string }) => (p.spaceId !== "sp1" ? [] : [
-      { id: CTO, spaceId: "sp1", handle: "cto", name: "CTO", brief: "Owns the architecture and reviews every migration.", lead: true, homeSessionId: CTO_CHAT },
-      { id: DESIGNER, spaceId: "sp1", handle: "designer", name: "Designer", brief: "Keeps the app and the site on one design.", lead: false, homeSessionId: null },
-    ])) as never,
+    // The CTO is working in a task session it started; the designer is idle, its last task done.
+    "teammates.list": ((p: { spaceId: string }) => (p.spaceId !== "sp1" ? [] : [cto, designer])) as never,
+    "teammates.update": ((p: Partial<Teammate> & { id: string }) => ({ ...designer, ...p })) as never,
     "teammates.home": ((p: { id: string }) => ({ sessionId: p.id === CTO ? CTO_CHAT : DESIGNER_CHAT })) as never,
     "simulators.capture": (() => ({ data: pngHeader(1206, 2622).toString("base64"), mimeType: "image/png", width: 1206, height: 2622 })) as never,
   });
@@ -381,6 +400,7 @@ async function generate(): Promise<Record<string, unknown>> {
       "teammates.list": await call("teammates.list", {}),
       "teammate.chat": await call("teammate.chat", { id: DESIGNER }),
       "session.info": await call("session.info", { id: S }),
+      "teammate.update": await call("teammate.update", { id: DESIGNER, name: "Design lead", icon: { shape: "flower", color: "pink" }, model: "gpt-5.5", permissionMode: "bypassPermissions" }),
       "usage.get": await call("usage.get", {}),
       "reviews.list": await call("reviews.list", {}),
       "schedules.list": await call("schedules.list", {}),

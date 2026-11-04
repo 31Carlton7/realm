@@ -669,6 +669,22 @@ public struct MobileAPI: Sendable {
         return try await connection.call("teammate.chat", params: SessionID(id: id), as: Answer.self).id
     }
 
+    /// A teammate's Edit sheet, saved as the Mac's own sheet saves it; the teammate as it is now.
+    public func updateTeammate(id: String, _ edit: TeammateEdit) async throws -> Teammate {
+        struct Params: Encodable, Sendable {
+            let id: String
+            let edit: TeammateEdit
+            func encode(to encoder: Encoder) throws {
+                try edit.encode(to: encoder)
+                var c = encoder.container(keyedBy: Key.self)
+                try c.encode(id, forKey: .id)
+            }
+            enum Key: String, CodingKey { case id }
+        }
+        struct Answer: Decodable, Sendable { let teammate: Teammate }
+        return try await connection.call("teammate.update", params: Params(id: id, edit: edit), as: Answer.self).teammate
+    }
+
     /// Where a session runs, what it has cost, and its files: what its info sheet says beyond its row.
     public func info(id: String) async throws -> SessionInfo {
         try await connection.call("session.info", params: SessionID(id: id), as: SessionInfo.self)

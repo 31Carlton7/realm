@@ -999,4 +999,14 @@ describe("Plan 29's parity: what a phone hears, at the moment it hears it", () =
     expect(heard).toBe(1);
     phone.close();
   });
+
+  it("says Home changed when a teammate does, so the phone's Team list reads it again", async () => {
+    const { phone, broadcast } = await fakeMac({ sessions: [], items: [] });
+    let heard = 0;
+    phone.on("home.changed", () => { heard += 1; });
+    // THE MUTANT: leave `teammates.changed` unheard, and a teammate edited on the Mac keeps its old name.
+    broadcast("teammates.changed", { spaceId: "s1" });
+    await waitFor(() => heard > 0, { timeout: 3_000 });
+    phone.close();
+  });
 });

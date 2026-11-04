@@ -191,7 +191,8 @@ struct ComposerView: View {
     private func placeholder(_ session: SessionRow?) -> String {
         switch model.linkStatus.kind {
         case .connected, .connecting:
-            session.map { "Message \($0.agentDisplayName)" } ?? "Message"
+            // A teammate's chat goes to the teammate, by its name.
+            (model.work.teammate(chat: sessionId)?.name ?? session?.agentDisplayName).map { "Message \($0)" } ?? "Message"
         case .asleep:
             "Sends when your Mac wakes"
         case .relayUnreachable:
