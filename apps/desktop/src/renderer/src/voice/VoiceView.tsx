@@ -3,7 +3,6 @@ import { Icon, TeammateIcon } from "@realm/ui";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { StoreApi } from "zustand";
-import { emptyTranscript } from "../panes/session/transcript-model";
 import { prefersReducedMotion } from "../reduced-motion";
 import { useApp, useAppStore, type AppState } from "../state/store";
 import { WebVoiceAudio, type VoiceAudio } from "./audio-io";
@@ -14,7 +13,7 @@ import { VoiceSession, type VoiceSessionPort, type VoiceSnapshot } from "./voice
 function sessionPort(store: StoreApi<AppState>, id: string): VoiceSessionPort {
   const get = () => store.getState();
   return {
-    transcript: () => get().transcripts[id]?.t ?? emptyTranscript(),
+    transcript: () => get().transcripts[id]?.t ?? null,
     busy: () => {
       const status = get().sessionStatus[id] ?? get().sessions[id]?.status;
       return status === "running" || status === "waiting_permission";
@@ -30,17 +29,17 @@ function sessionPort(store: StoreApi<AppState>, id: string): VoiceSessionPort {
   };
 }
 
-const STARTING: VoiceSnapshot = { phase: "starting", partial: "", heard: null, said: null, muted: false, held: false, problem: null, microphoneDenied: false };
+export const STARTING: VoiceSnapshot = { phase: "starting", partial: "", heard: null, said: null, muted: false, held: false, problem: null, microphoneDenied: false };
 
 /** What the line under the waveforms says, by phase. */
 function stateLine(s: VoiceSnapshot, handsFree: boolean, name: string): string {
   switch (s.phase) {
     case "starting": return "Starting…";
     case "hearing": return "Listening";
-    case "speaking": return `${name} is answering`;
+    case "listening": return s.muted ? "Muted. Hold Space to talk" : handsFree ? "Listening" : "Hold Space to talk";
+    case "speaking": return `${name} is speaking`;
     case "working": return `${name} is working`;
     case "unavailable": return "Voice mode is off";
-    default: return s.muted || !handsFree ? "Hold Space to talk" : "Go ahead, I'm listening";
   }
 }
 
@@ -65,7 +64,10 @@ function VoiceWindow({ sessionId, held }: { sessionId: string; held: boolean }) 
   const teammate = useApp((s) => (session ? s.teammates[session.spaceId]?.find((t) => t.homeSessionId === sessionId) ?? null : null));
   const handsFree = useApp((s) => s.voicePrefs.handsFree);
   const closeVoice = useApp((s) => s.closeVoice);
+  // Who answers, in the line under the bars, and what the conversation is, in the head: a teammate is
+  // both; a session is its title, answered by its agent.
   const name = teammate?.name ?? (session ? AGENT_META[session.agentKind].label : "The agent");
+  const title = teammate?.name ?? (session?.title.trim() || name);
   const [snap, setSnap] = useState<VoiceSnapshot>(STARTING);
   const ctl = useRef<VoiceSession | null>(null);
   const audio = useRef<VoiceAudio | null>(null);
@@ -79,6 +81,9 @@ function VoiceWindow({ sessionId, held }: { sessionId: string; held: boolean }) 
       setSnap({ ...STARTING, phase: "unavailable", problem: "Voice mode runs in Realm's Mac app." });
       return;
     }
+    // Read from the moment voice mode opens: a session not yet loaded is loaded now, and what it held
+    // before is not read aloud.
+    if (!store.getState().transcripts[sessionId]) void store.getState().run(() => store.getState().openSession(sessionId));
     const io = new WebVoiceAudio();
     audio.current = io;
     const vs = new VoiceSession({ helper, audio: io, session: sessionPort(store, sessionId), agentName: name, prefs: () => store.getState().voicePrefs });
@@ -133,26 +138,19 @@ function VoiceWindow({ sessionId, held }: { sessionId: string; held: boolean }) 
   }, [store, sessionId, closeVoice]);
 
   const vs = ctl.current;
-  const live = snap.phase === "hearing" ? snap.partial : "";
   const canStop = snap.phase === "speaking" || snap.phase === "working";
+  // Whose voice the bars follow: Realm's while it talks, the person's the rest of the time.
+  const side = snap.phase === "speaking" ? "realm" : "mine";
+  const caption = captionOf(snap);
   return createPortal(
-    <div ref={root} className="voice-view" role="dialog" aria-modal="true" aria-label={`Voice with ${name}`} tabIndex={-1} data-phase={snap.phase}>
+    <div ref={root} className="voice-view" role="dialog" aria-modal="true" aria-label={`Voice with ${title}`} tabIndex={-1} data-phase={snap.phase}>
       <div className="voice-head">
         {teammate && <TeammateIcon icon={teammate.icon} size={24} lead={teammate.lead} />}
-        <span className="voice-name">{name}</span>
-        {!teammate && session && <span className="voice-title">{session.title}</span>}
+        <span className="voice-name">{title}</span>
       </div>
       <div className="voice-stage">
-        <section className="voice-side" data-side="realm" aria-label={name}>
-          <span className="voice-side-name" aria-hidden="true">{name}</span>
-          <Wave audio={audio} side="realm" active={snap.phase === "speaking"} />
-          <p className="voice-words" data-selectable aria-live="polite">{snap.said ?? ""}</p>
-        </section>
-        <section className="voice-side" data-side="mine" aria-label="You">
-          <span className="voice-side-name" aria-hidden="true">You</span>
-          <Wave audio={audio} side="mine" active={!snap.muted || snap.held} />
-          <p className="voice-words" data-selectable data-live={live ? "" : undefined} aria-live="polite">{live || snap.heard || ""}</p>
-        </section>
+        <Bars audio={audio} side={side} live={snap.phase !== "starting" && snap.phase !== "unavailable" && !(side === "mine" && snap.muted && !snap.held)} />
+        <p className="voice-caption" data-selectable data-tone={caption.tone} aria-live="polite">{caption.text}</p>
         <p className="voice-state" role={snap.phase === "unavailable" ? "alert" : "status"}>
           {snap.problem && snap.phase === "unavailable" ? snap.problem : stateLine(snap, handsFree, name)}
         </p>
@@ -161,26 +159,25 @@ function VoiceWindow({ sessionId, held }: { sessionId: string; held: boolean }) 
         )}
       </div>
       <div className="voice-controls">
-        <button type="button" className="voice-control" aria-pressed={snap.muted} disabled={!vs || snap.phase === "unavailable"}
+        <button type="button" className="voice-control" aria-pressed={snap.muted} aria-label="Mute" disabled={!vs || snap.phase === "unavailable"}
           title={snap.muted ? "Unmute (M)" : "Mute (M)"} onClick={() => vs?.setMuted(!snap.muted)}>
           <Icon name={snap.muted ? "micOff" : "mic"} size={20} />
-          <span>{snap.muted ? "Muted" : "Mute"}</span>
         </button>
-        <button type="button" className="voice-talk" data-held={snap.held || undefined} disabled={!vs || snap.phase === "unavailable"}
-          title="Hold to talk (hold Space)"
-          onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); vs?.press(); }}
-          onPointerUp={() => vs?.release()} onPointerCancel={() => vs?.release()}
-          onKeyDown={(e) => { if (e.key === "Enter") vs?.press(); }} onKeyUp={(e) => { if (e.key === "Enter") vs?.release(); }}>
-          <Icon name="mic" size={24} />
-          <span>{snap.held ? "Talking" : "Hold to talk"}</span>
-        </button>
-        <button type="button" className="voice-control" disabled={!vs || !canStop} title="Stop (Esc)" onClick={() => void vs?.interrupt()}>
-          <Icon name="stop" size={20} />
-          <span>Stop</span>
-        </button>
-        <button type="button" className="voice-control" title="End voice mode" onClick={closeVoice}>
+        {canStop ? (
+          <button type="button" className="voice-talk" aria-label="Stop" title="Stop (Esc)" onClick={() => void vs?.interrupt()}>
+            <Icon name="stop" size={24} />
+          </button>
+        ) : (
+          <button type="button" className="voice-talk" aria-label="Hold to talk" data-held={snap.held || undefined} disabled={!vs || snap.phase === "unavailable"}
+            title="Hold to talk (hold Space)"
+            onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); vs?.press(); }}
+            onPointerUp={() => vs?.release()} onPointerCancel={() => vs?.release()}
+            onKeyDown={(e) => { if (e.key === "Enter") vs?.press(); }} onKeyUp={(e) => { if (e.key === "Enter") vs?.release(); }}>
+            <Icon name="mic" size={24} />
+          </button>
+        )}
+        <button type="button" className="voice-control" aria-label="End voice mode" title="End voice mode" onClick={closeVoice}>
           <Icon name="close" size={20} />
-          <span>End</span>
         </button>
       </div>
     </div>,
@@ -188,42 +185,45 @@ function VoiceWindow({ sessionId, held }: { sessionId: string; held: boolean }) 
   );
 }
 
+/** The words under the bars: what is being heard as it is heard, what was asked while the agent works
+ *  on it, then the sentence Realm is saying as the speakers say it. Nothing while it only listens. */
+export function captionOf(s: VoiceSnapshot): { text: string; tone: "live" | "quiet" } {
+  if (s.phase === "hearing") return { text: s.partial, tone: "live" };
+  if (s.phase === "speaking" && s.said) return { text: s.said, tone: "live" };
+  if (s.phase === "working" || s.phase === "speaking") return { text: s.heard ?? "", tone: "quiet" };
+  return { text: "", tone: "quiet" };
+}
+
+/** How many bars, and how far a bar's height follows a new reading each frame (the rest is the last
+ *  frame's): enough to move with each syllable without flickering. */
+const BAR_COUNT = 5;
+const FOLLOW = 0.35;
+
 /**
- * One side's waveform, drawn from the audio graph's analyser. A frame loop is outside the stylesheet's
- * motion rules, so it re-applies them itself: under Reduce motion, Low power or an unfocused window it
- * stops and holds a flat line, and the state line still says everything the motion did. It keeps
+ * The voice that is talking, as a few bars across the speech range — the person's in ink while Realm
+ * listens, Realm's in the accent while it talks. A frame loop is outside the stylesheet's motion
+ * rules, so it re-applies them itself: under Reduce motion, Low power or an unfocused window it stops
+ * and holds the bars at rest, and the line under it still says everything the motion did. It keeps
  * drawing in a window idle for input, because in voice mode the microphone is the input.
  */
-function Wave({ audio, side, active }: { audio: { current: VoiceAudio | null }; side: "mine" | "realm"; active: boolean }) {
-  const canvas = useRef<HTMLCanvasElement>(null);
+function Bars({ audio, side, live }: { audio: { current: VoiceAudio | null }; side: "mine" | "realm"; live: boolean }) {
+  const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const el = canvas.current;
-    const g = el?.getContext("2d");
-    if (!el || !g) return;
-    const samples = new Float32Array(1024);
-    // A voice at the microphone is quiet next to a synthesized one at full scale.
-    const gain = side === "mine" ? 4 : 2;
+    const bars = Array.from(box.current?.children ?? []) as HTMLElement[];
+    const levels = new Float32Array(BAR_COUNT);
+    const shown = new Float32Array(BAR_COUNT);
     let frame = 0;
     const still = () => prefersReducedMotion() || ["always", "unfocused"].includes(document.documentElement.getAttribute("data-quiet") ?? "");
     const draw = () => {
-      const dpr = window.devicePixelRatio || 1;
-      const w = el.clientWidth, h = el.clientHeight;
-      if (el.width !== Math.round(w * dpr)) { el.width = Math.round(w * dpr); el.height = Math.round(h * dpr); }
-      g.setTransform(dpr, 0, 0, dpr, 0, 0);
-      g.clearRect(0, 0, w, h);
-      const color = getComputedStyle(el).color;
-      const have = active && !still() && audio.current?.wave(side, samples);
-      g.strokeStyle = color;
-      g.lineWidth = 1.5;
-      g.lineJoin = "round";
-      g.beginPath();
-      const step = samples.length / Math.max(1, w);
-      for (let x = 0; x <= w; x++) {
-        const v = have ? samples[Math.min(samples.length - 1, Math.floor(x * step))]! : 0;
-        const y = h / 2 - Math.max(-1, Math.min(1, v * gain)) * (h / 2 - 2);
-        if (x === 0) g.moveTo(x, y); else g.lineTo(x, y);
+      const have = live && !still() && !!audio.current?.bands(side, levels);
+      for (let i = 0; i < BAR_COUNT; i++) {
+        // The middle bars carry the voice's body; the outer ones its edges. Order the bands from the
+        // centre out so the shape stays a voice's rather than a spectrum's slope.
+        const band = [2, 1, 0, 3, 4][i]!;
+        const target = have ? Math.min(1, levels[band]! * 1.6) : 0;
+        shown[i] = shown[i]! + (target - shown[i]!) * FOLLOW;
+        bars[i]?.style.setProperty("--level", shown[i]!.toFixed(3));
       }
-      g.stroke();
       if (!still()) frame = requestAnimationFrame(draw);
     };
     draw();
@@ -231,6 +231,10 @@ function Wave({ audio, side, active }: { audio: { current: VoiceAudio | null }; 
     const quiet = new MutationObserver(resume);
     quiet.observe(document.documentElement, { attributes: true, attributeFilter: ["data-quiet"] });
     return () => { cancelAnimationFrame(frame); quiet.disconnect(); };
-  }, [audio, side, active]);
-  return <canvas ref={canvas} className="voice-wave" data-side={side} aria-hidden="true" />;
+  }, [audio, side, live]);
+  return (
+    <div ref={box} className="voice-bars" data-side={side} aria-hidden="true">
+      {Array.from({ length: BAR_COUNT }, (_, i) => <span key={i} />)}
+    </div>
+  );
 }

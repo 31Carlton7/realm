@@ -31,38 +31,45 @@ class FakeAudio implements VoiceAudio {
   played = 0;
   private onFrame: ((level: number, samples: Int16Array) => void) | null = null;
   async start(onFrame: (level: number, samples: Int16Array) => void) { this.onFrame = onFrame; }
-  play() { this.played += 1; this.talking = true; }
-  hush() { this.hushes += 1; this.talking = false; this.ducked = false; }
+  /** The audio clock, in seconds; each run plays for `runS` after the last one queued. */
+  now = 0;
+  runS = 1;
+  private until = 0;
+  play() { this.played += 1; this.talking = true; const at = Math.max(this.now, this.until); this.until = at + this.runS; return at; }
+  clock() { return this.now; }
+  hush() { this.hushes += 1; this.talking = false; this.ducked = false; this.until = 0; }
   duck(on: boolean) { this.ducked = on; }
-  wave() { return false; }
+  bands() { return false; }
   stop() {}
   frames(level: number, ms: number) { for (let t = 0; t < ms; t += 20) { clock.now += 20; this.onFrame?.(level, new Int16Array(320)); } }
 }
 
 class FakeSession {
   t: Transcript = emptyTranscript();
+  loaded = true;
   isBusy = false;
   sent: string[] = [];
   interrupts = 0;
   decided: { requestId: string; decision: string }[] = [];
   private listeners = new Set<() => void>();
   port = {
-    transcript: () => this.t,
+    transcript: () => (this.loaded ? this.t : null),
     busy: () => this.isBusy,
     subscribe: (cb: () => void) => { this.listeners.add(cb); return () => this.listeners.delete(cb); },
     send: async (text: string) => { this.sent.push(text); },
     interrupt: async () => { this.interrupts += 1; },
     decide: async (requestId: string, decision: "allow" | "deny") => { this.decided.push({ requestId, decision }); },
   };
-  set(blocks: Block[], pendingPermissions: PendingPermission[] = []) { this.t = { ...emptyTranscript(), blocks, pendingPermissions }; for (const cb of this.listeners) cb(); }
+  set(blocks: Block[], pendingPermissions: PendingPermission[] = []) { this.loaded = true; this.t = { ...emptyTranscript(), blocks, pendingPermissions }; for (const cb of this.listeners) cb(); }
 }
 
 const clock = { now: 0 };
 let live: VoiceSession | null = null;
 afterEach(() => { live?.stop(); live = null; vi.useRealTimers(); });
 
-async function boot(prefs: Partial<VoicePrefs> = {}) {
+async function boot(prefs: Partial<VoicePrefs> = {}, opts: { loaded?: boolean } = {}) {
   const helper = new FakeHelper(), audio = new FakeAudio(), session = new FakeSession();
+  session.loaded = opts.loaded ?? true;
   const vs = new VoiceSession({ helper, audio, session: session.port, agentName: "Mina", prefs: () => ({ ...DEFAULT_VOICE_PREFS, ...prefs }), now: () => clock.now });
   live = vs;
   await vs.start();
@@ -103,6 +110,37 @@ describe("VoiceSession", () => {
     const { helper, session } = await boot();
     session.set([{ kind: "user", text: "q", spoken: true, ts: 0 }, { kind: "assistant", messageId: "m", text: "It is four. And", streaming: true, ts: 0 }]);
     expect(helper.spoken()).toEqual(["It is four."]);
+  });
+
+  it("reads nothing of a transcript that loads after voice mode opened, only what comes after", async () => {
+    const { helper, session } = await boot({}, { loaded: false });
+    const before: Block[] = [{ kind: "user", text: "hi", ts: 0 }, { kind: "assistant", messageId: "old", text: "What do you need?", streaming: false, ts: 0 }];
+    // THE MUTANT: the narrator starts from the top of a transcript that was empty only because it had
+    // not loaded — the greeting is read out, and the person's first words are taken for a barge-in.
+    session.set(before);
+    expect(helper.spoken()).toEqual([]);
+    session.set([...before, { kind: "user", text: "q", spoken: true, ts: 1 }, { kind: "assistant", messageId: "m", text: "Four. ", streaming: true, ts: 1 }]);
+    expect(helper.spoken()).toEqual(["Four."]);
+  });
+
+  it("shows each sentence as the speakers reach it, not when it was queued", async () => {
+    vi.useFakeTimers();
+    const { vs, helper, audio, session } = await boot();
+    session.set([{ kind: "assistant", messageId: "m", text: "First one. Second one. ", streaming: true, ts: 0 }]);
+    expect(helper.spoken()).toEqual(["First one.", "Second one."]);
+    helper.emit({ t: "audio", id: "s1", rate: 22050, pcm: "AAAA" });
+    helper.emit({ t: "audio", id: "s2", rate: 22050, pcm: "AAAA" });
+    vi.advanceTimersByTime(100);
+    // THE MUTANT: the caption is the last sentence sent to the helper — it runs ahead of the voice.
+    expect(vs.state.said).toBe("First one.");
+    audio.now = 1.2;
+    vi.advanceTimersByTime(100);
+    expect(vs.state.said).toBe("Second one.");
+    audio.talking = false;
+    helper.emit({ t: "spoken", id: "s1" });
+    helper.emit({ t: "spoken", id: "s2" });
+    vi.advanceTimersByTime(100);
+    expect(vs.state).toMatchObject({ phase: "listening", said: null });
   });
 
   it("barges in in two steps: down at once, stopped only when real words arrive", async () => {
