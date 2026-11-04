@@ -44,8 +44,7 @@ const home = (over: FakeData = {}): FakeData => ({
 });
 
 const section = (name: string) => screen.getByRole("region", { name });
-const head = (name: string) => within(section(name)).getByRole("button", { name: new RegExp(`^${name}( —|$)`) });
-const rowsIn = (name: string) => [...section(name).querySelectorAll(".sb-section-clip .item-title")].map((t) => t.textContent);
+const rowsIn = (name: string) => [...section(name).querySelectorAll(".item-title")].map((t) => t.textContent);
 
 describe("a lead whose sub-agents need you", () => {
   it("says how many on its row and opens its Agents tab on the one that has waited longest", async () => {
@@ -65,49 +64,37 @@ describe("a lead whose sub-agents need you", () => {
 });
 
 describe("the list", () => {
-  it("is the profile's spaces as sections of one scroller — no strip, no Open, no other spaces, no Archived", async () => {
+  it("is one space at a time: the space in front, under its name, and none of the others", async () => {
+    // THE MUTANT: every space of the profile stacked as sections again.
     const { container } = await mount(home());
     const body = container.querySelector(".space-body")!;
-    expect([...body.querySelectorAll(".sb-section")].map((s) => s.getAttribute("aria-label"))).toEqual(["Versed", "Homework"]);
-    // Another profile's spaces are its own list.
+    expect([...body.querySelectorAll(".sb-section")].map((s) => s.getAttribute("aria-label"))).toEqual(["Versed"]);
+    expect(screen.getByRole("heading", { name: "Versed" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Homework" })).toBeNull();
     expect(screen.queryByRole("region", { name: "Lectures" })).toBeNull();
     // What left the sidebar, by name.
-    expect(container.querySelector(".space-strip, .swiper, .space-page")).toBeNull();
-    for (const gone of [/^Open$/, /^Other spaces$/, /^Archived$/, /^Sessions$/]) expect(within(body as HTMLElement).queryByText(gone)).toBeNull();
+    expect(container.querySelector(".space-strip, .swiper, .space-page, .sb-section-head, .sb-profile")).toBeNull();
+    for (const gone of [/^Open$/, /^Other spaces$/, /^Archived$/]) expect(within(body as HTMLElement).queryByText(gone)).toBeNull();
     expect(screen.queryByRole("button", { name: /New split/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Switch to space/ })).toBeNull();
   });
 
-  it("shows every space's sessions at once, without switching to it", async () => {
-    // THE MUTANT: draw the active room's rows alone, and Homework's waiting session is a walk away.
+  it("changes with the space: making another space current puts its sessions and its name in the column", async () => {
+    // THE MUTANT: a column that reads a space of its own instead of the current one.
     const { store } = await mount(home());
+    expect(rowsIn("Versed")).toEqual(["Alpha"]);
+    await act(async () => { await store.getState().selectSpace("s2"); });
     await waitFor(() => expect(rowsIn("Homework")).toEqual(["Wants a yes"]));
-    expect(store.getState().activeSpaceId).toBe("s1");
+    expect(screen.getByRole("heading", { name: "Homework" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Versed" })).toBeNull();
   });
 
-  it("hydrates saved custom space icons before the sections draw them", async () => {
+  it("hydrates saved custom space icons before the title draws them", async () => {
     const asset = iconAsset("ia-saved", "p1");
     const api = fakeApi({ spaces: [space("s1", "p1", "Versed", { icon: `asset:${asset.id}` })], iconAssets: { p1: [asset] } });
-    await mount(api);
+    const { container } = await mount(api);
     expect(api.calls).toContain("listIconAssets:p1");
-    expect(head("Versed").querySelector(".sb-space-icon circle")).not.toBeNull();
-  });
-
-  it("keeps New space at the column's foot, outside the list, however long the list and in either reading", async () => {
-    // The owner, 10-04: "the button disappears when the list is too long". THE MUTANT: New space back
-    // at the list's end, inside the scroller, where thirty spaces carry it out of the column.
-    const many = Array.from({ length: 30 }, (_, i) => space(`m${i}`, "p1", `Space ${i + 1}`));
-    const { store, container } = await mount(home({ spaces: many }));
-    const row = () => screen.getByRole("button", { name: "New space" });
-    expect(container.querySelectorAll(".sb-section")).toHaveLength(30);
-    expect(row().closest(".space-body")).toBeNull();
-    expect(row().closest(".sb-foot")!.previousElementSibling).toHaveClass("space-body");
-    fireEvent.click(row());
-    await waitFor(() => expect(store.getState().sheet).toEqual({ kind: "new-space" }));
-    act(() => store.getState().closeSheet());
-    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
-    await waitFor(() => expect(store.getState().sidebarLens).toBe("recent"));
-    expect(row().closest(".sb-foot")).not.toBeNull();
+    expect(container.querySelector(".sb-space-title .sb-space-icon circle")).not.toBeNull();
   });
 
   it("carries its own shade, outside the slide, so it is the column's width on every frame and leaves with it", async () => {
@@ -123,198 +110,159 @@ describe("the list", () => {
   });
 });
 
-describe("a space's section", () => {
-  it("names its space in the space's colour, and says what is going on in it", async () => {
-    await mount(home({ sessions: [
-      session("a", "s1", { title: "Alpha", status: "running" }), session("b", "s2", { title: "Wants a yes", status: "waiting_permission" }),
-      session("c", "s3", { title: "Notes" }),
-    ] }));
-    // THE MUTANT: tint nothing, and the colour is back to marking one icon in a strip that is gone.
-    // The colour as the face on screen can carry it — jsdom has no media queries, so the light face.
-    expect((head("Homework").querySelector(".sb-space-icon") as HTMLElement).style.color).toBe(hexToRgb(spaceColor("#3ddc97", "light")));
-    expect(head("Homework")).toHaveAccessibleName("Homework — 1 waiting on you");
-    const tally = head("Homework").querySelector(".item-trail")!;
-    expect(within(tally as HTMLElement).getByText("1").nextElementSibling).toHaveAttribute("data-status", "waiting_permission");
-    expect(head("Versed")).toHaveAccessibleName("Versed — 1 running");
-    expect(head("Versed").querySelector(".item-trail .status-dot")).toHaveAttribute("data-status", "running");
+describe("the column's title", () => {
+  const more = () => screen.getByRole("button", { name: "More for Versed" });
+  const open = async () => {
+    fireEvent.click(more());
+    return within(await screen.findByRole("menu", { name: "Versed" }));
+  };
+
+  it("is the space's name in its colour — a plain title, with no chevron and nothing to switch", async () => {
+    // THE MUTANTS: the profile switcher back at the head; the title a button that opens a list of spaces.
+    const { container } = await mount(home());
+    const title = screen.getByRole("heading", { name: "Versed" });
+    expect(title.closest("button")).toBeNull();
+    const head = container.querySelector(".sb-title")!;
+    expect(head.querySelector(".sb-space-icon")!.getAttribute("style")).toContain(hexToRgb(spaceColor("#7c6cff", "light")));
+    expect([...head.querySelectorAll("button")].map((b) => b.getAttribute("aria-label"))).toEqual(["More for Versed"]);
+    expect(head.querySelector("[data-icon='chevronDown'], .sb-caret")).toBeNull();
   });
 
-  it("wears the unread mark and its count on a folded head whose only news is a finished, unread session", async () => {
-    // THE MUTANT: `TallyMarks` drawing waiting and running only — a folded space with two finished
-    // turns nobody has read says nothing at all, which is the report this answers.
-    await mount(home({
-      items: { s1: [sessionItem("a", "s1", "Alpha"), sessionItem("d", "s1", "Delta")], s2: [sessionItem("b", "s2", "Wants a yes")] },
-      sessions: [session("a", "s1", { title: "Alpha", seenSeq: 3, lastEventSeq: 5 }), session("d", "s1", { title: "Delta", seenSeq: 1, lastEventSeq: 2 }),
-        session("b", "s2", { title: "Wants a yes", status: "waiting_permission" })],
-      settings: { "ui.sidebarCollapsedSpaces": ["s1"] },
-    }));
-    await waitFor(() => expect(head("Versed")).toHaveAttribute("aria-expanded", "false"));
-    expect(head("Versed")).toHaveAccessibleName("Versed — 2 unread");
-    const tally = head("Versed").querySelector(".item-trail")!;
-    expect(within(tally as HTMLElement).getByText("2").nextElementSibling).toHaveAttribute("data-status", "unseen");
-  });
-
-  it("keeps one mark on a head: something working outranks the unread count", async () => {
-    // THE MUTANT: the unread tally drawn whatever else is showing — two counts and two dots on one head.
-    await mount(home({
-      items: { s1: [sessionItem("a", "s1", "Alpha"), sessionItem("d", "s1", "Delta")], s2: [sessionItem("b", "s2", "Wants a yes")] },
-      sessions: [session("a", "s1", { title: "Alpha", seenSeq: 3, lastEventSeq: 5 }), session("d", "s1", { title: "Delta", status: "running" }),
-        session("b", "s2", { title: "Wants a yes", status: "waiting_permission" })],
-    }));
-    await waitFor(() => expect(head("Versed")).toHaveAccessibleName("Versed — 1 running, 1 unread"));
-    const dots = [...head("Versed").querySelectorAll(".item-trail .status-dot")].map((d) => d.getAttribute("data-status"));
-    expect(dots).toEqual(["running"]);
-  });
-
-  it("folds, and remembers it across a relaunch", async () => {
-    const { api, store } = await mount(home());
-    await waitFor(() => expect(rowsIn("Homework")).toEqual(["Wants a yes"]));
-    expect(head("Homework")).toHaveAttribute("aria-expanded", "true");
-    fireEvent.click(head("Homework"));
-    await waitFor(() => expect(head("Homework")).toHaveAttribute("aria-expanded", "false"));
-    expect(api.data.settings["ui.sidebarCollapsedSpaces"]).toEqual(["s2"]);
-    // Folded rows are out of the tab order and out of what a reader hears.
-    const clip = section("Homework").querySelector(".sb-section-clip")!;
-    expect(clip).toHaveAttribute("inert");
-    expect(clip).toHaveAttribute("aria-hidden", "true");
-    expect(within(section("Homework")).queryByRole("button", { name: /Wants a yes/ })).toBeNull();
-    void store;
-    cleanup();
-    await mount(home({ settings: { "ui.sidebarCollapsedSpaces": ["s2"] } }));
-    await waitFor(() => expect(head("Homework")).toHaveAttribute("aria-expanded", "false"));
-    expect(head("Versed")).toHaveAttribute("aria-expanded", "true");
-  });
-
-  it("lists its sessions newest first, five of them, then Show more opens the space's page", async () => {
-    const many = Array.from({ length: 7 }, (_, i) => session(`m${i}`, "s2", { title: `Task ${i}`, activityAt: 1000 + i }));
-    const { store } = await mount(home({
-      items: { s1: [], s2: many.map((m) => sessionItem(m.id, "s2", m.title)) },
-      sessions: many,
-    }));
-    await waitFor(() => expect(rowsIn("Homework")).toEqual(["Task 6", "Task 5", "Task 4", "Task 3", "Task 2"]));
-    const more = within(section("Homework")).getByRole("button", { name: /Show more/ });
-    expect(more).toHaveTextContent("Show more 2");
-    // The page last showed the archived ones; "Show more 2" counts live ones, so it lands on those.
-    act(() => store.getState().setSpaceSessionsView("s2", "archived"));
-    fireEvent.click(more);
-    await waitFor(() => expect(store.getState().pageOverlay).toMatchObject({ kind: "space-page", refId: "s2" }));
-    expect(store.getState().spacePageTab.s2).toBe("sessions");
-    expect(store.getState().spaceSessionsView.s2).toBe("active");
-  });
-
-  it("offers a new session in an empty space as its one row", async () => {
-    const { api, store } = await mount(home({ items: { s1: [], s2: [] }, sessions: [] }));
-    fireEvent.click(within(section("Homework")).getByRole("button", { name: "New session" }));
-    await waitFor(() => expect(api.calls).toContain("createSession:claude"));
-    expect(store.getState().activeSpaceId).toBe("s2");
-  });
-
-  it("makes a new session in its own space from the + on its head", async () => {
-    // THE MUTANT: create in the room on screen. The session would land in Versed under Homework's +.
-    const { api, store } = await mount(home());
-    fireEvent.click(within(section("Homework")).getByRole("button", { name: "New session in Homework" }));
-    await waitFor(() => expect(api.calls).toContain("createSession:claude"));
-    expect(api.data.sessions.at(-1)!.spaceId).toBe("s2");
-    expect(store.getState().activeSpaceId).toBe("s2");
-  });
-
-  it("opens its space's own pages from the ⋯ on its head", async () => {
+  it("opens its space's own pages from the ···", async () => {
     const { store } = await mount(home());
-    const open = async () => {
-      fireEvent.click(within(section("Homework")).getByRole("button", { name: "More for Homework" }));
-      return within(await screen.findByRole("menu", { name: "Homework" }));
-    };
     fireEvent.click((await open()).getByRole("menuitem", { name: "Connections" }));
-    await waitFor(() => expect(store.getState().pageOverlay).toMatchObject({ kind: "space-page", refId: "s2" }));
-    expect(store.getState().spacePageTab.s2).toBe("connections");
-    for (const [name, tab] of [["Memory", "memory"], ["Archived sessions", "sessions"], ["Space settings", "general"]] as const) {
+    await waitFor(() => expect(store.getState().pageOverlay).toMatchObject({ kind: "space-page", refId: "s1" }));
+    expect(store.getState().spacePageTab.s1).toBe("connections");
+    for (const [name, tab] of [["Memory", "memory"], ["Archived sessions", "sessions"], ["Space settings", "general"], ["Delete space…", "general"]] as const) {
       await exited();
+      act(() => store.getState().closePageOverlay());
       fireEvent.click((await open()).getByRole("menuitem", { name }));
-      await waitFor(() => expect(store.getState().spacePageTab.s2).toBe(tab));
-      // "Archived sessions" lands on the page's Archived filter, not on the live list.
-      if (name === "Archived sessions") expect(store.getState().spaceSessionsView.s2).toBe("archived");
+      await waitFor(() => expect(store.getState().spacePageTab.s1).toBe(tab));
+      if (name === "Archived sessions") expect(store.getState().spaceSessionsView.s1).toBe("archived");
     }
     // Show in Finder is offered only where the desktop bridge can reveal a folder.
     await exited();
+    act(() => store.getState().closePageOverlay());
     expect((await open()).queryByRole("menuitem", { name: "Show in Finder" })).toBeNull();
+  });
+
+  it("makes a new session, a teammate and the activity view from the ···", async () => {
+    const { api, store } = await mount(home());
+    fireEvent.click((await open()).getByRole("menuitem", { name: "New session" }));
+    await waitFor(() => expect(api.calls).toContain("createSession:claude"));
+    expect(api.data.sessions.at(-1)!.spaceId).toBe("s1");
+    await exited();
+    fireEvent.click((await open()).getByRole("menuitem", { name: "Add a teammate…" }));
+    await waitFor(() => expect(store.getState().sheet).toEqual({ kind: "teammate", spaceId: "s1" }));
+    act(() => store.getState().closeSheet());
+    await exited();
+    fireEvent.click((await open()).getByRole("menuitem", { name: "All sessions by time" }));
+    await waitFor(() => expect(store.getState().sidebarLens).toBe("recent"));
+  });
+
+  it("renames its space in place from the ···, committing on Enter and keeping the name on Escape", async () => {
+    // THE MUTANT: Rename that opens the settings page, or a field that writes on Escape.
+    const { api } = await mount(home());
+    fireEvent.click((await open()).getByRole("menuitem", { name: "Rename…" }));
+    const input = await screen.findByRole("textbox", { name: "Rename Versed" });
+    fireEvent.change(input, { target: { value: "Gone" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Versed" })).toBeInTheDocument());
+    expect(api.calls.some((c) => c.startsWith("updateSpace:"))).toBe(false);
+    await exited();
+    fireEvent.click((await open()).getByRole("menuitem", { name: "Rename…" }));
+    const again = await screen.findByRole("textbox", { name: "Rename Versed" });
+    fireEvent.change(again, { target: { value: "Versed app" } });
+    fireEvent.keyDown(again, { key: "Enter" });
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Versed app" })).toBeInTheDocument());
+    expect(api.data.spaces.find((sp) => sp.id === "s1")!.name).toBe("Versed app");
   });
 
   it("reveals its folder in the Finder where the bridge can", async () => {
     const reveal = vi.fn(async () => true);
     vi.stubGlobal("realm", { files: { reveal } });
-    await mount(home({ spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework", { folderPath: "/work/homework" })] }));
-    fireEvent.click(within(section("Homework")).getByRole("button", { name: "More for Homework" }));
-    fireEvent.click(within(await screen.findByRole("menu", { name: "Homework" })).getByRole("menuitem", { name: "Show in Finder" }));
-    expect(reveal).toHaveBeenCalledWith("/work/homework");
+    await mount(home({ spaces: [space("s1", "p1", "Versed", { folderPath: "/work/versed" }), space("s2", "p1", "Homework")] }));
+    fireEvent.click((await open()).getByRole("menuitem", { name: "Show in Finder" }));
+    expect(reveal).toHaveBeenCalledWith("/work/versed");
   });
 
-  it("asks for a session in a fresh worktree of its space from the ⋯ — a name and a branch to start from", async () => {
+  it("asks for a session in a fresh worktree of its space from the ··· — a name and a branch to start from", async () => {
     const { api, store } = await mount(home({ gitInfo: { "/tmp": { branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0 } },
-      branches: { s2: { branches: ["main"], current: "main" } } }));
-    fireEvent.click(within(section("Homework")).getByRole("button", { name: "More for Homework" }));
-    fireEvent.click(within(await screen.findByRole("menu", { name: "Homework" })).getByRole("menuitem", { name: "New session in a worktree…" }));
-    await waitFor(() => expect(store.getState().sheet).toEqual({ kind: "new-worktree", spaceId: "s2" }));
-    expect(api.calls).toContain("listBranches:s2");
+      branches: { s1: { branches: ["main"], current: "main" } } }));
+    fireEvent.click((await open()).getByRole("menuitem", { name: "New session in a worktree…" }));
+    await waitFor(() => expect(store.getState().sheet).toEqual({ kind: "new-worktree", spaceId: "s1" }));
+    expect(api.calls).toContain("listBranches:s1");
     await exited();
-    fireEvent.click(within(section("Homework")).getByRole("button", { name: "More for Homework" }));
-    fireEvent.click(within(await screen.findByRole("menu", { name: "Homework" })).getByRole("menuitem", { name: "Worktrees" }));
-    await waitFor(() => expect(store.getState().spacePageTab.s2).toBe("worktrees"));
+    act(() => store.getState().closeSheet());
+    fireEvent.click((await open()).getByRole("menuitem", { name: "Worktrees" }));
+    await waitFor(() => expect(store.getState().spacePageTab.s1).toBe("worktrees"));
   });
 
-  it("offers no session in a worktree from the ⋯ of a space that is a plain folder", async () => {
-    const { store } = await mount(home({ spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework", { folderPath: "/work/homework" })] }));
-    await act(async () => { await store.getState().refreshGitInfo("/work/homework"); });
-    fireEvent.click(within(section("Homework")).getByRole("button", { name: "More for Homework" }));
-    const menu = await screen.findByRole("menu", { name: "Homework" });
-    expect(within(menu).queryByRole("menuitem", { name: /New session in a worktree/ })).toBeNull();
-    expect(within(menu).queryByRole("menuitem", { name: "Worktrees" })).toBeNull();
-    expect(within(menu).getByRole("menuitem", { name: "Space settings" })).toBeInTheDocument();
+  it("offers no session in a worktree from the ··· of a space that is a plain folder", async () => {
+    const { store } = await mount(home({ spaces: [space("s1", "p1", "Versed", { folderPath: "/work/versed" }), space("s2", "p1", "Homework")] }));
+    await act(async () => { await store.getState().refreshGitInfo("/work/versed"); });
+    const menu = await open();
+    expect(menu.queryByRole("menuitem", { name: /New session in a worktree/ })).toBeNull();
+    expect(menu.queryByRole("menuitem", { name: "Worktrees" })).toBeNull();
+    expect(menu.getByRole("menuitem", { name: "Space settings" })).toBeInTheDocument();
   });
 
-  it("opens the ⋯'s own menu at the pointer on a right-click of its head", async () => {
-    // THE MUTANTS: no context menu on the head; a second, shorter menu; the menu still under the ⋯.
+  it("opens the ···'s own menu at the pointer on a right-click of the title", async () => {
+    // THE MUTANTS: no context menu on the title; a second, shorter menu; the menu still under the ···.
     const { store } = await mount(home());
-    fireEvent.click(within(section("Homework")).getByRole("button", { name: "More for Homework" }));
-    const fromDots = [...within(await screen.findByRole("menu", { name: "Homework" })).getAllByRole("menuitem")].map((b) => b.textContent);
-    fireEvent.keyDown(screen.getByRole("menu", { name: "Homework" }), { key: "Escape" });
+    const fromDots = [...(await open()).getAllByRole("menuitem")].map((b) => b.textContent);
+    fireEvent.keyDown(screen.getByRole("menu", { name: "Versed" }), { key: "Escape" });
     await exited();
-    expect(screen.queryByRole("menu")).toBeNull();
-
-    fireEvent.contextMenu(head("Homework"), { clientX: 120, clientY: 340 });
-    const menu = await screen.findByRole("menu", { name: "Homework" });
+    fireEvent.contextMenu(screen.getByRole("heading", { name: "Versed" }), { clientX: 120, clientY: 340 });
+    const menu = await screen.findByRole("menu", { name: "Versed" });
     expect([...within(menu).getAllByRole("menuitem")].map((b) => b.textContent)).toEqual(fromDots);
     expect(menu.style.left).toBe("120px");
     expect(menu.style.top).toBe("340px");
-    // The ⋯ says its menu is open, whichever way it was opened.
-    expect(within(section("Homework")).getByRole("button", { name: "More for Homework" })).toHaveAttribute("aria-expanded", "true");
-    // Escape puts it away, as it does the ⋯'s.
-    fireEvent.keyDown(menu, { key: "Escape" });
-    await exited();
-    expect(screen.queryByRole("menu")).toBeNull();
-
-    // And its rows do what they do from the ⋯.
-    fireEvent.contextMenu(head("Homework"), { clientX: 120, clientY: 340 });
-    fireEvent.click(within(await screen.findByRole("menu", { name: "Homework" })).getByRole("menuitem", { name: "Memory" }));
-    await waitFor(() => expect(store.getState().spacePageTab.s2).toBe("memory"));
+    expect(more()).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Memory" }));
+    await waitFor(() => expect(store.getState().spacePageTab.s1).toBe("memory"));
   });
 
-  it("opens under the ⋯ when the context menu comes from the keyboard", async () => {
+  it("opens under the ··· when the context menu comes from the keyboard", async () => {
     await mount(home());
-    const dots = within(section("Homework")).getByRole("button", { name: "More for Homework" });
-    dots.getBoundingClientRect = () => ({ x: 200, y: 300, left: 200, top: 300, right: 220, bottom: 320, width: 20, height: 20, toJSON: () => ({}) });
+    more().getBoundingClientRect = () => ({ x: 200, y: 300, left: 200, top: 300, right: 220, bottom: 320, width: 20, height: 20, toJSON: () => ({}) });
     // A keyboard context menu carries no pointer: 0,0 is not where anyone asked for it.
-    fireEvent.contextMenu(head("Homework"), { clientX: 0, clientY: 0 });
-    const menu = await screen.findByRole("menu", { name: "Homework" });
+    fireEvent.contextMenu(screen.getByRole("heading", { name: "Versed" }), { clientX: 0, clientY: 0 });
+    const menu = await screen.findByRole("menu", { name: "Versed" });
     expect(menu.style.top).toBe("324px");
   });
 });
 
+describe("the space's sessions", () => {
+  it("lists them newest first, five of them, then Show more opens the space's page", async () => {
+    const many = Array.from({ length: 7 }, (_, i) => session(`m${i}`, "s1", { title: `Task ${i}`, activityAt: 1000 + i }));
+    const { store } = await mount(home({
+      items: { s1: many.map((m) => sessionItem(m.id, "s1", m.title)), s2: [] },
+      sessions: many,
+    }));
+    await waitFor(() => expect(rowsIn("Versed")).toEqual(["Task 6", "Task 5", "Task 4", "Task 3", "Task 2"]));
+    const showMore = within(section("Versed")).getByRole("button", { name: /Show more/ });
+    expect(showMore).toHaveTextContent("Show more 2");
+    act(() => store.getState().setSpaceSessionsView("s1", "archived"));
+    fireEvent.click(showMore);
+    await waitFor(() => expect(store.getState().pageOverlay).toMatchObject({ kind: "space-page", refId: "s1" }));
+    expect(store.getState().spacePageTab.s1).toBe("sessions");
+    expect(store.getState().spaceSessionsView.s1).toBe("active");
+  });
+
+  it("offers a new session in an empty space as its one row", async () => {
+    const { api, store } = await mount(home({ items: { s1: [], s2: [] }, sessions: [] }));
+    fireEvent.click(within(section("Versed")).getByRole("button", { name: "New session" }));
+    await waitFor(() => expect(api.calls).toContain("createSession:claude"));
+    expect(store.getState().activeSpaceId).toBe("s1");
+  });
+});
+
 describe("a session's row", () => {
-  it("opens its session wherever it is", async () => {
+  it("opens its session", async () => {
     const { store } = await mount(home());
-    fireEvent.click(await within(section("Homework")).findByRole("button", { name: /^Wants a yes/ }));
-    await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
-    await waitFor(() => expect(allItems(store.getState().layout!)).toContain("i-b"));
+    fireEvent.click(await within(section("Versed")).findByRole("button", { name: /^Alpha/ }));
+    await waitFor(() => expect(allItems(store.getState().layout!)).toContain("i-a"));
   });
 
   it("wears its state at the far end, and says it in its name (A-L4)", async () => {
@@ -345,11 +293,10 @@ describe("a session's row", () => {
     // THE MUTANT: `data-unread` keyed on `row.unread` alone — a running session that also has news
     // would wear a heavy title beside a green dot, two marks asking to be told apart.
     const { store } = await mount(home({ sessions: [session("a", "s1", { title: "Alpha", seenSeq: 3, lastEventSeq: 5 }), session("b", "s2", { title: "Wants a yes", seenSeq: 4, lastEventSeq: 4 })] }));
-    const rowOf = (sec: string, name: RegExp) => within(section(sec)).getByRole("button", { name }).closest(".sb-row")!;
-    await waitFor(() => expect(rowOf("Versed", /^Alpha/)).toHaveAttribute("data-unread"));
-    expect(rowOf("Homework", /^Wants a yes/)).not.toHaveAttribute("data-unread");
+    const rowOf = (name: RegExp) => within(section("Versed")).getByRole("button", { name }).closest(".sb-row")!;
+    await waitFor(() => expect(rowOf(/^Alpha/)).toHaveAttribute("data-unread"));
     act(() => store.getState().applySessionStatus("a", "running"));
-    expect(rowOf("Versed", /^Alpha/)).not.toHaveAttribute("data-unread");
+    expect(rowOf(/^Alpha/)).not.toHaveAttribute("data-unread");
   });
 
   it("wears a clock when a schedule started it", async () => {
@@ -367,33 +314,23 @@ describe("a session's row", () => {
     await waitFor(() => expect(rowsIn("Versed")).toEqual(["Alpha"]));
   });
 
-  it("puts its session away from its shelf — in this space or another", async () => {
-    const { api } = await mount(home());
-    await within(section("Homework")).findByRole("button", { name: /^Wants a yes/ });
-    fireEvent.click(within(section("Versed")).getByRole("button", { name: "Archive Alpha" }));
-    // (Closing the room's last pane lands in a fresh session, which is the store's rule, not the row's.)
-    await waitFor(() => expect(rowsIn("Versed")).not.toContain("Alpha"));
-    fireEvent.click(within(section("Homework")).getByRole("button", { name: "Archive Wants a yes" }));
-    await waitFor(() => expect(rowsIn("Homework")).toEqual(["New session", "Add a teammate"])); // an empty space's two ways in
-    expect(api.data.items.s2![0]!.archived).toBe(true);
+  it("puts its session away from its shelf", async () => {
+    const { api } = await mount(home({ items: { s1: [sessionItem("a", "s1", "Alpha")], s2: [sessionItem("b", "s2", "Wants a yes")] } }));
+    fireEvent.click(await within(section("Versed")).findByRole("button", { name: "Archive Alpha" }));
+    await waitFor(() => expect(rowsIn("Versed")).toEqual(["New session", "Add a teammate"])); // an empty space's two ways in
+    expect(api.data.items.s1![0]!.archived).toBe(true);
   });
 
   it("reads every space's rows again straight after a write to another space's row", async () => {
-    /* The window hears `items.changed` for the room on screen only, so a row put away or pinned in
-       another space is re-read by the sidebar itself, at once — not on the next beat something else
-       happens to move. THE MUTANTS: a shelf or a menu that writes and leaves the list to catch up. */
-    const { api } = await mount(home());
-    await within(section("Homework")).findByRole("button", { name: /^Wants a yes/ });
+    /* The window hears `items.changed` for the room on screen only, so a pin from another space put
+       away here is re-read by the sidebar itself, at once — not on the next beat something else
+       happens to move. THE MUTANT: a row that writes and leaves the list to catch up. */
+    const { api } = await mount(home({ items: { ...home().items, s2: [sessionItem("b", "s2", "Wants a yes", { pinned: true })] } }));
+    const pinned = await screen.findByRole("region", { name: "Pinned" });
     const reads = () => api.calls.filter((c) => c === "listAllItems").length;
-    const soon = { timeout: ALL_ITEMS_SETTLE_MS - 100 };
-    let before = reads();
-    fireEvent.contextMenu(within(section("Homework")).getByRole("button", { name: /^Wants a yes/ }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Pin" }));
-    await waitFor(() => expect(reads()).toBeGreaterThan(before), soon);
-    await exited();
-    before = reads();
-    fireEvent.click(within(section("Homework")).getByRole("button", { name: "Archive Wants a yes" }));
-    await waitFor(() => expect(reads()).toBeGreaterThan(before), soon);
+    const before = reads();
+    fireEvent.click(within(pinned).getByRole("button", { name: "Unpin Wants a yes" }));
+    await waitFor(() => expect(reads()).toBeGreaterThan(before), { timeout: ALL_ITEMS_SETTLE_MS - 100 });
   });
 
   it("keeps its state and its one action in one slot at the far end", async () => {
@@ -451,27 +388,15 @@ describe("a session's row", () => {
     expect(glyph(/^Beta/)).toBeNull();
   });
 
-  it("opens a session BESIDE the one in focus on ⌘-click — from any space", async () => {
+  it("opens a session BESIDE the one in focus on ⌘-click", async () => {
     // THE MUTANT: ignore the modifier. ⌘-click would then replace the session on screen, and the
     // window's one split would have no way in from the list.
-    const { store } = await mount(home());
+    const { store } = await mount(home({ items: { s1: [sessionItem("a", "s1", "Alpha"), sessionItem("x", "s1", "Beta")] },
+      sessions: [session("a", "s1", { title: "Alpha" }), session("x", "s1", { title: "Beta" })] }));
     fireEvent.click(within(section("Versed")).getByRole("button", { name: /^Alpha/ }));
     await waitFor(() => expect(store.getState().layout).not.toBeNull());
-    fireEvent.click(within(section("Homework")).getByRole("button", { name: /^Wants a yes/ }), { metaKey: true });
-    await waitFor(() => {
-      const open = allItems(store.getState().layout!);
-      expect(open).toEqual(expect.arrayContaining(["i-a", "i-b"]));
-    });
-  });
-
-  it("lights a row from another space once its session has focus", async () => {
-    // THE MUTANT: keep the room's rule (only the current space's rows light). A session from another
-    // space would then never show it is the one in focus.
-    const { store } = await mount(home());
-    const other = within(section("Homework")).getByRole("button", { name: /^Wants a yes/ }).closest(".item")!;
-    fireEvent.click(within(section("Homework")).getByRole("button", { name: /^Wants a yes/ }));
-    await waitFor(() => expect(other).toHaveAttribute("data-active"));
-    void store;
+    fireEvent.click(within(section("Versed")).getByRole("button", { name: /^Beta/ }), { metaKey: true });
+    await waitFor(() => expect(allItems(store.getState().layout!)).toEqual(expect.arrayContaining(["i-a", "i-x"])));
   });
 
   it("lights the row of the session in focus, and only that one", async () => {
@@ -487,7 +412,7 @@ describe("a session's row", () => {
     expect(row(/^Alpha/)).not.toHaveAttribute("data-active");
   });
 
-  it("drags into a pane from any space, carrying its item", async () => {
+  it("drags into a pane, carrying its item", async () => {
     await mount(home());
     const row = within(section("Versed")).getByRole("button", { name: /^Alpha/ }).closest(".item")!;
     expect(row).toHaveAttribute("draggable", "true");
@@ -497,18 +422,14 @@ describe("a session's row", () => {
     expect(row).toHaveAttribute("data-dragging");
     fireEvent.dragEnd(row);
     expect(row).not.toHaveAttribute("data-dragging");
-    // Another space's row drags just the same: the view is the window's, not a room's.
-    const other = (await within(section("Homework")).findByRole("button", { name: /^Wants a yes/ })).closest(".item")!;
-    fireEvent.dragStart(other, { dataTransfer: { setData: (k: string, v: string) => { data[k] = v; }, effectAllowed: "" } });
-    expect(data["application/x-realm-item"]).toBe("i-b");
   });
 
   it("pins from its menu, and the pin shows under Pinned", async () => {
     await mount(home());
-    fireEvent.contextMenu(within(section("Homework")).getByRole("button", { name: /^Wants a yes/ }));
+    fireEvent.contextMenu(within(section("Versed")).getByRole("button", { name: /^Alpha/ }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Pin" }));
     const pinned = await screen.findByRole("region", { name: "Pinned" });
-    expect(within(pinned).getByRole("button", { name: "Wants a yes in Homework — needs permission" })).toBeInTheDocument();
+    expect(within(pinned).getByRole("button", { name: "Alpha in Versed" })).toBeInTheDocument();
   });
 
   it("renames from its menu, committing on Enter", async () => {
@@ -534,20 +455,20 @@ describe("a session's row", () => {
 
 describe("a fan-out", () => {
   const fan = (id: string, at: number, status: Session["status"] = "running") =>
-    session(id, "s2", { title: "Migrate the API", status, createdAt: at, updatedAt: at, dispatchedBy: { kind: "user-dispatch", sessionId: null } });
+    session(id, "s1", { title: "Migrate the API", status, createdAt: at, updatedAt: at, dispatchedBy: { kind: "user-dispatch", sessionId: null } });
 
   it("is one row that unfolds to its sessions, summing their states", async () => {
     // THE MUTANT: list the siblings flat, and twenty of them bury the space.
     await mount(home({
-      items: { s1: [], s2: ["f1", "f2", "f3"].map((id) => sessionItem(id, "s2", "Migrate the API")) },
+      items: { s1: ["f1", "f2", "f3"].map((id) => sessionItem(id, "s1", "Migrate the API")), s2: [] },
       sessions: [fan("f1", 1000), fan("f2", 2000, "waiting_permission"), fan("f3", 3000)],
     }));
-    const row = await within(section("Homework")).findByRole("button", { name: /^Fan-out: Migrate the API/ });
+    const row = await within(section("Versed")).findByRole("button", { name: /^Fan-out: Migrate the API/ });
     expect(row).toHaveAccessibleName("Fan-out: Migrate the API — 3 sessions, 1 waiting on you, 2 running");
-    expect(within(section("Homework")).queryAllByRole("button", { name: /^Migrate the API/ })).toHaveLength(0);
+    expect(within(section("Versed")).queryAllByRole("button", { name: /^Migrate the API/ })).toHaveLength(0);
     fireEvent.click(row);
     expect(row).toHaveAttribute("aria-expanded", "true");
-    expect(within(section("Homework")).getAllByRole("button", { name: /^Migrate the API/ })).toHaveLength(3);
+    expect(within(section("Versed")).getAllByRole("button", { name: /^Migrate the API/ })).toHaveLength(3);
   });
 });
 
@@ -668,11 +589,9 @@ describe("the list's fade", () => {
     expect(body.parentElement).toHaveClass("sb-list");
     expect(body).toHaveAttribute("data-dissolve");
     expect(container.querySelector(".space-fade")).toBeNull();
-    // Everything that scrolls is inside it: Needs you, Pinned, the list's head and the sections alike —
-    // and New space is not, pinned below it.
+    // Everything that scrolls is inside it: Needs you, Pinned, the list's head and the space alike.
     expect(body.querySelector(".sb-lens")).not.toBeNull();
-    expect(body.querySelector(".sb-sections")).not.toBeNull();
-    expect(body.querySelector(".sb-new-space")).toBeNull();
+    expect(body.querySelector(".sb-section")).not.toBeNull();
   });
 });
 

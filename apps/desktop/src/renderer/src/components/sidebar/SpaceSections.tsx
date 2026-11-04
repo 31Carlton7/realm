@@ -1,170 +1,65 @@
 import { Icon } from "@realm/ui";
-import { useMemo, useRef, useState, type DragEvent, type MouseEvent } from "react";
+import { useMemo } from "react";
 import type { Space } from "@realm/contracts";
-import { spaceIsPlainFolder, useApp, useProfileSpaces } from "../../state/store";
-import { Menu, type MenuItem } from "../Menu";
-import { SpaceIcon } from "../SpaceIcon";
-import { reorderWithin, rowsBySpace, sectionView, spaceTally, tallyWords, type ListRow, type SessionRow, type SidebarState, type Tally } from "./model";
-import { ListRowView, TallyMarks } from "./SessionRows";
+import { useApp } from "../../state/store";
+import { rowsBySpace, sectionView, type ListRow, type SessionRow } from "./model";
+import { ListRowView } from "./SessionRows";
 import { ListCaption, TeamSection } from "./TeamSection";
-import { useNewSessionIn, useOpenSpacePage, useOrderedSpaces, useSpaceTint } from "./use-sidebar-model";
-
-/** What a section head carries in a drag, told apart from an item's. */
-const SPACE_DRAG_TYPE = "application/x-realm-space";
+import { useNewSessionIn, useOpenSpacePage } from "./use-sidebar-model";
 
 /**
- * The Spaces lens: every space of the profile as a section of one list (Plan 27).
- *
- * Spaces stay — each owns the folder, connections, memory and allowlists its agents work with — but
- * as sections, not rooms: every space's sessions are on screen at once, and opening one from any
- * space opens it. A section's head names the space in its colour, says what is going on in it, and
- * folds; folded or open is remembered per space. The order is the one arranged by hand (drag a head
- * onto another), or by activity with Settings ▸ General ▸ Sidebar's "Sort spaces by activity".
+ * The space the column shows (direction A): its team, then its sessions. One space at a time — the
+ * rail's tiles change which — so nothing here is a section of a longer list, and the space's name is
+ * the column's title (`SpaceTitle`), not a head of its own.
  */
-export function SpaceSections({ state, rows, onChanged }: { state: SidebarState; rows: SessionRow[]; onChanged: () => void }) {
-  const spaces = useOrderedSpaces();
-  const handOrder = useProfileSpaces();
-  const all = useApp((s) => s.spaces);
-  const byActivity = useApp((s) => s.sidebarActivityOrder);
-  const reorderSpaces = useApp((s) => s.reorderSpaces);
-  const run = useApp((s) => s.run);
+export function SpaceSections({ rows, onChanged }: { rows: SessionRow[]; onChanged: () => void }) {
+  const space = useApp((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId));
   const bySpace = useMemo(() => rowsBySpace(rows), [rows]);
-  const [dragId, setDragId] = useState<string | null>(null);
-  const [overId, setOverId] = useState<string | null>(null);
-  const drop = (target: string) => {
-    const from = dragId; setDragId(null); setOverId(null);
-    const ids = from ? reorderWithin(all, handOrder, from, target) : null;
-    if (ids) run(() => reorderSpaces(ids));
-  };
-  return (
-    <div className="sb-sections">
-      {spaces.map((sp) => (
-        <SpaceSection key={sp.id} space={sp} rows={bySpace.get(sp.id) ?? []} tally={spaceTally(state, sp.id, rows)} onChanged={onChanged}
-          drag={{
-            // A drop into a spot the next status change would re-sort away from is a drop that did
-            // nothing, so with activity order on the heads are not draggable at all.
-            enabled: !byActivity, over: overId === sp.id,
-            start: () => setDragId(sp.id),
-            over_: (e) => { if (dragId && Array.from(e.dataTransfer.types).includes(SPACE_DRAG_TYPE)) { e.preventDefault(); if (overId !== sp.id) setOverId(sp.id); } },
-            leave: () => { if (overId === sp.id) setOverId(null); },
-            drop: (e) => { e.preventDefault(); drop(sp.id); },
-            end: () => { setDragId(null); setOverId(null); },
-          }} />
-      ))}
-    </div>
-  );
+  if (!space) return null;
+  return <SpaceSection key={space.id} space={space} rows={bySpace.get(space.id) ?? []} onChanged={onChanged} />;
 }
 
-type SectionDrag = {
-  enabled: boolean; over: boolean; start: () => void; over_: (e: DragEvent) => void; leave: () => void;
-  drop: (e: DragEvent) => void; end: () => void;
-};
-
-function SpaceSection({ space, rows, tally, onChanged, drag }: { space: Space; rows: ListRow[]; tally: Tally; onChanged: () => void; drag: SectionDrag }) {
-  const collapsed = useApp((s) => s.sidebarCollapsedSpaces.includes(space.id));
-  const setSpaceSectionCollapsed = useApp((s) => s.setSpaceSectionCollapsed);
-  const run = useApp((s) => s.run);
+function SpaceSection({ space, rows, onChanged }: { space: Space; rows: ListRow[]; onChanged: () => void }) {
   const openSpacePage = useOpenSpacePage();
   const setSpaceSessionsView = useApp((s) => s.setSpaceSessionsView);
-  // The space's Sessions page, on the filter the opener names: "Show more" counts the live ones.
-  const openSessions = (view: "active" | "archived") => { setSpaceSessionsView(space.id, view); openSpacePage(space.id, "sessions"); };
+  // The space's Sessions page: "Show more" counts the live ones.
+  const openSessions = () => { setSpaceSessionsView(space.id, "active"); openSpacePage(space.id, "sessions"); };
   const newSessionIn = useNewSessionIn();
-  const askNewWorktree = useApp((s) => s.askNewWorktree);
   const openSheet = useApp((s) => s.openSheet);
   const hasTeam = useApp((s) => (s.teammates[space.id]?.length ?? 0) > 0);
   // Only a space with a team heads its sessions with a caption, so only there can they fold away.
   const sessionsFolded = useApp((s) => hasTeam && s.sidebarFoldedLists.includes(`${space.id}/sessions`));
   const addTeammate = () => openSheet({ kind: "teammate", spaceId: space.id });
-  // A plain folder has no worktrees, so its ⋯ offers no session in one (store.ts).
-  const plainFolder = useApp((s) => spaceIsPlainFolder(s, space.id));
-  const tint = useSpaceTint(space.color);
-  // One menu, opened two ways: from the ⋯ (anchored under it) or by a right-click on the head (at the
-  // pointer). A context menu raised from the keyboard has no pointer to open at, so it takes the ⋯'s.
-  const [menu, setMenu] = useState<{ at: { x: number; y: number } | null } | null>(null);
-  const more = useRef<HTMLButtonElement>(null);
-  const onContextMenu = (e: MouseEvent) => {
-    e.preventDefault();
-    setMenu({ at: e.clientX === 0 && e.clientY === 0 ? null : { x: e.clientX, y: e.clientY } });
-  };
-  // Built on the first unfold and kept, so folding animates too; `inert` takes a folded row out of
-  // the tab order and `aria-hidden` out of what a reader hears.
-  const everOpened = useRef(!collapsed);
-  everOpened.current ||= !collapsed;
-  const words = tallyWords(tally);
-  const said = words.length > 0 ? `${space.name} — ${words.join(", ")}` : space.name;
   const { shown, hidden } = sectionView(rows);
-  const listId = `sb-section-${space.id}`;
-  const reveal = window.realm?.files?.reveal;
-  const items: MenuItem[] = [
-    ...(plainFolder ? [] : [
-      // A sheet that asks the name and the branch to start from, and lands in a session there.
-      { label: "New session in a worktree…", icon: <Icon name="branch" size={16} />, onSelect: () => run(() => askNewWorktree(space.id)) },
-    ] satisfies MenuItem[]),
-    // A permanent agent of the space, that you message; it lands in its chat once made.
-    { label: "Add a teammate…", icon: <Icon name="team" size={16} />, onSelect: addTeammate },
-    { kind: "separator" },
-    // Offered only where the desktop bridge has it — a reveal that cannot happen is not offered.
-    ...(reveal ? [{ label: "Show in Finder", icon: <Icon name="folder" size={16} />, onSelect: () => { void reveal(space.folderPath); } }] : []),
-    { label: "Connections", icon: <Icon name="connections-page" size={16} />, onSelect: () => openSpacePage(space.id, "connections") },
-    { label: "Memory", icon: <Icon name="context" size={16} />, onSelect: () => openSpacePage(space.id, "memory") },
-    ...(plainFolder ? [] : [{ label: "Worktrees", icon: <Icon name="branch" size={16} />, onSelect: () => openSpacePage(space.id, "worktrees") }]),
-    { label: "Archived sessions", icon: <Icon name="archive" size={16} />, onSelect: () => openSessions("archived") },
-    { label: "Space settings", icon: <Icon name="settings" size={16} />, onSelect: () => openSpacePage(space.id, "general") },
-  ];
   return (
     <section className="sb-section" aria-label={space.name}>
-      <div className="item sb-section-head" data-actions="2" data-drag-over={drag.over || undefined} draggable={drag.enabled}
-        onDragStart={(e) => { e.dataTransfer.setData(SPACE_DRAG_TYPE, space.id); e.dataTransfer.effectAllowed = "move"; drag.start(); }}
-        onDragOver={drag.over_} onDragLeave={drag.leave} onDrop={drag.drop} onDragEnd={drag.end} onContextMenu={onContextMenu}>
-        <button type="button" className="item-row" aria-expanded={!collapsed} aria-controls={everOpened.current ? listId : undefined}
-          aria-label={said} title={said} onClick={() => run(() => setSpaceSectionCollapsed(space.id, !collapsed))}>
-          <span className="sb-caret" data-open={!collapsed || undefined}><Icon name="chevronRight" size={12} /></span>
-          {/* The space's colour marks its section — one of the three places it does (Plan 27). */}
-          <span className="sb-space-icon" style={tint ? { color: tint } : undefined}><SpaceIcon icon={space.icon} size={16} /></span>
-          <span className="item-title">{space.name}</span>
-          <span className="item-trail"><TallyMarks tally={tally} /></span>
-        </button>
-        <span className="item-actions">
-          <button type="button" className="item-act" aria-label={`New session in ${space.name}`} title="New session here"
-            onClick={() => newSessionIn(space.id)}><Icon name="add" size={12} /></button>
-          <button ref={more} type="button" className="item-act" aria-label={`More for ${space.name}`} aria-haspopup="menu" aria-expanded={menu !== null}
-            title="More" onClick={() => setMenu((o) => (o ? null : { at: null }))}><Icon name="more" size={12} /></button>
-        </span>
-      </div>
-      {menu && <Menu {...(menu.at ? { at: menu.at } : { anchorRef: more, align: "right" as const })} label={space.name} onClose={() => setMenu(null)} items={items} />}
-      {everOpened.current && (
-        <div className="sb-section-wrap" data-open={!collapsed || undefined}>
-          <div className="sb-section-clip" inert={collapsed || undefined} aria-hidden={collapsed || undefined}>
-            <div className="item-list" id={listId}>
-              {/* The space's teammates head it, above its sessions. */}
-              <TeamSection spaceId={space.id} />
-              {hasTeam && rows.length > 0 && <ListCaption spaceId={space.id} list="sessions" label="Sessions" folded={sessionsFolded} />}
-              {rows.length === 0 ? (
-                // An empty space offers the shortest honest paths to work in it: a session, or — while
-                // it has none — a teammate.
-                <>
-                  <div className="item sb-row" data-nested="" data-actions="0">
-                    <button type="button" className="item-row sb-start" onClick={() => newSessionIn(space.id)}>
-                      <span className="sb-gutter"><Icon name="add" size={12} /></span><span className="item-title">New session</span>
-                    </button>
-                  </div>
-                  {!hasTeam && (
-                    <div className="item sb-row" data-nested="" data-actions="0">
-                      <button type="button" className="item-row sb-start" onClick={addTeammate}>
-                        <span className="sb-gutter"><Icon name="team" size={12} /></span><span className="item-title">Add a teammate</span>
-                      </button>
-                    </div>
-                  )}
-                </>
-              ) : !sessionsFolded && shown.map((r) => <ListRowView key={r.id} row={r} nested onChanged={onChanged} />)}
-              {!sessionsFolded && hidden > 0 && (
-                <button type="button" className="agents-more sb-more" title={`Every session in ${space.name}, on its page`}
-                  onClick={() => openSessions("active")}>Show more <span className="item-count">{hidden}</span></button>
-              )}
+      <div className="item-list">
+        {/* The space's teammates head it, above its sessions. */}
+        <TeamSection spaceId={space.id} />
+        {hasTeam && rows.length > 0 && <ListCaption spaceId={space.id} list="sessions" label="Sessions" folded={sessionsFolded} />}
+        {rows.length === 0 ? (
+          // An empty space offers the shortest honest paths to work in it: a session, or — while
+          // it has none — a teammate.
+          <>
+            <div className="item sb-row" data-nested="" data-actions="0">
+              <button type="button" className="item-row sb-start" onClick={() => newSessionIn(space.id)}>
+                <span className="sb-gutter"><Icon name="add" size={12} /></span><span className="item-title">New session</span>
+              </button>
             </div>
-          </div>
-        </div>
-      )}
+            {!hasTeam && (
+              <div className="item sb-row" data-nested="" data-actions="0">
+                <button type="button" className="item-row sb-start" onClick={addTeammate}>
+                  <span className="sb-gutter"><Icon name="team" size={12} /></span><span className="item-title">Add a teammate</span>
+                </button>
+              </div>
+            )}
+          </>
+        ) : !sessionsFolded && shown.map((r) => <ListRowView key={r.id} row={r} nested onChanged={onChanged} />)}
+        {!sessionsFolded && hidden > 0 && (
+          <button type="button" className="agents-more sb-more" title={`Every session in ${space.name}, on its page`}
+            onClick={() => openSessions()}>Show more <span className="item-count">{hidden}</span></button>
+        )}
+      </div>
     </section>
   );
 }

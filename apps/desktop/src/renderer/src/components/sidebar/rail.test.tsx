@@ -4,7 +4,7 @@ import { DEFAULT_KEYBINDINGS, PAGE_REF_IDS, allItems, emptyLayout, itemIdOfLeaf 
 import { AppShell } from "../../App";
 import { Rail } from "./Rail";
 import { StoreContext, createAppStore } from "../../state/store";
-import { fakeApi, item, session, type FakeData } from "../../state/store.test-fakes";
+import { fakeApi, item, profile, session, space, type FakeData } from "../../state/store.test-fakes";
 import { exited } from "../popover-exit.test-fakes";
 
 async function mount(over: FakeData = {}, shell = false) {
@@ -142,14 +142,14 @@ describe("the rail", () => {
 
   it("opens the page about you and Settings from the person at its foot", async () => {
     const { store } = await mount();
-    const you = within(rail()).getByRole("button", { name: "Carlton" });
-    expect(you.closest(".rail-foot")).not.toBeNull();
-    fireEvent.click(you);
-    fireEvent.click(within(await screen.findByRole("menu", { name: "You" })).getByRole("menuitem", { name: "Carlton" }));
+    const you = () => within(rail()).getByRole("button", { name: /^Carlton/ });
+    expect(you().closest(".rail-foot")).not.toBeNull();
+    fireEvent.click(you());
+    fireEvent.click(within(await screen.findByRole("menu", { name: "Profiles" })).getByRole("menuitem", { name: "Carlton" }));
     await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("you-page"));
     await exited();
-    fireEvent.click(within(rail()).getByRole("button", { name: "Carlton" }));
-    fireEvent.click(within(await screen.findByRole("menu", { name: "You" })).getByRole("menuitem", { name: /Settings/ }));
+    fireEvent.click(you());
+    fireEvent.click(within(await screen.findByRole("menu", { name: "Profiles" })).getByRole("menuitem", { name: /Settings/ }));
     await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("settings-page"));
   });
 
@@ -242,5 +242,136 @@ describe("the rail", () => {
     // The toggle left the rail's foot for the top row (the owner, 10-04).
     expect(within(rail()).queryByRole("button", { name: /sidebar/ })).toBeNull();
     expect(within(lead()).getByRole("button", { name: "Show sidebar (⌘B)" })).toBeInTheDocument();
+  });
+});
+
+describe("the profile's spaces on the rail", () => {
+  /** Work holds Versed and Homework, Homework with a question waiting; School holds Lectures. */
+  const work = (): FakeData => ({
+    profiles: [profile("p1", "Work"), profile("p2", "School")],
+    spaces: [space("s1", "p1", "Versed", { color: "#7c6cff" }), space("s2", "p1", "Homework"), space("s3", "p2", "Lectures")],
+    items: { s1: [item("i-a", "s1", { kind: "session", refId: "a", title: "Alpha" })], s2: [item("i-b", "s2", { kind: "session", refId: "b", title: "Wants a yes" })] },
+    sessions: [session("a", "s1", { title: "Alpha" }), session("b", "s2", { title: "Wants a yes", status: "waiting_permission" }),
+      session("c", "s3", { title: "Notes" })],
+  });
+  const spaces = () => within(rail()).getByRole("group", { name: "Spaces" });
+  const tiles = () => within(spaces()).getAllByRole("button").map((b) => b.getAttribute("aria-label"));
+
+  it("lists only the profile on screen's spaces, then New space, under the destinations", async () => {
+    // THE MUTANTS: every profile's spaces on the rail; the tiles above the destinations.
+    const { store } = await mount(work());
+    expect(tiles()).toEqual(["Versed", "Homework, 1 needs you", "New space"]);
+    expect(spaces().previousElementSibling).toHaveClass("rail-group");
+    await act(async () => { await store.getState().selectProfile("p2"); });
+    await waitFor(() => expect(tiles()).toEqual(["Lectures", "New space"]));
+  });
+
+  it("lights the space the column shows, and a click makes another current", async () => {
+    const { store } = await mount(work());
+    const tile = (name: RegExp) => within(spaces()).getByRole("button", { name });
+    expect(tile(/^Versed/)).toHaveAttribute("aria-pressed", "true");
+    expect(tile(/^Homework/)).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(tile(/^Homework/));
+    await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
+    expect(tile(/^Homework/)).toHaveAttribute("aria-pressed", "true");
+    expect(tile(/^Versed/)).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("wears the count of what waits on you in that space, and nothing for a space with none", async () => {
+    // THE MUTANTS: a count of every session; a badge for a space where nothing waits.
+    const { store } = await mount(work());
+    const badge = (name: RegExp) => within(spaces()).getByRole("button", { name }).querySelector(".sb-badge");
+    expect(badge(/^Homework/)).toHaveTextContent("1");
+    expect(badge(/^Versed/)).toBeNull();
+    act(() => store.getState().applySessionStatus("a", "running"));
+    expect(badge(/^Versed/)).toBeNull();
+    act(() => store.getState().applySessionStatus("a", "waiting_permission"));
+    expect(badge(/^Versed/)).toHaveTextContent("1");
+  });
+
+  it("opens New space from its + tile", async () => {
+    const { store } = await mount(work());
+    fireEvent.click(within(spaces()).getByRole("button", { name: "New space" }));
+    await waitFor(() => expect(store.getState().sheet).toEqual({ kind: "new-space" }));
+  });
+
+  it("offers the space's settings, Rename and Delete on a right-click of its tile", async () => {
+    const { store } = await mount(work());
+    fireEvent.contextMenu(within(spaces()).getByRole("button", { name: /^Homework/ }), { clientX: 20, clientY: 200 });
+    const menu = within(await screen.findByRole("menu", { name: "Homework" }));
+    for (const name of ["Space settings", "Rename…", "Delete space…", "New session", "Add a teammate…"]) expect(menu.getByRole("menuitem", { name })).toBeInTheDocument();
+    fireEvent.click(menu.getByRole("menuitem", { name: "Space settings" }));
+    await waitFor(() => expect(store.getState().pageOverlay).toMatchObject({ kind: "space-page", refId: "s2" }));
+    expect(store.getState().spacePageTab.s2).toBe("general");
+    await exited();
+    fireEvent.contextMenu(within(spaces()).getByRole("button", { name: /^Homework/ }), { clientX: 20, clientY: 200 });
+    fireEvent.click(within(await screen.findByRole("menu", { name: "Homework" })).getByRole("menuitem", { name: "Rename…" }));
+    await waitFor(() => expect(store.getState().renamingSpaceId).toBe("s2"));
+    expect(store.getState().activeSpaceId).toBe("s2");
+  });
+
+  it("reorders within the profile by dragging one tile onto another, and not while sorted by activity", async () => {
+    const { api, store } = await mount(work());
+    const tile = (name: RegExp) => within(spaces()).getByRole("button", { name });
+    const data: Record<string, string> = {};
+    const dt = { setData: (k: string, v: string) => { data[k] = v; }, get types() { return Object.keys(data); }, effectAllowed: "" };
+    fireEvent.dragStart(tile(/^Homework/), { dataTransfer: dt });
+    fireEvent.dragOver(tile(/^Versed/), { dataTransfer: dt });
+    fireEvent.drop(tile(/^Versed/), { dataTransfer: dt });
+    await waitFor(() => expect(api.calls.some((c) => c.startsWith("reorderSpaces:"))).toBe(true));
+    expect(api.calls.find((c) => c.startsWith("reorderSpaces:"))).toBe("reorderSpaces:s2,s1,s3");
+    await act(async () => { await store.getState().setSidebarActivityOrder(true); });
+    expect(tile(/^Versed/)).toHaveAttribute("draggable", "false");
+  });
+});
+
+describe("the profile, at the rail's foot", () => {
+  /** Work: Versed and Homework; School: Lectures, with a question waiting; Empty: no spaces. */
+  const data = (): FakeData => ({
+    profiles: [profile("p1", "Work", { color: "#ff0000" }), profile("p2", "School"), profile("p3", "Empty")],
+    spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework"), space("s3", "p2", "Lectures")],
+    sessions: [session("q", "s3", { status: "waiting_permission" }), session("w", "s1", { status: "waiting_permission" })],
+  });
+  const avatar = () => within(rail()).getByRole("button", { name: /^Carlton/ });
+  const open = async () => {
+    fireEvent.click(avatar());
+    return within(await screen.findByRole("menu", { name: "Profiles" }));
+  };
+
+  it("lists every profile with its mark, checks the one on screen, and says what waits in the others", async () => {
+    // THE MUTANT: count the active profile's waiting too, or not at all — a question in School would
+    // then wait unseen behind the avatar.
+    await mount(data());
+    const menu = await open();
+    expect(menu.getByRole("menuitemcheckbox", { name: "Work" })).toHaveAttribute("aria-checked", "true");
+    expect(menu.getByRole("menuitemcheckbox", { name: "School · 1 needs you" })).toHaveAttribute("aria-checked", "false");
+    expect(menu.getByRole("menuitemcheckbox", { name: "Empty (no spaces)" })).toBeDisabled();
+    expect((menu.getByRole("menuitemcheckbox", { name: "Work" }).querySelector(".sb-profile-mark") as HTMLElement).style.color).toBe("rgb(255, 0, 0)");
+  });
+
+  it("wears the amber dot while another profile has something waiting, and not for the one on screen", async () => {
+    // THE MUTANTS: no dot at all; a dot for the question in the profile already on screen.
+    const { store } = await mount(data());
+    expect(avatar().querySelector(".rail-you-dot")).not.toBeNull();
+    expect(avatar()).toHaveAccessibleName(/1 waiting in another profile/);
+    act(() => store.getState().applySessionStatus("q", "idle"));
+    expect(avatar().querySelector(".rail-you-dot")).toBeNull();
+  });
+
+  it("switches profile on select, and the rail's spaces follow", async () => {
+    const { store } = await mount(data());
+    fireEvent.click((await open()).getByRole("menuitemcheckbox", { name: /School/ }));
+    await waitFor(() => expect(store.getState().activeSpaceId).toBe("s3"));
+    expect(within(within(rail()).getByRole("group", { name: "Spaces" })).getByRole("button", { name: /^Lectures/ })).toBeInTheDocument();
+  });
+
+  it("opens New profile and the profile's own settings", async () => {
+    const { store } = await mount(data());
+    fireEvent.click((await open()).getByRole("menuitem", { name: "New profile…" }));
+    await waitFor(() => expect(store.getState().sheet).toEqual({ kind: "new-profile" }));
+    await exited();
+    act(() => store.getState().closeSheet());
+    fireEvent.click((await open()).getByRole("menuitem", { name: "Profile settings…" }));
+    await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("profile-page"));
   });
 });

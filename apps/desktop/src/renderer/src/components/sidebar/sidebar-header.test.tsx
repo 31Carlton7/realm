@@ -31,15 +31,14 @@ describe("the sidebar's head row", () => {
       .toEqual(["Hide sidebar (⌘B)", "Search", "New session"]);
     // First in the column's slide: it is the row in the traffic lights' band.
     expect(container.querySelector(".sidebar-slide")!.firstElementChild).toBe(header(container));
-    // The profile heads the column under it, outside the scroller, on its own row.
+    // The space heads the column under it, outside the scroller, on its own row — a title, and no
+    // switcher of spaces or profiles: those are the rail's.
     const title = container.querySelector<HTMLElement>(".sb-title")!;
-    expect(within(title).getByRole("button", { name: "Profile: Work" })).toBeInTheDocument();
+    expect(within(title).getByRole("heading", { name: "Versed" })).toBeInTheDocument();
     expect(title.closest(".space-body")).toBeNull();
     expect(title.nextElementSibling).toHaveClass("space-body");
-    // No space title, flat space list or space menu any more: the spaces are the list's sections.
+    expect(screen.queryByRole("button", { name: /^Profile:/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Switch space" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Space menu" })).toBeNull();
-    expect(screen.queryByRole("heading", { name: /Versed/ })).toBeNull();
   });
 
   it("opens the palette from search, printing the person's own chord", async () => {
@@ -82,93 +81,6 @@ describe("the sidebar's head row", () => {
   });
 });
 
-describe("the profile switcher", () => {
-  /** Work: Versed and Homework; School: Lectures, with a question waiting; Empty: no spaces. */
-  const data = (): FakeData => ({
-    profiles: [profile("p1", "Work", { color: "#ff0000" }), profile("p2", "School"), profile("p3", "Empty")],
-    spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework"), space("s3", "p2", "Lectures")],
-    sessions: [session("q", "s3", { status: "waiting_permission" }), session("w", "s1", { status: "waiting_permission" })],
-  });
-  const switcher = () => within(document.querySelector<HTMLElement>(".sb-title")!).getByRole("button", { name: /^Profile:/ });
-  const open = async () => {
-    fireEvent.click(switcher());
-    return within(await screen.findByRole("menu", { name: "Profiles" }));
-  };
-
-  it("names the active profile in its own colour", async () => {
-    const { container } = await mount(data());
-    const button = switcher();
-    expect(button).toHaveAccessibleName("Profile: Work");
-    expect(button).toHaveTextContent("Work");
-    expect(container.querySelector<HTMLElement>(".sb-title .sb-profile-mark")!.style.color).toBe("rgb(255, 0, 0)");
-  });
-
-  it("wears the profile's chosen icon — an emoji too — on the button and in its menu", async () => {
-    // THE MUTANT: draw `icon` with the glyph set alone — "emoji:🛠️" is no glyph name, so the button
-    // fell back to the folder and the person's chosen mark never showed.
-    const d = data();
-    d.profiles = [profile("p1", "Work", { icon: "emoji:🛠️" }), profile("p2", "School", { icon: "emoji:🏫" })];
-    const { container } = await mount(d);
-    expect(container.querySelector(".sb-title .sb-profile-mark")).toHaveTextContent("🛠️");
-    const menu = await open();
-    expect(menu.getByRole("menuitemcheckbox", { name: /School/ })).toHaveTextContent("🏫");
-  });
-
-  it("lists every profile, checks the one on screen, and says what waits in the others", async () => {
-    // THE MUTANT: count the active profile's waiting too, or not at all — a question in School would
-    // then wait unseen behind the switcher.
-    await mount(data());
-    const menu = await open();
-    expect(menu.getByRole("menuitemcheckbox", { name: "Work" })).toHaveAttribute("aria-checked", "true");
-    expect(menu.getByRole("menuitemcheckbox", { name: "School · 1 needs you" })).toHaveAttribute("aria-checked", "false");
-  });
-
-  it("lists a profile with no spaces without letting it be picked", async () => {
-    await mount(data());
-    const menu = await open();
-    expect(menu.getByRole("menuitemcheckbox", { name: "Empty (no spaces)" })).toBeDisabled();
-  });
-
-  it("switches profile on select, landing in one of its spaces", async () => {
-    const { store } = await mount(data());
-    fireEvent.click((await open()).getByRole("menuitemcheckbox", { name: /School/ }));
-    await waitFor(() => expect(store.getState().activeSpaceId).toBe("s3"));
-    await waitFor(() => expect(switcher()).toHaveAccessibleName("Profile: School"));
-  });
-
-  it("opens the profile's page, New profile and every space from its foot", async () => {
-    const { store } = await mount(data());
-    fireEvent.click((await open()).getByRole("menuitem", { name: "Profile settings…" }));
-    await waitFor(() => expect(store.getState().pageOverlay?.kind).toBe("profile-page"));
-    await exited();
-    fireEvent.click((await open()).getByRole("menuitem", { name: "New profile…" }));
-    // The profile's own sheet: a profile is not made by way of a space any more.
-    await waitFor(() => expect(store.getState().sheet).toEqual({ kind: "new-profile" }));
-    await exited();
-    fireEvent.click((await open()).getByRole("menuitem", { name: /All spaces/ }));
-    await waitFor(() => expect(store.getState().spacesOpen).toBe(true));
-  });
-
-  it("opens another profile in a window of its own, and not the one on screen", async () => {
-    // THE MUTANT: offer the active profile too — a profile has at most one window, so that row would
-    // only bring this window forward.
-    const { api } = await mount(data());
-    const menu = await open();
-    expect(menu.queryByRole("menuitem", { name: "Open Work in a new window" })).toBeNull();
-    expect(menu.getByRole("menuitem", { name: "Open Empty in a new window" })).toBeDisabled();
-    fireEvent.click(menu.getByRole("menuitem", { name: "Open School in a new window" }));
-    await waitFor(() => expect(api.calls).toContain("openProfileWindow:p2"));
-  });
-
-  it("renders its menu in a portal, out of reach of the column's overflow", async () => {
-    await mount(data());
-    const menu = (await open()).getByRole("menuitemcheckbox", { name: "Work" }).closest(".menu") as HTMLElement;
-    expect(menu.parentElement).toBe(document.body);
-    expect(menu.style.position).toBe("fixed");
-  });
-
-});
-
 describe("the list's head", () => {
   const head = () => document.querySelector<HTMLElement>(".sb-lens")!;
   const switcher = () => within(head()).getByRole("button", { name: "Activity" });
@@ -189,13 +101,13 @@ describe("the list's head", () => {
     await waitFor(() => expect(store.getState().sidebarLens).toBe("recent"));
     expect(api.calls).toContain("setSetting:ui.sidebarLens=recent");
     await waitFor(() => expect(container.querySelector(".sb-recent")).toHaveTextContent("Fix the login form"));
-    expect(container.querySelector(".sb-sections")).toBeNull();
+    expect(container.querySelector(".sb-section")).toBeNull();
     expect(head()).toHaveTextContent("Activity");
     expect(switcher()).toHaveAttribute("aria-pressed", "true");
     expect(switcher()).toHaveAttribute("title", "Show spaces");
     fireEvent.click(switcher());
     await waitFor(() => expect(store.getState().sidebarLens).toBe("spaces"));
-    expect(container.querySelector(".sb-sections")).not.toBeNull();
+    expect(container.querySelector(".sb-section")).not.toBeNull();
     expect(store.getState().sheet).toBeNull(); // a lens, not a sheet over the work
   });
 

@@ -47,12 +47,11 @@ describe("a page's rail in the sidebar's place", () => {
     await waitFor(() => expect(side.getByRole("radio", { name: "Files" })).toBeInTheDocument());
     expect(side.getByRole("radio", { name: "Skills" })).toBeInTheDocument();
     expect(sidebar().querySelector(".sb-list")).toHaveAttribute("hidden");
-    // The rail opened it and the rail puts it away, so where the profile stood the column says whose
-    // sections these are, and they follow — and the profile goes with the spaces it names.
+    // The rail opened it and the rail puts it away, so where the space's name stood the column says whose
+    // sections these are, and they follow — and the name goes with the space it heads.
     expect(side.queryByRole("button", { name: "Back" })).toBeNull();
     expect(sidebar().querySelector(".sb-page > .sb-page-head:first-child + .sb-page-nav")).not.toBeNull();
-    expect(side.queryByRole("button", { name: /^Profile:/ })).toBeNull();
-    expect(side.queryByRole("button", { name: "New space" })).toBeNull();
+    expect(side.queryByRole("heading", { name: "Versed" })).toBeNull();
     expect(page().querySelector(".page-rail")).toBeNull();
     expect(within(page() as HTMLElement).queryByRole("radio", { name: "Files" })).toBeNull();
   });
@@ -126,7 +125,7 @@ describe("a page's rail in the sidebar's place", () => {
     await waitFor(() => expect(store.getState().pageOverlay).toBeNull());
     expect(sidebar().querySelector(".sb-list")).not.toHaveAttribute("hidden");
     expect(sidebar().querySelector(".sb-page")).toBeNull();
-    expect(within(sidebar()).getByRole("button", { name: "New space" })).toBeInTheDocument();
+    expect(within(sidebar()).getByRole("heading", { name: "Versed" })).toBeInTheDocument();
   });
 
   it("leaves the sidebar alone for a page with no rail of its own", async () => {
