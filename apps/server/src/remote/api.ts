@@ -2,13 +2,13 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import {
-  AGENT_META, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, isSecretPath, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, readEffortSupport,
-  resolveMidTurnMode, SELECTABLE_AGENT_KINDS, TeammateIconSchema, withStreamed, type AgentKind, type DelegatedChild, type IconAsset, type Item, type Machine, type MethodResult, type ModelInfo,
-  type PendingMove, type QueuedPrompt, type Schedule, type Session, type Space, type StoredSessionEvent, type Teammate, type TurnChanges,
+  AGENT_META, AGENT_SKILL_SUPPORT, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, isSecretPath, keepLiveRefs, MAC_SKILL_ID, mentionIds, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, readEffortSupport,
+  resolveMidTurnMode, runnableCommands, SELECTABLE_AGENT_KINDS, TeammateIconSchema, withStreamed, type AgentKind, type DelegatedChild, type IconAsset, type Item, type Machine, type MethodResult, type ModelInfo,
+  type PendingMove, type QueuedPrompt, type Schedule, type Session, type Skill, type Space, type StoredSessionEvent, type Teammate, type TurnChanges,
 } from "@realm/contracts";
 import { givenAttachmentName, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
 import {
-  MobileCalls, RECENT_LIMIT, SEND_LIMITS, type Home, type MobileErrorCode, type MobileMethod, type MobileParams, type MobileResult, type MoveOptions, type QueuedMessage,
+  MobileCalls, RECENT_LIMIT, SEND_LIMITS, type Home, type MentionRef, type MobileErrorCode, type MobileMethod, type MobileParams, type MobileResult, type MoveOptions, type QueuedMessage,
   type ScheduledTask, type Screen, type SessionOptions, type SessionRow, type Subagent, type Teammate as PhoneTeammate,
 } from "@realm/remote";
 import {
@@ -263,9 +263,18 @@ export class MobileApi {
         }
         case "session.send": {
           const files = await this.uploads(p.text as string, p.attachments as Upload[]);
-          await rpc.call("sessions.send", { id: p.id as string, text: p.text as string, attachments: files, delivery: p.delivery as "auto" | "queue" | "steer" });
+          const named = await this.named(rpc, p.id as string, p.text as string, p.mentionRefs as MentionRef[] | undefined);
+          await rpc.call("sessions.send", { id: p.id as string, text: p.text as string, attachments: files, delivery: p.delivery as "auto" | "queue" | "steer", ...named });
           return { ok: true };
         }
+        case "session.composer": return await this.composer(rpc, p.id as string);
+        case "session.mentionFiles": return await this.mentionFiles(rpc, p.id as string, p.query as string);
+        case "session.expandCommand": {
+          const session = await rpc.call("sessions.get", { id: p.id as string });
+          const { text, missing } = await rpc.call("commands.expand", { spaceId: session.spaceId, name: p.name as string, args: p.args as string });
+          return { text, missing };
+        }
+        case "session.goal": await rpc.call("goals.start", { sessionId: p.id as string, objective: p.objective as string, tokenBudget: null }); return { ok: true };
         case "session.options": {
           const { session, input, shared } = await this.optionsContext(rpc, p.id as string);
           return this.sessionOptions(session, input, shared);
@@ -483,6 +492,51 @@ export class MobileApi {
     });
     await rpc.call("sessions.send", { id: session.id, text: p.text, attachments: files });
     return { id: session.id };
+  }
+
+  /**
+   * What a message's words name, as the desktop's prompter sends it: the skills its `@id`s name, scanned
+   * against the ones the session's agent can be handed, and the refs whose `@[label]` is still in the
+   * words. A file must be in the session's folder, and not one that holds a secret.
+   */
+  private async named(rpc: RpcPort, id: string, text: string, refs: readonly MentionRef[] | undefined): Promise<{ mentions?: string[]; mentionRefs?: MentionRef[] }> {
+    if (!text.includes("@")) return {};
+    const session = await rpc.call("sessions.get", { id });
+    const root = `${session.cwd.replace(/\/+$/, "")}/`;
+    for (const ref of refs ?? []) {
+      if (ref.kind === "file" && (!ref.path.startsWith(root) || ref.path.split("/").includes("..") || isSecretPath(ref.path))) {
+        throw new MobileError("INVALID_PARAMS", `${ref.label} is not a file in this session's folder.`);
+      }
+    }
+    const mentions = mentionIds(text, (await this.mentionable(rpc, session)).map((k) => k.id));
+    const live = keepLiveRefs(text, refs ?? []) as MentionRef[];
+    return { ...(mentions.length > 0 ? { mentions } : {}), ...(live.length > 0 ? { mentionRefs: live } : {}) };
+  }
+
+  /** The skills an `@` can hand this session's agent, as the desktop's prompter offers them: the space's
+   *  enabled ones where the agent is given Realm's skills, and the `mac` skill wherever the space has it. */
+  private async mentionable(rpc: RpcPort, session: Session): Promise<Skill[]> {
+    const { skills } = await rpc.call("skills.list", { spaceId: session.spaceId });
+    const usable = skills.filter((k) => k.valid);
+    const given = AGENT_SKILL_SUPPORT[session.agentKind] === "injected" ? usable.filter((k) => k.enabled) : [];
+    const mac = usable.find((k) => k.id === MAC_SKILL_ID);
+    return mac && !given.includes(mac) ? [...given, mac] : given;
+  }
+
+  private async composer(rpc: RpcPort, id: string): Promise<MobileResult<"session.composer">> {
+    const session = await rpc.call("sessions.get", { id });
+    const [{ commands }, skills] = await Promise.all([rpc.call("commands.list", { spaceId: session.spaceId }), this.mentionable(rpc, session)]);
+    return {
+      commands: runnableCommands(commands).map((c) => ({ name: c.name, description: c.description, argumentHint: c.argumentHint })),
+      skills: skills.map((k) => ({ id: k.id, name: k.name, description: k.description })),
+    };
+  }
+
+  private async mentionFiles(rpc: RpcPort, id: string, query: string): Promise<MobileResult<"session.mentionFiles">> {
+    const session = await rpc.call("sessions.get", { id });
+    const root = session.cwd.replace(/\/+$/, "");
+    const { hits } = await rpc.call("mentions.files", { sessionId: id, query });
+    return { files: hits.filter((h) => !isSecretPath(h.path)).map((h) => ({ path: `${root}/${h.path}`, rel: h.path })) };
   }
 
   /** A message's files, checked whole and written where a desktop paste goes; a message must carry

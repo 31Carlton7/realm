@@ -483,7 +483,11 @@ else keeps its own name, whatever it looks like.
 | `review.file` | `{id, path}` | as `session.file`'s |
 | `schedules.list` | `{}` | `{tasks: [ScheduledTask]}` |
 | `schedules.runNow` | `{id}` | `{task: ScheduledTask}`, with the run it started |
-| `session.send` | `{id, text, delivery?: "auto"\|"queue"\|"steer", attachments?: [Upload]}` | `{ok: true}` |
+| `session.send` | `{id, text, delivery?: "auto"\|"queue"\|"steer", attachments?: [Upload], mentionRefs?: [MentionRef]}` | `{ok: true}` |
+| `session.composer` | `{id}` | `{commands: [UserCommand], skills: [{id, name, description}]}` |
+| `session.mentionFiles` | `{id, query?: string = ""}` | `{files: [{path, rel}]}` |
+| `session.expandCommand` | `{id, name, args?: string = ""}` | `{text, missing: [string]}` |
+| `session.goal` | `{id, objective}` | `{ok: true}` |
 | `session.options` | `{id}` | `SessionOptions` |
 | `session.configure` | `{id, model?: string\|null, effort?: string\|null, mode?: "build"\|"plan"\|"ask", permission?}` | `SessionOptions`, as they are now |
 | `session.answer` | `{id, requestId, decision: "allow"\|"allow_always"\|"deny", answers?: {<question id>: <value> \| [<value>]}}` | `{ok: true}` |
@@ -622,6 +626,37 @@ item, as the desktop's sidebar does (`items.update`), and changes only what it i
 trimmed, and none is `INVALID_PARAMS`. The answer is the row as it now is, or `session: null` once it
 is archived: an archived session leaves every list. The row is found among its space's items, archived
 ones included, so `archived: false` takes back one put away. A session with no row is `NOT_FOUND`.
+
+**The composer's `/` and `@` are the desktop's.** The phone draws both lists, and builds what it can
+from what it already holds: the modes from `session.options`, the teammates from `teammates.list`.
+`session.composer` answers with the rest:
+
+```
+UserCommand { name, description, argumentHint: string|null }   the person's own commands, as `/name`
+
+MentionRef  { kind: "role", label, roleId }                     a teammate, by its id
+          | { kind: "file", label, path }                       a file in the session's folder
+```
+
+- **Commands** are the ones the desktop's `/` list runs: valid, and not overridden by a closer folder
+  (`runnableCommands`). One with an `argumentHint` waits for its words; `session.expandCommand` fills
+  its template in with them (`commands.expand`), and the phone puts the text in its composer, as the
+  desktop does, rather than sending it. A `$2` the words did not reach stays in `text`, named in
+  `missing`.
+- **Skills** are the ones an `@` hands the session's agent: the space's enabled skills where the agent
+  is given Realm's skills, and the `mac` skill wherever the space has it, on or off.
+- **Files** are the session's folder's, as the desktop's `@` ranks them for `query` (`mentions.files`):
+  `rel` is where it is in the folder, `path` where it is on the Mac. A file that holds a secret is left
+  out.
+- **`session.goal`** starts a goal on `objective` (`goals.start`), as `/goal` does on the desktop. An
+  objective of no words is `INVALID_PARAMS`.
+- **A message names things as the desktop's does.** A teammate or a file is `@[label]` in `text`, and
+  `mentionRefs` says what each label is; a skill is `@id`. The Mac sends the session the skills the
+  words name, scanned against the ones `session.composer` lists, and the refs whose `@[label]` is still
+  in the words, at most 12. A teammate named is passed the message in its own chat first. A file
+  outside the session's folder, or one that holds a secret, is `INVALID_PARAMS`, and nothing is sent.
+- A Mac older than these calls answers `METHOD_NOT_FOUND`: the phone offers the modes, `/goal` is
+  left out, and `@` lists the teammates alone, sent as words.
 
 **The queue is the Mac's.** A message typed while a turn runs waits in the Mac's queue, and goes out
 when the turn ends, one per turn, in the order it was asked:
@@ -921,6 +956,11 @@ phone read, and what bounds it:
   modes and rungs the desktop's pickers offer, and what three settings decide for a phone: what a
   message typed mid-turn does (`sessions.midTurnMode`), the rung Build goes back to
   (`sessions.defaultPermissionMode`) and the agent a new session starts on (`ui.lastAgentKind`).
+- **`session.composer`**, **`session.mentionFiles`** and **`session.expandCommand`**: the names,
+  descriptions and argument hints of the person's own commands and what one becomes filled in; the
+  ids, names and descriptions of the skills; and the paths of the session's folder's files that match
+  what was typed, never one that holds a secret, nor anything in them. A skill's instructions and a
+  command's file are not sent.
 - **`space.icon`**: the picture a person uploaded or had made for a space, at most 256 KB.
 - **`session.hint`** and `hint`: the suggested next message the desktop's prompter shows.
 - **`session.update`**: a session's own sidebar row — its name, its pin, whether it is archived — and

@@ -360,6 +360,17 @@ async function generate(): Promise<Record<string, unknown>> {
     "teammates.update": ((p: Partial<Teammate> & { id: string }) => ({ ...designer, ...p })) as never,
     "teammates.home": ((p: { id: string }) => ({ sessionId: p.id === CTO ? CTO_CHAT : DESIGNER_CHAT })) as never,
     "simulators.capture": (() => ({ data: pngHeader(1206, 2622).toString("base64"), mimeType: "image/png", width: 1206, height: 2622 })) as never,
+    // The composer's lists: the space's skills, the person's own commands, and the checkout's files.
+    "skills.list": (() => ({ root: "/Users/me/Realm/skills", skills: [
+      { id: "code-review", name: "Code review", description: "Review the diff for bugs before it ships", path: "/Users/me/Realm/skills/code-review/SKILL.md", enabled: true, valid: true },
+      { id: "mac", name: "mac", description: "Calendar, Reminders, Contacts and more on this Mac", path: "/Users/me/Realm/skills/mac/SKILL.md", enabled: false, valid: true },
+    ] })) as never,
+    "commands.list": (() => ({ root: "/Users/me/Realm/commands", commands: [
+      { name: "changelog", description: "Write the changelog for a release", argumentHint: "<version>", body: "Write the changelog for $1.", path: "/Users/me/Realm/commands/changelog.md", valid: true, reason: null, shadowedBy: null },
+      { name: "tidy", description: "Tidy the imports in the files this turn changed", argumentHint: null, body: "Tidy the imports.", path: "/Users/me/realm/commands/tidy.md", valid: true, reason: null, shadowedBy: null },
+    ] })) as never,
+    "commands.expand": ((p: { args: string }) => ({ command: {}, text: `Write the changelog for ${p.args}.`, missing: [] })) as never,
+    "mentions.files": (() => ({ hits: [{ path: "src/theme.ts", score: 12, marks: [] }, { path: "apps/ios/Realm/Theme/Palette.swift", score: 7, marks: [] }], truncated: false, source: "git" })) as never,
   });
   const api = new MobileApi({ macName: () => "MacBook Pro", reportsDir: "/nonexistent", realmHome: home, userHome: "/Users/me", dev: false, downscale: async () => Buffer.from("jpeg") });
   const call = (method: string, params: unknown) => api.handle(channel(rpc), method, params);
@@ -405,6 +416,9 @@ async function generate(): Promise<Record<string, unknown>> {
       "reviews.list": await call("reviews.list", {}),
       "schedules.list": await call("schedules.list", {}),
       "schedules.runNow": await call("schedules.runNow", { id: WEEKLY }),
+      "session.composer": await call("session.composer", { id: S }),
+      "session.mentionFiles": await call("session.mentionFiles", { id: S, query: "theme" }),
+      "session.expandCommand": await call("session.expandCommand", { id: S, name: "changelog", args: "2.8.0" }),
       "session.screens": await call("session.screens", { id: S }),
       "session.screen": frame,
       "session.open:moved": await call("session.open", { id: OLDER[0]!, limit: 200 }),
@@ -471,7 +485,7 @@ describe("mobile.v1 fixtures for RealmKit (PROTOCOL.md §9)", () => {
     const calls = new Set(Object.keys((await generate()).calls as Record<string, unknown>).map((k) => k.split(":")[0]));
     // These answer `{ok: true}`, `{at}` or `{id}`: there is nothing in them for a phone to decode wrongly.
     const plain = ["ping", "session.close", "session.send", "session.answer", "session.stop", "session.seen", "session.create", "debug.report",
-      "session.sendQueuedNow", "session.removeQueued", "session.holdQueued", "session.editQueued",
+      "session.sendQueuedNow", "session.removeQueued", "session.holdQueued", "session.editQueued", "session.goal",
       // Review went with the first Teams: these answer only that a review is not found.
       "review.get", "review.decide", "review.file"];
     expect(Object.keys(MobileCalls).filter((m) => !plain.includes(m) && !calls.has(m))).toEqual([]);
