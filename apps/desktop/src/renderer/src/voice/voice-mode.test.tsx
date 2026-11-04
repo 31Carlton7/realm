@@ -50,6 +50,12 @@ describe("readVoicePrefs", () => {
     // THE MUTANT: no clamp — a stored 0 ms pause sends after every syllable.
     expect(readVoicePrefs({ endOfTurnMs: 0, rate: 9, voice: "", handsFree: "yes" })).toEqual({ ...DEFAULT_VOICE_PREFS, endOfTurnMs: 400, rate: 1.5 });
   });
+
+  it("keeps a chosen microphone, and listens with the default for anything else", () => {
+    expect(readVoicePrefs({ microphone: "built-in-id" }).microphone).toBe("built-in-id");
+    expect(readVoicePrefs({ microphone: "" }).microphone).toBeNull();
+    expect(readVoicePrefs({ microphone: 3 }).microphone).toBeNull();
+  });
 });
 
 describe("the spoken mark", () => {

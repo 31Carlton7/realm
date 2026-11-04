@@ -171,6 +171,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   ...NOTIFICATION_CATEGORIES.map((c): SettingEntry => ({ id: `notify:${c}`, tab: "notifications", section: "Notify me about", label: CATEGORY_COPY[c].label })),
 
   // Voice
+  { id: "voice-microphone", tab: "voice", label: "Microphone", terms: "input device mic airpods headset" },
   { id: "voice-voice", tab: "voice", label: "Voice", terms: "speech speak siri premium read aloud tts" },
   { id: "voice-rate", tab: "voice", label: "Speaking rate", terms: "speed fast slow" },
   { id: "voice-pause", tab: "voice", label: "Send after a pause of", terms: "end of turn silence wait delay" },

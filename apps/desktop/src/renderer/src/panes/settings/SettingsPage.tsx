@@ -1497,10 +1497,6 @@ function AboutLinks() {
   );
 }
 
-/**
- * Notifications: whether a notification leaves the app and how, then which kinds count. The first
- * group goes unheaded for the reason Appearance's does.
- */
 /** Voice mode's settings. The voices are this Mac's own, best first, as the helper ranks them. */
 function VoiceTab() {
   const prefs = useApp((s) => s.voicePrefs);
@@ -1514,10 +1510,27 @@ function VoiceTab() {
     void window.realm?.voice?.voices().then((v) => { if (live) setVoices(v as typeof voices); });
     return () => { live = false; };
   }, []);
+  const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]);
+  useEffect(() => {
+    const media = navigator.mediaDevices;
+    if (!media?.enumerateDevices) return;
+    const list = () => void media.enumerateDevices().then((all) => setMicrophones(all.filter((d) => d.kind === "audioinput" && d.deviceId !== "default" && d.deviceId !== "communications")));
+    list();
+    media.addEventListener?.("devicechange", list);
+    return () => media.removeEventListener?.("devicechange", list);
+  }, []);
   const best = voices?.voices.find((v) => v.id === voices.voice);
   return (
     <div className="form">
       <ul className="settings-list">
+        <li className="settings-row" data-setting="voice-microphone">
+          <div className="settings-row-main"><span className="settings-row-name">Microphone</span></div>
+          <select aria-label="Microphone" value={prefs.microphone ?? ""}
+            onChange={(e) => run(() => setVoicePrefs({ microphone: e.target.value || null }))}>
+            <option value="">System default</option>
+            {microphones.map((d, i) => <option key={d.deviceId} value={d.deviceId}>{d.label || `Microphone ${i + 1}`}</option>)}
+          </select>
+        </li>
         <li className="settings-row" data-setting="voice-voice">
           <div className="settings-row-main">
             <span className="settings-row-name">Voice</span>
@@ -1560,6 +1573,10 @@ function VoiceTab() {
   );
 }
 
+/**
+ * Notifications: whether a notification leaves the app and how, then which kinds count. The first
+ * group goes unheaded for the reason Appearance's does.
+ */
 function NotificationsTab() {
   const prefs = useApp((s) => s.settingsPrefs);
   const refreshSettingsPrefs = useApp((s) => s.refreshSettingsPrefs);
