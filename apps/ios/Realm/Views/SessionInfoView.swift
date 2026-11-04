@@ -2,7 +2,8 @@ import RealmKit
 import SwiftUI
 
 /// A session's info, opened from its title: who answers it and in which space, where it runs, how it
-/// stands, what it has cost and when it began, then the files it made or was sent and its sub-agents.
+/// stands, what it has cost and when it began, then the files it made or was sent, the panes its space
+/// has open on the Mac, and its sub-agents.
 /// What the row already holds is drawn at once; the rest comes with `session.info`, and a Mac that does
 /// not answer it gets a sheet without those parts rather than a sheet of blanks.
 struct SessionInfoSheet: View {
@@ -13,6 +14,7 @@ struct SessionInfoSheet: View {
     @State private var previewing: SessionFile?
     @State private var moveShown = false
     @State private var expandedSubagents: Set<String> = []
+    @State private var openPane: PaneOpening?
 
     var body: some View {
         let transcript = model.store.transcript(sessionId)
@@ -80,6 +82,7 @@ struct SessionInfoSheet: View {
                     }
                     .listRowBackground(Fill.card)
                 }
+                PanesSection(sessionId: sessionId, opening: $openPane)
                 if !subagents.isEmpty {
                     let prefix = SubagentWords.sharedPrefix(subagents)
                     Section("Sub-agents") {
@@ -117,6 +120,7 @@ struct SessionInfoSheet: View {
         .sheet(item: $previewing) { file in
             FilePreviewSheet(path: file.path, name: file.name, sessionId: sessionId, size: file.size)
         }
+        .paneViewers(sessionId: sessionId, opening: $openPane)
         .sheet(isPresented: $moveShown) {
             MoveSheet(sessionId: sessionId)
         }
@@ -128,7 +132,9 @@ struct SessionInfoSheet: View {
             async let info: Void = model.work.loadInfo(sessionId)
             async let subagents: Void = model.work.loadSubagents(sessionId)
             async let moves: Void = model.loadMoveOptions(sessionId)
-            _ = await (info, subagents, moves)
+            async let screens: Void = model.loadScreens(sessionId)
+            async let panes: Void = model.loadPanes(sessionId)
+            _ = await (info, subagents, moves, screens, panes)
         }
     }
 }

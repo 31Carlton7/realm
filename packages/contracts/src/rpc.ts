@@ -642,7 +642,9 @@ export const Methods = {
    * whose `runId` differs is treated as absent, which is the single rule covering a restarted server,
    * a respawned pty, and a client that has never seen this terminal.
    */
-  "terminals.read": { params: z.object({ terminalId: IdSchema, cursor: z.object({ runId: z.string(), seq: z.number().int() }).nullable() }),
+  "terminals.read": { params: z.object({ terminalId: IdSchema, cursor: z.object({ runId: z.string(), seq: z.number().int() }).nullable(),
+    /** Read what is there without starting a restored terminal's shell, as opening its pane would. */
+    peek: z.boolean().optional() }),
     result: z.object({
       runId: z.string(), seq: z.number().int(), live: z.string(),
       /** Output was dropped between the cursor and `live`. The pane resets before replaying: a hole in
@@ -923,6 +925,20 @@ export const Methods = {
    *  cleared that profile's partition. Each profile has its own cookie jar now, so a clear in one
    *  takes nothing from another. */
   "browsers.clearHistory": { params: z.object({ profileId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
+  /** The browser panes whose page is loaded in one of Realm's windows now — what a phone may watch.
+   *  Empty with no window open. */
+  "browsers.views": { params: z.object({}), result: z.object({ browserIds: z.array(IdSchema) }) },
+  /**
+   * A browser pane's page as it is now, for a phone (mobile.v1 `session.browserFrame`): a JPEG at most
+   * `maxSide` on its longer side, never enlarged, with every password field on it covered before the
+   * picture leaves main. `data` is null when the pane's page is not loaded — it is never loaded for
+   * this — and `withheld` says why there is no picture when the page holds a secret field Realm could
+   * not cover (one inside a frame of the page).
+   */
+  "browsers.capture": {
+    params: z.object({ browserId: IdSchema, maxSide: z.number().int().min(1).max(4096), quality: z.number().int().min(1).max(100) }),
+    result: z.object({ data: z.string().nullable(), width: z.number().int(), height: z.number().int(), withheld: z.string().optional() }),
+  },
 
   /**
    * The document workspace (Plan 17 W1). Unlike the browser trio, the SERVER owns the content here —

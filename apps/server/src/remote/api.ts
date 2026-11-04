@@ -9,7 +9,7 @@ import {
 import { givenAttachmentName, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
 import {
   MobileCalls, RECENT_LIMIT, SEND_LIMITS, SESSION_OPEN_MAX, type Goal as PhoneGoal, type Home, type MentionRef, type MobileErrorCode, type MobileMethod, type MobileParams, type MobileResult, type MoveOptions, type QueuedMessage,
-  type ScheduledTask, type Screen, type SearchHit, type SessionOptions, type SessionRow, type Subagent, type Teammate as PhoneTeammate,
+  type ScheduledTask, type Screen, type ScreenFrame, type SearchHit, type SessionOptions, type SessionRow, type Subagent, type Teammate as PhoneTeammate,
 } from "@realm/remote";
 import {
   agentsAtWork, FALLBACK_AGENT, isChild, isLive, LAST_AGENT_SETTING, LAST_MODELS_SETTING, needsYou, nestChildren, QUICK_CHAT_SETTING, quickChatIdOf, subagentState, upcomingOrder, type NeedsYouState,
@@ -19,9 +19,10 @@ import { tildify } from "../skills/discovery";
 import { diffPage } from "./changes";
 import { agentOptions, changesFor, ChoiceRefused, probeList, sessionModelLabel, type InitFacts, type OptionsInput, type ProbeRow } from "./options";
 import { fileData, filePreview, PreviewRefused, sipsDownscale, type Downscale } from "./preview";
+import { BROWSER_FRAME_EVERY_MS, browserPane, openPanes, paneOrder, terminalOutput, terminalPane } from "./panes";
 import { pendingMove, queuedMessage, SessionProjector, tilde } from "./rows";
 import { RpcCallError, type RpcPort } from "./rpc-port";
-import { frameSide, machineScreen, phoneMayWatch, SCREEN_DEADLINE_MS, screenFrame, screenOrder, simulatorScreen } from "./screens";
+import { FRAME_MAX_BYTES, FRAME_QUALITY, frameSide, jpegSize, machineScreen, phoneMayWatch, SCREEN_DEADLINE_MS, screenFrame, screenOrder, simulatorScreen } from "./screens";
 import { checkUploads, saveUploads, UploadRefused, type Upload } from "./uploads";
 import { everyPlan, monthStart, spend } from "./usage";
 import { scheduledTask } from "./work";
@@ -260,6 +261,9 @@ export class MobileApi {
    *  meanwhile — the viewer's, the session card's, another phone's — waits on it rather than taking
    *  its own, as the gateway answers a phone's calls as they come. */
   private readonly capturing = new Map<string, Promise<{ bytes: Buffer; capturedAt: number }>>();
+  /** Each browser pane's last picture, by pane and side, while it is under BROWSER_FRAME_EVERY_MS old
+   *  or still being taken: what every call for that pane meanwhile is answered with. */
+  private readonly pagePictures = new Map<string, { at: number; frame: Promise<ScreenFrame> }>();
 
   /** `userHome` is the Mac's home folder, which paths are shortened against; the server's own by default. */
   constructor(private readonly o: { macName: () => string; reportsDir: string; dev: boolean; downscale?: Downscale; realmHome: string; userHome?: string }) {}
@@ -353,6 +357,9 @@ export class MobileApi {
         case "space.icon": return await this.spaceIcon(rpc, p.id as string);
         case "session.screens": return { screens: (await this.screens(rpc, p.id as string)).shown.sort(screenOrder) };
         case "session.screen": return await this.screen(rpc, p as MobileParams<"session.screen">);
+        case "session.panes": return await this.panes(rpc, p.id as string);
+        case "session.browserFrame": return await this.browserFrame(rpc, p as MobileParams<"session.browserFrame">);
+        case "session.terminal": return await this.terminal(rpc, p as MobileParams<"session.terminal">);
         case "session.moveOptions": return await this.moveOptions(rpc, p.id as string);
         case "session.move": return await this.move(rpc, p as MobileParams<"session.move">);
         case "session.cancelMove": return await rpc.call("sessions.cancelMove", { id: p.id as string });
@@ -1116,5 +1123,72 @@ export class MobileApi {
     });
     this.capturing.set(key, shot);
     return shot;
+  }
+
+  /** The browser and terminal panes open in the session's space, each named as its pane is. A browser
+   *  is live while its page is loaded in one of the Mac's windows; a terminal, while it runs. */
+  private async panes(rpc: RpcPort, id: string): Promise<MobileResult<"session.panes">> {
+    const { spaceId } = await rpc.call("sessions.get", { id });
+    const [items, statuses, views] = await Promise.all([
+      rpc.call("items.list", { spaceId }), rpc.call("terminals.list", { spaceId }), rpc.call("browsers.views", {}).catch(() => ({ browserIds: [] as string[] })),
+    ]);
+    const loaded = new Set(views.browserIds);
+    const browsers = await Promise.all(openPanes(items, "browser").map(async (it) => {
+      const url = await rpc.call("browsers.get", { browserId: it.refId }).then((b) => b.url, () => "");
+      return browserPane(it, url, loaded.has(it.refId));
+    }));
+    const home = this.o.userHome ?? homedir();
+    const terminals = openPanes(items, "terminal").map((it) => terminalPane(it, statuses.find((t) => t.terminalId === it.refId), home));
+    return { browsers: browsers.sort(paneOrder((b) => b.live)), terminals: terminals.sort(paneOrder((t) => t.running)) };
+  }
+
+  /** The pane item of `kind` open in the session's space with `refId`, or NOT_FOUND, as one that never was. */
+  private async paneItem(rpc: RpcPort, id: string, kind: "browser" | "terminal", refId: string) {
+    const { spaceId } = await rpc.call("sessions.get", { id });
+    const item = openPanes(await rpc.call("items.list", { spaceId }), kind).find((it) => it.refId === refId);
+    if (!item) throw new MobileError("NOT_FOUND", `That ${kind} is not open in this session's space.`);
+    return item;
+  }
+
+  /** A picture of one of the session's browser panes as it is now, its password fields covered: at
+   *  most one new picture of a pane every BROWSER_FRAME_EVERY_MS, shared by every call meanwhile. */
+  private async browserFrame(rpc: RpcPort, p: MobileParams<"session.browserFrame">): Promise<ScreenFrame> {
+    const item = await this.paneItem(rpc, p.id, "browser", p.browserId);
+    const side = frameSide(p.maxSide);
+    const key = `${item.refId} ${side}`;
+    const now = Date.now();
+    for (const [k, v] of this.pagePictures) if (now - v.at >= BROWSER_FRAME_EVERY_MS) this.pagePictures.delete(k);
+    const kept = this.pagePictures.get(key);
+    if (kept) return await kept.frame;
+    const name = item.title || "That page";
+    const frame = deadline(this.pagePicture(rpc, item.refId, name, side), SCREEN_DEADLINE_MS, `The Mac could not take a picture of ${name} in time.`);
+    this.pagePictures.set(key, { at: now, frame });
+    frame.catch(() => { if (this.pagePictures.get(key)?.frame === frame) this.pagePictures.delete(key); });
+    return await frame;
+  }
+
+  /** The page made into a frame no heavier than FRAME_MAX_BYTES: made again smaller and plainer,
+   *  twice, as a screen's is, and not sent heavier still. */
+  private async pagePicture(rpc: RpcPort, browserId: string, name: string, side: number): Promise<ScreenFrame> {
+    for (const [scale, quality] of [[1, FRAME_QUALITY], [0.7, 50], [0.5, 40]] as const) {
+      const shot = await rpc.call("browsers.capture", { browserId, maxSide: Math.round(side * scale), quality });
+      // Main covers a password field before the picture leaves it; one it could not cover, it does
+      // not picture at all, and says so. The page may change, so the phone asks again.
+      if (shot.withheld) throw new MobileError("INTERNAL", shot.withheld);
+      if (shot.data === null) throw new MobileError("FORBIDDEN", `${name} isn't open in a window on your Mac.`);
+      const jpeg = Buffer.from(shot.data, "base64");
+      if (jpeg.length > FRAME_MAX_BYTES) continue;
+      const size = jpegSize(jpeg);
+      if (!size) throw new MobileError("INTERNAL", "The picture of that page is not a JPEG.");
+      return { mime: "image/jpeg", data: shot.data, width: size.width, height: size.height, capturedAt: Date.now() };
+    }
+    throw new MobileError("INTERNAL", "That page is too detailed to send to a phone, even made small.");
+  }
+
+  /** One of the session's terminals' output since the phone's cursor. A peek: a terminal restored but
+   *  not started is not started for it, and nothing goes the other way. */
+  private async terminal(rpc: RpcPort, p: MobileParams<"session.terminal">): Promise<MobileResult<"session.terminal">> {
+    await this.paneItem(rpc, p.id, "terminal", p.terminalId);
+    return terminalOutput(await rpc.call("terminals.read", { terminalId: p.terminalId, cursor: p.cursor, peek: true }), p.cursor);
   }
 }

@@ -1873,6 +1873,92 @@ public struct ScreenFrame: Decodable, Sendable, Hashable {
     }
 }
 
+/// `session.panes`: a browser pane open in a session's space, which the phone can watch.
+public struct BrowserPane: Decodable, Sendable, Hashable, Identifiable {
+    public let id: String
+    /// What its tab is called: the page's title.
+    public let name: String
+    /// The address it shows, "" for a blank tab.
+    public let url: String
+    /// The page's own icon, as the tab draws it.
+    public let favicon: Data?
+    /// Its page is loaded in one of the Mac's windows, so there is a picture to ask for.
+    public let live: Bool
+
+    private enum CodingKeys: String, CodingKey { case id, name, url, favicon, live }
+    private struct Icon: Decodable { let data: String }
+
+    public init(id: String, name: String, url: String, favicon: Data? = nil, live: Bool) {
+        self.id = id
+        self.name = name
+        self.url = url
+        self.favicon = favicon
+        self.live = live
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        url = (try? c.decode(String.self, forKey: .url)) ?? ""
+        // An icon that is not base64 is no icon: the row draws the kind's glyph.
+        favicon = (try? c.decode(Icon.self, forKey: .favicon)).flatMap { Data(base64Encoded: $0.data) }
+        live = (try? c.decode(Bool.self, forKey: .live)) ?? false
+    }
+}
+
+/// `session.panes`: a terminal open in a session's space, whose output the phone can follow.
+public struct TerminalPane: Decodable, Sendable, Hashable, Identifiable {
+    public let id: String
+    /// What its pane is called.
+    public let name: String
+    /// The command it was started with, else where it runs ("~/Code/realm").
+    public let detail: String
+    public let running: Bool
+
+    public init(id: String, name: String, detail: String, running: Bool) {
+        self.id = id
+        self.name = name
+        self.detail = detail
+        self.running = running
+    }
+}
+
+/// `session.panes`
+public struct SessionPanes: Decodable, Sendable, Hashable {
+    public let browsers: [BrowserPane]
+    public let terminals: [TerminalPane]
+
+    public init(browsers: [BrowserPane], terminals: [TerminalPane]) {
+        self.browsers = browsers
+        self.terminals = terminals
+    }
+}
+
+/// Where the phone is in a terminal's output: the run it read and the last piece of it.
+public struct TerminalCursor: Codable, Sendable, Hashable {
+    public let runId: String
+    public let seq: Int
+
+    public init(runId: String, seq: Int) {
+        self.runId = runId
+        self.seq = seq
+    }
+}
+
+/// `session.terminal`: a terminal's output since the phone's cursor, as its pty wrote it.
+public struct TerminalOutput: Decodable, Sendable, Hashable {
+    public let runId: String
+    public let seq: Int
+    /// The output itself, ANSI escapes and all.
+    public let text: String
+    /// `text` starts from the top: what the phone holds of this terminal is replaced, not added to.
+    public let reset: Bool
+    public let running: Bool
+
+    public var cursor: TerminalCursor { TerminalCursor(runId: runId, seq: seq) }
+}
+
 /// `ping`
 public struct Pong: Decodable, Sendable, Hashable {
     public let at: Millis

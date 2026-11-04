@@ -48,6 +48,11 @@ export const BROWSER_HOST_OPS = [
   /** Cancel a file chooser Realm intercepted, so a click that opened a picker by mistake is
    *  recoverable from the agent's side rather than needing the user. */
   "dismissDialog",
+  /** The browser panes with a page loaded now, which a phone may watch (mobile.v1). */
+  "phoneViews",
+  /** A pane's page for a phone, its password fields covered in main before the picture leaves it.
+   *  Never loads a page that is not loaded. */
+  "phoneFrame",
 ] as const;
 
 /**

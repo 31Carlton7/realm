@@ -158,9 +158,10 @@ export class TerminalService {
   }
 
   /** What this client is missing, plus the screen that came before it. See `Scrollback.read`. A pane
-   *  reading a terminal is somebody looking at it: a terminal restored but not yet started starts now. */
-  read(terminalId: string, cursor: ScrollbackCursor | null): ScrollbackRead {
-    this.wake(terminalId);
+   *  reading a terminal is somebody looking at it: a terminal restored but not yet started starts now,
+   *  unless the read is a `peek` — a phone following it, which only reads what is there. */
+  read(terminalId: string, cursor: ScrollbackCursor | null, o: { peek?: boolean } = {}): ScrollbackRead {
+    if (!o.peek) this.wake(terminalId);
     const r = this.scrollback.read(terminalId, cursor);
     if (r) return r;
     // A terminal this service knows nothing about — closed, or never restored. Answering rather than
