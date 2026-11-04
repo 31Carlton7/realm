@@ -7,7 +7,7 @@
  */
 import { DOWNLOAD_GRANT_TTL_MS, GENERATED_PASSWORD_LENGTH, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, paneNotOpenError, paneNotPaintingError, type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserFillCredentialResult, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserReadResult, type BrowserScreenshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind, type SiteCredential } from "@realm/contracts";
 import { isAbsolute } from "node:path";
-import { ANNOTATE_BINDING, DEFAULT_AGENT_ACCENT, PICK_BINDING, armAnnotate, armElementPick, buildSnapshot, cancelFileChooser, captureAnnotated, describeElement, describePick, disarmAnnotate, disarmElementPick, markAct, performAct, performFillCredential, performUpload, readPageText, resolveAnnotatedNode, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex, type CredentialFill } from "./browser-agent";
+import { ANNOTATE_BINDING, DEFAULT_AGENT_ACCENT, PICK_BINDING, armAnnotate, armElementPick, buildSnapshot, cancelFileChooser, captureAnnotated, describeElement, describePick, disarmAnnotate, disarmElementPick, markAct, performAct, performFillCredential, performUpload, readPageFields, readPageText, resolveAnnotatedNode, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex, type CredentialFill } from "./browser-agent";
 import type { CredentialAuditEntry } from "./secret-store";
 import { credentialSiteMatch } from "./password-match";
 import { axElementAt, readAxSnapshot } from "./device-ax";
@@ -557,7 +557,10 @@ export class BrowserAgentHost {
         // The snapshot's reason: the page's text is the error document's, which is nothing.
         const failed = this.d.pageState(browserId)?.error ?? null;
         if (failed) return { text: "", loadError: failed } satisfies BrowserReadResult;
-        return { text: await readPageText(entry.binding.send) };
+        const text = await readPageText(entry.binding.send);
+        // A pane handed over from the prompter also says what its form holds, its secrets hidden.
+        if (params.fields === true) return { text, fields: await readPageFields(entry.binding.send) } satisfies BrowserReadResult;
+        return { text };
       }
       case "act": {
         const entry = this.ensure(browserId);

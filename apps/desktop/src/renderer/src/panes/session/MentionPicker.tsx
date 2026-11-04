@@ -6,6 +6,7 @@ import type { RefObject } from "react";
 import { useDissolve } from "../../components/ScrollFades";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
 import { useAutoHideScrollbar } from "../../components/use-auto-hide-scrollbar";
+import { PageIcon } from "../../components/PageIcon";
 import { fileMark, type MentionRow } from "./mention-sources";
 
 /**
@@ -59,8 +60,8 @@ export function mentionQueryAt(text: string, caret: number): { start: number; en
 export const mentionOptionId = (key: string): string => `mention-${key.replace(/\s/g, "_")}`;
 
 /** The mark at the head of a row: what KIND of thing it names, at a glance — an app's own icon, a
- *  file's type, a skill's spark, a sub-agent's harness, a teammate's own icon, and for @Mac the Apple
- *  mark Realm already draws for this Mac. */
+ *  file's type, a skill's spark, a sub-agent's harness, a teammate's own icon, a pane's page icon or
+ *  kind, and for @Mac the Apple mark Realm already draws for this Mac. */
 function RowMark({ row, appIcons }: { row: MentionRow; appIcons: Readonly<Record<string, string | null>> }) {
   if (row.kind === "app") {
     const src = appIcons[row.app.path];
@@ -70,6 +71,8 @@ function RowMark({ row, appIcons }: { row: MentionRow; appIcons: Readonly<Record
   if (row.kind === "role") return <span className="mention-row-mark"><TeammateIcon icon={row.teammate.icon} size={16} lead={row.teammate.lead} /></span>;
   // Which agent it is, as the prompter's row of active agents draws it: its harness's own mark.
   if (row.kind === "agent") return <span className="mention-row-mark">{row.agentKind ? <Icon name={AGENT_META[row.agentKind].icon} size={16} colored /> : <Icon name="bot" size={16} />}</span>;
+  if (row.kind === "tab") return <span className="mention-row-mark"><PageIcon src={row.tab.kind === "browser" ? row.tab.favicon : undefined} fallback={row.tab.kind} size={16} /></span>;
+  if (row.kind === "tabs") return <span className="mention-row-mark"><Icon name="browser" size={16} /></span>;
   const name = row.kind === "mac" ? "apple" : row.kind === "skill" ? "sparkles" : fileMark(row.path);
   return <span className="mention-row-mark"><Icon name={name} size={row.kind === "mac" ? 14 : 16} /></span>;
 }

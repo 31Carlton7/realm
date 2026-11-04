@@ -257,6 +257,14 @@ describe("BrowserAgentHost", () => {
     expect(await host.handleOp("read", { browserId: "b1", kind: "text" })).toEqual({ text: "page text here" });
   });
 
+  it("read with fields adds the page's form, as the page script reports it, for a tab's card", async () => {
+    const fields = [{ label: "Password", value: null, hidden: true }];
+    const { host } = setup({ respond: (method, params) => (method === "Runtime.evaluate" && String(params?.expression).includes("one-time-code") ? { result: { value: fields } } : undefined) });
+    expect(await host.handleOp("read", { browserId: "b1", kind: "text", fields: true })).toEqual({ text: "page text here", fields });
+    // An agent's own browser_read is unchanged: no fields unless asked.
+    expect(await host.handleOp("read", { browserId: "b1", kind: "text" })).toEqual({ text: "page text here" });
+  });
+
   it("screenshot returns jpeg data", async () => {
     const { host } = setup();
     expect(await host.handleOp("screenshot", { browserId: "b1" })).toEqual({ data: "c2NyZWVu", mimeType: "image/jpeg" });

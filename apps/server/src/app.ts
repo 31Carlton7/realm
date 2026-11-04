@@ -99,6 +99,7 @@ import { AskService } from "./delegation/ask";
 import { SessionsStore, SessionEventsStore } from "./store/sessions";
 import { EnvironmentsStore } from "./store/environments";
 import { SessionService, resolveDefaultPermissionMode } from "./sessions/service";
+import { TabContextReader } from "./sessions/tab-context";
 import { RECAP_DEBOUNCE_MS, SessionSummaryService } from "./sessions/summary";
 import { HandoffNotes, type HandoffNotesGenerator } from "./sessions/handover";
 import { AccountsService, type AccountsDeps } from "./accounts/service";
@@ -1410,7 +1411,12 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   });
   // Read once, for system.info and the Move sheet both.
   const machineNameRead = machineName();
-  const sessions = new SessionService({ db, rpc, machineName: () => machineNameRead, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, agentMemory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, handoffNotes, planLimits,
+  // The panes a message can hand over as cards, read as it is sent (`tab-context.ts`).
+  const tabContext = new TabContextReader({
+    items, browsers: browsersStore, bridge: browserBridge, terminals, simulators, home: opts.home,
+    documents: { get: (id) => documents.get(id), rootOfWorkspace: (id) => documents.rootOfWorkspace(id), read: async (id, path) => (await documents.read(id, path)).text },
+  });
+  const sessions = new SessionService({ db, rpc, tabs: tabContext, machineName: () => machineNameRead, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, agentMemory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, handoffNotes, planLimits,
     accounts: {
       envFor: (kind, accountId) => accounts.envFor(kind, accountId),
       accountFor: (kind, accountId) => accounts.accountFor(kind, accountId),
@@ -1846,7 +1852,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
   let access: Access | null = null;
   registerMethods({
     rpc, home: opts.home, version: SERVER_VERSION, machineName: machine, userName: user,
-    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, claudeBackfill, memoryLibrary, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
+    profiles, spaces, projects, environments, envService, items, settings, skills, themes, fonts, mcp, hub: mcpHub, gateway: mcpGateway, oauth, calls: mcpCalls, memory, memoryRepos, claudeBackfill, memoryLibrary, terminals, browsers, machines, simulators, goals, eggs, browserBridge, documents, sessions, gitInfo: new GitInfoService(), gitDiff: new GitDiffService(), projectSearch, mentionFiles: new MentionFiles({ search: projectSearch, git: gitCapture }), tabContext, gitWrite, ships, ports, checkpoints, notifications, runs, reviews, search, artifacts, savedTurns: new SavedTurnsStore(db), forks, failover, imports, lectures, plynn, modelCatalog, usage, graphify, schedules, team, delegation: delegationEngine, computerAllowlist, signIn: signInFlow, browserPermissions: browserBroker, cli, cliInstaller,
     children: new DelegatedChildren({ sessions: sessionsStore, events: sessionEvents, items, rpc, agentRuns, browserAgents }), agentRuns, teammates,
     iconAssets, iconGeneration, avatar: new AvatarStore(opts.home, settings), planLimits, userCommands, scripts, keybindings, sandbox, laya, resources: resourceControls, agentSignIn, accounts,
     libraryFiles, remote, presence,

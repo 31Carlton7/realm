@@ -96,6 +96,7 @@ export * from "./sandbox";
 export * from "./execution-sandbox";
 export * from "./keysym";
 export * from "./session-refs";
+export * from "./tab-context";
 export * from "./ui-ask";
 export * from "./ui-blocks";
 export * from "./platform";

@@ -2,6 +2,7 @@ import { Icon, TeammateIcon } from "@realm/ui";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { LINK_SERVICE_META, MAC_SKILL_ID, chipRuns, moveFailedSentence, movedSentence, mediaCandidatesIn, teammateWords, type MentionRef, type SessionMode, type Teammate, type SessionStatus, type AskAnswers, type Checkpoint, type TurnChanges } from "@realm/contracts";
 import { AttachmentTile } from "./AttachmentTile";
+import { UserTabs } from "./TabCards";
 import { fileMark } from "./mention-sources";
 import { CommandCopy } from "../../components/CommandCopy";
 import type { PermissionDecision } from "../../state/store";
@@ -728,6 +729,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
                     The note Realm added for the agent is under the pointer, not in the bubble. */}
                 {b.scheduled && <span className="msg-user-from" title={b.scheduled.note}>{scheduledLine(b.scheduled, b.ts)}</span>}
                 {b.attachments && <UserAttachments attachments={b.attachments} />}
+                {b.tabs && <UserTabs tabs={b.tabs} />}
                 {/* An attachment-only message has no text at all, and an empty bubble would read as a
                     send that lost its words rather than one that carried only files. */}
                 {b.goal

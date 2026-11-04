@@ -6,7 +6,7 @@
  * reaches it over the browserHost bridge.
  */
 import {
-  acceptsUpload, AGENT_FRAME, AGENT_MARK_ATTR, AGENT_MARK_FRAME, chordKeyEvents, mimeForPath, NAMED_KEYS, normalizeOrigin, resolveKeyChord,
+  acceptsUpload, AGENT_FRAME, PLAIN_INPUT_TYPES, SECRET_FIELD_WORDS, type PageField, AGENT_MARK_ATTR, AGENT_MARK_FRAME, chordKeyEvents, mimeForPath, NAMED_KEYS, normalizeOrigin, resolveKeyChord,
   PICK_HTML_MAX, PICK_NAME_MAX, PICK_SELECTOR_MAX, PICK_TEXT_MAX,
   UPLOAD_CHOOSER_TIMEOUT_MS, UPLOAD_DROP_MAX_BYTES, UPLOAD_MAX_FILES,
   type BrowserAction, type BrowserActResult, type BrowserPickedElement, type BrowserRefusal,
@@ -1267,6 +1267,60 @@ export async function readPageText(send: CdpSend): Promise<string> {
   const result = (await send("Runtime.evaluate", { expression, returnByValue: true })) as { result?: { value?: unknown } };
   const text = typeof result.result?.value === "string" ? result.result.value : "";
   return text.length > PAGE_TEXT_MAX ? `${text.slice(0, PAGE_TEXT_MAX)}\n…(truncated at ${PAGE_TEXT_MAX} chars)` : text;
+}
+
+/** How many of a page's fields a read lists, and how much of each value. A form is a few dozen at
+ *  most; a page with hundreds of inputs is a grid, and its text already says what is in it. */
+const PAGE_FIELDS_MAX = 60;
+const PAGE_FIELD_VALUE_MAX = 300;
+
+/**
+ * Every filled-in field of the page's top frame (open shadow roots too), labelled as a person reads
+ * it, in the page's own world. A field `isSecretField` would name is reported as `hidden` and its
+ * value is never read into the answer: the rule runs inside the page, so a password leaves it as a
+ * word saying it was there and nothing more. Kept in step with `isSecretField` by being built from
+ * the same two constants.
+ */
+export const PAGE_FIELDS = `(() => {
+  const words = ${SECRET_FIELD_WORDS.toString()};
+  const plain = ${JSON.stringify(PLAIN_INPUT_TYPES)};
+  const out = [];
+  const labelOf = (el) => {
+    const byFor = el.id ? [...el.getRootNode().querySelectorAll("label")].find((l) => l.htmlFor === el.id) : null;
+    const text = (byFor ?? el.closest("label"))?.textContent || el.getAttribute("aria-label") || el.getAttribute("placeholder") || el.getAttribute("name") || el.id || "";
+    return String(text).replace(/\\s+/g, " ").trim().slice(0, 80);
+  };
+  const visit = (root) => {
+    for (const el of root.querySelectorAll("*")) {
+      if (out.length >= ${PAGE_FIELDS_MAX}) return;
+      if (el.shadowRoot) visit(el.shadowRoot);
+      const tag = el.tagName;
+      if (tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT") continue;
+      const type = tag === "INPUT" ? (el.getAttribute("type") || "text").toLowerCase() : tag.toLowerCase();
+      if (plain.includes(type)) continue;
+      const said = [type, el.getAttribute("name"), el.id, el.getAttribute("autocomplete")].filter(Boolean).join(" ");
+      if (type === "password" || words.test(said)) { out.push({ label: labelOf(el), value: null, hidden: true }); continue; }
+      const value = tag === "SELECT" ? (el.selectedOptions?.[0]?.text ?? "") : String(el.value ?? "");
+      if (value.trim() === "") continue;
+      out.push({ label: labelOf(el), value: value.slice(0, ${PAGE_FIELD_VALUE_MAX}), hidden: false });
+    }
+  };
+  visit(document);
+  return out;
+})()`;
+
+/** Whether `PAGE_FIELDS`' answer is one, rather than whatever a page that replaced its globals said.
+ *  A field claiming a value AND hidden is not one: the page script never says both. */
+function isPageFields(v: unknown): v is PageField[] {
+  return Array.isArray(v) && v.every((f) => !!f && typeof f.label === "string" && typeof f.hidden === "boolean"
+    && (f.hidden ? f.value === null : typeof f.value === "string"));
+}
+
+/** The page's filled-in fields, secret ones hidden (`PAGE_FIELDS`). Empty for a page that answered
+ *  anything else. */
+export async function readPageFields(send: CdpSend): Promise<PageField[]> {
+  const result = (await send("Runtime.evaluate", { expression: PAGE_FIELDS, returnByValue: true })) as { result?: { value?: unknown } };
+  return isPageFields(result.result?.value) ? result.result.value : [];
 }
 
 /* --------------------------- the marks an act leaves in the page --------------------------- */
