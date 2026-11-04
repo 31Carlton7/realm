@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.7.2 — 2026-11-03
+
+- Picking a model or effort in a teammate's chat now saves to the teammate.
+- Setting a teammate back to Default takes effect in its open chat.
+
 ## v2.7.1 — 2026-11-03
 
 - When a session messages a teammate, the teammate shows in the transcript with its icon, what it was asked, and whether it is working or done.
