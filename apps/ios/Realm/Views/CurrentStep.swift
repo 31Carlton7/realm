@@ -47,11 +47,7 @@ struct CurrentStep: Equatable {
     }
 
     /// How long the turn has run, as Manus's card counts it: "00:16", "12:03", "1:02:03".
-    static func clock(_ interval: TimeInterval) -> String {
-        let total = max(0, Int(interval))
-        let (hours, minutes, seconds) = (total / 3600, total / 60 % 60, total % 60)
-        return hours > 0 ? String(format: "%d:%02d:%02d", hours, minutes, seconds) : String(format: "%02d:%02d", minutes, seconds)
-    }
+    static func clock(_ interval: TimeInterval) -> String { TurnClock.words(interval) }
 }
 
 /// The one dock over the composer, as Manus keeps one card there: what the session is doing now and

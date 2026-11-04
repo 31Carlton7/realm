@@ -58,6 +58,8 @@ final class AppModel {
     let diagnostics = Diagnostics()
     /// Review, Scheduled and Usage, and the sub-agents of the sessions opened here.
     let work = WorkModel()
+    /// The working sessions on the Lock Screen and in the Dynamic Island.
+    let activities = WorkActivities()
     var path: [Route] = []
     /// Settings, in its sheet over Home.
     var settingsShown = false
@@ -232,6 +234,7 @@ final class AppModel {
         guard !launched, !LaunchOptions.hostingUnitTests else { return }
         launched = true
         UNUserNotificationCenter.current().setNotificationCategories(NotificationKinds.categories)
+        Task { await activities.endLeftovers() }
         do {
             identity = try vault.loadOrCreateIdentity()
         } catch {
@@ -281,6 +284,11 @@ final class AppModel {
         // `realm-mobile://share`: the share extension, once it has put a share in the inbox.
         if url.scheme == "realm-mobile", url.host() == "share" {
             takeShares()
+            return
+        }
+        // `realm-mobile://session/<id>`: a tap on a session's Live Activity.
+        if let session = SessionLink.sessionId(in: url) {
+            show(session: session)
             return
         }
         open(pairingText: url.absoluteString)
@@ -356,6 +364,7 @@ final class AppModel {
     /// still lists this iPhone until it is removed there.
     func forgetMac() {
         guard let mac = store.pairedMac else { return }
+        activities.endAll()
         disconnect()
         try? vault.removeMac(id: mac.macId)
         if let cache { disk.async { try? cache.removeAll() } }
@@ -416,7 +425,9 @@ final class AppModel {
             saveEverything()
             // iOS suspends a backgrounded app; closing first lets the relay and the Mac see it go.
             guard !LaunchOptions.autoDiagnostics else { return }
-            if store.outbox.items.contains(where: { $0.state == .sending }) {
+            if activities.isLive {
+                followActivitiesThenDisconnect()
+            } else if store.outbox.items.contains(where: { $0.state == .sending }) {
                 finishSendingThenDisconnect()
             } else {
                 disconnect()
@@ -442,6 +453,33 @@ final class AppModel {
             saveOutbox()
             if UIApplication.shared.applicationState == .background { disconnect() }
             application.endBackgroundTask(task.id)
+        }
+    }
+
+    /// A session is on the Lock Screen as the app leaves: the channel stays open for as long as iOS lets
+    /// a backgrounded app run, so the activity keeps up with the turn. When that time is up, or the
+    /// turns have finished, it closes as it would have; an activity still live says it is out of date.
+    private func followActivitiesThenDisconnect() {
+        let application = UIApplication.shared
+        let task = BackgroundTask()
+        let finish = { [weak self] in
+            guard task.id != .invalid else { return }
+            if application.applicationState == .background {
+                self?.activities.markOutOfDate()
+                self?.saveOutbox()
+                self?.disconnect()
+            }
+            application.endBackgroundTask(task.id)
+            task.id = .invalid
+        }
+        task.id = application.beginBackgroundTask(withName: "Follow live activities") {
+            MainActor.assumeIsolated { finish() }
+        }
+        Task {
+            while activities.isLive, application.applicationState == .background, task.id != .invalid {
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+            finish()
         }
     }
 
@@ -504,9 +542,12 @@ final class AppModel {
 
     private func received(_ event: MobileEvent) {
         let outbox = store.outbox
+        let started = Self.turnStarted(event, was: store.transcripts)
         noteArrivals(event)
         store.apply(event)
         if store.outbox != outbox { saveOutbox() }
+        if let started, visibleSessions.contains(started) { startActivity(started, .startedWhileViewing) }
+        updateActivities()
         switch event {
         case .homeChanged:
             Task { await refreshHome() }
@@ -521,6 +562,13 @@ final class AppModel {
         default:
             break
         }
+    }
+
+    /// The session whose turn this event starts, if it starts one.
+    private static func turnStarted(_ event: MobileEvent, was transcripts: [String: Transcript]) -> String? {
+        guard case .sessionStatus(let update) = event, update.status == .running,
+              transcripts[update.id]?.status != .running else { return nil }
+        return update.id
     }
 
     /// Rows that arrive live, and turns this phone saw start: a row born a moment ago is the one that
@@ -608,6 +656,7 @@ final class AppModel {
             guard ask > homeShown else { return }
             homeShown = ask
             store.showHome(home)
+            updateActivities()
             rowEdits.caughtUp(with: home, ask: ask)
             if let cache { disk.async { try? cache.saveHome(home) } }
             if agentList == nil { await loadAgents() }
@@ -683,6 +732,7 @@ final class AppModel {
         guard !text.isEmpty || !attachments.isEmpty else { return }
         store.enqueueMessage(text, attachments: attachments, delivery: delivery, mentionRefs: mentionRefs, in: sessionId)
         saveOutbox()
+        startActivity(sessionId, .sent)
         Task { await deliver(sessionId) }
     }
 

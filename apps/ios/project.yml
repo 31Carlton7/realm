@@ -43,6 +43,7 @@ targets:
         product: RealmMarkdown
       - target: RealmNotificationService
       - target: RealmShare
+      - target: RealmActivity
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: co.charmtechnologies.realm.ios
@@ -89,6 +90,31 @@ targets:
         CODE_SIGN_ENTITLEMENTS: RealmShare/RealmShare.entitlements
         ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: NO
         ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS: NO
+  # A session at work on the Lock Screen and in the Dynamic Island. The app starts, updates and ends
+  # the activity from what its channel to the Mac says; this only draws it, with the app's palette and
+  # marks.
+  RealmActivity:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: RealmActivity
+      - path: Realm/LiveActivity/WorkActivityAttributes.swift
+      - path: Realm/Theme/Palette.swift
+      - path: Realm/Theme/Surfaces.swift
+      - path: Realm/Theme/TeammateMark.swift
+      - path: Realm/Assets.xcassets
+    dependencies:
+      - package: RealmKit
+        product: RealmKit
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: co.charmtechnologies.realm.ios.activity
+        PRODUCT_NAME: RealmActivity
+        INFOPLIST_FILE: RealmActivity/Info.plist
+        ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: NO
+        ASSETCATALOG_COMPILER_GENERATE_ASSET_SYMBOLS: NO
   # The app's own views, drawn and read back: hosted in the app, run with the scheme's tests.
   RealmTests:
     type: bundle.unit-test
@@ -123,6 +149,7 @@ schemes:
         Realm: all
         RealmNotificationService: all
         RealmShare: all
+        RealmActivity: all
     run:
       config: Debug
     test:
@@ -137,6 +164,7 @@ schemes:
         Realm: all
         RealmNotificationService: all
         RealmShare: all
+        RealmActivity: all
     test:
       config: Debug
       targets:
