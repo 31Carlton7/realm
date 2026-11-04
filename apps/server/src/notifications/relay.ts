@@ -36,6 +36,9 @@ export type RelayedNotification = {
   /** What only the event knew: a request that is a question (and the question it asks), or a settle
    *  that was a failure. The row alone says neither. */
   hint?: { kind: "question" | "failed"; line?: string };
+  /** The tool a permission would run, and whether it fills a password on that password's own site:
+   *  what decides the answers a phone's notification offers, as it decides the desktop card's. */
+  tool?: { name: string; onSite: boolean };
 };
 
 /**

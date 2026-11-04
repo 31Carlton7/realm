@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { NOTIFICATIONS_IPHONE_KEY, type Notification, type NotificationCategory } from "@realm/contracts";
 import type { PhoneTransport, RelayedNotification } from "../notifications/relay";
 import type { SettingsStore } from "../store/settings";
-import type { PushPayload, PushResult } from "./gateway";
+import type { PushCategory, PushPayload, PushResult } from "./gateway";
 
 /** How long a moment waits while the owner is at the Mac: long enough to answer it there, and no
  *  longer, so walking away mid-wait does not cost the answer an agent is blocked on. */
@@ -18,6 +18,20 @@ export function pushKind(n: Pick<RelayedNotification, "category" | "hint">): Pus
   if (n.category === "permission") return n.hint?.kind === "question" ? "question" : "permission";
   if (n.category === "session_done") return n.hint?.kind === "failed" ? "failed" : "finished";
   return "blocked";
+}
+
+/** What a push's notification answers, as the desktop answers the same moment. A permission offers
+ *  Allow, Allow always and Deny, with "always" named for where it is kept as the desktop's card names
+ *  it; a plan and a question are read in the app. A turn that finished or failed in a session takes a
+ *  reply. A blocked run is approved in the app. */
+export function pushCategory(n: Pick<RelayedNotification, "sessionId" | "refId" | "tool">, kind: PushKind): PushCategory | null {
+  if (kind === "permission") {
+    if (!n.sessionId || !n.refId || !n.tool || n.tool.name === "ExitPlanMode") return null;
+    if (n.tool.name === "computer_act") return "permission.space";
+    return n.tool.onSite ? "permission.site" : "permission";
+  }
+  if (kind === "finished" || kind === "failed") return n.sessionId ? "reply" : null;
+  return null;
 }
 
 /** One line, at most 120 characters, from whatever the moment said. */
@@ -108,11 +122,14 @@ export class PhonePushes implements PhoneTransport {
     // moment was held is a push nobody wants any more.
     if (!this.wants()) return;
     const kind = pushKind(n);
+    const category = pushCategory(n, kind);
     const payload: PushPayload = {
       kind,
       title: (n.sessionId ? this.d.titleOf(n.sessionId) : null) || n.title,
       body: pushLine(n.hint?.line || n.body),
       session: n.sessionId,
+      ...(category && category !== "reply" && n.refId ? { request: n.refId } : {}),
+      ...(category ? { category } : {}),
     };
     const o = {
       urgent: kind === "permission" || kind === "question" || kind === "blocked",

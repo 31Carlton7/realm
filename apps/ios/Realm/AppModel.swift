@@ -588,6 +588,7 @@ final class AppModel {
             takeShares()
             // The badge says what Needs you says: the same moments the Mac's pushes are for.
             try? await UNUserNotificationCenter.current().setBadgeCount(home.needsYou.count)
+            await clearAnsweredNotifications(waiting: Set(home.needsYou.map(\.id)))
             // A Mac's first answer names its profiles, and with them the one shown by default: its own
             // recent sessions are asked for, unless a later ask is already on its way.
             if profileChoice.profileId != profileId, ask == homeAsks { await refreshHome() }
@@ -1308,6 +1309,94 @@ final class AppModel {
         if let connection { Task { await connection.setPushRegistration(registration) } }
     }
 
+    /// An answer chosen on a notification, perhaps with the app in the background or not running yet:
+    /// a channel is opened for it if there is none. It is never kept to send later, since a request
+    /// belongs to an agent that is waiting now; if it cannot reach the Mac, a notification says so.
+    func send(_ answer: NotificationAnswer, titled title: String) async {
+        let application = UIApplication.shared
+        let task = BackgroundTask()
+        task.id = application.beginBackgroundTask(withName: "Answer from a notification") {
+            application.endBackgroundTask(task.id)
+            task.id = .invalid
+        }
+        defer {
+            if application.applicationState == .background { disconnect() }
+            if task.id != .invalid { application.endBackgroundTask(task.id) }
+        }
+        if !launched { await launch() }
+        guard store.pairedMac != nil else { return }
+        do {
+            let api = try await connectedAPI(within: .seconds(15))
+            switch answer {
+            case .decide(let session, let request, let decision):
+                try await api.answer(id: session, requestId: request, decision: decision, values: nil, timeout: .seconds(15))
+            case .reply(let session, let text):
+                try await api.send(id: session, text: text, delivery: .auto, timeout: .seconds(15))
+            }
+        } catch {
+            await tellNotSent(answer, titled: title, because: error)
+        }
+    }
+
+    /// The channel once it is up, opened if there is none; it fails as soon as the Mac is known to be
+    /// away rather than at the end of the wait.
+    private func connectedAPI(within limit: Duration) async throws -> MobileAPI {
+        if connection == nil { connect() }
+        let deadline = ContinuousClock.now + limit
+        while ContinuousClock.now < deadline {
+            switch store.connection {
+            case .connected: if let api { return api }
+            case .macOffline: throw ChannelError.macOffline
+            case .refused: throw ChannelError.notConnected
+            default: break
+            }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        throw ChannelError.timedOut
+    }
+
+    private func tellNotSent(_ answer: NotificationAnswer, titled title: String, because error: any Error) async {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = Self.notSent(answer, because: error)
+        content.threadIdentifier = answer.session
+        content.userInfo = ["session": answer.session]
+        let request = UNNotificationRequest(identifier: "not-sent-\(UUID().uuidString)", content: content, trigger: nil)
+        try? await UNUserNotificationCenter.current().add(request)
+    }
+
+    /// What a notification says of an answer that did not reach the Mac, or that the Mac refused. A reply
+    /// is quoted, so its words are not lost.
+    static func notSent(_ answer: NotificationAnswer, because error: any Error) -> String {
+        let what = switch answer {
+        case .decide(_, _, .allow): "Allow"
+        case .decide(_, _, .allowAlways): "Allow always"
+        case .decide(_, _, .deny): "Deny"
+        case .reply: "Your reply"
+        }
+        let why = if case ChannelError.rpc(let refusal) = error {
+            "\(what) was refused: \(refusal.message)"
+        } else {
+            "\(what) did not reach your Mac. \(describe(error))"
+        }
+        guard case .reply(_, let text) = answer else { return why }
+        return "\(why) You wrote: “\(text)”"
+    }
+
+    /// Takes away the delivered notifications of requests answered somewhere else: those whose session
+    /// no longer needs the person, by Home's Needs you, which is every profile's.
+    private func clearAnsweredNotifications(waiting: Set<String>) async {
+        let center = UNUserNotificationCenter.current()
+        let delivered = await center.deliveredNotifications()
+        let answered = delivered.filter { note in
+            let info = note.request.content.userInfo
+            guard info["request"] != nil, let session = info["session"] as? String else { return false }
+            return !waiting.contains(session)
+        }
+        guard !answered.isEmpty else { return }
+        center.removeDeliveredNotifications(withIdentifiers: answered.map(\.request.identifier))
+    }
+
     /// A tapped notification: its session, once the app knows its Mac.
     func show(session: String?) {
         guard let session else { return }
@@ -1371,8 +1460,8 @@ private final class BackgroundTask: @unchecked Sendable {
     var id: UIBackgroundTaskIdentifier = .invalid
 }
 
-/// The notification categories, one per kind of push the Mac seals (PROTOCOL.md §4.3). Answering from
-/// a notification is Phase 3; for now each says, with previews hidden, what kind of moment it is.
+/// The notification categories: one per kind of push the Mac seals, and one per set of answers a push
+/// can offer (PROTOCOL.md §4.3). Each says, with previews hidden, what kind of moment it is.
 enum NotificationKinds {
     static let placeholders: [String: String] = [
         "permission": "A session on your Mac is waiting on you",
@@ -1381,12 +1470,41 @@ enum NotificationKinds {
         "failed": "A session on your Mac failed",
         "blocked": "A run on your Mac is blocked",
         "test": "A test from your Mac",
+        "permission.space": "A session on your Mac is waiting on you",
+        "permission.site": "A session on your Mac is waiting on you",
+        "reply": "A session on your Mac is waiting for you",
     ]
+
+    /// The desktop permission card's answers, in its order, "always" named as the card names it for
+    /// where it is kept. Allowing needs the phone unlocked, so nobody answers from a locked screen.
+    static func permissionActions(always: String) -> [UNNotificationAction] {
+        [
+            UNNotificationAction(identifier: NotificationAnswer.Action.allow, title: "Allow", options: [.authenticationRequired]),
+            UNNotificationAction(identifier: NotificationAnswer.Action.allowAlways, title: always, options: [.authenticationRequired]),
+            UNNotificationAction(identifier: NotificationAnswer.Action.deny, title: "Deny", options: [.destructive]),
+        ]
+    }
+
+    /// A message to the session, which can start work on the Mac: it needs the phone unlocked too.
+    static var replyAction: UNTextInputNotificationAction {
+        UNTextInputNotificationAction(identifier: NotificationAnswer.Action.reply, title: "Reply", options: [.authenticationRequired],
+                                      textInputButtonTitle: "Send", textInputPlaceholder: "Message")
+    }
+
+    static func actions(for category: String) -> [UNNotificationAction] {
+        switch category {
+        case "permission": permissionActions(always: "Allow always")
+        case "permission.space": permissionActions(always: "Always allow in this space")
+        case "permission.site": permissionActions(always: "Always allow on this site")
+        case "reply": [replyAction]
+        default: []
+        }
+    }
 
     static var categories: Set<UNNotificationCategory> {
         Set(placeholders.map { kind, placeholder in
-            UNNotificationCategory(identifier: kind, actions: [], intentIdentifiers: [], hiddenPreviewsBodyPlaceholder: placeholder,
-                                   options: [])
+            UNNotificationCategory(identifier: kind, actions: actions(for: kind), intentIdentifiers: [],
+                                   hiddenPreviewsBodyPlaceholder: placeholder, options: [])
         })
     }
 }
