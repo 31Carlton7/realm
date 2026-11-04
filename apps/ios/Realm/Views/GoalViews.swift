@@ -15,56 +15,10 @@ extension GoalStatus {
     }
 }
 
-/// The objective the session is pursuing, in one line over the composer, as the desktop pins its goal
-/// strip above the prompter: where it stands, what it is, and its turns and cost. Pressed, it opens
-/// the whole goal and its controls.
-struct GoalPill: View {
-    let sessionId: String
-    @Environment(AppModel.self) private var model
-    @State private var sheetShown = false
-
-    var body: some View {
-        if let goal = model.store.transcript(sessionId).goal {
-            Button { sheetShown = true } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Image(systemName: goal.status.symbol)
-                        .foregroundStyle(goal.status.tone.agentColor)
-                    Text(goal.status.label)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(goal.status.tone.agentColor)
-                    Text(goal.objective)
-                        .foregroundStyle(Palette.ink)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    if let facts = goal.facts {
-                        Text(facts)
-                            .monospacedDigit()
-                            .foregroundStyle(Palette.ink3)
-                            .lineLimit(1)
-                            .fixedSize()
-                    }
-                }
-                .font(.footnote)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 9)
-                .background(Fill.card, in: Capsule())
-                .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Goal, \(goal.status.label): \(goal.objective)\(goal.facts.map { ", \($0)" } ?? "")")
-            .accessibilityHint("Shows the goal and its controls")
-            .accessibilityIdentifier("goal-pill")
-            .sheet(isPresented: $sheetShown) {
-                GoalSheet(sessionId: sessionId)
-            }
-        }
-    }
-}
-
 /// The whole goal: its objective in the person's words, where it stands and why it stopped, when it
 /// started and last changed, and the desktop strip's controls — mark done, pause or resume, drop — with
 /// a new objective set as a new `/goal`.
-private struct GoalSheet: View {
+struct GoalSheet: View {
     let sessionId: String
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -207,78 +161,8 @@ private struct GoalControls: View {
     }
 }
 
-/// The agent's to-do list over the composer, as the desktop pins its plan above the prompter: done
-/// over total and the item under way, folded; opened, every item in the agent's order with its state.
-/// Quiet throughout, with a spinner only on the item being worked on.
-struct TodoStrip: View {
-    let sessionId: String
-    @Environment(AppModel.self) private var model
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var open: Bool
-
-    init(sessionId: String, open: Bool = false) {
-        self.sessionId = sessionId
-        _open = State(initialValue: open)
-    }
-
-    var body: some View {
-        let todos = model.store.transcript(sessionId).todos
-        if !todos.isEmpty {
-            let progress = TodoProgress(todos)
-            VStack(alignment: .leading, spacing: 0) {
-                Button { open.toggle() } label: {
-                    HStack(alignment: .center, spacing: 8) {
-                        Image(systemName: progress.allDone ? "checkmark.circle" : "checklist")
-                            .foregroundStyle(Palette.ink2)
-                        Text(progress.count)
-                            .fontWeight(.semibold)
-                            .monospacedDigit()
-                            .foregroundStyle(Palette.ink2)
-                        Text(progress.activeWords ?? (progress.allDone ? "Plan complete" : "Plan"))
-                            .foregroundStyle(Palette.ink)
-                            .lineLimit(1)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Image(systemName: "chevron.up")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(Palette.ink3)
-                            .rotationEffect(.degrees(open ? 0 : 180))
-                    }
-                    .font(.footnote)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 9)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Plan, \(progress.done) of \(progress.total) done\(progress.activeWords.map { ", \($0)" } ?? "")")
-                .accessibilityValue(open ? "Open" : "Closed")
-                .accessibilityIdentifier("todo-strip")
-                ProgressTrack(done: progress.done, total: progress.total)
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, open ? 4 : 9)
-                if open {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 0) {
-                            ForEach(Array(todos.enumerated()), id: \.offset) { _, item in
-                                TodoLine(item: item)
-                            }
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 8)
-                    }
-                    .scrollBounceBehavior(.basedOnSize)
-                    .frame(maxHeight: 240)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .transition(.opacity)
-                }
-            }
-            .background(Fill.card, in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous))
-            .animation(Motion.animation(reduceMotion), value: open)
-        }
-    }
-}
-
 /// Done over total, as a hairline that fills: readable without reading, folded or open.
-private struct ProgressTrack: View {
+struct ProgressTrack: View {
     let done: Int
     let total: Int
 
@@ -297,7 +181,7 @@ private struct ProgressTrack: View {
 
 /// One item of the plan: a spinner on the one under way, a check on a finished one (its words dimmed),
 /// an empty ring on one to come.
-private struct TodoLine: View {
+struct TodoLine: View {
     let item: TodoItem
 
     var body: some View {

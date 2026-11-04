@@ -436,12 +436,7 @@ private struct SessionFoot: View {
                         composing.wrappedValue = true
                     }
                 }
-                CurrentStepCard(sessionId: sessionId)
-                    .padding(.horizontal, 12)
-                // The goal over the plan, as the desktop stacks them: the goal is why, the plan is how.
-                GoalPill(sessionId: sessionId)
-                    .padding(.horizontal, 12)
-                TodoStrip(sessionId: sessionId)
+                WorkDock(sessionId: sessionId)
                     .padding(.horizontal, 12)
                 QueueStrip(sessionId: sessionId)
                     .padding(.horizontal, 12)
