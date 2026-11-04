@@ -15,15 +15,18 @@ struct RootView: View {
                 NavigationStack(path: $model.path) {
                     HomeView()
                         .navigationDestination(for: Route.self) { route in
-                            switch route {
-                            case .session(let id): SessionView(sessionId: id)
-                            case .space(let id): SpaceView(spaceId: id)
-                            case .reviews: ReviewsView()
-                            case .review(let id): ReviewView(reviewId: id)
-                            case .scheduled: ScheduledView()
-                            case .usage: UsageView()
-                            case .team: TeamView()
+                            Group {
+                                switch route {
+                                case .session(let id): SessionView(sessionId: id)
+                                case .space(let id): SpaceView(spaceId: id)
+                                case .reviews: ReviewsView()
+                                case .review(let id): ReviewView(reviewId: id)
+                                case .scheduled: ScheduledView()
+                                case .usage: UsageView()
+                                case .team: TeamView()
+                                }
                             }
+                            .backOnGround()
                         }
                 }
                 .renameAlert()
@@ -98,9 +101,9 @@ struct RootView: View {
     }
 }
 
-/// Something that happened, at the top of the screen for a few seconds on the glass the system's own
-/// notices wear: it never covers the composer, and leaves on its own. One that can be taken back says
-/// Undo beside its words, and stays twice as long: it is an offer still open.
+/// Something that happened, at the top of the screen for a few seconds on a card lifted over the
+/// reading, as the composer is: it never covers the composer, and leaves on its own. One that can be
+/// taken back says Undo beside its words, and stays twice as long: it is an offer still open.
 struct ToastView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -126,7 +129,8 @@ struct ToastView: View {
             .padding(.horizontal, 18)
             // Undo's own 44 points stand in for the height the words are padded to.
             .padding(.vertical, toast.undo == nil ? 12 : 0)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous))
+            .background(Fill.card, in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous))
+            .floatingLift()
             .padding(.horizontal, 24)
             .padding(.top, 8)
             .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))

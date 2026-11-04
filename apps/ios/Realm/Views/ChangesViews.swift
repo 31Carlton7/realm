@@ -41,15 +41,18 @@ struct ChangesSheet: View {
                 }
             }
             .background(Ground.grouped)
+            .softEdges(ground: Ground.grouped)
             .navigationTitle(model.turnChanges[checkpointId].map(ChangesWords.files) ?? "Changes")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: ChangedFile.self) { file in
                 DiffView(file: file, checkpointId: checkpointId, sessionId: sessionId)
+                    .backOnGround()
             }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Close", systemImage: "xmark") { dismiss() }
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
         }
     }
@@ -241,6 +244,7 @@ struct DiffView: View {
             }
         }
         .background(Ground.transcript)
+        .softEdges(ground: Ground.transcript)
         .navigationTitle(ChangesWords.name(file.path))
         .navigationSubtitle(ChangesWords.folder(file.path) ?? ChangedFileRow.word(file.status))
         .navigationBarTitleDisplayMode(.inline)
@@ -416,6 +420,7 @@ struct InlineDiff: View {
                             ToolbarItem(placement: .cancellationAction) {
                                 Button("Close", systemImage: "xmark") { opening = false }
                             }
+                            .sharedBackgroundVisibility(.hidden)
                         }
                 }
             }
@@ -492,6 +497,7 @@ struct FilePreviewSheet: View {
                 }
             }
             .background(Ground.transcript)
+            .softEdges(ground: Ground.transcript)
             .navigationTitle(name)
             .navigationSubtitle((preview?.size ?? size).map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) } ?? "")
             .navigationBarTitleDisplayMode(.inline)
@@ -499,6 +505,7 @@ struct FilePreviewSheet: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Close", systemImage: "xmark") { dismiss() }
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
             .task {
                 do {

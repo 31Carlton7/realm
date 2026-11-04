@@ -106,9 +106,11 @@ struct HomeView: View {
         // The last row scrolls clear of the New session button floating over the list's foot.
         .contentMargins(.bottom, 72, for: .scrollContent)
         .background(Ground.transcript)
+        .softEdges(ground: Ground.transcript)
         .id(ListIdentity(choice: choice, style: style))
-        // Manus's chips under the bar: what the list holds, by what it asks of the person.
-        .safeAreaInset(edge: .top, spacing: 0) {
+        // Manus's chips under the bar: what the list holds, by what it asks of the person. The list
+        // blurs and fades under them as it does under the bar.
+        .safeAreaBar(edge: .top, spacing: 0) {
             if let listing {
                 HomeChips(filter: $filter, needsYou: listing.needsYou.count, pinned: listing.pinned.count)
             }
@@ -163,6 +165,7 @@ struct HomeView: View {
                     }
                     .disabled(reconnecting)
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
             // The Mac and everything about it, at the leading corner as Manus keeps its profile.
             ToolbarItem(placement: .topBarLeading) {
@@ -173,6 +176,7 @@ struct HomeView: View {
                 }
                 .accessibilityIdentifier("home-menu")
             }
+            .sharedBackgroundVisibility(.hidden)
             .matchedTransitionSource(id: "settings", in: settingsZoom)
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -182,6 +186,7 @@ struct HomeView: View {
                 }
                 .accessibilityIdentifier("search")
             }
+            .sharedBackgroundVisibility(.hidden)
         }
         .modifier(SearchWhenAsked(query: $query, searching: $searching))
         .refreshable { await model.refresh() }
@@ -594,25 +599,75 @@ extension Binding where Value: Equatable & Sendable {
     }
 }
 
-/// The search field under Home's bar, there only once the bar's Search asks for it, as Manus's is;
-/// cancelled with nothing typed, it goes again.
+/// Home's search field, there only once the bar's Search asks for it, as Manus's is; closed, it clears
+/// what was typed and goes again.
 private struct SearchWhenAsked: ViewModifier {
     @Binding var query: String
     @Binding var searching: Bool
-    @State private var shown = false
 
     func body(content: Content) -> some View {
-        Group {
-            if shown {
-                content.searchable(text: $query, isPresented: $searching, placement: .navigationBarDrawer(displayMode: .always),
-                                   prompt: "Search sessions")
-            } else {
-                content
+        content.safeAreaBar(edge: .bottom) {
+            if searching {
+                SearchBar(prompt: "Search sessions", query: $query, focusesFirst: true) {
+                    query = ""
+                    searching = false
+                }
             }
         }
-        .onChange(of: searching) { _, now in
-            if now { shown = true } else if query.isEmpty { shown = false }
+    }
+}
+
+/// A search field at the foot, where iOS keeps its own, drawn on Realm's ground: the field on a card's
+/// capsule and the close beside it on a card's circle, both lifted as the composer is. The close shows
+/// while there is a search to end.
+struct SearchBar: View {
+    let prompt: String
+    @Binding var query: String
+    var focusesFirst = false
+    let close: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(Palette.ink2)
+                    .accessibilityHidden(true)
+                TextField(prompt, text: $query)
+                    .focused($focused)
+                    .submitLabel(.search)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .accessibilityAddTraits(.isSearchField)
+                if !query.isEmpty {
+                    Button("Clear text", systemImage: "xmark.circle.fill") { query = "" }
+                        .labelStyle(.iconOnly)
+                        .foregroundStyle(Palette.ink2)
+                }
+            }
+            .padding(.horizontal, 16)
+            .frame(minHeight: 48)
+            .background(Fill.card, in: Capsule())
+            .floatingLift()
+            if focused || !query.isEmpty {
+                Button("Close", systemImage: "xmark") {
+                    focused = false
+                    close()
+                }
+                .labelStyle(.iconOnly)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(Palette.ink)
+                .frame(width: 48, height: 48)
+                .background(Fill.card, in: Circle())
+                .floatingLift()
+                .transition(.opacity)
+            }
         }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
+        .animation(Motion.animation(reduceMotion), value: focused || !query.isEmpty)
+        .onAppear { if focusesFirst { focused = true } }
     }
 }
 

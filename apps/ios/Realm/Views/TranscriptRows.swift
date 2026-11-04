@@ -751,6 +751,7 @@ private struct OutputSheet: View {
                     .padding(16)
             }
             .background(Ground.transcript)
+            .softEdges(ground: Ground.transcript)
             .navigationTitle(title)
             .navigationSubtitle(summary)
             .navigationBarTitleDisplayMode(.inline)
@@ -758,6 +759,7 @@ private struct OutputSheet: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Close", systemImage: "xmark") { dismiss() }
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
         }
     }

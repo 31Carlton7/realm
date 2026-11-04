@@ -151,6 +151,7 @@ struct SessionView: View {
             if live && atBottom { model.markSeen(sessionId) }
         }
         .background(Ground.transcript)
+        .softEdges(ground: Ground.transcript)
         .safeAreaBar(edge: .bottom) {
             SessionFoot(sessionId: sessionId, composing: $composing, showsLatest: !atBottom && !transcript.rows.isEmpty) {
                 scrollToBottom()
@@ -176,6 +177,7 @@ struct SessionView: View {
             }
             if let row {
                 ToolbarItem(placement: .topBarTrailing) { SessionMenu(row: row) }
+                .sharedBackgroundVisibility(.hidden)
             }
         }
         .sheet(isPresented: $showsInfo) {
@@ -295,77 +297,74 @@ enum LiveActivity: Equatable {
     }
 }
 
-/// The glass at the top of the session's foot: the link's trouble in the middle, with a press to try
-/// again, and the way back to the newest row at the trailing edge, as Manus keeps its own. A turn's
-/// work is not its to say: that is the current step's card, so nothing floats over the reading while
-/// the Mac is there.
+/// The top of the session's foot, on cards lifted as the composer is: the link's trouble in the
+/// middle, with a press to try again, and the way back to the newest row at the trailing edge, as
+/// Manus keeps its own. A turn's work is not its to say: that is the current step's card, so nothing
+/// floats over the reading while the Mac is there.
 private struct SessionPill: View {
     let showsLatest: Bool
     let toLatest: () -> Void
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Namespace private var glass
     @State private var trying = false
 
     var body: some View {
         let shown = model.shownLinkStatus
         let shownLink: LinkStatus.Kind? = shown.isConnected ? nil : shown.kind
-        GlassEffectContainer(spacing: 10) {
-            ZStack(alignment: .trailing) {
-                if let away = shownLink {
-                    Button {
-                        Task {
-                            trying = true
-                            await model.refresh()
-                            trying = false
-                        }
-                    } label: {
-                        HStack(spacing: 7) {
-                            if trying || away == .connecting {
-                                ProgressView().controlSize(.small)
-                            } else {
-                                Image(systemName: away.glyph)
-                                    .foregroundStyle(away.tone.color)
-                            }
-                            // The dot keeps to the words before it, so a second line starts on Retry.
-                            Text(PillWords.away(away, reconnecting: model.linkTroubled).replacingOccurrences(of: " · ", with: "\u{00A0}· "))
-                                .font(.subheadline.weight(.medium))
-                                .foregroundStyle(Palette.ink)
-                                .multilineTextAlignment(.center)
-                        }
-                        .padding(.horizontal, 14)
-                        // As tall as its words: at the accessibility sizes they take two lines rather
-                        // than lose the Retry at their end.
-                        .padding(.vertical, 6)
-                        .frame(minHeight: 40)
+        ZStack(alignment: .trailing) {
+            if let away = shownLink {
+                Button {
+                    Task {
+                        trying = true
+                        await model.refresh()
+                        trying = false
                     }
-                    .buttonStyle(.plain)
-                    .glassEffect(.regular.interactive(), in: Capsule())
-                    .glassEffectID("pill", in: glass)
-                    .disabled(trying || away == .connecting)
-                    .accessibilityHint("Tries to reach your Mac again")
-                    .frame(maxWidth: .infinity)
-                    // Clear of the way to the newest row beside it.
-                    .padding(.horizontal, 56)
-                }
-                if showsLatest {
-                    Button(action: toLatest) {
-                        Image(systemName: "arrow.down")
-                            .font(.system(size: 17, weight: .semibold))
+                } label: {
+                    HStack(spacing: 7) {
+                        if trying || away == .connecting {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: away.glyph)
+                                .foregroundStyle(away.tone.color)
+                        }
+                        // The dot keeps to the words before it, so a second line starts on Retry.
+                        Text(PillWords.away(away, reconnecting: model.linkTroubled).replacingOccurrences(of: " · ", with: "\u{00A0}· "))
+                            .font(.subheadline.weight(.medium))
                             .foregroundStyle(Palette.ink)
-                            .frame(width: 40, height: 40)
+                            .multilineTextAlignment(.center)
                     }
-                    .buttonStyle(.plain)
-                    .glassEffect(.regular.interactive(), in: Circle())
-                    .glassEffectID("latest", in: glass)
-                    .accessibilityLabel("Latest")
-                    .accessibilityHint("Scrolls to the newest message")
-                    .accessibilityShowsLargeContentViewer()
-                    .padding(.trailing, 16)
+                    .padding(.horizontal, 14)
+                    // As tall as its words: at the accessibility sizes they take two lines rather
+                    // than lose the Retry at their end.
+                    .padding(.vertical, 6)
+                    .frame(minHeight: 40)
                 }
+                .buttonStyle(.plain)
+                .background(Fill.card, in: Capsule())
+                .floatingLift()
+                .disabled(trying || away == .connecting)
+                .accessibilityHint("Tries to reach your Mac again")
+                .frame(maxWidth: .infinity)
+                // Clear of the way to the newest row beside it.
+                .padding(.horizontal, 56)
             }
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            if showsLatest {
+                Button(action: toLatest) {
+                    Image(systemName: "arrow.down")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Palette.ink)
+                        .frame(width: 40, height: 40)
+                }
+                .buttonStyle(.plain)
+                .background(Fill.card, in: Circle())
+                .floatingLift()
+                .accessibilityLabel("Latest")
+                .accessibilityHint("Scrolls to the newest message")
+                .accessibilityShowsLargeContentViewer()
+                .padding(.trailing, 16)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .trailing)
         .animation(Motion.animation(reduceMotion), value: showsLatest)
         .animation(Motion.animation(reduceMotion), value: shownLink)
     }
@@ -495,46 +494,42 @@ private struct FootChips: View {
 
     var body: some View {
         ScrollView(.horizontal) {
-            GlassEffectContainer(spacing: 8) {
-                HStack(spacing: 8) {
-                    SubagentsChip(sessionId: sessionId)
-                    if let checkpointId, model.turnChanges[checkpointId]?.totalFiles != 0 {
-                        Button {
-                            reviewing = true
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "plusminus")
-                                Text("Review changes")
-                                if let changes = model.turnChanges[checkpointId], changes.countsLines {
-                                    LineCounts(additions: changes.additions, deletions: changes.deletions)
-                                }
+            HStack(spacing: 8) {
+                SubagentsChip(sessionId: sessionId)
+                if let checkpointId, model.turnChanges[checkpointId]?.totalFiles != 0 {
+                    Button {
+                        reviewing = true
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plusminus")
+                            Text("Review changes")
+                            if let changes = model.turnChanges[checkpointId], changes.countsLines {
+                                LineCounts(additions: changes.additions, deletions: changes.deletions)
                             }
-                            .font(.subheadline.weight(.medium))
                         }
-                        .buttonStyle(.glass)
-                        .buttonBorderShape(.capsule)
-                        .task(id: checkpointId) { await model.loadChanges(checkpointId, in: sessionId) }
-                        .sheet(isPresented: $reviewing) {
-                            ChangesSheet(checkpointId: checkpointId, sessionId: sessionId)
-                        }
+                        .font(.subheadline.weight(.medium))
                     }
-                    if let hint {
-                        Button {
-                            useHint(hint)
-                        } label: {
-                            Label(hint, systemImage: "arrow.turn.down.right")
-                                .font(.subheadline)
-                                .lineLimit(1)
-                                .frame(maxWidth: 260, alignment: .leading)
-                        }
-                        .buttonStyle(.glass)
-                        .buttonBorderShape(.capsule)
-                        .accessibilityLabel("Suggested reply: \(hint)")
-                        .accessibilityHint("Puts it in the message field")
+                    .buttonStyle(ChipButtonStyle())
+                    .task(id: checkpointId) { await model.loadChanges(checkpointId, in: sessionId) }
+                    .sheet(isPresented: $reviewing) {
+                        ChangesSheet(checkpointId: checkpointId, sessionId: sessionId)
                     }
                 }
-                .padding(.horizontal, 12)
+                if let hint {
+                    Button {
+                        useHint(hint)
+                    } label: {
+                        Label(hint, systemImage: "arrow.turn.down.right")
+                            .font(.subheadline)
+                            .lineLimit(1)
+                            .frame(maxWidth: 260, alignment: .leading)
+                    }
+                    .buttonStyle(ChipButtonStyle())
+                    .accessibilityLabel("Suggested reply: \(hint)")
+                    .accessibilityHint("Puts it in the message field")
+                }
             }
+            .padding(.horizontal, 12)
         }
         .scrollIndicators(.hidden)
         .scrollClipDisabled()

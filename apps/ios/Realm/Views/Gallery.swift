@@ -125,6 +125,7 @@ struct AttachmentGallery: View {
                 }
             }
             .background(Ground.transcript)
+            .softEdges(ground: Ground.transcript)
             .navigationTitle(showsAll ? "\(pages.files.count) files" : file.name)
             .navigationSubtitle(showsAll ? "" : pages.position(page))
             .navigationBarTitleDisplayMode(.inline)
@@ -132,6 +133,7 @@ struct AttachmentGallery: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Close", systemImage: "xmark") { dismiss() }
                 }
+                .sharedBackgroundVisibility(.hidden)
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if pages.files.count > 1 {
                         Button(showsAll ? "Show one" : "Show all", systemImage: showsAll ? "rectangle" : "square.grid.2x2") {
@@ -149,6 +151,7 @@ struct AttachmentGallery: View {
                         }
                     }
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
         }
     }

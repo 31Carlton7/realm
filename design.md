@@ -1090,6 +1090,16 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   the quieter words, the goal and the plan's count over its hairline. Each part opens its own thing:
   the goal its sheet, the plan its items in place. Between turns it is only the goal and the plan,
   and its one colour is amber for Blocked; working is the spinner, in ink.
+- On the phone, no Liquid Glass and no material, anywhere: not on a bar or its buttons, the
+  composer or the chips over it, a sheet's bar or its Close, the search field, a toast. A bar over
+  scrolling content draws the Photos edge instead — what passes under it blurs softly and fades into
+  the ground toward the screen's edge (`softEdges`), so the bar's words stay legible and no band or
+  line marks where the content stops. Every bar gets it: Home's top and its chips, a session's top
+  and its foot, a space's page, the Team, a sheet's list, the search field. Buttons sit on Realm's
+  own ground: a bar's glyph in ink with nothing round it, a control floating over the reading on a
+  card lifted as the composer is (the owner, 11-04, of the glass bar and the blur behind the
+  composer: "I want it to revert back to the old blur that we had before… similar to the Apple
+  Photos").
 - A phone's row never takes more width than it is offered. One work line set at its own width — a
   connector's full name, `mcp__realm__realm-agent__agent_start` — widened the column, and every row
   and the composer under them slid off the screen's left edge. The verb yields last but can still be

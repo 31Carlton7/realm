@@ -247,8 +247,7 @@ struct SubagentsChip: View {
                 }
                 .font(.subheadline.weight(.medium))
             }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.capsule)
+            .buttonStyle(ChipButtonStyle())
             .accessibilityLabel(label.words)
             .accessibilityValue(SubagentWords.rollup(subagents.map(SubagentState.init), separator: ", "))
             .accessibilityHint("Lists them")
@@ -292,6 +291,7 @@ struct SubagentsSheet: View {
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .background(Ground.grouped)
+            .softEdges(ground: Ground.grouped)
             .navigationTitle("Sub-agents")
             .navigationSubtitle(SubagentWords.rollup(subagents.map(SubagentState.init)))
             .navigationBarTitleDisplayMode(.inline)
@@ -302,6 +302,7 @@ struct SubagentsSheet: View {
                     Button(role: .close) { dismiss() }
                         .accessibilityLabel("Close")
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
         }
         // At the accessibility sizes half the screen holds less than a row.

@@ -103,13 +103,16 @@ struct TeamView: View {
         .listSectionSpacing(HomeView.sectionSpacing)
         .scrollContentBackground(.hidden)
         .background(Ground.transcript)
+        .softEdges(ground: Ground.transcript)
         .navigationTitle("Team")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 NewTeammateButton(spaceId: teammates.first { shown.contains($0.spaceId) }?.spaceId ?? spaces.first?.id)
             }
+            .sharedBackgroundVisibility(.hidden)
             ToolbarItem(placement: .topBarTrailing) { EditButton() }
+            .sharedBackgroundVisibility(.hidden)
         }
         .refreshable { await model.work.loadTeam() }
     }

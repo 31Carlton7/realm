@@ -98,17 +98,16 @@ struct SessionInfoSheet: View {
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .background(Ground.grouped)
+            .softEdges(ground: Ground.grouped)
             .navigationTitle(row?.displayTitle ?? "Session")
             .navigationBarTitleDisplayMode(.inline)
-            // The scroll edge only fades the rows: pulled up and scrolled, they read through the title.
-            .toolbarBackground(Ground.grouped, for: .navigationBar)
-            .toolbarBackgroundVisibility(.visible, for: .navigationBar)
             .toolbar {
                 // At the trailing corner, as every sheet whose only control is its close has it.
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(role: .close) { dismiss() }
                         .accessibilityLabel("Close")
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
         }
         // At the accessibility sizes half the screen holds less than the first section.

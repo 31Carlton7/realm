@@ -57,7 +57,6 @@ struct HomeChips: View {
                 .padding(.trailing, 8)
         }
         .padding(.vertical, 6)
-        .background(Ground.transcript)
         .sensoryFeedback(.selection, trigger: filter)
         // A chip whose sessions are gone leaves the list on All, never on an empty choice.
         .onChange(of: needsYou) { _, count in if count == 0, filter == .needsYou { filter = .all } }

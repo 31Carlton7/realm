@@ -18,16 +18,20 @@ struct SettingsSheet: View {
         NavigationStack {
             SettingsView()
                 .navigationDestination(for: SettingsRoute.self) { route in
-                    switch route {
-                    case .diagnostics: DiagnosticsView()
-                    case .licences: LicencesView()
+                    Group {
+                        switch route {
+                        case .diagnostics: DiagnosticsView()
+                        case .licences: LicencesView()
+                        }
                     }
+                    .backOnGround()
                 }
                 .toolbar {
                     // Manus's close, at the trailing corner.
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("Close", systemImage: "xmark") { dismiss() }
                     }
+                    .sharedBackgroundVisibility(.hidden)
                 }
         }
     }
@@ -202,6 +206,7 @@ struct SettingsView: View {
         .listSectionSpacing(28)
         .scrollContentBackground(.hidden)
         .background(Ground.grouped)
+        .softEdges(ground: Ground.grouped)
         .contentMargins(.top, 12, for: .scrollContent)
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
@@ -310,6 +315,7 @@ struct LicencesView: View {
             .padding(20)
         }
         .background(Ground.grouped)
+        .softEdges(ground: Ground.grouped)
         .navigationTitle("Fonts")
         .navigationBarTitleDisplayMode(.inline)
     }

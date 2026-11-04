@@ -36,12 +36,12 @@ struct MoveSheet: View {
             .scrollContentBackground(.hidden)
             .navigationTitle("Move this session")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(Ground.grouped, for: .navigationBar)
-            .toolbarBackgroundVisibility(.visible, for: .navigationBar)
+            .softEdges(ground: Ground.grouped)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Close", systemImage: "xmark") { dismiss() }
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
             // On a ground of their own, so the list ends above the buttons rather than running under them.
             .safeAreaInset(edge: .bottom, spacing: 0) {

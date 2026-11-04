@@ -190,7 +190,7 @@ struct PlaceChip {
     let open: () -> Void
 }
 
-/// A chip's face: quiet words with a glyph and a chevron, drawn on the composer's own glass rather than
+/// A chip's face: quiet words with a glyph and a chevron, drawn on the composer's own card rather than
 /// as a pill of their own. Its touch is a full 44 points tall. Off, it greys itself: a menu that is off
 /// leaves a label's own inks as they are.
 struct ChipLabel<Icon: View>: View {
@@ -352,6 +352,7 @@ struct SettingsSheetFrame<Content: View>: View {
             Form { content }
                 .scrollContentBackground(.hidden)
                 .background(Ground.grouped)
+                .softEdges(ground: Ground.grouped)
                 .navigationTitle(title)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -368,6 +369,7 @@ struct SettingsSheetFrame<Content: View>: View {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("Close", systemImage: "xmark") { dismiss() }
                     }
+                    .sharedBackgroundVisibility(.hidden)
                 }
         }
         .presentationDetents([.medium, .large])

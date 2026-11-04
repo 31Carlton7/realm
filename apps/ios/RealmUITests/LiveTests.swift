@@ -154,7 +154,7 @@ final class LiveTests: XCTestCase {
         shot("file-preview")
         app.navigationBars.buttons["Close"].firstMatch.tap()
         // A turn under way: the pill says how long it has worked, and the way back to the newest row
-        // slides out of the same glass once the reader scrolls away.
+        // slides in beside it once the reader scrolls away.
         let message = app.textViews["Message"].exists ? app.textViews["Message"] : app.textFields["Message"]
         message.tap()
         message.typeText("keep working on the review")
@@ -244,8 +244,8 @@ final class LiveTests: XCTestCase {
                   "the session did not open at its newest message")
     }
 
-    /// Reduce Transparency, set on the Simulator by the script: the glass the composer and the bars
-    /// wear goes solid enough to read on.
+    /// Reduce Transparency, set on the Simulator by the script: the bars' words stay legible over the
+    /// soft edges under them.
     @MainActor
     func test6_reduceTransparency() throws {
         launch()
@@ -390,7 +390,7 @@ final class LiveTests: XCTestCase {
         // While it searches, the page gives its bar to the field; the button beside the field ends the
         // search and gives the bar back.
         let field = app.searchFields.firstMatch.frame
-        let close = app.buttons.allElementsBoundByIndex.first { $0.frame.minX >= field.maxX && abs($0.frame.midY - field.midY) < 20 }
+        let close = app.buttons.allElementsBoundByIndex.first { $0.label == "Close" && $0.frame.minX >= field.maxX && abs($0.frame.midY - field.midY) < 20 }
         try XCTUnwrap(close, "nothing beside the search field ends it").tap()
         back()
         showProfile("Work")
@@ -813,7 +813,7 @@ final class LiveTests: XCTestCase {
         try composerTour(prefix: "ax", ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
     }
 
-    /// Reduce Transparency, set on the Simulator by the script: the composer's glass goes solid.
+    /// Reduce Transparency, set on the Simulator by the script: the composer reads over the soft edge.
     @MainActor
     func testC6_reduceTransparency() throws {
         try composerTour(prefix: "rt")
