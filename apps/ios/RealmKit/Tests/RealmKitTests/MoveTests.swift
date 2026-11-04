@@ -111,7 +111,6 @@ struct MoveTests {
         #expect(["the terminal", ".env", "a background task (stopped)"].map(MoveWords.leftBehind) == ["The terminal", ".env", "A background task (stopped)"])
         #expect(MoveWords.changes(0) == nil)
         #expect(MoveWords.changes(1) == "1 changed file, uncommitted")
-        #expect(MoveWords.conversation(.notes, agent: "Cursor") == "Cursor starts fresh there, handed the conversation as notes.")
     }
 
     @Test func aMacBeforeStopsSaysNothingOfThem() throws {
@@ -127,5 +126,10 @@ struct MoveTests {
         #expect(worktree == ["kind": "worktree"])
         #expect(checkout == ["kind": "checkout", "environmentId": "e1"])
         #expect(String(data: try JSONEncoder().encode(MoveWhen.afterTurn), encoding: .utf8) == #""after-turn""#)
+    }
+
+    @Test func theSheetPromisesNoResumeTheAgentCanDecline() {
+        #expect(MoveWords.conversation(.native, agent: "Claude") == "Claude picks up where it left off, or from notes if it can't.")
+        #expect(MoveWords.conversation(.notes, agent: "Cursor") == "Cursor continues from notes.")
     }
 }
