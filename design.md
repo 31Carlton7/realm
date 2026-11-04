@@ -221,14 +221,31 @@ Rules:
   token of its own (`--rl-object-shadow`, the owner's 10-05 rule that they all match). A picture in the
   transcript stays its own frame. Floating things — menus, popovers, sheets, toasts — are not cards:
   they hang over whatever is behind them, and keep the overlay stack's edge.
-- The window is chrome round a sheet. The rail and the head row across the whole window — the
-  traffic lights, the sidebar's head, every pane's top bar — are one ground, a step off the
-  sidebar's; the work sits below and beside them in one sheet, under a rim that runs along its top
-  and down its left edge and rounds the corner where they meet. Move the CHROME a step, not the
-  sheet: the sheet's grounds are the ones the translucency controls are calibrated on. The rim is
-  the rung lighter than both sides of it, as Codex's is (chrome 60, sheet 47, rim 65, measured).
-  A corner over a translucent ground is a hole in that ground with the chrome laid in it — tinting
-  over the ground instead composites twice and reads a shade darker than the rail beside it.
+- No liquid glass, and no translucent slab, anywhere (the owner, 11-04: "I don't want this liquid
+  glass like nav background anywhere else in the app"). A bar, a menu, a sheet, a card or a button
+  never wears a backdrop blur or a see-through fill of its own. The window's material shows through
+  two grounds only, each on its own control: the sidebar's column, and the panes' one ground from
+  their bar down.
+- Chrome over scrolling content takes the edge blur, the Photos toolbar's treatment: the content
+  softens and runs out as it reaches the bar, and no band is drawn. Two parts, each doing one job.
+  The scroller's mask (`data-dissolve`, depth `--fade-h` / `--fade-top-h`) takes the content's alpha
+  to zero, so the fade reveals the ground that was always there. The bands (`.edge-blur`, from
+  `EdgeBlur` beside the scroller) take its detail: a shallow blur at the boundary
+  (`--fade-blur-near`, 2px) ramped in over the band's first 60%, and a deeper one (`--fade-blur-far`,
+  6px) over its outer part, with no fill, so nothing has an edge. The scroller's parent is the bands'
+  backdrop root: a blur that reached the translucent window ground laid a grey stripe with a 2–4
+  level step at its end, measured on a real capture. The transcript (under the pane bar and the
+  prompter) and a page's column wear it; Low Power drops the bands and keeps the mask.
+- Everything else is a plain surface. Menus, popovers, sheets, the palette, toasts and quick chat
+  are `--surface` with the overlay stack's edge; cards are their fill and lift. Nothing scrolls under
+  them, so a blur there has nothing to say. A scrim that dims what is behind a modal is a dim, not a
+  material.
+- The window is chrome beside a sheet. The rail and the sidebar's head row are one ground, a step off
+  the sidebar's; the sidebar's list sits under a rim that runs along its top and down its left edge
+  and rounds the corner. The panes take none of it: their bar row is the panes' own ground, and the
+  line between them and the column is `.main`'s border. Move the CHROME a step, not the sheet: the
+  grounds are the ones the translucency controls are calibrated on. The rim is the rung lighter than
+  both sides of it, as Codex's is (chrome 60, sheet 47, rim 65, measured).
 - The sidebar's column stands a hair above the chrome: a very light shade off its LEFT edge, over the
   rail (the owner, 10-05: "on the outside of it… a little bit elevated"), and none on the panes' edge.
   A shadow belongs to what stands up and keeps to its shape: round the corner it runs out before the
@@ -335,12 +352,11 @@ Rules:
 - Green, orange, and red communicate state. Never use them as decorative brand colors.
 - Images and screenshots get a one-device-pixel inset outline: pure white at low opacity on dark
   surfaces, pure black at low opacity on light surfaces.
-- Never put a backdrop blur over a translucent window surface. A filter blurs the window's own
-  transparency and composites toward black, so the band reads as a dark smudge. Since the panes show
-  the window's material too, that now means every surface in the app: a scrolling edge is dissolved
-  by masking the SCROLLER, which paints nothing, and what it reveals is whatever was always behind
-  the text. A wash to a fixed tone is wrong there for the same reason — it stripes a translucent
-  surface with a colour the material shows straight through.
+- Never let a backdrop blur reach a translucent window surface. A filter over the window's own
+  transparency composites toward the material, so the band reads as a smudge. The edge blur keeps
+  its backdrop inside the scroller's parent for exactly this reason, and the fade itself is the
+  scroller's mask, which paints nothing. A wash to a fixed tone is wrong for the same reason — it
+  stripes a translucent surface with a colour the material shows straight through.
 - Translucency is not free and is not uniform. What shows through a pane is the desktop, which nobody
   chose, so the alpha is derived from the type it has to carry rather than picked by eye: the sidebar
   holds labels and goes to 55%, a pane holds the reading and stops where body text would cross WCAG
@@ -372,11 +388,11 @@ Rules:
   whose caret can be on any line. A surface with a shadow never takes the mask itself; its rows
   scroll inside it. `styles.test.ts` holds every scroller in the stylesheet to one or the other.
 - Chrome that lives INSIDE a scroller dissolves with it, and nothing can lift it out: a mask applies
-  to everything the element paints, whatever its stacking order. That is survivable because a mask
-  takes alpha rather than detail — a filter bar scrolling into the dissolve keeps its edges and reads
-  as a control leaving, where the blur this replaced destroyed them and read as a broken render. So
-  chrome that must stay legible while the content moves belongs OUTSIDE the scroller, and a z-index
-  on a control inside one is a claim the browser ignores.
+  to everything the element paints, whatever its stacking order, and so does an edge blur laid over
+  it. Where the scroller only has the mask, a filter bar scrolling into the dissolve keeps its edges
+  and reads as a control leaving; under the edge blur it softens like the prose around it. So chrome
+  that must stay legible while the content moves belongs OUTSIDE the scroller, and a z-index on a
+  control inside one is a claim the browser ignores.
 - A decorative colour wash belongs on a surface a person passes through, such as a feed — never on a
   page asking someone to decide something, which is why first run stays plain and earns its presence
   from the mark, the type and the two agents' own marks instead. A page of controls someone sits on
@@ -1065,7 +1081,7 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
 - Never invent human-like agent presence, mood, or certainty.
 - On the phone, nothing floats over the reading while the Mac is there. A turn's state is the live
   line at the transcript's foot — "Working · 2m 14s" where its next words will come, as ChatGPT says
-  "Thinking" — and the glass over the composer is only for what wants a press: the link's trouble,
+  "Thinking" — and what floats over the composer is only what wants a press: the link's trouble,
   the way back to the newest row. A "Working" capsule over the queue read as a button and said what
   the bar's subtitle already said (the owner, 10-26: "looks ugly in general").
 - A phone's row never takes more width than it is offered. One work line set at its own width — a

@@ -57,26 +57,19 @@ export function useScrollEdges(ref: RefObject<HTMLElement | null>, axis: "y" | "
 /**
  * The dissolve itself: a MASK on the scroller, marked up as `data-dissolve` for the stylesheet.
  *
- * This used to be two absolutely-positioned bands that blurred their backdrop and washed to the
- * pane's ground. Both halves of that only work over an OPAQUE surface, and the panes are no longer
- * opaque — they are the window ground at `--ground-alpha` over the macOS material, the way the
- * sidebar's column has always been. A backdrop-filter over a translucent surface filters the
- * window's own transparency and composites toward black, so the band renders as a dark smudge; a
- * wash to a fixed tone stripes the surface with a colour the material shows straight through.
- * `styles.css` carries the same finding against the sidebar's list, which has been masked for
- * exactly this reason and is the surface this now matches.
- *
  * A mask paints nothing. Over its last `--fade-h` the content's own alpha runs to zero and what is
- * revealed is whatever was always behind it — the material, or the opaque page tone under reduced
- * transparency. It needs no sibling element, no fallback, and no second frame of filtering per
- * scroll, which is most of what the fade bands cost the battery.
+ * revealed is whatever was always behind it — the pane's ground, the material under the sidebar, or
+ * the opaque page tone under reduced transparency — so it is right on every surface without being
+ * told which one it is on. Where chrome sits over the scroller, `EdgeBlur` (below) softens the
+ * content on its way out as well.
  *
  * Written as an attribute rather than as an inline style so the depths stay in the stylesheet with
  * the rest of the fade tokens: a surface that wants a shallower top band sets `--fade-top-h`, and
  * the mask follows it.
  */
 export function useDissolve(ref: RefObject<HTMLElement | null>, axis: "y" | "x" = "y") {
-  const { start, end } = useScrollEdges(ref, axis);
+  const edges = useScrollEdges(ref, axis);
+  const { start, end } = edges;
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -88,6 +81,27 @@ export function useDissolve(ref: RefObject<HTMLElement | null>, axis: "y" | "x" 
        no ends named, both depths run to zero and the dissolve fades out instead. */
     el.dataset[key] = [start ? "start" : "", end ? "end" : ""].filter(Boolean).join(" ");
   });
+  return edges;
+}
+
+/**
+ * The edge blur: the progressive blur a scroller wears where chrome sits over it — the pane bar
+ * above the transcript, the prompter below it, a page's column under the pane bar. Content blurs
+ * softly as it nears the bar, the way Photos dissolves a grid under its toolbar, and no slab is
+ * drawn: each band is two backdrop-blurred layers whose masks ramp them in, so nothing has an edge.
+ *
+ * The bands are SIBLINGS of the scroller, laid in its positioned parent, because a backdrop-filter
+ * inside the scroller would be faded by the scroller's own mask. The fade is still the mask's
+ * (`useDissolve`); the bands only take the detail out of what is fading. Only chrome over content
+ * gets one: a menu, a sheet or a list in a card keeps the mask alone on its plain surface.
+ */
+export function EdgeBlur({ start, end }: { start: boolean; end: boolean }) {
+  return (
+    <>
+      <div className="edge-blur" data-edge="top" data-on={start || undefined} aria-hidden="true" />
+      <div className="edge-blur" data-edge="bottom" data-on={end || undefined} aria-hidden="true" />
+    </>
+  );
 }
 
 /**
@@ -134,9 +148,10 @@ export function PageScroll({ children, wide = false }: { children: ReactNode;
    *  of files, the Tasks lens — rather than one of prose. */
   wide?: boolean }) {
   const scroller = useRef<HTMLDivElement>(null);
+  const edges = useDissolve(scroller);
   return (
     <div className="page-scroll">
-      <ScrollFades scroller={scroller} />
+      <EdgeBlur {...edges} />
       <div className="page-content" ref={scroller} data-wide={wide || undefined}>{children}</div>
     </div>
   );

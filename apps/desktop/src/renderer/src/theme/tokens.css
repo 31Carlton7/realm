@@ -445,13 +445,13 @@ a {
      real window. A smaller control that wants the prompter's SHAPE multiplies its own height by
      this rather than copying 36, which on a 30px field would be a pill rather than a squircle. */
   /* ── Edge dissolves ───────────────────────────────────────────────────────────────────────────
-     How deep a scroller's content runs out at each end. The depths are all that is left of this:
-     the dissolve is a mask on the scroller now (styles.css, `[data-dissolve]`), so there is no blur
-     strength and no colour to wash to — a mask paints nothing, and what it reveals is whatever was
-     behind the text on that surface. The blurs it replaced could not survive the panes becoming
-     translucent, and they were never the reason it read well: the point of the effect is that you
-     do not notice it, and content that seems to RUN OUT is quieter than content that passes under
-     something. */
+     A scroller's content runs out at each end through a mask (styles.css, `[data-dissolve]`), and
+     where chrome sits over it the edge blur softens it on the way (`.edge-blur`). These are the
+     blur's two strengths, near the boundary and deeper in. Tuned down from 3/11: at those values the
+     band read as a frosted strip laid over the content. The point is that you do not notice it:
+     content should seem to run out rather than to pass under something. */
+  --fade-blur-near: 2px;
+  --fade-blur-far: 6px;
   /* How far the sidebar sits off the window's edges. Small: the point is that the surface is
      detached, not that it is floating in space. */
   --sidebar-inset: 8px;
