@@ -11133,16 +11133,14 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .tm-clock-prompt > textarea { flex: 1; min-height: 52px; }
 
 /* ── Voice mode (voice/VoiceView.tsx) ──
-   The whole window, on the panes' ground: the window's own material under the canvas, so it reads as
-   a layer of the window rather than a page pasted over it. The panes' alpha and not the sidebar's,
-   because its caption is reading, and the sidebar's range is drawn for labels. It fades in while the shell under
-   it fades out — one cross-fade, no scrim — and once it is in, the shell stops painting, so what shows
-   through is the material and never the panes. One thing at its centre — the voice that is talking,
-   as a few bars, with its words and the line saying what is happening right under them — and the
+   The whole window, on the working ground, opaque: nothing of the window's material shows through,
+   and it is not a bar over content, so it has no blur either. It fades in while the shell under it
+   fades out — one cross-fade, no scrim — and once it is in, the shell stops painting. One thing at
+   its centre — the voice that is talking, as a few bars, with its words and the line saying what is happening right under them — and the
    controls at the foot where the prompter stands. Nothing here is a card. */
 .voice-view {
   position: fixed; inset: 0; z-index: 75; display: flex; flex-direction: column; outline: none;
-  background: var(--pane-ground); color: var(--rl-text-bright);
+  background: var(--rl-panel); color: var(--rl-text-bright);
   animation: rl-fade-in var(--dur-swap) var(--ease-out-strong);
 }
 body:has(> .voice-view) .app { opacity: 0; transition: opacity var(--dur-swap) var(--ease-out-strong); }
