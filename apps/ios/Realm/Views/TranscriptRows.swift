@@ -10,9 +10,12 @@ struct TranscriptRowView: View {
     let sessionId: String
     /// The changes of this row's turn, which a tool line's diff is read from.
     var checkpointAfter: String?
+    @Environment(\.newestTeammateCalls) private var newestTeammateCalls
 
     var body: some View {
         switch row.content {
+        case .user(let text) where row.fromTeammate != nil:
+            if let teammateId = row.fromTeammate { TeammateSaid(teammateId: teammateId, text: text) }
         case .user(let text):
             VStack(alignment: .trailing, spacing: 6) {
                 if !text.isEmpty { UserBubble(text: text) }
@@ -25,6 +28,10 @@ struct TranscriptRowView: View {
                 if streaming {
                     LiveLine(word: "Writing")
                 }
+            }
+        case .tool(_, _, let state, _) where row.teammateCall != nil:
+            if let call = row.teammateCall {
+                TeammateCallLine(call: call, state: state, newest: newestTeammateCalls.contains(row.key))
             }
         case .thinking, .tool:
             WorkRun(rows: [row], sessionId: sessionId, checkpointAfter: checkpointAfter)

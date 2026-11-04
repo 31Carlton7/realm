@@ -235,8 +235,11 @@ struct HomeListing {
     let isFiltered: Bool
     private let spacesById: [String: Space]
 
+    /// `teamChats`: the sessions that are teammates' chats, which Home's Team lists as the teammates. They
+    /// are not listed again as sessions, as the Mac's sidebar lists a thing once — except in Needs you,
+    /// and in a search, where the Team is not shown.
     init(home: Home, choice: ProfileChoice, options: ListOptions = ListOptions(), query: String = "",
-         now: Date = Date(), calendar: Calendar = .current) {
+         now: Date = Date(), calendar: Calendar = .current, teamChats: Set<String> = []) {
         let words = query.trimmingCharacters(in: .whitespacesAndNewlines)
         isFiltered = !words.isEmpty
         let spacesById = Dictionary(home.spaces.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -244,9 +247,11 @@ struct HomeListing {
         let inScope = { (row: SessionRow) in
             spacesById[row.spaceId].map(choice.includes) ?? (choice == .all)
         }
-        let matches = { (row: SessionRow) in row.matches(words) }
+        let found = { (row: SessionRow) in row.matches(words) }
+        let hidden = words.isEmpty ? teamChats : []
+        let matches = { (row: SessionRow) in !hidden.contains(row.id) && found(row) }
         let waiting = home.needsYou.filter(inScope)
-        needsYou = options.needsYouFirst ? waiting.filter(matches) : []
+        needsYou = options.needsYouFirst ? waiting.filter(found) : []
         elsewhere = isFiltered ? [] : Self.elsewhere(home, choice: choice)
         let place = Dictionary(home.spaces.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
         var seen = Set<String>()

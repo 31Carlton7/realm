@@ -39,6 +39,8 @@ struct SessionView: View {
         let items = TranscriptLayout.items(transcript.rows.filter { !$0.isRequest(footRequest) && !$0.changedNothing },
                                            settled: status != .running && status != .waiting)
         let drawn = items.suffix(shown)
+        // A teammate's chat is headed by the teammate, and its replies are the teammate's.
+        let teammate = model.work.teammate(chat: sessionId)
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 if drawn.count < items.count, let first = drawn.first {
@@ -71,7 +73,9 @@ struct SessionView: View {
                 let replies = TranscriptLayout.replyStarts(Array(drawn))
                 ForEach(drawn) { item in
                     VStack(alignment: .leading, spacing: 10) {
-                        if replies.contains(item.id), let row {
+                        if replies.contains(item.id), let teammate {
+                            TeammateSpeaker(teammate: teammate)
+                        } else if replies.contains(item.id), let row {
                             SpeakerLabel(session: row)
                         }
                         TranscriptItemView(item: item, sessionId: sessionId)
@@ -80,6 +84,7 @@ struct SessionView: View {
                     .freshEntrance(born: item.firstKey.flatMap { model.rowBirths[$0] })
                     .id(item.id)
                 }
+                .environment(\.newestTeammateCalls, TeammateCallState.newest(in: transcript.rows))
                 // Thinking is said where the next words will come, as Manus says it; what the turn is
                 // doing otherwise, and for how long, is the current step's card over the composer.
                 if transcript.isLive, status == .running, LiveActivity.of(transcript.rows) == .thinking {
@@ -151,7 +156,7 @@ struct SessionView: View {
                 scrollToBottom()
             }
         }
-        .navigationTitle(row?.displayTitle ?? "Session")
+        .navigationTitle(teammate?.name ?? row?.displayTitle ?? "Session")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             // The title and its line open the session's info, as a contact's name heads Messages.
@@ -159,7 +164,11 @@ struct SessionView: View {
                 Button {
                     showsInfo = true
                 } label: {
-                    SessionTitle(title: row?.displayTitle ?? "Session", subtitle: subtitle(transcript))
+                    if let teammate {
+                        TeammateTitle(teammate: teammate, connected: model.isConnected)
+                    } else {
+                        SessionTitle(title: row?.displayTitle ?? "Session", subtitle: subtitle(transcript))
+                    }
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint("Shows the session's info")
@@ -702,10 +711,12 @@ extension TranscriptRow {
 }
 
 private extension TranscriptRow {
-    /// A tool call or thinking: the work, as against what was said.
+    /// A tool call or thinking: the work, as against what was said. A message to a teammate is not:
+    /// it stands on its own, as the teammate it went to.
     var isWork: Bool {
         switch content {
-        case .tool, .thinking: true
+        case .tool: teammateCall == nil
+        case .thinking: true
         default: false
         }
     }
@@ -714,7 +725,8 @@ private extension TranscriptRow {
     /// way to the answer and the quiet notices; in a turn still going, only the work gathers.
     func folds(finished: Bool) -> Bool {
         switch content {
-        case .tool, .thinking: true
+        case .tool: teammateCall == nil
+        case .thinking: true
         case .assistant: finished
         // A move is where the session went, which a reader of the turn above it needs to see.
         case .notice: finished && checkpointId == nil && (madeFiles ?? []).isEmpty && move == nil

@@ -25,7 +25,9 @@ struct HomeView: View {
         let home = model.store.home.map { model.rowEdits.applied(to: $0) }
         let choice = model.profileChoice
         let options = ListOptions(style: style, spaceOrder: spaceOrder, needsYouFirst: needsYouFirst)
-        let listing = home.map { HomeListing(home: $0, choice: choice, options: options, query: query, now: now) }
+        let team = home.map { TeamListing.teammates(model.work.teammates ?? [], in: $0, choice: choice) } ?? []
+        let listing = home.map { HomeListing(home: $0, choice: choice, options: options, query: query, now: now,
+                                             teamChats: Set(team.compactMap(\.chatId))) }
         let unsent = UnsentSession.list(outbox: model.store.outbox, home: home, connected: model.isConnected)
         let shown = model.shownLinkStatus
         // A Mac that names its profiles pages a space's sessions too; an older one has only Home's few.
@@ -72,6 +74,9 @@ struct HomeView: View {
                             Image(systemName: "arrow.up.circle.fill").foregroundStyle(Palette.ink2)
                         }
                     }
+                }
+                if filter == .all, !listing.isFiltered, !team.isEmpty, let home {
+                    TeamSection(teammates: team, spaces: TeamListing.spaces(of: team, in: home))
                 }
                 ForEach(filter == .all ? listing.sections : []) { section in
                     Section {
