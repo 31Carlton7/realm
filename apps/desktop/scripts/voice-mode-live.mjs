@@ -179,10 +179,10 @@ async function uiOnly(c, api, id) {
   await shot(c, "ui-2-speaking");
   check("the reply is read back, its sentence on screen", !!speaking.caption, speaking);
   await until(async () => (await view(c))?.phase === "listening", 60_000, "back to listening");
-  await evalIn(c, `document.querySelector('.voice-control[aria-label="Mute"]')?.click(), true`);
+  await evalIn(c, `document.querySelector('.voice-key:first-child')?.click(), true`);
   await sleep(300);
   await shot(c, "ui-3-muted");
-  await evalIn(c, `document.querySelector('.voice-control[aria-label="End voice mode"]')?.click(), true`);
+  await evalIn(c, `document.querySelector('.voice-key[data-key="end"]')?.click(), true`);
   await until(async () => !(await view(c)), 5_000, "voice mode to close");
   await sleep(800);
   await shot(c, "ui-4-transcript");
@@ -473,7 +473,7 @@ async function main() {
   const movie = path.join(shots, `voice-mode-${THEME}.mov`);
   execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-i", video, "-i", tape, "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-af", "apad", "-t", String(seconds), movie]);
   note("movie", movie);
-  await evalIn(c, `document.querySelector('.voice-control[aria-label="End voice mode"]')?.click(), true`);
+  await evalIn(c, `document.querySelector('.voice-key[data-key="end"]')?.click(), true`);
   await until(async () => !(await view(c)), 5_000, "voice mode to close");
   await sleep(800);
   await shot(c, "6-transcript");
