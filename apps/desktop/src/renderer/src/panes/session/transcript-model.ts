@@ -14,6 +14,8 @@ export type Block =
       /** A scheduled task's run began here (the event's `scheduled`). `text` is the task's instructions
        *  alone: the note Realm appended for the agent is taken out of it, and kept here. */
       scheduled?: { task: string; note: string; scheduleId?: string };
+      /** Said in voice mode: the text is what the Mac heard. */
+      spoken?: true;
       /** The `user_message` event this is, by its seq, when the log was read from the server: what a
        *  saved turn names (saved-turns.ts in contracts). Absent on a transcript built from bare events. */
       seq?: number; ts: number }
@@ -334,7 +336,7 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
       const open = t.run ? null : unsettledTurn(t.blocks);
       if (open) blocks.splice(t.blocks.length, 0, derivedRun(open, open.lastTs));
       const scheduled = e.payload.scheduled;
-      blocks.push({ kind: "user", text: scheduled ? withoutNote(e.payload.text, scheduled.note) : e.payload.text, ...(e.payload.attachments.length ? { attachments: e.payload.attachments } : {}), ...(e.payload.from ? { from: e.payload.from } : {}), ...(e.payload.goal ? { goal: e.payload.goal } : {}), ...(e.payload.refs?.length ? { refs: e.payload.refs } : {}), ...(scheduled ? { scheduled } : {}), ...(seq !== undefined ? { seq } : {}), ts: e.ts });
+      blocks.push({ kind: "user", text: scheduled ? withoutNote(e.payload.text, scheduled.note) : e.payload.text, ...(e.payload.attachments.length ? { attachments: e.payload.attachments } : {}), ...(e.payload.from ? { from: e.payload.from } : {}), ...(e.payload.goal ? { goal: e.payload.goal } : {}), ...(e.payload.refs?.length ? { refs: e.payload.refs } : {}), ...(scheduled ? { scheduled } : {}), ...(e.payload.spoken ? { spoken: true as const } : {}), ...(seq !== undefined ? { seq } : {}), ts: e.ts });
       return { ...t, blocks, promptHint: null };
     }
     case "assistant_delta": {

@@ -7,7 +7,7 @@ import { capabilities } from "../../platform";
 
 /** One page of Settings, as the rail lists it. */
 export type SettingsTab =
-  | "general" | "appearance" | "keys" | "notifications" | "devices"
+  | "general" | "appearance" | "keys" | "notifications" | "voice" | "devices"
   | "engines" | "usage" | "ram"
   | "signins"
   | "permissions" | "computer-use"
@@ -27,6 +27,7 @@ export const SETTINGS_GROUPS: readonly { label: string; tabs: readonly { id: Set
     { id: "keys", label: "Keys", icon: "command" }, { id: "notifications", label: "Notifications", icon: "bell" },
     // The pack's smartphone, which the set holds under the device pane's name.
     { id: "devices", label: "Devices", icon: "simulator" },
+    { id: "voice", label: "Voice", icon: "mic" },
   ] },
   { label: "Engines", tabs: [{ id: "engines", label: "Engines", icon: "cpu" }, { id: "usage", label: "Usage", icon: "gauge" }, { id: "ram", label: "RAM", icon: "ram" }] },
   { label: "Browser", tabs: [{ id: "signins", label: "Passwords", icon: "key" }] },
@@ -43,6 +44,7 @@ export function tabAvailable(tab: SettingsTab): boolean {
   const caps = capabilities();
   if (tab === "permissions") return caps.macCli || caps.accessibility;
   if (tab === "computer-use") return caps.accessibility;
+  if (tab === "voice") return caps.voice;
   return true;
 }
 
@@ -167,6 +169,13 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "relay-iphone", tab: "notifications", label: "Notify my iPhone", terms: "phone push mobile relay",
     available: (facts) => facts.phonesPaired },
   ...NOTIFICATION_CATEGORIES.map((c): SettingEntry => ({ id: `notify:${c}`, tab: "notifications", section: "Notify me about", label: CATEGORY_COPY[c].label })),
+
+  // Voice
+  { id: "voice-microphone", tab: "voice", label: "Microphone", terms: "input device mic airpods headset" },
+  { id: "voice-voice", tab: "voice", label: "Voice", terms: "speech speak siri premium read aloud tts" },
+  { id: "voice-rate", tab: "voice", label: "Speaking rate", terms: "speed fast slow" },
+  { id: "voice-pause", tab: "voice", label: "Send after a pause of", terms: "end of turn silence wait delay" },
+  { id: "voice-hands-free", tab: "voice", label: "Listen hands-free", terms: "push to talk microphone vad" },
 
   // Devices
   { id: "pair-iphone", tab: "devices", label: "Pair an iPhone", terms: "phone mobile qr code scan" },

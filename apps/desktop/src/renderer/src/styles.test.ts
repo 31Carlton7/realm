@@ -1260,6 +1260,9 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       // the room it leaves under the last row (`slack`): both read off the laid-out list at the pick.
       // Used with 0px fallbacks, so a held picker that never receives them is merely unpadded.
       "--mp-floor", "--mp-slack",
+      // A voice mode bar's height (voice/VoiceView.tsx), 0–1, set on each bar every frame from the
+      // voice it follows.
+      "--level",
     ]);
     const used = new Set([...css.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]!));
     expect([...used].filter((n) => !defined.has(n) && !n.startsWith("--dsg-")).sort()).toEqual([]);
@@ -5233,5 +5236,27 @@ describe("a move's rows in the transcript", () => {
 
   it("hold a failed move's reason to two lines", () => {
     expect(bodiesFor(".move-failed-reason").join(" ")).toContain("-webkit-line-clamp: 2");
+  });
+});
+
+describe("voice mode", () => {
+  it("pulses its dots while the agent works, and draws End in the danger fill", () => {
+    // THE MUTANT: the dots hold still while the agent works, exactly as they do while nobody talks.
+    expect(bodiesFor('.voice-view[data-phase="working"] .voice-bars > span').join(" ")).toContain("animation: rl-voice-working");
+    expect(css).toMatch(/@keyframes rl-voice-working/);
+    expect(bodiesFor('.voice-key[data-key="end"] .voice-disc').join(" ")).toContain("background: var(--rl-danger-fill)");
+  });
+  it("covers the window in the opaque working ground, with no material or blur behind it", () => {
+    // THE MUTANT: the view back on --pane-ground, an alpha of the canvas the window's material shows through.
+    const view = bodiesFor(".voice-view").join(" ");
+    expect(view).toContain("background: var(--rl-panel)");
+    expect(view).not.toMatch(/pane-ground|backdrop-filter|transparent/);
+  });
+  it("hangs the stack from a fixed top, so the bars stay put while a caption comes and goes", () => {
+    // THE MUTANT: the stack centred again — the bars jump about 90px each time the caption appears.
+    const stage = bodiesFor(".voice-stage").join(" ");
+    expect(stage).not.toMatch(/justify-content:\s*(center|flex-end|end)/);
+    expect(stage).toMatch(/padding-top: calc\(50vh - var\(--frame-top\) - 48px - 32px\)/);
+    expect(bodiesFor(".voice-bars").join(" ")).toContain("height: 96px");
   });
 });

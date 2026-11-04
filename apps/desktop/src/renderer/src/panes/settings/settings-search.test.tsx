@@ -44,7 +44,7 @@ describe("the rail is grouped", () => {
     const seen = SETTINGS_GROUPS.map((g) => [g.label, within(screen.getByRole("group", { name: g.label }))
       .getAllByRole("radio").map((r) => r.closest("label")!.textContent)]);
     expect(seen).toEqual([
-      ["You", ["General", "Appearance", "Keys", "Notifications", "Devices"]],
+      ["You", ["General", "Appearance", "Keys", "Notifications", "Devices", "Voice"]],
       ["Engines", ["Engines", "Usage", "RAM"]],
       ["Browser", ["Passwords"]],
       ["Computer", ["Permissions", "Computer use"]],

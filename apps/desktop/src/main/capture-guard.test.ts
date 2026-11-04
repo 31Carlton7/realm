@@ -41,4 +41,27 @@ describe("refuseCapture", () => {
     }
     expect(asked("notifications", "file:///Applications/Realm.app/Contents/Resources/app/out/renderer/index.html")).toBe(true);
   });
+
+  it("gives Realm's own page the microphone for voice mode, and nothing else the camera or the screen", () => {
+    let request!: (wc: unknown, permission: string, answer: (granted: boolean) => void, details?: { requestingUrl?: string; mediaTypes?: string[] }) => void;
+    let check!: (wc: unknown, permission: string, origin?: string, details?: { requestingUrl?: string; mediaType?: string }) => boolean;
+    const page = "file:///Applications/Realm.app/Contents/Resources/app/out/renderer/index.html";
+    refuseCapture({ setPermissionRequestHandler: (h) => { request = h; }, setPermissionCheckHandler: (h) => { check = h; } }, (url) => url === page);
+    const asked = (requestingUrl: string, mediaTypes: string[]) => { let got: boolean | null = null; request(null, "media", (g) => { got = g; }, { requestingUrl, mediaTypes }); return got; };
+    // THE MUTANT: the guard refuses the microphone to everything, and voice mode cannot hear.
+    expect(asked(page, ["audio"])).toBe(true);
+    expect(check(null, "media", undefined, { requestingUrl: page, mediaType: "audio" })).toBe(true);
+    // THE MUTANT: any media request from the page passes — the camera goes with the microphone.
+    expect(asked(page, ["audio", "video"])).toBe(false);
+    expect(asked(page, ["video"])).toBe(false);
+    expect(check(null, "media", undefined, { requestingUrl: page, mediaType: "video" })).toBe(false);
+    // THE MUTANT: the page test is skipped — a site's frame, or an MCP view, gets the microphone.
+    expect(asked("https://example.com/", ["audio"])).toBe(false);
+    expect(asked("http://3f9a1c2b4d5e6f70.mcp-view.localhost:51234/v/tok", ["audio"])).toBe(false);
+    expect(capturePermitted("display-capture", page, { mediaTypes: ["audio"] }, (url) => url === page)).toBe(false);
+  });
+
+  it("gives no page the microphone where the session was not handed Realm's page — the browser partition", () => {
+    expect(capturePermitted("media", "file:///anything.html", { mediaTypes: ["audio"] })).toBe(false);
+  });
 });

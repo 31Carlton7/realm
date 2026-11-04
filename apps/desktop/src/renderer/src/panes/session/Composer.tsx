@@ -28,6 +28,7 @@ import { WhatChanged, hasChanges } from "./WhatChanged";
 import { SessionUsage } from "./SessionUsage";
 import type { Usage } from "./transcript-model";
 import type { Todo } from "./rich/tool-view";
+import { VoiceButton } from "../../voice/VoiceButton";
 
 /** Stable default for the `usage` prop — a fresh object per render would make the under-strip's ring
  *  re-render on every keystroke for no change. No `contextTokens`, so it draws no ring at all. */
@@ -391,7 +392,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onSwitchAgent, account, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, onMoveSession, pendingMove = null, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
+export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onSwitchAgent, account, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, onMoveSession, pendingMove = null, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, selectInRealm, quote = null, compact = false, placeholder = "Ask anything", voice }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** The checkout's changed files (`workspace.diff`), for the pill over the card. */
   changes?: DiffSummary | null;
@@ -432,6 +433,8 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
   onAttachFiles: (files: File[]) => void;
   onRemoveAttachment: (path: string) => void;
   onSend: (text: string) => void; onStop: () => void; onOptions: (o: SessionOptions) => void;
+  /** Voice mode, where this prompter offers it: who it talks to, and how to open it. */
+  voice?: { name: string; onOpen: (held: boolean) => void };
   /** The other sessions this draft points at, and the two ways they change. */
   sessionRefs?: readonly SessionRef[]; onRemoveSessionRef?: (sessionId: string) => void;
   /** One of Realm's own sidebar items was dropped on the prompter. The pane decides what it means. */
@@ -1416,6 +1419,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
               onToggleFavorite={onToggleModelFavorite}
               onPick={onPickModel} fast={fast} eggs={eggs} account={account}
               switchAgent={handsOver && onSwitchAgent ? { busy: status === "running" || status === "waiting_permission", onSwitch: onSwitchAgent } : undefined} />
+            {voice && <VoiceButton name={voice.name} onVoice={voice.onOpen} />}
             {/* Send↔stop morph (§6): both icons stay in the DOM; data-state cross-fades them (160ms,
                 opacity + scale .25→1 + 4px blur). ⌘↵ still sends while running — only the button morphs. */}
             {/* Attachments the agent will receive can go alone (Plan 14 W5 relaxed sessions.send's
