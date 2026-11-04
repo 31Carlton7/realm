@@ -1147,12 +1147,8 @@ export type AppState = TeammatesSlice & {
   /** Which lens the sidebar's list wears: the profile's spaces as sections, or every session by time
    *  (`ui.sidebarLens`). */
   sidebarLens: "spaces" | "recent";
-  /** The Team and Sessions lists folded shut inside a space's section, as `<spaceId>/team` and
-   *  `<spaceId>/sessions` (`ui.sidebarFoldedLists`). Open unless listed, like the sections. */
-  sidebarFoldedLists: string[];
   hydrateSidebarPrefs(): Promise<void>;
   setSidebarLens(lens: "spaces" | "recent"): Promise<void>;
-  setSpaceListFolded(spaceId: string, list: "team" | "sessions", folded: boolean): Promise<void>;
   /** The space whose name the column's title is being edited for, from a tile's Rename… or the
    *  title's own menu. Null when nothing is being renamed. */
   renamingSpaceId: string | null;
@@ -5094,30 +5090,18 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       // ——— Plan 27: the sidebar's remembered choices (see `sidebarLens`) ———
       sidebarLens: "spaces",
-      sidebarFoldedLists: [],
       renamingSpaceId: null,
       renameSpaceInColumn(spaceId) { set({ renamingSpaceId: spaceId }); },
       async hydrateSidebarPrefs() {
-        const before = { lens: get().sidebarLens, lists: get().sidebarFoldedLists };
-        const [lens, lists] = await Promise.all([api.getSetting("ui.sidebarLens"), api.getSetting("ui.sidebarFoldedLists")]);
-        // Anything but the two words, or a list of keys, reads as the resting state: Spaces, all open.
-        // A choice made while the settings were being read wins over what they said.
-        if (get().sidebarLens === before.lens) set({ sidebarLens: lens === "recent" ? "recent" : "spaces" });
-        if (get().sidebarFoldedLists === before.lists) {
-          set({ sidebarFoldedLists: Array.isArray(lists) ? lists.filter((k): k is string => typeof k === "string") : [] });
-        }
+        const before = get().sidebarLens;
+        const lens = await api.getSetting("ui.sidebarLens");
+        // Anything but the two words reads as the resting state. A choice made while the setting was
+        // being read wins over what it said.
+        if (get().sidebarLens === before) set({ sidebarLens: lens === "recent" ? "recent" : "spaces" });
       },
       async setSidebarLens(lens) {
         set({ sidebarLens: lens });
         await api.setSetting("ui.sidebarLens", lens);
-      },
-      async setSpaceListFolded(spaceId, list, folded) {
-        const key = `${spaceId}/${list}`;
-        const known = new Set(get().spaces.map((s) => s.id));
-        const kept = get().sidebarFoldedLists.filter((k) => k !== key && known.has(k.slice(0, k.indexOf("/"))));
-        const next = folded ? [...kept, key] : kept;
-        set({ sidebarFoldedLists: next });
-        await api.setSetting("ui.sidebarFoldedLists", next);
       },
       // ——— end Plan 27 ———
       async setConfirmDelete(v) {

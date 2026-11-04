@@ -1,12 +1,18 @@
-import { useMemo, useState } from "react";
-import { itemIdOfLeaf, type Item } from "@realm/contracts";
+import { TeammateIcon } from "@realm/ui";
+import { useMemo, useState, type MouseEvent } from "react";
+import { itemIdOfLeaf, type Item, type Teammate } from "@realm/contracts";
+import { rowSignal } from "../../state/attention";
 import { useApp } from "../../state/store";
+import { useTeammateMenu } from "../../panes/teammate/TeammateHead";
+import { Menu } from "../Menu";
+import { Spinner } from "../Spinner";
 import { RenameInput } from "../RenameInput";
 import { ItemIcon } from "../PageIcon";
 import { useItemContextMenu } from "./ItemContextMenu";
 import { ItemGlyph } from "./ItemList";
 import { agentsWaiting, sessionRowOf, type SidebarState } from "./model";
 import { SessionRowView, UnpinButton } from "./SessionRows";
+import { usePinTeammate } from "./TeamSection";
 
 /**
  * The profile's pinned items, from any of its spaces (Plan 27), as rows of the column's own anatomy:
@@ -60,5 +66,37 @@ function PinnedItemRow({ item, where, onOpen, onChanged }: { item: Item; where?:
       )}
       {element}
     </div>
+  );
+}
+
+/**
+ * A pinned teammate: its icon on a tile with its name under it, as Grok lays its bots out. Its state
+ * rides the tile's corner — the amber dot while it needs you, a spinner while it works — and its name
+ * goes bold while it has something unread; the tooltip says all of it in words. A click opens its chat
+ * and a right-click is its row's menu, Unpin first.
+ */
+export function PinnedTeammate({ teammate: t }: { teammate: Teammate }) {
+  const openTeammate = useApp((s) => s.openTeammate);
+  const run = useApp((s) => s.run);
+  const pin = usePinTeammate(t);
+  const menu = useTeammateMenu(t);
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  const signal = rowSignal(t.state, t.unread);
+  const said = [`${t.name}${t.lead ? ", the Lead" : ""}`, signal.words].filter(Boolean).join(" — ");
+  return (
+    <>
+      <button type="button" className="sb-mate" aria-label={said} title={said} data-unread={signal.unread || undefined}
+        onClick={() => run(() => openTeammate(t.id))}
+        onContextMenu={(e: MouseEvent) => { e.preventDefault(); setMenuAt({ x: e.clientX, y: e.clientY }); }}>
+        <span className="sb-mate-tile">
+          <TeammateIcon icon={t.icon} size={24} lead={t.lead} />
+          {signal.needsYou
+            ? <span className="status-dot sb-mate-state" data-status="waiting_permission" />
+            : signal.working && <Spinner size={12} className="sb-mate-state" />}
+        </span>
+        <span className="sb-mate-name">{t.name}</span>
+      </button>
+      {menuAt && <Menu at={menuAt} label={t.name} onClose={() => setMenuAt(null)} items={pin ? [pin, { kind: "separator" }, ...menu] : menu} />}
+    </>
   );
 }

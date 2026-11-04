@@ -58,9 +58,9 @@ describe("Recent", () => {
 
   it("wears each row's state at its far end — the marks the feed never drew", async () => {
     const { container } = await mount([chat("a", "s1", Date.now(), { status: "running" }), chat("b", "s2", Date.now() - 1000, { status: "waiting_permission" })]);
-    await waitFor(() => expect(rows(container)).toEqual(["chat a in Work — running", "chat b in Homework — needs permission"]));
-    const marks = [...recent(container).querySelectorAll(".sb-card .item-trail .status-dot")].map((d) => d.getAttribute("data-status"));
-    expect(marks).toEqual(["running", "waiting_permission"]);
+    await waitFor(() => expect(rows(container)).toEqual(["chat a in Work — working", "chat b in Homework — needs you"]));
+    const marks = [...recent(container).querySelectorAll(".sb-card .item-trail > :is(.status-dot, .spinner)")].map((d) => d.className.split(" ")[0]);
+    expect(marks).toEqual(["spinner", "status-dot"]);
   });
 
   it("leaves out what is put away and what is a sub-agent", async () => {

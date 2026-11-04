@@ -656,7 +656,20 @@ input.sb-space-name { flex: 1; }
 .sb-lens-title { flex: 1; min-width: 0; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-faint); }
 /* What needs you: rows in the column's own anatomy, and under a waiting row the session's own request
    card, at the column's full width — a card squeezed under an indent wraps every option. */
-.sb-needs, .sb-pinned { display: flex; flex-direction: column; }
+.sb-needs, .sb-pinned, .sb-sessions { display: flex; flex-direction: column; }
+/* Pinned teammates: a row of tiles, each its icon over its name, the Lead first (Grok's bots). The
+   tile is a step off the column's ground; the state rides its corner, ringed in the ground so it reads
+   off the tile. */
+.sb-pinned-mates { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 0 6px; }
+.sb-mate { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100px; padding: 4px 0;
+  border-radius: var(--r-ctl); corner-shape: squircle; }
+.sb-mate-tile { position: relative; display: grid; place-items: center; width: 40px; height: 40px;
+  border-radius: var(--r-ctl); corner-shape: squircle; background: var(--rl-hover); }
+.sb-mate-state { position: absolute; top: -3px; right: -3px; }
+.sb-mate-state.status-dot { width: 8px; height: 8px; box-shadow: 0 0 0 2px var(--rl-frame); }
+.sb-mate-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; color: var(--rl-text-dim); }
+.sb-mate[data-unread] .sb-mate-name { color: var(--rl-text-bright); font-weight: var(--fw-title); }
 /* Whichever of them heads the list sits close under the head row; the scroller's own top padding is
    the gap. */
 .sb-needs > .group-label, .sb-pinned:first-child > .group-label { padding-top: 4px; }
@@ -849,13 +862,13 @@ input.sb-space-name { flex: 1; }
    scroller's box, so it holds still while the content scrolls beneath it, and it needs no sibling
    element and no reduced-transparency fallback. */
 .space-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; /* hit-target ::afters poke 3px past the rail */ display: flex; flex-direction: column; gap: 2px;
-  /* Close under the profile: the column's own step, not a band's depth. This padding was the top
+  /* Close under the title: the column's own step, not a band's depth. This padding was the top
      band's 12px and 4 more, because the mask was always drawn and a first row inside it was half
-     faded at rest — so the profile and the list's head stood a band apart (the owner, 10-04: "reduce
+     faded at rest — so the head and the list stood a band apart (the owner, 10-04: "reduce
      the spacing"). The dissolve is the app's shared one now (`data-dissolve`, ScrollFades.tsx),
      drawn only at an end with rows beyond it, so at rest the first row is whole and needs no room.
      Nor does the bottom need a band of clearance any more: scrolled to the end there is no band, and
-     the last row stops a step above New space, pinned at the foot (`.sb-foot`). */
+     the last row stops a step above the column's foot. */
   padding-top: 4px;
   padding-bottom: 8px;
   /* A card the list brings into view (a session just made, RecentList) stops clear of the band its
@@ -997,24 +1010,24 @@ input.sb-space-name { flex: 1; }
    to a cap, so a four-letter space is never cut to "L." to make room for a long title. */
 .item-where { flex: none; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 12px; color: var(--rl-text-faint); }
-/* ── The list (Plan 27): the space on screen, and Recent ──
-   The space's sessions sit under its team with their titles on one column and no glyph of their own:
-   the gutter is theirs, and holds the one mark a row has to wear there (a schedule's clock, a
-   fan-out's caret). */
+/* ── The column (direction A): one space's team and sessions, and Recent ──
+   Every row is the same anatomy — a 16px mark, the title, the state or the age at the far end — so
+   teammates and sessions share one column of titles and one of ages. */
 .sb-section { display: flex; flex-direction: column; }
 .sb-caret { flex: none; width: 12px; display: grid; place-items: center; color: var(--rl-text-faint);
   transition: transform var(--dur-pop) var(--ease-out-strong); }
 .sb-caret[data-open] { transform: rotate(90deg); }
 .sb-space-icon { flex: none; display: grid; place-items: center; }
-/* 26px puts a nested row's 16px gutter under the head's icon and its title on the head's name. */
-.sb-row[data-nested] > .item-row { padding-left: 26px; }
 .sb-gutter, .sb-lead { flex: none; width: 16px; display: grid; place-items: center; color: var(--rl-text-faint); }
-/* A fan-out's sessions sit one step further in, under the fan-out's own title. */
-.sb-fanout-rows[data-nested] .sb-row > .item-row { padding-left: 42px; }
-.sb-fanout-rows:not([data-nested]) .sb-row > .item-row { padding-left: 34px; }
-/* "Show more" is a line of text on the titles' column, not a row: it cannot be mistaken for a session. */
-.sb-more { margin: 0 0 4px 46px; }
+/* A fan-out's sessions sit one step in, under the fan-out's own title. */
+.sb-fanout-rows .sb-row > .item-row { padding-left: 34px; }
+/* "Show all" is a line of text on the titles' column, not a row: it cannot be mistaken for a session. */
+.sb-more { margin: 0 0 4px 28px; }
 .sb-start { color: var(--rl-text-faint); }
+/* How long ago a row last moved, in the slot its state takes while it has one: quiet, and in figures
+   that line up down the column. */
+.item-age { font-size: 12px; line-height: 1; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.item-spinner { color: var(--rl-text-bright); }
 .sb-recent .sb-day:first-child > .group-label { padding-top: 4px; }
 /* The Activity view's cards (the owner, 10-12). A session there carries more than one line — where
    and when over what — and a list of those is a list of cards (design.md, Shape): air between them,
@@ -10911,28 +10924,15 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
    then a "Sessions" caption over the sessions. Captions are the caption rung in the secondary ink,
    and a row shorter than a session's, so the list reads as one column with two labels in it. */
 .sb-team { display: flex; flex-direction: column; }
-.sb-caption-row { min-height: 26px; }
-.sb-caption-row > .item-row { padding-top: 6px; padding-bottom: 2px; font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
-/* A caption folds its list. Its caret stands in the nested indent, on the column a teammate's caret
-   uses, so the word stays where it is as the caret turns. */
-.sb-caption-row .sb-caret { position: absolute; left: 11px; top: 6px; height: 16px; }
-.sb-caption-row > .item-row:hover .sb-caret { color: var(--rl-text-bright); }
-/* The Team caption is the first row under the section's clip, which would take the top off a ring
-   drawn outside it. */
-.sb-caption-row > .item-row:focus-visible { outline-offset: -2px; }
-/* A teammate's disclosure stands just left of its icon, in the nested row's own indent — the column
-   the space's caret uses one level up — and only on a row that has sessions to show. */
-.sb-teammate > .sb-team-caret { position: absolute; z-index: 1; left: 9px; top: 50%; translate: 0 -50%; width: 16px; height: 22px;
-  border-radius: var(--r-chip); }
-.sb-teammate > .sb-team-caret:hover { color: var(--rl-text-bright); }
-.sb-team-members .sb-row > .item-row { padding-left: 42px; }
-.sb-team-members .sb-teammate > .sb-team-caret { left: 25px; }
-.sb-team-group > .item-row { color: var(--rl-text-dim); }
-/* What a teammate started sits one step in under it, and what was handed on from that, a step more
-   (`--sb-depth`, set on the row). */
-.sb-team-sessions .sb-row { --sb-depth: 0; }
-.sb-team-sessions .sb-row > .item-row { padding-left: calc(42px + var(--sb-depth) * 16px); }
-.sb-team-members .sb-team-sessions .sb-row > .item-row { padding-left: calc(58px + var(--sb-depth) * 16px); }
+/* A group the person made is a caption over its teammates, the column's one nesting. Its caret comes
+   up under the pointer, after the name, and stays while the group is folded so a folded group says so. */
+.sb-team-group { min-height: 28px; }
+.sb-team-group > .sb-caption { gap: 4px; padding-top: 8px; padding-bottom: 2px; font-size: 13px; color: var(--rl-text-faint); }
+.sb-team-group > .sb-caption > .item-title { flex: 0 1 auto; }
+.sb-team-group .sb-caret { opacity: 0; }
+.sb-team-group:hover .sb-caret, .sb-team-group .sb-caret:not([data-open]) { opacity: 1; }
+.sb-team-group > .sb-caption > .item-trail { margin-left: auto; }
+.sb-team-group > .sb-caption:focus-visible { outline-offset: -2px; }
 .sb-teammate[data-dragging] { opacity: .5; }
 .sb-teammate[data-drag-over], .sb-team-group[data-drag-over] { box-shadow: inset 0 2px 0 var(--rl-accent); }
 

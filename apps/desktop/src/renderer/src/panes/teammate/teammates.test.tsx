@@ -3,7 +3,6 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { sessionEvent, sessionLink, type TeammateTaskSession } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session, space, profile, teammate, type FakeData } from "../../state/store.test-fakes";
-import { Sidebar } from "../../components/sidebar/Sidebar";
 import { PanelBar } from "../../components/PanelBar";
 import { SessionPane } from "../session/SessionPane";
 import { renderMarkdown } from "../session/Markdown";
@@ -70,103 +69,6 @@ const team = (over: FakeData = {}): FakeData => ({
     teammate("research", "s1", { name: "research", group: "Strat", state: "needs-you", sortOrder: 2 }),
   ],
   ...over,
-});
-
-async function mountSidebar(over: FakeData = {}) {
-  const api = fakeApi(team(over));
-  const store = createAppStore(api); await store.getState().boot();
-  await act(() => store.getState().refreshTeammates());
-  const r = render(<StoreContext.Provider value={store}><Sidebar /></StoreContext.Provider>);
-  await waitFor(() => expect(api.calls).toContain("listAllItems"));
-  return { api, store, ...r };
-}
-
-const titles = () => [...screen.getByRole("region", { name: "Versed" }).querySelectorAll(".item-title")].map((t) => t.textContent);
-
-describe("the sidebar's Team list", () => {
-  it("heads the space with its teammates, the Lead first, and lists their sessions there and nowhere else", async () => {
-    await mountSidebar();
-    // THE MUTANTS: the Lead in its sort order; a teammate's chat or task also loose among the sessions.
-    await waitFor(() => expect(titles()).toEqual(["Lead", "cto", "Strat", "research", "Alpha"]));
-    expect(screen.getByRole("button", { name: "Sessions", expanded: true })).toBeInTheDocument();
-  });
-
-  it("folds the Team and the Sessions lists from their captions, and remembers each", async () => {
-    const { store, api } = await mountSidebar();
-    // THE MUTANTS: a caption that folds both lists, or one that hides its rows without saying so.
-    fireEvent.click(await screen.findByRole("button", { name: "Team", expanded: true }));
-    await waitFor(() => expect(titles()).toEqual(["Alpha"]));
-    expect(screen.getByRole("button", { name: "Team", expanded: false })).toBeInTheDocument();
-    expect(api.calls).toContain("setSetting:ui.sidebarFoldedLists=s1/team");
-    fireEvent.click(screen.getByRole("button", { name: "Sessions", expanded: true }));
-    await waitFor(() => expect(titles()).toEqual([]));
-    expect(store.getState().sidebarFoldedLists).toEqual(["s1/team", "s1/sessions"]);
-    fireEvent.click(screen.getByRole("button", { name: "Team", expanded: false }));
-    await waitFor(() => expect(titles()).toEqual(["Lead", "cto", "Strat", "research"]));
-  });
-
-  it("comes back with the lists folded as they were left", async () => {
-    await mountSidebar({ settings: { "ui.sidebarFoldedLists": ["s1/sessions"] } });
-    await waitFor(() => expect(titles()).toEqual(["Lead", "cto", "Strat", "research"]));
-    expect(screen.getByRole("button", { name: "Sessions", expanded: false })).toBeInTheDocument();
-  });
-
-  it("keeps a teamless space's sessions showing whatever a fold left behind, since it has no caption to open them", async () => {
-    await mountSidebar({ teammates: [], settings: { "ui.sidebarFoldedLists": ["s1/sessions"] } });
-    await waitFor(() => expect(titles()).toContain("Alpha"));
-    expect(screen.queryByRole("button", { name: "Sessions" })).toBeNull();
-  });
-
-  it("says each teammate's state in words, not only in the dot's colour", async () => {
-    await mountSidebar();
-    expect(await screen.findByRole("button", { name: "cto — working, on cto - sqlite search" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "research — needs you" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Lead, the Lead" })).toBeInTheDocument();
-  });
-
-  it("unfolds a teammate to its sessions, with the hand-off nested under the one that asked", async () => {
-    await mountSidebar();
-    fireEvent.click(await screen.findByRole("button", { name: "Show cto's sessions" }));
-    const rows = [...document.querySelectorAll(".sb-team-sessions .sb-row")];
-    expect(rows.map((r) => r.textContent)).toEqual(["cto - sqlite search", "↳design - icon"]);
-    expect((rows[1] as HTMLElement).style.getPropertyValue("--sb-depth")).toBe("1");
-  });
-
-  it("folds a group the person made, and remembers it", async () => {
-    const { store, api } = await mountSidebar();
-    fireEvent.click(await screen.findByRole("button", { name: /^Strat, 1 teammate, 1 needs you/ }));
-    await waitFor(() => expect(titles()).toEqual(["Lead", "cto", "Strat", "Alpha"]));
-    expect(store.getState().teamGroupsFolded).toEqual(["s1/Strat"]);
-    expect(api.calls).toContain("setSetting:ui.sidebarTeamGroupsFolded=s1/Strat");
-  });
-
-  it("opens a teammate onto its chat, with its computer beside it the first time", async () => {
-    const { store, api } = await mountSidebar();
-    fireEvent.click(await screen.findByRole("button", { name: /^cto — working/ }));
-    await waitFor(() => expect(api.calls).toContain("createItem:s1|computer|cto"));
-    const computer = store.getState().items.find((i) => i.kind === "computer" && i.refId === "cto");
-    expect(computer).toBeDefined();
-    expect(store.getState().layout && JSON.stringify(store.getState().layout)).toContain("i-home-cto");
-  });
-
-  it("moves a teammate dragged onto a group's head into that group, keeping everyone else's order", async () => {
-    const { api } = await mountSidebar();
-    const row = (await screen.findByRole("button", { name: /^cto — working/ })).closest(".sb-teammate")!;
-    const group = screen.getByRole("button", { name: /^Strat,/ }).closest(".sb-team-group")!;
-    const dataTransfer = { setData: () => {}, effectAllowed: "" };
-    fireEvent.dragStart(row, { dataTransfer });
-    fireEvent.dragOver(group, { dataTransfer });
-    fireEvent.drop(group, { dataTransfer });
-    await waitFor(() => expect(api.calls.some((c) => c.startsWith("teammatesReorder:"))).toBe(true));
-    const order = JSON.parse(api.calls.find((c) => c.startsWith("teammatesReorder:"))!.slice("teammatesReorder:".length));
-    expect(order).toEqual([{ id: "lead", group: null }, { id: "research", group: "Strat" }, { id: "cto", group: "Strat" }]);
-  });
-
-  it("offers the first teammate from an empty space, beside a new session", async () => {
-    const { store } = await mountSidebar({ items: { s1: [] }, sessions: [], teammates: [] });
-    fireEvent.click(await screen.findByRole("button", { name: "Add a teammate" }));
-    expect(store.getState().sheet).toEqual({ kind: "teammate", spaceId: "s1" });
-  });
 });
 
 async function mountChat(t = reduceAll([])) {

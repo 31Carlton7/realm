@@ -85,26 +85,23 @@ describe("the list's head", () => {
   const head = () => document.querySelector<HTMLElement>(".sb-lens")!;
   const switcher = () => within(head()).getByRole("button", { name: "Activity" });
 
-  it("reads Spaces with a quiet switch to the activity, which a click turns on and the setting keeps", async () => {
-    // The owner, 10-04: the Spaces/Recent tabs go; a caption says Spaces, and an activity button at
-    // the far right shows the activity — exactly what Recent showed. THE MUTANTS: a switch that does
-    // not say it is on, or a choice that is not remembered.
+  it("heads the activity with a lit switch that goes back to the space, and the setting keeps the choice", async () => {
+    // The owner, 10-04: an activity button shows the activity — exactly what Recent showed. It opens
+    // from the space's Show all or the title's "···"; while it is up its head says so. THE MUTANTS: a
+    // switch that does not say it is on, or a choice that is not remembered.
     const { api, store, container } = await mount({
       sessions: [session("se1", "s1", { title: "Fix the login form", updatedAt: Date.now() })],
       items: { s1: [item("i-se1", "s1", { kind: "session", refId: "se1", title: "Fix the login form" })] },
     });
     expect(screen.queryByRole("radio")).toBeNull();
-    expect(head()).toHaveTextContent("Spaces");
-    expect(switcher()).toHaveAttribute("aria-pressed", "false");
-    expect(switcher()).toHaveAttribute("title", "Show activity");
-    fireEvent.click(switcher());
-    await waitFor(() => expect(store.getState().sidebarLens).toBe("recent"));
+    expect(container.querySelector(".sb-lens")).toBeNull();
+    await act(async () => { await store.getState().setSidebarLens("recent"); });
     expect(api.calls).toContain("setSetting:ui.sidebarLens=recent");
     await waitFor(() => expect(container.querySelector(".sb-recent")).toHaveTextContent("Fix the login form"));
     expect(container.querySelector(".sb-section")).toBeNull();
     expect(head()).toHaveTextContent("Activity");
     expect(switcher()).toHaveAttribute("aria-pressed", "true");
-    expect(switcher()).toHaveAttribute("title", "Show spaces");
+    expect(switcher()).toHaveAttribute("title", "Back to the space");
     fireEvent.click(switcher());
     await waitFor(() => expect(store.getState().sidebarLens).toBe("spaces"));
     expect(container.querySelector(".sb-section")).not.toBeNull();

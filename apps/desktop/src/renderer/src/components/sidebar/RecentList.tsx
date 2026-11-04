@@ -1,9 +1,10 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import type { AgentKind } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { ActivityCardView } from "./ActivityCard";
 import { recentDays, spaceUsualAgent, type SessionRow } from "./model";
+import { useNow } from "./use-sidebar-model";
 
 /**
  * The Recent lens, headed Activity: the profile's sessions by when they last moved, under day
@@ -16,7 +17,7 @@ export function RecentList({ rows, onChanged }: { rows: SessionRow[]; onChanged:
   /* The clock is read here and not in the grouper: the grouper is pure so its labels are testable
      against a fixed clock, and this is the one place the real clock is allowed in. It ticks each
      minute, so "5m" does not stay 5m while the list sits open. */
-  const now = useMinute();
+  const now = useNow();
   const days = useMemo(() => recentDays(rows, now), [rows, now]);
   const usual = useMemo(() => {
     const bySpace = new Map<string, SessionRow[]>();
@@ -67,14 +68,4 @@ export function RecentList({ rows, onChanged }: { rows: SessionRow[]; onChanged:
       ))}
     </div>
   );
-}
-
-/** `Date.now()`, again each minute: what a list of "5m"s needs to stay true while it is open. */
-function useMinute(): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 60_000);
-    return () => clearInterval(timer);
-  }, []);
-  return now;
 }
