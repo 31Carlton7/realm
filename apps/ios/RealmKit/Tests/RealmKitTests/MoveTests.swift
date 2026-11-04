@@ -55,8 +55,8 @@ struct MoveTests {
         // Every other row says nothing of moves.
         let others = try APIFixtureTests.opened().rows
         #expect(others.allSatisfy { $0.move == nil })
-        // A tool's detail stays the tool's.
-        #expect(others.allSatisfy { $0.noticeDetail == nil })
+        // A tool's detail stays the tool's; only a goal's own turn carries the prompt as its notice's.
+        #expect(others.filter { $0.goalTurn == nil }.allSatisfy { $0.noticeDetail == nil })
     }
 
     @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))

@@ -15,6 +15,10 @@ public struct Transcript: Sendable, Equatable {
     public var queued: [QueuedMessage]?
     /// The move queued behind the turn or under way, as the Mac last said. Not kept on disk, as the queue is not.
     public var move: PendingMove?
+    /// The session's goal, as the Mac last said; nil for none. Not kept on disk: it comes with the session.
+    public var goal: Goal?
+    /// The agent's to-do list as its newest TodoWrite wrote it. Not kept on disk, as the goal is not.
+    public var todos: [TodoItem] = []
     /// When these rows were last fresh from the Mac; nil while they are live on this connection.
     public var savedAt: Date?
 
