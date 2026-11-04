@@ -141,6 +141,9 @@ describe("a teammate's unread mark", () => {
     const said: { event: string; payload: unknown }[] = [];
     const broadcast = app.rpc.broadcast.bind(app.rpc);
     vi.spyOn(app.rpc, "broadcast").mockImplementation((event, payload) => { said.push({ event, payload }); broadcast(event, payload); });
+    // What the task's end announces has gone out before the read, so what comes after is the read's.
+    await new Promise((r) => setTimeout(r, 200));
+    said.length = 0;
     const seq = app.sessions.get(home).lastEventSeq;
     // THE MUTANT: a read mark that moves in the table and is told to nobody. The sidebar's teammate
     // row reads the server's `unread`, re-read only on `teammates.changed`, so it stayed marked.
