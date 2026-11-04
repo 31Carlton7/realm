@@ -48,6 +48,12 @@ private struct BlockView: View {
 
     var body: some View {
         switch block {
+        case .paragraph(let text) where text.holdsInlineMath:
+            MathProseText(text: styled(text, base: .body), style: .body)
+                .lineSpacing(lineSpacing)
+                .foregroundStyle(Palette.ink)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
         case .paragraph(let text):
             Text(styled(text, base: .body))
                 .lineSpacing(lineSpacing)
@@ -87,6 +93,16 @@ private struct BlockView: View {
                 .foregroundStyle(Palette.ink2)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
+        case .math(let tex):
+            MathBlockView(tex: tex)
+        case .diagram(let source):
+            DiagramBlockView(source: source)
+        case .chart(let chart, let source):
+            ChartBlockView(chart: chart, source: source)
+        case .comparison(let compare, let source):
+            CompareBlockView(compare: compare, source: source)
+        case .undrawn(let language, let text, let reason):
+            CodeBlockView(language: language, text: text, reason: "Not drawn — \(reason)")
         }
     }
 
@@ -128,20 +144,31 @@ private struct BlockView: View {
 
 /// A fenced block: a panel the eye rests in, so it wears the continuous corner and no ring, with its
 /// language and a copy control as its own chrome. Long lines scroll sideways; they are read to their
-/// last character, so nothing masks the edge.
-private struct CodeBlockView: View {
+/// last character, so nothing masks the edge. A block Realm draws that did not draw is one of these,
+/// saying why under its language.
+struct CodeBlockView: View {
     let language: String?
     let text: String
+    var reason: String?
     @Environment(\.proseGround) private var ground
     @State private var copied = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(language ?? "Code")
-                .font(language == nil ? .footnote : RealmType.mono(.footnote))
-                .foregroundStyle(Palette.ink2)
-                .padding(.horizontal, 14)
-                .padding(.top, 12)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(language ?? "Code")
+                    .font(language == nil ? .footnote : RealmType.mono(.footnote))
+                    .foregroundStyle(Palette.ink2)
+                if let reason {
+                    Text(reason)
+                        .font(.footnote)
+                        .foregroundStyle(Palette.ink3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.leading, 14)
+            .padding(.trailing, reason == nil ? 14 : 48)
+            .padding(.top, 12)
             ScrollView(.horizontal) {
                 Text(text)
                     .mono(.footnote)

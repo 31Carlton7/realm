@@ -6,3 +6,6 @@ packages/remote/test/fixtures/** text eol=lf
 # with CRLF.
 apps/server/bin/realm text eol=lf
 apps/server/bin/realm.cmd text eol=crlf
+# KaTeX and Mermaid as their releases ship them (apps/ios/scripts/blocks-vendor.mjs): trailing spaces
+# inside a minified template literal are part of the program, and nobody reads these as diffs.
+apps/ios/Realm/Blocks/vendor/** -whitespace -diff

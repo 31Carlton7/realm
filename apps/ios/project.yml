@@ -29,6 +29,13 @@ targets:
     platform: iOS
     sources:
       - path: Realm
+        excludes:
+          - Blocks
+      # The page that draws TeX and diagrams, with KaTeX and Mermaid beside it: kept as a folder, since
+      # the stylesheet finds its fonts by their relative paths.
+      - path: Realm/Blocks
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: RealmKit
         product: RealmKit

@@ -47,6 +47,16 @@ export const TOKENS = [
   ["line-strong", "LineStrong", "lineStrong", "A hairline that carries more of a boundary"],
   ["divider", "Divider", "divider", "A hairline with no change of surface beside it"],
   ["mark", "Mark", "mark", "A fill that is not an edge: a track, an idle dot"],
+  ["series-1", "Series1", "series1", "Slot 1 of the categorical chart palette"],
+  ["series-2", "Series2", "series2", "Slot 2 of the categorical chart palette"],
+  ["series-3", "Series3", "series3", "Slot 3 of the categorical chart palette"],
+  ["series-4", "Series4", "series4", "Slot 4 of the categorical chart palette"],
+  ["series-5", "Series5", "series5", "Slot 5 of the categorical chart palette"],
+  ["series-6", "Series6", "series6", "Slot 6 of the categorical chart palette"],
+  ["series-7", "Series7", "series7", "Slot 7 of the categorical chart palette"],
+  ["series-8", "Series8", "series8", "Slot 8 of the categorical chart palette"],
+  ["chart-grid", "ChartGrid", "chartGrid", "A chart's gridlines"],
+  ["chart-axis", "ChartAxis", "chartAxis", "A chart's axis"],
 ];
 
 /* ── reading the stylesheet ─────────────────────────────────────────────── */
