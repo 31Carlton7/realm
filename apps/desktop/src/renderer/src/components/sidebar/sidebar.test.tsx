@@ -234,20 +234,27 @@ describe("the column's title", () => {
 });
 
 describe("the space's sessions", () => {
-  it("lists them newest first, five of them, then Show more opens the space's page", async () => {
+  it("lists the five newest under a Sessions caption, then Show all N opens every session by time", async () => {
+    // THE MUTANTS: six rows; a count of the hidden ones only; Show all landing on the space's page.
     const many = Array.from({ length: 7 }, (_, i) => session(`m${i}`, "s1", { title: `Task ${i}`, activityAt: 1000 + i }));
     const { store } = await mount(home({
       items: { s1: many.map((m) => sessionItem(m.id, "s1", m.title)), s2: [] },
       sessions: many,
     }));
-    await waitFor(() => expect(rowsIn("Versed")).toEqual(["Task 6", "Task 5", "Task 4", "Task 3", "Task 2"]));
-    const showMore = within(section("Versed")).getByRole("button", { name: /Show more/ });
-    expect(showMore).toHaveTextContent("Show more 2");
-    act(() => store.getState().setSpaceSessionsView("s1", "archived"));
-    fireEvent.click(showMore);
-    await waitFor(() => expect(store.getState().pageOverlay).toMatchObject({ kind: "space-page", refId: "s1" }));
-    expect(store.getState().spacePageTab.s1).toBe("sessions");
-    expect(store.getState().spaceSessionsView.s1).toBe("active");
+    const list = () => screen.getByRole("group", { name: "Sessions" });
+    await waitFor(() => expect([...list().querySelectorAll(".item-title")].map((t) => t.textContent)).toEqual(["Task 6", "Task 5", "Task 4", "Task 3", "Task 2"]));
+    expect(within(list()).getByText("Sessions")).toBeInTheDocument();
+    const all = within(list()).getByRole("button", { name: "Show all 7" });
+    fireEvent.click(all);
+    await waitFor(() => expect(store.getState().sidebarLens).toBe("recent"));
+    expect(store.getState().pageOverlay).toBeNull();
+    await waitFor(() => expect(document.querySelector(".sb-recent")).toHaveTextContent("Task 0"));
+  });
+
+  it("draws no Show all for a space with five sessions or fewer", async () => {
+    await mount(home());
+    await waitFor(() => expect(rowsIn("Versed")).toEqual(["Alpha"]));
+    expect(screen.queryByRole("button", { name: /^Show all/ })).toBeNull();
   });
 
   it("offers a new session in an empty space as its one row", async () => {
@@ -265,45 +272,53 @@ describe("a session's row", () => {
     await waitFor(() => expect(allItems(store.getState().layout!)).toContain("i-a"));
   });
 
-  it("wears its state at the far end, and says it in its name (A-L4)", async () => {
-    const { store } = await mount(home());
+  it("speaks the column's one signal system: bold for unread, a spinner for working, amber for needs you", async () => {
+    /* THE MUTANTS: a green or a blue dot back on a row; the age kept beside a state; unread dropped
+       while the row works (two channels, so both can be true); a state said only by its mark. */
+    const twoHours = Date.now() - 2 * 3_600_000;
+    const { store } = await mount(home({ sessions: [session("a", "s1", { title: "Alpha", activityAt: twoHours, seenSeq: 3, lastEventSeq: 3 }), session("b", "s2", { title: "Wants a yes" })] }));
     const row = () => within(section("Versed")).getByRole("button", { name: /^Alpha/ });
-    await waitFor(() => expect(row()).toHaveAccessibleName("Alpha"));
-    expect(row().querySelector(".status-dot")).toBeNull(); // idle wears nothing
+    const trail = () => row().querySelector(".item-trail")!;
+    const lifted = () => row().closest(".sb-row")!.hasAttribute("data-unread");
+    // Idle and read: the age, plain, and nothing else.
+    await waitFor(() => expect(trail().textContent).toBe("2h"));
+    expect(row()).toHaveAccessibleName("Alpha");
+    expect(row()).toHaveAttribute("title", "Alpha");
+    expect(lifted()).toBe(false);
+    // Working: a spinner in the age's slot, and the words.
+    act(() => store.getState().applySessionStatus("a", "running"));
+    expect(trail().querySelector(".spinner")).not.toBeNull();
+    expect(trail().querySelector(".status-dot")).toBeNull();
+    expect(trail().textContent).toBe("");
+    expect(row()).toHaveAttribute("title", "Alpha — working");
+    // Needs you: the amber dot, the only dot there is.
     act(() => store.getState().applySessionStatus("a", "waiting_permission"));
-    expect(row().querySelector(".item-trail .status-dot")).toHaveAttribute("data-status", "waiting_permission");
-    expect(row()).toHaveAccessibleName("Alpha — needs permission");
+    expect(trail().querySelector(".status-dot")).toHaveAttribute("data-status", "waiting_permission");
+    expect(trail().querySelector(".spinner")).toBeNull();
+    expect(row()).toHaveAccessibleName("Alpha — needs you");
+    // A failure is amber too, and says which in words.
+    act(() => store.getState().applySessionStatus("a", "error"));
+    expect(trail().querySelector(".status-dot")).toHaveAttribute("data-status", "waiting_permission");
+    expect(row()).toHaveAccessibleName("Alpha — failed, needs you");
+    // Unread: the title lifted, and no dot of its own — while it works, too.
+    act(() => store.setState({ allSessions: { ...store.getState().allSessions, a: { ...store.getState().allSessions.a!, lastEventSeq: 5 } },
+      sessions: { ...store.getState().sessions, a: { ...store.getState().sessions.a!, lastEventSeq: 5 } } }));
+    act(() => store.getState().applySessionStatus("a", "running"));
+    expect(lifted()).toBe(true);
+    expect(row()).toHaveAccessibleName("Alpha — working, unread");
     act(() => store.getState().applySessionStatus("a", "idle"));
+    expect(lifted()).toBe(true);
+    expect(row()).toHaveAccessibleName("Alpha — unread");
     expect(row().querySelector(".status-dot")).toBeNull();
-  });
-
-  it("wears the unread ring when something new happened, and a running dot instead while it works", async () => {
-    // THE MUTANT this kills is the one once shipped: a dot for every status, idle included — the ring
-    // only draws on a row with no other mark, so it could never appear.
-    const { store } = await mount(home({ sessions: [session("a", "s1", { title: "Alpha", seenSeq: 3, lastEventSeq: 5 }), session("b", "s2", { title: "Wants a yes" })] }));
-    const row = () => within(section("Versed")).getByRole("button", { name: /^Alpha/ });
-    await waitFor(() => expect(row().querySelector(".status-dot")).toHaveAttribute("data-status", "unseen"));
-    expect(row()).toHaveAccessibleName("Alpha — new since you were here");
-    act(() => store.getState().applySessionStatus("a", "running"));
-    expect(row().querySelectorAll(".status-dot")).toHaveLength(1);
-    expect(row().querySelector(".status-dot")).toHaveAttribute("data-status", "running");
-  });
-
-  it("lifts an unread row's title, and only while unread is the mark it wears", async () => {
-    // THE MUTANT: `data-unread` keyed on `row.unread` alone — a running session that also has news
-    // would wear a heavy title beside a green dot, two marks asking to be told apart.
-    const { store } = await mount(home({ sessions: [session("a", "s1", { title: "Alpha", seenSeq: 3, lastEventSeq: 5 }), session("b", "s2", { title: "Wants a yes", seenSeq: 4, lastEventSeq: 4 })] }));
-    const rowOf = (name: RegExp) => within(section("Versed")).getByRole("button", { name }).closest(".sb-row")!;
-    await waitFor(() => expect(rowOf(/^Alpha/)).toHaveAttribute("data-unread"));
-    act(() => store.getState().applySessionStatus("a", "running"));
-    expect(rowOf(/^Alpha/)).not.toHaveAttribute("data-unread");
+    // Nowhere in the column is there a green or a blue dot.
+    expect(document.querySelector('.sidebar .status-dot[data-status="running"], .sidebar .status-dot[data-status="unseen"]')).toBeNull();
   });
 
   it("wears a clock when a schedule started it", async () => {
     await mount(home({ sessions: [session("a", "s1", { title: "Alpha", dispatchedBy: { kind: "run", sessionId: null } }), session("b", "s2", {})] }));
     const row = within(section("Versed")).getByRole("button", { name: /^Alpha/ });
     expect(row).toHaveAccessibleName("Alpha, from a schedule");
-    expect(row.querySelector(".sb-gutter svg")).not.toBeNull();
+    expect(row.querySelector("svg")).not.toBeNull();
   });
 
   it("leaves out a sub-agent and an archived session", async () => {
@@ -343,7 +358,7 @@ describe("a session's row", () => {
       sessions: [session("a", "s1", { title: "Alpha", status: "running" }), session("b", "s2", {})] }));
     const alpha = within(section("Versed")).getByRole("button", { name: /^Alpha/ }).closest(".item")!;
     expect(alpha.querySelector(".item-row > .status-dot, .item-row > .item-glyph")).toBeNull();
-    expect(alpha.querySelectorAll(".item-trail .status-dot, .item-trail .item-glyph")).toHaveLength(2);
+    expect(alpha.querySelectorAll(".item-trail .spinner, .item-trail .item-glyph")).toHaveLength(2);
     expect([...alpha.querySelectorAll(".item-actions > button")].map((b) => b.getAttribute("aria-label"))).toEqual(["Archive Alpha"]);
     expect(alpha.getAttribute("data-actions")).toBe("1");
   });
@@ -485,7 +500,7 @@ describe("Pinned", () => {
     }));
     const pinned = await pinnedRegion();
     await waitFor(() => expect([...pinned.querySelectorAll(".item-row")].map((b) => b.getAttribute("aria-label")))
-      .toEqual(["GitHub in Versed", "Wants a yes in Homework — needs permission"]));
+      .toEqual(["GitHub in Versed", "Wants a yes in Homework — needs you"]));
     fireEvent.click(within(pinned).getByRole("button", { name: /^Wants a yes/ }));
     await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
   });
@@ -514,14 +529,15 @@ describe("Pinned", () => {
     }));
     const pinned = await pinnedRegion();
     const row = (title: string) => within(pinned).getByRole("button", { name: new RegExp(`^${title} in Versed`) });
-    await waitFor(() => expect(row("Builds")).toHaveAccessibleName("Builds in Versed — running"));
-    expect(row("Asks")).toHaveAccessibleName("Asks in Versed — needs permission");
-    expect(row("Broke")).toHaveAccessibleName("Broke in Versed — error");
-    expect(row("Finished")).toHaveAccessibleName("Finished in Versed — new since you were here");
+    await waitFor(() => expect(row("Builds")).toHaveAccessibleName("Builds in Versed — working"));
+    expect(row("Asks")).toHaveAccessibleName("Asks in Versed — needs you");
+    expect(row("Broke")).toHaveAccessibleName("Broke in Versed — failed, needs you");
+    expect(row("Finished")).toHaveAccessibleName("Finished in Versed — unread");
     expect(row("Quiet")).toHaveAccessibleName("Quiet in Versed");
     const dot = (title: string) => row(title).querySelector(".status-dot")?.getAttribute("data-status") ?? null;
-    expect(["Builds", "Asks", "Broke", "Finished", "Quiet"].map(dot)).toEqual(["running", "waiting_permission", "error", "unseen", null]);
-    // Finished while away is said twice, as on the rows below: the dot, and the title lifted.
+    expect(["Builds", "Asks", "Broke", "Finished", "Quiet"].map(dot)).toEqual([null, "waiting_permission", "waiting_permission", null, null]);
+    expect(row("Builds").querySelector(".spinner")).not.toBeNull();
+    // Finished while away is the title lifted, and nothing else.
     expect(row("Finished").closest(".item")).toHaveAttribute("data-unread");
     expect(row("Quiet").closest(".item")).not.toHaveAttribute("data-unread");
     // The title is the whole title, in the row's elastic column — not cut to a tile's six letters.
@@ -536,7 +552,7 @@ describe("Pinned", () => {
       items: { s1: [sessionItem("a", "s1", "Alpha", { pinned: true }), sessionItem("k1", "s1", "Kid k1"), sessionItem("k2", "s1", "Kid k2")] },
       sessions: [session("a", "s1", { title: "Alpha", status: "running" }), kid("k1"), kid("k2")],
     }));
-    const pin = await within(await pinnedRegion()).findByRole("button", { name: "Alpha in Versed, 2 sub-agents need you — running" });
+    const pin = await within(await pinnedRegion()).findByRole("button", { name: "Alpha in Versed, 2 sub-agents need you — working" });
     expect(pin.querySelector(".item-count")).toHaveTextContent("2");
   });
 
@@ -589,8 +605,7 @@ describe("the list's fade", () => {
     expect(body.parentElement).toHaveClass("sb-list");
     expect(body).toHaveAttribute("data-dissolve");
     expect(container.querySelector(".space-fade")).toBeNull();
-    // Everything that scrolls is inside it: Needs you, Pinned, the list's head and the space alike.
-    expect(body.querySelector(".sb-lens")).not.toBeNull();
+    // Everything that scrolls is inside it: Needs you, Pinned and the space alike.
     expect(body.querySelector(".sb-section")).not.toBeNull();
   });
 });

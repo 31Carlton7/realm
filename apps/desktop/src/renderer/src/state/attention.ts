@@ -31,3 +31,25 @@ export function sessionMark(status: SessionStatus | undefined, unread: boolean):
   if (status === "running" || status === "waiting_permission" || status === "error") return { mark: status, label: STATUS_LABEL[status] };
   return unread ? { mark: "unseen", label: "new since you were here" } : null;
 }
+
+/**
+ * A sidebar row's state in the column's one signal system (direction A, the owner 11-03): the title
+ * goes bold while something is unread, a spinner stands in the age's slot while it works, and the
+ * amber dot — the only dot — says it needs you, a failed turn included. Each is its own channel, so a
+ * row can be working and unread at once. `words` is the same state said for the tooltip and the
+ * row's accessible name, because neither weight nor motion nor colour reads on its own.
+ */
+export type RowSignal = { unread: boolean; working: boolean; needsYou: boolean; words: string };
+
+export function rowSignal(state: "working" | "needs-you" | "failed" | "idle", unread: boolean): RowSignal {
+  const words = [
+    state === "needs-you" ? "needs you" : state === "failed" ? "failed, needs you" : state === "working" ? "working" : "",
+    unread ? "unread" : "",
+  ].filter(Boolean).join(", ");
+  return { unread, working: state === "working", needsYou: state === "needs-you" || state === "failed", words };
+}
+
+/** A session's status in `rowSignal`'s terms. */
+export function sessionSignal(status: SessionStatus | undefined, unread: boolean): RowSignal {
+  return rowSignal(status === "waiting_permission" ? "needs-you" : status === "error" ? "failed" : status === "running" ? "working" : "idle", unread);
+}

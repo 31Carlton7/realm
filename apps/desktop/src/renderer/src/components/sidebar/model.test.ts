@@ -3,7 +3,7 @@ import type { Item, Session, SessionStatus } from "@realm/contracts";
 import { item, profile, session, space } from "../../state/store.test-fakes";
 import {
   agentsWaiting, attentionRank, FAN_OUT_GAP_MS, listedSessions, needsYou, orderSpaces, pinnedItems, profileWaiting, recentDays, reorderWithin,
-  rowsBySpace, sameRow, sectionView, spaceRows, tallyOf, tallyWords, type SessionRow, type SidebarState,
+  newestRows, rowsBySpace, sameRow, spaceRows, tallyOf, tallyWords, type SessionRow, type SidebarState,
 } from "./model";
 
 const NOW = new Date(2026, 9, 4, 15, 0).getTime();
@@ -215,16 +215,24 @@ describe("spaceRows — one space's list", () => {
   });
 });
 
-describe("sectionView", () => {
-  it("shows five rows and counts the rest behind Show more", () => {
-    const rows = Array.from({ length: 8 }, (_, i) => ({ id: `r${i}` }) as SessionRow);
-    const view = sectionView(rows);
-    expect(view.shown).toHaveLength(5);
-    expect(view.hidden).toBe(3);
+describe("newestRows", () => {
+  it("shows the five that moved last, whatever is working or waiting among the rest", () => {
+    // THE MUTANT: the attention order (what waits first) where the list promises the newest.
+    const s = seed([
+      ...Array.from({ length: 6 }, (_, i) => ({ id: `r${i}`, space: "hw", at: 1000 + i })),
+      { id: "old-waiting", space: "hw", at: 10, status: "waiting_permission" as const },
+    ]);
+    expect(newestRows(listedSessions(s)).map((r) => r.id)).toEqual(["r5", "r4", "r3", "r2", "r1"]);
   });
 
-  it("has nothing behind Show more for a short space", () => {
-    expect(sectionView([{ id: "a" } as SessionRow]).hidden).toBe(0);
+  it("folds a fan-out into one row, as the rest of the list does", () => {
+    const by = { kind: "user-dispatch" as const, sessionId: null };
+    const s = seed([
+      { id: "f1", space: "hw", at: 2000, session: { dispatchedBy: by, createdAt: 100, agentKind: "claude" } },
+      { id: "f2", space: "hw", at: 2001, session: { dispatchedBy: by, createdAt: 200, agentKind: "claude" } },
+      { id: "x", space: "hw", at: 1000 },
+    ]);
+    expect(newestRows(listedSessions(s)).map((r) => r.kind)).toEqual(["fan-out", "session"]);
   });
 });
 

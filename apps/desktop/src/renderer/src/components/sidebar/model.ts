@@ -7,10 +7,10 @@ import { groupByDay, type DayGroup } from "./chat-feed";
 /**
  * What the sidebar draws, as pure functions over slices of the store (Plan 27).
  *
- * The sidebar lists SESSIONS, from every space at once: Needs you across every space and profile,
- * the active profile's spaces as sections, and the same sessions by time under Recent. Nothing here
- * reads the store or the clock, so each decision — what counts as waiting, what a fan-out is, what a
- * section says about its space — is testable without a DOM.
+ * The sidebar lists SESSIONS: Needs you across every space and profile, the space on screen's own
+ * sessions, and every session of the profile by time under Recent. Nothing here reads the store or
+ * the clock, so each decision — what counts as waiting, what a fan-out is, what a
+ * space's tile counts — is testable without a DOM.
  */
 
 /** The store slices every derivation below reads. */
@@ -37,7 +37,7 @@ export type SidebarState = {
   quickChatId: string | null;
 };
 
-/** How many rows a section shows before "Show more". */
+/** How many sessions a space's list shows before "Show all". */
 export const SECTION_ROWS = 5;
 
 /**
@@ -225,9 +225,9 @@ const fanOutCandidate = (r: SessionRow): boolean =>
   r.session?.dispatchedBy?.kind === "user-dispatch" && r.session.dispatchedBy.sessionId === null;
 
 /**
- * How much a row asks for a look: waiting on you or failed, then working, then the rest. A section
- * shows what needs you before what is merely recent — a session working for an hour last moved when
- * it started, and ordering by that alone would bury it under "Show more".
+ * How much a row asks for a look: waiting on you or failed, then working, then the rest. A list in
+ * this order shows what needs you before what is merely recent — a session working for an hour last
+ * moved when it started, and ordering by that alone would bury it.
  *
  * Unread is NOT a rank. Opening a session reads it, and a rank that reading changes is a row that
  * jumps away from under the click that selected it; the ring on the row says it is unread.
@@ -284,9 +284,9 @@ export function rowsBySpace(rows: readonly SessionRow[]): Map<string, ListRow[]>
   return new Map([...grouped].map(([id, list]) => [id, spaceRows(list)]));
 }
 
-/** The rows a section shows, and how many wait behind "Show more". */
-export function sectionView(rows: readonly ListRow[], limit = SECTION_ROWS): { shown: ListRow[]; hidden: number } {
-  return { shown: rows.slice(0, limit), hidden: Math.max(0, rows.length - limit) };
+/** The rows a space's Sessions list shows: the ones that moved last, a fan-out folded into one. */
+export function newestRows(rows: readonly SessionRow[], limit = SECTION_ROWS): ListRow[] {
+  return spaceRows(rows).sort((a, b) => b.at - a.at).slice(0, limit);
 }
 
 /**
@@ -321,7 +321,7 @@ export function pinnedItems(s: SidebarState, spaces: readonly Space[]): Item[] {
 }
 
 /**
- * The profile's spaces in section order: the order they were arranged in by hand, or — with
+ * The profile's spaces in rail order: the order they were arranged in by hand, or — with
  * Settings ▸ General ▸ Sidebar's "Sort spaces by activity" on — a space with something waiting
  * first, then whichever moved most recently (`spaceActivity`). A sorted copy: turning the setting
  * off lands on the hand-made order, untouched.
@@ -336,7 +336,7 @@ export function orderSpaces(spaces: readonly Space[], byActivity: boolean, s: Pi
 /**
  * The whole home's order after dropping `from` onto `to`'s place, both in the same profile.
  *
- * `reorderSpaces` takes every space's order, and a section drag only ever moves one profile's: this
+ * `reorderSpaces` takes every space's order, and a tile drag only ever moves one profile's: this
  * rewrites that profile's slots in place, so a drag in one profile never resequences another.
  */
 export function reorderWithin(all: readonly Space[], within: readonly Space[], from: string, to: string): string[] | null {

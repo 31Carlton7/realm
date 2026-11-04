@@ -43,7 +43,11 @@ async function card(container: HTMLElement, title: string): Promise<HTMLElement>
   });
 }
 const lines = (c: HTMLElement) => [...c.querySelectorAll<HTMLElement>(".item-row > .sb-card-line")];
-const stateOf = (c: HTMLElement) => lines(c)[1]!.querySelector(".item-trail > .status-dot")?.getAttribute("data-status") ?? null;
+/** What a card's title line wears at its far end: the amber dot, the spinner, or nothing. */
+const stateOf = (c: HTMLElement) => {
+  const trail = lines(c)[1]!.querySelector(".item-trail")!;
+  return trail.querySelector(":scope > .status-dot") ? "needs you" : trail.querySelector(":scope > .spinner") ? "working" : null;
+};
 
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
@@ -80,8 +84,8 @@ describe("an Activity card", () => {
     expect(within(lines(c)[0]!).getByRole("img", { name: "icon" })).toHaveTextContent("🎓");
   });
 
-  it("wears running, needs you and failed at the title's far end, apart from the time", async () => {
-    // THE MUTANT: the state's dot dropped from the card (`{mark && …}` removed).
+  it("wears working, needs you and failed at the title's far end, apart from the time", async () => {
+    // THE MUTANT: the state dropped from the card, or a green dot back for working.
     clock.at(NOW);
     const { container } = await mount([
       chat("run", "s1", NOW - 1000, { status: "running" }),
@@ -89,20 +93,22 @@ describe("an Activity card", () => {
       chat("bad", "s1", NOW - 3000, { status: "error" }),
       chat("calm", "s1", NOW - 4000),
     ]);
-    expect(stateOf(await card(container, "chat run"))).toBe("running");
-    expect(stateOf(await card(container, "chat ask"))).toBe("waiting_permission");
-    expect(stateOf(await card(container, "chat bad"))).toBe("error");
+    expect(stateOf(await card(container, "chat run"))).toBe("working");
+    expect(stateOf(await card(container, "chat ask"))).toBe("needs you");
+    expect(stateOf(await card(container, "chat bad"))).toBe("needs you");
     expect(stateOf(await card(container, "chat calm"))).toBeNull();
+    expect(container.querySelector('.status-dot[data-status="running"], .status-dot[data-status="error"]')).toBeNull();
     // And said in words, not by colour alone.
-    expect((await card(container, "chat bad")).querySelector(".item-row")!.getAttribute("aria-label")).toBe("chat bad in Work — error");
+    expect((await card(container, "chat bad")).querySelector(".item-row")!.getAttribute("aria-label")).toBe("chat bad in Work — failed, needs you");
   });
 
-  it("marks a turn finished while you were away: the blue dot and the title lifted", async () => {
-    // THE MUTANT: `data-unread` left off the card — the dot alone, the half that leans on hue.
+  it("marks a turn finished while you were away by lifting the title, with no dot of its own", async () => {
+    // THE MUTANTS: `data-unread` left off the card; the blue dot back beside it.
     clock.at(NOW);
     const { container } = await mount([chat("new", "s1", NOW, { seenSeq: 2, lastEventSeq: 5 }), chat("old", "s1", NOW - 1000, { seenSeq: 5, lastEventSeq: 5 })]);
     const fresh = await card(container, "chat new");
-    expect(stateOf(fresh)).toBe("unseen");
+    expect(stateOf(fresh)).toBeNull();
+    expect(fresh.querySelector(".status-dot")).toBeNull();
     expect(fresh).toHaveAttribute("data-unread");
     expect(await card(container, "chat old")).not.toHaveAttribute("data-unread");
   });
@@ -122,7 +128,7 @@ describe("an Activity card", () => {
     const { container } = await mount([chat("lead", "s1", NOW, { status: "running" }), kid("k1"), kid("k2")]);
     const c = await card(container, "chat lead");
     await waitFor(() => expect(lines(c)[1]!.querySelector(".item-tally .item-count")).toHaveTextContent("2"));
-    expect(stateOf(c)).toBe("running");
+    expect(stateOf(c)).toBe("working");
   });
 
   it("names the agent only where it is not the space's usual one", async () => {

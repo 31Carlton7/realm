@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Item, Session, SessionStatus } from "@realm/contracts";
 import { item, profile, session, space } from "../../state/store.test-fakes";
-import { listedSessions, nestChildren, rowsBySpace, sectionView, type SidebarState } from "../../components/sidebar/model";
+import { listedSessions, nestChildren, rowsBySpace, type SidebarState } from "../../components/sidebar/model";
 import { bucketOf } from "../../components/sidebar/chat-feed";
 import { agentTitle, spaceSessionPage, type PageRow, type PageSessionRow } from "./session-list";
 
@@ -181,9 +181,9 @@ describe("the filter and its counts", () => {
       { id: "b1", by: batch, created: t }, { id: "b2", by: batch, created: t + 500 },
       { id: "put-away", archived: true }, { id: "elsewhere", space: "o" },
     ]);
-    const { shown, hidden } = sectionView(rowsBySpace(listedSessions(s)).get("v") ?? []);
+    const rows = rowsBySpace(listedSessions(s)).get("v") ?? [];
     const p = spaceSessionPage(s, "v", "active", "", NOW());
-    expect(p.counts.active).toBe(shown.length + hidden);
+    expect(p.counts.active).toBe(rows.length);
     expect(p.counts.active).toBe(10); // 7 + L + orphan + the fan-out
   });
 });

@@ -53,11 +53,12 @@ function NeedsYouItem({ row }: { row: NeedsYouRow }) {
     <>
       <div className="item" data-actions={waiting ? 1 : 0}>
         <button type="button" className="item-row" aria-label={`${row.title}${where ? ` in ${where}` : ""} — ${said}`}
-          title={`${row.title}${where ? ` — ${where}` : ""}`} onClick={() => run(() => revealSession(row.session.id, row.spaceId))}>
+          title={`${row.title}${where ? ` in ${where}` : ""} — ${said}`} onClick={() => run(() => revealSession(row.session.id, row.spaceId))}>
           <Icon name={row.scheduled ? "clock" : "session"} size={16} />
           <span className="item-title">{row.title}</span>
           {where && <span className="item-where">{where}</span>}
-          <span className="item-trail"><span className="status-dot item-status" data-status={row.status} title={said} /></span>
+          {/* Amber for a failure too: the column's one dot means "needs you", and the words say which. */}
+          <span className="item-trail"><span className="status-dot item-status" data-status="waiting_permission" title={said} /></span>
         </button>
         {waiting && (
           <span className="item-actions">

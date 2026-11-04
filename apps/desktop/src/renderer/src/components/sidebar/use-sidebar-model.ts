@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { chordsForCommand, displayKeyChord, type Item } from "@realm/contracts";
 import { spaceColor } from "@realm/ui";
 import { useApp, useProfileSpaces, type SpacePageTab } from "../../state/store";
@@ -24,7 +24,7 @@ export function useSidebarState(): SidebarState {
     [spaces, profiles, activeProfileId, activeSpaceId, items, allItems, sessions, allSessions, sessionStatus, sessionSpace, sessionUpdatedAt, sessionActivityAt, quickChatId]);
 }
 
-/** The active profile's spaces, in section order. */
+/** The active profile's spaces, in rail order. */
 export function useOrderedSpaces() {
   const spaces = useProfileSpaces();
   const byActivity = useApp((s) => s.sidebarActivityOrder);
@@ -35,7 +35,7 @@ export function useOrderedSpaces() {
     [spaces, byActivity, sessionStatus, sessionSpace, sessionActivityAt]);
 }
 
-/** The rows of the active profile: what the sections and Recent are drawn from. */
+/** The rows of the active profile: what the space's Sessions and Recent are drawn from. */
 export function useProfileRows(state: SidebarState): SessionRow[] {
   const spaces = useProfileSpaces();
   return useMemo(() => {
@@ -102,24 +102,24 @@ export function useOpenAnywhere(): (item: Item) => void {
   const revealSession = useApp((s) => s.revealSession);
   const revealItem = useApp((s) => s.revealItem);
   const run = useApp((s) => s.run);
-  // Every space of the profile is loaded, so any item opens where it is, from any section.
+  // Every space of the profile is loaded, so any item opens where it is, from any list.
   return useCallback((item: Item) => run(async () => {
     if (item.kind === "session") await revealSession(item.refId, item.spaceId);
     else await revealItem(item.id, item.spaceId);
   }), [revealSession, revealItem, run]);
 }
 
-/** A new session in a given space — a section's +. */
+/** A new session in a given space — an empty space's New session. */
 export function useNewSessionIn(): (spaceId: string) => void {
   const newSessionInstant = useApp((s) => s.newSessionInstant);
   const run = useApp((s) => s.run);
-  // The section's own space, named outright — the create actions take one now that there is no room.
+  // The space named outright — the create actions take one now that there is no room.
   return useCallback((spaceId: string) => run(async () => {
     await newSessionInstant(null, undefined, spaceId);
   }), [newSessionInstant, run]);
 }
 
-/** A space's own page — "Show more", a section's ⋯, a pane bar's breadcrumb — on a given tab, or on
+/** A space's own page — the title's "···", a tile's menu, a pane bar's breadcrumb — on a given tab, or on
  *  whichever it last showed. */
 export function useOpenSpacePage(): (spaceId: string, tab?: SpacePageTab) => void {
   const openSpacePage = useApp((s) => s.openSpacePage);
@@ -136,4 +136,14 @@ export function useArchiveAnywhere(refreshAll: () => void): (item: Item) => void
     await archiveItem(item.id, true);
     refreshAll();
   }), [archiveItem, run, refreshAll]);
+}
+
+/** `Date.now()`, again each minute: what a list of "5m"s needs to stay true while it is open. */
+export function useNow(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  return now;
 }

@@ -1,10 +1,12 @@
 import { Icon } from "@realm/ui";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import type { Item, Teammate } from "@realm/contracts";
 import { useApp, useProfileSpaces } from "../../state/store";
+import { teammateOfHome } from "../../state/teammates-slice";
 import { usePageNavHost } from "../page-nav";
 import { useDissolve } from "../ScrollFades";
 import { NeedsYou } from "./NeedsYou";
-import { PinnedList } from "./PinnedList";
+import { PinnedList, PinnedTeammate } from "./PinnedList";
 import { RecentList } from "./RecentList";
 import { SidebarHeader } from "./SidebarHeader";
 import { SidebarLens } from "./SidebarLens";
@@ -58,10 +60,9 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
           <div className="space-body" ref={scroller}>
             <NeedsYou />
             <Pinned onChanged={refresh} />
-            <SidebarLens />
             {lens === "recent"
-              ? <RecentList rows={rows} onChanged={refresh} />
-              : <SpaceSections rows={rows} onChanged={refresh} />}
+              ? <><SidebarLens /><RecentList rows={rows} onChanged={refresh} /></>
+              : <SpaceSections state={state} rows={rows} onChanged={refresh} />}
           </div>
         </div>
       </div>
@@ -112,18 +113,31 @@ function PageNavColumn({ label, back, title, setSlot }: {
   );
 }
 
-/** The profile's own favourites, from any of its spaces, with the state their rows below wear. */
+/**
+ * The profile's own favourites, from any of its spaces. Pinned teammates come first, as a row of
+ * their icons with the Lead first (Grok's bots), each with its state on the icon; anything else
+ * pinned — a session, a page — is a row under them, with the state the rows below wear.
+ */
 function Pinned({ onChanged }: { onChanged: () => void }) {
   const state = useSidebarState();
   const spaces = useProfileSpaces();
-  const items = useMemo(() => pinnedItems(state, spaces), [state, spaces]);
+  const teammates = useApp((s) => s.teammates);
+  const { mates, others } = useMemo(() => {
+    const mates: Teammate[] = [];
+    const others: Item[] = [];
+    for (const item of pinnedItems(state, spaces)) {
+      const mate = item.kind === "session" ? teammateOfHome(teammates, item.refId, item.spaceId) : null;
+      if (mate) mates.push(mate); else others.push(item);
+    }
+    return { mates: mates.sort((a, b) => Number(b.lead) - Number(a.lead)), others };
+  }, [state, spaces, teammates]);
   const spaceName = useCallback((id: string) => spaces.find((sp) => sp.id === id)?.name, [spaces]);
   const open = useOpenAnywhere();
-  if (items.length === 0) return null;
+  if (mates.length === 0 && others.length === 0) return null;
   return (
     <section className="sb-pinned" aria-label="Pinned">
-      <div className="group-label">Pinned</div>
-      <PinnedList items={items} state={state} spaceName={spaceName} onOpen={open} onChanged={onChanged} />
+      {mates.length > 0 && <div className="sb-pinned-mates">{mates.map((t) => <PinnedTeammate key={t.id} teammate={t} />)}</div>}
+      {others.length > 0 && <PinnedList items={others} state={state} spaceName={spaceName} onOpen={open} onChanged={onChanged} />}
     </section>
   );
 }

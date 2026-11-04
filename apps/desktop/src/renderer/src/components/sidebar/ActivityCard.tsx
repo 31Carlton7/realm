@@ -6,6 +6,7 @@ import { age } from "../../panes/code-review/code-review-model";
 import { environmentLabel } from "../../panes/session/Composer";
 import { stampTitle } from "../../panes/session/timestamps";
 import { RenameInput } from "../RenameInput";
+import { Spinner } from "../Spinner";
 import { SpaceIcon } from "../SpaceIcon";
 import { useItemContextMenu } from "./ItemContextMenu";
 import { ItemGlyph } from "./ItemList";
@@ -58,18 +59,18 @@ export function ActivityCard({ row, space, usual, now, onChanged }: {
   const [dragging, setDragging] = useState(false);
   const { onContextMenu, element } = useItemContextMenu(() => setRenaming(true), { onChanged });
   const where = space?.name ?? "";
-  const { mark, agents, said } = sessionWords(row, where);
+  const { signal, agents, said } = sessionWords(row, where);
   const kind = row.session?.agentKind;
   const agent = kind && usual && kind !== usual ? AGENT_META[kind] : null;
   const branch = env?.kind === "worktree" ? environmentLabel(env, where) : null;
   return (
-    <div className="item sb-row sb-card" data-session={row.id} data-active={focused || undefined} data-unread={mark?.mark === "unseen" || undefined} data-actions="1"
+    <div className="item sb-row sb-card" data-session={row.id} data-active={focused || undefined} data-unread={signal.unread || undefined} data-actions="1"
       data-dragging={dragging || undefined} draggable
       onDragStart={(e) => { e.dataTransfer.setData("application/x-realm-item", row.item.id); e.dataTransfer.effectAllowed = "move"; setDragging(true); }}
       onDragEnd={() => setDragging(false)} onContextMenu={onContextMenu(row.item)}>
       {renaming ? <RenameInput item={row.item} onDone={() => { setRenaming(false); onChanged(); }} /> : (
         <>
-          <button type="button" className="item-row" aria-label={said}
+          <button type="button" className="item-row" aria-label={said} title={said}
             onClick={(e) => run(() => (e.metaKey ? openItemBeside(row.item.id) : open()))}>
             <span className="sb-card-line sb-card-head">
               <CardSpace space={space} tint={tint} />
@@ -86,7 +87,8 @@ export function ActivityCard({ row, space, usual, now, onChanged }: {
                 {row.agentsWaiting > 0 && (
                   <span className="item-tally" title={agents}><span className="item-count">{row.agentsWaiting}</span><span className="status-dot item-status" data-status="waiting_permission" /></span>
                 )}
-                {mark && <span className="status-dot item-status" data-status={mark.mark} title={mark.mark === "unseen" ? "New since you were here" : mark.label} />}
+                {signal.needsYou && <span className="status-dot item-status" data-status="waiting_permission" />}
+                {signal.working && <Spinner size={14} className="item-spinner" />}
                 {layout && <ItemGlyph layout={layout} itemId={row.item.id} />}
               </span>
             </span>
