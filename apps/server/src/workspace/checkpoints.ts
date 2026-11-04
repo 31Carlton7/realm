@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdtempSync, rmSync, statSync, unlinkSync, utimesSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TURN_CHANGES_MAX_FILES, type FileDiff, type TurnChanges, type TurnFile } from "@realm/contracts";
@@ -141,6 +141,13 @@ export class CheckpointGit {
     if (!existsSync(cwd)) return false;
     try { return (await this.git(cwd, ["rev-parse", "--git-dir"])).code === 0; }
     catch { return false; }
+  }
+
+  /** The branch checked out at `cwd`, or null on a detached HEAD or outside a repository. */
+  async branch(cwd: string): Promise<string | null> {
+    if (!await this.isRepository(cwd)) return null;
+    const r = await this.git(cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+    return r.code === 0 ? r.stdout.trim() || null : null;
   }
 
   /**
@@ -392,6 +399,73 @@ export class CheckpointGit {
     return { headMoved, filesRemoved };
   }
 
+  /** How many paths this checkpoint's working tree has that its HEAD does not: the uncommitted
+   *  changes it holds, untracked files included. */
+  async changedFiles(input: { cwd: string; state: CapturedState }): Promise<number> {
+    const root = await this.root(input.cwd);
+    const { headSha, worktreeTree } = input.state;
+    const r = headSha
+      ? await this.git(root, ["diff-tree", "-r", "--name-only", "-z", headSha, worktreeTree])
+      : await this.git(root, ["ls-tree", "-r", "--name-only", "-z", worktreeTree]);
+    return r.code === 0 ? nulPaths(r.stdout).length : 0;
+  }
+
+  /**
+   * Put this checkpoint's uncommitted changes onto ANOTHER checkout of the same repository, as
+   * uncommitted changes there — a session moving into a checkout with its own HEAD and its own work.
+   *
+   * A three-way merge of trees: from the checkpoint's HEAD, the checkout as `into` captured it on one
+   * side and the checkpoint's working tree on the other. Neither side's work is lost, and a change both
+   * already have — a session moving back into the checkout it left, which kept its changes — merges
+   * to itself. The result is written as `restore` writes a tree, and the checkout's index is put back
+   * as `into` found it, so what it had staged stays staged and what arrived arrives unstaged.
+   *
+   * `into: null` is a checkout with nothing of its own yet — a worktree made for the move — whose
+   * HEAD stands in for it.
+   *
+   * Throws on a conflict, having written nothing. `extract` is the exact form for a worktree made at
+   * the checkpoint's own HEAD; this is for everywhere else.
+   */
+  async applyChanges(input: { cwd: string; state: CapturedState; into: CapturedState | null }): Promise<void> {
+    const root = await this.root(input.cwd);
+    const tree = await this.mergedTree(input);
+    const indexTree = input.into?.indexTree ?? (await this.git(root, ["rev-parse", "HEAD^{tree}"])).stdout.trim();
+    await this.applyTrees(root, { ...input.state, worktreeTree: tree, indexTree }, "MOVE_FAILED");
+  }
+
+  /** The working tree `applyChanges` would leave, written to the object store and nowhere else.
+   *  Throws on a conflict as it does. */
+  async mergedTree(input: { cwd: string; state: CapturedState; into: CapturedState | null }): Promise<string> {
+    const root = await this.root(input.cwd);
+    if (!input.state.headSha) throw new RpcError("MOVE_FAILED", "the checkout has no commits to carry its changes from");
+    const merged = await this.git(root, ["merge-tree", "--write-tree", "--name-only", `--merge-base=${input.state.headSha}`, input.into?.commitSha ?? "HEAD", input.state.commitSha]);
+    const [tree, ...rest] = merged.stdout.split("\n");
+    if (merged.code === 1) {
+      const files = rest.slice(0, rest.indexOf("")).filter(Boolean);
+      throw new RpcError("MOVE_FAILED", `the changes conflict with the work already there, in ${files.join(", ") || "some files"}`);
+    }
+    if (merged.code !== 0 || !tree?.trim()) throw new RpcError("MOVE_FAILED", gitReason(merged));
+    return tree.trim();
+  }
+
+  /** Put the checkout back to its HEAD: tracked files reset, untracked ones removed, ignored ones
+   *  kept. Only after a capture, which is the undo. */
+  async resetToHead(cwd: string): Promise<void> {
+    const root = await this.root(cwd);
+    const reset = await this.git(root, ["reset", "--hard", "-q", "HEAD"]);
+    if (reset.code !== 0) throw new RpcError("RESTORE_FAILED", gitReason(reset));
+    const clean = await this.git(root, ["clean", "-fdq"]);
+    if (clean.code !== 0) throw new RpcError("RESTORE_FAILED", gitReason(clean));
+  }
+
+  /** Ignored files whose names look like secrets (`.env`, keys, credentials). A move never carries an
+   *  ignored file, and these are the ones worth naming as left behind. */
+  async secretLookingIgnored(cwd: string): Promise<string[]> {
+    const root = await this.root(cwd);
+    const r = await this.git(root, ["--no-optional-locks", "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"]);
+    return r.code === 0 ? nulPaths(r.stdout).filter((p) => SECRET_LOOKING.test(p)) : [];
+  }
+
   /** Steps 2–4 of the restore recipe (see `restore`'s doc comment): working tree from
    *  `worktreeTree`, untracked survivors deleted, index from `indexTree`. */
   private async applyTrees(root: string, state: CapturedState, errorCode: string): Promise<number> {
@@ -443,6 +517,9 @@ export class CheckpointGit {
     return r.code === 0 && r.stdout.trim() === commitSha;
   }
 }
+
+/** A file name that usually holds a secret: `.env` and its variants, keys, certificates, credentials. */
+const SECRET_LOOKING = /(^|\/)(\.env(\.[^/]*)?|[^/]*\.(pem|key|p12|pfx)|[^/]*(secret|credential)[^/]*)$/i;
 
 const shortRef = (ref: string) => ref.replace(/^refs\/heads\//, "");
 

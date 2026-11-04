@@ -377,7 +377,9 @@ export const DispatchedBySchema = z.object({
   kind: DispatchKindSchema,
 });
 export type DispatchedBy = z.infer<typeof DispatchedBySchema>;
-export const SessionStatusSchema = z.enum(["idle", "running", "waiting_permission", "error", "ended"]);
+/** `moving`: the session is being moved to another place to run (`session-move.ts`). Its engine is
+ *  stopped and messages wait until the move commits or fails. */
+export const SessionStatusSchema = z.enum(["idle", "running", "waiting_permission", "error", "ended", "moving"]);
 export type SessionStatus = z.infer<typeof SessionStatusSchema>;
 export const SessionSchema = z.object({
   id: IdSchema, spaceId: IdSchema, projectId: IdSchema.nullable(), agentKind: AgentKindSchema,

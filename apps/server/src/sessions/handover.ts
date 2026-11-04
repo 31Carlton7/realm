@@ -118,8 +118,9 @@ export class HandoffNotes {
     now?: () => number;
   }) {}
 
-  /** Write the note for a switch from `from` to `to` (models by name) and say where it is. */
-  async write(session: Session, sides: { from: string; to: string }): Promise<{ path: string; notes: string }> {
+  /** Write the note for a switch from `from` to `to` (models by name) — or, for a move, from one
+   *  working directory to another — and say where it is. */
+  async write(session: Session, sides: { from: string; to: string }, how: "switched" | "moved" = "switched"): Promise<{ path: string; notes: string }> {
     const now = this.d.now?.() ?? Date.now();
     const events = this.d.events.listAfter(session.id, 0, 20_000);
     const facts = sessionFacts(events.map((e) => e.event));
@@ -128,7 +129,10 @@ export class HandoffNotes {
       title: session.title, asked: facts.asked, transcript: transcriptForSummary(events), facts: factLines(facts), ...sides,
     });
     const files = facts.edited.map((p) => `- \`${inside(session.cwd, p)}\``);
-    const head = `Switched from ${sides.from} to ${sides.to} on ${momentInputValue(now).replace("T", " ")}, in \`${session.cwd}\`.`;
+    const when = momentInputValue(now).replace("T", " ");
+    const head = how === "moved"
+      ? `Moved from \`${sides.from}\` to \`${sides.to}\` on ${when}.`
+      : `Switched from ${sides.from} to ${sides.to} on ${when}, in \`${session.cwd}\`.`;
     let sections: string[];
     if (written) {
       const last = carriedTranscript(turns.slice(lastIndexOfNth(turns, "user", LAST_TURNS) ?? 0), LAST_TURNS_MAX);

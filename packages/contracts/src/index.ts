@@ -76,6 +76,7 @@ export * from "./terminal-programs";
 export * from "./schedules";
 export * from "./teammates";
 export * from "./failover";
+export * from "./session-move";
 export * from "./accounts";
 export * from "./school";
 export * from "./links";

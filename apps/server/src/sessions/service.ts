@@ -1,6 +1,7 @@
 import { realpathSync, statSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { ENGINE_IDLE_MINUTES_DEFAULT, ENGINE_IDLE_MINUTES_KEY, AGENT_MEMORY_CHANNEL, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
+import { ENGINE_IDLE_MINUTES_DEFAULT, ENGINE_IDLE_MINUTES_KEY, AGENT_MEMORY_CHANNEL, AGENT_SESSION_RESUME, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, handoffContextKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, moveFailedSentence, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type MoveOptions, type MoveTarget, type MoveWhen, type PendingMove, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, RestartRequiredError, type AdapterRegistry, type AgentAdapter, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -15,6 +16,9 @@ import { NotFoundError, RpcError } from "../store/rows";
 import { buildHandoffContext, defaultAccountId, hasAccounts, shouldSurfaceWrite, switchNote, type AccountKind } from "@realm/contracts";
 import type { FailoverHooks } from "./failover";
 import { handOver, modeAfterSwitch, modelNameOf } from "./handover";
+import { moveFallbackKey, moveInFlightKey, movePrefaceKey, placeOf, runMove, undoInterruptedMove, type MoveFallback, type MoveInFlight, type MovePlan } from "./move";
+import type { Rehomed } from "../accounts/service";
+import type { CheckpointGit } from "../workspace/checkpoints";
 import { portEnv, type PortAllocator } from "../workspace/ports";
 import type { WorktreeService } from "../workspace/worktrees";
 import type { CheckpointService } from "../checkpoints/service";
@@ -239,6 +243,16 @@ export class SessionService {
   /** Sessions changing agents (`switchAgent`). A message sent meanwhile waits for the switch, so it is
    *  the new agent's first rather than one more for the agent being left. */
   private switching = new Map<string, Promise<unknown>>();
+  /** Moves asked for during a turn, run when it settles (`sessions.move` with `after-turn`). */
+  private pendingMoves = new Map<string, Omit<MovePlan, "signal">>();
+  /** The move under way per session, so `cancelMove` can stop it before it commits. */
+  private moveAborts = new Map<string, AbortController>();
+  /** The move under way per session and the step it is at, for a client that opens it mid-move. */
+  private movesUnderWay = new Map<string, PendingMove>();
+  /** A move's boot, waiting on the engine's `init`. */
+  private bootWaiters = new Map<string, { resolve: (init: SessionEventPayload<"init">) => void; reject: (e: Error) => void }>();
+  /** How long a move waits for the engine it boots to report in. A field so a test can shorten it. */
+  moveBootTimeoutMs = 60_000;
   constructor(private d: { db: Db; rpc: RpcServer; sessions: SessionsStore; events: SessionEventsStore; items: ItemsStore; spaces: SpacesStore; projects: ProjectsStore; environments: EnvironmentsStore; settings: SettingsStore; worktrees: WorktreeService; ports: PortAllocator; terminals: TerminalService; adapters: AdapterRegistry; skills: SkillsService; gateway: McpGateway; memory: MemoryService; checkpoints?: CheckpointService;
     /** Failover (fallbacks + forks). Optional so a server built without it behaves exactly as
      *  before: no retries, no handoffs, an error is an error. */
@@ -246,14 +260,23 @@ export class SessionService {
     /** What a switch hands the incoming agent (`sessions/handover.ts`): the hand-off note, written on
      *  the frontier model and saved under Realm's home. Optional — without it a switch still happens,
      *  carrying the conversation verbatim, and writes no file. */
-    handoffNotes?: { write(session: Session, sides: { from: string; to: string }): Promise<{ path: string; notes: string }> };
+    handoffNotes?: { write(session: Session, sides: { from: string; to: string }, how?: "switched" | "moved"): Promise<{ path: string; notes: string }> };
     /** The accounts an agent runs on (`accounts/service.ts`): the folder variable a session's engine
      *  starts under, and carrying a conversation between two accounts' folders. Optional — without it
      *  every session runs on its CLI's own folder. */
     accounts?: {
       envFor(kind: AgentKind, accountId: string | null | undefined): Record<string, string>;
       accountFor(kind: AgentKind, accountId: string | null | undefined): { label: string } | null;
-      carry(kind: AgentKind, providerSessionId: string, fromId: string | null, toId: string | null): Promise<boolean>;
+      carry(kind: AgentKind, providerSessionId: string, fromId: string | null, toId: string | null, cwd?: string): Promise<boolean>;
+      rehome?(kind: AgentKind, providerSessionId: string, accountId: string | null, cwd: { from: string; to: string }): Promise<Rehomed | null>;
+    };
+    /** What moving a session to another checkout needs beyond the stores (`sessions.move`): the git
+     *  half of checkpoints, and making and unmaking a worktree with its row. Optional — without it a
+     *  session cannot move. */
+    moves?: {
+      git: CheckpointGit;
+      createWorktree(input: { spaceId: string; title: string | null; from: string; base: string | null }): Promise<Environment>;
+      discardWorktree(env: Environment, sourcePath: string): Promise<void>;
     };
     /** The Seatbelt policy an agent CLI is spawned under. Optional so a harness built without it
      *  spawns exactly what Realm spawned before this feature existed. */
@@ -295,6 +318,8 @@ export class SessionService {
     /** The user's home, for the folders the turn-media sweep refuses (`~`, `~/Library`) and the `~` it
      *  expands. Defaults to the OS's; a test passes a scratch one. */
     userHome?: string;
+    /** The machine's name, as `system.info` gives it, for the Move sheet's header. */
+    machineName?: () => Promise<string>;
     /** Writes the model's account of a session when a turn settles (`SessionSummaryService`). Wired
      *  and gated for exactly the same reasons as `titleGenerator` above: it is a billed call, so only
      *  the real server process passes one, and it is `void`ed off the settle rather than awaited. */
@@ -711,13 +736,20 @@ export class SessionService {
     return this.wireQueue(id);
   }
 
+  /** The move waiting behind this session's turn, or the one under way and its step. */
+  pendingMove(id: string): PendingMove | null {
+    const queued = this.pendingMoves.get(id);
+    if (queued) return { moveId: queued.moveId, to: queued.to, step: null };
+    return this.movesUnderWay.get(id) ?? null;
+  }
+
   private wireQueue(id: string): QueuedPrompt[] {
     const held = this.queueHolds.get(id)?.queuedId;
     return (this.queued.get(id) ?? []).map((w) => ({ ...w.prompt, held: w.prompt.id === held }));
   }
 
   private broadcastQueue(id: string): void {
-    this.d.rpc.broadcast("session.queue", { sessionId: id, queued: this.wireQueue(id) });
+    this.d.rpc.broadcast("session.queue", { sessionId: id, queued: this.wireQueue(id), move: this.pendingMove(id) });
   }
 
   /** Everything a typed message earns on its way to the adapter. Reached only from `send` and from
@@ -752,6 +784,12 @@ export class SessionService {
     // failover keeps the message, so a retry of the turn says it again.
     const joined = this.d.teammates?.joinedNote(id);
     if (joined) msg = { ...msg, note: `${msg.note ?? ""}${joined}` };
+    // The first message after a move tells the agent it moved, once (`moved`'s `preface`).
+    const preface = this.d.settings.get(movePrefaceKey(id));
+    if (typeof preface === "string") {
+      this.d.settings.set(movePrefaceKey(id), null);
+      msg = { ...msg, note: `${msg.note ?? ""}\n\n${preface}` };
+    }
     // Recorded BEFORE the message goes out, because the failure this enables recovery from can
     // arrive on the very first event back. A new turn also clears the previous one's retry budget
     // and chain position — those are per-turn, not per-session.
@@ -1085,7 +1123,7 @@ export class SessionService {
     this.refuseMidTurn(s, "switch accounts");
     const carried = async () => {
       await this.reap(id);
-      if (s.providerSessionId === null || await accounts.carry(s.agentKind, s.providerSessionId, s.accountId ?? null, accountId)) {
+      if (s.providerSessionId === null || await accounts.carry(s.agentKind, s.providerSessionId, s.accountId ?? null, accountId, s.cwd)) {
         this.d.sessions.update({ id, accountId });
         return;
       }
@@ -1217,6 +1255,221 @@ export class SessionService {
   }
 
   /**
+   * Move a started session to another checkout of its space, or a new worktree, mid-conversation
+   * (`sessions.move`, `runMove`). The one path past `setEnvironment`'s started-guard: that guard holds
+   * because a transcript is tied to its checkout, and a move answers it by taking what ties them —
+   * the uncommitted changes, the engine's record of the conversation — along, and by telling the
+   * agent on its next turn that the paths above are under the old root.
+   *
+   * Mid-turn, `now` is refused, `after-turn` queues the move for the settle, and `stop` denies any
+   * open permission card, stops the turn and moves.
+   */
+  async move(id: string, req: { to: MoveTarget; keepSourceChanges: boolean; when: MoveWhen }): Promise<Session> {
+    // Asked before the refusals, so nothing awaits between them and the claim below.
+    const work = req.when === "stop" ? [] : await this.engineWork(id);
+    const s = this.get(id);
+    this.refuseMove(s, req);
+    const plan = { moveId: newId(), to: req.to, keepSourceChanges: req.keepSourceChanges, stopping: req.when === "stop" };
+    const midTurn = s.status === "running" || s.status === "waiting_permission";
+    if (midTurn && req.when === "now") this.refuseMidTurn(s, "move it");
+    if (work.length > 0) throw new RpcError("MOVE_STOPS_WORK", `its agent is still running ${work.join(", ")}, which moving would stop`);
+    if (midTurn && req.when === "after-turn") {
+      this.pendingMoves.set(id, plan);
+      this.broadcastQueue(id);
+      return s;
+    }
+    // Claimed before the first await: a second request while this one stops the turn is refused
+    // rather than run beside it.
+    const abort = new AbortController();
+    this.moveAborts.set(id, abort);
+    if (midTurn) {
+      this.denyOpenCards(id);
+      const handle = this.live.get(id)?.handle;
+      if (handle) {
+        try { await this.interruptAndSettle(id, handle); } catch (e) { this.moveAborts.delete(id); throw e; }
+      }
+    }
+    // A stop is the person's, as the Stop button is: the queue stays parked behind it.
+    await this.moveNow(id, plan, abort, midTurn);
+    return this.get(id);
+  }
+
+  /** Drop a move queued behind the turn, or stop one under way (it rolls back as a failure would). */
+  cancelMove(id: string): boolean {
+    if (this.pendingMoves.delete(id)) {
+      this.broadcastQueue(id);
+      return true;
+    }
+    const abort = this.moveAborts.get(id);
+    abort?.abort();
+    return abort !== undefined;
+  }
+
+  /** What the Move sheet shows: where the session can go, and what would go with it. */
+  async moveOptions(id: string): Promise<MoveOptions> {
+    const s = this.get(id);
+    const env = this.d.environments.get(s.environmentId);
+    if (!env) throw new NotFoundError("environment", s.environmentId);
+    const git = this.d.moves?.git;
+    const isRepo = git ? await git.isRepository(env.path) : false;
+    const hazard = isRepo ? await this.d.worktrees.hazard({ path: env.path, branch: env.branch, fallbackRepo: env.path }) : null;
+    const secrets = isRepo && git ? await git.secretLookingIgnored(env.path) : [];
+    const mode = AGENT_SESSION_RESUME[s.agentKind].mode;
+    const machineName = await this.d.machineName?.();
+    return {
+      from: await placeOf(git, env),
+      ...(machineName ? { machineName } : {}),
+      busy: s.status === "running" || s.status === "waiting_permission",
+      blocked: this.moveRefusal(s),
+      pending: this.pendingMoves.has(id) || this.moveAborts.has(id),
+      move: this.pendingMove(id),
+      conversation: s.providerSessionId !== null && mode !== "none" ? "native" : "notes",
+      changedFiles: hazard?.dirtyFiles ?? 0,
+      leftBehind: [...(s.terminalItemId ? ["the terminal"] : []), ...secrets],
+      stops: await this.engineWork(id),
+      environments: await Promise.all(this.d.environments.list(s.spaceId).filter((e) => e.id !== env.id)
+        .map(async (e) => ({ environmentId: e.id, path: e.path, branch: (await placeOf(git, e)).branch, kind: e.kind }))),
+      worktree: isRepo ? { available: true, reason: null } : { available: false, reason: `${env.path} is not a git repository, so it has no worktrees` },
+    };
+  }
+
+  /** Why this session cannot move at all, or null. */
+  private moveRefusal(s: Session): string | null {
+    if (!this.d.moves) return "this build cannot move sessions";
+    if (s.teammateHome) return "a teammate's chat stays where its teammate works";
+    const child = this.d.sessions.listAll().find((c) => c.dispatchedBy?.sessionId === s.id && (c.status === "running" || c.status === "waiting_permission"));
+    if (child) return `its sub-agent "${child.title}" is still running`;
+    return null;
+  }
+
+  /** Every refusal a move makes before anything is touched, thrown. */
+  private refuseMove(s: Session, req: { to: MoveTarget; keepSourceChanges: boolean }): void {
+    const refusal = this.moveRefusal(s);
+    if (refusal) throw new RpcError("SESSION_MOVE_REFUSED", `This session cannot move: ${refusal}.`);
+    if (this.switching.has(s.id) || this.pendingMoves.has(s.id) || this.moveAborts.has(s.id)) throw new RpcError("SESSION_SWITCHING", "this session is already switching");
+    if (req.to.kind === "environment") {
+      const env = this.d.environments.get(req.to.environmentId);
+      if (!env) throw new NotFoundError("environment", req.to.environmentId);
+      if (env.spaceId !== s.spaceId) throw new RpcError("ENVIRONMENT_WRONG_SPACE", "that environment belongs to another space");
+      if (env.id === s.environmentId) throw new RpcError("BAD_REQUEST", "this session already runs in that checkout");
+      if (this.isEnvironmentBusy(env.id)) throw new RpcError("ENVIRONMENT_BUSY", "another session is working in that checkout; move once it has finished its turn");
+    }
+    if (!req.keepSourceChanges && this.otherTurnIn(s.environmentId, s.id)) {
+      throw new RpcError("ENVIRONMENT_BUSY", "another session is working in this checkout, so its changes cannot be cleared from it");
+    }
+  }
+
+  /** The adapter denies its own cards when its engine stops; the ones Realm raises itself (browser
+   *  tools, `ui_ask`, elicitations) wait in the gateway, and only an answer here clears them. */
+  private denyOpenCards(id: string): void {
+    for (const requestId of this.d.events.findDanglingPermissions(id)) this.respondPermission(id, requestId, "deny");
+  }
+
+  /** What the engine runs beyond a turn, which stopping it stops too — named for a move. */
+  private async engineWork(id: string): Promise<string[]> {
+    const work: string[] = [];
+    const tasks = this.background.get(id)?.size ?? 0;
+    if (tasks > 0) work.push(tasks === 1 ? "a background task" : `${tasks} background tasks`);
+    const shells = await this.d.backgroundShells?.().catch(() => null);
+    if (shells?.has(id)) work.push("a background command");
+    if ((this.crons.get(id) ?? 0) > 0 || this.wakeups.has(id)) work.push("a scheduled job");
+    if (this.forkInFlight.has(id) || this.rewindTurns.has(id)) work.push("a rewind");
+    if (this.d.keepEngine?.(id)) work.push("an active goal, durable run or delegation");
+    return work;
+  }
+
+  /** Whether a session other than `exceptId` is mid-turn in that checkout. */
+  private otherTurnIn(environmentId: string, exceptId: string): boolean {
+    return this.d.sessions.listAll().some((o) => o.id !== exceptId && o.environmentId === environmentId && (o.status === "running" || o.status === "waiting_permission"));
+  }
+
+  /** Run a move now. Held as a switch, so a message sent meanwhile waits for it, and the queue the
+   *  turn left behind drains once it is over, wherever the session ended up — unless the person
+   *  stopped that turn, which parks the queue as it does without a move. */
+  private async moveNow(id: string, plan: Omit<MovePlan, "signal">, abort: AbortController, interrupted = false): Promise<void> {
+    const moves = this.d.moves;
+    this.moveAborts.set(id, abort);
+    this.movesUnderWay.set(id, { moveId: plan.moveId, to: plan.to, step: null });
+    try {
+      if (!moves) throw new RpcError("SESSION_MOVE_REFUSED", "This session cannot move: this build cannot move sessions.");
+      this.denyOpenCards(id);
+      await this.whileSwitching(id, (async () => {
+        const accounts = this.d.accounts;
+        const handoffNotes = this.d.handoffNotes;
+        const checkpoints = this.d.checkpoints;
+        await runMove({
+          db: this.d.db, sessions: this.d.sessions, events: this.d.events, settings: this.d.settings, git: moves.git,
+          environment: (envId) => this.d.environments.get(envId),
+          othersWorkingIn: (envId, sid) => this.otherTurnIn(envId, sid),
+          capture: async (c) => {
+            const cp = await checkpoints?.capture({ environmentId: c.environmentId, sessionId: c.sessionId, kind: "manual", label: c.label });
+            const state = cp ? checkpoints!.stateOf(cp.id) : null;
+            return state ? { state } : null;
+          },
+          createWorktree: (w) => moves.createWorktree(w),
+          discardWorktree: (env, sourcePath) => moves.discardWorktree(env, sourcePath),
+          ...(accounts?.rehome ? { rehome: accounts.rehome.bind(accounts) } : {}),
+          ...(handoffNotes ? { handoffNotes } : {}),
+          stop: (sid) => this.reap(sid),
+          engineWork: (sid) => this.engineWork(sid),
+          boot: (sid, env) => this.bootAt(sid, env),
+          emit: (sid, ev) => {
+            if (ev.type === "moving") {
+              this.movesUnderWay.set(sid, { moveId: ev.payload.moveId, to: plan.to, step: ev.payload.step });
+              this.broadcastQueue(sid);
+            }
+            this.onEvent(sid, ev);
+          },
+          broadcastStatus: (sid, status) => this.d.rpc.broadcast("session.status", { sessionId: sid, status }),
+          closeTerminal: (sid) => {
+            const itemId = this.d.sessions.get(sid)?.terminalItemId;
+            const term = itemId ? this.d.items.get(itemId) : null;
+            if (term) this.closeTerminalItem(term.refId);
+            return term !== null;
+          },
+          ...(this.d.userHome ? { home: this.d.userHome } : {}),
+        }, this.get(id), { ...plan, signal: abort.signal });
+      })());
+    } finally {
+      this.moveAborts.delete(id);
+      this.movesUnderWay.delete(id);
+      this.broadcastQueue(id);
+      if (!interrupted) void this.drainQueue(id).catch(() => {});
+    }
+  }
+
+  /** The conversation resumed after a Claude move, so the notes carried in case it did not are put
+   *  back to the hand-off context they replaced, and the copies of the record the move set aside go. */
+  private dropMoveFallback(id: string): void {
+    const fallback = this.d.settings.get(moveFallbackKey(id)) as MoveFallback | null;
+    if (!fallback) return;
+    this.d.settings.set(handoffContextKey(id), fallback.before ?? null);
+    this.d.settings.set(moveFallbackKey(id), null);
+    for (const path of fallback.setAside) void rm(path, { recursive: true, force: true }).catch(() => {});
+  }
+
+  /**
+   * Start the engine at a move's target and wait for its `init`, sending nothing: the moment a resume
+   * is accepted or refused. The row still names the source — it moves only when the move commits —
+   * so the start is told where it is.
+   */
+  private async bootAt(id: string, env: Environment): Promise<SessionEventPayload<"init">> {
+    await this.d.ports.ensureBlock(env.id);
+    let timer: NodeJS.Timeout | undefined;
+    const init = new Promise<SessionEventPayload<"init">>((resolve, reject) => {
+      this.bootWaiters.set(id, { resolve, reject });
+      timer = setTimeout(() => reject(new Error(`the agent did not start within ${Math.round(this.moveBootTimeoutMs / 1000)} s`)), this.moveBootTimeoutMs);
+    });
+    try {
+      this.ensureLive(id, env);
+      return await init;
+    } finally {
+      clearTimeout(timer);
+      this.bootWaiters.delete(id);
+    }
+  }
+
+  /**
    * The session's terminal side panel (W4), created on FIRST call and never before — a session whose
    * panel is never opened must never spawn a pty. Idempotent afterwards: the same trio comes back.
    * A recorded terminal whose pty is gone (it exited, or its cwd vanished at boot) is torn down and
@@ -1271,6 +1524,11 @@ export class SessionService {
     this.queueHolds.delete(id);
     this.drainOwed.delete(id);
     this.restartOwed.delete(id);
+    this.pendingMoves.delete(id);
+    this.moveAborts.get(id)?.abort();
+    this.movesUnderWay.delete(id);
+    this.d.settings.set(movePrefaceKey(id), null);
+    this.d.settings.set(moveFallbackKey(id), null);
     // …and the rewind bookkeeping. The row carrying the durable half goes below; these two are what a
     // still-draining pump could otherwise read after the session it describes has stopped existing.
     this.forkInFlight.delete(id);
@@ -1499,6 +1757,31 @@ export class SessionService {
       }
       const resumable = s.status === "running" || s.status === "waiting_permission" || (s.status === "ended" && s.providerSessionId !== null);
       if (resumable) this.d.sessions.update({ id: s.id, status: "idle" });
+    }
+  }
+
+  /** Boot, after `markStaleOnBoot`: a move the server stopped in the middle of never committed — the
+   *  commit and the `moving` status leave together — so the session is still where it was, and what
+   *  the move had changed elsewhere is taken back from what it kept as it went. Its `move_failed`
+   *  closes the progress row its last `moving` left in the transcript. */
+  async recoverMoves(): Promise<void> {
+    for (const s of this.d.sessions.listAll()) {
+      const kept = this.d.settings.get(moveInFlightKey(s.id)) as MoveInFlight | null;
+      if (s.status !== "moving" && !kept) continue;
+      const moves = this.d.moves;
+      const left = kept && moves ? await undoInterruptedMove({
+        git: moves.git, environment: (id) => this.d.environments.get(id), discardWorktree: (env, from) => moves.discardWorktree(env, from),
+        othersWorkingIn: (envId, sid) => this.otherTurnIn(envId, sid), ...(this.d.userHome ? { home: this.d.userHome } : {}),
+      }, s.id, kept) : [];
+      this.d.settings.set(moveInFlightKey(s.id), null);
+      if (s.status === "moving") this.d.sessions.update({ id: s.id, status: "idle" });
+      const reason = "Realm stopped before the move finished";
+      const last = this.d.events.lastOfType(s.id, "moving");
+      const step = last?.type === "moving" && last.payload.moveId === kept?.moveId ? last.payload.step : "commit";
+      const env = this.d.environments.get(s.environmentId);
+      const from = env ? await placeOf(moves?.git, env).catch(() => undefined) : undefined;
+      this.persist(s.id, sessionEvent("move_failed", { moveId: kept?.moveId ?? "", step, reason, ...(from ? { from } : {}),
+        note: [moveFailedSentence({ step, from }), ...left].join(" ") }));
     }
   }
 
@@ -1816,13 +2099,15 @@ export class SessionService {
     return sandboxWrapFor(this.d.sandbox, { spaceId: s.spaceId, extraWritableRoots: memoryDir ? [s.cwd, memoryDir] : [s.cwd] });
   }
 
-  private ensureLive(id: string): AgentHandle {
+  /** `at` starts it somewhere other than the row's environment — a move's boot, before the row moves. */
+  private ensureLive(id: string, at?: Environment): AgentHandle {
     const existing = this.live.get(id); if (existing) return existing.handle;
     // The load-bearing refusal of a drain (Plan 26 Phase 8). A handle that is ALREADY running is
     // fine: the child has exec'd, and the inode survives `install-local.mjs` deleting the bundle
     // under it. Starting a cold one is not — it would exec a path that no longer exists.
     if (this.draining) throw new RpcError("DAEMON_DRAINING", "Realm is finishing an update — this session will start again in a moment");
-    const s = this.get(id);
+    const row = this.get(id);
+    const s = at ? { ...row, environmentId: at.id, cwd: at.path } : row;
     const adapter = this.d.adapters[s.agentKind];
     if (!adapter) throw new RpcError("AGENT_UNAVAILABLE", `${s.agentKind} is not registered`);
     // Realm keeps this space's memory in the user's repo: Claude's own auto-memory goes to the space's
@@ -2074,6 +2359,8 @@ export class SessionService {
    */
   private noteContextReset(before: Session, init: SessionEventPayload<"init">): void {
     if (before.providerSessionId === null) return;
+    // A move's boot: a refused resume there moves the conversation as notes, and the moved line says so.
+    if (before.status === "moving") return;
     if (init.resumeOutcome !== "declined" && init.resumeOutcome !== "unsupported") return;
     const label = AGENT_META[before.agentKind]?.label ?? before.agentKind;
     // Persisted and broadcast directly rather than through `onEvent`, which is mid-flight above us.
@@ -2132,7 +2419,10 @@ export class SessionService {
     this.d.notifications?.handleSessionEvent(before, ev);
     if (ev.type === "init") {
       this.noteContextReset(before, ev.payload);
-      this.d.sessions.update({ id, providerSessionId: ev.payload.providerSessionId });
+      if (ev.payload.resumeOutcome === "continued") this.dropMoveFallback(id);
+      // A move's boot reports to the move, which writes the id only if it commits.
+      this.bootWaiters.get(id)?.resolve(ev.payload);
+      if (before.status !== "moving") this.d.sessions.update({ id, providerSessionId: ev.payload.providerSessionId });
       if (ev.payload.supportsFastMode !== undefined || ev.payload.fastModeModels || ev.payload.effortModels) this.noteFastSupport(before, ev.payload);
     }
     // A refused truncating resume is claimed here FIRST, and deliberately kept away from failover: the
@@ -2145,6 +2435,7 @@ export class SessionService {
     // `handoff` line with nothing to explain. `before` is the row as it was when the turn failed —
     // the handoff rewrites `agentKind`, so reading it afterwards would name the wrong agent.
     if (ev.type === "error" && !rewindRefused) this.d.failover?.onError(before, ev.payload.message);
+    if (ev.type === "error") this.bootWaiters.get(id)?.reject(new Error(ev.payload.message));
     // …and goal mode hears about it too: three errored turns in a row is what stops a goal from
     // continuing into a wall it cannot see (a missing CLI errors and settles in milliseconds).
     // Same exemption: the turn is being re-sent plainly, so it has not failed yet.
@@ -2169,7 +2460,8 @@ export class SessionService {
     // A goal's budget is spent by tokens rather than by turns, and this event is where a turn's cost
     // is reported. Counted even on a turn that errored: the tokens were still spent.
     if (ev.type === "usage") this.d.goals?.onUsage(id, ev.payload);
-    if (ev.type === "status") {
+    // A move's boot reports its engine's status too; the session stays `moving` until the move ends.
+    if (ev.type === "status" && before.status !== "moving") {
       this.d.sessions.update({ id, status: ev.payload.status });
       this.d.rpc.broadcast("session.status", { sessionId: id, status: ev.payload.status });
       // The end of a turn, from any live status — the same moment the transcript banks its run line.
@@ -2216,7 +2508,12 @@ export class SessionService {
         // A drain an earlier held settle was owed is this settle's to decide now: paid below if the
         // turn ended on its own, and forgotten if the user stopped it.
         this.drainOwed.delete(id);
-        if (!ev.payload.interrupted) void this.drainQueue(id).catch(() => {});
+        // A move asked for during this turn goes first, and the queue drains behind it.
+        // Not beside a move already under way, which a request to stop the turn started.
+        const move = this.moveAborts.has(id) ? undefined : this.pendingMoves.get(id);
+        this.pendingMoves.delete(id);
+        if (move) void this.moveNow(id, move, new AbortController(), ev.payload.interrupted === true).catch(() => {});
+        else if (!ev.payload.interrupted) void this.drainQueue(id).catch(() => {});
         /* …and then the goal, if this session is pursuing one. AFTER the drain and never instead of
            it: a message the user typed during the turn is the next turn, and the goal picks up
            behind it (`GoalService.onSettled` sees the queue and stands down). `void` for the

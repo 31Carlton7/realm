@@ -331,6 +331,24 @@ export const fenceFor = (text: string): string =>
   "`".repeat(Math.max(3, ...(text.match(/`+/g) ?? []).map((r) => r.length + 1)));
 
 /**
+ * The carried context for a session that MOVED to another working directory where its agent could
+ * not take its own record of the conversation along (`sessions.move`): Realm's hand-off note, and
+ * where the work is now. The same agent, a fresh conversation, a different folder — which is why this
+ * is not `buildHandoffContext`, whose whole point is the same folder.
+ */
+export function buildMoveContext(input: { agent: AgentKind; notes: string; path?: string; from: string; to: string }): string {
+  const fence = fenceFor(input.notes);
+  return [
+    "# Moved mid-session",
+    `This ${agentLabel(input.agent)} session was moved from ${input.from} to ${input.to}, and its conversation could not move with it, ` +
+    "so this is a fresh conversation for you. " +
+    `Realm's hand-off note for it is below${input.path ? `, and saved at ${input.path}` : ""}. ` +
+    `Paths in the note are under ${input.from}; the same work, uncommitted changes included, is now under ${input.to} — work there.`,
+    `${fence}markdown\n${input.notes}\n${fence}`,
+  ].join("\n\n");
+}
+
+/**
  * What the incoming agent is told.
  *
  * The hard truth stated first, because everything else depends on it: the provider conversation

@@ -1408,11 +1408,28 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     },
     log: (line) => console.log(line),
   });
-  const sessions = new SessionService({ db, rpc, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, agentMemory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, handoffNotes, planLimits,
+  // Read once, for system.info and the Move sheet both.
+  const machineNameRead = machineName();
+  const sessions = new SessionService({ db, rpc, machineName: () => machineNameRead, sessions: sessionsStore, events: sessionEvents, items, spaces, projects, environments, settings, worktrees, ports, terminals, adapters: adapterRegistry, skills, gateway: mcpGateway, memory, agentMemory, checkpoints, sandbox, browserPermissions: browserBroker, computerGrants, titleGenerator: opts.titleGenerator, userHome: opts.userHome, summaries, handoffNotes, planLimits,
     accounts: {
       envFor: (kind, accountId) => accounts.envFor(kind, accountId),
       accountFor: (kind, accountId) => accounts.accountFor(kind, accountId),
-      carry: (kind, providerSessionId, fromId, toId) => accounts.carry(kind, providerSessionId, fromId, toId),
+      carry: (kind, providerSessionId, fromId, toId, cwd) => accounts.carry(kind, providerSessionId, fromId, toId, cwd),
+      rehome: (kind, providerSessionId, accountId, cwd) => accounts.rehome(kind, providerSessionId, accountId, cwd),
+    },
+    moves: {
+      git: checkpointGit,
+      createWorktree: async (input) => {
+        const env = await envService.createWorktree(input);
+        rpc.broadcast("environments.changed", { spaceId: env.spaceId });
+        return env;
+      },
+      // A worktree a failed move made moments ago and handed to nobody: off disk, then its row.
+      discardWorktree: async (env, sourcePath) => {
+        await worktrees.discard(sourcePath, env.path, env.branch ?? "");
+        environments.delete(env.id);
+        rpc.broadcast("environments.changed", { spaceId: env.spaceId });
+      },
     }, documents, goals, views: appViews,
     // What the idle reaper must leave running between turns. Read at sweep time, long after every
     // service named here exists.
@@ -1769,7 +1786,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     rpc.broadcast("ships.changed", { spaceId: entry.spaceId });
   } });
   // Two shell-outs for two labels: asked for together so boot waits once, not twice.
-  const [machine, user] = await Promise.all([machineName(), userFirstName()]);
+  const [machine, user] = await Promise.all([machineNameRead, userFirstName()]);
   // Realm Mobile (Plan 28): the paired phones, the link to the relay, and the pushes held back while
   // the owner is at this Mac. Nothing dials until a phone is paired or a pairing window opens.
   const presence = new Presence({ attached: () => browserBridge.connected });
@@ -1854,6 +1871,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     },
   });
   sessions.markStaleOnBoot();
+  await sessions.recoverMoves();
   // AFTER markStaleOnBoot, which is what turns a session that was mid-turn back into a resumable
   // row — recovery reconciles each live run against that reconciled world, not the pre-boot one.
   runs.recoverOnBoot();

@@ -41,7 +41,7 @@ const NO_MENTIONS: string[] = [];
 const NO_REFS: MentionRef[] = [];
 const NO_SAVED: number[] = [];
 
-const STATUS_LABEL = { idle: "Idle", running: "Running", waiting_permission: "Needs permission", error: "Error", ended: "Ended" } as const;
+const STATUS_LABEL = { idle: "Idle", running: "Running", waiting_permission: "Needs permission", error: "Error", ended: "Ended", moving: "Moving" } as const;
 
 
 /** PanelBar right-side meta for a session item: model label, cost (only once real spend exists), status dot.

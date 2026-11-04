@@ -3,6 +3,7 @@ import { PlanAlertSchema, PlanLimitsUnavailableSchema, PlanWindowSchema } from "
 import { MentionRefSchema } from "./mention-refs";
 import { AskAnswersSchema, AskCardSchema } from "./ui-ask";
 import { AppViewRefSchema } from "./mcp-apps";
+import { MoveConversationSchema, MovePlaceSchema, MoveStepSchema } from "./session-move";
 
 const P = {
   /** `from` is present ONLY when another session delivered this message (Plan 20's interjection).
@@ -260,6 +261,42 @@ const P = {
     /** The sentence shown. Built server-side so every surface tells it identically. */
     note: z.string(),
   }),
+  /**
+   * A move of this session to another place is under way, at `step` (`session-move.ts`). Persisted,
+   * so a client that opens the session mid-move finds the progress row; the `moved` or `move_failed`
+   * with the same `moveId` closes it, and boot writes `move_failed` for a move a restart cut short.
+   */
+  moving: z.object({ moveId: z.string(), step: MoveStepSchema }),
+  /**
+   * The session moved, and runs at `to` from here on. A seam, like `handoff`: everything above ran
+   * at `from`, and its paths are under that root.
+   *
+   * `preface` is what the agent is told on its first turn after the move — kept here because it is
+   * Realm's words to the agent rather than anything the user typed. `changedFiles` is how many
+   * uncommitted paths came with it; `leftBehind` names what did not (the terminal, secret-looking
+   * ignored files).
+   */
+  moved: z.object({
+    moveId: z.string(),
+    from: MovePlaceSchema, to: MovePlaceSchema,
+    conversation: MoveConversationSchema,
+    changedFiles: z.number().int(),
+    leftBehind: z.array(z.string()),
+    preface: z.string(),
+    /** The sentence shown. Built server-side so every surface tells it identically. */
+    note: z.string(),
+  }),
+  /** A move did not happen. The session is where it was, as it was, apart from the checkpoint taken
+   *  before the move. `step` is where it stopped. */
+  move_failed: z.object({
+    moveId: z.string(),
+    step: MoveStepSchema,
+    reason: z.string(),
+    /** Where the session still is. Absent when its checkout was gone, and on a failure written before it was kept. */
+    from: MovePlaceSchema.optional(),
+    /** The sentence shown. Built server-side so every surface tells it identically. */
+    note: z.string(),
+  }),
   /** A plan the agent proposed. Both shapes are carried because the three protocols send genuinely
    *  different artifacts and neither derives from the other:
    *
@@ -433,6 +470,9 @@ export const SessionEventSchema = z.discriminatedUnion("type", [
   variant("compacted"),
   variant("init"),
   variant("context_reset"),
+  variant("moving"),
+  variant("moved"),
+  variant("move_failed"),
   variant("plan"),
   variant("feedback"),
   variant("summary"),
@@ -467,7 +507,7 @@ export function sessionEvent<T extends SessionEventType>(type: T, payload: Sessi
 }
 
 /** Event types the server persists; the rest (assistant_delta) are ephemeral. */
-export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "background_task", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback", "handoff", "compacted", "context_reset", "summary", "prompt_hint", "turn_changes", "files_made"];
+export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "background_task", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback", "handoff", "compacted", "context_reset", "moving", "moved", "move_failed", "summary", "prompt_hint", "turn_changes", "files_made"];
 
 export const StoredSessionEventSchema = z.object({ seq: z.number().int(), sessionId: z.string(), event: SessionEventSchema });
 export type StoredSessionEvent = { seq: number; sessionId: string; event: SessionEvent };

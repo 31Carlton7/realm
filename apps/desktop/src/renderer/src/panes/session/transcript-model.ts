@@ -1,4 +1,4 @@
-import { bareToolName, type AcpSessionMode, type AppViewRef, type AskAnswers, type AskCard, type MentionRef, type SessionEvent, type SessionEventPayload, type TurnChanges, type FilesMade } from "@realm/contracts";
+import { bareToolName, type MoveStep, type AcpSessionMode, type AppViewRef, type AskAnswers, type AskCard, type MentionRef, type SessionEvent, type SessionEventPayload, type TurnChanges, type FilesMade } from "@realm/contracts";
 import { questionOf } from "@realm/view";
 
 export type PlanStep = NonNullable<SessionEventPayload<"plan">["steps"]>[number];
@@ -191,6 +191,9 @@ export type Transcript = {
    *  zero once earlier blocks have been put in front. A block's position-based key is its index plus
    *  this (`blockKey`), so loading earlier turns never renames, remounts or replays the ones on screen. */
   base?: number;
+  /** A move under way, at the step its newest `moving` names. The `moved` or `move_failed` with the
+   *  same `moveId` clears it, so a move that ended never reads as in progress. */
+  move?: { moveId: string; step: MoveStep } | null;
 };
 
 /** Stable render identity for a block. Tool calls key on their own id so a card keeps its expanded
@@ -470,6 +473,10 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
     // per-agent state off the event stream. The transcript is unchanged by it on purpose: a block
     // saying "weekly window at 78%" would be a sentence nobody said, stuck between two that were.
     case "rate_limit": return t;
+    // The progress row is one row: each step replaces the last. Its moved line is the session pane's
+    // to draw (the move spec's second stream); until it does, the transcript skips it.
+    case "moving": return { ...t, move: { moveId: e.payload.moveId, step: e.payload.step } };
+    case "moved": case "move_failed": return t.move?.moveId === e.payload.moveId ? { ...t, move: null } : t;
     // The four numbers are replaced wholesale; the context measurement is CARRIED when the new event
     // does not state one. Not staleness — occupancy does not reset between turns, so the last
     // measurement is still the last true thing known about this window, and the adapter restates the

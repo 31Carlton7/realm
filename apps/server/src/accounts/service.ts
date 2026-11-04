@@ -1,6 +1,6 @@
-import { copyFile, cp, mkdir, readdir, rm } from "node:fs/promises";
-import { existsSync } from "node:fs";
-import { dirname, isAbsolute, join, relative } from "node:path";
+import { copyFile, cp, mkdir, readdir, rename, rm, stat } from "node:fs/promises";
+import { existsSync, realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import {
   ACCOUNT_DIR_ENV, agentLabel, hasAccounts, newId,
   type Account, type AccountKind, type AgentKind, type AgentSignIn,
@@ -10,6 +10,7 @@ import type { SignInAccount } from "../agents/signin-service";
 import type { AccountRow, AccountsStore } from "../store/accounts";
 import { RpcError } from "../store/rows";
 import type { AccountProbe } from "./probe";
+import { claudeProjectName } from "../memory/claude-backfill";
 
 /** Where added accounts keep their folders: `accounts/<kind>/<id>`, one per account, under Realm's
  *  home beside its other folders of its own. */
@@ -131,17 +132,20 @@ export class AccountsService {
    * Copy the provider's record of a conversation from one account's folder into another's, so the CLI
    * resumes it there as it was. Claude keeps it at `<folder>/projects/<project>/<id>.jsonl` (with a
    * folder of the same name beside it for large tool results); Codex at
-   * `<home>/sessions/YYYY/MM/DD/rollout-…-<id>.jsonl`. Answers false where the record cannot be found
-   * or copied, and the caller carries the conversation as text instead.
+   * `<home>/sessions/YYYY/MM/DD/rollout-…-<id>.jsonl`; the Claude copy taken is `cwd`'s, the one the
+   * session resumes. Answers false where the record cannot be found or copied, and the caller carries
+   * the conversation as text instead.
    */
-  async carry(kind: AgentKind, providerSessionId: string, fromId: string | null, toId: string | null): Promise<boolean> {
+  async carry(kind: AgentKind, providerSessionId: string, fromId: string | null, toId: string | null, cwd?: string): Promise<boolean> {
     if (!hasAccounts(kind)) return false;
     const from = this.folderOf(kind, fromId);
     const to = this.folderOf(kind, toId);
     if (!from || !to) return false;
     if (from === to) return true;
     try {
-      const found = kind === "claude" ? await claudeRecord(from, providerSessionId) : await codexRollout(from, providerSessionId);
+      const found = kind === "claude"
+        ? await claudeRecord(from, providerSessionId, cwd === undefined ? undefined : claudeProjectName(realOr(cwd)))
+        : await codexRollout(from, providerSessionId);
       if (!found) return false;
       const dest = join(to, relative(from, found));
       await mkdir(dirname(dest), { recursive: true });
@@ -151,6 +155,55 @@ export class AccountsService {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Make the provider's record of a conversation findable from a new working directory, for a session
+   * moving there. Answers what it changed, for `undoRehome`, or null where the record cannot be made
+   * findable and the caller carries the conversation as text instead.
+   *
+   * Claude resumes from `<folder>/projects/<name of the cwd>/<id>.jsonl`, and when that file is
+   * missing it searches every project and resumes only a record it finds exactly once (CLI 2.1.316,
+   * measured), so the record is copied into the new cwd's project — setting aside an older copy left
+   * by an earlier move to the same place — and the old cwd's copy is renamed out of the CLI's reach,
+   * so no stale copy is left for a later resume or account switch to find. Codex keeps its rollouts by
+   * date rather than by cwd and resumes with the cwd it is given, so there is nothing to copy.
+   */
+  async rehome(kind: AgentKind, providerSessionId: string, accountId: string | null, cwd: { from: string; to: string }): Promise<Rehomed | null> {
+    if (kind === "codex") return { made: [], renamed: [] };
+    if (kind !== "claude") return null;
+    const folder = this.folderOf(kind, accountId);
+    if (!folder) return null;
+    const name = claudeProjectName(realOr(cwd.to));
+    // Past this the CLI shortens the name with a hash of its own, which is not worth guessing at.
+    if (name.length > CLAUDE_PROJECT_NAME_MAX) return null;
+    const done: Rehomed = { made: [], renamed: [] };
+    const moveAside = async (from: string, to: string) => {
+      await rm(to, { recursive: true, force: true });
+      await rename(from, to);
+      done.renamed.push([from, to]);
+    };
+    try {
+      const found = await claudeRecord(folder, providerSessionId, claudeProjectName(realOr(cwd.from)));
+      if (!found) return null;
+      const dest = join(folder, "projects", name, basename(found));
+      if (dest === found) return done;
+      const beside = found.replace(/\.jsonl$/, "");
+      const besideDest = dest.replace(/\.jsonl$/, "");
+      for (const p of [dest, besideDest]) if (existsSync(p)) await moveAside(p, `${p}${CLAUDE_SET_ASIDE_SUFFIX}`);
+      await mkdir(dirname(dest), { recursive: true });
+      done.made.push(dest);
+      await copyFile(found, dest);
+      if (existsSync(beside)) {
+        done.made.push(besideDest);
+        await cp(beside, besideDest, { recursive: true });
+      }
+      await moveAside(found, `${found}${CLAUDE_MOVED_SUFFIX}`);
+      return done;
+    } catch {
+      await undoRehome(done).catch(() => {});
+      return null;
     }
   }
 
@@ -194,21 +247,51 @@ export class AccountsService {
   }
 }
 
+/** Appended to a Claude record a move left behind, so the CLI, which looks for `<id>.jsonl`, no
+ *  longer finds it. */
+const CLAUDE_MOVED_SUFFIX = ".moved";
+/** Appended to an older copy a move would have written over, until the move is undone. */
+const CLAUDE_SET_ASIDE_SUFFIX = ".before-move";
+
+/** What `rehome` changed in an agent's folder, as plain paths so it can be kept across a restart:
+ *  what it made, and what it renamed, `[from, to]`, in order. */
+export type Rehomed = { made: string[]; renamed: [string, string][] };
+
+/** Put an agent's folder back as `rehome` found it. */
+export async function undoRehome(r: Rehomed): Promise<void> {
+  for (const p of r.made) await rm(p, { recursive: true, force: true });
+  for (const [from, to] of [...r.renamed].reverse()) if (existsSync(to)) await rename(to, from);
+}
+
+/** The longest project name Claude uses as it is; a longer one it cuts and suffixes with a hash. */
+const CLAUDE_PROJECT_NAME_MAX = 200;
+
+/** The path the CLI names a project after: the cwd as the OS reports it, symlinks resolved. */
+function realOr(path: string): string {
+  try { return realpathSync(path); } catch { return path; }
+}
+
 /** Whether `p` is somewhere under `root`. */
 function inside(root: string, p: string): boolean {
   const r = relative(root, p);
   return r !== "" && !r.startsWith("..") && !isAbsolute(r);
 }
 
-/** `<folder>/projects/*\/<id>.jsonl`, the Claude transcript a resume reads. */
-async function claudeRecord(folder: string, id: string): Promise<string | null> {
+/** `<folder>/projects/*\/<id>.jsonl`, the Claude transcript a resume reads: `prefer`'s, the project
+ *  the CLI itself looks in first, and otherwise the one written last. */
+async function claudeRecord(folder: string, id: string, prefer?: string): Promise<string | null> {
   const projects = join(folder, "projects");
-  const dirs = await readdir(projects).catch(() => [] as string[]);
-  for (const d of dirs) {
-    const f = join(projects, d, `${id}.jsonl`);
-    if (existsSync(f)) return f;
+  const found = (await readdir(projects).catch(() => [] as string[]))
+    .map((d) => join(projects, d, `${id}.jsonl`))
+    .filter((f) => existsSync(f));
+  const preferred = prefer === undefined ? null : join(projects, prefer, `${id}.jsonl`);
+  if (preferred && found.includes(preferred)) return preferred;
+  let newest: { path: string; at: number } | null = null;
+  for (const path of found) {
+    const at = (await stat(path)).mtimeMs;
+    if (!newest || at > newest.at) newest = { path, at };
   }
-  return null;
+  return newest?.path ?? null;
 }
 
 /** `<home>/sessions/YYYY/MM/DD/rollout-…-<id>.jsonl`, the Codex rollout a thread resumes from. */

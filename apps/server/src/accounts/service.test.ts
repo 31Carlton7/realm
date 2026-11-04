@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import type { AccountKind, AgentKind, AgentSignIn } from "@realm/contracts";
 import { openDatabase } from "../db/database";
 import { AccountsStore } from "../store/accounts";
 import type { SignInAccount } from "../agents/signin-service";
-import { AccountsService, accountsRoot } from "./service";
+import { AccountsService, accountsRoot, undoRehome } from "./service";
 import { codexIdentity, type AccountProbe } from "./probe";
 
 function fresh(o: { probe?: (kind: AccountKind, dir: string | null) => AccountProbe; busy?: boolean } = {}) {
@@ -122,6 +122,30 @@ describe("carrying a conversation between accounts", () => {
     expect(existsSync(join(account.configDir!, "sessions", "2026", "11", "02", "rollout-2026-11-02T10-00-00-th_abc.jsonl"))).toBe(true);
   });
 
+  it("takes the copy the session's cwd resumes, and otherwise the newest, never an older one first in the folder", async () => {
+    const { svc, defaults, home: h } = fresh();
+    const { account } = await svc.add("claude", "Work");
+    const home = realpathSync(h);
+    const cwd = join(home, "wt");
+    mkdirSync(cwd);
+    const copy = (project: string, body: string, at: number) => {
+      const dir = join(defaults.claude, "projects", project);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "s1.jsonl"), body);
+      utimesSync(join(dir, "s1.jsonl"), at, at);
+    };
+    copy("-a-stale", "stale\n", 1_000);
+    copy(cwd.replace(/[^a-zA-Z0-9]/g, "-"), "current\n", 500);
+    copy("-z-newest", "newest\n", 2_000);
+    const carried = () => readdirSync(join(account.configDir!, "projects")).map((p) => readFileSync(join(account.configDir!, "projects", p, "s1.jsonl"), "utf8"));
+
+    expect(await svc.carry("claude", "s1", null, account.id, cwd)).toBe(true);
+    expect(carried()).toEqual(["current\n"]);
+    rmSync(join(account.configDir!, "projects"), { recursive: true });
+    expect(await svc.carry("claude", "s1", null, account.id, join(home, "gone"))).toBe(true);
+    expect(carried()).toEqual(["newest\n"]);
+  });
+
   it("says so when there is nothing to carry, so the caller hands over as text", async () => {
     const { svc } = fresh();
     const { account } = await svc.add("claude", "Work");
@@ -137,5 +161,70 @@ describe("codexIdentity", () => {
     writeFileSync(join(home, "auth.json"), JSON.stringify({ tokens: { id_token: token } }));
     expect(await codexIdentity(home)).toEqual({ email: "you@example.com", plan: "pro" });
     expect(await codexIdentity(join(home, "nowhere"))).toEqual({ email: null, plan: null });
+  });
+});
+
+describe("re-homing a conversation for a new working directory", () => {
+  const project = (cwd: string) => cwd.replace(/[^a-zA-Z0-9]/g, "-");
+  const seed = (cfg: string, cwd: string, id: string, body: string) => {
+    const dir = join(cfg, "projects", project(cwd));
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `${id}.jsonl`), body);
+    return join(dir, `${id}.jsonl`);
+  };
+
+  it("moves Claude's record into the new cwd's project, preferring the copy the old cwd resumes, and undoes it", async () => {
+    const { svc, defaults, home: h } = fresh();
+    // The CLI names a project after the cwd with symlinks resolved — /var is /private/var on a Mac.
+    const home = realpathSync(h);
+    const from = join(home, "repo"), to = join(home, "wt");
+    mkdirSync(from); mkdirSync(to);
+    seed(defaults.claude, "/elsewhere", "s1", "stale\n");
+    const source = seed(defaults.claude, from, "s1", "current\n");
+    mkdirSync(join(defaults.claude, "projects", project(from), "s1", "tool-results"), { recursive: true });
+    const rehomed = await svc.rehome("claude", "s1", null, { from, to });
+    const dest = join(defaults.claude, "projects", project(to), "s1.jsonl");
+    expect(readFileSync(dest, "utf8")).toBe("current\n");
+    expect(existsSync(join(defaults.claude, "projects", project(to), "s1", "tool-results"))).toBe(true);
+    // One live copy: the old cwd's is out of the CLI's reach, and of a later account switch's.
+    expect(existsSync(source)).toBe(false);
+    await undoRehome(rehomed!);
+    expect(readFileSync(source, "utf8")).toBe("current\n");
+    expect(existsSync(dest)).toBe(false);
+    expect(existsSync(join(defaults.claude, "projects", project(to), "s1"))).toBe(false);
+  });
+
+  it("writes over an older copy at the destination and its folder, and puts both back on undo", async () => {
+    const { svc, defaults, home: h } = fresh();
+    const home = realpathSync(h);
+    const from = join(home, "wt"), to = join(home, "repo");
+    mkdirSync(from); mkdirSync(to);
+    const source = seed(defaults.claude, from, "s1", "newer\n");
+    const dest = seed(defaults.claude, to, "s1", "older\n");
+    const result = (cwd: string) => join(defaults.claude, "projects", project(cwd), "s1", "tool-results", "r.txt");
+    mkdirSync(join(result(from), ".."), { recursive: true }); writeFileSync(result(from), "newer result");
+    mkdirSync(join(result(to), ".."), { recursive: true }); writeFileSync(result(to), "older result");
+    writeFileSync(join(result(to), "..", "only-older.txt"), "x");
+    const rehomed = await svc.rehome("claude", "s1", null, { from, to });
+    expect(readFileSync(dest, "utf8")).toBe("newer\n");
+    expect(readFileSync(result(to), "utf8")).toBe("newer result");
+    await undoRehome(rehomed!);
+    expect(readFileSync(dest, "utf8")).toBe("older\n");
+    expect(readFileSync(result(to), "utf8")).toBe("older result");
+    expect(existsSync(join(result(to), "..", "only-older.txt"))).toBe(true);
+    expect(readFileSync(source, "utf8")).toBe("newer\n");
+  });
+
+  it("needs nothing for Codex, and cannot for an agent with no record Realm can find", async () => {
+    const { svc, home } = fresh();
+    expect(await svc.rehome("codex", "th", null, { from: home, to: home })).toEqual({ made: [], renamed: [] });
+    expect(await svc.rehome("claude", "missing", null, { from: home, to: join(home, "x") })).toBeNull();
+    expect(await svc.rehome("acp:cursor", "s", null, { from: home, to: join(home, "x") })).toBeNull();
+  });
+
+  it("refuses a cwd whose project name the CLI would shorten", async () => {
+    const { svc, defaults, home } = fresh();
+    seed(defaults.claude, home, "s1", "x\n");
+    expect(await svc.rehome("claude", "s1", null, { from: home, to: join(home, "d".repeat(220)) })).toBeNull();
   });
 });

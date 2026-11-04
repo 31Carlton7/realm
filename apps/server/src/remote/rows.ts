@@ -1,4 +1,4 @@
-import type { AskCard, AskQuestion, QueuedPrompt, SessionEvent, SessionEventType, StoredSessionEvent } from "@realm/contracts";
+import type { AskCard, AskQuestion, MoveStep, QueuedPrompt, SessionEvent, SessionEventType, StoredSessionEvent } from "@realm/contracts";
 import { givenAttachmentName } from "@realm/contracts/src/temp-attachments";
 import type { QueuedMessage, Row } from "@realm/remote";
 import { questionOf } from "@realm/view";
@@ -67,6 +67,12 @@ export function queuedMessage(q: QueuedPrompt, attachmentsDir: string | null): Q
     attachments: q.attachments.map((a) => ({ path: a.path, name: givenAttachmentName(a.path, attachmentsDir), mime: a.mime })),
   };
 }
+
+/** What a move's progress row says at each step. */
+const MOVE_STEP_LABEL: Record<MoveStep, string> = {
+  preflight: "Checking", freeze: "Pausing the agent", snapshot: "Saving a checkpoint",
+  place: "Setting up the checkout", boot: "Starting the agent", commit: "Finishing",
+};
 
 /** Who asks, as the desktop's card names them: the agent, or a server by the name the person gave it. */
 const askerOf = (card: AskCard): string => (card.asker.kind === "server" ? `${card.asker.name}'s MCP server` : card.asker.name);
@@ -156,6 +162,10 @@ export class SessionProjector {
       case "handoff": return put({ key: `e:${seq}`, seq, kind: "notice", text: `Handed over from ${ev.payload.from} to ${ev.payload.to}` });
       case "compacted": return put({ key: `e:${seq}`, seq, kind: "notice", text: "Context compacted" });
       case "context_reset": return put({ key: `e:${seq}`, seq, kind: "notice", text: ev.payload.note || "The agent started a fresh context" });
+      // A move's progress and how it ended are one row, so the line that said where it had got to
+      // becomes the line that says how it went.
+      case "moving": return put({ key: `mv:${ev.payload.moveId}`, seq, kind: "notice", text: `Moving · ${MOVE_STEP_LABEL[ev.payload.step]}` });
+      case "moved": case "move_failed": return put({ key: `mv:${ev.payload.moveId}`, seq, kind: "notice", text: ev.payload.note });
       case "plan": {
         const row: PlanRow = { key: `p:${ev.payload.planId}`, seq, kind: "plan", text: ev.payload.text ?? null, steps: ev.payload.steps ?? null };
         this.lastPlan = row;

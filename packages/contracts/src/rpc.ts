@@ -45,6 +45,7 @@ import { SIMULATOR_CA_DEBUG, SimulatorActSchema, SimulatorAppSchema, SimulatorAx
 import { GoalSchema, GoalStatusSchema } from "./goal";
 import { UnlockedEggPackSchema } from "./egg-pack";
 import { FailoverPolicySchema } from "./failover";
+import { MoveOptionsSchema, MoveTargetSchema, MoveWhenSchema, PendingMoveSchema } from "./session-move";
 import { LayaModeSchema, LayaStatusSchema } from "./laya";
 import { FreeActionSchema, ResourcePoliciesSchema, ResourcePolicyKeySchema, ResourceReportSchema } from "./resources";
 import { LectureSchema, PlynnImportResultSchema, PlynnMeetingSchema, StartLectureResultSchema } from "./school";
@@ -2143,8 +2144,9 @@ export const Methods = {
    */
   "sessions.moveQueued": { params: z.object({ id: IdSchema, queuedId: z.string().min(1), before: z.string().min(1).nullable() }), result: z.object({ ok: z.literal(true) }) },
   /** The queue as it stands, for a pane that has just mounted. Live changes arrive on `session.queue`;
-   *  this is the initial read, the same split `sessions.events` and `session.event` already use. */
-  "sessions.queued": { params: z.object({ id: IdSchema }), result: z.object({ queued: z.array(QueuedPromptSchema) }) },
+   *  this is the initial read, the same split `sessions.events` and `session.event` already use.
+   *  `move` is a move waiting behind the turn or under way, which waits ahead of the queue. */
+  "sessions.queued": { params: z.object({ id: IdSchema }), result: z.object({ queued: z.array(QueuedPromptSchema), move: PendingMoveSchema.nullable().optional() }) },
   "sessions.interrupt": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /** The reader's verdict on one assistant message, appended to that session's own event log and
    *  going nowhere else — there is no endpoint behind this and no aggregate anywhere. `rating: null`
@@ -2212,6 +2214,25 @@ export const Methods = {
    *  list; the origin space drops it via items.changed the same way sessions.delete does. Moving to the
    *  space a session is already in is a no-op, even once it has run. */
   "sessions.moveToSpace": { params: z.object({ id: IdSchema, spaceId: IdSchema }), result: SessionSchema },
+  /** What moving this session would carry and leave behind, and where it can go (the Move sheet). */
+  "sessions.moveOptions": { params: z.object({ id: IdSchema }), result: MoveOptionsSchema },
+  /**
+   * Move a started session to another checkout of its space, or to a new worktree, mid-conversation
+   * (`session-move.ts`). The session keeps its id and transcript; its uncommitted changes are copied
+   * across from a checkpoint taken first, and the source checkout is left as it was unless
+   * `keepSourceChanges` is false, which resets it to HEAD afterwards (the checkpoint undoes that).
+   *
+   * Answers once the move has committed (`moved`) — or, for `after-turn` during a turn, once it is
+   * queued. A move that fails puts everything back, writes `move_failed`, and rejects with
+   * MOVE_FAILED. Refused for a teammate's chat, while a sub-agent it started is running
+   * (SESSION_MOVE_REFUSED), mid-turn with `when: "now"` (SESSION_BUSY), while another move or switch
+   * is under way (SESSION_SWITCHING), and unless `when` is `stop`, while the agent runs background
+   * work the move would stop (MOVE_STOPS_WORK).
+   */
+  "sessions.move": { params: z.object({ id: IdSchema, to: MoveTargetSchema, keepSourceChanges: z.boolean().default(true), when: MoveWhenSchema.default("now") }), result: SessionSchema },
+  /** Drop a move queued behind the turn, or stop one under way before it commits (it rolls back
+   *  as a failure would). `cancelled` is false when there was nothing left to stop. */
+  "sessions.cancelMove": { params: z.object({ id: IdSchema }), result: z.object({ cancelled: z.boolean() }) },
   /** A session's stored events, oldest first: the first `limit` after `afterSeq` — or, with `beforeSeq`,
    *  the newest `limit` before it, which is how a transcript opens on its end and pages back as the
    *  reader scrolls up. `types` keeps only those kinds. */
@@ -2346,8 +2367,9 @@ export const Events = {
   "session.status":   z.object({ sessionId: IdSchema, status: SessionStatusSchema }),
   /** This session's queue changed — a message was queued, sent now, dropped, or drained into a turn.
    *  Carries the whole list rather than a delta: it is a handful of short strings, and a prompter that
-   *  applied deltas would have to reason about one arriving before its initial `sessions.queued` read. */
-  "session.queue":    z.object({ sessionId: IdSchema, queued: z.array(QueuedPromptSchema) }),
+   *  applied deltas would have to reason about one arriving before its initial `sessions.queued` read.
+   *  Also sent when a move is queued behind the turn, reaches its next step, or ends (`move`). */
+  "session.queue":    z.object({ sessionId: IdSchema, queued: z.array(QueuedPromptSchema), move: PendingMoveSchema.nullable().optional() }),
   /** A session's saved turns changed — one saved or unsaved, here or in another window. Carries the
    *  whole set, as `session.queue` carries the whole queue: it is a few numbers. */
   "session.saved":    z.object({ sessionId: IdSchema, seqs: z.array(z.number().int()) }),

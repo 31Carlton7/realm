@@ -21,4 +21,4 @@ export const ORIGIN_META: Record<DispatchKind, { icon: string; label: string }> 
  *  `@realm/view` beside Needs you, which reads it on the server too. */
 export { CHILD_ORIGINS } from "@realm/view";
 
-export const SESSION_STATUS_LABEL = { idle: "idle", running: "running", waiting_permission: "needs permission", error: "error", ended: "ended" } as const;
+export const SESSION_STATUS_LABEL = { idle: "idle", running: "running", waiting_permission: "needs permission", error: "error", ended: "ended", moving: "moving" } as const;

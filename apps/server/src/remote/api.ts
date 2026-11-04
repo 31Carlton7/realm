@@ -67,7 +67,8 @@ const HOME_PER_SPACE = 5;
 /** The most a space's picture may weigh to be sent (`space.icon`). */
 export const ICON_MAX_BYTES = 256 * 1024;
 
-const mobileStatus = (s: Session["status"]): SessionRow["status"] => (s === "waiting_permission" ? "waiting" : s);
+/** `moving` goes out as `running`: a phone on today's build knows no other word for "busy, wait". */
+const mobileStatus = (s: Session["status"]): SessionRow["status"] => (s === "waiting_permission" ? "waiting" : s === "moving" ? "running" : s);
 
 const isUnread = (s: Session): boolean => s.seenSeq > 0 && s.lastEventSeq > s.seenSeq;
 

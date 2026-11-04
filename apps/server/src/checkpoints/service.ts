@@ -7,7 +7,7 @@ import type { CheckpointsStore } from "../store/checkpoints";
 import type { EnvironmentsStore } from "../store/environments";
 import type { SessionsStore } from "../store/sessions";
 import { NotFoundError, RpcError } from "../store/rows";
-import { CheckpointGit, checkpointRef } from "../workspace/checkpoints";
+import { CheckpointGit, checkpointRef, type CapturedState } from "../workspace/checkpoints";
 import { decodeProviderCursor, decodeSessionCursor, encodeArmedRewind, encodeProviderCursor, encodeSessionCursor } from "./rewind";
 
 /**
@@ -145,6 +145,11 @@ export class CheckpointService {
     }
     await this.prune(env.id, env.path);
     return checkpoint;
+  }
+
+  /** The git facts a checkpoint was captured with — what a move carries into its new checkout. */
+  stateOf(id: string): CapturedState | null {
+    return this.d.checkpoints.get(id)?.state ?? null;
   }
 
   /**
