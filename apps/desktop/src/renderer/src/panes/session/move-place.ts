@@ -10,12 +10,14 @@ export function moveFailureReason(reason: string): string {
   return /[.!?]$/.test(sentence) ? sentence : `${sentence}.`;
 }
 
-/** What a failed move's note says after its standard lead: the server's word on a checkout the
- *  rollback left as it was, its paths shortened. Empty when the rollback put everything back. */
-export function moveLeftAsItWas(note: string): string {
-  const lead = ", as it was. ";
-  const at = note.indexOf(lead);
-  return at < 0 ? "" : note.slice(at + lead.length).trim().replace(PATH_IN_TEXT, (path) => shortPath(path));
+/** What a failed move's note says after its line: the server's word on a checkout the rollback
+ *  left as it was, its paths shortened. Empty when the rollback put everything back. A note written
+ *  before `moveFailedSentence` led with the reason and ended its lead with ", as it was." */
+export function moveLeftAsItWas(note: string, line: string): string {
+  const oldLead = ", as it was. ";
+  const at = note.indexOf(oldLead);
+  const rest = note.startsWith(line) ? note.slice(line.length) : at < 0 ? "" : note.slice(at + oldLead.length);
+  return rest.trim().replace(PATH_IN_TEXT, (path) => shortPath(path));
 }
 
 /** A segment this long is an id or a temp name, which says nothing a reader can use. */

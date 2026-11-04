@@ -1,6 +1,6 @@
 import { Icon, TeammateIcon } from "@realm/ui";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { LINK_SERVICE_META, MAC_SKILL_ID, chipRuns, movedSentence, mediaCandidatesIn, teammateWords, type MentionRef, type SessionMode, type Teammate, type SessionStatus, type AskAnswers, type Checkpoint, type TurnChanges } from "@realm/contracts";
+import { LINK_SERVICE_META, MAC_SKILL_ID, chipRuns, moveFailedSentence, movedSentence, mediaCandidatesIn, teammateWords, type MentionRef, type SessionMode, type Teammate, type SessionStatus, type AskAnswers, type Checkpoint, type TurnChanges } from "@realm/contracts";
 import { AttachmentTile } from "./AttachmentTile";
 import { fileMark } from "./mention-sources";
 import { CommandCopy } from "../../components/CommandCopy";
@@ -849,14 +849,21 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
               <span title={`${movedSentence(b)}\n${b.from.cwd} → ${b.to.cwd}`}>{movedSentence(b)}</span>
             </div>;
             // A move that did not happen changed nothing, so it is told as calmly as the seams are.
-            // The server's note repeats where the session still is, which is the tooltip's to say.
+            // Where the session still is reads inline; the error that stopped it is the tooltip's.
+            // A failure that did not keep where the session is says its step and reason instead.
             case "move_failed": {
-              const left = moveLeftAsItWas(b.note);
-              return <div key={key} className="msg-handoff" data-move="failed" role="note" title={b.note} data-enter={enter || undefined}>
-                <span className="move-failed-head">Couldn't move this session.<span className="msg-handoff-tries">{moveStepLabel(b.step, agentLabel)}</span></span>
-                <span className="move-failed-reason" data-selectable>{moveFailureReason(b.reason)}</span>
-                {left && <span className="move-failed-reason" data-selectable>{left}</span>}
-              </div>;
+              const line = moveFailedSentence(b);
+              const left = moveLeftAsItWas(b.note, line);
+              return b.from
+                ? <div key={key} className="msg-handoff" data-move="failed" role="note" title={moveFailureReason(b.reason)} data-enter={enter || undefined}>
+                  <span>{line}</span>
+                  {left && <span className="move-failed-reason" data-selectable>{left}</span>}
+                </div>
+                : <div key={key} className="msg-handoff" data-move="failed" role="note" title={b.note} data-enter={enter || undefined}>
+                  <span className="move-failed-head">Couldn't move this session.<span className="msg-handoff-tries">{moveStepLabel(b.step, agentLabel)}</span></span>
+                  <span className="move-failed-reason" data-selectable>{moveFailureReason(b.reason)}</span>
+                  {left && <span className="move-failed-reason" data-selectable>{left}</span>}
+                </div>;
             }
             // Not a seam: nothing changed about the agent here, and wearing the seam's class would
             // say it had. This is a mark about the READER — where they stopped — so it is the one

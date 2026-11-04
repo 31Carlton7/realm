@@ -81,7 +81,7 @@ export type Block =
    */
   | { kind: "moved"; from: MovePlace; to: MovePlace; conversation: "native" | "notes"; ts: number }
   /** A move that did not happen, and where it stopped. The session is where it was. */
-  | { kind: "move_failed"; step: MoveStep; reason: string; note: string; ts: number }
+  | { kind: "move_failed"; step: MoveStep; reason: string; from?: MovePlace; note: string; ts: number }
   /**
    * Where you stopped reading.
    *
@@ -487,7 +487,7 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
       return { ...t, move: t.move?.moveId === e.payload.moveId ? null : t.move, blocks: [...dropPending(blocks),
         { kind: "moved", from: e.payload.from, to: e.payload.to, conversation: e.payload.conversation, ts: e.ts }] };
     case "move_failed":
-      return { ...t, move: t.move?.moveId === e.payload.moveId ? null : t.move, blocks: [...blocks, { kind: "move_failed", step: e.payload.step, reason: e.payload.reason, note: e.payload.note, ts: e.ts }] };
+      return { ...t, move: t.move?.moveId === e.payload.moveId ? null : t.move, blocks: [...blocks, { kind: "move_failed", step: e.payload.step, reason: e.payload.reason, from: e.payload.from, note: e.payload.note, ts: e.ts }] };
     // The four numbers are replaced wholesale; the context measurement is CARRIED when the new event
     // does not state one. Not staleness — occupancy does not reset between turns, so the last
     // measurement is still the last true thing known about this window, and the adapter restates the

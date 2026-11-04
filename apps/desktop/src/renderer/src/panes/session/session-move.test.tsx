@@ -291,7 +291,31 @@ describe("a move in the transcript", () => {
     expect(screen.getAllByText(/^Moved from realm/)).toHaveLength(1);
   });
 
-  it("tells a failed move calmly: the lead, the step, and the reason with its path shortened", async () => {
+  it("says a failed move in the shared line, with the error that stopped it only in the tooltip", async () => {
+    const { store } = await mount({ status: "moving" });
+    const from = place("envA", envA.path, "main");
+    act(() => store.getState().applySessionEvent({ seq: 5, sessionId: "se1", ephemeral: false, event: sessionEvent("move_failed", {
+      moveId: "m1", step: "place", reason: "fatal: /Users/me/Realm/worktrees/01M6HDE0JV8Y1B2DVQZN8B29YC/fix-tests is not a git repository", from,
+      note: "Couldn't move this session while setting up the checkout. It's still in realm (main)." }) }));
+    const line = (await screen.findByText("Couldn't move this session while setting up the checkout. It's still in realm (main).")).closest(".msg-handoff")!;
+    expect(line).toHaveTextContent(/^Couldn't move this session while setting up the checkout\. It's still in realm \(main\)\.$/);
+    expect(line).toHaveAttribute("title", "Fatal: ~/Realm/worktrees/…/fix-tests is not a git repository.");
+    expect(line.querySelector(".move-failed-reason")).toBeNull();
+  });
+
+  it("keeps what the rollback left as it was under the shared line", async () => {
+    const { store } = await mount({ status: "moving" });
+    const sentence = "Couldn't move this session while starting the agent. It's still in realm (main).";
+    const left = "The changes it merged into /Users/me/Realm/worktrees/01M6HDE0JV8Y1B2DVQZN8B29YC/fix-tests are still there, since another session is working there.";
+    act(() => store.getState().applySessionEvent({ seq: 5, sessionId: "se1", ephemeral: false, event: sessionEvent("move_failed", {
+      moveId: "m1", step: "boot", reason: "the agent did not start", from: place("envA", envA.path, "main"), note: `${sentence} ${left}` }) }));
+    const line = (await screen.findByText(sentence)).closest(".msg-handoff")!;
+    expect([...line.querySelectorAll(".move-failed-reason")].map((r) => r.textContent))
+      .toEqual(["The changes it merged into ~/Realm/worktrees/…/fix-tests are still there, since another session is working there."]);
+    expect(line).not.toHaveTextContent("The agent did not start");
+  });
+
+  it("tells a failed move that did not keep where the session is by its step and reason", async () => {
     const { store } = await mount({ status: "moving" });
     const note = "Could not move this session: /Users/me/Realm/worktrees/01M6HDE0JV8Y1B2DVQZN8B29YC/fix-tests is not a git repository. It is still in ~/realm, as it was.";
     act(() => store.getState().applySessionEvent({ seq: 5, sessionId: "se1", ephemeral: false, event: sessionEvent("move_failed", {
