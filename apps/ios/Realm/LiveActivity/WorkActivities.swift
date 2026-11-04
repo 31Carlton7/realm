@@ -79,7 +79,8 @@ final class WorkActivities {
             }
             return
         }
-        // Until the Mac starts the turn, the first state stands.
+        // Until the Mac starts the turn, the first state stands. A state already shown is not sent again,
+        // unless the Lock Screen has been told it is out of date.
         guard !content.isFinal, content != entry.content || entry.outOfDate else { return }
         entry.content = content
         entry.outOfDate = false
