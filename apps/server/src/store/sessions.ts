@@ -38,9 +38,9 @@ export const READ_MARKS_CAUGHT_UP = "sessions.readMarksCaughtUp";
 export class SessionsStore {
   constructor(private db: Db) {}
   /** Move the read mark forward. Never backwards — a stale client holding an old seq must not
-   *  resurrect an unseen dot on a session somebody has already caught up on. */
-  markSeen(id: string, seq: number): void {
-    this.db.prepare("UPDATE sessions SET seen_seq = MAX(seen_seq, ?) WHERE id = ?").run(seq, id);
+   *  resurrect an unseen dot on a session somebody has already caught up on. True when it moved. */
+  markSeen(id: string, seq: number): boolean {
+    return this.db.prepare("UPDATE sessions SET seen_seq = ? WHERE id = ? AND seen_seq < ?").run(seq, id, seq).changes > 0;
   }
   /**
    * Catch every OPENED session's read mark up to where it stands, once per home (`settings` holds the

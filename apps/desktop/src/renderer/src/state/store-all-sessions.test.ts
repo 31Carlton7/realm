@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { sessionEvent } from "@realm/contracts";
+import { emptyTranscript } from "../panes/session/transcript-model";
 import { isUnread } from "./attention";
 import { createAppStore } from "./store";
 import { fakeApi, item, session, space, type FakeData } from "./store.test-fakes";
@@ -84,6 +85,32 @@ describe("allSessions — a row for every session, in every profile", () => {
     expect(store.getState().allSessions["se2"]!.seenSeq).toBe(9);
     expect(store.getState().sessions["se2"]!.seenSeq).toBe(9);
     expect(store.getState().sessionStatus["se2"]).toBe("waiting_permission");
+  });
+
+  it("selecting another profile's session reads it, though only `allSessions` holds its row", async () => {
+    // THE MUTANT: `markSessionSeen` reading `sessions` alone. It returned before marking anything,
+    // so the row's ring stayed on after it was opened.
+    const { api, store } = await boot({ ...elsewhere(), sessions: [session("se3", "s3", { seenSeq: 2, lastEventSeq: 6 })] });
+    store.setState({ transcripts: { ...store.getState().transcripts, se3: { lastSeq: 6, t: emptyTranscript() } } });
+    expect(isUnread(store.getState().allSessions["se3"]!)).toBe(true);
+    await store.getState().markSessionSeen("se3");
+    expect(isUnread(store.getState().allSessions["se3"]!)).toBe(false);
+    expect(api.calls).toContain("markSessionSeen:se3@6");
+  });
+
+  it("a read made in another window or on the phone takes the ring off here too", async () => {
+    // THE MUTANT: no `session.seen` handler. The row kept its ring until something re-listed it.
+    const { store } = await boot(elsewhere());
+    store.getState().applySessionEvent({ seq: 7, sessionId: "se2", ephemeral: false, event: sessionEvent("assistant_text", { messageId: "m", text: "done" }, 1) });
+    expect(isUnread(store.getState().allSessions["se2"]!)).toBe(true);
+    let writes = 0; store.subscribe(() => writes++);
+    store.getState().applySessionSeen({ sessionId: "se2", seenSeq: 7 });
+    expect(isUnread(store.getState().allSessions["se2"]!)).toBe(false);
+    expect(isUnread(store.getState().sessions["se2"]!)).toBe(false);
+    // An older mark arriving late moves nothing back, and writes nothing.
+    store.getState().applySessionSeen({ sessionId: "se2", seenSeq: 5 });
+    expect(store.getState().allSessions["se2"]!.seenSeq).toBe(7);
+    expect(writes).toBe(1);
   });
 });
 

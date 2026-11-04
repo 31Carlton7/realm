@@ -6,6 +6,7 @@ import {
   type TeammatePermissionMode, type TeammateSchedule, type TeammateState, type TeammateTaskSession, type UpdateTeammateInput,
 } from "@realm/contracts";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { leadsWithAgentsAtWork } from "@realm/view";
 import type { ProviderCallContext } from "../mcp/gateway";
 import { clip, err, ok, parseArgs } from "../mcp/tool-result";
 import type { RpcServer } from "../rpc/server";
@@ -32,6 +33,16 @@ const stateOf = (status: SessionStatus): TeammateState =>
 /** The louder of two states: someone waiting on the person outranks work going on. */
 const louder = (a: TeammateState, b: TeammateState): TeammateState =>
   a === "needs-you" || b === "needs-you" ? "needs-you" : a === "working" || b === "working" ? "working" : "idle";
+
+/** The teammate sessions with work still going under them: a session one of them started, or work a
+ *  teammate took on when one asked (`askedBy`). Such a session is not unread until that is done. */
+function teamAtWork(sessions: readonly TeammateSessionRow[]): Set<string> {
+  const byId = new Map(sessions.map((s) => [s.id, s]));
+  return leadsWithAgentsAtWork(sessions.map((s) => [s.id, s.status] as const), (id) => {
+    const s = byId.get(id);
+    return s ? s.dispatchedBy ?? s.askedBy : null;
+  });
+}
 
 const firstLine = (s: string): string => s.trim().split("\n").find((l) => l.trim())?.trim() ?? "";
 
@@ -131,13 +142,14 @@ export class TeammatesService {
     const state = own.reduce<TeammateState>((acc, s) => louder(acc, stateOf(s.status)), "idle");
     const live = own.find((s) => !s.home && LIVE.has(s.status)) ?? null;
     const was = this.since.get(row.id);
+    const atWork = teamAtWork(sessions);
     return {
       id: row.id, spaceId: row.spaceId, handle: row.handle, name: row.name, brief: row.brief, icon: row.icon,
       agentKind: row.agentKind, model: row.model, effort: row.effort, permissionMode: row.permissionMode,
       folder: this.folderOf(row), lead: row.lead, group: row.group, sortOrder: row.sortOrder, archived: row.archived,
       homeSessionId: row.homeSessionId, schedule: this.scheduleOf(row), createdAt: row.createdAt, updatedAt: row.updatedAt,
       state, stateSince: state === "idle" ? null : was?.state === state ? was.at : (live ?? home)?.updatedAt ?? null,
-      unread: home?.unread ?? false,
+      unread: home ? home.unread && !atWork.has(home.id) : false,
       liveTask: live?.title ?? null,
       taskSessions: this.tasks(row, sessions).slice(0, ROW_TASKS),
     };
@@ -163,11 +175,12 @@ export class TeammatesService {
     const listed = new Set(own.filter((s) => !s.home).map((s) => s.id));
     const handed = sessions.filter((s) => s.teammateId !== row.id && !s.home && s.askedBy !== null && ownIds.has(s.askedBy));
     for (const s of handed) listed.add(s.id);
+    const atWork = teamAtWork(sessions);
     return sessions.filter((s) => listed.has(s.id)).map((s) => {
       const parent = s.teammateId === row.id ? s.dispatchedBy : s.askedBy;
       return {
         id: s.id, title: s.title, teammateId: s.teammateId, parentId: parent && listed.has(parent) ? parent : null,
-        state: stateOf(s.status), updatedAt: s.activityAt, unread: s.unread,
+        state: stateOf(s.status), updatedAt: s.activityAt, unread: s.unread && !atWork.has(s.id),
       };
     });
   }
@@ -407,6 +420,11 @@ export class TeammatesService {
       return;
     }
     this.changed(session.spaceId);
+  }
+
+  /** A teammate session was read further: its row's unread mark is the read mark's. */
+  seen(session: Session): void {
+    if (session.teammateId) this.changed(session.spaceId);
   }
 
   /**

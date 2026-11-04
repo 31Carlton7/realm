@@ -2894,6 +2894,9 @@ export type AppState = TeammatesSlice & {
    * the dot that is the whole point.
    */
   markSessionSeen(sessionId: string): Promise<void>;
+  /** The `session.seen` handler: the read mark moved, here, in another window or on the phone. A
+   *  teammate's row follows on the `teammates.changed` the server sends with it. */
+  applySessionSeen(payload: { sessionId: string; seenSeq: number }): void;
   /** The `notifications.changed` handler: applies the server's unread count, folds a surfaced row into
    *  the held feed, and auto-reads a `session_done` for the session pane the user is looking at (the
    *  renderer is the one honest holder of focus — see the server service's doc comment). */
@@ -3656,6 +3659,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const patch: Partial<AppState> = {};
       if (all && all.lastEventSeq < seq) patch.allSessions = { ...get().allSessions, [id]: { ...all, lastEventSeq: seq } };
       if (own && own.lastEventSeq < seq) patch.sessions = { ...get().sessions, [id]: { ...own, lastEventSeq: seq } };
+      return patch.allSessions || patch.sessions ? patch : undefined;
+    };
+    /** The write a read mark at `seq` owes the rows that describe its session: their `seenSeq`, the
+     *  other half of what the unread ring reads (`logGrew`'s twin). Undefined when neither is behind. */
+    const readTo = (id: string, seq: number): Partial<AppState> | undefined => {
+      const all = get().allSessions[id], own = get().sessions[id];
+      const patch: Partial<AppState> = {};
+      if (all && all.seenSeq < seq) patch.allSessions = { ...get().allSessions, [id]: { ...all, seenSeq: seq } };
+      if (own && own.seenSeq < seq) patch.sessions = { ...get().sessions, [id]: { ...own, seenSeq: seq } };
       return patch.allSessions || patch.sessions ? patch : undefined;
     };
     /** Re-read one run's attempt log. Every run write opens or closes an attempt, so a panel left
@@ -8055,16 +8067,19 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       async markSessionSeen(sessionId) {
         const t = get().transcripts[sessionId];
-        const row = get().sessions[sessionId];
+        const row = get().sessions[sessionId] ?? get().allSessions[sessionId];
         if (!t || !row || t.lastSeq <= row.seenSeq) return;
         // Optimistic, because the dot is on screen and waiting a round trip to clear it is a flicker
         // the user reads as the app not noticing them. Only the read mark moves: writing the whole row
         // back would write its status over the live one too, and the row is only as fresh as the last
         // list — the focused pane reads on arrival now, which may be long after that.
-        const all = get().allSessions[sessionId];
-        set({ sessions: { ...get().sessions, [sessionId]: { ...row, seenSeq: t.lastSeq } },
-          ...(all ? { allSessions: { ...get().allSessions, [sessionId]: { ...all, seenSeq: t.lastSeq } } } : {}) });
+        const patch = readTo(sessionId, t.lastSeq);
+        if (patch) set(patch);
         await api.markSessionSeen(sessionId, t.lastSeq);
+      },
+      applySessionSeen({ sessionId, seenSeq }) {
+        const patch = readTo(sessionId, seenSeq);
+        if (patch) set(patch);
       },
       async markNotificationsRead(ids) {
         const r = ids === "all" ? await api.markNotificationsRead({ all: true }) : await api.markNotificationsRead({ ids });

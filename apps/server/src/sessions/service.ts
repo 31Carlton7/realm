@@ -361,8 +361,9 @@ export class SessionService {
      *  them on its next message, spent by asking. Optional — without it nothing is ever added. */
     teammates?: { joinedNote(sessionId: string): string };
     /** A teammate's home session is told who it is and who its team is on every start
-     *  (`teammates/service.ts`). Undefined for every other session. */
-    teammateHome?: { contextFor(sessionId: string): string | undefined };
+     *  (`teammates/service.ts`). Undefined for every other session. `seen` hears a teammate
+     *  session's read mark move. */
+    teammateHome?: { contextFor(sessionId: string): string | undefined; seen(session: Session): void };
     /** Where a session's engine keeps its own memory (`memory/claude-redirect.ts`): the space's folder
      *  of the user's memory repo, and what is committed when a Claude turn settles. Optional — without
      *  it every engine keeps its memory where it always has. */
@@ -436,8 +437,14 @@ export class SessionService {
   listAll(profileId: string | null = null): Session[] { return this.d.sessions.listAll(profileId); }
   /** Each of a space's sessions' newest reply, as one line (`SessionEventsStore.lastReplies`). */
   lastReplies(spaceId: string): { sessionId: string; lastReply: string | null }[] { return this.d.events.lastReplies(spaceId); }
-  /** How far the user has read this session. See `sessions.markSeen` in the contract. */
-  markSeen(id: string, seq: number): void { this.d.sessions.markSeen(id, seq); }
+  /** How far the user has read this session. See `sessions.markSeen` in the contract. A mark that
+   *  moved is told to every client, and to the teammates, whose rows read their sessions' marks. */
+  markSeen(id: string, seq: number): void {
+    if (!this.d.sessions.markSeen(id, seq)) return;
+    const session = this.get(id);
+    this.d.rpc.broadcast("session.seen", { sessionId: id, seenSeq: session.seenSeq });
+    this.d.teammateHome?.seen(session);
+  }
   /** Going quiet for a handoff: finish what is running, start nothing new. */
   setDraining(draining: boolean): void { this.draining = draining; }
   get(id: string): Session { const s = this.d.sessions.get(id); if (!s) throw new NotFoundError("session", id); return s; }

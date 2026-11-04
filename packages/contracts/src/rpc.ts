@@ -2370,6 +2370,9 @@ export const Events = {
   /** ephemeral = not persisted (seq = -1), e.g. assistant_delta */
   "session.event":    StoredSessionEventSchema.extend({ ephemeral: z.boolean() }),
   "session.status":   z.object({ sessionId: IdSchema, status: SessionStatusSchema }),
+  /** Somebody read this session further — in this window, another one, or on the phone
+   *  (`sessions.markSeen`). `seenSeq` is the read mark as it now stands. Only sent when the mark moved. */
+  "session.seen":     z.object({ sessionId: IdSchema, seenSeq: z.number().int() }),
   /** This session's queue changed — a message was queued, sent now, dropped, or drained into a turn.
    *  Carries the whole list rather than a delta: it is a handful of short strings, and a prompter that
    *  applied deltas would have to reason about one arriving before its initial `sessions.queued` read.

@@ -12,7 +12,7 @@ import {
   type ScheduledTask, type Screen, type SessionOptions, type SessionRow, type Subagent, type Teammate as PhoneTeammate,
 } from "@realm/remote";
 import {
-  FALLBACK_AGENT, isChild, isLive, LAST_AGENT_SETTING, modelLabel, needsYou, nestChildren, QUICK_CHAT_SETTING, quickChatIdOf, subagentState, upcomingOrder, type NeedsYouState,
+  agentsAtWork, FALLBACK_AGENT, isChild, isLive, LAST_AGENT_SETTING, modelLabel, needsYou, nestChildren, QUICK_CHAT_SETTING, quickChatIdOf, subagentState, upcomingOrder, type NeedsYouState,
 } from "@realm/view";
 import { resolveDefaultPermissionMode } from "../sessions/service";
 import { tildify } from "../skills/discovery";
@@ -361,11 +361,11 @@ export class MobileApi {
 
   /** `item` is the session's sidebar row, for its title and pin; `need` is the ids Needs you lists, so a
    *  row says it is in that list exactly when it is. */
-  private row(s: Session, item: Pick<Item, "title" | "pinned"> | undefined, space: Space | undefined, need: ReadonlySet<string>, probe: Probe): SessionRow {
+  private row(s: Session, item: Pick<Item, "title" | "pinned"> | undefined, space: Space | undefined, need: ReadonlySet<string>, atWork: ReadonlySet<string>, probe: Probe): SessionRow {
     const meta = AGENT_META[s.agentKind as AgentKind] as { label: string; icon: string } | undefined;
     return {
       id: s.id, title: item?.title || s.title, spaceId: s.spaceId, spaceName: space?.name ?? "", agent: s.agentKind, model: s.model,
-      status: mobileStatus(s.status), needsYou: need.has(s.id), unread: isUnread(s), updatedAt: s.updatedAt,
+      status: mobileStatus(s.status), needsYou: need.has(s.id), unread: isUnread(s) && !atWork.has(s.id), updatedAt: s.updatedAt,
       agentName: meta?.label ?? s.agentKind, agentMark: meta?.icon ?? "bot",
       modelLabel: meta ? modelLabel(s.agentKind, s.model, probe) : s.model ?? "",
       createdAt: s.createdAt, effort: s.effort, permissionMode: s.permissionMode, activityAt: s.activityAt, pinned: item?.pinned ?? false,
@@ -382,8 +382,10 @@ export class MobileApi {
     const spaceById = new Map(lists.spaces.map((s) => [s.id, s]));
     const rows = new Map<string, Item>();
     for (const it of lists.items) if (it.kind === "session") rows.set(it.refId, it);
-    const waiting = needsYou(needsYouInput(lists));
+    const input = needsYouInput(lists);
+    const waiting = needsYou(input);
     const need = new Set(waiting.map((r) => r.session.id));
+    const atWork = agentsAtWork(input);
     // The sidebar's rows (`listedSessions`): a sub-agent is its lead's business, so it is not a row of
     // its own — a waiting one is still in Needs you.
     const nested = nestChildren(lists.sessions.filter((s) => rows.has(s.id)).map((s) => ({ id: s.id, spaceId: s.spaceId, session: s, createdAt: s.createdAt })));
@@ -391,7 +393,7 @@ export class MobileApi {
     const agentsOf = new Map(nested.filter((n) => n.agents.length > 0).map((n) => [n.row.id, n.agents.map((a) => a.session)]));
     const row = (s: Session, title?: string, spaceId = s.spaceId) => {
       const item = rows.get(s.id);
-      const own = this.row(s, title === undefined ? item : { title, pinned: item?.pinned ?? false }, spaceById.get(spaceId), need, probe);
+      const own = this.row(s, title === undefined ? item : { title, pinned: item?.pinned ?? false }, spaceById.get(spaceId), need, atWork, probe);
       const agents = agentsOf.get(s.id);
       return agents ? { ...own, ...subagentsOn(agents) } : own;
     };
@@ -540,10 +542,11 @@ export class MobileApi {
       entry.queued = null;
       entry.move = null;
       const item = lists.items.find((it) => it.kind === "session" && it.refId === id);
-      const need = new Set(needsYou(needsYouInput(lists)).map((r) => r.session.id));
+      const input = needsYouInput(lists);
+      const need = new Set(needsYou(input).map((r) => r.session.id));
       const all = entry.projector.all();
       return {
-        session: this.row(session, item, lists.spaces.find((s) => s.id === session.spaceId), need, probe),
+        session: this.row(session, item, lists.spaces.find((s) => s.id === session.spaceId), need, agentsAtWork(input), probe),
         rows: all.slice(-limit), hasMore: all.length > limit, hint: entry.projector.hint, queued: this.queuedMessages(queued),
         move: pendingMove(move),
       };
