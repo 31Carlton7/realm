@@ -1,5 +1,5 @@
 import type { Item, Profile, Session, SessionStatus, Space } from "@realm/contracts";
-import { isChild, liveItems, listedIds, nestChildren, rootLeadOf, sessionItems, sessionOf } from "@realm/view";
+import { isChild, leadsWithAgentsAtWork, liveItems, listedIds, nestChildren, rootLeadOf, sessionItems, sessionOf } from "@realm/view";
 import { isUnread, STATUS_LABEL } from "../../state/attention";
 import { spaceActivity } from "../../state/store";
 import { groupByDay, type DayGroup } from "./chat-feed";
@@ -179,16 +179,26 @@ export function listedSessions(s: SidebarState): SessionRow[] {
   return nestChildren(sessionRows(s)).map((n) => n.row).filter((r) => !r.item.archived && !r.session?.teammateId);
 }
 
-/** A session item as a row, with the live facts laid over it. `waiting` is `agentsWaiting`'s answer,
- *  for a caller building many rows at once. */
-export function sessionRowOf(s: SidebarState, item: Item, waiting: ReturnType<typeof agentsWaiting> = agentsWaiting(s)): SessionRow {
+/** The sessions with a sub-agent still running or waiting under them (`leadsWithAgentsAtWork`): rows
+ *  that are not unread yet, whatever their own log says. */
+export function agentsAtWork(s: SidebarState): Set<string> {
+  return leadsWithAgentsAtWork(Object.entries(s.sessionStatus), (id) => {
+    const session = sessionOf(s, id);
+    return isChild(session) ? session?.dispatchedBy?.sessionId ?? null : null;
+  });
+}
+
+/** A session item as a row, with the live facts laid over it. `waiting` and `atWork` are
+ *  `agentsWaiting`'s and `agentsAtWork`'s answers, for a caller building many rows at once. */
+export function sessionRowOf(s: SidebarState, item: Item, waiting: ReturnType<typeof agentsWaiting> = agentsWaiting(s),
+  atWork: ReadonlySet<string> = agentsAtWork(s)): SessionRow {
   const session = sessionOf(s, item.refId);
   return {
     kind: "session", id: item.refId, item, session,
     title: item.title || session?.title || "",
     spaceId: s.sessionSpace[item.refId] ?? item.spaceId,
     status: s.sessionStatus[item.refId] ?? session?.status,
-    unread: session ? isUnread(session) : false,
+    unread: session ? isUnread(session) && !atWork.has(item.refId) : false,
     scheduled: session?.dispatchedBy?.kind === "run",
     at: s.sessionActivityAt[item.refId] ?? session?.activityAt ?? item.createdAt,
     createdAt: session?.createdAt ?? item.createdAt,
@@ -205,7 +215,8 @@ export function sessionRowOf(s: SidebarState, item: Item, waiting: ReturnType<ty
  */
 export function sessionRows(s: SidebarState): SessionRow[] {
   const waiting = agentsWaiting(s);
-  return sessionItems(s).map((item) => sessionRowOf(s, item, waiting));
+  const atWork = agentsAtWork(s);
+  return sessionItems(s).map((item) => sessionRowOf(s, item, waiting, atWork));
 }
 
 /** The tally of some rows: their live states, and the read mark where nothing louder is showing. */

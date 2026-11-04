@@ -12,7 +12,7 @@ import {
   type ScheduledTask, type Screen, type SessionOptions, type SessionRow, type Subagent, type Teammate as PhoneTeammate,
 } from "@realm/remote";
 import {
-  FALLBACK_AGENT, isChild, isLive, LAST_AGENT_SETTING, modelLabel, needsYou, nestChildren, QUICK_CHAT_SETTING, quickChatIdOf, subagentState, upcomingOrder, type NeedsYouState,
+  FALLBACK_AGENT, isChild, isLive, LAST_AGENT_SETTING, leadsWithAgentsAtWork, modelLabel, needsYou, nestChildren, QUICK_CHAT_SETTING, quickChatIdOf, subagentState, upcomingOrder, type NeedsYouState,
 } from "@realm/view";
 import { resolveDefaultPermissionMode } from "../sessions/service";
 import { tildify } from "../skills/discovery";
@@ -150,6 +150,16 @@ export function needsYouInput(l: Lists): NeedsYouState {
     sessionStatus: by((s) => s.status), sessionSpace: by((s) => s.spaceId), sessionUpdatedAt: by((s) => s.updatedAt),
     quickChatId: l.quickChatId,
   };
+}
+
+/** The sessions with a sub-agent still at work under them, which are not unread yet — the sidebar's
+ *  `agentsAtWork`, from the server's lists. */
+function agentsAtWork(l: Pick<Lists, "sessions">): Set<string> {
+  const byId = new Map(l.sessions.map((s) => [s.id, s]));
+  return leadsWithAgentsAtWork(l.sessions.map((s) => [s.id, s.status] as const), (id) => {
+    const s = byId.get(id);
+    return isChild(s) ? s?.dispatchedBy?.sessionId ?? null : null;
+  });
 }
 
 /** A space's or a profile's icon, read the way the desktop's `SpaceIcon` reads it. */
@@ -361,11 +371,11 @@ export class MobileApi {
 
   /** `item` is the session's sidebar row, for its title and pin; `need` is the ids Needs you lists, so a
    *  row says it is in that list exactly when it is. */
-  private row(s: Session, item: Pick<Item, "title" | "pinned"> | undefined, space: Space | undefined, need: ReadonlySet<string>, probe: Probe): SessionRow {
+  private row(s: Session, item: Pick<Item, "title" | "pinned"> | undefined, space: Space | undefined, need: ReadonlySet<string>, atWork: ReadonlySet<string>, probe: Probe): SessionRow {
     const meta = AGENT_META[s.agentKind as AgentKind] as { label: string; icon: string } | undefined;
     return {
       id: s.id, title: item?.title || s.title, spaceId: s.spaceId, spaceName: space?.name ?? "", agent: s.agentKind, model: s.model,
-      status: mobileStatus(s.status), needsYou: need.has(s.id), unread: isUnread(s), updatedAt: s.updatedAt,
+      status: mobileStatus(s.status), needsYou: need.has(s.id), unread: isUnread(s) && !atWork.has(s.id), updatedAt: s.updatedAt,
       agentName: meta?.label ?? s.agentKind, agentMark: meta?.icon ?? "bot",
       modelLabel: meta ? modelLabel(s.agentKind, s.model, probe) : s.model ?? "",
       createdAt: s.createdAt, effort: s.effort, permissionMode: s.permissionMode, activityAt: s.activityAt, pinned: item?.pinned ?? false,
@@ -384,6 +394,7 @@ export class MobileApi {
     for (const it of lists.items) if (it.kind === "session") rows.set(it.refId, it);
     const waiting = needsYou(needsYouInput(lists));
     const need = new Set(waiting.map((r) => r.session.id));
+    const atWork = agentsAtWork(lists);
     // The sidebar's rows (`listedSessions`): a sub-agent is its lead's business, so it is not a row of
     // its own — a waiting one is still in Needs you.
     const nested = nestChildren(lists.sessions.filter((s) => rows.has(s.id)).map((s) => ({ id: s.id, spaceId: s.spaceId, session: s, createdAt: s.createdAt })));
@@ -391,7 +402,7 @@ export class MobileApi {
     const agentsOf = new Map(nested.filter((n) => n.agents.length > 0).map((n) => [n.row.id, n.agents.map((a) => a.session)]));
     const row = (s: Session, title?: string, spaceId = s.spaceId) => {
       const item = rows.get(s.id);
-      const own = this.row(s, title === undefined ? item : { title, pinned: item?.pinned ?? false }, spaceById.get(spaceId), need, probe);
+      const own = this.row(s, title === undefined ? item : { title, pinned: item?.pinned ?? false }, spaceById.get(spaceId), need, atWork, probe);
       const agents = agentsOf.get(s.id);
       return agents ? { ...own, ...subagentsOn(agents) } : own;
     };
@@ -543,7 +554,7 @@ export class MobileApi {
       const need = new Set(needsYou(needsYouInput(lists)).map((r) => r.session.id));
       const all = entry.projector.all();
       return {
-        session: this.row(session, item, lists.spaces.find((s) => s.id === session.spaceId), need, probe),
+        session: this.row(session, item, lists.spaces.find((s) => s.id === session.spaceId), need, agentsAtWork(lists), probe),
         rows: all.slice(-limit), hasMore: all.length > limit, hint: entry.projector.hint, queued: this.queuedMessages(queued),
         move: pendingMove(move),
       };

@@ -202,6 +202,23 @@ describe("session.seen", () => {
   });
 });
 
+describe("a home row's unread mark", () => {
+  it("waits, as the sidebar's does, until the last sub-agent its session started is done", async () => {
+    // A lead that ended its turn while its sub-agent still runs (#271), and the same lead once it is done.
+    const lists = (status: Session["status"]): Lists => ({
+      sessions: [
+        session("lead", "s1", { seenSeq: 3, lastEventSeq: 9 }),
+        session("agent", "s1", { status, seenSeq: 0, lastEventSeq: 4, dispatchedBy: { kind: "agent_run", sessionId: "lead" } }),
+      ],
+      items: [item("lead", "s1", "Lead"), item("agent", "s1", "Agent")],
+    });
+    const unreadOf = async (status: Session["status"]) => (await home(lists(status))).spaces.flatMap((sp) => sp.sessions).find((r) => r.id === "lead")!.unread;
+    expect(await unreadOf("running")).toBe(false);
+    expect(await unreadOf("waiting_permission")).toBe(false);
+    expect(await unreadOf("idle")).toBe(true);
+  });
+});
+
 describe("a session row's agent, model and space, as the desktop names them", () => {
   it("names the agent and its model, and reads each space's icon", async () => {
     const h = HomeSchema.parse(await api().handle(channel(fakeRpc({

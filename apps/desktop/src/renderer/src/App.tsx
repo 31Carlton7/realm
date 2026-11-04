@@ -777,6 +777,7 @@ export function App() {
     // nothing: the delegating session's pane may be open in any of them, and the payload is a
     // handful of ids — the store drops the key when the set is empty.
     const offDel = rpc().on("delegation.changed", (p) => store.getState().applyDelegationChanged(p));
+    const offSeen = rpc().on("session.seen", (p) => store.getState().applySessionSeen(p));
     // No payload — `mcp.changed` just means "something about some server changed". Only worth a refetch
     // while a space page's Connections tab is actually mounted on a space's server list (Plan 12 W3:
     // the settings sheet is gone; `mcpPanelSpaceId` is McpSection's mounted-for-which-space record).
@@ -822,7 +823,7 @@ export function App() {
     window.addEventListener("dragover", swallowDrop);
     window.addEventListener("drop", swallowDrop);
     return () => {
-      offS(); offI(); offW(); offSh(); offRun(); offSched(); offTeammates(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offMemLib(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); offSet(); offRm(); offPr(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offBC(); offDel(); offM(); offMS(); offASI(); offAcc(); offLaya(); offMC(); offCO(); offCD(); offC();
+      offS(); offI(); offW(); offSh(); offRun(); offSched(); offTeammates(); offP(); offK(); offTh(); offFo(); offAv(); offMem(); offMemLib(); offB(); offPages(); offDO(); offSA(); offSO(); offSw(); offSet(); offRm(); offPr(); window.removeEventListener("keydown", onTyped, true); offSS(); offBA(); offBD(); offTD(); offMach(); offSim(); offGoal(); offMimg(); offE(); offT(); offQ(); offSaved(); offPL(); offN(); offDN?.(); offR(); offBC(); offDel(); offSeen(); offM(); offMS(); offASI(); offAcc(); offLaya(); offMC(); offCO(); offCD(); offC();
       window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("dragover", swallowDrop);
       offEggs();

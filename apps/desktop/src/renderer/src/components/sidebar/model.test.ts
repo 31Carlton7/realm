@@ -108,6 +108,24 @@ describe("listedSessions — what the sidebar lists as a row", () => {
     const s = seed([{ id: "a", space: "hw", session: { seenSeq: 3, lastEventSeq: 5 } }, { id: "b", space: "hw", session: { seenSeq: 5, lastEventSeq: 5 } }]);
     expect(listedSessions(s).map((r) => [r.id, r.unread])).toEqual([["a", true], ["b", false]]);
   });
+
+  it("is not unread while a sub-agent it started is still at work, and is once the last one is done", () => {
+    // The lead ended its turn with two sub-agents going (#271): one still running, one done.
+    const lead = { id: "lead", space: "hw", session: { seenSeq: 3, lastEventSeq: 9 } };
+    const child = (id: string, status: SessionStatus) =>
+      ({ id, space: "hw", status, session: { dispatchedBy: { kind: "agent_run" as const, sessionId: "lead" }, seenSeq: 0, lastEventSeq: 4 } });
+    const unreadOf = (s: SidebarState) => listedSessions(s).find((r) => r.id === "lead")!.unread;
+    const working = seed([lead, child("c1", "running"), child("c2", "idle")]);
+    expect(unreadOf(working)).toBe(false);
+    // Waiting on a person is still at work, and so is a sub-agent of a sub-agent.
+    expect(unreadOf({ ...working, sessionStatus: { ...working.sessionStatus, c1: "waiting_permission" } })).toBe(false);
+    const grandchild = seed([lead, child("c1", "idle"), { id: "g1", space: "hw", status: "running", session: { dispatchedBy: { kind: "agent_run", sessionId: "c1" } } }]);
+    expect(unreadOf(grandchild)).toBe(false);
+    // The live status is what counts, not the row's copy of it.
+    expect(unreadOf({ ...working, sessionStatus: { ...working.sessionStatus, c1: "idle" } })).toBe(true);
+    // A session that only names another (a fork) is nobody's sub-agent, and holds nothing back.
+    expect(unreadOf(seed([lead, { id: "f", space: "hw", status: "running", session: { dispatchedBy: { kind: "fork", sessionId: "lead" } } }]))).toBe(true);
+  });
 });
 
 describe("spaceRows — one space's list", () => {

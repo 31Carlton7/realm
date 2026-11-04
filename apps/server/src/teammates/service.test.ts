@@ -29,6 +29,8 @@ const SCRIPT: FakeScript = [
   { on: "clock task", emit: [{ kind: "call", tool: "realm-agent__agent_start", input: { goal: "Long migration", title: "long migration" } },
     { kind: "text", text: "a b c d e f g h i j k l m n o p q r s t", paceMs: 150 }] },
   { on: "Long migration", emit: [{ kind: "text", text: "one two three four five six seven eight", paceMs: 400 }] },
+  { on: "start a survey", emit: [{ kind: "call", tool: "realm-agent__agent_start", input: { goal: "Survey the slow paths", title: "survey" } }, { kind: "text", text: "Started it." }] },
+  { on: "Survey the slow paths", emit: [{ kind: "text", text: "one two three four five six seven eight", paceMs: 250 }] },
 ];
 
 async function boot(extra: { clockTurnMs?: number } = {}) {
@@ -117,6 +119,40 @@ describe("a teammate", () => {
     expect(app.sessions.get(sessionId)).toMatchObject({ model: null, effort: null });
     // The open chat's chip is re-read too.
     await waitFor(() => said.includes("items.changed"));
+  });
+});
+
+describe("a teammate's unread mark", () => {
+  it("waits for the work its chat started, and clears for every window once the chat is read", async () => {
+    const { make } = await boot();
+    const cto = make("CTO");
+    const home = cto.homeSessionId!;
+    await app.team.message(cto.id, "start a survey");
+    await waitFor(() => app.sessions.listAll().some((s) => s.dispatchedBy?.sessionId === home));
+    const task = app.sessions.listAll().find((s) => s.dispatchedBy?.sessionId === home)!;
+    // The chat has ended its turn and the task it started is still going (#271): not unread yet.
+    await waitFor(() => app.sessions.get(home).status === "idle" && events(home).some((e) => e.type === "assistant_text"));
+    expect(app.sessions.get(task.id).status).toBe("running");
+    expect(app.team.get(cto.id).unread).toBe(false);
+    // The last of its work is done: now it is.
+    await idle(task.id);
+    expect(app.team.get(cto.id).unread).toBe(true);
+
+    const said: { event: string; payload: unknown }[] = [];
+    const broadcast = app.rpc.broadcast.bind(app.rpc);
+    vi.spyOn(app.rpc, "broadcast").mockImplementation((event, payload) => { said.push({ event, payload }); broadcast(event, payload); });
+    const seq = app.sessions.get(home).lastEventSeq;
+    // THE MUTANT: a read mark that moves in the table and is told to nobody. The sidebar's teammate
+    // row reads the server's `unread`, re-read only on `teammates.changed`, so it stayed marked.
+    app.sessions.markSeen(home, seq);
+    expect(app.team.get(cto.id).unread).toBe(false);
+    expect(said).toContainEqual({ event: "session.seen", payload: { sessionId: home, seenSeq: seq } });
+    await waitFor(() => said.some((s) => s.event === "teammates.changed"));
+    // A mark that does not move is not news.
+    said.length = 0;
+    app.sessions.markSeen(home, seq - 1);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(said).toEqual([]);
   });
 });
 
