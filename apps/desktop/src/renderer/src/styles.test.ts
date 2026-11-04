@@ -5566,4 +5566,11 @@ describe("voice mode", () => {
     // reading's contrast.
     expect(bodiesFor(".voice-view").join(" ")).toContain("background: var(--pane-ground)");
   });
+  it("hangs the stack from a fixed top, so the bars stay put while a caption comes and goes", () => {
+    // THE MUTANT: the stack centred again — the bars jump about 90px each time the caption appears.
+    const stage = bodiesFor(".voice-stage").join(" ");
+    expect(stage).not.toMatch(/justify-content:\s*(center|flex-end|end)/);
+    expect(stage).toMatch(/padding-top: calc\(50vh - var\(--frame-top\) - 48px - 32px\)/);
+    expect(bodiesFor(".voice-bars").join(" ")).toContain("height: 96px");
+  });
 });
