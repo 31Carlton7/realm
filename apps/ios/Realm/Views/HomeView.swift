@@ -13,6 +13,8 @@ struct HomeView: View {
     @AppStorage(ListOptions.Key.needsYouFirst) private var needsYouFirst = ListOptions().needsYouFirst
     @State private var query = ""
     @State private var searching = false
+    /// What the Mac's search last found, while the words in the field are enough to send.
+    @State private var found: FoundSessions?
     @State private var filter = HomeFilter.all
     @State private var reconnecting = false
     @State private var newSessionShown = false
@@ -35,8 +37,11 @@ struct HomeView: View {
         let shown = model.shownLinkStatus
         // A Mac that names its profiles pages a space's sessions too; an older one has only Home's few.
         let pages = home?.profiles != nil
+        let matches = SearchQuery.sent(query) == nil ? nil : found
         List {
-            if let listing {
+            if let matches, let home {
+                SearchHitsSection(found: matches, home: home)
+            } else if let listing {
                 ForEach(listing.elsewhere) { waiting in
                     ElsewhereRow(waiting: waiting)
                 }
@@ -111,7 +116,7 @@ struct HomeView: View {
         // Manus's chips under the bar: what the list holds, by what it asks of the person. The list
         // blurs and fades under them as it does under the bar.
         .safeAreaBar(edge: .top, spacing: 0) {
-            if let listing {
+            if let listing, matches == nil {
                 HomeChips(filter: $filter, needsYou: listing.needsYou.count, pinned: listing.pinned.count)
             }
         }
@@ -127,7 +132,9 @@ struct HomeView: View {
         .overlay {
             if home == nil, shown.kind != .connecting, shown.kind != .connected {
                 FirstLoad()
-            } else if let listing, listing.isEmpty, unsent.isEmpty {
+            } else if let matches, matches.hits.isEmpty {
+                NoResults(query: matches.query, why: NoResults.macWords)
+            } else if matches == nil, let listing, listing.isEmpty, unsent.isEmpty {
                 if listing.isFiltered {
                     NoResults(query: query, why: NoResults.words(style: style, pages: pages))
                 } else {
@@ -189,6 +196,19 @@ struct HomeView: View {
             .sharedBackgroundVisibility(.hidden)
         }
         .modifier(SearchWhenAsked(query: $query, searching: $searching))
+        // Asked of the Mac once the typing rests, as the desktop's palette asks; a newer word cancels
+        // the older ask, so an answer never lands under words it was not for.
+        .task(id: SearchAsk(query: SearchQuery.sent(query), choice: choice)) {
+            guard let words = SearchQuery.sent(query) else {
+                found = nil
+                return
+            }
+            try? await Task.sleep(for: FoundSessions.restsFor)
+            guard !Task.isCancelled else { return }
+            let hits = await model.search(words)
+            guard !Task.isCancelled else { return }
+            found = hits.map { FoundSessions(query: words, hits: $0) }
+        }
         .refreshable { await model.refresh() }
         .sheet(isPresented: $model.settingsShown) {
             SettingsSheet()
@@ -596,16 +616,17 @@ extension Binding where Value: Equatable & Sendable {
     }
 }
 
-/// Home's search field, there only once the bar's Search asks for it, as Manus's is; closed, it clears
+/// Home's search field, and a session's find, there only once the bar's Search asks for it, as Manus's is; closed, it clears
 /// what was typed and goes again.
-private struct SearchWhenAsked: ViewModifier {
+struct SearchWhenAsked: ViewModifier {
     @Binding var query: String
     @Binding var searching: Bool
+    var prompt = "Search sessions"
 
     func body(content: Content) -> some View {
         content.safeAreaBar(edge: .bottom) {
             if searching {
-                SearchBar(prompt: "Search sessions", query: $query, focusesFirst: true) {
+                SearchBar(prompt: prompt, query: $query, focusesFirst: true) {
                     query = ""
                     searching = false
                 }
@@ -1074,6 +1095,9 @@ struct NoResults: View {
             Text(why)
         }
     }
+
+    /// The Mac's search found nothing.
+    static let macWords = "No session on your Mac has it in its title or its messages."
 
     /// Home's reason, for the style it lists in; `pages` where a space's page lists the rest of its sessions.
     static func words(style: ListStyle, pages: Bool) -> String {

@@ -338,6 +338,8 @@ struct ForkChoice: Identifiable, Equatable {
 /// on Home.
 struct SessionMenu: View {
     let row: SessionRow
+    /// Opens a find in the transcript, where the menu is the session's own.
+    var find: (() -> Void)?
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
 
@@ -350,6 +352,12 @@ struct SessionMenu: View {
                 Section {
                     Button("Edit \(teammate.name)…", systemImage: "pencil") { model.teammateEditing = teammate.id }
                         .disabled(!model.isConnected)
+                }
+            }
+            if let find {
+                Section {
+                    Button("Find in session", systemImage: "text.magnifyingglass", action: find)
+                        .accessibilityIdentifier("find-in-session")
                 }
             }
             RowMenuItems(row: row, actions: actions.menu.filter { $0 != .stop }, isOff: actions.isOff) { action in
