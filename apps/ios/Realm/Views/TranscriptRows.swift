@@ -1155,22 +1155,24 @@ private struct MoveLine: View {
 
     var body: some View {
         VStack(spacing: 4) {
-            // A spinner has no baseline of its own, and would sit below the words on theirs.
-            HStack(alignment: move == .moving ? .center : .firstTextBaseline, spacing: 6) {
-                switch move {
-                case .moving:
+            switch move {
+            case .moving:
+                // A spinner has no baseline of its own, and would sit below the words on theirs.
+                HStack(spacing: 6) {
                     ProgressView()
                         .controlSize(.mini)
-                case .moved:
-                    Image(systemName: "arrow.right.circle")
+                    Text(text)
                         .foregroundStyle(Palette.ink2)
-                case .failed:
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(Palette.orange)
                 }
-                Text(text)
+            case .moved, .failed:
+                // The mark is part of the sentence, so a line that wraps stays centred as one.
+                let mark = move == .moved
+                    ? Text(Image(systemName: "arrow.right.circle")).foregroundStyle(Palette.ink2)
+                    : Text(Image(systemName: "exclamationmark.triangle.fill")).foregroundStyle(Palette.orange)
+                Text("\(mark) \(text)")
                     .foregroundStyle(move == .failed ? Palette.ink : Palette.ink2)
                     .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(text)
             }
             if showsDetail, let detail {
                 // A reason is often git's own output, read line by line from the left.
