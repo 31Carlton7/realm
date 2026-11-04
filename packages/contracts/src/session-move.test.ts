@@ -46,9 +46,16 @@ describe("naming the ends of a move", () => {
     expect(placeName(at("/Users/me/shop", null))).toBe("shop");
   });
 
+  it("leaves the branch out when the folder already says it", () => {
+    expect(placeName(at("/Users/me/Realm/worktrees/01M6/fix-tests", "realm/fix-tests"))).toBe("fix-tests");
+    expect(placeName(at("/w/fix-tests", "fix-tests"))).toBe("fix-tests");
+    expect(placeName(at("/w/fix-tests", "realm/other"))).toBe("fix-tests (realm/other)");
+    expect(placeName(at("/w/fix-tests", "me/fix-tests"))).toBe("fix-tests (me/fix-tests)");
+  });
+
   it("says the moved line without a path in it", () => {
     expect(movedSentence({ from: at("/Users/me/shop", "main"), to: at("/Users/me/Realm/worktrees/01M6HDE0JV8Y1B2DVQZN8B29YC/fix-tests", "realm/fix-tests"), conversation: "native" }))
-      .toBe("Moved from shop (main) to fix-tests (realm/fix-tests). The conversation continued.");
+      .toBe("Moved from shop (main) to fix-tests. The conversation continued.");
     expect(movedSentence({ from: at("/a/shop", null), to: at("/b/shop-2", null), conversation: "notes" }))
       .toBe("Moved from shop to shop-2. The conversation continued from notes.");
   });

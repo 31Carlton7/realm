@@ -86,9 +86,13 @@ export const MoveOptionsSchema = z.object({
 });
 export type MoveOptions = z.infer<typeof MoveOptionsSchema>;
 
-/** One end of a move as the moved line names it: the folder, and its branch when it has one. */
-export const placeName = (p: Pick<MovePlace, "cwd" | "branch">): string =>
-  p.branch ? `${basenameOf(p.cwd)} (${p.branch})` : basenameOf(p.cwd);
+/** One end of a move as the moved line names it: the folder, and its branch when the folder does not
+ *  already say it. A worktree Realm made sits on `realm/<folder>`, so its folder alone names it. */
+export function placeName(p: Pick<MovePlace, "cwd" | "branch">): string {
+  const folder = basenameOf(p.cwd);
+  if (!p.branch || p.branch === folder || p.branch === `realm/${folder}`) return folder;
+  return `${folder} (${p.branch})`;
+}
 
 /** The moved line, the same on every surface. Paths are left out; each end is named by folder and branch. */
 export function movedSentence(b: { from: Pick<MovePlace, "cwd" | "branch">; to: Pick<MovePlace, "cwd" | "branch">; conversation: MoveConversation }): string {

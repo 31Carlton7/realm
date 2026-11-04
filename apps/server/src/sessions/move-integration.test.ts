@@ -160,7 +160,8 @@ describe("sessions.move", () => {
     const events = await eventsOf(c, session.id);
     const line = events.find((e: Any) => e.type === "moved").payload;
     expect(line).toMatchObject({ conversation: "native", changedFiles: 3, leftBehind: [".env"], from: { cwd: repo }, to: { cwd: env.path } });
-    expect(line.note).toBe(`Moved from ${basename(repo)} (main) to ${basename(env.path)} (${env.branch}). The conversation continued.`);
+    expect(env.branch).toBe(`realm/${basename(env.path)}`);
+    expect(line.note).toBe(`Moved from ${basename(repo)} (main) to ${basename(env.path)}. The conversation continued.`);
     expect(events.some((e: Any) => e.type === "context_reset")).toBe(false);
     const cps = (await c.call("checkpoints.list", { environmentId: session.environmentId, sessionId: session.id })).result;
     expect(cps.some((cp: Any) => cp.label === "Before move to a new worktree")).toBe(true);
@@ -212,7 +213,7 @@ describe("sessions.move", () => {
 
     const events = await eventsOf(c, session.id);
     expect(events.find((e: Any) => e.type === "moved").payload).toMatchObject({ conversation: "notes",
-      note: `Moved from ${basename(repo)} (main) to ${basename(target.path)} (${target.branch}). The conversation continued from notes.` });
+      note: `Moved from ${basename(repo)} (main) to ${basename(target.path)}. The conversation continued from notes.` });
     // The moved line tells it; a context_reset beside it would contradict the notes.
     expect(events.some((e: Any) => e.type === "context_reset")).toBe(false);
     const context = new SettingsStore(app!.db).get(handoffContextKey(session.id)) as string;
