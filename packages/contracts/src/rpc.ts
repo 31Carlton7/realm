@@ -6,7 +6,7 @@ import { ProfileSchema, SpaceSchema, ProjectSchema, ItemSchema, ItemKindSchema, 
 import { ElementChipSchema, MAX_ELEMENT_CHIPS } from "./chips";
 import { LayoutSchema } from "./layout";
 import { SpaceGroupsSchema } from "./groups";
-import { SessionEventTypeSchema, StoredSessionEventSchema } from "./session-events";
+import { SessionEventTypeSchema, StoredSessionEventSchema, StreamedMessageSchema } from "./session-events";
 import { SAVED_TURNS_MAX, SavedTurnSchema } from "./saved-turns";
 import { LibraryAddResultSchema, LibraryAddSchema, LibraryEntrySchema, LibraryQuerySchema, LibraryRemoveResultSchema, LibraryRemoveSchema, LibraryRestoreResultSchema, LibraryRestoreSchema } from "./library";
 import { SkillSchema, SkillDetailSchema, SkillIdSchema, SkillSourceSchema } from "./skills";
@@ -2146,6 +2146,11 @@ export const Methods = {
   /** The queue as it stands, for a pane that has just mounted. Live changes arrive on `session.queue`;
    *  this is the initial read, the same split `sessions.events` and `session.event` already use.
    *  `move` is a move waiting behind the turn or under way, which waits ahead of the queue. */
+  /** The reply streaming now, as far as it has got — the text its `assistant_delta`s have spelled out,
+   *  which is in no stored event until its `assistant_text` lands. `seq` is the session's last stored
+   *  event when this was read: a client that opens a session mid-turn applies the events it holds up
+   *  to `seq`, then this text, then the deltas that follow (each carries its `at`). */
+  "sessions.streaming": { params: z.object({ id: IdSchema }), result: z.object({ seq: z.number().int(), message: StreamedMessageSchema.nullable() }) },
   "sessions.queued": { params: z.object({ id: IdSchema }), result: z.object({ queued: z.array(QueuedPromptSchema), move: PendingMoveSchema.nullable().optional() }) },
   "sessions.interrupt": { params: z.object({ id: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /** The reader's verdict on one assistant message, appended to that session's own event log and

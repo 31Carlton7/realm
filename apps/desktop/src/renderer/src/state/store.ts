@@ -5,6 +5,7 @@ import { MAC_SKILL_ID, keepLiveRefs, mentionRefLabel, type AppViewRef, type Inst
 import type { SavedTurn } from "@realm/contracts";
 import { memoryLearningKey, memoryLearningOn } from "@realm/contracts";
 import { attachmentDisposition } from "@realm/contracts";
+import { withStreamed, type StreamedMessage } from "@realm/contracts";
 import { VIEWER_SLOT, ownerOf, type Marking, type OpenViewerInput, type ViewerFile, type ViewerState } from "./viewer";
 import type { PickedElement } from "@realm/contracts";
 import { loadInstalledFaces, localFamilies, publishFontFaces } from "./font-sources";
@@ -453,6 +454,8 @@ export type Api = TeammatesApi & {
   sessionEvents(id: string, afterSeq: number, limit: number): Promise<StoredSessionEvent[]>;
   /** The newest `limit` persisted events before `beforeSeq`, ascending — of `types` only, when given. */
   sessionEventsBefore(id: string, beforeSeq: number, limit: number, types?: StoredSessionEvent["event"]["type"][]): Promise<StoredSessionEvent[]>;
+  /** `sessions.streaming`: the reply streaming now, as far as it has got, and the last seq it covers. */
+  sessionStreaming(id: string): Promise<{ seq: number; message: StreamedMessage | null }>;
   /** `sessions.openTerminal` — get-or-create the session's terminal side panel. The FIRST call is what
    *  spawns the pty, so this must only ever be called when the panel is actually being shown. */
   openSessionTerminal(sessionId: string): Promise<{ terminalId: string; itemId: string }>;
@@ -3740,14 +3743,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      * an unbuffered stream produced, and the buffer costs the message's own text rather than one
      * object per token.
      */
-    const pendingDeltas = new Map<string, { messageId: string; delta: string; ts: number }[]>();
+    const pendingDeltas = new Map<string, { messageId: string; delta: string; at?: number; ts: number }[]>();
     let deltaFrame = 0;
-    const queueDelta = (sessionId: string, messageId: string, delta: string, ts: number) => {
+    const queueDelta = (sessionId: string, messageId: string, delta: string, at: number | undefined, ts: number) => {
       let runs = pendingDeltas.get(sessionId);
       if (!runs) pendingDeltas.set(sessionId, (runs = []));
       const open = runs.at(-1);
       if (open && open.messageId === messageId) open.delta += delta;
-      else runs.push({ messageId, delta, ts });
+      else runs.push({ messageId, delta, at, ts });
       if (!deltaFrame) deltaFrame = scheduleFrame(() => { deltaFrame = 0; get().flushSessionDeltas(); });
     };
     /** Drain one session's pending deltas into a transcript, without touching the store. The caller
@@ -3756,7 +3759,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const runs = pendingDeltas.get(sessionId);
       if (!runs) return t;
       pendingDeltas.delete(sessionId);
-      for (const r of runs) t = reduceTranscript(t, sessionEvent("assistant_delta", { messageId: r.messageId, delta: r.delta }, r.ts));
+      for (const r of runs) t = reduceTranscript(t, sessionEvent("assistant_delta", { messageId: r.messageId, delta: r.delta, at: r.at }, r.ts));
       return t;
     };
     /**
@@ -6001,8 +6004,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         if (loading.has(id)) return;
         loading.set(id, []);
         // Buffered deltas are discarded rather than replayed onto the transcript this rebuilds: the
-        // fetch re-derives it from persisted events, which is the same text those deltas were
-        // spelling out, and deltas arriving DURING the fetch are dropped for exactly that reason.
+        // fetch re-derives it from persisted events and the reply streaming now, which is the same
+        // text those deltas were spelling out.
         pendingDeltas.delete(id);
         try {
           const held = get().transcripts[id];
@@ -6030,6 +6033,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           const [session, read] = await Promise.all([get().sessions[id] ? null : api.getSession(id),
             held ? fetchAll().then((events) => ({ events, earlier: null, carried: [] })) : fetchTail()]);
           const events = read.events;
+          // After the log, so the text a reply has streamed so far — in no stored event yet — picks
+          // up where the log stops. Without it a window reloaded mid-turn starts the reply mid-sentence.
+          const streaming = await api.sessionStreaming(id);
           if (!loading.has(id)) return; // item closed mid-fetch
           if (session) mergeSession(session);
           refreshGitFor(id); // opening a session refreshes its cwd's git context
@@ -6056,7 +6062,8 @@ export function createAppStore(api: Api): StoreApi<AppState> {
             t = { ...t, earlier };
           }
           let marked = get().newSinceSeq[id] !== undefined;
-          for (const e of [...events, ...(loading.get(id) ?? [])]) {
+          for (const e of [...events, ...withStreamed(id, loading.get(id) ?? [], streaming)]) {
+            if (e.seq < 0) { t = reduceTranscript(t, e.event); continue; }
             if (e.seq <= lastSeq) continue;
             // The FIRST event past the mark carries it. `reduceTranscript` refuses a second one, so
             // re-entering this loop on a later page cannot draw two rules.
@@ -6148,11 +6155,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         /** This event makes no other write: the line, and the log's length, are the whole of it. */
         const lineOnly = () => { if (also) set(also); };
         const buf = loading.get(ev.sessionId);
-        if (buf) { lineOnly(); if (!ev.ephemeral) buf.push(ev); return; } // deltas are dropped while loading; the final text is persisted anyway
+        if (buf) { lineOnly(); buf.push(ev); return; } // deltas too: `withStreamed` decides which the read already holds
         const cur = get().transcripts[ev.sessionId];
         if (!cur) { lineOnly(); return; } // not opened yet: openSession fetches everything later
         // Deltas are buffered and land a frame later; see `pendingDeltas`.
-        if (ev.ephemeral) { lineOnly(); if (ev.event.type === "assistant_delta") queueDelta(ev.sessionId, ev.event.payload.messageId, ev.event.payload.delta, ev.event.ts); return; }
+        if (ev.ephemeral) { lineOnly(); if (ev.event.type === "assistant_delta") queueDelta(ev.sessionId, ev.event.payload.messageId, ev.event.payload.delta, ev.event.payload.at, ev.event.ts); return; }
         if (ev.seq <= cur.lastSeq) { lineOnly(); return; }
         // A persisted event is ordered AFTER the deltas still waiting, so it folds them into its own
         // write rather than racing the frame that would have applied them.

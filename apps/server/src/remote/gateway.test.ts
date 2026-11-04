@@ -423,6 +423,26 @@ describe("Plan 28: a paired phone, in process", () => {
     phone.close();
   });
 
+  it("opened mid-reply, shows the reply from its first word and goes on streaming it (#266)", async () => {
+    const r = await boot();
+    const id = await newSession(r);
+    const phone = await pairPhone(r);
+    await r.mac.call("sessions.send", { id, text: "take your time" });
+    await waitFor(async () => ((await r.mac.call("sessions.streaming", { id })).message?.text ?? "").includes("word2 "), { timeout: 5_000 });
+    const streamed: string[] = [];
+    phone.on("session.rows", (p) => { for (const row of rowsOf(p, id) ?? []) if (row.kind === "assistant") streamed.push(row.text); });
+
+    const opened = MobileCalls["session.open"].result.parse(await phone.call("session.open", { id }));
+    const reply = opened.rows.find((row) => row.kind === "assistant");
+    expect(reply?.kind === "assistant" && reply.text).toMatch(/^word0 word1 word2 /);
+    await waitFor(() => streamed.length > 0, { timeout: 5_000 });
+    // The words after the open join it with nothing missing and nothing said twice.
+    const words = Array.from({ length: 30 }, (_, i) => `word${i}`).join(" ");
+    for (const text of streamed) expect(words.startsWith(text)).toBe(true);
+    await r.mac.call("sessions.interrupt", { id });
+    phone.close();
+  });
+
   it("answers a question card from the phone, and the agent goes on", async () => {
     const r = await boot();
     const id = await newSession(r);

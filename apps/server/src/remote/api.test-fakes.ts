@@ -57,6 +57,7 @@ export function fakeRpc(h: Lists, more: Partial<Record<MethodName, (p: never) =>
         return found;
       }
       case "sessions.events": return [];
+      case "sessions.streaming": return { seq: 0, message: null };
       case "sessions.queued": return { queued: h.queued?.[(params as { id: string }).id] ?? [] };
       default: throw new Error(`the fake has no ${method}`);
     }

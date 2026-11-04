@@ -1,5 +1,5 @@
 import {
-  bareToolName, moveFailedSentence, normalizeHandle, TEAM_MESSAGE_TOOL, teammateByHandle, teammateWords,
+  appendDelta, bareToolName, moveFailedSentence, normalizeHandle, TEAM_MESSAGE_TOOL, teammateByHandle, teammateWords,
   type AskCard, type AskQuestion, type MoveStep, type PendingMove, type QueuedPrompt, type SessionEvent, type SessionEventType, type StoredSessionEvent,
 } from "@realm/contracts";
 import { givenAttachmentName } from "@realm/contracts/src/temp-attachments";
@@ -148,7 +148,7 @@ export class SessionProjector {
       case "assistant_delta": {
         const key = `m:${ev.payload.messageId}`;
         const prev = this.rows.get(key);
-        const text = (prev?.kind === "assistant" ? prev.text : "") + ev.payload.delta;
+        const text = appendDelta(prev?.kind === "assistant" && prev.streaming ? prev.text : "", ev.payload.delta, ev.payload.at);
         return put({ key, seq, kind: "assistant", text, streaming: true });
       }
       case "assistant_text": return put({ key: `m:${ev.payload.messageId}`, seq, kind: "assistant", text: ev.payload.text, streaming: false });

@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import {
   AGENT_META, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, isSecretPath, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, readEffortSupport,
-  resolveMidTurnMode, SELECTABLE_AGENT_KINDS, TeammateIconSchema, type AgentKind, type DelegatedChild, type IconAsset, type Item, type Machine, type MethodResult, type ModelInfo,
+  resolveMidTurnMode, SELECTABLE_AGENT_KINDS, TeammateIconSchema, withStreamed, type AgentKind, type DelegatedChild, type IconAsset, type Item, type Machine, type MethodResult, type ModelInfo,
   type PendingMove, type QueuedPrompt, type Schedule, type Session, type Space, type StoredSessionEvent, type Teammate, type TurnChanges,
 } from "@realm/contracts";
 import { givenAttachmentName, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
@@ -530,9 +530,10 @@ export class MobileApi {
         if (page.length < HISTORY_PAGE || total >= HISTORY_LIMIT) break;
         after = page.at(-1)!.seq;
       }
-      const [lists, probe] = await Promise.all([this.lists(rpc), this.probes(rpc)]);
+      // The reply streaming now is in no stored event yet; read after the log, so it covers it.
+      const [lists, probe, streaming] = await Promise.all([this.lists(rpc), this.probes(rpc), rpc.call("sessions.streaming", { id })]);
       // From here to the answer nothing is awaited, so nothing can arrive between the two.
-      for (const ev of entry.buffer ?? []) entry.projector.apply(ev);
+      for (const ev of withStreamed(id, entry.buffer ?? [], streaming)) entry.projector.apply(ev);
       const queued = entry.queued ?? read.queued;
       const move = entry.queued ? entry.move : read.move ?? null;
       entry.buffer = null;

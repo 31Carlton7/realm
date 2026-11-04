@@ -1,7 +1,7 @@
 import { realpathSync, statSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { ENGINE_IDLE_MINUTES_DEFAULT, ENGINE_IDLE_MINUTES_KEY, AGENT_MEMORY_CHANNEL, AGENT_SESSION_RESUME, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, handoffContextKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, moveFailedSentence, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type MoveOptions, type MoveTarget, type MoveWhen, type PendingMove, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type AskAnswers, type AskCard } from "@realm/contracts";
+import { ENGINE_IDLE_MINUTES_DEFAULT, ENGINE_IDLE_MINUTES_KEY, AGENT_MEMORY_CHANNEL, AGENT_SESSION_RESUME, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, handoffContextKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, moveFailedSentence, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type MoveOptions, type MoveTarget, type MoveWhen, type PendingMove, type SessionRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type StreamedMessage, type AskAnswers, type AskCard } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, RestartRequiredError, type AdapterRegistry, type AgentAdapter, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import type { RpcServer } from "../rpc/server";
@@ -196,6 +196,9 @@ export class SessionService {
   private restartOwed = new Set<string>();
   /** `QUEUE_HOLD_TTL_MS`, as a field so a test can wait out a hold without waiting ten minutes. */
   queueHoldTtlMs = QUEUE_HOLD_TTL_MS;
+  /** The reply each session is streaming, as far as its deltas have got (`sessions.streaming`).
+   *  Gone once its `assistant_text` is stored, or the turn settles. */
+  private streamed = new Map<string, StreamedMessage>();
   /** Called on the next settle of each session — see `interruptAndSettle`. */
   private settleWaiters = new Map<string, Set<() => void>>();
   /**
@@ -438,6 +441,11 @@ export class SessionService {
   /** Going quiet for a handoff: finish what is running, start nothing new. */
   setDraining(draining: boolean): void { this.draining = draining; }
   get(id: string): Session { const s = this.d.sessions.get(id); if (!s) throw new NotFoundError("session", id); return s; }
+  /** See `sessions.streaming`. */
+  streaming(id: string): { seq: number; message: StreamedMessage | null } {
+    const m = this.streamed.get(id);
+    return { seq: this.get(id).lastEventSeq, message: m ? { ...m } : null };
+  }
   /** `beforeSeq` reads the newest page before it instead of the first after `afterSeq` (see `sessions.events`). */
   events(id: string, afterSeq: number, limit: number, opts: { beforeSeq?: number; types?: SessionEvent["type"][] } = {}): StoredSessionEvent[] {
     this.get(id);
@@ -1524,6 +1532,7 @@ export class SessionService {
     this.queueHolds.delete(id);
     this.drainOwed.delete(id);
     this.restartOwed.delete(id);
+    this.streamed.delete(id);
     this.pendingMoves.delete(id);
     this.moveAborts.get(id)?.abort();
     this.movesUnderWay.delete(id);
@@ -2540,8 +2549,16 @@ export class SessionService {
       }
     }
     if (PERSISTED_EVENT_TYPES.includes(ev.type)) {
+      if (ev.type === "assistant_text" && this.streamed.get(id)?.messageId === ev.payload.messageId) this.streamed.delete(id);
+      if (ev.type === "status" && (ev.payload.status === "idle" || ev.payload.status === "ended" || ev.payload.status === "error")) this.streamed.delete(id);
       const stored = this.persist(id, ev);
       this.d.rpc.broadcast("session.event", { ...stored, ephemeral: false });
+    } else if (ev.type === "assistant_delta") {
+      let m = this.streamed.get(id);
+      if (m?.messageId !== ev.payload.messageId) this.streamed.set(id, (m = { messageId: ev.payload.messageId, text: "", ts: ev.ts }));
+      const at = m.text.length;
+      m.text += ev.payload.delta;
+      this.d.rpc.broadcast("session.event", { seq: -1, sessionId: id, event: { ...ev, payload: { ...ev.payload, at } }, ephemeral: true });
     } else {
       this.d.rpc.broadcast("session.event", { seq: -1, sessionId: id, event: ev, ephemeral: true });
     }

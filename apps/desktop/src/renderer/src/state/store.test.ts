@@ -1512,11 +1512,39 @@ describe("app store", () => {
       const store = createAppStore(api); await store.getState().boot();
       const p = store.getState().openSession("se1");
       store.getState().applySessionEvent({ ...stored("se1", 3, sessionEvent("error", { message: "live" })), ephemeral: false });
-      store.getState().applySessionEvent({ ...stored("se1", -1, sessionEvent("assistant_delta", { messageId: "zz", delta: "dropped" })), ephemeral: true });
+      // Past seq 3, which the streaming read (as of seq 2) never saw: a reply begun after it.
+      store.getState().applySessionEvent({ ...stored("se1", -1, sessionEvent("assistant_delta", { messageId: "zz", delta: "after", at: 0 })), ephemeral: true });
       await p;
       const t = store.getState().transcripts.se1!;
       expect(t.lastSeq).toBe(3);
-      expect(t.t.blocks.map((b) => b.kind)).toEqual(["user", "assistant", "error"]);
+      expect(t.t.blocks.map((b) => b.kind)).toEqual(["user", "assistant", "error", "assistant"]);
+    });
+
+    /* #266: a window reloaded mid-turn read only the stored log, where a reply is nowhere until its
+       `assistant_text` lands, and dropped the deltas that came during the read — so the reply began
+       wherever the next delta happened to start. */
+    it("a session opened mid-reply shows the reply from its first word, joined to the deltas around the read", async () => {
+      api = fakeApi({
+        items: { s1: [item("i2", "s1", { kind: "session", refId: "se1", title: "Fake agent session" })] },
+        sessions: [session("se1", "s1", { status: "running" })],
+        sessionEvents: { se1: [stored("se1", 1, sessionEvent("user_message", { text: "read the tests", attachments: [] }))] },
+        streaming: { se1: { messageId: "m2", text: "Reading the fixtures", ts: 1 } },
+      });
+      api.delays["sessionStreaming:se1"] = 20;
+      const store = createAppStore(api); await store.getState().boot();
+      const delta = (delta: string, at: number) =>
+        store.getState().applySessionEvent({ ...stored("se1", -1, sessionEvent("assistant_delta", { messageId: "m2", delta, at })), ephemeral: true });
+      const p = store.getState().openSession("se1");
+      delta("fixtures", 12); // already in the text the read returns
+      delta(" and", 20); // sent after the read, before its answer
+      await p;
+      const reply = () => store.getState().transcripts.se1!.t.blocks.filter((b) => b.kind === "assistant");
+      expect(reply()).toEqual([expect.objectContaining({ messageId: "m2", text: "Reading the fixtures and", streaming: true })]);
+      delta(" the rest", 24);
+      store.getState().flushSessionDeltas();
+      expect(reply()).toEqual([expect.objectContaining({ text: "Reading the fixtures and the rest", streaming: true })]);
+      store.getState().applySessionEvent({ ...stored("se1", 2, sessionEvent("assistant_text", { messageId: "m2", text: "Reading the fixtures and the rest" })), ephemeral: false });
+      expect(reply()).toEqual([expect.objectContaining({ text: "Reading the fixtures and the rest", streaming: false })]);
     });
 
     it("applySessionStatus updates the status map and the cached session", async () => {

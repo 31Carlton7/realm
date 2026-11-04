@@ -122,6 +122,34 @@ describe("SessionService over rpc", () => {
     c.close();
   });
 
+  /* #266: a reply's text lives only in its deltas until its `assistant_text` lands, so a window that
+     reloads mid-turn has nowhere to read the part already said. `sessions.streaming` is that part,
+     and each delta's `at` is where it joins it. */
+  it("sessions.streaming holds the reply so far, and every delta says where it joins it", async () => {
+    const reply = "Reading the fixtures and the helpers they share.";
+    const { c, sp } = await boot(new FakeAdapter({ script: [{ on: "go", emit: [{ kind: "text", text: reply, paceMs: 40 }] }] }));
+    const { session } = (await c.call("sessions.create", { spaceId: sp.id, agentKind: "fake" })).result;
+    expect((await c.call("sessions.streaming", { id: session.id })).result.message).toBeNull();
+    await c.call("sessions.send", { id: session.id, text: "go" });
+    const deltas = () => c.events.filter((e) => e.event === "session.event" && e.payload.sessionId === session.id && e.payload.event.type === "assistant_delta").map((e) => e.payload.event.payload);
+    await waitFor(() => deltas().length >= 3);
+
+    const mid = (await c.call("sessions.streaming", { id: session.id })).result;
+    const stored = (await c.call("sessions.events", { id: session.id })).result;
+    expect(mid.seq).toBe(stored.at(-1).seq);
+    expect(mid.message.messageId).toBe(deltas()[0].messageId);
+    expect(reply.startsWith(mid.message.text)).toBe(true);
+    expect(mid.message.text.length).toBeGreaterThanOrEqual(deltas().slice(0, 3).map((d) => d.delta).join("").length);
+
+    await waitFor(() => c.eventTypes(session.id).includes("assistant_text"));
+    let said = "";
+    for (const d of deltas()) { expect(d.at).toBe(said.length); said += d.delta; }
+    expect(said).toBe(reply);
+    // Once the whole text is stored there is nothing left only the stream holds.
+    expect((await c.call("sessions.streaming", { id: session.id })).result.message).toBeNull();
+    c.close();
+  });
+
   it("the first message titles the session and its item (clipped); later messages and custom titles are left alone", async () => {
     const { c, sp } = await boot();
     const long = "Please refactor the   authentication module\nand add tests for everything";
