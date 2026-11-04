@@ -6180,8 +6180,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const cur = get().transcripts[ev.sessionId];
         if (!cur) { lineOnly(); return; } // not opened yet: openSession fetches everything later
         // Deltas are buffered and land a frame later; see `pendingDeltas`.
-        // The move's progress is the one ephemeral event the transcript draws: it is about right now.
-        if (ev.ephemeral && type === "moving") { setTranscript(ev.sessionId, { lastSeq: cur.lastSeq, t: reduceTranscript(cur.t, ev.event) }, also); return; }
         if (ev.ephemeral) { lineOnly(); if (ev.event.type === "assistant_delta") queueDelta(ev.sessionId, ev.event.payload.messageId, ev.event.payload.delta, ev.event.ts); return; }
         if (ev.seq <= cur.lastSeq) { lineOnly(); return; }
         // A persisted event is ordered AFTER the deltas still waiting, so it folds them into its own
