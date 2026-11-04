@@ -693,6 +693,50 @@ public struct MobileAPI: Sendable {
         return try await connection.call("teammates.list", as: Answer.self).teammates
     }
 
+    /// Every space's teammates put away. A Mac from before archiving reached the phone names its listed
+    /// ones instead, without `archived`: they are left out, so it has none.
+    public func archivedTeammates() async throws -> [Teammate] {
+        struct Params: Encodable, Sendable { let archived = true }
+        struct Answer: Decodable, Sendable { let teammates: [Teammate] }
+        return try await connection.call("teammates.list", params: Params(), as: Answer.self).teammates.filter { $0.archived == true }
+    }
+
+    /// A new teammate, made as the Mac's New teammate sheet makes one, with its chat.
+    public func createTeammate(_ new: NewTeammate) async throws -> Teammate {
+        struct Answer: Decodable, Sendable { let teammate: Teammate }
+        return try await connection.call("teammate.create", params: new, as: Answer.self).teammate
+    }
+
+    /// Puts a teammate away, or brings it back.
+    public func archiveTeammate(id: String, archived: Bool) async throws -> Teammate {
+        struct Params: Encodable, Sendable { let id: String; let archived: Bool }
+        struct Answer: Decodable, Sendable { let teammate: Teammate }
+        return try await connection.call("teammate.archive", params: Params(id: id, archived: archived), as: Answer.self).teammate
+    }
+
+    /// Makes a teammate its space's Lead, or leaves the space with none; the space's teammates now.
+    public func setLead(spaceId: String, id: String?) async throws -> [Teammate] {
+        struct Params: Encodable, Sendable {
+            let spaceId: String
+            let id: String?
+            func encode(to encoder: Encoder) throws {
+                var c = encoder.container(keyedBy: Key.self)
+                try c.encode(spaceId, forKey: .spaceId)
+                try c.encode(id, forKey: .id)
+            }
+            enum Key: String, CodingKey { case spaceId, id }
+        }
+        struct Answer: Decodable, Sendable { let teammates: [Teammate] }
+        return try await connection.call("teammates.setLead", params: Params(spaceId: spaceId, id: id), as: Answer.self).teammates
+    }
+
+    /// A space's Team list in a new order, every teammate in it; the space's teammates now.
+    public func reorderTeam(spaceId: String, order: [TeamPlace]) async throws -> [Teammate] {
+        struct Params: Encodable, Sendable { let spaceId: String; let order: [TeamPlace] }
+        struct Answer: Decodable, Sendable { let teammates: [Teammate] }
+        return try await connection.call("teammates.reorder", params: Params(spaceId: spaceId, order: order), as: Answer.self).teammates
+    }
+
     /// The session that is a teammate's chat, made on the Mac when it has none yet.
     public func teammateChat(id: String) async throws -> String {
         struct Answer: Decodable, Sendable { let id: String }

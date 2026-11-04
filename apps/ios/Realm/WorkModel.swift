@@ -27,6 +27,9 @@ final class WorkModel {
     private(set) var teammates: [Teammate]?
     /// The Mac is older than teammates: Home has no Team, and nothing asks again.
     private(set) var teamUnsupported = false
+    /// Every space's teammates put away, folded at the Team's end; empty from a Mac before archiving
+    /// reached the phone.
+    private(set) var archivedTeammates: [Teammate] = []
 
     /// The Mac's calls while this phone is connected to it; nil while it is away.
     @ObservationIgnored var api: @MainActor () -> MobileAPI? = { nil }
@@ -77,8 +80,10 @@ final class WorkModel {
         let ask = teamAsks
         do {
             let list = try await api.teammates()
+            let archived = (try? await api.archivedTeammates()) ?? archivedTeammates
             guard ask == teamAsks else { return }
             teammates = list
+            archivedTeammates = archived
         } catch {
             if case ChannelError.rpc(let refusal) = error, refusal.code == "METHOD_NOT_FOUND" { teamUnsupported = true }
         }
@@ -98,14 +103,66 @@ final class WorkModel {
         return chatId
     }
 
-    /// Saves an Edit sheet; the list takes the teammate as the Mac now names it at once.
-    func save(_ edit: TeammateEdit, to teammateId: String) async throws {
+    /// Saves an Edit sheet; the list takes the teammate as the Mac now names it at once. The Lead goes
+    /// by its own call, as the Mac's sheet and menu make it.
+    func save(_ edit: TeammateEdit, to teammate: Teammate) async throws {
         guard let api = api() else { throw ChannelError.notConnected }
-        let saved = try await api.updateTeammate(id: teammateId, edit)
+        var fields = edit
+        fields.lead = nil
+        if !fields.isEmpty {
+            let saved = try await api.updateTeammate(id: teammate.id, fields)
+            teamAsks += 1
+            teammates = teammates?.map { $0.id == saved.id ? saved : $0 }
+        }
+        if let lead = edit.lead, lead != teammate.lead { try await setLead(lead ? teammate.id : nil, in: teammate.spaceId) }
+    }
+
+    /// A new teammate, made as the Mac's New teammate sheet makes one; the Team read again with it.
+    func create(_ new: NewTeammate) async throws -> Teammate {
+        guard let api = api() else { throw ChannelError.notConnected }
+        let made = try await api.createTeammate(new)
+        await loadTeam()
+        return made
+    }
+
+    /// Makes a teammate its space's Lead, or leaves the space with none. The space's Team is what the
+    /// Mac answers, the Lead first.
+    func setLead(_ id: String?, in spaceId: String) async throws {
+        guard let api = api() else { throw ChannelError.notConnected }
+        let team = try await api.setLead(spaceId: spaceId, id: id)
         teamAsks += 1
-        teammates = teammates?.map { $0.id == saved.id ? saved : $0 }
-        // A new Lead is a change to the one it took over from as well.
-        if edit.lead != nil { await loadTeam() }
+        teammates = Self.replacing(spaceId, with: team, in: teammates ?? [])
+    }
+
+    /// Puts a teammate away, or brings it back.
+    func archive(_ teammate: Teammate, _ archived: Bool = true) async throws {
+        guard let api = api() else { throw ChannelError.notConnected }
+        _ = try await api.archiveTeammate(id: teammate.id, archived: archived)
+        await loadTeam()
+    }
+
+    /// A space's Team in the order it was dragged to, at once; the Mac's answer then stands, and a
+    /// refusal puts back what the Mac has.
+    func reorder(_ team: [Teammate], in spaceId: String) async throws {
+        guard let api = api() else { throw ChannelError.notConnected }
+        teamAsks += 1
+        teammates = Self.replacing(spaceId, with: team, in: teammates ?? [])
+        do {
+            let answered = try await api.reorderTeam(spaceId: spaceId, order: team.map { TeamPlace(id: $0.id, group: $0.group) })
+            teamAsks += 1
+            teammates = Self.replacing(spaceId, with: answered, in: teammates ?? [])
+        } catch {
+            await loadTeam()
+            throw error
+        }
+    }
+
+    /// The list with one space's teammates swapped for these, where that space's stood.
+    static func replacing(_ spaceId: String, with team: [Teammate], in list: [Teammate]) -> [Teammate] {
+        guard let at = list.firstIndex(where: { $0.spaceId == spaceId }) else { return list + team }
+        var out = list.filter { $0.spaceId != spaceId }
+        out.insert(contentsOf: team, at: at)
+        return out
     }
 
     /// Where a session runs, what it has cost and its files, read again each time its sheet opens.
@@ -169,6 +226,7 @@ final class WorkModel {
         infoUnsupported = false
         teammates = nil
         teamUnsupported = false
+        archivedTeammates = []
     }
 
     /// A Mac older than these calls says it has no such method: nothing here asks it again.

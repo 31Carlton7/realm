@@ -7,6 +7,9 @@ import SwiftUI
 struct TeamSection: View {
     let teammates: [Teammate]
     let spaces: [Space]
+    /// The profile's teammates put away, folded at the section's end.
+    var archived: [Teammate] = []
+    @Environment(AppModel.self) private var model
 
     /// Shown whole up to this many; past it, the Lead and the busy ones.
     static let whole = 6
@@ -41,9 +44,14 @@ struct TeamSection: View {
                 .listRowSeparator(.hidden)
                 .accessibilityIdentifier("team-all")
             }
+            if !archived.isEmpty { ArchivedTeam(teammates: archived) }
         } header: {
-            SectionHead(title: "Team") {
-                Image(systemName: "person.2.fill").foregroundStyle(Palette.ink2)
+            HStack {
+                SectionHead(title: "Team") {
+                    Image(systemName: "person.2.fill").foregroundStyle(Palette.ink2)
+                }
+                Spacer()
+                NewTeammateButton(spaceId: (teammates.first ?? archived.first)?.spaceId ?? spaces.first?.id)
             }
         }
     }
@@ -57,7 +65,9 @@ struct TeamSection: View {
     }
 }
 
-/// Every teammate of the profile Home shows, space by space under each space's head.
+/// Every teammate of the profile Home shows, space by space under each space's head, and the ones put
+/// away folded at the end. Edit drags a space's teammates into a new order, as the Mac's sidebar does;
+/// the Lead keeps the top.
 struct TeamView: View {
     @Environment(AppModel.self) private var model
 
@@ -65,16 +75,28 @@ struct TeamView: View {
         let home = model.store.home
         let spaces = (home?.spaces ?? []).filter(model.profileChoice.includes)
         let teammates = model.work.teammates ?? []
+        let shown = Set(spaces.map(\.id))
+        let archived = model.work.archivedTeammates.filter { shown.contains($0.spaceId) }
         List {
             ForEach(spaces) { space in
                 let team = teammates.filter { $0.spaceId == space.id }
                 if !team.isEmpty {
                     Section {
-                        ForEach(team) { teammate in TeammateLink(teammate: teammate) }
+                        ForEach(team) { teammate in
+                            TeammateLink(teammate: teammate)
+                                .moveDisabled(teammate.lead || !model.isConnected)
+                        }
+                        .onMove { from, to in
+                            guard let order = TeamOrder.moved(team, from: from, to: to) else { return }
+                            Task { await model.reorder(order, in: space.id) }
+                        }
                     } header: {
                         SectionHead(title: space.name) { SpaceGlyph(space: space) }
                     }
                 }
+            }
+            if !archived.isEmpty {
+                Section { ArchivedTeam(teammates: archived) }
             }
         }
         .listStyle(.plain)
@@ -82,7 +104,93 @@ struct TeamView: View {
         .background(Ground.transcript)
         .navigationTitle("Team")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NewTeammateButton(spaceId: teammates.first { shown.contains($0.spaceId) }?.spaceId ?? spaces.first?.id)
+            }
+            ToolbarItem(placement: .topBarTrailing) { EditButton() }
+        }
         .refreshable { await model.work.loadTeam() }
+    }
+}
+
+/// A space's Team after a drag: nil where nothing moved, or where it would put another above the Lead.
+enum TeamOrder {
+    static func moved(_ team: [Teammate], from: IndexSet, to: Int) -> [Teammate]? {
+        var order = team
+        order.move(fromOffsets: from, toOffset: to)
+        guard order != team else { return nil }
+        if let lead = team.first(where: \.lead), order.first != lead { return nil }
+        return order
+    }
+}
+
+/// The Team's "+": New teammate, in the space given, or the first the profile shows.
+struct NewTeammateButton: View {
+    let spaceId: String?
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Button("New teammate", systemImage: "plus") { model.newTeammateSpace = spaceId }
+            .labelStyle(.iconOnly)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Palette.ink2)
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
+            .disabled(spaceId == nil || !model.isConnected || model.agentList == nil)
+            .accessibilityIdentifier("team-new")
+    }
+}
+
+/// The teammates put away, folded under one row at the Team's end; each brought back from its menu or
+/// a swipe. Put away, a teammate has no chat to open.
+struct ArchivedTeam: View {
+    let teammates: [Teammate]
+    @State private var open = false
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Button {
+            withAnimation(.snappy) { open.toggle() }
+        } label: {
+            HStack(spacing: 8) {
+                Text("Archived")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Palette.ink2)
+                Text("\(teammates.count)")
+                    .font(.footnote)
+                    .monospacedDigit()
+                    .foregroundStyle(Palette.ink3)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Palette.ink3)
+                    .rotationEffect(.degrees(open ? 90 : 0))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+        .accessibilityValue(open ? "Shown" : "Hidden")
+        .accessibilityIdentifier("team-archived")
+        if open {
+            ForEach(teammates) { teammate in
+                TeammateRowView(teammate: teammate, archived: true)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .contextMenu {
+                        Button("Unarchive", systemImage: "arrow.uturn.backward") { Task { await model.archive(teammate, false) } }
+                            .disabled(!model.isConnected)
+                    }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button("Unarchive", systemImage: "arrow.uturn.backward") { Task { await model.archive(teammate, false) } }
+                            .tint(Palette.accentFill)
+                            .disabled(!model.isConnected)
+                    }
+                    .accessibilityIdentifier("archived-\(teammate.handle)")
+            }
+        }
     }
 }
 
@@ -90,6 +198,7 @@ struct TeamView: View {
 struct TeammateLink: View {
     let teammate: Teammate
     @Environment(AppModel.self) private var model
+    @State private var archiving = false
 
     var body: some View {
         Button {
@@ -107,11 +216,36 @@ struct TeammateLink: View {
             }
             Button("Edit…", systemImage: "pencil") { model.teammateEditing = teammate.id }
                 .disabled(!model.isConnected)
+            Button(teammate.lead ? "Not the Lead" : "Make Lead", systemImage: teammate.lead ? "star.slash" : "star") {
+                Task { await model.toggleLead(teammate) }
+            }
+            .disabled(!model.isConnected)
+            Divider()
+            Button("Archive", systemImage: "archivebox", role: .destructive) { archiving = true }
+                .disabled(!model.isConnected)
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button("Archive", systemImage: "archivebox") { archiving = true }
+                .tint(Palette.accentFill)
+                .disabled(!model.isConnected)
             Button("Edit", systemImage: "pencil") { model.teammateEditing = teammate.id }
                 .tint(Palette.ink2)
                 .disabled(!model.isConnected)
+        }
+        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+            Button(teammate.lead ? "Not the Lead" : "Make Lead", systemImage: teammate.lead ? "star.slash" : "star") {
+                Task { await model.toggleLead(teammate) }
+            }
+            .tint(Palette.accentFill)
+            .disabled(!model.isConnected)
+        }
+        .sensoryFeedback(.selection, trigger: teammate.lead)
+        // The Mac's own words for what Archive does.
+        .confirmationDialog("Archive \(teammate.name)?", isPresented: $archiving, titleVisibility: .visible) {
+            Button("Archive", role: .destructive) { Task { await model.archive(teammate) } }
+                .accessibilityIdentifier("teammate-archive-confirm")
+        } message: {
+            Text("Leaves the Team list; its sessions stay.")
         }
         .accessibilityIdentifier("teammate-\(teammate.handle)")
     }
@@ -122,11 +256,13 @@ struct TeammateLink: View {
 /// waiting on the person, then what it is doing, else the one line of what it does.
 struct TeammateRowView: View {
     let teammate: Teammate
+    /// Put away: drawn quieter, with no state or time, and nothing to open.
+    var archived = false
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .body) private var side: CGFloat = 40
 
     var body: some View {
-        let unread = teammate.unread == true
+        let unread = !archived && teammate.unread == true
         HStack(alignment: .center, spacing: 12) {
             TeammateMark(icon: teammate.icon, size: side, lead: teammate.lead)
             VStack(alignment: .leading, spacing: 3) {
@@ -141,7 +277,7 @@ struct TeammateRowView: View {
                         .lineLimit(1)
                         .layoutPriority(-1)
                     Spacer(minLength: 0)
-                    if teammate.state == nil || teammate.state == .idle, let at = teammate.activityAt {
+                    if !archived, teammate.state == nil || teammate.state == .idle, let at = teammate.activityAt {
                         TimelineView(.periodic(from: .now, by: 30)) { context in
                             Text(Ago.text(at, now: context.date))
                                 .font(.footnote)
@@ -151,24 +287,27 @@ struct TeammateRowView: View {
                         .fixedSize()
                     }
                 }
-                TeammateDoing(teammate: teammate)
+                TeammateDoing(teammate: teammate, archived: archived)
             }
         }
         .padding(.vertical, 4)
+        .opacity(archived ? 0.6 : 1)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(TeammateWords.spoken(teammate))
-        .accessibilityHint("Opens its chat")
+        .accessibilityLabel(archived ? "\(teammate.name), archived" : TeammateWords.spoken(teammate))
+        .accessibilityHint(archived ? "" : "Opens its chat")
     }
 }
 
 /// The row's quiet line: the state as its dot and its word, never colour alone, then what it is doing.
 private struct TeammateDoing: View {
     let teammate: Teammate
+    /// Put away: what it does, and nothing of what it was doing.
+    var archived = false
 
     var body: some View {
-        let doing = teammate.activity ?? TeammateWords.role(teammate.brief)
+        let doing = archived ? TeammateWords.role(teammate.brief) : teammate.activity ?? TeammateWords.role(teammate.brief)
         HStack(spacing: 6) {
-            if let word = TeammateWords.state(teammate.state) {
+            if !archived, let word = TeammateWords.state(teammate.state) {
                 HStack(spacing: 5) {
                     StateDot(state: teammate.state)
                     Text(word)

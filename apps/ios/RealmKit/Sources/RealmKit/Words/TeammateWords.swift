@@ -13,6 +13,33 @@ public enum TeammateWords {
         return ""
     }
 
+    /// A handle from a name, as the Mac makes one: `Design Engineer` → `design-engineer`. Never empty
+    /// (`teammateHandle`).
+    public static func handle(from name: String) -> String {
+        let plain = name.decomposedStringWithCompatibilityMapping.unicodeScalars
+            .filter { !(0x300...0x36F).contains($0.value) }
+        var out = ""
+        var dash = false
+        for scalar in String(String.UnicodeScalarView(plain)).lowercased().unicodeScalars {
+            if ("a"..."z").contains(scalar) || ("0"..."9").contains(scalar) {
+                if dash && !out.isEmpty { out.append("-") }
+                out.unicodeScalars.append(scalar)
+                dash = false
+            } else {
+                dash = true
+            }
+        }
+        let cut = String(out.prefix(40))
+        let trimmed = String(cut.reversed().drop { $0 == "-" }.reversed())
+        return trimmed.isEmpty ? "teammate" : trimmed
+    }
+
+    /// Why a handle typed on the phone is not one, in the Mac's words; nil for a good one
+    /// (`TeammateHandleSchema`).
+    public static func handleProblem(_ handle: String) -> String? {
+        handle.wholeMatch(of: /[a-z0-9][a-z0-9-]{0,39}/) == nil ? "a handle is lowercase letters, digits and dashes" : nil
+    }
+
     /// The state in words where it is worth saying: what the row's dot means.
     public static func state(_ state: TeammateState?) -> String? {
         switch state {

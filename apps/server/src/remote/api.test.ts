@@ -707,6 +707,16 @@ describe("agents.list", () => {
     expect((await list({ "ui.lastAgentKind": "fake" })).defaultAgent).toBe("claude");
     expect((await list({})).defaultAgent).toBe("claude");
   });
+
+  it("says what a new teammate starts on, as the desktop's New teammate sheet does", async () => {
+    const l = await list({ "ui.lastModels": { claude: "claude-opus-5-5", codex: null, cursor: 7 }, "sessions.defaultPermissionMode": "acceptEdits" });
+    // THE MUTANT: a remembered value of another shape handed to the phone as a model.
+    expect(l.lastModels).toEqual({ claude: "claude-opus-5-5", codex: null });
+    expect(l.teammatePermission).toBe("acceptEdits");
+    // Plan is a way of working, not how freely a teammate acts: the sheet starts on Ask each time.
+    expect((await list({ "sessions.defaultPermissionMode": "plan" })).teammatePermission).toBe("default");
+    expect(await list({})).toMatchObject({ lastModels: {}, teammatePermission: "default" });
+  });
 });
 
 /** The bytes of a picture of each kind every agent takes, as far as their first bytes go. */
@@ -1152,7 +1162,7 @@ describe("teammates.list and teammate.chat", () => {
     const got = await attempt(api(), rpc, "teammates.list", {});
     if (!got.ok) throw new Error(got.message);
     const { teammates } = MobileCalls["teammates.list"].result.parse(got.result);
-    const drawn = { icon: { shape: "circle", color: "blue" }, state: "idle", stateSince: null, unread: false, activity: null, activityAt: null, agentKind: "claude", model: null, effort: null, permissionMode: "default" };
+    const drawn = { icon: { shape: "circle", color: "blue" }, state: "idle", stateSince: null, unread: false, activity: null, activityAt: null, agentKind: "claude", model: null, effort: null, permissionMode: "default", group: null, archived: false };
     expect(teammates).toEqual([
       { id: "cto", spaceId: "s1", name: "cto (name)", handle: "cto", brief: "What cto does", lead: true, chatId: "cto-chat", ...drawn },
       { id: "designer", spaceId: "s1", name: "designer (name)", handle: "designer", brief: "What designer does", lead: false, chatId: null, ...drawn },
@@ -1202,6 +1212,72 @@ describe("teammates.list and teammate.chat", () => {
     expect(await attempt(api(), rpc, "teammate.update", { id: "designer", agentKind: "clippy" })).toMatchObject({ ok: false, code: "INVALID_PARAMS" });
     expect(asked).toEqual([]);
     expect(await attempt(api(), rpc, "teammate.update", { id: "nobody", name: "Who" })).toMatchObject({ ok: false, code: "NOT_FOUND" });
+  });
+
+  it("lists the teammates put away when asked for them, and only then", async () => {
+    const put = { s1: [teammate("old", "s1", { archived: true, group: "Strat" })] } as Record<string, Teammate[]>;
+    const { rpc, asked } = recorded(none, { "teammates.list": ((p: { spaceId: string; archived: boolean }) => (p.archived ? put[p.spaceId] ?? [] : [])) as never });
+    const got = await attempt(api(), rpc, "teammates.list", { archived: true });
+    if (!got.ok) throw new Error(got.message);
+    expect(MobileCalls["teammates.list"].result.parse(got.result).teammates).toMatchObject([{ id: "old", archived: true, group: "Strat" }]);
+    expect(asked).toEqual([["teammates.list", { spaceId: "s1", archived: true }], ["teammates.list", { spaceId: "s2", archived: true }]]);
+  });
+
+  it("makes a teammate as the Mac's New teammate sheet does, its handle from the name when the phone sent none", async () => {
+    const { rpc, asked } = recorded(none, {
+      "teammates.create": ((p: { spaceId: string; name: string; handle?: string }) => teammate(p.handle ?? "researcher", p.spaceId, { name: p.name, homeSessionId: "r-chat" })) as never,
+    });
+    const sheet = { spaceId: "s1", name: "Researcher", brief: "Reads the papers", icon: { shape: "drop", color: "teal" }, agentKind: "codex", model: "gpt-5.5", permissionMode: "acceptEdits" };
+    const got = await attempt(api(), rpc, "teammate.create", sheet);
+    if (!got.ok) throw new Error(got.message);
+    // THE MUTANT: a handle invented on the way, where the Mac makes one from the name and keeps it unique.
+    expect(asked).toEqual([["teammates.create", { ...sheet, effort: null, lead: false }]]);
+    expect(MobileCalls["teammate.create"].result.parse(got.result).teammate).toMatchObject({ id: "researcher", name: "Researcher", chatId: "r-chat" });
+    await attempt(api(), rpc, "teammate.create", { ...sheet, handle: "papers", lead: true });
+    expect(asked[1]).toEqual(["teammates.create", { ...sheet, handle: "papers", effort: null, lead: true }]);
+  });
+
+  it("refuses a handle as the desktop does, in its words, and one another teammate has", async () => {
+    const { rpc, asked } = recorded(none, { "teammates.create": (() => { throw new RpcCallError("TEAMMATE_HANDLE_TAKEN", "@cto is already a teammate here"); }) as never });
+    const sheet = { spaceId: "s1", name: "CTO", agentKind: "claude", permissionMode: "default" };
+    expect(await attempt(api(), rpc, "teammate.create", { ...sheet, handle: "Big CTO" }))
+      .toEqual({ ok: false, code: "INVALID_PARAMS", message: "handle: a handle is lowercase letters, digits and dashes" });
+    expect(await attempt(api(), rpc, "teammate.create", { ...sheet, permissionMode: "plan" })).toMatchObject({ ok: false, code: "INVALID_PARAMS" });
+    expect(await attempt(api(), rpc, "teammate.create", { ...sheet, icon: { shape: "star", color: "blue" } })).toMatchObject({ ok: false, code: "INVALID_PARAMS" });
+    expect(asked).toEqual([]);
+    expect(await attempt(api(), rpc, "teammate.create", { ...sheet, handle: "cto" })).toEqual({ ok: false, code: "INVALID_PARAMS", message: "@cto is already a teammate here" });
+  });
+
+  it("puts a teammate away and brings it back, answering with it as the list names it", async () => {
+    const { rpc, asked } = recorded(none, { "teammates.archive": ((p: { id: string; archived: boolean }) => teammate(p.id, "s1", { archived: p.archived })) as never });
+    const away = await attempt(api(), rpc, "teammate.archive", { id: "designer" });
+    if (!away.ok) throw new Error(away.message);
+    expect(MobileCalls["teammate.archive"].result.parse(away.result).teammate).toMatchObject({ id: "designer", archived: true });
+    await attempt(api(), rpc, "teammate.archive", { id: "designer", archived: false });
+    expect(asked).toEqual([["teammates.archive", { id: "designer", archived: true }], ["teammates.archive", { id: "designer", archived: false }]]);
+  });
+
+  it("makes the Lead with the desktop's own call, answering the space's Team, and refuses an archived one", async () => {
+    const { rpc, asked } = recorded(none, {
+      "teammates.setLead": ((p: { spaceId: string; id: string | null }) => team[p.spaceId]!.map((t) => ({ ...t, lead: t.id === p.id }))) as never,
+    });
+    const got = await attempt(api(), rpc, "teammates.setLead", { spaceId: "s1", id: "designer" });
+    if (!got.ok) throw new Error(got.message);
+    expect(MobileCalls["teammates.setLead"].result.parse(got.result).teammates.map((t) => [t.id, t.lead])).toEqual([["cto", false], ["designer", true]]);
+    await attempt(api(), rpc, "teammates.setLead", { spaceId: "s1", id: null });
+    expect(asked).toEqual([["teammates.setLead", { spaceId: "s1", id: "designer" }], ["teammates.setLead", { spaceId: "s1", id: null }]]);
+    const archived = recorded(none, { "teammates.setLead": (() => { throw new RpcCallError("TEAMMATE_ARCHIVED", "Old is archived; bring it back before making it the Lead"); }) as never });
+    expect(await attempt(api(), archived.rpc, "teammates.setLead", { spaceId: "s1", id: "old" }))
+      .toEqual({ ok: false, code: "FORBIDDEN", message: "Old is archived; bring it back before making it the Lead" });
+  });
+
+  it("puts a space's Team in the order the phone dragged it to, sections and all", async () => {
+    const { rpc, asked } = recorded(none, { "teammates.reorder": ((p: { spaceId: string }) => team[p.spaceId]!) as never });
+    const order = { spaceId: "s1", order: [{ id: "designer", group: null }, { id: "cto", group: "Strat" }] };
+    const got = await attempt(api(), rpc, "teammates.reorder", order);
+    if (!got.ok) throw new Error(got.message);
+    expect(asked).toEqual([["teammates.reorder", order]]);
+    expect(MobileCalls["teammates.reorder"].result.parse(got.result).teammates.map((t) => t.id)).toEqual(["cto", "designer"]);
   });
 
   it("names the teammate a message in a transcript went to, the Lead by `lead`, from the session's own space", async () => {

@@ -304,8 +304,16 @@ export const TeammateSchema = z.object({
   model: z.string().nullable().optional(),
   effort: z.string().nullable().optional(),
   permissionMode: z.string().optional(),
+  /** The section of the Mac's Team list it sits in, or null for the top of it. */
+  group: z.string().nullable().optional(),
+  /** Put away: off the Team list, its sessions where they were. Only `teammates.list` with
+   *  `archived` names one. */
+  archived: z.boolean().optional(),
 });
 export type Teammate = z.infer<typeof TeammateSchema>;
+
+/** The three rungs the Mac's teammate sheet offers for how freely a teammate acts. */
+const TeammatePermissionSchema = z.enum(["default", "acceptEdits", "bypassPermissions"]);
 /** What a session's info sheet says beyond its row. Every part is optional: a Mac leaves out what it
  *  does not know, and a phone draws only what came. */
 export const SessionInfoSchema = z.object({
@@ -613,7 +621,8 @@ export const MobileCalls = {
   /** The sub-agents a session started, newest first, as its Agents tab lists them. */
   "session.subagents": { params: z.object({ id: Id }), result: z.object({ subagents: z.array(SubagentSchema) }) },
   /** Every space's teammates, in each space's Team order, archived ones left out. */
-  "teammates.list": { params: z.object({}), result: z.object({ teammates: z.array(TeammateSchema) }) },
+  /** `archived`: the teammates put away instead, which the Team list shows folded at its end. */
+  "teammates.list": { params: z.object({ archived: z.boolean().optional() }), result: z.object({ teammates: z.array(TeammateSchema) }) },
   /** A teammate's chat, made for one that has none yet: the session a phone sends it messages in. */
   "teammate.chat": { params: z.object({ id: Id }), result: z.object({ id: Id }) },
   /** Where a session runs, what it has cost, and its files: what its info sheet says beyond its row. */
@@ -629,10 +638,36 @@ export const MobileCalls = {
       /** Null for the agent's own default. */
       model: z.string().min(1).max(200).nullable().optional(),
       effort: z.string().min(1).max(64).nullable().optional(),
-      permissionMode: z.enum(["default", "acceptEdits", "bypassPermissions"]).optional(),
+      permissionMode: TeammatePermissionSchema.optional(),
       lead: z.boolean().optional(),
     }),
     result: z.object({ teammate: TeammateSchema }),
+  },
+  /** A new teammate in a space, as the Mac's New teammate sheet makes one. A handle left out is made
+   *  from the name; an icon left out is rolled for it. */
+  "teammate.create": {
+    params: z.object({
+      spaceId: Id,
+      name: z.string().trim().min(1).max(60),
+      handle: z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/, "a handle is lowercase letters, digits and dashes").optional(),
+      brief: z.string().trim().max(20_000).default(""),
+      icon: TeammateIconSchema.optional(),
+      agentKind: z.string().min(1).max(64),
+      model: z.string().min(1).max(200).nullable().default(null),
+      effort: z.string().min(1).max(64).nullable().default(null),
+      permissionMode: TeammatePermissionSchema,
+      lead: z.boolean().default(false),
+    }),
+    result: z.object({ teammate: TeammateSchema }),
+  },
+  /** Puts a teammate away, or brings one back with `archived: false`. */
+  "teammate.archive": { params: z.object({ id: Id, archived: z.boolean().default(true) }), result: z.object({ teammate: TeammateSchema }) },
+  /** Makes a teammate its space's Lead, or leaves the space with none; answers the space's teammates. */
+  "teammates.setLead": { params: z.object({ spaceId: Id, id: Id.nullable() }), result: z.object({ teammates: z.array(TeammateSchema) }) },
+  /** A space's Team list in a new order: every teammate in it, top to bottom, each with its section. */
+  "teammates.reorder": {
+    params: z.object({ spaceId: Id, order: z.array(z.object({ id: Id, group: z.string().trim().min(1).max(60).nullable() })).max(500) }),
+    result: z.object({ teammates: z.array(TeammateSchema) }),
   },
   /** Every agent's plan limits, and this month's spend. */
   "usage.get": { params: z.object({}), result: z.object({ limits: z.array(PlanLimitsSchema), spend: SpendSchema }) },
@@ -704,7 +739,13 @@ export const MobileCalls = {
   /** The agents a new session could be given, the one the Mac starts with, and what one message takes. */
   "agents.list": {
     params: z.object({}),
-    result: z.object({ agents: z.array(AgentOptionsSchema), defaultAgent: z.string().nullable(), midTurn: MidTurnSchema, attachments: SendLimitsSchema }),
+    result: z.object({
+      agents: z.array(AgentOptionsSchema), defaultAgent: z.string().nullable(), midTurn: MidTurnSchema, attachments: SendLimitsSchema,
+      /** The model each agent's last message was sent on, which a new teammate starts on; null for the agent's default. */
+      lastModels: z.record(z.string(), z.string().nullable()).optional(),
+      /** How freely a new teammate acts until the person chooses: the Mac's default for new sessions, as one of the three rungs. */
+      teammatePermission: TeammatePermissionSchema.optional(),
+    }),
   },
   /** The files one of the session's turns changed, by the checkpoint in front of it. */
   "session.changes": { params: z.object({ id: Id, checkpointId: Id }), result: TurnChangesSchema },

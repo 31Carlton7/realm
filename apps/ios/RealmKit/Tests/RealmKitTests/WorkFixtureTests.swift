@@ -65,6 +65,27 @@ struct WorkFixtureTests {
         #expect(edited.model == "gpt-5.5" && edited.permissionMode == "bypassPermissions")
     }
 
+    /// A teammate made from the phone, with the handle the Mac made and its chat; one put away; the
+    /// Team after a new Lead and after a drag; and what a new teammate starts on.
+    @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
+    func aTeamMadeAndKeptFromThePhoneDecodes() throws {
+        struct One: Decodable { let teammate: Teammate }
+        struct Team: Decodable { let teammates: [Teammate] }
+        let made = try Self.decode(One.self, "teammate.create").teammate
+        #expect(made.handle == "researcher" && made.chatId == "01JRESEARCHERCHAT000000000")
+        #expect(made.icon == TeammateIcon(shape: "drop", color: "amber") && made.permissionMode == "acceptEdits" && made.archived == false)
+        #expect(try Self.decode(One.self, "teammate.archive").teammate.archived == true)
+        let put = try Self.decode(Team.self, "teammates.list:archived").teammates
+        #expect(put.map(\.handle) == ["tutor"] && put[0].archived == true && put[0].group == "School")
+        let led = try Self.decode(Team.self, "teammates.setLead").teammates
+        #expect(led.map(\.handle) == ["designer", "cto"] && led.map(\.lead) == [true, false])
+        let dragged = try Self.decode(Team.self, "teammates.reorder").teammates
+        #expect(dragged.map(\.group) == [nil, "Design"])
+        let agents = try APIFixtureTests.decode(AgentList.self, "calls", "agents.list")
+        #expect(agents.lastModels?["claude"] == .some("claude-opus-5-5") && agents.lastModels?["codex"] == .some(nil))
+        #expect(agents.teammatePermission == "acceptEdits")
+    }
+
     /// A teammate's word in the session stands under that teammate, without the prefix it was sent
     /// with; and the agent's message to another teammate names it, still waiting on its answer.
     @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))

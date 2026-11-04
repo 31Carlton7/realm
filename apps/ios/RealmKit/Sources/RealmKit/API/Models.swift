@@ -1017,12 +1017,20 @@ public struct AgentList: Codable, Sendable, Hashable {
     public let defaultAgent: String?
     public let midTurn: Delivery
     public let attachments: SendLimits
+    /// The model each agent's last message was sent on, which a new teammate starts on; nil for the
+    /// agent's own default. Nil from a Mac before it.
+    public let lastModels: [String: String?]?
+    /// How freely a new teammate acts until the person chooses: one of the three rungs.
+    public let teammatePermission: String?
 
-    public init(agents: [AgentOptions], defaultAgent: String?, midTurn: Delivery, attachments: SendLimits) {
+    public init(agents: [AgentOptions], defaultAgent: String?, midTurn: Delivery, attachments: SendLimits,
+                lastModels: [String: String?]? = nil, teammatePermission: String? = nil) {
         self.agents = agents
         self.defaultAgent = defaultAgent
         self.midTurn = midTurn
         self.attachments = attachments
+        self.lastModels = lastModels
+        self.teammatePermission = teammatePermission
     }
 }
 
@@ -1167,11 +1175,15 @@ public struct Teammate: Codable, Sendable, Hashable, Identifiable {
     public let model: String?
     public let effort: String?
     public let permissionMode: String?
+    /// The section of the Mac's Team list it sits in; nil at the top of it.
+    public let group: String?
+    /// Put away, off the Team list. Nil from a Mac before archiving reached the phone.
+    public let archived: Bool?
 
     public init(id: String, spaceId: String, name: String, handle: String, brief: String, lead: Bool, chatId: String?,
                 icon: TeammateIcon? = nil, state: TeammateState? = nil, stateSince: Double? = nil, unread: Bool? = nil,
                 activity: String? = nil, activityAt: Double? = nil, agentKind: String? = nil, model: String? = nil,
-                effort: String? = nil, permissionMode: String? = nil) {
+                effort: String? = nil, permissionMode: String? = nil, group: String? = nil, archived: Bool? = nil) {
         self.id = id
         self.spaceId = spaceId
         self.name = name
@@ -1189,10 +1201,13 @@ public struct Teammate: Codable, Sendable, Hashable, Identifiable {
         self.model = model
         self.effort = effort
         self.permissionMode = permissionMode
+        self.group = group
+        self.archived = archived
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, spaceId, name, handle, brief, lead, chatId, icon, state, stateSince, unread, activity, activityAt, agentKind, model, effort, permissionMode
+        case group, archived
     }
 
     public init(from decoder: Decoder) throws {
@@ -1214,6 +1229,56 @@ public struct Teammate: Codable, Sendable, Hashable, Identifiable {
         model = try? c.decodeIfPresent(String.self, forKey: .model)
         effort = try? c.decodeIfPresent(String.self, forKey: .effort)
         permissionMode = try? c.decodeIfPresent(String.self, forKey: .permissionMode)
+        group = try? c.decodeIfPresent(String.self, forKey: .group)
+        archived = try? c.decodeIfPresent(Bool.self, forKey: .archived)
+    }
+}
+
+/// A new teammate as the New teammate sheet makes it (`teammate.create`). A handle left nil is made
+/// from the name on the Mac.
+public struct NewTeammate: Encodable, Sendable, Hashable {
+    public var spaceId: String
+    public var name: String
+    public var handle: String?
+    public var brief: String
+    public var icon: TeammateIcon
+    public var agentKind: String
+    /// Nil for the agent's own default.
+    public var model: String?
+    public var effort: String?
+    public var permissionMode: String
+    public var lead: Bool
+
+    public init(spaceId: String, name: String, handle: String? = nil, brief: String = "", icon: TeammateIcon, agentKind: String,
+                model: String? = nil, effort: String? = nil, permissionMode: String = "default", lead: Bool = false) {
+        self.spaceId = spaceId
+        self.name = name
+        self.handle = handle
+        self.brief = brief
+        self.icon = icon
+        self.agentKind = agentKind
+        self.model = model
+        self.effort = effort
+        self.permissionMode = permissionMode
+        self.lead = lead
+    }
+}
+
+/// One place in a space's Team list, as `teammates.reorder` takes the whole of it.
+public struct TeamPlace: Codable, Sendable, Hashable {
+    public let id: String
+    public let group: String?
+
+    public init(id: String, group: String?) {
+        self.id = id
+        self.group = group
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        // The top of the list is sent as null, which the Mac needs to see.
+        try c.encode(group, forKey: .group)
     }
 }
 

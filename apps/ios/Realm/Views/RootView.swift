@@ -35,6 +35,11 @@ struct RootView: View {
                 .sheet(item: teammateEditing) { shown in
                     TeammateSheet(teammateId: shown.id)
                 }
+                // New teammate, from the Team's "+".
+                .sheet(item: newTeammateSpace) { shown in
+                    NewTeammateSheet(spaces: teamSpaces, spaceId: shown.id, agents: model.agentList)
+                        .presentationDetents([.large])
+                }
                 // A link opened while a Mac is paired pairs over the top of it.
                 .sheet(isPresented: pairingOverTheTop) {
                     NavigationStack { PairView(overTheTop: true) }
@@ -64,6 +69,15 @@ struct RootView: View {
 
     private var teammateEditing: Binding<ShownLead?> {
         Binding(get: { model.teammateEditing.map(ShownLead.init) }, set: { model.teammateEditing = $0?.id })
+    }
+
+    private var newTeammateSpace: Binding<ShownLead?> {
+        Binding(get: { model.newTeammateSpace.map(ShownLead.init) }, set: { model.newTeammateSpace = $0?.id })
+    }
+
+    /// The spaces a new teammate can join: those of the profile Home shows.
+    private var teamSpaces: [Space] {
+        (model.store.home?.spaces ?? []).filter(model.profileChoice.includes)
     }
 
     private var pairingOverTheTop: Binding<Bool> {

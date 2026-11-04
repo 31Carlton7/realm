@@ -120,6 +120,8 @@ final class AppModel {
     var subagentsShown: String?
     /// The teammate whose Edit sheet is up.
     var teammateEditing: String?
+    /// The space a New teammate sheet is up for.
+    var newTeammateSpace: String?
     /// The agents a new session could be given, as the Mac last said; nil until it answers `agents.list`,
     /// and Home's compose button with it.
     var agentList: AgentList?
@@ -564,6 +566,33 @@ final class AppModel {
     func openTeammate(_ teammate: Teammate) async {
         do {
             path.append(.session(try await work.chat(of: teammate)))
+        } catch {
+            report(error)
+        }
+    }
+
+    /// Makes a teammate its space's Lead, or, given the Lead, leaves the space with none.
+    func toggleLead(_ teammate: Teammate) async {
+        do {
+            try await work.setLead(teammate.lead ? nil : teammate.id, in: teammate.spaceId)
+        } catch {
+            report(error)
+        }
+    }
+
+    /// Puts a teammate away, or brings it back.
+    func archive(_ teammate: Teammate, _ archived: Bool = true) async {
+        do {
+            try await work.archive(teammate, archived)
+        } catch {
+            report(error)
+        }
+    }
+
+    /// A space's Team in the order it was dragged to.
+    func reorder(_ team: [Teammate], in spaceId: String) async {
+        do {
+            try await work.reorder(team, in: spaceId)
         } catch {
             report(error)
         }

@@ -23,5 +23,9 @@ export function modelLabel(kind: AgentKind, id: string | null, probe: readonly {
  *  "+" and ⌘N reach for next, and what a new session started from Realm Mobile is offered first. */
 export const LAST_AGENT_SETTING = "ui.lastAgentKind";
 
+/** The setting the desktop keeps the model of each agent's last message under, by agent: what a new
+ *  teammate starts on, on the Mac or a phone. */
+export const LAST_MODELS_SETTING = "ui.lastModels";
+
 /** Agent a session is created with when the user never said (first run, or a wiped setting). */
 export const FALLBACK_AGENT: AgentKind = "claude";

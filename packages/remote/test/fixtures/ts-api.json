@@ -2843,7 +2843,12 @@
         "maxCount": 6,
         "maxBytes": 8388608,
         "maxTotalBytes": 10485760
-      }
+      },
+      "lastModels": {
+        "claude": "claude-opus-5-5",
+        "codex": null
+      },
+      "teammatePermission": "acceptEdits"
     },
     "session.queue": {
       "queued": [
@@ -2994,7 +2999,9 @@
           "agentKind": "claude",
           "model": "claude-opus-5-5",
           "effort": "high",
-          "permissionMode": "acceptEdits"
+          "permissionMode": "acceptEdits",
+          "group": null,
+          "archived": false
         },
         {
           "id": "01JTEAMMATE000000000000002",
@@ -3016,7 +3023,9 @@
           "agentKind": "codex",
           "model": null,
           "effort": null,
-          "permissionMode": "default"
+          "permissionMode": "default",
+          "group": null,
+          "archived": false
         }
       ]
     },
@@ -3096,8 +3105,194 @@
         "agentKind": "codex",
         "model": "gpt-5.5",
         "effort": null,
-        "permissionMode": "bypassPermissions"
+        "permissionMode": "bypassPermissions",
+        "group": null,
+        "archived": false
       }
+    },
+    "teammates.list:archived": {
+      "teammates": [
+        {
+          "id": "01JTEAMMATE000000000000004",
+          "spaceId": "sp1",
+          "name": "Tutor",
+          "handle": "tutor",
+          "brief": "Explains the week's lecture.",
+          "lead": false,
+          "chatId": null,
+          "icon": {
+            "shape": "pill",
+            "color": "lime"
+          },
+          "state": "idle",
+          "stateSince": null,
+          "unread": false,
+          "activity": null,
+          "activityAt": null,
+          "agentKind": "claude",
+          "model": null,
+          "effort": null,
+          "permissionMode": "default",
+          "group": "School",
+          "archived": true
+        }
+      ]
+    },
+    "teammate.create": {
+      "teammate": {
+        "id": "01JTEAMMATE000000000000003",
+        "spaceId": "sp1",
+        "name": "Researcher",
+        "handle": "researcher",
+        "brief": "Reads the papers and brings back what matters.",
+        "lead": false,
+        "chatId": "01JRESEARCHERCHAT000000000",
+        "icon": {
+          "shape": "drop",
+          "color": "amber"
+        },
+        "state": "idle",
+        "stateSince": null,
+        "unread": false,
+        "activity": null,
+        "activityAt": null,
+        "agentKind": "claude",
+        "model": "claude-opus-5-5",
+        "effort": null,
+        "permissionMode": "acceptEdits",
+        "group": null,
+        "archived": false
+      }
+    },
+    "teammate.archive": {
+      "teammate": {
+        "id": "01JTEAMMATE000000000000002",
+        "spaceId": "sp1",
+        "name": "Designer",
+        "handle": "designer",
+        "brief": "Keeps the app and the site on one design.",
+        "lead": false,
+        "chatId": null,
+        "icon": {
+          "shape": "cloud",
+          "color": "teal"
+        },
+        "state": "idle",
+        "stateSince": null,
+        "unread": true,
+        "activity": "Icon set",
+        "activityAt": 1789990000000,
+        "agentKind": "codex",
+        "model": null,
+        "effort": null,
+        "permissionMode": "default",
+        "group": null,
+        "archived": true
+      }
+    },
+    "teammates.setLead": {
+      "teammates": [
+        {
+          "id": "01JTEAMMATE000000000000002",
+          "spaceId": "sp1",
+          "name": "Designer",
+          "handle": "designer",
+          "brief": "Keeps the app and the site on one design.",
+          "lead": true,
+          "chatId": null,
+          "icon": {
+            "shape": "cloud",
+            "color": "teal"
+          },
+          "state": "idle",
+          "stateSince": null,
+          "unread": true,
+          "activity": "Icon set",
+          "activityAt": 1789990000000,
+          "agentKind": "codex",
+          "model": null,
+          "effort": null,
+          "permissionMode": "default",
+          "group": null,
+          "archived": false
+        },
+        {
+          "id": "01JTEAMMATE000000000000001",
+          "spaceId": "sp1",
+          "name": "CTO",
+          "handle": "cto",
+          "brief": "Owns the architecture and reviews every migration.",
+          "lead": false,
+          "chatId": "01JCTOCHAT0000000000000000",
+          "icon": {
+            "shape": "hexagon",
+            "color": "violet"
+          },
+          "state": "working",
+          "stateSince": 1790000100000,
+          "unread": false,
+          "activity": "Review the theme migration",
+          "activityAt": 1790000200000,
+          "agentKind": "claude",
+          "model": "claude-opus-5-5",
+          "effort": "high",
+          "permissionMode": "acceptEdits",
+          "group": null,
+          "archived": false
+        }
+      ]
+    },
+    "teammates.reorder": {
+      "teammates": [
+        {
+          "id": "01JTEAMMATE000000000000001",
+          "spaceId": "sp1",
+          "name": "CTO",
+          "handle": "cto",
+          "brief": "Owns the architecture and reviews every migration.",
+          "lead": true,
+          "chatId": "01JCTOCHAT0000000000000000",
+          "icon": {
+            "shape": "hexagon",
+            "color": "violet"
+          },
+          "state": "working",
+          "stateSince": 1790000100000,
+          "unread": false,
+          "activity": "Review the theme migration",
+          "activityAt": 1790000200000,
+          "agentKind": "claude",
+          "model": "claude-opus-5-5",
+          "effort": "high",
+          "permissionMode": "acceptEdits",
+          "group": null,
+          "archived": false
+        },
+        {
+          "id": "01JTEAMMATE000000000000002",
+          "spaceId": "sp1",
+          "name": "Designer",
+          "handle": "designer",
+          "brief": "Keeps the app and the site on one design.",
+          "lead": false,
+          "chatId": null,
+          "icon": {
+            "shape": "cloud",
+            "color": "teal"
+          },
+          "state": "idle",
+          "stateSince": null,
+          "unread": true,
+          "activity": "Icon set",
+          "activityAt": 1789990000000,
+          "agentKind": "codex",
+          "model": null,
+          "effort": null,
+          "permissionMode": "default",
+          "group": "Design",
+          "archived": false
+        }
+      ]
     },
     "usage.get": {
       "limits": [

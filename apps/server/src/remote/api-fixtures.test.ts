@@ -19,7 +19,8 @@ import { channel, fakeRpc, jpegHeader, machine, machineState, pngHeader, profile
  * queue, the turn's changes and a page of its diff, each preview `session.file` makes, a made file's
  * bytes, a space's
  * picture, three agents' session options and a change to them, every agent a new session can have;
- * the queue, the lead's sub-agents (one working, two ended), a space's teammates (one working, one idle) with one's chat and an edit to one, the plans and the month's spend, an empty
+ * the queue, the lead's sub-agents (one working, two ended), a space's teammates (one working, one idle, one archived) with one's chat, an edit to one, one made, one
+ * archived, a new Lead and a new order, the plans and the month's spend, an empty
  * Review (it went with the first Teams), the scheduled tasks and one run now, the screens the theme column's space has open and a frame of one, a rename with a pin and an
  * archive, a move queued behind a turn and a session opened mid-move; and every event but `session.rows` and `session.status` —
  * every one made by the real projector and the real `MobileApi`, over a fake of the desktop's RPC.
@@ -66,6 +67,9 @@ const CTO = "01JTEAMMATE000000000000001";
 const DESIGNER = "01JTEAMMATE000000000000002";
 const CTO_CHAT = "01JCTOCHAT0000000000000000";
 const DESIGNER_CHAT = "01JDESIGNERCHAT00000000000";
+const RESEARCHER = "01JTEAMMATE000000000000003";
+const RESEARCHER_CHAT = "01JRESEARCHERCHAT000000000";
+const TUTOR = "01JTEAMMATE000000000000004";
 /** A move queued behind one session's turn, and another session's under way. */
 const AFTER_TURN: PendingMove = { moveId: "01JMOVE0000000000000000004", to: { kind: "environment", environmentId: WORKTREE }, step: null };
 const UNDER_WAY: PendingMove = { moveId: "01JMOVE0000000000000000005", to: { kind: "worktree" }, step: "place" };
@@ -124,6 +128,9 @@ const designer = teammate(DESIGNER, "designer", "Designer", "Keeps the app and t
   icon: { shape: "cloud", color: "teal" }, agentKind: "codex", unread: true,
   taskSessions: [task("01JDESIGNTASK0000000000001", "designer - Icon set", DESIGNER, "idle", 1_789_990_000_000)],
 });
+
+/** Put away: off the Team list, folded at its end on a phone. */
+const tutor = teammate(TUTOR, "tutor", "Tutor", "Explains the week's lecture.", { icon: { shape: "pill", color: "lime" }, archived: true, group: "School" });
 
 async function generate(): Promise<Record<string, unknown>> {
   const dir = tempDir("realm-api-fixture-");
@@ -289,6 +296,7 @@ async function generate(): Promise<Record<string, unknown>> {
     items,
     settings: {
       "ui.lastAgentKind": "codex", "sessions.midTurnMode": "steer", "sessions.defaultPermissionMode": "acceptEdits",
+      "ui.lastModels": { claude: "claude-opus-5-5", codex: null },
       // What Claude Code said its models take: Haiku takes no level.
       "models.efforts": { "claude:claude-haiku-4-5": [], "claude:claude-opus-5-5": ["low", "medium", "high", "xhigh", "max"] },
     },
@@ -356,8 +364,13 @@ async function generate(): Promise<Record<string, unknown>> {
     "sessions.cancelMove": (() => ({ cancelled: true })) as never,
     // The Realm space's Team: its Lead, and a designer whose chat is made the first time it is asked for.
     // The CTO is working in a task session it started; the designer is idle, its last task done.
-    "teammates.list": ((p: { spaceId: string }) => (p.spaceId !== "sp1" ? [] : [cto, designer])) as never,
+    "teammates.list": ((p: { spaceId: string; archived: boolean }) => (p.spaceId !== "sp1" ? [] : p.archived ? [tutor] : [cto, designer])) as never,
     "teammates.update": ((p: Partial<Teammate> & { id: string }) => ({ ...designer, ...p })) as never,
+    // A researcher made from a phone, its handle made from its name and its chat made with it.
+    "teammates.create": ((p: Partial<Teammate>) => teammate(RESEARCHER, "researcher", p.name!, p.brief!, { ...p, homeSessionId: RESEARCHER_CHAT })) as never,
+    "teammates.archive": ((p: { id: string; archived: boolean }) => ({ ...designer, archived: p.archived })) as never,
+    "teammates.setLead": ((p: { id: string | null }) => [{ ...designer, lead: p.id === DESIGNER }, { ...cto, lead: p.id === CTO }]) as never,
+    "teammates.reorder": ((p: { order: { id: string; group: string | null }[] }) => p.order.map((o) => ({ ...(o.id === CTO ? cto : designer), group: o.group }))) as never,
     "teammates.home": ((p: { id: string }) => ({ sessionId: p.id === CTO ? CTO_CHAT : DESIGNER_CHAT })) as never,
     "simulators.capture": (() => ({ data: pngHeader(1206, 2622).toString("base64"), mimeType: "image/png", width: 1206, height: 2622 })) as never,
     // The composer's lists: the space's skills, the person's own commands, and the checkout's files.
@@ -412,6 +425,14 @@ async function generate(): Promise<Record<string, unknown>> {
       "teammate.chat": await call("teammate.chat", { id: DESIGNER }),
       "session.info": await call("session.info", { id: S }),
       "teammate.update": await call("teammate.update", { id: DESIGNER, name: "Design lead", icon: { shape: "flower", color: "pink" }, model: "gpt-5.5", permissionMode: "bypassPermissions" }),
+      "teammates.list:archived": await call("teammates.list", { archived: true }),
+      "teammate.create": await call("teammate.create", {
+        spaceId: "sp1", name: "Researcher", brief: "Reads the papers and brings back what matters.", icon: { shape: "drop", color: "amber" },
+        agentKind: "claude", model: "claude-opus-5-5", permissionMode: "acceptEdits",
+      }),
+      "teammate.archive": await call("teammate.archive", { id: DESIGNER }),
+      "teammates.setLead": await call("teammates.setLead", { spaceId: "sp1", id: DESIGNER }),
+      "teammates.reorder": await call("teammates.reorder", { spaceId: "sp1", order: [{ id: CTO, group: null }, { id: DESIGNER, group: "Design" }] }),
       "usage.get": await call("usage.get", {}),
       "reviews.list": await call("reviews.list", {}),
       "schedules.list": await call("schedules.list", {}),
