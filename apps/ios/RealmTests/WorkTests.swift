@@ -128,6 +128,42 @@ struct SubagentWordsTests {
         #expect(SubagentOrder.newestFirst([older, twinA, newer, twinB]).map(\.id) == ["newer", "a", "b", "older"])
     }
 
+    /// The sheet lists the failed first, then the ones that need you, the working, the done and the
+    /// stopped, each group in the order the Mac gave them; an empty group has no head.
+    @Test func theSheetGroupsThemFailedFirst() {
+        let list = [
+            Work.subagent("done-new", outcome: "done"), Work.subagent("working", status: .running, settled: false),
+            Work.subagent("failed-new", outcome: "failed"), Work.subagent("asks", status: .waiting),
+            Work.subagent("done-old", outcome: "done"), Work.subagent("timed-out", outcome: "timeout"),
+            Work.subagent("stopped", outcome: "stopped"),
+        ]
+        let sections = SubagentGroup.sections(list)
+        #expect(sections.map(\.group) == [.failed, .waiting, .working, .done, .stopped])
+        #expect(sections.map { $0.subagents.map(\.id) } == [["failed-new", "timed-out"], ["asks"], ["working"], ["done-new", "done-old"], ["stopped"]])
+        #expect(sections.map(\.group.title) == ["Failed", "Needs you", "Working", "Done", "Stopped"])
+        #expect(SubagentGroup.ordered(list).map(\.id) == ["failed-new", "timed-out", "asks", "working", "done-new", "done-old", "stopped"])
+        #expect(SubagentGroup.sections([Work.subagent("a", outcome: "done")]).map(\.group) == [.done])
+        #expect(SubagentGroup.sections([]).isEmpty)
+    }
+
+    /// A teammate titles every session it starts "<handle> - <task>"; where every row would say the
+    /// handle, the rows leave it off. Any title without it, or a "prefix" with a space in it, keeps
+    /// every title whole.
+    @Test func theRowsLeaveOffAHandleTheyAllShare() {
+        let shared = [Work.subagent("a", title: "captain - ship 2.7.2"), Work.subagent("b", title: "captain - re-review #257")]
+        #expect(SubagentWords.sharedPrefix(shared) == "captain - ")
+        #expect(shared.map { SubagentWords.title($0, dropping: "captain - ") } == ["ship 2.7.2", "re-review #257"])
+        #expect(SubagentWords.sharedPrefix([Work.subagent("a", title: "captain - ship 2.7.2")]) == "captain - ")
+        #expect(SubagentWords.sharedPrefix(shared + [Work.subagent("c", title: "Composer audit")]) == nil)
+        #expect(SubagentWords.sharedPrefix(shared + [Work.subagent("c", title: "qa - run the checks")]) == nil)
+        #expect(SubagentWords.sharedPrefix([Work.subagent("a", title: "Fix the sidebar - drag"), Work.subagent("b", title: "Fix the sidebar - drop")]) == nil)
+        // A title that is the handle and nothing after it would be left blank.
+        #expect(SubagentWords.sharedPrefix(shared + [Work.subagent("c", title: "captain - ")]) == nil)
+        #expect(SubagentWords.sharedPrefix([]) == nil)
+        #expect(SubagentWords.title(Work.subagent(title: "Composer audit"), dropping: "captain - ") == "Composer audit")
+        #expect(SubagentWords.title(Work.subagent(title: "captain - ship"), dropping: nil) == "captain - ship")
+    }
+
     /// A row leads with what it was asked, as the Agents tab titles it: its session's name for the
     /// task, else its goal's first line; never the brief that follows.
     @Test func aRowLeadsWithWhatItWasAsked() {

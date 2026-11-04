@@ -12,6 +12,7 @@ struct SessionInfoSheet: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var previewing: SessionFile?
     @State private var moveShown = false
+    @State private var expandedSubagents: Set<String> = []
 
     var body: some View {
         let transcript = model.store.transcript(sessionId)
@@ -80,16 +81,15 @@ struct SessionInfoSheet: View {
                     .listRowBackground(Fill.card)
                 }
                 if !subagents.isEmpty {
+                    let prefix = SubagentWords.sharedPrefix(subagents)
                     Section("Sub-agents") {
-                        ForEach(subagents) { subagent in
-                            Button {
+                        // The sheet's order without its heads: the failed first, the done last.
+                        ForEach(SubagentGroup.ordered(subagents)) { subagent in
+                            SubagentRow(subagent: subagent, title: SubagentWords.title(subagent, dropping: prefix),
+                                        expanded: $expandedSubagents.holds(subagent.id)) {
                                 dismiss()
                                 model.path.append(.session(subagent.id))
-                            } label: {
-                                SubagentRow(subagent: subagent)
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("subagent-\(subagent.id)")
                         }
                     }
                     .listRowBackground(Fill.card)

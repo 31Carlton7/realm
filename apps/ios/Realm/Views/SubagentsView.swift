@@ -90,6 +90,45 @@ enum SubagentOrder {
     }
 }
 
+/// Which part of their list a sub-agent stands in. The sheet lists the ones that went wrong first, then
+/// the ones waiting on the person, then the ones still going, then the finished, then the ones someone
+/// stopped — each newest first, as the Mac gave them.
+enum SubagentGroup: CaseIterable {
+    case failed, waiting, working, done, stopped
+
+    init(_ state: SubagentState) {
+        switch state {
+        case .failed, .timedOut: self = .failed
+        case .waiting: self = .waiting
+        case .working: self = .working
+        case .done: self = .done
+        case .stopped, .cancelled, .other: self = .stopped
+        }
+    }
+
+    /// The group's head over its rows.
+    var title: String {
+        switch self {
+        case .failed: "Failed"
+        case .waiting: "Needs you"
+        case .working: "Working"
+        case .done: "Done"
+        case .stopped: "Stopped"
+        }
+    }
+
+    /// The groups that have anyone in them, in the sheet's order, each keeping the order it was given.
+    static func sections(_ subagents: [Subagent]) -> [(group: SubagentGroup, subagents: [Subagent])] {
+        let grouped = Dictionary(grouping: subagents) { SubagentGroup(SubagentState($0)) }
+        return allCases.compactMap { group in grouped[group].map { (group, $0) } }
+    }
+
+    /// The same order as one list, for a section that has no room for heads of its own.
+    static func ordered(_ subagents: [Subagent]) -> [Subagent] {
+        sections(subagents).flatMap(\.subagents)
+    }
+}
+
 /// What the session bar's control says: how many sub-agents, and whether one is still going.
 struct SubagentsControlLabel: Equatable {
     let words: String
@@ -113,21 +152,13 @@ enum SubagentWords {
     /// Where they all stand, the ones that need the person first: "1 needs you · 2 working · 1 done";
     /// spoken with pauses between, where the dots are only for the eye.
     static func rollup(_ states: [SubagentState], separator: String = " · ") -> String {
-        var counts = [0, 0, 0, 0, 0]
-        for state in states { counts[group(state)] += 1 }
-        let words = [counts[0] == 1 ? "needs you" : "need you", "working", "done", "failed", "stopped"]
-        return zip(counts, words).filter { $0.0 > 0 }.map { "\($0.0) \($0.1)" }.joined(separator: separator)
-    }
-
-    /// Which of the rollup's words a state counts under, in the order they are said.
-    private static func group(_ state: SubagentState) -> Int {
-        switch state {
-        case .waiting: 0
-        case .working: 1
-        case .done: 2
-        case .failed, .timedOut: 3
-        case .stopped, .cancelled, .other: 4
-        }
+        let said: [SubagentGroup] = [.waiting, .working, .done, .failed, .stopped]
+        return said.compactMap { group in
+            let count = states.count { SubagentGroup($0) == group }
+            guard count > 0 else { return nil }
+            let word = group == .waiting ? (count == 1 ? "needs you" : "need you") : group.title.lowercased()
+            return "\(count) \(word)"
+        }.joined(separator: separator)
     }
 
     /// What it was asked to do, as its lead's Agents tab titles it: its session's name for the task,
@@ -139,6 +170,23 @@ enum SubagentWords {
         if !name.isEmpty, !name.hasPrefix("Agent: "), !name.hasPrefix("Browser agent: ") { return name }
         let line = (subagent.goal ?? "").split(separator: "\n").lazy.map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty }
         return line ?? "Sub-agent"
+    }
+
+    /// The "<handle> - " every one of them is titled with when a teammate started them all, which a
+    /// list of them says once in its head rather than on every row; nil when any title lacks it.
+    static func sharedPrefix(_ subagents: [Subagent]) -> String? {
+        let titles = subagents.map(title)
+        guard let first = titles.first, let dash = first.range(of: " - ") else { return nil }
+        let prefix = String(first[..<dash.upperBound])
+        guard !prefix.dropLast(3).contains(where: \.isWhitespace) else { return nil }
+        return titles.allSatisfy({ $0.hasPrefix(prefix) && $0.count > prefix.count }) ? prefix : nil
+    }
+
+    /// Its title on a row of a list whose every title starts with `prefix`, which is left off.
+    static func title(_ subagent: Subagent, dropping prefix: String?) -> String {
+        let whole = title(subagent)
+        guard let prefix, whole.hasPrefix(prefix) else { return whole }
+        return String(whole.dropFirst(prefix.count))
     }
 
     /// How long it ran, or has run so far, in seconds.
@@ -212,29 +260,33 @@ struct SubagentsChip: View {
     }
 }
 
-/// The sub-agents a session started, newest first. Pressing one puts the sheet away and opens its own
-/// session over the lead's, the way back leading to the lead — opened from Home, the lead goes first.
+/// The sub-agents a session started, under a head for each group of them: the failed, the ones that
+/// need you, the working, the done. Pressing one puts the sheet away and opens its own session over the
+/// lead's, the way back leading to the lead — opened from Home, the lead goes first.
 struct SubagentsSheet: View {
     let sessionId: String
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var expanded: Set<String> = []
 
     var body: some View {
         let subagents = model.work.subagents[sessionId] ?? []
+        let prefix = SubagentWords.sharedPrefix(subagents)
         NavigationStack {
             List {
-                ForEach(subagents) { subagent in
-                    Button {
-                        dismiss()
-                        if model.path.last != .session(sessionId) { model.path.append(.session(sessionId)) }
-                        model.path.append(.session(subagent.id))
-                    } label: {
-                        SubagentRow(subagent: subagent)
+                ForEach(SubagentGroup.sections(subagents), id: \.group) { section in
+                    Section(section.group.title) {
+                        ForEach(section.subagents) { subagent in
+                            SubagentRow(subagent: subagent, title: SubagentWords.title(subagent, dropping: prefix),
+                                        expanded: $expanded.holds(subagent.id)) {
+                                dismiss()
+                                if model.path.last != .session(sessionId) { model.path.append(.session(sessionId)) }
+                                model.path.append(.session(subagent.id))
+                            }
+                        }
                     }
-                    .buttonStyle(.plain)
                     .listRowBackground(Fill.card)
-                    .accessibilityIdentifier("subagent-\(subagent.id)")
                 }
             }
             .listStyle(.insetGrouped)
@@ -244,7 +296,7 @@ struct SubagentsSheet: View {
             .navigationSubtitle(SubagentWords.rollup(subagents.map(SubagentState.init)))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                // A close, not "Done": the rows under it say Done of the runs that finished.
+                // A close, not "Done": the head over the finished runs says Done.
                 ToolbarItem(placement: .cancellationAction) {
                     Button(role: .close) { dismiss() }
                         .accessibilityLabel("Close")
@@ -258,89 +310,111 @@ struct SubagentsSheet: View {
     }
 }
 
-/// One sub-agent: its goal, then its model, where it stands and for how long, then its report folded
-/// to a few lines — or why Realm stopped it, where it did.
+extension Binding where Value == Set<String> {
+    /// Whether the set holds `member`, as a switch: on puts it in, off takes it out.
+    func holds(_ member: String) -> Binding<Bool> {
+        Binding<Bool> { wrappedValue.contains(member) } set: { if $0 { wrappedValue.insert(member) } else { wrappedValue.remove(member) } }
+    }
+}
+
+/// One sub-agent on one line: where it stands as a mark, what it was asked, and for how long it ran.
+/// Pressing it opens its session; its chevron unfolds its report in place.
 struct SubagentRow: View {
     let subagent: Subagent
+    let title: String
+    @Binding var expanded: Bool
+    let open: () -> Void
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .body) private var glyph: CGFloat = 20
 
     var body: some View {
         let state = SubagentState(subagent)
+        let report = SubagentWords.report(subagent)
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Image(systemName: state.symbol)
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(state.tone.color)
-                .restingPulse(when: state == .working)
-                .frame(width: glyph)
-            VStack(alignment: .leading, spacing: 5) {
-                Text(SubagentWords.title(subagent))
-                    .font(.body)
-                    .foregroundStyle(Palette.ink)
-                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 4 : 2)
-                facts(state)
-                if let note = subagent.note {
-                    Text(note)
-                        .font(.subheadline)
-                        .foregroundStyle(Palette.ink2)
-                        .lineLimit(3)
+            Button(action: open) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Image(systemName: state.symbol)
+                            .symbolRenderingMode(.hierarchical)
+                            .foregroundStyle(state.tone.color)
+                            .restingPulse(when: state == .working)
+                            .frame(width: glyph)
+                        Text(title)
+                            .font(.body)
+                            .foregroundStyle(Palette.ink)
+                            .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if state.isLive {
+                            TimelineView(.periodic(from: .now, by: 1)) { context in
+                                ran(state, now: context.date)
+                            }
+                        } else {
+                            ran(state, now: Date())
+                        }
+                    }
+                    if expanded {
+                        detail(report)
+                            .padding(.leading, glyph + 12)
+                            .transition(.opacity)
+                    }
                 }
-                if let report = SubagentWords.report(subagent) {
-                    Text(report)
-                        .font(.subheadline)
-                        .foregroundStyle(Palette.ink2)
-                        .lineLimit(3)
-                }
+                .contentShape(Rectangle())
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(SubagentWords.spoken(subagent, now: Date()))
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            Image(systemName: "chevron.right")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(Palette.ink3)
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens its session")
+            .accessibilityIdentifier("subagent-\(subagent.id)")
+            disclosure(shown: report != nil || subagent.note != nil)
         }
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(SubagentWords.spoken(subagent, now: Date()))
-        .accessibilityHint("Opens its session")
     }
 
-    /// The model, the state's word in its tone, and how long it ran — on one line with dots between, or
-    /// each on a line of its own at the accessibility sizes. A run still going counts up.
-    private func facts(_ state: SubagentState) -> some View {
-        let stacked = dynamicTypeSize.isAccessibilitySize
-        let line = stacked
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
-            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 6))
-        return line {
+    /// Why Realm stopped it, where it did, its report short of a page, and the model it ran on.
+    private func detail(_ report: String?) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let note = subagent.note {
+                Text(note)
+            }
+            if let report {
+                Text(report)
+                    .lineLimit(12)
+            }
             HStack(spacing: 4) {
                 AgentMark(kind: subagent.session.agent, mark: subagent.session.agentMark, size: 12, relativeTo: .footnote)
                 Text(subagent.session.modelDisplayName ?? subagent.session.agentDisplayName)
                     .lineLimit(1)
             }
-            .foregroundStyle(Palette.ink2)
-            if !stacked { dot }
-            Text(state.word)
-                .fontWeight(.semibold)
-                .foregroundStyle(state.tone.color)
-                .fixedSize()
-            if !stacked { dot }
-            if state.isLive {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    ran(state, now: context.date)
-                }
-            } else {
-                ran(state, now: Date())
-            }
+            .font(.footnote)
         }
-        .font(.footnote)
+        .font(.subheadline)
+        .foregroundStyle(Palette.ink2)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var dot: some View {
-        Text("·").foregroundStyle(Palette.ink2)
+    /// The chevron that opens and folds the report; a row with nothing to show keeps its room, so the
+    /// times down the list stay in one column.
+    private func disclosure(shown: Bool) -> some View {
+        Button {
+            withAnimation(.snappy) { expanded.toggle() }
+        } label: {
+            Image(systemName: "chevron.down")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Palette.ink3)
+                .rotationEffect(.degrees(expanded ? 180 : 0))
+                .frame(width: 24)
+                .contentShape(Rectangle().inset(by: -10))
+        }
+        .buttonStyle(.plain)
+        .opacity(shown ? 1 : 0)
+        .disabled(!shown)
+        .accessibilityHidden(!shown)
+        .accessibilityLabel(expanded ? "Hide report" : "Show report")
+        .accessibilityIdentifier("subagent-report-\(subagent.id)")
     }
 
     private func ran(_ state: SubagentState, now: Date) -> some View {
         Text(PillWords.elapsed(SubagentWords.ran(subagent, state: state, now: now)))
+            .font(.subheadline)
             .monospacedDigit()
             .foregroundStyle(Palette.ink2)
             .fixedSize()
