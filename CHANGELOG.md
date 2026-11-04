@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.8.0 — 2026-11-04
+
+- Move a running session to another checkout or a new worktree, from the Mac or your phone; the conversation carries over.
+- Realm Mobile: a full-screen gallery for a message's files; share photos, videos and files into a session or a teammate from any app; tap a session's title for its info; sub-agents sit under their lead.
+
 ## v2.7.2 — 2026-11-03
 
 - Picking a model or effort in a teammate's chat now saves to the teammate.
