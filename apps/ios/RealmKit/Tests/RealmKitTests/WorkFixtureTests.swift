@@ -4,7 +4,7 @@ import Testing
 
 /// The phone's pages beyond Home as the Mac writes them (`packages/remote/test/fixtures/ts-api.json`):
 /// a lead's sub-agents, the plans' limits and the month's spend, an empty Review, and the scheduled
-/// tasks; and the two events that say they changed.
+/// tasks, a space's teammates; and the two events that say they changed.
 @Suite("Sub-agents, Usage, Review and Scheduled as the Mac writes them")
 struct WorkFixtureTests {
     static let available = APIFixtureTests.available
@@ -40,7 +40,8 @@ struct WorkFixtureTests {
         #expect(subagents.allSatisfy { subagent in subagent.settledAt.map { $0 >= subagent.startedAt } ?? true })
     }
 
-    /// A space's Team, its Lead first, and the chat of a teammate that had none until it was asked for.
+    /// A space's Team, its Lead first, each with its mark, where it stands and what it is doing; the chat
+    /// of a teammate that had none until it was asked for; and a teammate as its Edit sheet left it.
     @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
     func aSpacesTeammatesAndOnesChatDecode() throws {
         struct Answer: Decodable { let teammates: [Teammate] }
@@ -49,8 +50,48 @@ struct WorkFixtureTests {
         #expect(teammates.map(\.lead) == [true, false] && teammates.allSatisfy { $0.spaceId == "sp1" })
         #expect(teammates[1].brief == "Keeps the app and the site on one design.")
         #expect(teammates.map(\.chatId) == ["01JCTOCHAT0000000000000000", nil])
+        #expect(teammates.map(\.icon) == [TeammateIcon(shape: "hexagon", color: "violet"), TeammateIcon(shape: "cloud", color: "teal")])
+        #expect(teammates.map(\.state) == [.working, .idle])
+        #expect(teammates[0].stateSince != nil && teammates[1].stateSince == nil)
+        #expect(teammates.map(\.unread) == [false, true])
+        #expect(teammates.map(\.activity) == ["Review the theme migration", "Icon set"])
+        #expect(teammates[0].model == "claude-opus-5-5" && teammates[0].effort == "high" && teammates[0].permissionMode == "acceptEdits")
+        #expect(teammates[1].agentKind == "codex" && teammates[1].model == nil)
         struct Chat: Decodable { let id: String }
         #expect(try Self.decode(Chat.self, "teammate.chat").id == "01JDESIGNERCHAT00000000000")
+        struct Edited: Decodable { let teammate: Teammate }
+        let edited = try Self.decode(Edited.self, "teammate.update").teammate
+        #expect(edited.name == "Design lead" && edited.icon == TeammateIcon(shape: "flower", color: "pink"))
+        #expect(edited.model == "gpt-5.5" && edited.permissionMode == "bypassPermissions")
+    }
+
+    /// A teammate's word in the session stands under that teammate, without the prefix it was sent
+    /// with; and the agent's message to another teammate names it, still waiting on its answer.
+    @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
+    func aTranscriptNamesTheTeammatesInIt() throws {
+        let rows = try APIFixtureTests.opened().rows
+        let word = try #require(rows.first { $0.fromTeammate != nil })
+        #expect(word.fromTeammate == "01JTEAMMATE000000000000001")
+        #expect(word.content == .user(text: "Settle the toggle with the designer first"))
+        let call = try #require(rows.first { $0.teammateCall != nil })
+        #expect(call.teammateCall == TeammateCall(id: "01JTEAMMATE000000000000002", handle: "designer", message: "Is the toggle's design settled?"))
+        guard case .tool(_, _, let state, _) = call.content else {
+            Issue.record("a message to a teammate is a tool row")
+            return
+        }
+        #expect(state == .running)
+        #expect(rows.filter { $0.teammateCall != nil }.count == 1, "no other tool is a teammate's")
+    }
+
+    /// An older Mac's teammate, with none of what its row shows, still decodes, and a state this phone
+    /// does not know reads as idle rather than losing the teammate.
+    @Test func anOlderMacsTeammateDecodes() throws {
+        let old = Data(#"{"id":"t1","spaceId":"s1","name":"CTO","handle":"cto","brief":"","lead":true,"chatId":null}"#.utf8)
+        let teammate = try JSONDecoder().decode(Teammate.self, from: old)
+        #expect(teammate.icon == nil && teammate.state == nil && teammate.activity == nil)
+        let newer = Data(#"{"id":"t1","spaceId":"s1","name":"CTO","handle":"cto","brief":"","lead":true,"chatId":null,"state":"asleep","icon":{"shape":"star"}}"#.utf8)
+        let later = try JSONDecoder().decode(Teammate.self, from: newer)
+        #expect(later.state == .idle && later.icon == nil)
     }
 
     /// Where the theme column runs, what it cost, and its files newest first: the ones its turn made,
@@ -179,6 +220,18 @@ struct WorkCallTests {
         #expect(relay.methods.last == "schedules.list")
         _ = try? await api.runNow(schedule: "t1")
         #expect(relay.methods.last == "schedules.runNow" && relay.params.last == ["id": "t1"])
+        await connection.stop()
+    }
+
+    /// An edit carries only what was changed, and a model set back to the agent's default as null.
+    @Test func aTeammatesEditCarriesOnlyWhatChanged() async throws {
+        let connection = try await connected()
+        let api = MobileAPI(connection: connection)
+        _ = try? await api.updateTeammate(id: "designer", TeammateEdit(name: "Design lead", icon: TeammateIcon(shape: "cloud", color: "pink")))
+        #expect(relay.methods.last == "teammate.update")
+        #expect(relay.params.last == ["id": "designer", "name": "Design lead", "icon": .object(["shape": "cloud", "color": "pink"])])
+        _ = try? await api.updateTeammate(id: "designer", TeammateEdit(agentKind: "codex", model: .some(nil), permissionMode: "acceptEdits", lead: true))
+        #expect(relay.params.last == ["id": "designer", "agentKind": "codex", "model": .null, "permissionMode": "acceptEdits", "lead": true])
         await connection.stop()
     }
 
