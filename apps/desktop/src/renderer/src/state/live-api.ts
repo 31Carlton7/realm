@@ -179,6 +179,7 @@ export const liveApi = (): Api => ({
   cancelSessionMove: (id) => rpc().call("sessions.cancelMove", { id }),
   sessionEvents: (id, afterSeq, limit) => rpc().call("sessions.events", { id, afterSeq, limit }),
   sessionEventsBefore: (id, beforeSeq, limit, types) => rpc().call("sessions.events", { id, beforeSeq, limit, ...(types ? { types } : {}) }),
+  sessionStreaming: (id) => rpc().call("sessions.streaming", { id }),
   openSessionTerminal: (id) => rpc().call("sessions.openTerminal", { id }),
   prefillTerminal: async (terminalId, command) => { await rpc().call("terminals.prefill", { terminalId, command }); },
   probeAgents: (force) => rpc().call("agents.probe", { force }),

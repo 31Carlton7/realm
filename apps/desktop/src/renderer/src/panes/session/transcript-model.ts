@@ -1,4 +1,4 @@
-import { bareToolName, type MovePlace, type MoveStep, type AcpSessionMode, type AppViewRef, type AskAnswers, type AskCard, type MentionRef, type SessionEvent, type SessionEventPayload, type TurnChanges, type FilesMade } from "@realm/contracts";
+import { appendDelta, bareToolName, type MovePlace, type MoveStep, type AcpSessionMode, type AppViewRef, type AskAnswers, type AskCard, type MentionRef, type SessionEvent, type SessionEventPayload, type TurnChanges, type FilesMade } from "@realm/contracts";
 import { questionOf } from "@realm/view";
 
 export type PlanStep = NonNullable<SessionEventPayload<"plan">["steps"]>[number];
@@ -339,7 +339,7 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
       return { ...t, blocks, promptHint: null };
     }
     case "assistant_delta": {
-      if (last?.kind === "assistant" && last.messageId === e.payload.messageId && last.streaming) blocks[blocks.length - 1] = { ...last, text: last.text + e.payload.delta };
+      if (last?.kind === "assistant" && last.messageId === e.payload.messageId && last.streaming) blocks[blocks.length - 1] = { ...last, text: appendDelta(last.text, e.payload.delta, e.payload.at) };
       else blocks.push({ kind: "assistant", messageId: e.payload.messageId, text: e.payload.delta, streaming: true, ts: e.ts });
       return { ...t, blocks };
     }

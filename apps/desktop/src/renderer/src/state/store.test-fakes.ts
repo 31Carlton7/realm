@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack, type UnlockPolicy, unlockPolicyRank } from "@realm/contracts";
-import type { MoveOptions, PendingMove, GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpSignInOptions, McpTool, MemoryClaudeBackfill, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
+import type { MoveOptions, PendingMove, GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpSignInOptions, McpTool, MemoryClaudeBackfill, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, StreamedMessage, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, BranchList, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
 import type { Account, CliStatus, DelegatedChild, LayaStatus, ModelInfo, ResourcePolicies, ResourceReport, Schedule, SearchResults, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
@@ -199,6 +199,8 @@ export type FakeData = {
   settings?: Record<string, unknown>;
   computerAllowedApps?: Record<string, string[]>;
   sessions?: Session[]; sessionEvents?: Record<string, StoredSessionEvent[]>;
+  /** What `sessions.streaming` answers, by session id: the reply part-way through. Absent: none. */
+  streaming?: Record<string, StreamedMessage>;
   /** What `sessions.moveOptions` answers, by session id. Absent: a quiet checkout with nothing pending. */
   moveOptions?: Record<string, Partial<MoveOptions>>;
   /** The `move` that `sessions.queued` answers, by session id. Absent: nothing waiting to move. */
@@ -536,6 +538,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       { id: "default-codex", kind: "codex", label: "Default", configDir: null, signedIn: null, email: null, plan: null, createdAt: 0 },
     ],
     sessionEvents: overrides.sessionEvents ?? {},
+    streaming: overrides.streaming ?? {},
     moveOptions: overrides.moveOptions ?? {},
     queuedMoves: overrides.queuedMoves ?? {},
     sessionTerminals: overrides.sessionTerminals ?? {},
@@ -1640,6 +1643,13 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return s;
     },
     sessionEvents: async (id, afterSeq, limit) => { calls.push(`sessionEvents:${id}:${afterSeq}`); await wait(`sessionEvents:${id}`); return (data.sessionEvents[id] ?? []).filter((e) => e.seq > afterSeq).slice(0, limit); },
+    // Read as of the moment it answers, as the server's is: the log's last seq, and the reply so far.
+    // No timer unless a test asks for one: suites that wait one tick for a transcript to load would
+    // otherwise need a second.
+    sessionStreaming: async (id) => {
+      if (api.delays[`sessionStreaming:${id}`]) await wait(`sessionStreaming:${id}`);
+      return { seq: (data.sessionEvents[id] ?? []).at(-1)?.seq ?? 0, message: data.streaming[id] ?? null };
+    },
     sessionEventsBefore: async (id, beforeSeq, limit, types) => {
       calls.push(`sessionEventsBefore:${id}:${beforeSeq === Number.MAX_SAFE_INTEGER ? "end" : beforeSeq}${types ? `:${types.join(",")}` : ""}`);
       await wait(`sessionEvents:${id}`);

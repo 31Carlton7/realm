@@ -36,7 +36,9 @@ const P = {
     refs: z.array(MentionRefSchema).optional(),
   }),
   assistant_text: z.object({ messageId: z.string(), text: z.string() }),
-  assistant_delta: z.object({ messageId: z.string(), delta: z.string() }),
+  /** `at` is where the delta starts in the text streamed so far for its message, stamped by the server
+   *  on the way out (`appendDelta`). Absent from what an adapter emits. */
+  assistant_delta: z.object({ messageId: z.string(), delta: z.string(), at: z.number().int().optional() }),
   thinking: z.object({ messageId: z.string(), text: z.string() }),
   /** `kind` and `paths` are what an ACP agent says about a call beside its free-text title — ACP's
    *  `ToolKind` (`edit`, `read`, `execute`…) and the files its `locations` name. They are how the
@@ -509,5 +511,35 @@ export function sessionEvent<T extends SessionEventType>(type: T, payload: Sessi
 /** Event types the server persists; the rest (assistant_delta) are ephemeral. */
 export const PERSISTED_EVENT_TYPES: SessionEventType[] = ["user_message", "assistant_text", "thinking", "tool_call", "tool_result", "background_task", "permission_request", "permission_response", "status", "error", "usage", "init", "plan", "feedback", "handoff", "compacted", "context_reset", "moving", "moved", "move_failed", "summary", "prompt_hint", "turn_changes", "files_made"];
 
+/**
+ * `text` with `delta` joined on, where the delta starts at `at` in it. A delta the text already
+ * holds adds nothing, and one overlapping its end adds only the rest: that is how a client that read
+ * a message part-way through (`sessions.streaming`) applies the deltas on either side of the read
+ * without doubling any. Without an `at`, or past the end, the delta is appended as it is.
+ */
+export function appendDelta(text: string, delta: string, at?: number): string {
+  if (at === undefined || at >= text.length) return text + delta;
+  return text + delta.slice(text.length - at);
+}
+
 export const StoredSessionEventSchema = z.object({ seq: z.number().int(), sessionId: z.string(), event: SessionEventSchema });
 export type StoredSessionEvent = { seq: number; sessionId: string; event: SessionEvent };
+
+/** A reply part-way through streaming: its text so far, and when its first delta came. */
+export const StreamedMessageSchema = z.object({ messageId: z.string(), text: z.string(), ts: z.number() });
+export type StreamedMessage = z.infer<typeof StreamedMessageSchema>;
+
+/**
+ * The events a client applies after a session's log when it read the log and then
+ * `sessions.streaming` while events kept arriving. `arrived` is everything broadcast meanwhile,
+ * deltas included, in the order it came. The streamed text goes in where the read was taken — after
+ * the last arrived event it had already seen — and the deltas before that point are dropped: each is
+ * either inside that text or belongs to a reply whose `assistant_text` is already applied.
+ */
+export function withStreamed(sessionId: string, arrived: StoredSessionEvent[], read: { seq: number; message: StreamedMessage | null }): StoredSessionEvent[] {
+  let cut = 0;
+  arrived.forEach((e, i) => { if (e.seq >= 0 && e.seq <= read.seq) cut = i + 1; });
+  const m = read.message;
+  const streamed = m ? [{ seq: -1, sessionId, event: sessionEvent("assistant_delta", { messageId: m.messageId, delta: m.text, at: 0 }, m.ts) }] : [];
+  return [...arrived.slice(0, cut).filter((e) => e.seq >= 0), ...streamed, ...arrived.slice(cut)];
+}
