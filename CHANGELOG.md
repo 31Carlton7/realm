@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.8.1 - 2026-11-04
+
+- A new sidebar: your spaces sit on a rail and the column shows one space at a time, Needs you gathers what is waiting across everything, and your avatar on the rail switches profiles.
+- A teammate's sessions now live in its Computer panel.
+- A reply that is still streaming survives a reload.
+- A queued move survives a reload.
+- Realm Mobile: your team on the phone, a calmer Sub-agents sheet, and the Move sheet names real folders.
+
 ## v2.8.0 — 2026-11-04
 
 - Move a running session to another checkout or a new worktree, from the Mac or your phone; the conversation carries over.
