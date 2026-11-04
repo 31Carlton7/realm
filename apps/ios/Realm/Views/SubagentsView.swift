@@ -296,8 +296,9 @@ struct SubagentsSheet: View {
             .navigationSubtitle(SubagentWords.rollup(subagents.map(SubagentState.init)))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                // A close, not "Done": the head over the finished runs says Done.
-                ToolbarItem(placement: .cancellationAction) {
+                // A close, not "Done": the head over the finished runs says Done. At the trailing
+                // corner, as every sheet whose only control is its close has it.
+                ToolbarItem(placement: .topBarTrailing) {
                     Button(role: .close) { dismiss() }
                         .accessibilityLabel("Close")
                 }
