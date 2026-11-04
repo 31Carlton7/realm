@@ -39,6 +39,7 @@ struct SettingsView: View {
     @AppStorage(ListOptions.Key.style) private var style = ListOptions().style
     @AppStorage(ListOptions.Key.spaceOrder) private var spaceOrder = ListOptions().spaceOrder
     @AppStorage(ListOptions.Key.needsYouFirst) private var needsYouFirst = ListOptions().needsYouFirst
+    @AppStorage(WorkActivities.enabledKey) private var showOnLockScreen = true
 
     var body: some View {
         Form {
@@ -149,10 +150,18 @@ struct SettingsView: View {
                 default:
                     EmptyView()
                 }
+                Toggle(isOn: $showOnLockScreen) {
+                    Label("Show on Lock Screen", systemImage: "platter.filled.bottom.iphone")
+                }
+                .tint(Palette.accent)
+                .profileRow()
+                .onChange(of: showOnLockScreen) { _, on in
+                    if !on { model.activities.endAll() }
+                }
             } header: {
                 Text("General")
             } footer: {
-                Text("Your Mac sends one when a session waits on you, finishes or fails, and holds it back while you are at the Mac.")
+                Text("Your Mac sends a notification when a session waits on you, finishes or fails, and holds it back while you are at the Mac. A session you start here stays on the Lock Screen while it works, for as long as Realm is open or was just closed.")
             }
 
             Section {

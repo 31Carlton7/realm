@@ -42,6 +42,8 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>Realm uses the camera to scan the pairing code your Mac shows, and to take photos you send to a session.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Realm reaches a development relay running on this network.</string>
 	<key>RealmKeychainAccessGroup</key>
