@@ -16,12 +16,12 @@ struct RealmActivityBundle: WidgetBundle {
 struct WorkActivityWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: WorkActivityAttributes.self) { context in
-            LockScreenActivity(subject: context.attributes, state: context.state)
+            LockScreenActivity(subject: context.attributes, state: context.state, stale: context.isStale)
                 .activityBackgroundTint(Palette.surface)
                 .activitySystemActionForegroundColor(Palette.ink)
                 .widgetURL(SessionURL.url(context.attributes.sessionId))
         } dynamicIsland: { context in
-            let subject = context.attributes, state = context.state
+            let subject = context.attributes, state = context.state, stale = context.isStale
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
                     ActivityMark(subject: subject, size: 26)
@@ -50,6 +50,7 @@ struct WorkActivityWidget: Widget {
                         StepLine(state: state)
                             .font(.subheadline)
                         if state.count != nil { PlanLine(state: state) }
+                        if stale { OutOfDate() }
                     }
                     .padding(.horizontal, 6)
                     .padding(.top, 2)
@@ -81,6 +82,7 @@ struct WorkActivityWidget: Widget {
 struct LockScreenActivity: View {
     let subject: WorkActivityAttributes
     let state: WorkActivityContent
+    let stale: Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -102,6 +104,10 @@ struct LockScreenActivity: View {
                 if state.count != nil {
                     PlanLine(state: state)
                         .padding(.top, 3)
+                }
+                if stale {
+                    OutOfDate()
+                        .padding(.top, 2)
                 }
             }
         }
@@ -129,6 +135,16 @@ struct StepLine: View {
                 .foregroundStyle(state.phase == .failed ? Palette.orange : Palette.ink2)
                 .lineLimit(1)
         }
+    }
+}
+
+/// iOS took the app's channel away: what is shown is where the turn last stood, and says so.
+struct OutOfDate: View {
+    var body: some View {
+        Text("Not updated while Realm is closed")
+            .font(.footnote)
+            .foregroundStyle(Palette.ink3)
+            .lineLimit(1)
     }
 }
 

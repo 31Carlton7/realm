@@ -22,6 +22,8 @@ final class WorkActivities {
         var content: WorkActivityContent
         /// The Mac has said the turn is under way: an idle session after this is a finished one.
         var turnSeen: Bool
+        /// The Lock Screen was told it is out of date: the next word from the Mac goes, changed or not.
+        var outOfDate = false
     }
 
     private var live: [String: Live] = [:]
@@ -57,7 +59,11 @@ final class WorkActivities {
     /// finish heard before the turn began, change nothing.
     func update(_ sessionId: String, to content: WorkActivityContent?, turnUnderWay: Bool) {
         guard var entry = live[sessionId] else { return }
-        guard entry.activity.activityState == .active else {
+        // Stale is still live: it is the out-of-date state this update is here to clear. Swiped away or
+        // ended, it is gone.
+        switch entry.activity.activityState {
+        case .active, .stale: break
+        default:
             live[sessionId] = nil
             return
         }
@@ -74,8 +80,9 @@ final class WorkActivities {
             return
         }
         // Until the Mac starts the turn, the first state stands.
-        guard !content.isFinal, content != entry.content else { return }
+        guard !content.isFinal, content != entry.content || entry.outOfDate else { return }
         entry.content = content
+        entry.outOfDate = false
         live[sessionId] = entry
         let id = entry.activity.id
         Task.detached { await Self.activity(id)?.update(Self.fresh(content)) }
@@ -84,7 +91,8 @@ final class WorkActivities {
     /// The channel is going while activities are live: each says so at once, rather than standing as
     /// though the turn had stopped where it was.
     func markOutOfDate() {
-        for entry in live.values {
+        for (sessionId, entry) in live {
+            live[sessionId]?.outOfDate = true
             let id = entry.activity.id, content = entry.content
             Task.detached { await Self.activity(id)?.update(ActivityContent(state: content, staleDate: Date())) }
         }

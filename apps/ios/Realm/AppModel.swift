@@ -707,6 +707,7 @@ final class AppModel {
         store.beginOpening(sessionId)
         do {
             store.finishOpening(try await api.openSession(id: sessionId))
+            updateActivities()
             saveTranscript(sessionId)
             await deliver(sessionId)
         } catch {
