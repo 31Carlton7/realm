@@ -59,12 +59,14 @@ struct GoalSheet: View {
                 }
             }
             .background(Ground.grouped)
+            .softEdges(ground: Ground.grouped)
             .navigationTitle("Goal")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Close", systemImage: "xmark") { dismiss() }
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
         }
         .presentationDetents([.medium, .large])

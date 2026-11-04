@@ -113,6 +113,25 @@ extension View {
         modifier(SoftEdges(edges: edges, ground: ground))
     }
 
+    /// A list's pinned section head: Realm's ground behind it from edge to edge, and under it a fade
+    /// deep enough that the line passing beneath has gone before it reaches the head's words. The
+    /// 12-point fade it had let the top half of that line read through.
+    func pinnedOnGround() -> some View {
+        background(Ground.transcript)
+            .background(alignment: .bottom) {
+                LinearGradient(stops: [
+                    .init(color: Ground.transcript, location: 0),
+                    .init(color: Ground.transcript.opacity(0.97), location: 0.5),
+                    .init(color: Ground.transcript.opacity(0.7), location: 0.8),
+                    .init(color: Ground.transcript.opacity(0), location: 1),
+                ], startPoint: .top, endPoint: .bottom)
+                .frame(height: 28)
+                .offset(y: 28)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+    }
+
     /// The way back from a pushed screen: the chevron on the bar's own ground, where iOS would draw it
     /// in a circle of glass, and the edge swipe as before.
     func backOnGround() -> some View {

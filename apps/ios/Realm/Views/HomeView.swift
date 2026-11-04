@@ -327,14 +327,7 @@ struct SectionHead<Glyph: View>: View {
         .padding(.top, 14)
         .padding(.bottom, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Ground.transcript)
-        // Pinned, a row passing under the head dissolves into it rather than being cut at its edge.
-        .background(alignment: .bottom) {
-            LinearGradient(colors: [Ground.transcript, Ground.transcript.opacity(0)], startPoint: .top, endPoint: .bottom)
-                .frame(height: 12)
-                .offset(y: 12)
-                .allowsHitTesting(false)
-        }
+        .pinnedOnGround()
         .listRowInsets(EdgeInsets())
     }
 }

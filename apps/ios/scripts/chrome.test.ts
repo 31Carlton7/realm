@@ -28,4 +28,11 @@ describe("the iPhone's chrome", () => {
     const lists = sources.filter(({ text }) => /\.scrollContentBackground\(\.hidden\)/.test(text));
     expect(lists.filter(({ text }) => !text.includes(".softEdges(")).map(({ path }) => path)).toEqual([]);
   });
+
+  it("keeps what is pinned over the list on the ground, so no row reads through it", () => {
+    const text = (name: string) => sources.find(({ path }) => path.endsWith(name))!.text;
+    expect(text("HomeChips.swift")).toMatch(/\.background\(Ground\.transcript\)/);
+    const head = text("HomeView.swift").match(/struct SectionHead<[\s\S]*?\n}\n/)![0];
+    expect(head).toContain(".pinnedOnGround()");
+  });
 });
