@@ -72,20 +72,10 @@ struct MoveSheet: View {
 
     @ViewBuilder
     private func content(_ options: MoveOptions, agent: String, pending: PendingMove?) -> some View {
-        Section {
-            LabeledContent {
-                Text(MoveWords.detail(options.from))
-                    .mono(.footnote)
-                    .foregroundStyle(Palette.ink2)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            } label: {
-                Label(options.mac, systemImage: "laptopcomputer")
-                    .foregroundStyle(Palette.ink)
-            }
-            .listRowBackground(Fill.card)
-        } header: {
-            Text("Runs on")
+        Section("Runs on") {
+            place(title: options.from.name, line: MoveWords.detail(options.from), symbol: Self.symbol(options.from), mono: true)
+                .accessibilityElement(children: .combine)
+                .listRowBackground(Fill.card)
         }
         if let refusal = model.moveRefusals[sessionId] ?? options.blocked.map(MoveWords.blocked) {
             Section {
@@ -120,7 +110,7 @@ struct MoveSheet: View {
                             symbol: "arrow.triangle.branch", enabled: options.worktree.available)
                 ForEach(options.checkouts) { checkout in
                     destination(.checkout(environmentId: checkout.environmentId), title: checkout.name, line: MoveWords.detail(checkout),
-                                symbol: checkout.kind == .worktree ? "arrow.triangle.branch" : "folder", enabled: true, mono: true)
+                                symbol: Self.symbol(checkout), enabled: true, mono: true)
                 }
             }
         }
@@ -162,30 +152,42 @@ struct MoveSheet: View {
         }
     }
 
-    /// A place it could go: its name, a line under it, and a check on the one chosen.
+    /// A worktree by its branch's glyph, any other checkout by a folder.
+    private static func symbol(_ checkout: Checkout) -> String {
+        checkout.kind == .worktree ? "arrow.triangle.branch" : "folder"
+    }
+
+    /// A checkout as the sheet draws it: its glyph, its name, and a line under it.
+    private func place(title: String, line: String?, symbol: String, mono: Bool) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .font(.body)
+                .foregroundStyle(Palette.ink2)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.body)
+                    .foregroundStyle(Palette.ink)
+                if let line {
+                    Group {
+                        if mono { Text(line).mono(.footnote) } else { Text(line).font(.subheadline) }
+                    }
+                    .foregroundStyle(Palette.ink2)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                }
+            }
+        }
+    }
+
+    /// A place it could go, with a check on the one chosen.
     private func destination(_ place: MoveTarget, title: String, line: String?, symbol: String, enabled: Bool, mono: Bool = false) -> some View {
         Button {
             target = place
         } label: {
-            HStack(spacing: 12) {
-                Image(systemName: symbol)
-                    .font(.body)
-                    .foregroundStyle(Palette.ink2)
-                    .frame(width: 24)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.body)
-                        .foregroundStyle(Palette.ink)
-                    if let line {
-                        Group {
-                            if mono { Text(line).mono(.footnote) } else { Text(line).font(.subheadline) }
-                        }
-                        .foregroundStyle(Palette.ink2)
-                        .lineLimit(2)
-                        .truncationMode(.middle)
-                    }
-                }
-                Spacer(minLength: 8)
+            HStack(spacing: 8) {
+                self.place(title: title, line: line, symbol: symbol, mono: mono)
+                Spacer(minLength: 0)
                 Image(systemName: "checkmark")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(Palette.accent)

@@ -160,6 +160,18 @@ struct MoveTests {
         #expect(MoveWords.changes(1) == "1 changed file, uncommitted")
     }
 
+    /// From a worktree, the space's own folder is named by its folder, as the desktop's sheet names it,
+    /// not "This checkout", which reads as where the session already is.
+    @Test func everyCheckoutIsNamedByItsFolder() {
+        let primary = Checkout(environmentId: "e", path: "~/realm", branch: "main", kind: .primary)
+        let worktree = Checkout(environmentId: "w", path: "~/Realm/worktrees/realm/feat-theme", branch: "realm/feat-theme", kind: .worktree)
+        let options = MoveOptions(mac: "MacBook Pro", from: worktree, busy: false, blocked: nil, pending: false, conversation: .native,
+                                  changedFiles: 0, leftBehind: [], checkouts: [primary], worktree: .init(available: true, reason: nil))
+        #expect(primary.name == "realm" && worktree.name == "feat-theme")
+        #expect(MoveWords.detail(primary) == "main · ~/realm")
+        #expect(MoveWords.destination(.checkout(environmentId: "e"), in: options) == "realm")
+    }
+
     @Test func aMacBeforeStopsSaysNothingOfThem() throws {
         let json = #"{"mac":"M","from":{"environmentId":"e","path":"~/r","branch":null,"kind":"primary"},"busy":false,"blocked":null,"pending":false,"conversation":"native","changedFiles":0,"leftBehind":[],"checkouts":[],"worktree":{"available":true,"reason":null}}"#
         #expect(try JSONDecoder().decode(MoveOptions.self, from: Data(json.utf8)).stops == nil)
