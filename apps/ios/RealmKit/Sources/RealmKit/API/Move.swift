@@ -151,8 +151,8 @@ public enum MoveWords {
     /// How the conversation goes with it.
     public static func conversation(_ conversation: MoveOptions.Conversation, agent: String) -> String {
         switch conversation {
-        case .native: "\(agent) picks up the conversation where it left off."
-        case .notes: "\(agent) starts fresh there, handed the conversation as notes."
+        case .native: "\(agent) picks up where it left off, or from notes if it can't."
+        case .notes: "\(agent) continues from notes."
         }
     }
 
