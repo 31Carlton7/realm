@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import {
   AGENT_META, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, isSecretPath, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, readEffortSupport,
-  resolveMidTurnMode, SELECTABLE_AGENT_KINDS, sessionEvent, type AgentKind, type DelegatedChild, type IconAsset, type Item, type Machine, type MethodResult, type ModelInfo,
+  resolveMidTurnMode, SELECTABLE_AGENT_KINDS, type AgentKind, type DelegatedChild, type IconAsset, type Item, type Machine, type MethodResult, type ModelInfo,
   type PendingMove, type QueuedPrompt, type Schedule, type Session, type Space, type StoredSessionEvent, type TurnChanges,
 } from "@realm/contracts";
 import { givenAttachmentName, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
@@ -500,7 +500,6 @@ export class MobileApi {
     const rpc = ctx.rpc;
     try {
       const session = await rpc.call("sessions.get", { id });
-      entry.projector.agent = AGENT_META[session.agentKind]?.label ?? session.agentKind;
       const read = await rpc.call("sessions.queued", { id });
       // What a broadcast carried before the read is in it; one from here on is newer than it.
       entry.queued = null;
@@ -518,8 +517,6 @@ export class MobileApi {
       for (const ev of entry.buffer ?? []) entry.projector.apply(ev);
       const queued = entry.queued ?? read.queued;
       const move = entry.queued ? entry.move : read.move ?? null;
-      // A move's progress is never stored, so one under way is drawn at the step it has reached.
-      if (move?.step) entry.projector.apply({ seq: -1, sessionId: id, event: sessionEvent("moving", { moveId: move.moveId, step: move.step }) });
       entry.buffer = null;
       entry.queued = null;
       entry.move = null;

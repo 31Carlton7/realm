@@ -160,20 +160,25 @@ async function generate(): Promise<Record<string, unknown>> {
         moveId: "01JMOVE0000000000000000001", from: { machine: null, environmentId: CHECKOUT, cwd: "/Users/me/realm", branch: "main" },
         to: { machine: null, environmentId: WORKTREE, cwd: "/Users/me/Realm/worktrees/realm/tidy-settings", branch: "tidy-settings" },
         conversation: "native", changedFiles: 4, leftBehind: ["the terminal"], preface: "Realm moved this session.",
-        note: "Moved from ~/realm to ~/Realm/worktrees/realm/tidy-settings. The conversation continued.",
+        note: "Moved from realm (main) to tidy-settings. The conversation continued.",
       }),
       sessionEvent("move_failed", {
         moveId: "01JMOVE0000000000000000002", step: "place", reason: "another session started working in that checkout",
         from: { machine: null, environmentId: WORKTREE, cwd: "/Users/me/Realm/worktrees/realm/tidy-settings", branch: "tidy-settings" },
-        note: "Could not move this session: another session started working in that checkout. It is still in ~/Realm/worktrees/realm/tidy-settings, as it was.",
+        note: "Couldn't move this session while setting up the checkout. It's still in tidy-settings.",
       }),
       sessionEvent("moved", {
         moveId: "01JMOVE0000000000000000003", from: { machine: null, environmentId: WORKTREE, cwd: "/Users/me/Realm/worktrees/realm/tidy-settings", branch: "tidy-settings" },
         to: { machine: null, environmentId: CHECKOUT, cwd: "/Users/me/realm", branch: "main" },
         conversation: "notes", changedFiles: 0, leftBehind: [], preface: "Realm moved this session.",
-        note: "Moved from ~/Realm/worktrees/realm/tidy-settings to ~/realm. The conversation was carried as notes.",
+        note: "Moved from tidy-settings to realm (main). The conversation continued from notes.",
       }),
     ].map((event, i) => ({ seq: i + 1, sessionId: OLDER[0]!, event })),
+    // Another session part way through a move: each step it reached is stored.
+    ...[
+      sessionEvent("moving", { moveId: UNDER_WAY.moveId, step: "preflight" }),
+      sessionEvent("moving", { moveId: UNDER_WAY.moveId, step: "place" }),
+    ].map((event, i) => ({ seq: i + 1, sessionId: OLDER[2]!, event })),
     // Cursor named its own modes when the session started, which is what offers Plan and Ask on it.
     { seq: 1, sessionId: QUIET, event: sessionEvent("init", {
       providerSessionId: "cursor-1", model: "composer-2", tools: [], cwd: "/tmp",

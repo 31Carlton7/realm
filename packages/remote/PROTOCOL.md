@@ -442,13 +442,14 @@ A **notice** may lead somewhere. A turn's changes carry `checkpointId`, which `s
 opens. A turn's files made carry `files`, each of which `session.file` previews.
 
 A **move** is one notice, keyed `mv:<moveId>`. While it goes it carries `move: "moving"` and the step
-it has reached, as the desktop's progress row names it ("Moving · Setting up the checkout"), sent as
-streamed rows are; the same row then says how it ended, in the desktop's words: `moved` ("Moved from
-realm (main) to tidy-settings (tidy-settings). The conversation continued.", or "…continued from
-notes."), with both paths in `detail` ("~/realm → ~/Realm/worktrees/realm/tidy-settings"); or
-`failed`, the Mac's sentence for why and where the session still is, with the step it stopped at in
-`detail`. Only how it ended is stored, so a session opened later shows that alone. A phone that knows
-no `move` draws each as the notice it is.
+it has reached, as the desktop's progress row names it ("Moving · Setting up the checkout"); the same
+row then says how it ended, in the desktop's words: `moved` ("Moved from realm (main) to
+tidy-settings. The conversation continued.", or "…continued from notes."), with both paths in
+`detail` ("~/realm → ~/Realm/worktrees/realm/tidy-settings"); or `failed`, the one sentence for the
+step it stopped at and where the session still is ("Couldn't move this session while setting up the
+checkout. It's still in tidy-settings."), with the Mac's reason, then whatever it left as it was, in
+`detail`. Each step is stored, so a session opened mid-move shows its progress row, and one opened
+later shows how the move ended. A phone that knows no `move` draws each as the notice it is.
 
 A **user row** carries `attachments` when files were sent with the message: each by its path on the
 Mac, its name and its type, as the message's `user_message` recorded them. `session.file` previews
@@ -856,9 +857,9 @@ Checkout { environmentId, path, branch: string|null, kind: "primary"|"checkout"|
                 step: "preflight"|"freeze"|"snapshot"|"place"|"boot"|"commit"|null }
   ```
 
-  `step` is null while it waits for the turn to end, and the step it is at once under way. A move's
-  progress is never stored, so `session.open` on a session mid-move puts its progress row in `rows`
-  at that step. `move` is null once it is over, and absent from a Mac before it was sent.
+  `step` is null while it waits for the turn to end, and the step it is at once under way. The
+  progress row is drawn from the stored steps in `rows`, not from `move`. `move` is null once it is
+  over, and absent from a Mac before it was sent.
 
 **Opening a session subscribes the channel to it.** From then until `session.close` or the end of
 the channel, the Mac sends that session's `session.rows`, `session.status`, `session.hint`,

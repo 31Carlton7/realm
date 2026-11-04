@@ -971,12 +971,12 @@ describe("Plan 29's parity: what a phone hears, at the moment it hears it", () =
     const rows: { key: string; move?: string }[] = [];
     phone.on("session.rows", (p) => { rows.push(...(MobileEvents["session.rows"].parse(p).rows as { key: string; move?: string }[])); });
     broadcast("session.status", { sessionId: "s1", status: "moving" });
-    broadcast("session.event", { sessionId: "s1", seq: -1, ephemeral: true, event: sessionEvent("moving", { moveId: "m", step: "place" }) });
+    broadcast("session.event", { sessionId: "s1", seq: 1, ephemeral: false, event: sessionEvent("moving", { moveId: "m", step: "place" }) });
     // Progress goes out with the deltas' timer, as the latest step the move has reached.
     await waitFor(() => rows.length === 1);
     const place = { machine: null, environmentId: "01J00000000000000000000000", cwd: "/r", branch: null };
-    broadcast("session.event", { sessionId: "s1", seq: 1, ephemeral: false, event: sessionEvent("moved", {
-      moveId: "m", from: place, to: { ...place, cwd: "/w" }, conversation: "native", changedFiles: 0, leftBehind: [], preface: "p", note: "Moved from /r to /w. The conversation continued.",
+    broadcast("session.event", { sessionId: "s1", seq: 2, ephemeral: false, event: sessionEvent("moved", {
+      moveId: "m", from: place, to: { ...place, cwd: "/w" }, conversation: "native", changedFiles: 0, leftBehind: [], preface: "p", note: "Moved from r to w. The conversation continued.",
     }) });
     broadcast("session.status", { sessionId: "s1", status: "idle" });
     await waitFor(() => statuses.length === 2 && rows.length === 2);

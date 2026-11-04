@@ -1686,16 +1686,19 @@ describe("moving a session from the phone", () => {
     expect(await api().handle(channel(none), "session.queue", { id: "a" })).toEqual({ queued: [], move: null });
   });
 
-  it("opens a session mid-move on its progress row, at the step the move has reached", async () => {
+  it("opens a session mid-move on the one progress row its stored steps draw, and the move beside it", async () => {
     const underWay = { moveId: "m", to: { kind: "worktree" as const }, step: "place" as const };
+    const log = [stored("a", sessionEvent("moving", { moveId: "m", step: "preflight" })), stored("a", sessionEvent("moving", { moveId: "m", step: "place" }))];
     const rpc = fakeRpc({ sessions: [session("a", "s1", { status: "moving" })], items: [item("a", "s1", "A")] }, {
       "sessions.queued": (() => ({ queued: [], move: underWay })) as never,
+      "sessions.events": eventsOf(log) as never,
       "agents.probe": (() => []) as never,
     });
     const opened = MobileCalls["session.open"].result.parse(await api().handle(channel(rpc), "session.open", { id: "a" }));
     expect(opened.move).toEqual({ moveId: "m", to: { kind: "worktree" }, step: "place" });
-    // THE MUTANT: carry the step without drawing it, and the phone opens on a transcript that says nothing is happening.
+    // THE MUTANT: a second row drawn from the move's step, and the phone shows the move under way twice.
     expect(opened.rows).toMatchObject([{ key: "mv:m", kind: "notice", move: "moving", text: "Moving · Setting up the checkout" }]);
+    expect(opened.rows).toHaveLength(1);
     const queued = fakeRpc({ sessions: [session("a", "s1")], items: [item("a", "s1", "A")] }, {
       "sessions.queued": (() => ({ queued: [], move: { ...underWay, step: null } })) as never,
       "agents.probe": (() => []) as never,

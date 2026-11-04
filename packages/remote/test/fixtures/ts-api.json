@@ -3277,7 +3277,7 @@
           "key": "mv:01JMOVE0000000000000000001",
           "seq": 2,
           "kind": "notice",
-          "text": "Moved from realm (main) to tidy-settings (tidy-settings). The conversation continued.",
+          "text": "Moved from realm (main) to tidy-settings. The conversation continued.",
           "detail": "~/realm → ~/Realm/worktrees/realm/tidy-settings",
           "move": "moved"
         },
@@ -3285,7 +3285,7 @@
           "key": "mv:01JMOVE0000000000000000002",
           "seq": 3,
           "kind": "notice",
-          "text": "Couldn't move this session while setting up the checkout. It's still in tidy-settings (tidy-settings).",
+          "text": "Couldn't move this session while setting up the checkout. It's still in tidy-settings.",
           "detail": "another session started working in that checkout",
           "move": "failed"
         },
@@ -3293,7 +3293,7 @@
           "key": "mv:01JMOVE0000000000000000003",
           "seq": 4,
           "kind": "notice",
-          "text": "Moved from tidy-settings (tidy-settings) to realm (main). The conversation continued from notes.",
+          "text": "Moved from tidy-settings to realm (main). The conversation continued from notes.",
           "detail": "~/Realm/worktrees/realm/tidy-settings → ~/realm",
           "move": "moved"
         }
@@ -3394,7 +3394,7 @@
       "rows": [
         {
           "key": "mv:01JMOVE0000000000000000005",
-          "seq": 0,
+          "seq": 2,
           "kind": "notice",
           "text": "Moving · Setting up the checkout",
           "move": "moving"
