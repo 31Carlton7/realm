@@ -109,7 +109,7 @@ export class WebVoiceAudio implements VoiceAudio {
   }
 
   get talking(): boolean {
-    return !!this.ctx && this.ctx.currentTime < this.until + TAIL_S;
+    return !!this.ctx && this.until > 0 && this.ctx.currentTime < this.until + TAIL_S;
   }
 
   wave(side: "mine" | "realm", into: Float32Array<ArrayBuffer>): boolean {

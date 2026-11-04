@@ -144,10 +144,12 @@ function VoiceWindow({ sessionId, held }: { sessionId: string; held: boolean }) 
       </div>
       <div className="voice-stage">
         <section className="voice-side" data-side="realm" aria-label={name}>
+          <span className="voice-side-name" aria-hidden="true">{name}</span>
           <Wave audio={audio} side="realm" active={snap.phase === "speaking"} />
           <p className="voice-words" data-selectable aria-live="polite">{snap.said ?? ""}</p>
         </section>
         <section className="voice-side" data-side="mine" aria-label="You">
+          <span className="voice-side-name" aria-hidden="true">You</span>
           <Wave audio={audio} side="mine" active={!snap.muted || snap.held} />
           <p className="voice-words" data-selectable data-live={live ? "" : undefined} aria-live="polite">{live || snap.heard || ""}</p>
         </section>
@@ -199,6 +201,8 @@ function Wave({ audio, side, active }: { audio: { current: VoiceAudio | null }; 
     const g = el?.getContext("2d");
     if (!el || !g) return;
     const samples = new Float32Array(1024);
+    // A voice at the microphone is quiet next to a synthesized one at full scale.
+    const gain = side === "mine" ? 4 : 2;
     let frame = 0;
     const still = () => prefersReducedMotion() || ["always", "unfocused"].includes(document.documentElement.getAttribute("data-quiet") ?? "");
     const draw = () => {
@@ -216,7 +220,7 @@ function Wave({ audio, side, active }: { audio: { current: VoiceAudio | null }; 
       const step = samples.length / Math.max(1, w);
       for (let x = 0; x <= w; x++) {
         const v = have ? samples[Math.min(samples.length - 1, Math.floor(x * step))]! : 0;
-        const y = h / 2 - Math.max(-1, Math.min(1, v * 4)) * (h / 2 - 2);
+        const y = h / 2 - Math.max(-1, Math.min(1, v * gain)) * (h / 2 - 2);
         if (x === 0) g.moveTo(x, y); else g.lineTo(x, y);
       }
       g.stroke();

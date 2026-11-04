@@ -57,8 +57,6 @@ export class TurnTaker {
 
   configure(config: TurnConfig): void { this.config = config; }
 
-  get inTurn(): boolean { return this.speaking; }
-
   /** One measurement of the microphone: its RMS level at `now` (ms). */
   frame(level: number, now: number, ctx: FrameContext): TurnEvent[] {
     if (this.held) return [];
@@ -118,12 +116,5 @@ export class TurnTaker {
     if (!this.speaking) return [];
     this.speaking = false;
     return [{ type: "end" }];
-  }
-
-  /** Drop the turn in progress, if any, without ending it. */
-  reset(): void {
-    this.speaking = false;
-    this.held = false;
-    this.aboveSince = null;
   }
 }
