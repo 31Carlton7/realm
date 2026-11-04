@@ -356,15 +356,15 @@ describe("§6 motion table", () => {
   });
 
   it("every disclosure in the app opens the same way — one rule, never a second guess at max-height", () => {
-    // The sidebar's space sections ride the tool row's declaration rather than carrying a copy.
-    // max-height is the alternative, and it is the wrong one twice over: the number has to be
-    // guessed, and the easing then runs against a height the content does not have, so a short list
-    // snaps and a long one is clipped.
-    for (const sel of [".sb-section-wrap", ".tool-body-wrap"])
+    // The scheduled runs ride the tool row's declaration rather than carrying a copy. max-height is
+    // the alternative, and it is the wrong one twice over: the number has to be guessed, and the
+    // easing then runs against a height the content does not have, so a short list snaps and a long
+    // one is clipped.
+    for (const sel of [".sched-runs-wrap", ".tool-body-wrap"])
       expect(bodiesFor(sel).join(" "), sel).toContain(`transition: grid-template-rows ${dur("--dur-base")} var(--ease-in-out-strong)`);
-    expect(bodiesFor(".sb-section-wrap[data-open]").join(" ")).toContain("grid-template-rows: 1fr");
-    // 0fr only clips against an overflow container; without it the folded rows spill up the sidebar.
-    expect(bodiesFor(".sb-section-clip").join(" ")).toContain("overflow: hidden");
+    expect(bodiesFor(".sched-runs-wrap[data-open]").join(" ")).toContain("grid-template-rows: 1fr");
+    // 0fr only clips against an overflow container; without it the folded rows spill out of the list.
+    expect(bodiesFor(".sched-runs-clip").join(" ")).toContain("overflow: hidden");
     expect(css, "no disclosure may animate max-height").not.toMatch(/transition:[^;]*max-height/);
   });
 
@@ -420,9 +420,9 @@ describe("§6 motion table", () => {
     // The head row is the 40px band the traffic lights centre in, beside the rail's.
     expect(bodiesFor(".sb-header").join(" ")).toContain("height: var(--frame-top)");
     expect(bodiesFor(":root").join(" ")).toContain("--frame-top: 40px");
-    // The profile's name is the unbounded part of its row, so it is what gives way.
-    expect(bodiesFor(".sb-profile").join(" ")).toContain("min-width: 0");
-    expect(bodiesFor(".sb-profile-name").join(" ")).toContain("text-overflow: ellipsis");
+    // The space's name is the unbounded part of its row, so it is what gives way.
+    expect(bodiesFor(".sb-space-title").join(" ")).toContain("min-width: 0");
+    expect(bodiesFor(".sb-space-name").join(" ")).toContain("text-overflow: ellipsis");
     expect(bodiesFor(".sb-header-actions").join(" ")).toContain("flex: none");
   });
 
@@ -1517,8 +1517,8 @@ describe("Plan 9 W1 — the BUI bridge", () => {
     const px = (body: string, re: RegExp) => Number(re.exec(body)?.[1]);
     const root = RULES.filter((r) => r.selectors.includes(":root") && r.body.includes("--col-head-top")).map((r) => r.body).join(" ");
     expect(root).toContain("--col-head-top: 17px");
-    // The profile and the Back: a 30px control each, at the token's depth.
-    const row = px(bodiesFor(".sb-profile").join(" "), /height: (\d+)px/);
+    // The space's title and the Back: a 30px row each, at the token's depth.
+    const row = px(bodiesFor(".sb-space-title").join(" "), /height: (\d+)px/);
     expect(px(bodiesFor(".sb-page-back").join(" "), /height: (\d+)px/)).toBe(row);
     expect(bodiesFor(".sb-title").join(" ")).toContain("padding-top: var(--col-head-top)");
     expect(bodiesFor(".sb-page-head").join(" ")).toContain("padding: var(--col-head-top) 16px 0");

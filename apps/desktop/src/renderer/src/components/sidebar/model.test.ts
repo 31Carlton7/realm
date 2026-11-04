@@ -3,7 +3,7 @@ import type { Item, Session, SessionStatus } from "@realm/contracts";
 import { item, profile, session, space } from "../../state/store.test-fakes";
 import {
   agentsWaiting, attentionRank, FAN_OUT_GAP_MS, listedSessions, needsYou, orderSpaces, pinnedItems, profileWaiting, recentDays, reorderWithin,
-  rowsBySpace, sameRow, sectionView, spaceRows, spaceTally, tallyOf, tallyWords, type SessionRow, type SidebarState,
+  rowsBySpace, sameRow, sectionView, spaceRows, tallyOf, tallyWords, type SessionRow, type SidebarState,
 } from "./model";
 
 const NOW = new Date(2026, 9, 4, 15, 0).getTime();
@@ -228,29 +228,7 @@ describe("sectionView", () => {
   });
 });
 
-describe("a space's tally", () => {
-  it("counts every session working in the space, a sub-agent's included", () => {
-    const s = seed([
-      { id: "w", space: "hw", status: "waiting_permission" }, { id: "r", space: "hw", status: "running" },
-      { id: "kid", space: "hw", status: "running", session: { dispatchedBy: { kind: "agent_run", sessionId: "r" } } },
-      { id: "e", space: "hw", status: "error" }, { id: "elsewhere", space: "th", status: "running" },
-    ]);
-    expect(spaceTally(s, "hw", listedSessions(s))).toEqual({ waiting: 1, running: 2, failed: 1, unread: 0 });
-  });
-
-  it("counts unread only on a row with nothing louder to show", () => {
-    const s = seed([
-      { id: "u", space: "hw", session: { seenSeq: 1, lastEventSeq: 4 } },
-      { id: "busy", space: "hw", status: "running", session: { seenSeq: 1, lastEventSeq: 4 } },
-    ]);
-    expect(spaceTally(s, "hw", listedSessions(s))).toMatchObject({ running: 1, unread: 1 });
-  });
-
-  it("leaves the quick chat out", () => {
-    const s = seed([{ id: "q", space: "hw", status: "running" }], { quickChatId: "q" });
-    expect(spaceTally(s, "hw", listedSessions(s)).running).toBe(0);
-  });
-
+describe("a tally", () => {
   it("says itself in words, most urgent first", () => {
     expect(tallyWords({ waiting: 2, running: 3, failed: 1, unread: 1 })).toEqual(["2 waiting on you", "1 failed", "3 running", "1 unread"]);
     expect(tallyWords(tallyOf([]))).toEqual([]);

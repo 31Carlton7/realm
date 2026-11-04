@@ -585,13 +585,15 @@ kbd { font: 11px var(--font-mono); }
    where the back button is"). The caps start 8px into the row, so 17px puts them 25px down. */
 :root { --col-head-top: 17px; }
 .sb-title { flex: none; display: flex; align-items: center; padding-top: var(--col-head-top); }
-.sb-profile { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px;
-  border-radius: var(--r-ctl); corner-shape: squircle; font-size: 14px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
-.sb-profile:hover:not(:disabled) { background: var(--rl-hover); }
-.sb-profile[aria-expanded="true"] { background: var(--rl-active); }
+/* The space's name as the column's title (SpaceTitle): plain, its "···" coming up under the pointer
+   and staying while its menu is open or the keyboard is on it. */
+.sb-space-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 2px 0 8px; }
+.sb-space-name { flex: 0 1 auto; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 14px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+input.sb-space-name { flex: 1; }
+.sb-space-more { margin-left: auto; opacity: 0; }
+.sb-space-title:hover .sb-space-more, .sb-space-more:focus-visible, .sb-space-more[aria-expanded="true"] { opacity: 1; }
 .sb-profile-mark { flex: none; display: grid; place-items: center; }
-.sb-profile-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sb-profile-caret { flex: none; color: var(--rl-text-faint); }
 .sb-header-actions { flex: none; margin-left: auto; display: flex; align-items: center; gap: 2px; }
 .sb-header .icon-btn[data-dragging] { opacity: .45; }
 
@@ -773,6 +775,23 @@ kbd { font: 11px var(--font-mono); }
    its centre near the glyph's corner, so the glyph under it is still the glyph it is. */
 .rail-glyph { position: relative; display: grid; place-items: center; }
 .rail-glyph .sb-badge { top: -8px; right: -12px; }
+/* The profile's spaces (RailSpaces), under a divider: a tile each in the space's own colour, the one
+   the column shows lit as a destination is, with a mark at the rail's edge as Slack marks its
+   workspace. The group scrolls on its own when there are more spaces than the window has room for,
+   so the foot never moves. */
+.rail-spaces { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  width: 100%; padding: 2px 0 6px; overflow-y: auto; scrollbar-width: none; }
+.rail-divider { flex: none; width: 20px; height: 1px; margin-bottom: 2px; background: var(--line-strong); }
+.rail-space, .rail-new-space { flex: none; }
+.rail-space-tile { display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--r-chip); corner-shape: squircle;
+  color: var(--rl-text-dim); background: color-mix(in srgb, currentColor 16%, transparent); }
+.rail-space[aria-pressed="true"]::before { content: ""; position: absolute; left: -8px; top: 8px; bottom: 8px; width: 3px;
+  border-radius: 0 2px 2px 0; background: var(--rl-text-bright); }
+.rail-space[data-drag-over] { box-shadow: inset 0 2px 0 var(--rl-accent); }
+/* Another profile has something waiting: the one amber dot, at the avatar's shoulder, ringed in the
+   rail's ground so it reads off the picture under it. */
+.rail-you-dot { position: absolute; top: 5px; right: 5px; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--orange); box-shadow: 0 0 0 2px var(--rl-frame); }
 /* A newer Realm (RailUpdate): the accent disc Codex keeps at the foot of its rail. It is the one
    control here that wants a click soon, so it is the one filled thing in the column — white on the
    fill in both modes, as every accent-filled control is. A press darkens the fill (design.md: a press
@@ -978,20 +997,14 @@ kbd { font: 11px var(--font-mono); }
    to a cap, so a four-letter space is never cut to "L." to make room for a long title. */
 .item-where { flex: none; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 12px; color: var(--rl-text-faint); }
-/* ── The list (Plan 27): spaces as sections, Recent, New space ──
-   A section's head is a row like any other — name, state at the far end, actions in that slot under
-   the pointer — with a caret before the space's icon. Its sessions sit under it with their titles on
-   the space's name and no glyph of their own: the gutter under the space's icon is theirs, and holds
-   the one mark a row has to wear there (a schedule's clock, a fan-out's caret). */
-.sb-sections, .sb-section { display: flex; flex-direction: column; }
-.sb-section + .sb-section { margin-top: 4px; }
-.sb-section-head > .item-row { color: var(--rl-text-bright); }
-.sb-section-head[data-drag-over] { box-shadow: inset 0 2px 0 var(--rl-accent); }
+/* ── The list (Plan 27): the space on screen, and Recent ──
+   The space's sessions sit under its team with their titles on one column and no glyph of their own:
+   the gutter is theirs, and holds the one mark a row has to wear there (a schedule's clock, a
+   fan-out's caret). */
+.sb-section { display: flex; flex-direction: column; }
 .sb-caret { flex: none; width: 12px; display: grid; place-items: center; color: var(--rl-text-faint);
   transition: transform var(--dur-pop) var(--ease-out-strong); }
 .sb-caret[data-open] { transform: rotate(90deg); }
-/* The caret and the space's icon are one cluster: 6px between them, not the row's 10. */
-.sb-section-head .sb-caret { margin-right: -4px; }
 .sb-space-icon { flex: none; display: grid; place-items: center; }
 /* 26px puts a nested row's 16px gutter under the head's icon and its title on the head's name. */
 .sb-row[data-nested] > .item-row { padding-left: 26px; }
@@ -1002,11 +1015,6 @@ kbd { font: 11px var(--font-mono); }
 /* "Show more" is a line of text on the titles' column, not a row: it cannot be mistaken for a session. */
 .sb-more { margin: 0 0 4px 46px; }
 .sb-start { color: var(--rl-text-faint); }
-/* New space at the column's foot, outside the scroller, so no length of list can carry it off (the owner,
-   10-04). The list dissolves into it while there are rows below; its own step under the last row. */
-.sb-foot { flex: none; padding: 2px 0 10px; }
-.sb-new-space { flex: none; width: 100%; min-height: 32px; color: var(--rl-text-dim); }
-.sb-new-space:hover { color: var(--rl-text-bright); }
 .sb-recent .sb-day:first-child > .group-label { padding-top: 4px; }
 /* The Activity view's cards (the owner, 10-12). A session there carries more than one line — where
    and when over what — and a list of those is a list of cards (design.md, Shape): air between them,
@@ -4575,9 +4583,9 @@ button.edit-file:hover { background: var(--rl-hover); }
    against a height the list does not have.
    The tool card's half addresses DIRECT children: a card now contains its sub-agent's cards, and a
    descendant selector would have opening the parent unfold every body beneath it. */
-.tool-body-wrap, .sb-section-wrap, .sched-runs-wrap, .subagent-view-result-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-base) var(--ease-in-out-strong); }
-.tool-card[data-open] > .tool-body-wrap, .sb-section-wrap[data-open], .sched-runs-wrap[data-open], .subagent-view-result-wrap[data-open] { grid-template-rows: 1fr; }
-.tool-body-clip, .sb-section-clip, .sched-runs-clip, .subagent-view-result-clip { overflow: hidden; min-height: 0; }
+.tool-body-wrap, .sched-runs-wrap, .subagent-view-result-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--dur-base) var(--ease-in-out-strong); }
+.tool-card[data-open] > .tool-body-wrap, .sched-runs-wrap[data-open], .subagent-view-result-wrap[data-open] { grid-template-rows: 1fr; }
+.tool-body-clip, .sched-runs-clip, .subagent-view-result-clip { overflow: hidden; min-height: 0; }
 .tool-card[data-open] > .tool-body-wrap .tool-body { opacity: 1; }
 
 /* Grouped runs (§2.8/§5) wear BUI ThinkingState's header + trace (Plan 9 W2): the head is
@@ -7201,7 +7209,7 @@ select { appearance: none; padding-right: 22px;
    control's fill has ONE timing however the fill is drawn; on the rows that never paint it names a
    property that never changes, which costs nothing. */
 .item-row, .item-close, .item-shelf, .item-disclose, .item-act, .icon-btn, .btn, .ghost-chip, .tool-row, .tool-group-row, .tool-copy, .msg-action,
-.delegation-row, .delegation-item, .rail-btn, .rail-nav-btn, .panel-crumb, .sb-profile,
+.delegation-row, .delegation-item, .rail-btn, .rail-nav-btn, .panel-crumb,
 .space-card, .palette-opt, .permission-option, .menu [role^="menuitem"],
 .question-option, .question-skip {
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease, --sq-fill var(--dur-hover) ease;

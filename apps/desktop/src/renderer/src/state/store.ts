@@ -1148,16 +1148,16 @@ export type AppState = TeammatesSlice & {
   /** Which lens the sidebar's list wears: the profile's spaces as sections, or every session by time
    *  (`ui.sidebarLens`). */
   sidebarLens: "spaces" | "recent";
-  /** The space sections folded shut, by space id (`ui.sidebarCollapsedSpaces`). A section is open
-   *  unless listed, so a new space arrives with its sessions showing. */
-  sidebarCollapsedSpaces: string[];
   /** The Team and Sessions lists folded shut inside a space's section, as `<spaceId>/team` and
    *  `<spaceId>/sessions` (`ui.sidebarFoldedLists`). Open unless listed, like the sections. */
   sidebarFoldedLists: string[];
   hydrateSidebarPrefs(): Promise<void>;
   setSidebarLens(lens: "spaces" | "recent"): Promise<void>;
-  setSpaceSectionCollapsed(spaceId: string, collapsed: boolean): Promise<void>;
   setSpaceListFolded(spaceId: string, list: "team" | "sessions", folded: boolean): Promise<void>;
+  /** The space whose name the column's title is being edited for, from a tile's Rename… or the
+   *  title's own menu. Null when nothing is being renamed. */
+  renamingSpaceId: string | null;
+  renameSpaceInColumn(spaceId: string | null): void;
   // ——— end Plan 27 ———
   /**
    * Whether deleting something asks first.
@@ -5095,19 +5095,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       },
       // ——— Plan 27: the sidebar's remembered choices (see `sidebarLens`) ———
       sidebarLens: "spaces",
-      sidebarCollapsedSpaces: [],
       sidebarFoldedLists: [],
+      renamingSpaceId: null,
+      renameSpaceInColumn(spaceId) { set({ renamingSpaceId: spaceId }); },
       async hydrateSidebarPrefs() {
-        const before = { lens: get().sidebarLens, folded: get().sidebarCollapsedSpaces, lists: get().sidebarFoldedLists };
-        const [lens, folded, lists] = await Promise.all([
-          api.getSetting("ui.sidebarLens"), api.getSetting("ui.sidebarCollapsedSpaces"), api.getSetting("ui.sidebarFoldedLists"),
-        ]);
-        // Anything but the two words, or a list of ids, reads as the resting state: Spaces, all open.
+        const before = { lens: get().sidebarLens, lists: get().sidebarFoldedLists };
+        const [lens, lists] = await Promise.all([api.getSetting("ui.sidebarLens"), api.getSetting("ui.sidebarFoldedLists")]);
+        // Anything but the two words, or a list of keys, reads as the resting state: Spaces, all open.
         // A choice made while the settings were being read wins over what they said.
         if (get().sidebarLens === before.lens) set({ sidebarLens: lens === "recent" ? "recent" : "spaces" });
-        if (get().sidebarCollapsedSpaces === before.folded) {
-          set({ sidebarCollapsedSpaces: Array.isArray(folded) ? folded.filter((id): id is string => typeof id === "string") : [] });
-        }
         if (get().sidebarFoldedLists === before.lists) {
           set({ sidebarFoldedLists: Array.isArray(lists) ? lists.filter((k): k is string => typeof k === "string") : [] });
         }
@@ -5115,14 +5111,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async setSidebarLens(lens) {
         set({ sidebarLens: lens });
         await api.setSetting("ui.sidebarLens", lens);
-      },
-      async setSpaceSectionCollapsed(spaceId, collapsed) {
-        const known = new Set(get().spaces.map((s) => s.id));
-        // A deleted space's id is dropped on the way past, so the key never outgrows the home.
-        const kept = get().sidebarCollapsedSpaces.filter((id) => id !== spaceId && known.has(id));
-        const next = collapsed ? [...kept, spaceId] : kept;
-        set({ sidebarCollapsedSpaces: next });
-        await api.setSetting("ui.sidebarCollapsedSpaces", next);
       },
       async setSpaceListFolded(spaceId, list, folded) {
         const key = `${spaceId}/${list}`;

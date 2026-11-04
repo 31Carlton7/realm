@@ -81,7 +81,7 @@ async function mountSidebar(over: FakeData = {}) {
   return { api, store, ...r };
 }
 
-const titles = () => [...screen.getByRole("region", { name: "Versed" }).querySelectorAll(".sb-section-clip .item-title")].map((t) => t.textContent);
+const titles = () => [...screen.getByRole("region", { name: "Versed" }).querySelectorAll(".item-title")].map((t) => t.textContent);
 
 describe("the sidebar's Team list", () => {
   it("heads the space with its teammates, the Lead first, and lists their sessions there and nowhere else", async () => {

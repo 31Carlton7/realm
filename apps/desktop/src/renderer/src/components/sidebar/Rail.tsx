@@ -1,20 +1,29 @@
 import { Icon } from "@realm/ui";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
-import type { DestinationPageKind } from "@realm/contracts";
-import { useApp } from "../../state/store";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type MouseEvent } from "react";
+import type { DestinationPageKind, Space } from "@realm/contracts";
+import { useApp, useProfileSpaces } from "../../state/store";
 import { Avatar } from "../Avatar";
+import { useDissolve } from "../ScrollFades";
 import { Menu } from "../Menu";
+import { SpaceIcon } from "../SpaceIcon";
+import { needsYou, profileWaiting, reorderWithin } from "./model";
 import { RailRecording } from "./RailRecording";
-import { useChord } from "./use-sidebar-model";
+import { useSpaceMenu } from "./space-menu";
+import { useChord, useOrderedSpaces, useSidebarState, useSpaceTint } from "./use-sidebar-model";
+
+/** What a space tile carries in a drag, told apart from an item's. */
+const SPACE_DRAG_TYPE = "application/x-realm-space";
 
 /**
- * The rail: the app's destinations as a column of icons at the window's left edge (Plan 27).
+ * The rail: the app's destinations as a column of icons at the window's left edge (Plan 27), then the
+ * profile's spaces, as Slack keeps its workspaces.
  *
- * The sidebar beside it gets you to your work; the rail gets you to the app's pages — Library,
- * Connections, Scheduled tasks and Code review, with Home above them as the way back — and at its
- * foot to the Stop of a recording for Laya, Laya's install while it runs, a newer Realm, what this one brought, and the person (their
- * page, Settings). It
- * is never collapsed: ⌘B folds the sidebar away and leaves this.
+ * The rail gets you to the app's pages — Library, Connections, Scheduled tasks and Code review, with
+ * Home above them as the way back — then, under a divider, to each space of the profile on screen:
+ * the column beside it shows one space at a time, and a tile is how you change which. At its foot are
+ * the Stop of a recording for Laya, Laya's install while it runs, a newer Realm, what this one
+ * brought, and the person, whose menu switches profile. It is never collapsed: ⌘B folds the sidebar
+ * away and leaves this.
  *
  * As narrow as its icons and an even margin round them, Codex's: the traffic lights are wider than it
  * and run on across the top row, which is the window's (WindowLead) rather than this column's. Nothing
@@ -31,13 +40,14 @@ export function Rail() {
         <RailPage kind="schedules-page" label="Scheduled tasks" />
         <RailPage kind="code-review-page" label="Code review" />
       </div>
+      <RailSpaces />
       <div className="rail-foot">
         {/* The two that wear a state, then the person, at the very foot as Codex keeps them. */}
         <RailRecording />
         <RailLaya />
         <RailUpdate />
         <RailWhatsNew />
-        <RailYou />
+        <RailProfile />
       </div>
     </nav>
   );
@@ -100,23 +110,141 @@ function RailWhatsNew() {
   );
 }
 
-/** The person at the foot of the rail: their own page, and Settings. */
-function RailYou() {
+/**
+ * The profile's spaces, one tile each, under a divider, then New space (direction A, the owner
+ * 11-03). A tile is the space's icon in its colour, lit while the column shows that space, with the
+ * count of its Needs you rows at its shoulder — the only colour a tile ever adds. A click shows
+ * the space in the column (`selectSpace`); a right-click offers what the column's title does about
+ * it. Tiles drag onto each other to reorder, unless Settings sorts spaces by activity, where a drop
+ * would be undone by the next status change.
+ */
+function RailSpaces() {
+  const spaces = useOrderedSpaces();
+  const handOrder = useProfileSpaces();
+  const all = useApp((s) => s.spaces);
+  const byActivity = useApp((s) => s.sidebarActivityOrder);
+  const reorderSpaces = useApp((s) => s.reorderSpaces);
+  const openSheet = useApp((s) => s.openSheet);
+  const run = useApp((s) => s.run);
+  const state = useSidebarState();
+  const waiting = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of needsYou(state)) counts.set(r.spaceId, (counts.get(r.spaceId) ?? 0) + 1);
+    return counts;
+  }, [state]);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  useDissolve(scroller);
+  const drop = (target: string) => {
+    const from = dragId; setDragId(null); setOverId(null);
+    const ids = from ? reorderWithin(all, handOrder, from, target) : null;
+    if (ids) run(() => reorderSpaces(ids));
+  };
+  return (
+    <div className="rail-spaces" role="group" aria-label="Spaces" ref={scroller}>
+      <span className="rail-divider" aria-hidden="true" />
+      {spaces.map((sp) => (
+        <RailSpace key={sp.id} space={sp} waiting={waiting.get(sp.id) ?? 0} draggable={!byActivity} over={overId === sp.id}
+          onDragStart={() => setDragId(sp.id)} onDragEnd={() => { setDragId(null); setOverId(null); }}
+          onDragOver={(e) => {
+            if (!dragId || !Array.from(e.dataTransfer.types).includes(SPACE_DRAG_TYPE)) return;
+            e.preventDefault();
+            if (overId !== sp.id) setOverId(sp.id);
+          }}
+          onDrop={(e) => { e.preventDefault(); drop(sp.id); }} />
+      ))}
+      <button type="button" className="rail-btn rail-new-space" aria-label="New space" title="New space"
+        onClick={() => openSheet({ kind: "new-space" })}>
+        <span className="rail-glyph"><Icon name="add" size={16} /></span>
+      </button>
+    </div>
+  );
+}
+
+function RailSpace({ space, waiting, draggable, over, onDragStart, onDragEnd, onDragOver, onDrop }: {
+  space: Space; waiting: number; draggable: boolean; over: boolean;
+  onDragStart: () => void; onDragEnd: () => void; onDragOver: (e: DragEvent) => void; onDrop: (e: DragEvent) => void;
+}) {
+  const current = useApp((s) => s.activeSpaceId === space.id);
+  const selectSpace = useApp((s) => s.selectSpace);
+  const run = useApp((s) => s.run);
+  const tint = useSpaceTint(space.color);
+  const menu = useSpaceMenu(space);
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  const said = waiting > 0 ? `${space.name}, ${waiting} ${waiting === 1 ? "needs" : "need"} you` : space.name;
+  const onContextMenu = (e: MouseEvent) => { e.preventDefault(); setMenuAt({ x: e.clientX, y: e.clientY }); };
+  return (
+    <>
+      <button type="button" className="rail-btn rail-space" aria-pressed={current} aria-label={said} title={said}
+        data-drag-over={over || undefined} draggable={draggable}
+        onDragStart={(e) => { e.dataTransfer.setData(SPACE_DRAG_TYPE, space.id); e.dataTransfer.effectAllowed = "move"; onDragStart(); }}
+        onDragEnd={onDragEnd} onDragOver={onDragOver} onDrop={onDrop}
+        onContextMenu={onContextMenu} onClick={() => run(() => selectSpace(space.id))}>
+        <span className="rail-glyph">
+          <span className="rail-space-tile" style={tint ? { color: tint } : undefined}><SpaceIcon icon={space.icon} size={18} /></span>
+          {waiting > 0 && <span className="sb-badge" aria-hidden="true">{waiting > 99 ? "99+" : waiting}</span>}
+        </span>
+      </button>
+      {menuAt && <Menu at={menuAt} label={space.name} onClose={() => setMenuAt(null)} items={menu} />}
+    </>
+  );
+}
+
+/**
+ * The person at the foot of the rail, and the profile switch, as Slack and Discord keep it there.
+ *
+ * Switching profile is rare and deliberate — Work, Personal, School — so it is one menu: each profile
+ * with its mark and a check on the one showing, New profile…, then the person's own page and
+ * Settings. A profile with something waiting says so on its row, and while one you are not looking at
+ * does, the avatar wears the amber dot: nothing waits unseen because it is in another profile. A
+ * profile with no spaces is listed but not selectable — `selectProfile` has nothing to land on.
+ */
+function RailProfile() {
   const userName = useApp((s) => s.userName);
+  const activeProfileId = useApp((s) => s.activeProfileId);
+  const switchProfile = useApp((s) => s.switchProfile);
+  const openNewProfileSheet = useApp((s) => s.openNewProfileSheet);
+  const openProfilePage = useApp((s) => s.openProfilePage);
   const openDestinationPage = useApp((s) => s.openDestinationPage);
+  const run = useApp((s) => s.run);
   const settings = useChord("settings.open");
+  const state = useSidebarState();
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
   // "You" until the Mac reports a real name, never the login name.
   const name = userName.trim() || "You";
+  const { profiles, spaces } = state;
+  const spaceCount = (id: string) => spaces.filter((sp) => sp.profileId === id).length;
+  const waitingIn = (id: string) => (id === activeProfileId ? 0 : profileWaiting(state, id));
+  const elsewhere = profiles.reduce((n, p) => n + waitingIn(p.id), 0);
+  const active = profiles.find((p) => p.id === activeProfileId);
+  const label = (id: string, profileName: string): string => {
+    if (spaceCount(id) === 0) return `${profileName} (no spaces)`;
+    const n = waitingIn(id);
+    return n === 0 ? profileName : `${profileName} · ${n} ${n === 1 ? "needs" : "need"} you`;
+  };
+  const said = [name, active ? `profile ${active.name}` : "", elsewhere > 0 ? `${elsewhere} waiting in another profile` : ""].filter(Boolean).join(", ");
   return (
     <>
-      <button ref={anchor} type="button" className="rail-btn" aria-label={name} aria-haspopup="menu" aria-expanded={open}
-        title="Your page and Settings" onClick={() => setOpen((o) => !o)}>
+      <button ref={anchor} type="button" className="rail-btn" aria-label={said} aria-haspopup="menu" aria-expanded={open}
+        title={elsewhere > 0 ? "Profiles and Settings. Another profile needs you." : "Profiles and Settings"} onClick={() => setOpen((o) => !o)}>
         <Avatar size={24} />
+        {elsewhere > 0 && <span className="rail-you-dot" aria-hidden="true" />}
       </button>
       {open && (
-        <Menu align="left" placement="up" anchorRef={anchor} label="You" onClose={() => setOpen(false)} items={[
+        <Menu align="left" placement="up" anchorRef={anchor} label="Profiles" onClose={() => setOpen(false)} items={[
+          ...profiles.map((p) => ({
+            label: label(p.id, p.name),
+            icon: <span className="sb-profile-mark" style={{ color: p.color }}><SpaceIcon icon={p.icon || "user"} size={16} /></span>,
+            checked: p.id === activeProfileId,
+            disabled: spaceCount(p.id) === 0,
+            onSelect: () => run(() => switchProfile(p.id)),
+          })),
+          { kind: "separator" as const },
+          { label: "New profile…", icon: <Icon name="add" size={16} />, onSelect: () => openNewProfileSheet() },
+          { label: "Profile settings…", icon: <Icon name="profile-page" size={16} />, onSelect: () => openProfilePage("general") },
+          { kind: "separator" as const },
           { label: name, icon: <Avatar size={16} />, onSelect: () => openDestinationPage("you-page") },
           { label: "Settings", icon: <Icon name="settings" size={16} />, kbd: settings, onSelect: () => openDestinationPage("settings-page") },
         ]} />
