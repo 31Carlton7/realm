@@ -46,12 +46,13 @@ struct TeamSection: View {
             }
             if !archived.isEmpty { ArchivedTeam(teammates: archived) }
         } header: {
-            HStack {
-                SectionHead(title: "Team") {
-                    Image(systemName: "person.2").foregroundStyle(Palette.ink2)
-                }
-                Spacer()
+            // The button over the head rather than beside it, so the head's ground runs edge to edge.
+            SectionHead(title: "Team") {
+                Image(systemName: "person.2").foregroundStyle(Palette.ink2)
+            }
+            .overlay(alignment: .trailing) {
                 NewTeammateButton(spaceId: (teammates.first ?? archived.first)?.spaceId ?? spaces.first?.id)
+                    .padding(.trailing, 16)
             }
         }
     }

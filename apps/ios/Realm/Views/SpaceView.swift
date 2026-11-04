@@ -24,12 +24,13 @@ struct SpaceView: View {
                 Section {
                     ForEach(team) { teammate in TeammateLink(teammate: teammate) }
                 } header: {
-                    HStack {
-                        SectionHead(title: "Team") {
-                            Image(systemName: "person.2").foregroundStyle(Palette.ink2)
-                        }
-                        Spacer()
+                    // The button over the head rather than beside it, so the head's ground runs edge to edge.
+                    SectionHead(title: "Team") {
+                        Image(systemName: "person.2").foregroundStyle(Palette.ink2)
+                    }
+                    .overlay(alignment: .trailing) {
                         NewTeammateButton(spaceId: spaceId)
+                            .padding(.trailing, 16)
                     }
                 }
             }

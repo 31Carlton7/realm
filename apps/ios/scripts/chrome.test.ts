@@ -34,5 +34,8 @@ describe("the iPhone's chrome", () => {
     expect(text("HomeChips.swift")).toMatch(/\.background\(Ground\.transcript\)/);
     const head = text("HomeView.swift").match(/struct SectionHead<[\s\S]*?\n}\n/)![0];
     expect(head).toContain(".pinnedOnGround()");
+    // Beside another view in a stack, a head takes the list's header insets and its ground stops short.
+    const stacked = sources.filter(({ text }) => /HStack[^{]*\{\s*SectionHead\(/.test(text)).map(({ path }) => path);
+    expect(stacked).toEqual([]);
   });
 });
