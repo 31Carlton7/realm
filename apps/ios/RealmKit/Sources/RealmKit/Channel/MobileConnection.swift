@@ -459,6 +459,25 @@ public struct MobileAPI: Sendable {
         return try await connection.call("session.configure", params: Params(id: id, changes: changes), as: SessionOptions.self)
     }
 
+    /// Where the session can be moved to on its Mac, and what would go with it. A Mac before moves
+    /// answers `METHOD_NOT_FOUND`.
+    public func moveOptions(id: String) async throws -> MoveOptions {
+        try await connection.call("session.moveOptions", params: SessionID(id: id), as: MoveOptions.self)
+    }
+
+    /// Moves the session, answering once the move is done — or queued, for after the turn — with its row.
+    /// A move makes a worktree and starts the agent there before it answers, so it is given a few minutes.
+    public func move(id: String, to target: MoveTarget, when: MoveWhen) async throws -> SessionRow {
+        struct Params: Encodable, Sendable { let id: String; let to: MoveTarget; let when: MoveWhen }
+        return try await connection.call("session.move", params: Params(id: id, to: target, when: when), as: MovedSession.self,
+                                         timeout: .seconds(180)).session
+    }
+
+    /// Drops a move queued behind the turn, or stops one under way; false when there was nothing to stop.
+    public func cancelMove(id: String) async throws -> Bool {
+        try await connection.call("session.cancelMove", params: SessionID(id: id), as: CancelledMove.self).cancelled
+    }
+
     /// The agents a new session could be given, and the one the Mac starts with.
     public func agents() async throws -> AgentList {
         try await connection.call("agents.list", as: AgentList.self)

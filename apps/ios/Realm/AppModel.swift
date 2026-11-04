@@ -91,6 +91,16 @@ final class AppModel {
     private(set) var optionsUnanswered: Set<String> = []
     /// The setting a change is on its way to the Mac for, by session.
     private(set) var configuring: [String: SessionSetting] = [:]
+    /// Where each opened session can be moved to on its Mac, as the Mac last said: what the composer's
+    /// place chip names and the Move sheet offers. A session whose Mac has no moves is absent, and has
+    /// no chip.
+    private(set) var moveOptions: [String: MoveOptions] = [:]
+    /// The sessions whose Move sheet is open: a refusal is said in the sheet rather than as a toast.
+    var moveSheets: Set<String> = []
+    /// Why the last move asked for from this phone did not happen, in the Mac's words, while its sheet is open.
+    var moveRefusals: [String: String] = [:]
+    /// The move asked for from this phone that is on its way, by session.
+    private(set) var movesAsked: [String: MoveWhen] = [:]
     /// What the person changed about sessions' rows here — a rename, a pin, an archive — shown over what
     /// the Mac lists until it lists them so.
     var rowEdits = RowEdits()
@@ -711,6 +721,52 @@ final class AppModel {
         }
     }
 
+    /// Where the session can be moved to. A Mac before moves has no such call, and its session no chip.
+    func loadMoveOptions(_ sessionId: String) async {
+        guard let api, isConnected else { return }
+        do {
+            moveOptions[sessionId] = try await api.moveOptions(id: sessionId)
+        } catch ChannelError.rpc(let error) where error.code == "METHOD_NOT_FOUND" {
+            moveOptions[sessionId] = nil
+        } catch {
+            // The chip keeps what it last knew.
+        }
+    }
+
+    /// Asks the Mac to move the session; true once it has moved, or queued the move behind the turn.
+    /// Its progress and how it ended arrive as rows. A refusal is said in the sheet while it is open,
+    /// and as a toast once it has gone.
+    func move(_ sessionId: String, to target: MoveTarget, when: MoveWhen) async -> Bool {
+        guard let api, isConnected else {
+            show(toast: "Connect to your Mac to move this session.")
+            return false
+        }
+        movesAsked[sessionId] = when
+        moveRefusals[sessionId] = nil
+        defer { movesAsked[sessionId] = nil }
+        do {
+            _ = try await api.move(id: sessionId, to: target, when: when)
+            await loadMoveOptions(sessionId)
+            return true
+        } catch {
+            let words = MoveWords.sentence(Self.describe(error))
+            if moveSheets.contains(sessionId) { moveRefusals[sessionId] = words } else { show(toast: words) }
+            await loadMoveOptions(sessionId)
+            return false
+        }
+    }
+
+    /// Drops a move queued behind the turn, or stops one under way.
+    func cancelMove(_ sessionId: String) async {
+        guard let api, isConnected else { return }
+        do {
+            _ = try await api.cancelMove(id: sessionId)
+        } catch {
+            report(error)
+        }
+        await loadMoveOptions(sessionId)
+    }
+
     /// One change to a session's settings: shown at once, then as the Mac has it, or put back with a
     /// toast where it refuses. One at a time, so putting one back never undoes a later one: the
     /// settings sheet and the mode chip are off while one travels.
@@ -1092,6 +1148,8 @@ final class AppModel {
         sessionOptions = [:]
         optionsUnanswered = []
         configuring = [:]
+        moveOptions = [:]
+        moveRefusals = [:]
         for change in rowChanges.values { change.cancel() }
         rowChanges = [:]
         rowEdits = RowEdits()

@@ -99,7 +99,7 @@ public final class RealmStore {
     public func finishOpening(_ opened: OpenedSession) {
         var transcript = Transcript(rows: opened.rows)
         transcript.session = opened.session
-        transcript.status = opened.session.status
+        transcript.status = opened.session.shownStatus
         transcript.hasMore = opened.hasMore
         transcript.hint = opened.hint
         transcript.queued = opened.queued

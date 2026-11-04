@@ -3243,6 +3243,119 @@
       "height": 1000,
       "capturedAt": 1790000500000
     },
+    "session.open:moved": {
+      "session": {
+        "id": "01JREALM000000000000000001",
+        "title": "Tidy the settings page",
+        "spaceId": "sp1",
+        "spaceName": "Realm",
+        "agent": "claude",
+        "model": "claude-opus-5-5",
+        "status": "idle",
+        "needsYou": false,
+        "unread": false,
+        "updatedAt": 1789982000000,
+        "agentName": "Claude",
+        "agentMark": "claude",
+        "modelLabel": "Opus 5.5",
+        "createdAt": 1789000000000,
+        "effort": null,
+        "permissionMode": "default",
+        "activityAt": 1789982000000,
+        "pinned": false
+      },
+      "rows": [
+        {
+          "key": "u:1",
+          "seq": 1,
+          "kind": "user",
+          "text": "Tidy the settings page"
+        },
+        {
+          "key": "mv:01JMOVE0000000000000000001",
+          "seq": 2,
+          "kind": "notice",
+          "text": "Moved from realm (main) to tidy-settings (tidy-settings). The conversation continued.",
+          "detail": "~/realm → ~/Realm/worktrees/realm/tidy-settings",
+          "move": "moved"
+        },
+        {
+          "key": "mv:01JMOVE0000000000000000002",
+          "seq": 3,
+          "kind": "notice",
+          "text": "Could not move this session: another session started working in that checkout. It is still in ~/Realm/worktrees/realm/tidy-settings, as it was.",
+          "detail": "Setting up the checkout",
+          "move": "failed"
+        },
+        {
+          "key": "mv:01JMOVE0000000000000000003",
+          "seq": 4,
+          "kind": "notice",
+          "text": "Moved from tidy-settings (tidy-settings) to realm (main). The conversation continued from notes.",
+          "detail": "~/Realm/worktrees/realm/tidy-settings → ~/realm",
+          "move": "moved"
+        }
+      ],
+      "hasMore": false,
+      "hint": null,
+      "queued": []
+    },
+    "session.moveOptions": {
+      "mac": "MacBook Pro",
+      "from": {
+        "environmentId": "01JCHECKOUT000000000000001",
+        "path": "~/realm",
+        "branch": "main",
+        "kind": "primary"
+      },
+      "busy": true,
+      "blocked": null,
+      "pending": false,
+      "conversation": "native",
+      "changedFiles": 3,
+      "leftBehind": [
+        "the terminal",
+        ".env"
+      ],
+      "stops": [],
+      "checkouts": [
+        {
+          "environmentId": "01JWORKTREE000000000000001",
+          "path": "~/Realm/worktrees/realm/tidy-settings",
+          "branch": "tidy-settings",
+          "kind": "worktree"
+        }
+      ],
+      "worktree": {
+        "available": true,
+        "reason": null
+      }
+    },
+    "session.move": {
+      "session": {
+        "id": "01JSESSION00000000000000000",
+        "title": "Theme column",
+        "spaceId": "sp1",
+        "spaceName": "Realm",
+        "agent": "claude",
+        "model": "claude-opus-5-5",
+        "status": "waiting",
+        "needsYou": true,
+        "unread": false,
+        "updatedAt": 1790000000000,
+        "agentName": "Claude",
+        "agentMark": "claude",
+        "modelLabel": "Opus 5.5",
+        "createdAt": 1789990000000,
+        "effort": "high",
+        "permissionMode": "acceptEdits",
+        "activityAt": 1790000000000,
+        "pinned": false
+      }
+    },
+    "session.cancelMove": {
+      "cancelled": true
+    },
     "session.update": {
       "session": {
         "id": "01JREALM000000000000000006",

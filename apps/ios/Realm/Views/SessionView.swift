@@ -173,6 +173,10 @@ struct SessionView: View {
             SessionInfoSheet(sessionId: sessionId)
         }
         .task(id: model.channelGeneration) { await model.open(sessionId) }
+        // Where it runs changes as a move ends, whichever device asked for it.
+        .task(id: ScreensAsked(generation: model.channelGeneration, connected: model.isConnected, status: status)) {
+            await model.loadMoveOptions(sessionId)
+        }
         // A turn is what opens a simulator or a machine, so the bar asks again as one starts and ends.
         .task(id: ScreensAsked(generation: model.channelGeneration, connected: model.isConnected, status: status)) {
             await model.loadScreens(sessionId)
@@ -712,7 +716,8 @@ private extension TranscriptRow {
         switch content {
         case .tool, .thinking: true
         case .assistant: finished
-        case .notice: finished && checkpointId == nil && (madeFiles ?? []).isEmpty
+        // A move is where the session went, which a reader of the turn above it needs to see.
+        case .notice: finished && checkpointId == nil && (madeFiles ?? []).isEmpty && move == nil
         case .user, .request, .plan, .error, .unknown: false
         }
     }

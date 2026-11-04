@@ -426,7 +426,11 @@ export class RemoteGateway {
       case "session.status": {
         const p = payload as EventPayload<"session.status">;
         for (const c of this.channels.values()) {
-          if (c.ctx.sessions.has(p.sessionId)) this.sendEvent(c, "session.status", { id: p.sessionId, status: p.status === "waiting_permission" ? "waiting" : p.status });
+          // A move goes out as `running`, the one word a phone from before moves waits on, and says so.
+          if (c.ctx.sessions.has(p.sessionId)) {
+            this.sendEvent(c, "session.status", p.status === "moving" ? { id: p.sessionId, status: "running", moving: true }
+              : { id: p.sessionId, status: p.status === "waiting_permission" ? "waiting" : p.status });
+          }
           // A sub-agent's status is a line of its lead's list, as its Agents tab reads it again.
           for (const [lead, open] of c.ctx.sessions) if (open.subagents.has(p.sessionId)) this.subagentsChanged(c, lead);
         }

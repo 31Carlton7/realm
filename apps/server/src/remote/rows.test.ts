@@ -169,6 +169,30 @@ describe("the phone's rows", () => {
     for (const r of p.all()) expect(RowSchema.safeParse(r).success).toBe(true);
   });
 
+  it("says a move's progress in one row, which becomes the desktop's moved line with both paths under it", () => {
+    const p = new SessionProjector({ attachmentsDir: null, home: "/Users/me" });
+    p.agent = "Claude";
+    const place = { machine: null, environmentId: "01J00000000000000000000000", cwd: "/Users/me/realm", branch: "main" };
+    p.apply(persisted(sessionEvent("assistant_text", { messageId: "a", text: "Done." })));
+    expect(p.apply(ephemeral(sessionEvent("moving", { moveId: "m", step: "freeze" })))).toMatchObject([{ key: "mv:m", kind: "notice", move: "moving", text: "Moving · Pausing Claude" }]);
+    p.apply(ephemeral(sessionEvent("moving", { moveId: "m", step: "place" })));
+    p.apply(persisted(sessionEvent("moved", {
+      moveId: "m", from: place, to: { ...place, cwd: "/Users/me/Realm/worktrees/x/feat-theme", branch: "feat-theme" }, conversation: "notes",
+      changedFiles: 2, leftBehind: [], preface: "p", note: "Moved from ~/realm to ~/Realm/worktrees/x/feat-theme. The conversation was carried as notes.",
+    })));
+    expect(p.all().map((r) => r.key)).toEqual(["m:a", "mv:m"]);
+    expect(p.all()[1]).toMatchObject({
+      kind: "notice", move: "moved", text: "Moved from realm (main) to feat-theme (feat-theme). The conversation continued from notes.",
+      detail: "~/realm → ~/Realm/worktrees/x/feat-theme",
+    });
+    p.apply(ephemeral(sessionEvent("moving", { moveId: "n", step: "boot" })));
+    p.apply(persisted(sessionEvent("move_failed", { moveId: "n", step: "boot", reason: "x", note: "Could not move this session: x. It is still in ~/realm, as it was." })));
+    expect(p.all()[2]).toMatchObject({ key: "mv:n", move: "failed", text: "Could not move this session: x. It is still in ~/realm, as it was.", detail: "Starting Claude" });
+    p.apply(persisted(sessionEvent("move_failed", { moveId: "o", step: "place", reason: "the disk is full", note: "Could not move this session. It is still in ~/realm, as it was." })));
+    expect(p.all()[3]).toMatchObject({ detail: "Setting up the checkout · the disk is full" });
+    for (const r of p.all()) expect(RowSchema.safeParse(r).success).toBe(true);
+  });
+
   it("names a turn's checkpoint on its changes, and the files a turn made by their paths", () => {
     const p = new SessionProjector();
     p.apply(persisted(sessionEvent("turn_changes", { checkpointId: "cp1", settledAt: 1, root: "/r", afterTree: "abc", files: [{ path: "a.ts", oldPath: null, status: "modified", additions: 1, deletions: 1 }], totalFiles: 1 })));

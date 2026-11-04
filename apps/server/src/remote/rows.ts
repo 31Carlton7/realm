@@ -1,4 +1,4 @@
-import type { AskCard, AskQuestion, MoveStep, QueuedPrompt, SessionEvent, SessionEventType, StoredSessionEvent } from "@realm/contracts";
+import { basenameOf, type AskCard, type AskQuestion, type MovePlace, type MoveStep, type QueuedPrompt, type SessionEvent, type SessionEventType, type StoredSessionEvent } from "@realm/contracts";
 import { givenAttachmentName } from "@realm/contracts/src/temp-attachments";
 import type { QueuedMessage, Row } from "@realm/remote";
 import { questionOf } from "@realm/view";
@@ -68,11 +68,29 @@ export function queuedMessage(q: QueuedPrompt, attachmentsDir: string | null): Q
   };
 }
 
-/** What a move's progress row says at each step. */
-const MOVE_STEP_LABEL: Record<MoveStep, string> = {
-  preflight: "Checking", freeze: "Pausing the agent", snapshot: "Saving a checkpoint",
-  place: "Setting up the checkout", boot: "Starting the agent", commit: "Finishing",
-};
+/** What each step of a move is called, as the desktop's progress row calls it, for the agent being moved. */
+export function moveStepLabel(step: MoveStep, agent: string): string {
+  switch (step) {
+    case "preflight": return "Checking";
+    case "freeze": return `Pausing ${agent}`;
+    case "snapshot": return "Saving a checkpoint";
+    case "place": return "Setting up the checkout";
+    case "boot": return `Starting ${agent}`;
+    case "commit": return "Finishing";
+  }
+}
+
+/** One end of a move as the desktop's moved line names it: the folder, and its branch when it has one. */
+const placeName = (p: MovePlace): string => (p.branch ? `${basenameOf(p.cwd)} (${p.branch})` : basenameOf(p.cwd));
+
+/** The desktop's moved line: each end by folder and branch, then how the conversation went. */
+export function movedSentence(from: MovePlace, to: MovePlace, conversation: "native" | "notes"): string {
+  const how = conversation === "native" ? "The conversation continued." : "The conversation continued from notes.";
+  return `Moved from ${placeName(from)} to ${placeName(to)}. ${how}`;
+}
+
+/** A path as the Mac's home shortens it. */
+export const tilde = (path: string, home: string | null): string => (home && (path === home || path.startsWith(`${home}/`)) ? `~${path.slice(home.length)}` : path);
 
 /** Who asks, as the desktop's card names them: the agent, or a server by the name the person gave it. */
 const askerOf = (card: AskCard): string => (card.asker.kind === "server" ? `${card.asker.name}'s MCP server` : card.asker.name);
@@ -89,7 +107,11 @@ export class SessionProjector {
 
   /** `attachmentsDir` is the Realm home's `tmp/attachments`: a file there was written under a random
    *  prefix, which a row leaves out of its name. */
-  constructor(private readonly o: { attachmentsDir: string | null } = { attachmentsDir: null }) {}
+  /** `home` is the Mac's home folder, which the paths under a moved line are shortened against. */
+  constructor(private readonly o: { attachmentsDir: string | null; home?: string } = { attachmentsDir: null }) {}
+
+  /** The session's agent by name, for a move's progress ("Starting Claude"), once the session is read. */
+  agent = "the agent";
 
   /** The latest persisted seq seen — what a live event must be newer than to count. */
   get seq(): number { return this.lastSeq; }
@@ -163,9 +185,20 @@ export class SessionProjector {
       case "compacted": return put({ key: `e:${seq}`, seq, kind: "notice", text: "Context compacted" });
       case "context_reset": return put({ key: `e:${seq}`, seq, kind: "notice", text: ev.payload.note || "The agent started a fresh context" });
       // A move's progress and how it ended are one row, so the line that said where it had got to
-      // becomes the line that says how it went.
-      case "moving": return put({ key: `mv:${ev.payload.moveId}`, seq, kind: "notice", text: `Moving · ${MOVE_STEP_LABEL[ev.payload.step]}` });
-      case "moved": case "move_failed": return put({ key: `mv:${ev.payload.moveId}`, seq, kind: "notice", text: ev.payload.note });
+      // becomes the line that says where the session went.
+      case "moving": return put({ key: `mv:${ev.payload.moveId}`, seq, kind: "notice", text: `Moving · ${moveStepLabel(ev.payload.step, this.agent)}`, move: "moving" });
+      case "moved": {
+        const { from, to } = ev.payload;
+        return put({
+          key: `mv:${ev.payload.moveId}`, seq, kind: "notice", text: movedSentence(from, to, ev.payload.conversation),
+          detail: `${tilde(from.cwd, this.o.home ?? null)} → ${tilde(to.cwd, this.o.home ?? null)}`, move: "moved",
+        });
+      }
+      case "move_failed": {
+        const { step, reason, note } = ev.payload;
+        const detail = note.includes(reason) ? moveStepLabel(step, this.agent) : `${moveStepLabel(step, this.agent)} · ${reason}`;
+        return put({ key: `mv:${ev.payload.moveId}`, seq, kind: "notice", text: note, detail, move: "failed" });
+      }
       case "plan": {
         const row: PlanRow = { key: `p:${ev.payload.planId}`, seq, kind: "plan", text: ev.payload.text ?? null, steps: ev.payload.steps ?? null };
         this.lastPlan = row;

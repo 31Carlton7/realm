@@ -94,6 +94,7 @@ struct ComposerView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var settingsShown = false
+    @State private var moveShown = false
     @State private var picking: AttachmentPick?
     @State private var previewing: URL?
     /// The field had the keyboard when a sheet or a picker opened over it: it takes it back after.
@@ -107,7 +108,7 @@ struct ComposerView: View {
         let attachments = model.draftAttachments[sessionId] ?? []
         let preparing = model.preparingAttachments[sessionId] ?? 0
         let options = model.sessionOptions[sessionId]
-        let presenting = settingsShown || picking != nil || previewing != nil
+        let presenting = settingsShown || moveShown || picking != nil || previewing != nil
         let action = ComposerAction(working: status == .running || status == .waiting,
                                     hasContent: ComposerAction.hasContent(text: text, attachments: attachments),
                                     midTurn: options?.midTurn, canSteer: options != nil)
@@ -142,10 +143,13 @@ struct ComposerView: View {
                 }
                 .layoutValue(key: ComposerPart.self, value: .add)
             }
-            ComposerChips(sessionId: sessionId) {
+            ComposerChips(sessionId: sessionId, openSettings: {
                 refocus = focused.wrappedValue
                 settingsShown = true
-            }
+            }, openMove: {
+                refocus = focused.wrappedValue
+                moveShown = true
+            })
             .layoutValue(key: ComposerPart.self, value: .chips)
             PrimaryButton(action: action, steerNote: options?.agent.steerNote ?? "", connected: model.isConnected) { kind in
                 if let delivery = ComposerAction.delivery(kind) {
@@ -168,6 +172,9 @@ struct ComposerView: View {
         }
         .sheet(isPresented: $settingsShown) {
             SessionSettingsSheet(sessionId: sessionId)
+        }
+        .sheet(isPresented: $moveShown) {
+            MoveSheet(sessionId: sessionId)
         }
         .quickLookPreview($previewing)
         .onChange(of: previewing) { _, now in
