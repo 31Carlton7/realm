@@ -9,6 +9,7 @@ import { createApp, type App } from "../app";
 import { waitFor } from "../test-utils";
 import { TabContextReader, type TabContextDeps } from "./tab-context";
 import type { TerminalScreen } from "../terminals/screen";
+import type { Simctl } from "../simulators/simctl";
 
 /**
  * The panes a message hands over, read as it is sent. What must die: a kind read past its cap, a
@@ -157,7 +158,10 @@ describe("a message with tab cards, end to end", () => {
     const home = tempDir("realm-tab-cards-");
     vi.stubEnv("REALM_BUNDLED_SKILLS", join(home, "no-bundle"));
     const agent = new RecordingAdapter();
-    app = await createApp({ home, port: 0, adapters: { claude: agent } });
+    // A device whose screenshot is a few known bytes, through the simulator CLI's seam.
+    const simctl = { available: async () => true, devices: async () => [{ udid: "UDID-UP", platform: "ios", name: "iPhone Air", runtime: "iOS 27.0", state: "Booted", serial: null, physical: false }],
+      screenshot: async (_udid: string, path: string) => { writeFileSync(path, "fake-png"); return { ok: true, detail: "" }; } } as unknown as Simctl;
+    app = await createApp({ home, port: 0, adapters: { claude: agent }, simulator: { simctl } });
     // Main's page read, scripted: a sign-in page whose password field main reported as hidden.
     const c = await client(app.port, (event, payload, call) => {
       if (event !== "browserHost.op") return;
@@ -173,6 +177,7 @@ describe("a message with tab cards, end to end", () => {
     const docs = (await c.call("documents.create", { spaceId: space.id })).result;
     writeFileSync(join(space.folderPath, "notes.md"), "# Notes\nship it");
     await c.call("documents.setTabs", { documentsId: docs.documentsId, openPaths: ["notes.md"], activePath: "notes.md" });
+    const sim = (await c.call("simulators.create", { spaceId: space.id, name: "iPhone Air", udid: "UDID-UP" })).result;
     const { session } = (await c.call("sessions.create", { spaceId: space.id, agentKind: "claude" })).result;
 
     const listed = (await c.call("tabs.list", { sessionId: session.id })).result.tabs;
@@ -182,7 +187,8 @@ describe("a message with tab cards, end to end", () => {
     expect(preview).toMatchObject({ bytes: 15, truncated: false });
 
     await c.call("sessions.send", { id: session.id, text: "what does this say", tabs: [
-      { itemId: browser.itemId, kind: "browser", title: "Sign in" }, { itemId: docs.itemId, kind: "documents", title: "Documents" }] });
+      { itemId: browser.itemId, kind: "browser", title: "Sign in" }, { itemId: docs.itemId, kind: "documents", title: "Documents" },
+      { itemId: sim.itemId, kind: "simulator", title: "iPhone Air" }] });
     await waitFor(() => agent.sent.length > 0);
     const wire = agent.sent[0]!.text;
     // THE MUTANT: the cards stored and never handed over — the engine gets the user's words alone.
@@ -193,10 +199,13 @@ describe("a message with tab cards, end to end", () => {
     const docTitle = listed.find((t: Any) => t.kind === "documents").title;
     expect(wire).toContain(`<tab kind="documents" title="${docTitle}" path="${join(space.folderPath, "notes.md")}">`);
     expect(wire).toContain("ship it");
+    // THE MUTANT: the screenshot read and saved, and never attached for the engine.
+    const shot = agent.sent[0]!.attachments.find((a) => a.mime === "image/png");
+    expect(shot && readFileSync(shot.path, "utf8")).toBe("fake-png");
 
     const users = (await c.call("sessions.events", { id: session.id })).result.filter((e: Any) => e.event.type === "user_message").map((e: Any) => e.event.payload);
     // The log keeps the user's words and the cards — never the blocks.
     expect(users[0].text).toBe("what does this say");
-    expect(users[0].tabs.map((t: Any) => [t.kind, t.title, t.bytes > 0])).toEqual([["browser", "Sign in", true], ["documents", docTitle, true]]);
+    expect(users[0].tabs.map((t: Any) => [t.kind, t.title, t.bytes > 0])).toEqual([["browser", "Sign in", true], ["documents", docTitle, true], ["simulator", "iPhone Air", true]]);
   });
 });
