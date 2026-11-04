@@ -3,7 +3,7 @@ import SwiftUI
 import UIKit
 
 /// Who answers, at the head of each reply, as Manus names itself over its own: the agent's mark and
-/// name, and the model it runs on, on a badge.
+/// name, and the model it runs on in the quiet ink after it.
 struct SpeakerLabel: View {
     let session: SessionRow
 
@@ -15,12 +15,9 @@ struct SpeakerLabel: View {
                 .foregroundStyle(Palette.ink)
             if let model = session.modelDisplayName, !model.isEmpty {
                 Text(model)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Palette.accentInk)
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.ink2)
                     .lineLimit(1)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .background(Palette.accentTint, in: Capsule())
             }
         }
         .accessibilityElement(children: .combine)
@@ -135,7 +132,7 @@ struct CurrentStepCard: View {
             } else if step != nil {
                 Image(systemName: "progress.indicator")
                     .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Palette.accentInk)
+                    .foregroundStyle(Tone.working.agentColor)
                     .restingPulse(when: true)
             } else {
                 Image(systemName: ScreenWords.glyph(screens))
