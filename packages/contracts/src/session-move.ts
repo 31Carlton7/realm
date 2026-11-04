@@ -94,7 +94,7 @@ export function placeName(p: Pick<MovePlace, "cwd" | "branch">): string {
   return `${folder} (${p.branch})`;
 }
 
-/** The moved line, the same on every surface. Paths are left out; each end is named by folder and branch. */
+/** The moved line, the same on every surface. Paths are left out; each end is named as `placeName` names it. */
 export function movedSentence(b: { from: Pick<MovePlace, "cwd" | "branch">; to: Pick<MovePlace, "cwd" | "branch">; conversation: MoveConversation }): string {
   const how = b.conversation === "native" ? "The conversation continued." : "The conversation continued from notes.";
   return `Moved from ${placeName(b.from)} to ${placeName(b.to)}. ${how}`;
