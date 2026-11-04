@@ -23,9 +23,10 @@ public struct Checkout: Codable, Sendable, Hashable, Identifiable {
         self.kind = kind
     }
 
-    /// What a person calls it: the space's own folder is This checkout, the rest their folder's name.
+    /// What a person calls it, as the desktop's Move sheet does: its folder's name, the space's own
+    /// folder too, with its branch said beside it (`MoveWords.detail`).
     public var name: String {
-        kind == .primary ? "This checkout" : (path.split(separator: "/").last.map(String.init) ?? path)
+        path.split(separator: "/").last.map(String.init) ?? path
     }
 }
 
