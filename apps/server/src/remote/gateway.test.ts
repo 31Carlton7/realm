@@ -914,15 +914,21 @@ describe("Plan 29's parity: what a phone hears, at the moment it hears it", () =
     phone.on("session.queue", (p) => { heard.push(p); });
     const opening = phone.call("session.open", { id: "s1" });
     await atHistory;
-    broadcast("session.queue", { sessionId: "s1", queued: newer });
+    broadcast("session.queue", { sessionId: "s1", queued: newer, move: { moveId: "m", to: { kind: "worktree" }, step: null } });
     release();
     // THE MUTANTS: send the change at once, and it reaches the phone before the session it belongs to
     // has opened; answer with the queue the open read, and the phone opens on one a message behind.
-    expect(MobileCalls["session.open"].result.parse(await opening).queued?.map((q) => q.text)).toEqual(["older", "newer"]);
+    const opened = MobileCalls["session.open"].result.parse(await opening);
+    expect(opened.queued?.map((q) => q.text)).toEqual(["older", "newer"]);
+    expect(opened.move).toEqual({ moveId: "m", to: { kind: "worktree" }, step: null });
     expect(heard).toEqual([]);
-    const emptied = phone.waitFor("session.queue", (p) => (MobileEvents["session.queue"].parse(p).queued.length === 0 ? true : undefined));
-    broadcast("session.queue", { sessionId: "s1", queued: [] });
-    await emptied;
+    const emptied = phone.waitFor("session.queue", (p) => {
+      const e = MobileEvents["session.queue"].parse(p);
+      return e.queued.length === 0 ? e : undefined;
+    });
+    broadcast("session.queue", { sessionId: "s1", queued: [], move: { moveId: "m", to: { kind: "environment", environmentId: "01J00000000000000000000000" }, step: "boot" } });
+    // The move's target as the phone's `session.move` names it.
+    expect((await emptied).move).toEqual({ moveId: "m", to: { kind: "checkout", environmentId: "01J00000000000000000000000" }, step: "boot" });
     phone.close();
   });
 
@@ -965,12 +971,12 @@ describe("Plan 29's parity: what a phone hears, at the moment it hears it", () =
     const rows: { key: string; move?: string }[] = [];
     phone.on("session.rows", (p) => { rows.push(...(MobileEvents["session.rows"].parse(p).rows as { key: string; move?: string }[])); });
     broadcast("session.status", { sessionId: "s1", status: "moving" });
-    broadcast("session.event", { sessionId: "s1", seq: -1, ephemeral: true, event: sessionEvent("moving", { moveId: "m", step: "place" }) });
+    broadcast("session.event", { sessionId: "s1", seq: 1, ephemeral: false, event: sessionEvent("moving", { moveId: "m", step: "place" }) });
     // Progress goes out with the deltas' timer, as the latest step the move has reached.
     await waitFor(() => rows.length === 1);
     const place = { machine: null, environmentId: "01J00000000000000000000000", cwd: "/r", branch: null };
-    broadcast("session.event", { sessionId: "s1", seq: 1, ephemeral: false, event: sessionEvent("moved", {
-      moveId: "m", from: place, to: { ...place, cwd: "/w" }, conversation: "native", changedFiles: 0, leftBehind: [], preface: "p", note: "Moved from /r to /w. The conversation continued.",
+    broadcast("session.event", { sessionId: "s1", seq: 2, ephemeral: false, event: sessionEvent("moved", {
+      moveId: "m", from: place, to: { ...place, cwd: "/w" }, conversation: "native", changedFiles: 0, leftBehind: [], preface: "p", note: "Moved from r to w. The conversation continued.",
     }) });
     broadcast("session.status", { sessionId: "s1", status: "idle" });
     await waitFor(() => statuses.length === 2 && rows.length === 2);

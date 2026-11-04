@@ -442,13 +442,14 @@ A **notice** may lead somewhere. A turn's changes carry `checkpointId`, which `s
 opens. A turn's files made carry `files`, each of which `session.file` previews.
 
 A **move** is one notice, keyed `mv:<moveId>`. While it goes it carries `move: "moving"` and the step
-it has reached, as the desktop's progress row names it ("Moving · Setting up the checkout"), sent as
-streamed rows are; the same row then says how it ended, in the desktop's words: `moved` ("Moved from
-realm (main) to tidy-settings (tidy-settings). The conversation continued.", or "…continued from
-notes."), with both paths in `detail` ("~/realm → ~/Realm/worktrees/realm/tidy-settings"); or
-`failed`, the Mac's sentence for why and where the session still is, with the step it stopped at in
-`detail`. Only how it ended is stored, so a session opened later shows that alone. A phone that knows
-no `move` draws each as the notice it is.
+it has reached, as the desktop's progress row names it ("Moving · Setting up the checkout"); the same
+row then says how it ended, in the desktop's words: `moved` ("Moved from realm (main) to
+tidy-settings. The conversation continued.", or "…continued from notes."), with both paths in
+`detail` ("~/realm → ~/Realm/worktrees/realm/tidy-settings"); or `failed`, the one sentence for the
+step it stopped at and where the session still is ("Couldn't move this session while setting up the
+checkout. It's still in tidy-settings."), with the Mac's reason, then whatever it left as it was, in
+`detail`. Each step is stored, so a session opened mid-move shows its progress row, and one opened
+later shows how the move ended. A phone that knows no `move` draws each as the notice it is.
 
 A **user row** carries `attachments` when files were sent with the message: each by its path on the
 Mac, its name and its type, as the message's `user_message` recorded them. `session.file` previews
@@ -463,10 +464,10 @@ else keeps its own name, whatever it looks like.
 | `ping` | `{}` | `{at: ms}`, the Mac's clock |
 | `home.get` | `{profileId?}` | `{mac: {name}, needsYou: [SessionRow], spaces: [Space], profiles?: [Profile], profileId?: string\|null, recent?: [SessionRow]}` |
 | `space.sessions` | `{id, offset?: int = 0, limit?: int = 50}` | `{sessions: [SessionRow], more: bool}`. `limit` is at most 100. |
-| `session.open` | `{id, limit?: int = 200}` | `{session: SessionRow, rows: [Row], hasMore: bool, hint?: string\|null, queued?: [QueuedMessage]}` |
+| `session.open` | `{id, limit?: int = 200}` | `{session: SessionRow, rows: [Row], hasMore: bool, hint?: string\|null, queued?: [QueuedMessage], move?: PendingMove\|null}` |
 | `session.close` | `{id}` | `{ok: true}` |
 | `session.update` | `{id, title?, pinned?: bool, archived?: bool}` | `{session: SessionRow\|null}`: null once it is archived |
-| `session.queue` | `{id}` | `{queued: [QueuedMessage]}` |
+| `session.queue` | `{id}` | `{queued: [QueuedMessage], move?: PendingMove\|null}` |
 | `session.sendQueuedNow` | `{id, queuedId}` | `{ok: true}` |
 | `session.removeQueued` | `{id, queuedId}` | `{ok: true}` |
 | `session.holdQueued` | `{id, queuedId, held: bool}` | `{ok: true}` |
@@ -645,7 +646,8 @@ QueuedMessage {
   words back in its composer; no words at all, on a message with no file, is `INVALID_PARAMS`.
 
 `session.open` answers with the queue as it was when the session opened, and `session.queue` (the
-event) carries the whole queue each time it changes after that.
+event) carries the whole queue each time it changes after that. Both carry `move` beside it: a move
+of the session that is not over, which waits ahead of the queue.
 
 **A session's sub-agents are its Agents tab's.** `session.subagents` lists every session it started
 (`delegation.children`), newest first:
@@ -848,6 +850,16 @@ Checkout { environmentId, path, branch: string|null, kind: "primary"|"checkout"|
   checkout another session is working in, a move already under way, background work only `stop` would
   stop, a move that could not be made — is `FORBIDDEN`, in its words; a move that fails part way puts everything back first.
 - A Mac from before moves answers all three `METHOD_NOT_FOUND`, and a phone offers no move.
+- **`move`**, on `session.open`, `session.queue` and the `session.queue` event, is the move not over yet:
+
+  ```
+  PendingMove { moveId, to: {kind: "checkout", environmentId} | {kind: "worktree"},
+                step: "preflight"|"freeze"|"snapshot"|"place"|"boot"|"commit"|null }
+  ```
+
+  `step` is null while it waits for the turn to end, and the step it is at once under way. The
+  progress row is drawn from the stored steps in `rows`, not from `move`. `move` is null once it is
+  over, and absent from a Mac before it was sent.
 
 **Opening a session subscribes the channel to it.** From then until `session.close` or the end of
 the channel, the Mac sends that session's `session.rows`, `session.status`, `session.hint`,
@@ -933,7 +945,7 @@ setting, or a key.
 | `session.status` | `{id, status, moving?: true}` | The session's status changed. `moving` as `SessionRow.moving`. |
 | `session.hint` | `{id, text: string\|null}` | The suggested next message changed: a newer one after a turn, or none once something was sent. |
 | `home.changed` | `{}` | Call `home.get` again. Sent at most once a second. |
-| `session.queue` | `{id, queued: [QueuedMessage]}` | An open session's queue changed: the whole queue. |
+| `session.queue` | `{id, queued: [QueuedMessage], move?: PendingMove\|null}` | An open session's queue changed, or its move was queued, reached a step or ended: the whole queue, and the move. |
 | `session.subagents` | `{id}` | An open session's sub-agents changed: call `session.subagents` again. |
 | `work.changed` | `{}` | Reviews or scheduled tasks changed somewhere: call `reviews.list` and `schedules.list` again. Sent at most once a second. |
 | `pair.result` | see §4.1 | Pairing channels only. |

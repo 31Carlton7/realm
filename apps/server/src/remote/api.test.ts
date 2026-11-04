@@ -969,7 +969,7 @@ describe("the queue", () => {
       { id: "q1", text: "Then rename the column", attachments: [], at: 10, held: true },
       { id: "q2", text: "", attachments: [{ path: sent, name: "sketch.png", mime: "image/png" }], at: 20, held: false },
     ];
-    expect(await attempt(api(undefined, home), rpc, "session.queue", { id: "s1" })).toEqual({ ok: true, result: { queued: expected } });
+    expect(await attempt(api(undefined, home), rpc, "session.queue", { id: "s1" })).toEqual({ ok: true, result: { queued: expected, move: null } });
     expect(await attempt(api(undefined, home), rpc, "session.open", { id: "s1" })).toMatchObject({ ok: true, result: { queued: expected } });
   });
 
@@ -1614,21 +1614,22 @@ describe("moving a session from the phone", () => {
   const WORKTREE = "01JWORKTREE000000000000000";
   const user = homedir();
   const options = {
-    from: { machine: null, environmentId: ENV, cwd: join(user, "realm"), branch: "main" },
+    from: { machine: null, environmentId: ENV, cwd: join(user, "realm"), branch: "main", kind: "primary" as const },
+    machineName: "Mac mini",
     busy: true, blocked: null, pending: false, conversation: "native" as const, changedFiles: 3, leftBehind: ["the terminal", ".env"], stops: ["a background task"],
     environments: [{ environmentId: WORKTREE, path: join(user, "Realm/worktrees/x/feat-theme"), branch: "feat/theme", kind: "worktree" }],
     worktree: { available: true, reason: null },
   };
-  const environment = { id: ENV, spaceId: "s1", path: join(user, "realm"), branch: "main", kind: "primary" as const, portBlockStart: null, createdAt: 0, updatedAt: 0 };
 
   it("names the Mac, the checkout it is in and every other one as the Mac's home shortens them", async () => {
     const rpc = fakeRpc({ sessions: [session("a", "s1")], items: [] }, {
       "sessions.moveOptions": (() => options) as never,
-      "environments.get": (() => environment) as never,
     });
     const answer = MobileCalls["session.moveOptions"].result.parse(await api().handle(channel(rpc), "session.moveOptions", { id: "a" }));
+    // THE MUTANT: the gateway's own name for the Mac, or a second read for the checkout's kind.
+    expect(rpc.calls).toEqual(["sessions.moveOptions"]);
     expect(answer).toEqual({
-      mac: "Test Mac",
+      mac: "Mac mini",
       from: { environmentId: ENV, path: "~/realm", branch: "main", kind: "primary" },
       busy: true, blocked: null, pending: false, conversation: "native", changedFiles: 3, leftBehind: ["the terminal", ".env"], stops: ["a background task"],
       checkouts: [{ environmentId: WORKTREE, path: "~/Realm/worktrees/x/feat-theme", branch: "feat/theme", kind: "worktree" }],
@@ -1674,6 +1675,36 @@ describe("moving a session from the phone", () => {
     const rows = h.spaces.flatMap((s) => s.sessions);
     expect(rows.find((r) => r.id === "a")).toMatchObject({ status: "running", moving: true });
     expect(rows.find((r) => r.id === "b")).not.toHaveProperty("moving");
+  });
+
+  it("reads a move waiting behind the turn with the queue, its target named as the phone names it", async () => {
+    const waiting = { moveId: "m", to: { kind: "environment" as const, environmentId: WORKTREE }, step: null };
+    const rpc = fakeRpc({ sessions: [session("a", "s1")], items: [] }, { "sessions.queued": (() => ({ queued: [], move: waiting })) as never });
+    expect(MobileCalls["session.queue"].result.parse(await api().handle(channel(rpc), "session.queue", { id: "a" })))
+      .toEqual({ queued: [], move: { moveId: "m", to: { kind: "checkout", environmentId: WORKTREE }, step: null } });
+    const none = fakeRpc({ sessions: [session("a", "s1")], items: [] });
+    expect(await api().handle(channel(none), "session.queue", { id: "a" })).toEqual({ queued: [], move: null });
+  });
+
+  it("opens a session mid-move on the one progress row its stored steps draw, and the move beside it", async () => {
+    const underWay = { moveId: "m", to: { kind: "worktree" as const }, step: "place" as const };
+    const log = [stored("a", sessionEvent("moving", { moveId: "m", step: "preflight" })), stored("a", sessionEvent("moving", { moveId: "m", step: "place" }))];
+    const rpc = fakeRpc({ sessions: [session("a", "s1", { status: "moving" })], items: [item("a", "s1", "A")] }, {
+      "sessions.queued": (() => ({ queued: [], move: underWay })) as never,
+      "sessions.events": eventsOf(log) as never,
+      "agents.probe": (() => []) as never,
+    });
+    const opened = MobileCalls["session.open"].result.parse(await api().handle(channel(rpc), "session.open", { id: "a" }));
+    expect(opened.move).toEqual({ moveId: "m", to: { kind: "worktree" }, step: "place" });
+    // THE MUTANT: a second row drawn from the move's step, and the phone shows the move under way twice.
+    expect(opened.rows).toMatchObject([{ key: "mv:m", kind: "notice", move: "moving", text: "Moving · Setting up the checkout" }]);
+    expect(opened.rows).toHaveLength(1);
+    const queued = fakeRpc({ sessions: [session("a", "s1")], items: [item("a", "s1", "A")] }, {
+      "sessions.queued": (() => ({ queued: [], move: { ...underWay, step: null } })) as never,
+      "agents.probe": (() => []) as never,
+    });
+    const waiting = MobileCalls["session.open"].result.parse(await api().handle(channel(queued), "session.open", { id: "a" }));
+    expect(waiting).toMatchObject({ rows: [], move: { step: null } });
   });
 
   it("cancels a move as the desktop does", async () => {

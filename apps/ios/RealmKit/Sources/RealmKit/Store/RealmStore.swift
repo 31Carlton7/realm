@@ -31,7 +31,7 @@ public final class RealmStore {
     /// A suggested next message that changed while its session was opening, newer than the open's.
     @ObservationIgnored private var openingHint: [String: String?] = [:]
     /// A queue that changed while its session was opening, newer than the open's.
-    @ObservationIgnored private var openingQueue: [String: [QueuedMessage]] = [:]
+    @ObservationIgnored private var openingQueue: [String: SessionQueueEvent] = [:]
     @ObservationIgnored private var watches: [RowWatch] = []
     /// The seq each session was last marked read up to, by this phone.
     @ObservationIgnored private var seenUpTo: [String: Int] = [:]
@@ -103,9 +103,13 @@ public final class RealmStore {
         transcript.hasMore = opened.hasMore
         transcript.hint = opened.hint
         transcript.queued = opened.queued
+        transcript.move = opened.move
         if let early = opening.removeValue(forKey: opened.session.id) { transcript.upsert(early) }
         if let hint = openingHint.removeValue(forKey: opened.session.id) { transcript.hint = hint }
-        if let queued = openingQueue.removeValue(forKey: opened.session.id) { transcript.queued = queued }
+        if let update = openingQueue.removeValue(forKey: opened.session.id) {
+            transcript.queued = update.queued
+            transcript.move = update.move
+        }
         transcripts[opened.session.id] = transcript
         settleOutbox(in: opened.session.id)
     }
@@ -153,9 +157,10 @@ public final class RealmStore {
             }
         case .sessionQueue(let update):
             if opening[update.id] != nil {
-                openingQueue[update.id] = update.queued
+                openingQueue[update.id] = update
             } else if transcripts[update.id] != nil {
                 transcripts[update.id]?.queued = update.queued
+                transcripts[update.id]?.move = update.move
                 settleOutbox(in: update.id)
             }
         case .homeChanged, .workChanged, .sessionSubagents, .pairResult, .unknown:

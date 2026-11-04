@@ -42,14 +42,61 @@ struct MoveTests {
             return nil
         }
         // The desktop's sentence, which says how the conversation went from the moved event's own field.
-        #expect(texts[0] == "Moved from realm (main) to tidy-settings (tidy-settings). The conversation continued.")
-        #expect(texts[2] == "Moved from tidy-settings (tidy-settings) to realm (main). The conversation continued from notes.")
-        #expect(notices.map(\.noticeDetail) == ["~/realm → ~/Realm/worktrees/realm/tidy-settings", "Setting up the checkout", "~/Realm/worktrees/realm/tidy-settings → ~/realm"])
+        #expect(texts[0] == "Moved from realm (main) to tidy-settings. The conversation continued.")
+        #expect(texts[2] == "Moved from tidy-settings to realm (main). The conversation continued from notes.")
+        // A failed move is the desktop's one sentence from its step and where the session still is; the
+        // Mac's reason, and what it left as it was, wait for a tap.
+        #expect(texts[1] == "Couldn't move this session while setting up the checkout. It's still in tidy-settings.")
+        #expect(notices.map(\.noticeDetail) == [
+            "~/realm → ~/Realm/worktrees/realm/tidy-settings",
+            "another session started working in that checkout\nThe changes it merged into ~/realm are still there, since another session is working there.",
+            "~/Realm/worktrees/realm/tidy-settings → ~/realm",
+        ])
         // Every other row says nothing of moves.
         let others = try APIFixtureTests.opened().rows
         #expect(others.allSatisfy { $0.move == nil })
         // A tool's detail stays the tool's.
         #expect(others.allSatisfy { $0.noticeDetail == nil })
+    }
+
+    @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
+    func aMoveWaitingForTheTurnComesWithTheQueue() throws {
+        struct Queue: Decodable { let queued: [QueuedMessage]; let move: PendingMove? }
+        let queue = try APIFixtureTests.decode(Queue.self, "calls", "session.queue:move")
+        #expect(queue.move == PendingMove(moveId: "01JMOVE0000000000000000004", to: .checkout(environmentId: "01JWORKTREE000000000000001"), step: nil))
+        #expect(queue.move?.isQueued == true)
+        // A session with no move waiting says so as null.
+        #expect(try APIFixtureTests.decode(Queue.self, "calls", "session.queue").move == nil)
+        let events = try APIFixtureTests.decode([SessionQueueEvent].self, "events", "session.queue")
+        #expect(events.map(\.move) == [nil, nil, queue.move])
+    }
+
+    @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
+    func aSessionOpenedMidMoveOpensOnItsProgressRow() throws {
+        let opened = try APIFixtureTests.decode(OpenedSession.self, "calls", "session.open:moving")
+        #expect(opened.move == PendingMove(moveId: "01JMOVE0000000000000000005", to: .worktree, step: "place"))
+        #expect(opened.move?.isQueued == false)
+        #expect(opened.rows.map(\.key) == ["mv:01JMOVE0000000000000000005"])
+        #expect(opened.rows.first?.move == .moving)
+        #expect(opened.rows.first?.content == .notice(text: "Moving · Setting up the checkout"))
+    }
+
+    @Test @MainActor func aMoveQueuedWhileTheSessionOpensIsTheOneItOpensWith() throws {
+        let row = try JSONDecoder().decode(SessionRow.self, from: Data(#"{"id":"s1","title":"T","spaceId":"sp","spaceName":"S","agent":"claude","model":null,"status":"running","needsYou":false,"unread":false,"updatedAt":0}"#.utf8))
+        let queued = PendingMove(moveId: "m", to: .worktree, step: nil)
+        let store = RealmStore()
+        store.beginOpening("s1")
+        store.apply(.sessionQueue(SessionQueueEvent(id: "s1", queued: [], move: queued)))
+        store.finishOpening(OpenedSession(session: row, rows: [], hasMore: false, queued: [], move: nil))
+        #expect(store.transcript("s1").move == queued)
+        store.apply(.sessionQueue(SessionQueueEvent(id: "s1", queued: [], move: nil)))
+        #expect(store.transcript("s1").move == nil)
+        let options = MoveOptions(mac: "MacBook Pro", from: Checkout(environmentId: "e", path: "~/realm", branch: "main", kind: .primary), busy: true, blocked: nil, pending: true,
+                                  conversation: .native, changedFiles: 0, leftBehind: [],
+                                  checkouts: [Checkout(environmentId: "w", path: "~/Realm/worktrees/realm/feat-theme", branch: "feat-theme", kind: .worktree)],
+                                  worktree: .init(available: true, reason: nil))
+        #expect(MoveWords.destination(.worktree, in: options) == "New worktree")
+        #expect(MoveWords.destination(.checkout(environmentId: "w"), in: options) == "feat-theme")
     }
 
     @Test func aProgressRowIsReplacedByHowTheMoveEnded() throws {

@@ -81,8 +81,17 @@ public enum MoveTarget: Sendable, Hashable {
     case worktree
 }
 
-extension MoveTarget: Encodable {
+extension MoveTarget: Codable {
     private enum CodingKeys: String, CodingKey { case kind, environmentId }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        switch try c.decode(String.self, forKey: .kind) {
+        case "checkout": self = .checkout(environmentId: try c.decode(String.self, forKey: .environmentId))
+        case "worktree": self = .worktree
+        case let kind: throw DecodingError.dataCorruptedError(forKey: .kind, in: c, debugDescription: "no move target \(kind)")
+        }
+    }
 
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -94,6 +103,23 @@ extension MoveTarget: Encodable {
             try c.encode("worktree", forKey: .kind)
         }
     }
+}
+
+/// A move of the session that is not over: queued behind the turn while `step` is nil, otherwise under
+/// way at `step`, which the transcript's progress row names.
+public struct PendingMove: Codable, Sendable, Hashable {
+    public let moveId: String
+    public let to: MoveTarget
+    public let step: String?
+
+    public init(moveId: String, to: MoveTarget, step: String?) {
+        self.moveId = moveId
+        self.to = to
+        self.step = step
+    }
+
+    /// Waiting for the turn to end.
+    public var isQueued: Bool { step == nil }
 }
 
 /// When a move asked for during a turn happens.
@@ -125,6 +151,17 @@ public enum MoveWords {
     /// The chip: the Mac while the session runs in the space's own folder, the checkout's name in any other.
     public static func chip(_ options: MoveOptions) -> String {
         options.from.kind == .primary ? "On \(options.mac)" : "On \(options.from.name)"
+    }
+
+    /// What a move waiting for the turn says, on the chip and in the sheet.
+    public static let queued = "Moves after this turn"
+
+    /// Where a move waiting for the turn goes, by the name its destination has in the sheet.
+    public static func destination(_ target: MoveTarget, in options: MoveOptions) -> String {
+        switch target {
+        case .worktree: "New worktree"
+        case .checkout(let environmentId): options.checkouts.first { $0.environmentId == environmentId }?.name ?? "Another checkout"
+        }
     }
 
     /// The buttons a move is asked for with, the first the prominent one. Between turns a move happens

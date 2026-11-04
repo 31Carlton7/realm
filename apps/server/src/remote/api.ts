@@ -4,7 +4,7 @@ import { basename, join } from "node:path";
 import {
   AGENT_META, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, isSecretPath, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, readEffortSupport,
   resolveMidTurnMode, SELECTABLE_AGENT_KINDS, type AgentKind, type DelegatedChild, type IconAsset, type Item, type Machine, type MethodResult, type ModelInfo,
-  type QueuedPrompt, type Schedule, type Session, type Space, type StoredSessionEvent, type TurnChanges,
+  type PendingMove, type QueuedPrompt, type Schedule, type Session, type Space, type StoredSessionEvent, type TurnChanges,
 } from "@realm/contracts";
 import { givenAttachmentName, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
 import {
@@ -19,7 +19,7 @@ import { tildify } from "../skills/discovery";
 import { diffPage } from "./changes";
 import { agentOptions, changesFor, ChoiceRefused, probeList, type InitFacts, type OptionsInput, type ProbeRow } from "./options";
 import { fileData, filePreview, PreviewRefused, sipsDownscale, type Downscale } from "./preview";
-import { queuedMessage, SessionProjector, tilde } from "./rows";
+import { pendingMove, queuedMessage, SessionProjector, tilde } from "./rows";
 import { RpcCallError, type RpcPort } from "./rpc-port";
 import { frameSide, machineScreen, phoneMayWatch, SCREEN_DEADLINE_MS, screenFrame, screenOrder, simulatorScreen } from "./screens";
 import { checkUploads, saveUploads, UploadRefused, type Upload } from "./uploads";
@@ -44,6 +44,8 @@ export type OpenSession = {
   /** The queue as the newest `session.queue` broadcast carried it while the session opened — newer than
    *  the read `session.open` made, so the open answers with it. */
   queued: QueuedPrompt[] | null;
+  /** The move that same broadcast carried, beside the queue. */
+  move: PendingMove | null;
   /** Its sub-agents' sessions, as the phone last read them: a change to one is a change to this list. */
   subagents: ReadonlySet<string>;
 };
@@ -219,7 +221,7 @@ export class MobileApi {
         case "session.open": return await this.open(ctx, p.id as string, p.limit as number);
         case "session.close": ctx.sessions.delete(p.id as string); return { ok: true };
         case "session.update": return await this.update(rpc, p as MobileParams<"session.update">);
-        case "session.queue": return { queued: await this.queue(rpc, p.id as string) };
+        case "session.queue": return await this.queue(rpc, p.id as string);
         case "session.sendQueuedNow": await rpc.call("sessions.releaseQueued", { id: p.id as string, queuedId: p.queuedId as string }); return { ok: true };
         case "session.removeQueued": await rpc.call("sessions.dequeue", { id: p.id as string, queuedId: p.queuedId as string }); return { ok: true };
         case "session.holdQueued": {
@@ -491,15 +493,14 @@ export class MobileApi {
   private async open(ctx: ChannelContext, id: string, limit: number): Promise<MobileResult<"session.open">> {
     // Opened again, it keeps the sub-agents the phone has read of it: their changes are still its list's.
     const entry: OpenSession = {
-      projector: new SessionProjector({ attachmentsDir: tempAttachmentDir(this.o.realmHome), home: this.o.userHome ?? homedir() }), buffer: [], queued: null,
+      projector: new SessionProjector({ attachmentsDir: tempAttachmentDir(this.o.realmHome), home: this.o.userHome ?? homedir() }), buffer: [], queued: null, move: null,
       subagents: ctx.sessions.get(id)?.subagents ?? new Set(),
     };
     ctx.sessions.set(id, entry);
     const rpc = ctx.rpc;
     try {
       const session = await rpc.call("sessions.get", { id });
-      entry.projector.agent = AGENT_META[session.agentKind]?.label ?? session.agentKind;
-      const read = (await rpc.call("sessions.queued", { id })).queued;
+      const read = await rpc.call("sessions.queued", { id });
       // What a broadcast carried before the read is in it; one from here on is newer than it.
       entry.queued = null;
       let after = 0;
@@ -514,15 +515,18 @@ export class MobileApi {
       const [lists, probe] = await Promise.all([this.lists(rpc), this.probes(rpc)]);
       // From here to the answer nothing is awaited, so nothing can arrive between the two.
       for (const ev of entry.buffer ?? []) entry.projector.apply(ev);
-      const queued = entry.queued ?? read;
+      const queued = entry.queued ?? read.queued;
+      const move = entry.queued ? entry.move : read.move ?? null;
       entry.buffer = null;
       entry.queued = null;
+      entry.move = null;
       const item = lists.items.find((it) => it.kind === "session" && it.refId === id);
       const need = new Set(needsYou(needsYouInput(lists)).map((r) => r.session.id));
       const all = entry.projector.all();
       return {
         session: this.row(session, item, lists.spaces.find((s) => s.id === session.spaceId), need, probe),
         rows: all.slice(-limit), hasMore: all.length > limit, hint: entry.projector.hint, queued: this.queuedMessages(queued),
+        move: pendingMove(move),
       };
     } catch (e) {
       ctx.sessions.delete(id);
@@ -535,8 +539,9 @@ export class MobileApi {
     return queued.map((q) => queuedMessage(q, tempAttachmentDir(this.o.realmHome)));
   }
 
-  private async queue(rpc: RpcPort, id: string): Promise<QueuedMessage[]> {
-    return this.queuedMessages((await rpc.call("sessions.queued", { id })).queued);
+  private async queue(rpc: RpcPort, id: string): Promise<MobileResult<"session.queue">> {
+    const { queued, move } = await rpc.call("sessions.queued", { id });
+    return { queued: this.queuedMessages(queued), move: pendingMove(move) };
   }
 
   /** Renames, pins or archives the session's own sidebar row, as the desktop's sidebar does: the item,
@@ -559,14 +564,13 @@ export class MobileApi {
    *  others are, and every path as the Mac's home would shorten it. */
   private async moveOptions(rpc: RpcPort, id: string): Promise<MoveOptions> {
     const options = await rpc.call("sessions.moveOptions", { id });
-    const here = await rpc.call("environments.get", { id: options.from.environmentId });
     const home = this.o.userHome ?? homedir();
     const checkout = (c: { environmentId: string; path: string; branch: string | null; kind: string }) => ({
       environmentId: c.environmentId, path: tilde(c.path, home), branch: c.branch, kind: c.kind as MoveOptions["from"]["kind"],
     });
     return {
-      mac: this.o.macName(),
-      from: checkout({ ...options.from, path: options.from.cwd, kind: here.kind }),
+      mac: options.machineName ?? this.o.macName(),
+      from: checkout({ ...options.from, path: options.from.cwd, kind: options.from.kind ?? "checkout" }),
       busy: options.busy, blocked: options.blocked, pending: options.pending, conversation: options.conversation,
       changedFiles: options.changedFiles, leftBehind: options.leftBehind, stops: options.stops ?? [],
       checkouts: options.environments.map(checkout),

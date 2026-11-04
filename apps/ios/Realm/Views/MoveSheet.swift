@@ -21,11 +21,12 @@ struct MoveSheet: View {
         let transcript = model.store.transcript(sessionId)
         let status = transcript.status ?? transcript.session?.status
         let agent = transcript.session?.agentDisplayName ?? "The agent"
+        let pending = transcript.move
         let working = status == .running || status == .waiting || (status == nil && options?.busy == true)
         NavigationStack {
             Form {
                 if let options {
-                    content(options, agent: agent)
+                    content(options, agent: agent, pending: pending)
                 } else {
                     ProgressView()
                         .frame(maxWidth: .infinity)
@@ -45,7 +46,7 @@ struct MoveSheet: View {
             // On a ground of their own, so the list ends above the buttons rather than running under them.
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if let options, options.blocked == nil {
-                    buttons(options, working: working)
+                    buttons(options, working: working, pending: pending)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
                         .background(Ground.grouped)
@@ -70,7 +71,7 @@ struct MoveSheet: View {
     }
 
     @ViewBuilder
-    private func content(_ options: MoveOptions, agent: String) -> some View {
+    private func content(_ options: MoveOptions, agent: String, pending: PendingMove?) -> some View {
         Section {
             LabeledContent {
                 Text(MoveWords.detail(options.from))
@@ -100,7 +101,19 @@ struct MoveSheet: View {
                 .accessibilityIdentifier("move-refusal")
             }
         }
-        if options.blocked == nil {
+        if let pending, pending.isQueued {
+            Section(MoveWords.queued) {
+                Label {
+                    Text(MoveWords.destination(pending.to, in: options))
+                        .foregroundStyle(Palette.ink)
+                } icon: {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .foregroundStyle(Palette.ink2)
+                }
+                .listRowBackground(Fill.card)
+                .accessibilityIdentifier("move-queued")
+            }
+        } else if options.blocked == nil {
             Section("Move to") {
                 destination(.worktree, title: "New worktree",
                             line: options.worktree.available ? "A new branch off \(options.from.branch ?? "this checkout"), with your changes" : options.worktree.reason.map(MoveWords.sentence),
@@ -110,6 +123,8 @@ struct MoveSheet: View {
                                 symbol: checkout.kind == .worktree ? "arrow.triangle.branch" : "folder", enabled: true, mono: true)
                 }
             }
+        }
+        if options.blocked == nil {
             Section("Goes with it") {
                 Group {
                     Text(MoveWords.conversation(options.conversation, agent: agent))
@@ -189,9 +204,9 @@ struct MoveSheet: View {
     /// Move, or during a turn Move after this turn and Stop and move; Cancel the move once one is queued
     /// or under way.
     @ViewBuilder
-    private func buttons(_ options: MoveOptions, working: Bool) -> some View {
+    private func buttons(_ options: MoveOptions, working: Bool, pending: PendingMove?) -> some View {
         let asked = model.movesAsked[sessionId]
-        if options.pending && asked == nil {
+        if (options.pending || pending != nil) && asked == nil {
             Button {
                 Task { await model.cancelMove(sessionId) }
             } label: {

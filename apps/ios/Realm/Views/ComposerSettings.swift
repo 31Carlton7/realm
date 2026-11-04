@@ -96,9 +96,17 @@ struct ComposerChips: View {
         SettingChips(label: options?.modelLabel ?? session?.modelDisplayName ?? session?.agentDisplayName ?? "Model",
                      kind: options?.agent.kind ?? session?.agent ?? "", mark: options?.agent.mark ?? session?.agentMark,
                      options: options, busy: model.configuring[sessionId] != nil, openSettings: openSettings,
-                     place: model.moveOptions[sessionId].map { PlaceChip(label: MoveWords.chip($0), symbol: $0.from.kind == .primary ? "laptopcomputer" : "arrow.triangle.branch", open: openMove) }) { changes, setting in
+                     place: model.moveOptions[sessionId].map { placeChip($0) }) { changes, setting in
             Task { await model.configure(changes, setting, in: sessionId) }
         }
+    }
+
+    /// Where it runs, or that it moves once the turn ends.
+    private func placeChip(_ options: MoveOptions) -> PlaceChip {
+        if model.store.transcript(sessionId).move?.isQueued == true {
+            return PlaceChip(label: MoveWords.queued, symbol: "clock.arrow.circlepath", open: openMove)
+        }
+        return PlaceChip(label: MoveWords.chip(options), symbol: options.from.kind == .primary ? "laptopcomputer" : "arrow.triangle.branch", open: openMove)
     }
 }
 

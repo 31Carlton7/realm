@@ -1326,7 +1326,8 @@
             }
           ]
         }
-      ]
+      ],
+      "move": null
     },
     "session.changes": {
       "checkpointId": "01JCHECKPOINT0000000000000",
@@ -2845,7 +2846,8 @@
             }
           ]
         }
-      ]
+      ],
+      "move": null
     },
     "session.file:queued": {
       "path": "/Users/me/Realm/tmp/attachments/5e6f7a8b9c0d-sketch.png",
@@ -3275,7 +3277,7 @@
           "key": "mv:01JMOVE0000000000000000001",
           "seq": 2,
           "kind": "notice",
-          "text": "Moved from realm (main) to tidy-settings (tidy-settings). The conversation continued.",
+          "text": "Moved from realm (main) to tidy-settings. The conversation continued.",
           "detail": "~/realm → ~/Realm/worktrees/realm/tidy-settings",
           "move": "moved"
         },
@@ -3283,22 +3285,23 @@
           "key": "mv:01JMOVE0000000000000000002",
           "seq": 3,
           "kind": "notice",
-          "text": "Could not move this session: another session started working in that checkout. It is still in ~/Realm/worktrees/realm/tidy-settings, as it was.",
-          "detail": "Setting up the checkout",
+          "text": "Couldn't move this session while setting up the checkout. It's still in tidy-settings.",
+          "detail": "another session started working in that checkout\nThe changes it merged into ~/realm are still there, since another session is working there.",
           "move": "failed"
         },
         {
           "key": "mv:01JMOVE0000000000000000003",
           "seq": 4,
           "kind": "notice",
-          "text": "Moved from tidy-settings (tidy-settings) to realm (main). The conversation continued from notes.",
+          "text": "Moved from tidy-settings to realm (main). The conversation continued from notes.",
           "detail": "~/Realm/worktrees/realm/tidy-settings → ~/realm",
           "move": "moved"
         }
       ],
       "hasMore": false,
       "hint": null,
-      "queued": []
+      "queued": [],
+      "move": null
     },
     "session.moveOptions": {
       "mac": "MacBook Pro",
@@ -3355,6 +3358,58 @@
     },
     "session.cancelMove": {
       "cancelled": true
+    },
+    "session.queue:move": {
+      "queued": [],
+      "move": {
+        "moveId": "01JMOVE0000000000000000004",
+        "to": {
+          "kind": "checkout",
+          "environmentId": "01JWORKTREE000000000000001"
+        },
+        "step": null
+      }
+    },
+    "session.open:moving": {
+      "session": {
+        "id": "01JREALM000000000000000003",
+        "title": "Fix the flaky upload test",
+        "spaceId": "sp1",
+        "spaceName": "Realm",
+        "agent": "claude",
+        "model": "claude-opus-5-5",
+        "status": "idle",
+        "needsYou": false,
+        "unread": false,
+        "updatedAt": 1789946000000,
+        "agentName": "Claude",
+        "agentMark": "claude",
+        "modelLabel": "Opus 5.5",
+        "createdAt": 1789000000002,
+        "effort": null,
+        "permissionMode": "default",
+        "activityAt": 1789946000000,
+        "pinned": false
+      },
+      "rows": [
+        {
+          "key": "mv:01JMOVE0000000000000000005",
+          "seq": 2,
+          "kind": "notice",
+          "text": "Moving · Setting up the checkout",
+          "move": "moving"
+        }
+      ],
+      "hasMore": false,
+      "hint": null,
+      "queued": [],
+      "move": {
+        "moveId": "01JMOVE0000000000000000005",
+        "to": {
+          "kind": "worktree"
+        },
+        "step": "place"
+      }
     },
     "session.update": {
       "session": {
@@ -3422,6 +3477,18 @@
       {
         "id": "01JSESSION00000000000000000",
         "queued": []
+      },
+      {
+        "id": "01JREALM000000000000000002",
+        "queued": [],
+        "move": {
+          "moveId": "01JMOVE0000000000000000004",
+          "to": {
+            "kind": "checkout",
+            "environmentId": "01JWORKTREE000000000000001"
+          },
+          "step": null
+        }
       }
     ],
     "session.subagents": [

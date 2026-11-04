@@ -13,6 +13,8 @@ public struct Transcript: Sendable, Equatable {
     /// The messages waiting in the Mac's queue, as it last said; nil from a Mac that does not say. Not
     /// kept with the rows on disk: the queue lives in the Mac's memory, and comes again with the session.
     public var queued: [QueuedMessage]?
+    /// The move queued behind the turn or under way, as the Mac last said. Not kept on disk, as the queue is not.
+    public var move: PendingMove?
     /// When these rows were last fresh from the Mac; nil while they are live on this connection.
     public var savedAt: Date?
 
