@@ -20,6 +20,19 @@ struct TeammateWordsTests {
         #expect(TeammateWords.role("") == "")
     }
 
+    /// The Mac's own handles for these names (`teammateHandle`), and its refusal of one typed.
+    @Test func aHandleIsMadeFromTheNameAsTheMacMakesIt() {
+        #expect(TeammateWords.handle(from: "Design Engineer") == "design-engineer")
+        #expect(TeammateWords.handle(from: "  CTO!! ") == "cto")
+        #expect(TeammateWords.handle(from: "Café Crème — QA") == "cafe-creme-qa")
+        #expect(TeammateWords.handle(from: "🚀") == "teammate")
+        #expect(TeammateWords.handle(from: String(repeating: "ab ", count: 30)) == "ab-ab-ab-ab-ab-ab-ab-ab-ab-ab-ab-ab-ab-a")
+        #expect(TeammateWords.handleProblem("design-engineer") == nil)
+        #expect(TeammateWords.handleProblem("Design") == "a handle is lowercase letters, digits and dashes")
+        #expect(TeammateWords.handleProblem("-lead") != nil && TeammateWords.handleProblem("") != nil)
+        #expect(TeammateWords.handleProblem(String(repeating: "a", count: 41)) != nil)
+    }
+
     @Test func onlyAStateWorthActingOnIsSaid() {
         #expect(TeammateWords.state(.working) == "Working")
         #expect(TeammateWords.state(.needsYou) == "Needs you")
