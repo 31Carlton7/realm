@@ -97,6 +97,15 @@ struct SubagentStateTests {
         #expect(SubagentState.done.tone == .done && SubagentState.failed.tone == .failed && SubagentState.timedOut.tone == .failed)
         #expect(SubagentState.working.tone == .working && SubagentState.waiting.tone == .waiting && SubagentState.stopped.tone == .quiet)
     }
+
+    /// An agent's state is in amber only where it needs you or failed; working, done and at rest are
+    /// in the quiet ink, never the accent, green or red.
+    @Test func onlyNeedsYouAndFailedAreColoured() {
+        #expect(Tone.waiting.agentColor == Palette.orange && Tone.failed.agentColor == Palette.orange)
+        for tone in [Tone.working, .done, .quiet] {
+            #expect(tone.agentColor == Palette.ink2, "\(tone)")
+        }
+    }
 }
 
 @MainActor

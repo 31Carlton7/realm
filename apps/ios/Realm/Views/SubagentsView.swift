@@ -238,7 +238,7 @@ struct SubagentsChip: View {
                 HStack(spacing: 6) {
                     if label.working {
                         Image(systemName: "progress.indicator")
-                            .foregroundStyle(Palette.accentInk)
+                            .foregroundStyle(Tone.working.agentColor)
                             .restingPulse(when: true)
                     } else {
                         Image(systemName: "person.2")
@@ -336,7 +336,7 @@ struct SubagentRow: View {
                     HStack(alignment: .firstTextBaseline, spacing: 12) {
                         Image(systemName: state.symbol)
                             .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(state.tone.color)
+                            .foregroundStyle(state.tone.agentColor)
                             .restingPulse(when: state == .working)
                             .frame(width: glyph)
                         Text(title)

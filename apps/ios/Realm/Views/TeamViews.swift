@@ -129,17 +129,6 @@ struct TeammateRowView: View {
         let unread = teammate.unread == true
         HStack(alignment: .center, spacing: 12) {
             TeammateMark(icon: teammate.icon, size: side, lead: teammate.lead)
-                .overlay(alignment: .topTrailing) {
-                    // As the sidebar's dot: the accent while its chat holds something unread, and
-                    // nothing over a state, which the line under the name says.
-                    if unread && (teammate.state == nil || teammate.state == .idle) {
-                        Circle()
-                            .fill(Palette.accent)
-                            .frame(width: 11, height: 11)
-                            .overlay(Circle().strokeBorder(Ground.transcript, lineWidth: 2))
-                            .offset(x: 2, y: -2)
-                    }
-                }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(teammate.name)
@@ -184,7 +173,7 @@ private struct TeammateDoing: View {
                     StateDot(state: teammate.state)
                     Text(word)
                         .fontWeight(.semibold)
-                        .foregroundStyle(teammate.state == .needsYou ? Palette.orange : Palette.accentInk)
+                        .foregroundStyle((teammate.state ?? .idle).tone.agentColor)
                 }
                 .fixedSize()
                 if !doing.isEmpty { Text("·") }
@@ -201,14 +190,14 @@ private struct TeammateDoing: View {
     }
 }
 
-/// A teammate's state as the sidebar's dot: the accent, breathing, while it works; orange while it
+/// A teammate's state as the sidebar's dot: the quiet ink, breathing, while it works; amber while it
 /// waits on the person; nothing while idle.
 struct StateDot: View {
     let state: TeammateState?
 
     var body: some View {
         Circle()
-            .fill(state == .needsYou ? Palette.orange : Palette.accent)
+            .fill((state ?? .idle).tone.agentColor)
             .frame(width: 7, height: 7)
             .restingPulse(when: state == .working)
             .opacity(state == nil || state == .idle ? 0 : 1)
@@ -334,7 +323,7 @@ private struct CallStanding: View {
             Text(standing.word)
         }
         .font(.caption.weight(.semibold))
-        .foregroundStyle(standing == .needsYou ? Palette.orange : standing == .working ? Palette.accentInk : Palette.ink3)
+        .foregroundStyle(standing.tone.agentColor)
         .fixedSize()
     }
 }
@@ -373,6 +362,26 @@ enum TeamListing {
     static func spaces(of teammates: [Teammate], in home: Home) -> [Space] {
         let ids = Set(teammates.map(\.spaceId))
         return home.spaces.filter { ids.contains($0.id) }
+    }
+}
+
+extension TeammateState {
+    var tone: Tone {
+        switch self {
+        case .idle: .quiet
+        case .working: .working
+        case .needsYou: .waiting
+        }
+    }
+}
+
+extension TeammateCallState {
+    var tone: Tone {
+        switch self {
+        case .working: .working
+        case .needsYou: .waiting
+        case .done: .done
+        }
     }
 }
 
