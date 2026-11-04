@@ -11042,48 +11042,86 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .tm-clock-prompt > textarea { flex: 1; min-height: 52px; }
 
 /* ── Voice mode (voice/VoiceView.tsx) ──
-   The whole window, as the media viewer is, on the working plane's ground. One thing at its centre —
-   the voice that is talking, as a few bars, with its words under them — and the controls at the foot
-   where the prompter stands. Nothing here is a card, and nothing is labelled that the colour and the
-   line under the words already say. */
+   The whole window, on the panes' ground: the window's own material under the canvas, so it reads as
+   a layer of the window rather than a page pasted over it. The panes' alpha and not the sidebar's,
+   because its caption is reading, and the sidebar's range is drawn for labels. It fades in while the shell under
+   it fades out — one cross-fade, no scrim — and once it is in, the shell stops painting, so what shows
+   through is the material and never the panes. One thing at its centre — the voice that is talking,
+   as a few bars, with its words and the line saying what is happening right under them — and the
+   controls at the foot where the prompter stands. Nothing here is a card. */
 .voice-view {
   position: fixed; inset: 0; z-index: 75; display: flex; flex-direction: column; outline: none;
-  background: var(--canvas); color: var(--rl-text-bright);
+  background: var(--pane-ground); color: var(--rl-text-bright);
   animation: rl-fade-in var(--dur-swap) var(--ease-out-strong);
 }
-.voice-head { flex: none; display: flex; align-items: center; gap: 8px; height: var(--frame-top);
-  padding: 0 12px 0 var(--lead-x); user-select: none; -webkit-user-select: none; -webkit-app-region: drag; }
-.voice-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
+body:has(> .voice-view) .app { opacity: 0; transition: opacity var(--dur-swap) var(--ease-out-strong); }
+body:has(> .voice-view[data-open]) .app { visibility: hidden; }
+/* The titlebar row: who is on the other end, centred, so it clears the traffic lights by the same
+   margin on both sides. A teammate's chat is the teammate, by its blob and name; a session is its
+   crumb, the space's icon in the space's colour, then the title. */
+.voice-head { flex: none; display: flex; align-items: center; justify-content: center; height: var(--frame-top);
+  padding: 0 var(--lead-x); user-select: none; -webkit-user-select: none; -webkit-app-region: drag; }
+.voice-who { display: flex; align-items: center; gap: 6px; min-width: 0; font-weight: var(--fw-label); }
+.voice-space { flex: none; display: grid; place-items: center; }
+.voice-space-name { flex: 0 1 auto; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-dim); }
+.voice-who .panel-crumb-sep { margin-left: 0; }
+.voice-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-bright); }
 .voice-stage { flex: 1; min-height: 0; width: min(560px, calc(100% - 48px)); margin: 0 auto; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 28px; }
+  align-items: center; justify-content: center; gap: 20px; }
 /* Each bar is a pill whose height is its band's level (--level, 0–1, set per frame), from a dot at
-   rest to the box's full height. Scaling the bar rather than resizing it keeps the frame loop off
-   layout; the caps stay round because the bar is drawn at full height and only its middle grows. */
+   rest to the box's full height. */
 .voice-bars { display: flex; align-items: center; justify-content: center; gap: 10px; height: 96px; }
 .voice-bars > span { width: 14px; height: calc(14px + var(--level, 0) * 82px); border-radius: 999px; background: currentColor; }
 .voice-bars[data-side="mine"] { color: var(--rl-text-bright); }
+/* The person's bars on the light face: the same ink, a step lighter, since solid ink at this weight
+   read as black pills on paper. Realm's keep the accent. */
+:root[data-mode="light"] .voice-bars[data-side="mine"] { color: color-mix(in oklab, var(--rl-text-bright) 72%, transparent); }
 .voice-bars[data-side="realm"] { color: var(--rl-accent); }
-/* Three lines held open, so words arriving do not move the bars above them. */
-.voice-caption { min-height: 84px; margin: 0; font-size: 20px; line-height: 28px; font-weight: var(--fw-title); text-align: center;
-  text-wrap: balance; color: var(--rl-text-bright); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+/* Working: the same dots, a pulse running across them left to right, so waiting on the agent is not
+   the same picture as a silent room. Under Reduce motion the global kill holds them still, and the
+   line under them still says it. It keeps going in a window only idle for input, as the bars do. */
+.voice-view[data-phase="working"] .voice-bars > span { animation: rl-voice-working 1.4s var(--ease-in-out-strong) infinite; }
+.voice-view[data-phase="working"] .voice-bars > span:nth-child(2) { animation-delay: calc(40ms * 3); }
+.voice-view[data-phase="working"] .voice-bars > span:nth-child(3) { animation-delay: calc(40ms * 6); }
+.voice-view[data-phase="working"] .voice-bars > span:nth-child(4) { animation-delay: calc(40ms * 9); }
+.voice-view[data-phase="working"] .voice-bars > span:nth-child(5) { animation-delay: calc(40ms * 12); }
+@keyframes rl-voice-working { 0%, 60%, 100% { opacity: 0.35; scale: 1; } 30% { opacity: 1; scale: 1.2; } }
+:root:is([data-quiet="always"], [data-quiet="unfocused"]) .voice-view[data-phase="working"] .voice-bars > span { animation-play-state: paused; }
+/* At most three lines. Words being heard sit at the foot and push the oldest line off the top; a
+   sentence being said runs off the foot. Only a caption that is clipped dissolves at that edge. */
+.voice-caption { display: flex; flex-direction: column; max-height: 84px; overflow: hidden; margin: 0;
+  font-size: 20px; line-height: 28px; font-weight: var(--fw-title); text-align: center; text-wrap: balance; color: var(--rl-text-bright); }
+.voice-caption[hidden] { display: none; }
+.voice-caption[data-from-end] { justify-content: flex-end; }
+.voice-caption[data-clipped] { mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); }
+.voice-caption[data-clipped][data-from-end] { mask-image: linear-gradient(to top, #000 calc(100% - 28px), transparent); }
 .voice-caption[data-tone="quiet"] { color: var(--rl-text-dim); font-weight: var(--fw-body); }
 .voice-state { margin: 0; font-size: 13px; color: var(--rl-text-dim); text-align: center; }
 .voice-view[data-phase="unavailable"] .voice-state { color: var(--rl-text-bright); }
 .voice-stage > .btn { align-self: center; }
-.voice-controls { flex: none; display: flex; align-items: center; justify-content: center; gap: 20px;
-  padding: 16px 24px max(32px, env(safe-area-inset-bottom)); }
-.voice-control, .voice-talk { display: grid; place-items: center; border-radius: 999px; color: var(--rl-text-bright);
+.voice-controls { flex: none; display: flex; justify-content: center; gap: 28px;
+  padding: 16px 24px max(28px, env(safe-area-inset-bottom)); }
+/* A disc with its word under it, the whole column one button. Every disc is centred in the primary's
+   64px, so the small ones line up with its middle and the words share a line. */
+.voice-key { display: grid; grid-template-rows: 64px auto; place-items: center; row-gap: 8px; color: var(--rl-text-bright);
+  border-radius: var(--r-chip); outline-offset: 4px; }
+.voice-disc { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 999px; background: var(--rl-hover);
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
-.voice-control { width: 48px; height: 48px; background: var(--rl-hover); }
-.voice-control:hover:not(:disabled) { background: var(--rl-active); }
-.voice-control[aria-pressed="true"] { background: var(--rl-text-bright); color: var(--canvas); }
-.voice-control:disabled { color: var(--rl-text-faint); }
+.voice-key-label { font-size: 12px; line-height: 16px; color: var(--rl-text-dim); }
+.voice-key:hover:not(:disabled) .voice-disc { background: var(--rl-active); }
+/* Muted: the disc fills with ink, the state you have to undo. */
+.voice-key[data-on] .voice-disc { background: var(--rl-text-bright); color: var(--canvas); }
+.voice-key[data-on] .voice-key-label { color: var(--rl-text-bright); }
+.voice-key:disabled { color: var(--rl-text-faint); }
+.voice-key:disabled .voice-key-label { color: var(--rl-text-faint); }
 /* The one primary: talking, or stopping Realm while it talks or works. It takes the accent only
    while it is held, which is when it is the thing happening. */
-.voice-talk { width: 64px; height: 64px; background: var(--rl-active);
-  touch-action: none; user-select: none; -webkit-user-select: none; }
-.voice-talk:hover:not(:disabled) { background: var(--hover-2); }
-.voice-talk[data-held] { background: var(--rl-accent-fill); color: var(--rl-accent-contrast); box-shadow: var(--fill-bevel); }
-.voice-talk:disabled { color: var(--rl-text-faint); }
+.voice-key[data-key="talk"] { touch-action: none; user-select: none; -webkit-user-select: none; }
+.voice-key[data-key="talk"] .voice-disc { width: 64px; height: 64px; background: var(--rl-active); }
+.voice-key[data-key="talk"]:hover:not(:disabled) .voice-disc { background: var(--hover-2); }
+.voice-key[data-key="talk"][data-held] .voice-disc { background: var(--rl-accent-fill); color: var(--rl-accent-contrast); box-shadow: var(--fill-bevel); }
+/* End: the danger fill, the one way out, as a call's red button is. */
+.voice-key[data-key="end"] .voice-disc { background: var(--rl-danger-fill); color: var(--rl-danger-contrast); box-shadow: var(--fill-bevel); }
+.voice-key[data-key="end"]:hover .voice-disc { background: var(--rl-danger-fill-hover); }
+.voice-key[data-key="end"]:is([data-pressed], :active:focus-visible) .voice-disc { background: var(--rl-danger-press); }
 .msg-spoken { display: inline-flex; align-items: center; gap: 4px; }

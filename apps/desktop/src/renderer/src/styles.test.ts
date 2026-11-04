@@ -5238,3 +5238,15 @@ describe("a move's rows in the transcript", () => {
     expect(bodiesFor(".move-failed-reason").join(" ")).toContain("-webkit-line-clamp: 2");
   });
 });
+
+describe("voice mode", () => {
+  it("pulses its dots while the agent works, and draws End in the danger fill", () => {
+    // THE MUTANT: the dots hold still while the agent works, exactly as they do while nobody talks.
+    expect(bodiesFor('.voice-view[data-phase="working"] .voice-bars > span').join(" ")).toContain("animation: rl-voice-working");
+    expect(css).toMatch(/@keyframes rl-voice-working/);
+    expect(bodiesFor('.voice-key[data-key="end"] .voice-disc').join(" ")).toContain("background: var(--rl-danger-fill)");
+    // On the panes' ground, so the window's material shows under it and its caption keeps the
+    // reading's contrast.
+    expect(bodiesFor(".voice-view").join(" ")).toContain("background: var(--pane-ground)");
+  });
+});

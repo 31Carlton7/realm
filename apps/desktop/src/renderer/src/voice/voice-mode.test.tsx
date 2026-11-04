@@ -1,15 +1,15 @@
-import { act, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sessionEvent } from "@realm/contracts";
-import { createAppStore } from "../state/store";
-import { fakeApi, item, profile, session, space } from "../state/store.test-fakes";
+import { StoreContext, createAppStore } from "../state/store";
+import { fakeApi, item, profile, session, space, teammate } from "../state/store.test-fakes";
 import { emptyTranscript, reduceTranscript } from "../panes/session/transcript-model";
 import { HOLD_MS, VoiceButton } from "./VoiceButton";
-import { STARTING, captionOf } from "./VoiceView";
+import { STARTING, VoiceControls, VoiceView, captionOf } from "./VoiceView";
 import { speechBands } from "./audio-io";
 import { DEFAULT_VOICE_PREFS, VOICE_PREFS_KEY, readVoicePrefs } from "./voice-prefs";
 
-afterEach(() => { vi.useRealTimers(); });
+afterEach(() => { vi.useRealTimers(); cleanup(); });
 
 async function mount() {
   const api = fakeApi({
@@ -112,5 +112,67 @@ describe("speechBands", () => {
     speechBands(bins, hzPerBin, out);
     expect(out[4]).toBeGreaterThan(0);
     expect(out.slice(0, 4).every((v) => v === 0)).toBe(true);
+  });
+});
+
+describe("the controls at the foot", () => {
+  const controls = (over: Partial<typeof STARTING>) => {
+    const fns = { onMute: vi.fn(), onStop: vi.fn(), onPress: vi.fn(), onRelease: vi.fn(), onEnd: vi.fn() };
+    const view = render(<VoiceControls snap={{ ...STARTING, phase: "listening", ...over }} ready {...fns} />);
+    return { ...view, ...fns };
+  };
+
+  it("say Mute while the microphone is live, and Unmute on a filled disc with a struck mic while it is not", () => {
+    const live = controls({});
+    const mute = live.getByRole("button", { name: "Mute" });
+    // THE MUTANT: the glyph is the action (a struck mic) rather than the state — both discs read "off".
+    expect(mute.dataset.on).toBeUndefined();
+    const liveGlyph = mute.querySelector("svg")!.innerHTML;
+    live.unmount();
+    const muted = controls({ muted: true });
+    const unmute = muted.getByRole("button", { name: "Unmute" });
+    expect(unmute.dataset.on).toBe("true");
+    expect(unmute.querySelector("svg")!.innerHTML).not.toBe(liveGlyph);
+    fireEvent.click(unmute);
+    expect(muted.onMute).toHaveBeenCalledOnce();
+  });
+
+  it("offer Talk while Realm listens, and Stop while it works or speaks", () => {
+    const listening = controls({});
+    expect(listening.getByRole("button", { name: "Talk" })).toBeTruthy();
+    expect(listening.queryByRole("button", { name: "Stop" })).toBeNull();
+    listening.unmount();
+    for (const phase of ["working", "speaking"] as const) {
+      const busy = controls({ phase });
+      fireEvent.click(busy.getByRole("button", { name: "Stop" }));
+      expect(busy.onStop).toHaveBeenCalledOnce();
+      expect(busy.queryByRole("button", { name: "Talk" })).toBeNull();
+      busy.unmount();
+    }
+  });
+
+  it("end on a key of its own, named for what it does", () => {
+    const { getByRole, onEnd } = controls({});
+    const end = getByRole("button", { name: "End voice mode" });
+    expect(end.dataset.key).toBe("end");
+    expect(end.textContent).toBe("End");
+    fireEvent.click(end);
+    expect(onEnd).toHaveBeenCalledOnce();
+  });
+});
+
+describe("the head", () => {
+  it("is the teammate, by its blob and name, in a teammate's chat; the session's crumb otherwise", async () => {
+    const { store } = await mount();
+    store.setState({ teammates: { s1: [teammate("mina", "s1", { name: "Mina", homeSessionId: "a" })] } });
+    store.getState().openVoice("a", false);
+    render(<StoreContext.Provider value={store}><VoiceView /></StoreContext.Provider>);
+    const head = document.querySelector(".voice-head")!;
+    expect(head.querySelector(".voice-name")?.textContent).toBe("Mina");
+    expect(head.querySelector(".voice-space-name")).toBeNull();
+    expect(document.querySelector(".voice-view")?.getAttribute("aria-label")).toBe("Voice with Mina");
+    act(() => store.setState({ teammates: { s1: [] } }));
+    expect(head.querySelector(".voice-space-name")?.textContent).toBe("Realm");
+    expect(head.querySelector(".voice-name")?.textContent).toBe("Fake agent session");
   });
 });

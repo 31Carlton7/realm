@@ -1,8 +1,10 @@
 import { AGENT_META } from "@realm/contracts";
 import { Icon, TeammateIcon } from "@realm/ui";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { StoreApi } from "zustand";
+import { SpaceIcon } from "../components/SpaceIcon";
+import { useSpaceTint } from "../components/sidebar/use-sidebar-model";
 import { prefersReducedMotion } from "../reduced-motion";
 import { useApp, useAppStore, type AppState } from "../state/store";
 import { WebVoiceAudio, type VoiceAudio } from "./audio-io";
@@ -62,6 +64,8 @@ function VoiceWindow({ sessionId, held }: { sessionId: string; held: boolean }) 
   const store = useAppStore();
   const session = useApp((s) => s.sessions[sessionId]);
   const teammate = useApp((s) => (session ? s.teammates[session.spaceId]?.find((t) => t.homeSessionId === sessionId) ?? null : null));
+  const space = useApp((s) => (session ? s.spaces.find((sp) => sp.id === session.spaceId) : undefined));
+  const tint = useSpaceTint(space?.color);
   const handsFree = useApp((s) => s.voicePrefs.handsFree);
   const closeVoice = useApp((s) => s.closeVoice);
   // Who answers, in the line under the bars, and what the conversation is, in the head: a teammate is
@@ -69,6 +73,9 @@ function VoiceWindow({ sessionId, held }: { sessionId: string; held: boolean }) 
   const name = teammate?.name ?? (session ? AGENT_META[session.agentKind].label : "The agent");
   const title = teammate?.name ?? (session?.title.trim() || name);
   const [snap, setSnap] = useState<VoiceSnapshot>(STARTING);
+  // Once the view has faded in, the window under it steps out, so what shows through is the
+  // window's material and not the panes.
+  const [opened, setOpened] = useState(() => prefersReducedMotion());
   const ctl = useRef<VoiceSession | null>(null);
   const audio = useRef<VoiceAudio | null>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -147,19 +154,31 @@ function VoiceWindow({ sessionId, held }: { sessionId: string; held: boolean }) 
   }, [store, sessionId, closeVoice]);
 
   const vs = ctl.current;
-  const canStop = snap.phase === "speaking" || snap.phase === "working";
   // Whose voice the bars follow: Realm's while it talks, the person's the rest of the time.
   const side = snap.phase === "speaking" ? "realm" : "mine";
   const caption = captionOf(snap);
   return createPortal(
-    <div ref={root} className="voice-view" role="dialog" aria-modal="true" aria-label={`Voice with ${title}`} tabIndex={-1} data-phase={snap.phase}>
+    <div ref={root} className="voice-view" role="dialog" aria-modal="true" aria-label={`Voice with ${title}`} tabIndex={-1} data-phase={snap.phase}
+      data-open={opened || undefined} onAnimationEnd={(e) => { if (e.target === e.currentTarget) setOpened(true); }}>
       <div className="voice-head">
-        {teammate && <TeammateIcon icon={teammate.icon} size={24} lead={teammate.lead} />}
-        <span className="voice-name">{title}</span>
+        {teammate ? (
+          <span className="voice-who"><TeammateIcon icon={teammate.icon} size={20} lead={teammate.lead} /><span className="voice-name">{title}</span></span>
+        ) : (
+          <span className="voice-who">
+            {space && (
+              <>
+                <span className="voice-space" style={tint ? { color: tint } : undefined}><SpaceIcon icon={space.icon} size={14} /></span>
+                <span className="voice-space-name">{space.name}</span>
+                <span className="panel-crumb-sep" aria-hidden="true">›</span>
+              </>
+            )}
+            <span className="voice-name">{title}</span>
+          </span>
+        )}
       </div>
       <div className="voice-stage">
         <Bars audio={audio} side={side} live={snap.phase !== "starting" && snap.phase !== "unavailable" && !(side === "mine" && snap.muted && !snap.held)} />
-        <p className="voice-caption" data-selectable data-tone={caption.tone} aria-live="polite">{caption.text}</p>
+        <Caption text={caption.text} tone={caption.tone} fromEnd={snap.phase === "hearing"} />
         <p className="voice-state" role={snap.phase === "unavailable" ? "alert" : "status"}>
           {snap.problem && snap.phase === "unavailable" ? snap.problem : stateLine(snap, handsFree, name)}
         </p>
@@ -167,32 +186,54 @@ function VoiceWindow({ sessionId, held }: { sessionId: string; held: boolean }) 
           <button type="button" className="btn" onClick={() => void window.realm?.permissions?.openSettings("microphone")}>Open Microphone settings</button>
         )}
       </div>
-      <div className="voice-controls">
-        <button type="button" className="voice-control" aria-pressed={snap.muted} aria-label="Mute" disabled={!vs || snap.phase === "unavailable"}
-          title={snap.muted ? "Unmute (M)" : "Mute (M)"} onClick={() => vs?.setMuted(!snap.muted)}>
-          <Icon name="micOff" size={20} />
-        </button>
-        {canStop ? (
-          <button type="button" className="voice-talk" aria-label="Stop" title="Stop (Esc)" onClick={() => void vs?.interrupt()}>
-            {/* off-ladder: the one primary control, a 64-px disc, sized as the voice view's and not a row's. */}
-            <Icon name="stop" size={24} />
-          </button>
-        ) : (
-          <button type="button" className="voice-talk" aria-label="Hold to talk" data-held={snap.held || undefined} disabled={!vs || snap.phase === "unavailable"}
-            title="Hold to talk (hold Space)"
-            onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); vs?.press(); }}
-            onPointerUp={() => vs?.release()} onPointerCancel={() => vs?.release()}
-            onKeyDown={(e) => { if (e.key === "Enter") vs?.press(); }} onKeyUp={(e) => { if (e.key === "Enter") vs?.release(); }}>
-            {/* off-ladder: the one primary control, a 64-px disc, sized as the voice view's and not a row's. */}
-            <Icon name="mic" size={24} />
-          </button>
-        )}
-        <button type="button" className="voice-control" aria-label="End voice mode" title="End voice mode" onClick={closeVoice}>
-          <Icon name="close" size={20} />
-        </button>
-      </div>
+      <VoiceControls snap={snap} ready={!!vs} onMute={() => vs?.setMuted(!snap.muted)} onStop={() => void vs?.interrupt()}
+        onPress={() => vs?.press()} onRelease={() => vs?.release()} onEnd={closeVoice} />
     </div>,
     document.body,
+  );
+}
+
+/**
+ * The foot: Mute, Talk (Stop while Realm speaks or works) and End, each a disc with its word under
+ * it. Mute's glyph and word are the microphone's state now — a mic while it hears, a struck mic on a
+ * filled disc while it does not — and the word is the button's name, so a screen reader hears the
+ * same flip. End is the one disc in the danger fill, as a call's way out is.
+ */
+export function VoiceControls({ snap, ready, onMute, onStop, onPress, onRelease, onEnd }: {
+  snap: VoiceSnapshot; ready: boolean;
+  onMute: () => void; onStop: () => void; onPress: () => void; onRelease: () => void; onEnd: () => void;
+}) {
+  const off = !ready || snap.phase === "unavailable";
+  const canStop = snap.phase === "speaking" || snap.phase === "working";
+  return (
+    <div className="voice-controls">
+      <button type="button" className="voice-key" data-on={snap.muted || undefined} disabled={off}
+        title={snap.muted ? "Unmute (M)" : "Mute (M)"} onClick={onMute}>
+        <span className="voice-disc"><Icon name={snap.muted ? "micOff" : "mic"} size={20} /></span>
+        <span className="voice-key-label">{snap.muted ? "Unmute" : "Mute"}</span>
+      </button>
+      {canStop ? (
+        <button type="button" className="voice-key" data-key="talk" title="Stop (Esc)" onClick={onStop}>
+          {/* off-ladder: the one primary control, a 64-px disc, sized as the voice view's and not a row's. */}
+          <span className="voice-disc"><Icon name="stop" size={24} /></span>
+          <span className="voice-key-label">Stop</span>
+        </button>
+      ) : (
+        <button type="button" className="voice-key" data-key="talk" data-held={snap.held || undefined} disabled={off}
+          title="Hold to talk (hold Space)"
+          onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); onPress(); }}
+          onPointerUp={onRelease} onPointerCancel={onRelease}
+          onKeyDown={(e) => { if (e.key === "Enter") onPress(); }} onKeyUp={(e) => { if (e.key === "Enter") onRelease(); }}>
+          {/* off-ladder: the one primary control, a 64-px disc, sized as the voice view's and not a row's. */}
+          <span className="voice-disc"><Icon name="voiceWave" size={24} /></span>
+          <span className="voice-key-label">Talk</span>
+        </button>
+      )}
+      <button type="button" className="voice-key" data-key="end" aria-label="End voice mode" title="End voice mode" onClick={onEnd}>
+        <span className="voice-disc"><Icon name="callEnd" size={20} /></span>
+        <span className="voice-key-label">End</span>
+      </button>
+    </div>
   );
 }
 
@@ -203,6 +244,24 @@ export function captionOf(s: VoiceSnapshot): { text: string; tone: "live" | "qui
   if (s.phase === "speaking" && s.said) return { text: s.said, tone: "live" };
   if (s.phase === "working" || s.phase === "speaking") return { text: s.heard ?? "", tone: "quiet" };
   return { text: "", tone: "quiet" };
+}
+
+/**
+ * The caption, held to three lines. Words being heard keep their newest line in view and lose the
+ * oldest off the top; a sentence being said keeps its start and runs off the foot. Either way the
+ * clipped edge dissolves rather than cutting a line in half, and only when something is clipped.
+ */
+function Caption({ text, tone, fromEnd }: { text: string; tone: "live" | "quiet"; fromEnd: boolean }) {
+  const box = useRef<HTMLParagraphElement>(null);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (el) el.toggleAttribute("data-clipped", el.scrollHeight > el.clientHeight + 1);
+  }, [text, fromEnd]);
+  return (
+    <p ref={box} className="voice-caption" data-selectable data-tone={tone} data-from-end={fromEnd || undefined} hidden={!text} aria-live="polite">
+      <span>{text}</span>
+    </p>
+  );
 }
 
 /** How many bars, and how far a bar's height follows a new reading each frame (the rest is the last
