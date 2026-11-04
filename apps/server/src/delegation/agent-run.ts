@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES, AgentKindSchema, AgentRunConstraintsSchema, DEFAULT_MODEL_LABEL, MAX_DELEGATION_DEPTH, type AgentKind, type AgentRunConstraints, type DelegableModel, type DelegationOutcome, type Session } from "@realm/contracts";
+import { AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES, AgentKindSchema, AgentRunConstraintsSchema, MAX_DELEGATION_DEPTH, type AgentKind, type AgentRunConstraints, type DelegableModel, type DelegationOutcome, type Session } from "@realm/contracts";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { fenceAgentOutput } from "@realm/contracts";
 import { childPermissionMode, cleanupWorktree, errorMessage, modeLabel, rank, resolveAgentKind, resolveEnvironment, resolveSkillSubset, taskName, type ChildMode, type EnvironmentDeps } from "./dispatch";
@@ -9,7 +9,7 @@ import type { RpcServer } from "../rpc/server";
 import type { SessionService } from "../sessions/service";
 import type { SkillsService } from "../skills/service";
 import { MAX_RUNS_PER_PARENT, workingMs, type ActiveRun, type DelegationEngine, type SettledRun } from "./engine";
-import { delegableModels, modelMenu, resolveModelName, type ModelResolution, type ProbedAgent } from "./models";
+import { defaultModelLabel, delegableModels, modelMenu, resolveModelName, type ModelResolution, type ProbedAgent } from "./models";
 
 export const AGENT_RUN_TOOL_NAME = "agent_run";
 export const AGENT_START_TOOL_NAME = "agent_start";
@@ -234,7 +234,7 @@ export class AgentRunService {
     if (constraints?.model === undefined) {
       const kind = resolveAgentKind(constraints?.agentKind, parent.agentKind, this.d.fallbackKind);
       const model = kind === parent.agentKind ? parent.model : null;
-      return { ok: true, choice: { kind, model, label: model === null ? DEFAULT_MODEL_LABEL[kind] : this.labelOf(kind, model) } };
+      return { ok: true, choice: { kind, model, label: this.labelOf(kind, model) } };
     }
     const m = this.d.models;
     if (!m) return { ok: false, reason: "unknown", message: "refused: this Realm has no list of models to resolve constraints.model against — leave it out, or name constraints.agentKind." };
@@ -252,14 +252,14 @@ export class AgentRunService {
    *  which moves a harness that cannot take Realm's skills onto one that can. */
   async placeModel(caller: Session, model: string | undefined): Promise<ModelResolution> {
     if (model !== undefined) return this.place({ model }, caller);
-    const label = caller.model === null ? DEFAULT_MODEL_LABEL[caller.agentKind] : this.labelOf(caller.agentKind, caller.model);
-    return { ok: true, choice: { kind: caller.agentKind, model: caller.model, label } };
+    return { ok: true, choice: { kind: caller.agentKind, model: caller.model, label: this.labelOf(caller.agentKind, caller.model) } };
   }
 
   /** A model id's name, from the catalog when it is in it — the report should say "Claude Opus 5.5",
-   *  not "claude-opus-5-5". */
-  private labelOf(kind: AgentKind, id: string): string {
+   *  not "claude-opus-5-5". No id is the harness's own default, named as its CLI names it. */
+  labelOf(kind: AgentKind, id: string | null): string {
     const rows = this.d.models?.known()?.rows ?? [];
+    if (id === null) return defaultModelLabel(kind, rows);
     return delegableModels(rows, [kind]).find((x) => x.routes.some((r) => r.kind === kind && r.id === id))?.label ?? id;
   }
 
@@ -272,8 +272,7 @@ export class AgentRunService {
     const m = this.d.models;
     const rows = m ? (m.known()?.rows ?? await m.refresh()) : [];
     const models = m ? delegableModels(rows, m.kinds).map(({ key, label, kind, id, ready }) => ({ key, label, kind, id, ready })) : [];
-    const label = session.model === null ? DEFAULT_MODEL_LABEL[session.agentKind] : this.labelOf(session.agentKind, session.model);
-    return { models, own: { kind: session.agentKind, label } };
+    return { models, own: { kind: session.agentKind, label: this.labelOf(session.agentKind, session.model) } };
   }
 
   /** `agent_run` and `agent_start` as this Realm can describe them right now — with the models a

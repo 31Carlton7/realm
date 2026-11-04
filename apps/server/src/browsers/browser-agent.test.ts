@@ -50,7 +50,7 @@ const longScript = (steps: number): FakeScript => [{ on: "delegated browser agen
 
 async function boot(opts: {
   script?: FakeScript; delayMs?: number;
-  parentKind?: "fake" | "claude"; parentMode?: string; fallbackKind?: "fake" | "claude";
+  parentKind?: "fake" | "claude"; parentModel?: string | null; parentMode?: string; fallbackKind?: "fake" | "claude";
   timeouts?: { baseMs: number; perActMs: number; pollMs: number };
 } = {}) {
   const home = tempDir("realm-ba-");
@@ -64,7 +64,7 @@ async function boot(opts: {
   });
   const profile = new ProfilesStore(app.db).create({ name: "P", icon: "x", color: "#000" });
   const space = new SpacesStore(app.db, home).create({ profileId: profile.id, name: "S", icon: "folder" });
-  const parent = app.sessions.create({ spaceId: space.id, agentKind: opts.parentKind ?? "fake", projectId: null, model: null, effort: null, permissionMode: opts.parentMode ?? "default" });
+  const parent = app.sessions.create({ spaceId: space.id, agentKind: opts.parentKind ?? "fake", projectId: null, model: opts.parentModel ?? null, effort: null, permissionMode: opts.parentMode ?? "default" });
   return { home, fake, spaceId: space.id, parentId: parent.session.id };
 }
 
@@ -153,6 +153,24 @@ describe("browser_agent_run — the delegated session", () => {
     const { spaceId, parentId } = await boot({ parentKind: "claude" });
     await app.browserAgents.run({ sessionId: parentId, spaceId }, { goal: "go" });
     expect(childOf(spaceId, parentId).agentKind).toBe("claude");
+  });
+
+  it("runs on the caller's model when it keeps the caller's kind", async () => {
+    const { spaceId, parentId } = await boot({ parentKind: "claude", parentModel: "claude-opus-5-5" });
+    await app.browserAgents.run({ sessionId: parentId, spaceId }, { goal: "go" });
+    expect(childOf(spaceId, parentId).model).toBe("claude-opus-5-5");
+  });
+
+  it("runs on the kind's default when the caller pinned none, as the caller does", async () => {
+    const { spaceId, parentId } = await boot({ parentKind: "claude" });
+    await app.browserAgents.run({ sessionId: parentId, spaceId }, { goal: "go" });
+    expect(childOf(spaceId, parentId).model).toBeNull();
+  });
+
+  it("a fallback child never takes the caller's model, which names nothing on another harness", async () => {
+    const { spaceId, parentId } = await boot({ parentKind: "fake", parentModel: "fake-model", fallbackKind: "claude" });
+    await app.browserAgents.run({ sessionId: parentId, spaceId }, { goal: "go" });
+    expect(childOf(spaceId, parentId)).toMatchObject({ agentKind: "claude", model: null });
   });
 
   it("falls back for a parent kind with no injection route", async () => {

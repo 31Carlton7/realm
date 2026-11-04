@@ -2,7 +2,8 @@ import { describe, expect, it, afterEach } from "vitest";
 import WebSocket from "ws";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
-import { FakeAdapter, type AgentHandle, type StartOptions, type FakeScript, type UserMessage } from "@realm/adapters";
+import { FakeAdapter, type AgentAdapter, type AgentHandle, type StartOptions, type FakeScript, type UserMessage } from "@realm/adapters";
+import type { AgentModel } from "@realm/contracts";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createApp, type App } from "../app";
 import { ProfilesStore } from "../store/profiles";
@@ -44,11 +45,15 @@ const SCRIPT: FakeScript = [
   { on: "You are a delegated agent.", emit: [{ kind: "text", text: "partial: reading" }, { kind: "text", text: "FINAL: tests written" }] },
 ];
 
-async function boot(opts: { leadMode?: string; script?: FakeScript; delayMs?: number } = {}) {
+async function boot(opts: { leadMode?: string; script?: FakeScript; delayMs?: number; claudeModels?: AgentModel[] } = {}) {
   const home = tempDir("realm-tm-");
   const fake = new WireFake({ script: opts.script ?? SCRIPT, delayMs: opts.delayMs ?? 5 });
+  // Claude on the fake's body, probing with the model list a real Claude CLI would report.
+  const claude: AgentAdapter = opts.claudeModels
+    ? { kind: "claude", probe: async () => ({ kind: "claude", available: true, version: "fake", loggedIn: true, reason: null, models: opts.claudeModels }), start: (o) => fake.start(o) }
+    : fake;
   app = await createApp({
-    home, port: 0, adapters: { fake, claude: fake },
+    home, port: 0, adapters: { fake, claude },
     browserAgent: { fallbackKind: "fake", timeouts: { baseMs: 5000, perActMs: 0, pollMs: 20 } },
     agentRun: { timeouts: { baseMs: 5000, perTurnMs: 0, pollMs: 20 } },
     ask: { timeouts: { budgetMs: 5000, pollMs: 20 } },
@@ -152,6 +157,19 @@ describe("the lead's agent is told on its next message", () => {
     await b.call("sessions.send", { id: b.leadId, text: "Plan the release again" });
     await waitFor(() => b.fake.wire.some((w) => w.text.startsWith("Plan the release again")));
     expect(b.fake.wire.find((w) => w.text.startsWith("Plan the release again"))!.text).not.toContain(childId);
+    b.close();
+  });
+
+  it("names the model a teammate with none pinned runs as its CLI's default", async () => {
+    const b = await boot({ claudeModels: [{ id: "claude-fable-5-1", label: "Claude Fable 5.1" }, { id: "claude-opus-5-5", label: "Claude Opus 5.5", isDefault: true }] });
+    await app.sessions.probe();
+    const { childId } = await b.call<{ childId: string }>("delegation.addTeammate", { sessionId: b.leadId, agentKind: "claude", brief: "Write the tests" });
+    expect(app.sessions.get(childId).model).toBeNull();
+    await waitFor(settled(childId));
+    await b.call("sessions.send", { id: b.leadId, text: "Plan the release" });
+    await waitFor(() => b.fake.wire.some((w) => w.text.startsWith("Plan the release")));
+    const told = b.fake.wire.filter((w) => w.text.startsWith("Plan the release"))[0]!.text;
+    expect(told).toContain(`(handle ${childId}) on Claude · Claude Opus 5.5,`);
     b.close();
   });
 

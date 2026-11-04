@@ -558,7 +558,7 @@ describe("session.options", () => {
     ];
     const o = await options(session("cx", "s1", { agentKind: "codex", model: null }), { "agents.probe": () => [probeRow("codex", { models })] });
     expect(o.agent.models.map((m) => [m.id, m.label, m.efforts?.map((e) => e.id) ?? null, m.defaultEffort ?? null])).toEqual([
-      [null, "GPT-5.6", ["low", "medium", "high"], "medium"], ["gpt-6-astra", "GPT-6 Astra", ["low", "medium", "high"], "medium"],
+      [null, "GPT-6 Astra", ["low", "medium", "high"], "medium"], ["gpt-6-astra", "GPT-6 Astra", ["low", "medium", "high"], "medium"],
       ["gpt-6-luna", "GPT-6 Luna", ["low"], "low"], ["gpt-6-plain", "GPT-6 Plain", null, null],
     ]);
     expect(o.agent.steerNote).toBe(steerNote("codex"));

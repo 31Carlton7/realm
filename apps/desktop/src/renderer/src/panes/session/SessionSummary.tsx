@@ -1,7 +1,8 @@
 import { Icon, type IconName } from "@realm/ui";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
-import { AGENT_META, DEFAULT_MODEL_LABEL, PERMISSION_MODES, SESSION_MODES, documentKindFor, planLabel, sessionModeOf, tightestWindow, currentAlert, windowHasReset, type AgentKind, type Environment, type GitInfo, type Item, type McpServer, type MemorySources, type PlanLimits, type Session } from "@realm/contracts";
+import { AGENT_META, PERMISSION_MODES, SESSION_MODES, documentKindFor, planLabel, sessionModeOf, tightestWindow, currentAlert, windowHasReset, type AgentKind, type Environment, type GitInfo, type Item, type McpServer, type MemorySources, type PlanLimits, type Session } from "@realm/contracts";
+import { modelLabel } from "@realm/view";
 import { useApp } from "../../state/store";
 import { ScrollFades } from "../../components/ScrollFades";
 import { Sheet } from "../../components/Sheet";
@@ -398,12 +399,13 @@ export function ContextSection({ sessionId, onClose }: { sessionId: string; onCl
   const git = useApp((s) => (session ? s.gitInfo[session.cwd] ?? null : null));
   const memory = useApp((s) => s.sessionMemorySources[sessionId] ?? null);
   const servers = useApp((s) => s.mcpServers);
+  const probe = useApp((s) => s.agentProbe);
   const refreshMemorySources = useApp((s) => s.refreshMemorySources);
   const openDiff = useApp((s) => s.openDiff);
   const run = useApp((s) => s.run);
   useEffect(() => { if (session) run(() => refreshMemorySources(sessionId)); }, [session?.id, sessionId, refreshMemorySources, run]);
   if (!session) return null;
-  const rows = contextRows({ session, env, git, memory, servers });
+  const rows = contextRows({ session, env, git, memory, servers, probe });
   /* The changes row opens the checkout's diff — the same pane the composer's git chip opens, through
      the same action, because one object reached from two lists has to open one way. */
   const act = (r: ContextRow) => (r.action === "diff" && env ? () => { onClose(); run(() => openDiff(env.id)); } : undefined);
@@ -415,8 +417,9 @@ export function ContextSection({ sessionId, onClose }: { sessionId: string; onCl
 }
 
 /** The rows, as data, so the test can hold the rule for each without a DOM. */
-export function contextRows({ session, env, git, memory, servers }: {
+export function contextRows({ session, env, git, memory, servers, probe = [] }: {
   session: Session; env: Environment | null; git: GitInfo | null; memory: MemorySources | null; servers: McpServer[];
+  probe?: Parameters<typeof modelLabel>[2];
 }): ContextRow[] {
   const out: ContextRow[] = [];
   const folder = session.cwd.replace(/\/+$/, "").split("/").pop() || session.cwd;
@@ -440,7 +443,7 @@ export function contextRows({ session, env, git, memory, servers }: {
       title: `${git.dirty} uncommitted ${git.dirty === 1 ? "file" : "files"}${counted ? ` · +${git.additions} −${git.deletions} lines` : ""}`,
     });
   }
-  const model = session.model ?? DEFAULT_MODEL_LABEL[session.agentKind];
+  const model = session.model ?? modelLabel(session.agentKind, null, probe);
   const effort = session.effort ? ` · ${session.effort}` : "";
   out.push({ icon: AGENT_META[session.agentKind].icon, label: AGENT_META[session.agentKind].label, value: `${model}${effort}` });
   const mode = sessionModeOf(session.permissionMode);

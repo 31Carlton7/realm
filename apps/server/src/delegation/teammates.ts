@@ -1,4 +1,4 @@
-import { AGENT_META, AddTeammateSchema, DEFAULT_MODEL_LABEL, carriedTranscript, type AgentRunConstraints, type Goal, type MentionRef, type Session } from "@realm/contracts";
+import { AGENT_META, AddTeammateSchema, carriedTranscript, type AgentRunConstraints, type Goal, type MentionRef, type Session } from "@realm/contracts";
 import type { z } from "zod";
 import { clip } from "../mcp/tool-result";
 import type { SessionService } from "../sessions/service";
@@ -45,7 +45,7 @@ const SUMMARY_MAX = 1_200;
  */
 export class Teammates {
   constructor(private readonly d: {
-    agentRuns: Pick<AgentRunService, "startChild" | "record">;
+    agentRuns: Pick<AgentRunService, "startChild" | "record" | "labelOf">;
     sessions: Pick<SessionService, "get" | "send">;
     events: Pick<SessionEventsStore, "transcript" | "lastOfType">;
     goals: { get(sessionId: string): Goal | null };
@@ -122,7 +122,7 @@ export class Teammates {
       let child: Session;
       try { child = this.d.sessions.get(id); } catch { continue; }
       const brief = this.d.agentRuns.record(id)?.goal.split("\n")[0] ?? "";
-      const on = `${AGENT_META[child.agentKind].label} · ${child.model ?? DEFAULT_MODEL_LABEL[child.agentKind]}`;
+      const on = `${AGENT_META[child.agentKind].label} · ${this.d.agentRuns.labelOf(child.agentKind, child.model)}`;
       const where = child.cwd === leadCwd ? "in your folder" : `in its own checkout, ${child.cwd}`;
       const state = child.status === "running" || child.status === "waiting_permission" ? "It is working now." : "It has already finished: collect its report with agent_wait.";
       lines.push(`- "${child.title}" (handle ${id}) on ${on}, ${where}, asked to: ${brief} ${state}`);

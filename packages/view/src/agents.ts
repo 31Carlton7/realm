@@ -5,11 +5,12 @@ import { AGENT_META, AGENT_MODELS, DEFAULT_MODEL_LABEL, type AgentKind } from "@
  *  Named as the picker names it under its harness: "Opus 5.5" beside Claude's mark.
  *
  *  Shared (`@realm/view`) so Realm Mobile names a session's model the way the desktop does. */
-export function modelLabel(kind: AgentKind, id: string | null, probe: readonly { kind: AgentKind; models?: readonly { id: string; label: string }[] | null }[]): string {
-  if (id === null) return DEFAULT_MODEL_LABEL[kind];
-  const named = (probe.find((p) => p.kind === kind)?.models ?? []).find((m) => m.id === id)
-    ?? (AGENT_MODELS[kind] as readonly { id: string; label: string }[]).find((m) => m.id === id);
-  const label = named?.label.replace(/\[[^\]]*\]\s*$/, "") ?? id;
+export function modelLabel(kind: AgentKind, id: string | null, probe: readonly { kind: AgentKind; models?: readonly { id: string; label: string; isDefault?: boolean }[] | null }[]): string {
+  const live = probe.find((p) => p.kind === kind)?.models ?? [];
+  // Nothing pinned runs the CLI's own default, which its model list marks; Realm's guess only without one.
+  const named = id === null ? live.find((m) => m.isDefault)
+    : live.find((m) => m.id === id) ?? (AGENT_MODELS[kind] as readonly { id: string; label: string }[]).find((m) => m.id === id);
+  const label = named ? named.label.replace(/\[[^\]]*\]\s*$/, "") : id ?? DEFAULT_MODEL_LABEL[kind];
   // Beside the harness's own mark the harness's name is said twice — "Claude Fable 5.1" on one row
   // and the default "Fable 5.1" on the next read as two models. The picker's rule: the word comes off
   // only when what follows is itself a name, never leaving a bare version.

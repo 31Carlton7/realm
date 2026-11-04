@@ -239,7 +239,8 @@ export class BrowserAgentService {
     let created;
     try {
       created = this.d.sessions.create({
-        spaceId: ctx.spaceId, agentKind, projectId: null, model: null, effort: null, permissionMode,
+        // The caller's model when the child keeps its harness; a fallback harness runs its own default.
+        spaceId: ctx.spaceId, agentKind, projectId: null, model: agentKind === parent.agentKind ? parent.model : null, effort: null, permissionMode,
         // The task's name, as agent_run's children are named — see `taskName`.
         title: parsed.data.title ?? taskName(goal),
         // The dispatch origin (Plan 13 W1) — the seam W2's Tasks lens reads.
