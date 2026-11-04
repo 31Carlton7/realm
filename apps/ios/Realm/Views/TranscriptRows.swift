@@ -73,6 +73,7 @@ struct UserBubble: View {
     let text: String
     var turn: PromptTurn?
     @Environment(AppModel.self) private var model
+    @Environment(\.findMark) private var findMark
 
     var body: some View {
         let saved = turn.map { model.store.saved[$0.sessionId]?.contains($0.seq) == true } ?? false
@@ -84,7 +85,7 @@ struct UserBubble: View {
                     .foregroundStyle(Palette.ink3)
                     .accessibilityLabel("Saved")
             }
-            Text(Self.named(text))
+            Text(findMark?.marked(Self.named(text)) ?? Self.named(text))
                 .font(.body)
                 .foregroundStyle(Palette.ink)
                 .padding(.horizontal, 14)

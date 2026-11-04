@@ -25,7 +25,7 @@ struct SearchViewTests {
         #expect(String(text.characters) == "move the pelican north")
         let marked = text.runs.filter { $0.backgroundColor != nil }.map { String(text[$0.range].characters) }
         #expect(marked == ["pelican"])
-        #expect(text.runs.filter { $0.inlinePresentationIntent == .stronglyEmphasized }.count == 1)
+        #expect(text.runs.allSatisfy { $0.backgroundColor == nil || $0.backgroundColor == FindMark.tint(current: false) })
         #expect(Snippet.plain(runs) == "move the pelican north")
     }
 
@@ -62,11 +62,65 @@ struct SearchViewTests {
         #expect(oldest.step(older: true) == nil)
         #expect(!FindPlace(keys: ["u:1", "u:5"], current: "u:5", macHasEarlier: true).olderIsOnMac)
         let none = FindPlace(keys: [], current: nil, macHasEarlier: true)
-        #expect(none.words == "Not in these messages")
+        #expect(none.words == "None here")
         #expect(none.hasOlder)
         #expect(FindPlace(keys: [], current: nil, macHasEarlier: false).words == "No matches")
         let asking = FindPlace(keys: ["u:1"], current: "u:1", macHasEarlier: true, asking: true)
         #expect(!asking.hasOlder)
-        #expect(asking.words == "Searching earlier messages…")
+        #expect(asking.words == "Searching…")
+    }
+
+    @Test func aFindHidesTheComposerUntilDoneAndThenForgetsItsWords() {
+        var find = FindState()
+        #expect(find.showsComposer)
+        find.open()
+        #expect(!find.showsComposer)
+        find.query = "pelican"
+        find.typed(matching: ["u:1", "m:3", "u:5"])
+        #expect(find.current == "u:5")
+        find.asking = true
+        find.close()
+        #expect(find.showsComposer)
+        #expect(find == FindState())
+    }
+
+    @Test func stepsUpFromTheNewestToTheOldestAndBackDown() {
+        let keys = ["u:1", "m:3", "u:5"]
+        var find = FindState()
+        find.open()
+        find.typed(matching: keys)
+        var visited = [find.current]
+        while let next = FindPlace(keys: keys, current: find.current, macHasEarlier: false).step(older: true) {
+            find.current = next
+            visited.append(next)
+        }
+        #expect(visited == ["u:5", "m:3", "u:1"])
+        #expect(FindPlace(keys: keys, current: find.current, macHasEarlier: false).words == "1 of 3")
+        #expect(FindPlace(keys: keys, current: find.current, macHasEarlier: false).step(older: false) == "m:3")
+    }
+
+    static func tinted(_ text: AttributedString) -> [String] {
+        text.runs.filter { $0.backgroundColor != nil }.map { String(text[$0.range].characters) }
+    }
+
+    @Test func marksEveryPlaceTheWordsAppearAndNothingElse() {
+        let text = AttributedString("Aurora tonight; the aurora watch, AURORA again")
+        let mark = FindMark.find(" aurora ", current: false)
+        #expect(Self.tinted(mark.marked(text)) == ["Aurora", "aurora", "AURORA"])
+        #expect(Self.tinted(FindMark.find("café", current: false).marked(AttributedString("a cafe here"))) == ["cafe"])
+        #expect(Self.tinted(FindMark.find("  ", current: false).marked(text)).isEmpty)
+        // A find matches its words as one run; a search's are each marked, as the Mac's index matched them.
+        #expect(Self.tinted(FindMark.find("aurora watch", current: false).marked(text)) == ["aurora watch"])
+        #expect(Self.tinted(FindMark.search("watch aurora").marked(AttributedString("watch the aurora"))) == ["watch", "aurora"])
+    }
+
+    @Test func theCurrentMatchIsTintedAStepMoreThanTheOthers() {
+        let text = AttributedString("the aurora")
+        let current = FindMark.find("aurora", current: true).marked(text).runs.compactMap(\.backgroundColor)
+        let other = FindMark.find("aurora", current: false).marked(text).runs.compactMap(\.backgroundColor)
+        #expect(current == [FindMark.tint(current: true)])
+        #expect(other == [FindMark.tint(current: false)])
+        #expect(FindMark.tint(current: true) != FindMark.tint(current: false))
+        #expect(FindMark.tint(current: false) != Palette.accentTint)
     }
 }

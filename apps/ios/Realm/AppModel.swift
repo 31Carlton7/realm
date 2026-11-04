@@ -142,9 +142,9 @@ final class AppModel {
     var queueCalls: [String: Set<String>] = [:]
     /// The person asked to pair again over the Mac this phone shows (after the Mac removed it).
     var pairingRequested = false
-    /// A session opened from a search, by the seq of the message that matched: it opens there, and the
-    /// message is shown, once.
-    var searchMatches: [String: Int] = [:]
+    /// A session opened from a search, by the message that matched and the words searched for: it
+    /// opens there, and the words are shown, once.
+    var searchMatches: [String: SearchMatch] = [:]
     /// The profile Home shows, as the person last chose it for this Mac; nil until they choose.
     private(set) var keptProfile: ProfileChoice?
     private(set) var notificationStatus: UNAuthorizationStatus = .notDetermined
@@ -717,7 +717,7 @@ final class AppModel {
         }
         store.beginOpening(sessionId)
         do {
-            store.finishOpening(try await api.openSession(id: sessionId, from: searchMatches[sessionId]))
+            store.finishOpening(try await api.openSession(id: sessionId, from: searchMatches[sessionId]?.seq))
             updateActivities()
             saveTranscript(sessionId)
             await deliver(sessionId)

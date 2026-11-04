@@ -11,6 +11,12 @@ struct FoundSessions: Equatable {
     static let restsFor = Duration.milliseconds(250)
 }
 
+/// The message a search result opens its session at, and the words that found it.
+struct SearchMatch: Equatable {
+    let seq: Int
+    let words: String
+}
+
 /// What Home asks the Mac's search: the words, in the profile it shows.
 struct SearchAsk: Equatable {
     let query: String?
@@ -29,7 +35,7 @@ struct SearchHitsSection: View {
         if !found.hits.isEmpty {
             Section {
                 ForEach(found.hits) { hit in
-                    SearchHitLink(hit: hit, space: spaces[hit.session.spaceId])
+                    SearchHitLink(hit: hit, words: found.query, space: spaces[hit.session.spaceId])
                 }
             } header: {
                 SectionHead(title: found.hits.count == 1 ? "1 session" : "\(found.hits.count) sessions") {
@@ -43,6 +49,7 @@ struct SearchHitsSection: View {
 /// A session the search found: opens it at the message that matched, which is shown as it opens.
 private struct SearchHitLink: View {
     let hit: SearchHit
+    let words: String
     let space: Space?
     @Environment(AppModel.self) private var model
     @Environment(\.dismissSearch) private var dismissSearch
@@ -52,7 +59,7 @@ private struct SearchHitLink: View {
             // Pushed over a search still under way, the session comes back to a Home with neither its
             // bar nor the field, and no way out. Put away first, it comes back to Home as it was.
             dismissSearch()
-            model.searchMatches[hit.session.id] = hit.message?.seq
+            model.searchMatches[hit.session.id] = hit.message.map { SearchMatch(seq: $0.seq, words: words) }
             model.path.append(.session(hit.session.id))
         } label: {
             SearchHitRow(hit: hit, space: space)
@@ -135,8 +142,8 @@ struct SearchHitRow: View {
     }
 }
 
-/// A search's snippet as text: what matched in the ink, on the accent's wash, as a selection is marked;
-/// the rest in the line's own colour. A message's lines run together, so two lines hold the most words.
+/// A search's snippet as text: what matched in the ink on the find's quiet tint, the rest in the
+/// line's own colour. A message's lines run together, so two lines hold the most words.
 enum Snippet {
     static func marked(_ runs: [SnippetRun], ink: Color) -> AttributedString {
         var text = AttributedString()
@@ -144,8 +151,7 @@ enum Snippet {
             var part = AttributedString(oneLine(run.text))
             if run.match {
                 part.foregroundColor = ink
-                part.backgroundColor = Palette.accentTint
-                part.inlinePresentationIntent = .stronglyEmphasized
+                part.backgroundColor = FindMark.tint(current: false)
             }
             text += part
         }
@@ -161,44 +167,149 @@ enum Snippet {
     }
 }
 
-/// Over the composer while a find in the session is open: where the match shown stands among those in
-/// the rows here, and the way to the one before and after. Before the oldest, where the Mac has
-/// earlier messages, it asks for them.
+/// The words a find or a search marks in a message: each place they appear takes a soft tint of the
+/// ink behind it, and the match the find stands on a step more. Only the words, never the message:
+/// the accent is not a wash.
+struct FindMark: Equatable {
+    /// What is marked: a find's words as one run, as it matches them; a search's each on its own, as
+    /// the Mac's index matches them.
+    let needles: [String]
+    let current: Bool
+
+    static func find(_ words: String, current: Bool) -> FindMark {
+        FindMark(needles: [words.trimmingCharacters(in: .whitespacesAndNewlines)].filter { !$0.isEmpty }, current: current)
+    }
+
+    static func search(_ words: String) -> FindMark {
+        FindMark(needles: words.split(whereSeparator: \.isWhitespace).map(String.init), current: true)
+    }
+
+    static func tint(current: Bool) -> Color {
+        Palette.ink.opacity(current ? 0.2 : 0.09)
+    }
+
+    /// The text with every place the words appear tinted, case and accents ignored as the find's
+    /// matching ignores them.
+    func marked(_ text: AttributedString) -> AttributedString {
+        var text = text
+        for needle in needles {
+            var from = text.startIndex
+            while let found = text[from...].range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) {
+                text[found].backgroundColor = Self.tint(current: current)
+                from = found.upperBound
+            }
+        }
+        return text
+    }
+}
+
+extension EnvironmentValues {
+    /// The words marked in the prose and bubbles below, while a find is open or a search has just
+    /// opened the session at a match.
+    @Entry var findMark: FindMark?
+}
+
+/// The session's foot while a find is open, in the composer's place, as Safari's find on page sits
+/// over the keyboard: the field with where the match shown stands and the way to the one before and
+/// after, then Done. Before the oldest, where the Mac has earlier messages, the step up asks for them.
 struct FindBar: View {
+    @Binding var query: String
     let place: FindPlace
     let older: () -> Void
     let newer: () -> Void
+    let done: () -> Void
+    @FocusState private var focused: Bool
 
     var body: some View {
-        HStack(spacing: 4) {
-            Text(place.words)
-                .font(.subheadline.weight(.medium))
-                .monospacedDigit()
-                .foregroundStyle(Palette.ink2)
-                .padding(.leading, 16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityIdentifier("find-place")
-            Button(action: older) {
-                Image(systemName: "chevron.up")
-                    .frame(width: 44, height: 44)
+        let typed = !query.trimmingCharacters(in: .whitespaces).isEmpty
+        GlassEffectContainer(spacing: 8) {
+            HStack(spacing: 8) {
+                HStack(spacing: 0) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(Palette.ink2)
+                        .padding(.trailing, 6)
+                        .accessibilityHidden(true)
+                    TextField("Find in session", text: $query)
+                        .focused($focused)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .submitLabel(.search)
+                        // Return goes on up the session, as the find starts from its foot.
+                        .onSubmit {
+                            if place.hasOlder { older() }
+                            focused = true
+                        }
+                        .foregroundStyle(Palette.ink)
+                        .accessibilityIdentifier("find-field")
+                    if typed {
+                        Text(place.words)
+                            .font(.subheadline)
+                            .monospacedDigit()
+                            .foregroundStyle(Palette.ink3)
+                            .lineLimit(1)
+                            .fixedSize()
+                            .padding(.leading, 6)
+                            .accessibilityIdentifier("find-place")
+                        Button(action: older) {
+                            Image(systemName: "chevron.up")
+                                .frame(width: 40, height: 44)
+                        }
+                        .disabled(!place.hasOlder)
+                        .accessibilityLabel(place.olderIsOnMac ? "Search earlier messages" : "Previous match")
+                        .accessibilityIdentifier("find-older")
+                        Button(action: newer) {
+                            Image(systemName: "chevron.down")
+                                .frame(width: 40, height: 44)
+                        }
+                        .disabled(!place.hasNewer)
+                        .accessibilityLabel("Next match")
+                        .accessibilityIdentifier("find-newer")
+                    }
+                }
+                .font(.body)
+                .tint(Palette.ink)
+                .padding(.leading, 14)
+                .padding(.trailing, typed ? 2 : 14)
+                .frame(minHeight: 48)
+                .glassEffect(.regular, in: Capsule())
+                Button("Done", action: done)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Palette.ink)
+                    .frame(minHeight: 48)
+                    .padding(.horizontal, 16)
+                    .glassEffect(.regular.interactive(), in: Capsule())
+                    .accessibilityIdentifier("find-done")
             }
-            .disabled(!place.hasOlder)
-            .accessibilityLabel(place.olderIsOnMac ? "Search earlier messages" : "Previous match")
-            .accessibilityIdentifier("find-older")
-            Button(action: newer) {
-                Image(systemName: "chevron.down")
-                    .frame(width: 44, height: 44)
-            }
-            .disabled(!place.hasNewer)
-            .accessibilityLabel("Next match")
-            .accessibilityIdentifier("find-newer")
         }
-        .font(.body.weight(.semibold))
-        .foregroundStyle(Palette.ink)
-        .padding(.trailing, 4)
-        .glassEffect(.regular, in: Capsule())
         .padding(.horizontal, 16)
-        .padding(.bottom, 6)
+        .padding(.bottom, 8)
+        .onAppear { focused = true }
+    }
+}
+
+/// A find in the session, from its menu until Done: the words, the match it stands on, and whether
+/// the Mac is being asked for its earlier rows. While it is open the foot is its bar alone.
+struct FindState: Equatable {
+    private(set) var isOpen = false
+    var query = ""
+    var current: String?
+    var asking = false
+
+    /// The composer and the press for the newest row, which the find's bar stands in for.
+    var showsComposer: Bool { !isOpen }
+
+    mutating func open() {
+        isOpen = true
+    }
+
+    /// Done: the words go with it, so the next find starts empty.
+    mutating func close() {
+        self = FindState()
+    }
+
+    /// New words start at the newest match, as a find in Messages starts from the foot.
+    mutating func typed(matching keys: [String]) {
+        current = keys.last
     }
 }
 
@@ -219,8 +330,8 @@ struct FindPlace: Equatable {
     var olderIsOnMac: Bool { (index ?? 0) == 0 && macHasEarlier }
 
     var words: String {
-        if asking { return "Searching earlier messages…" }
-        guard let index else { return macHasEarlier ? "Not in these messages" : "No matches" }
+        if asking { return "Searching…" }
+        guard let index else { return macHasEarlier ? "None here" : "No matches" }
         return "\(index + 1) of \(keys.count)"
     }
 

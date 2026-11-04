@@ -22,13 +22,10 @@ struct SessionView: View {
     @State private var viewport: CGFloat = 0
     @FocusState private var composing: Bool
     @State private var showsInfo = false
-    /// A find in the session, from its menu: the words, and the row of the match shown.
-    @State private var finding = false
-    @State private var findQuery = ""
-    @State private var foundKey: String?
-    @State private var askingEarlier = false
-    /// The item a search opened the session at, washed for a moment so the eye finds it.
-    @State private var flashed: String?
+    @State private var find = FindState()
+    /// The item a search opened the session at, and the words it matched, marked for a moment so the
+    /// eye finds them.
+    @State private var flashed: (item: String, words: String)?
 
     /// The items drawn at a time. Every one drawn is measured as it is, so the foot is where the
     /// transcript really ends at any text size — a lazy list places it by guesses, and a long answer
@@ -46,9 +43,9 @@ struct SessionView: View {
         let items = TranscriptLayout.items(transcript.rows.filter { !$0.isRequest(footRequest) && !$0.changedNothing },
                                            settled: status != .running && status != .waiting)
         let drawn = items.suffix(shown)
-        let finds = finding ? transcript.keys(saying: findQuery) : []
-        let place = FindPlace(keys: finds, current: foundKey, macHasEarlier: transcript.hasMore, asking: askingEarlier)
-        let washed = finding ? foundKey.flatMap { TranscriptLayout.itemId(holding: $0, in: items) } : flashed
+        let finds = find.isOpen ? transcript.keys(saying: find.query) : []
+        let place = FindPlace(keys: finds, current: find.current, macHasEarlier: transcript.hasMore, asking: find.asking)
+        let found = find.current.flatMap { TranscriptLayout.itemId(holding: $0, in: items) }
         // A teammate's chat is headed by the teammate, and its replies are the teammate's.
         let teammate = model.work.teammate(chat: sessionId)
         ScrollView {
@@ -89,12 +86,7 @@ struct SessionView: View {
                             SpeakerLabel(session: row)
                         }
                         TranscriptItemView(item: item, sessionId: sessionId)
-                    }
-                    .background {
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Palette.accentTint)
-                            .padding(-8)
-                            .opacity(item.id == washed ? 1 : 0)
+                            .environment(\.findMark, findMark(on: item.id, found: found))
                     }
                     .keepsToOfferedWidth()
                     .freshEntrance(born: item.firstKey.flatMap { model.rowBirths[$0] })
@@ -169,30 +161,25 @@ struct SessionView: View {
         .background(Ground.transcript)
         .softEdges(ground: Ground.transcript)
         .safeAreaBar(edge: .bottom) {
-            VStack(spacing: 0) {
-                if finding, !findQuery.trimmingCharacters(in: .whitespaces).isEmpty {
-                    FindBar(place: place) {
-                        stepFind(place, older: true, items: items)
-                    } newer: {
-                        stepFind(place, older: false, items: items)
-                    }
-                }
+            // A find is the foot's one bar while it is open: the composer, and the press for the newest
+            // row, come back when it is done.
+            if find.showsComposer {
                 SessionFoot(sessionId: sessionId, composing: $composing, showsLatest: !atBottom && !transcript.rows.isEmpty) {
                     scrollToBottom()
                 }
+            } else {
+                FindBar(query: $find.query, place: place) {
+                    stepFind(place, older: true, items: items)
+                } newer: {
+                    stepFind(place, older: false, items: items)
+                } done: {
+                    find.close()
+                }
             }
         }
-        .modifier(SearchWhenAsked(query: $findQuery, searching: $finding, prompt: "Find in session"))
-        .onChange(of: findQuery) {
-            // The newest match first, as a find in Messages starts from the foot.
-            foundKey = finds.last
-            if let foundKey { reveal(foundKey, in: items) }
-        }
-        .onChange(of: finding) { _, now in
-            if !now {
-                findQuery = ""
-                foundKey = nil
-            }
+        .onChange(of: find.query) {
+            find.typed(matching: finds)
+            if let current = find.current { reveal(current, in: items) }
         }
         .onChange(of: MatchReady(live: transcript.isLive, rows: transcript.rows.count), initial: true) {
             revealSearchMatch(transcript, items: items)
@@ -216,7 +203,7 @@ struct SessionView: View {
                 .accessibilityIdentifier("session-title")
             }
             if let row {
-                ToolbarItem(placement: .topBarTrailing) { SessionMenu(row: row) { finding = true } }
+                ToolbarItem(placement: .topBarTrailing) { SessionMenu(row: row) { find.open() } }
                 .sharedBackgroundVisibility(.hidden)
             }
         }
@@ -263,38 +250,46 @@ struct SessionView: View {
     /// it sends, and the step lands on the match before where the find stood, if one came.
     private func stepFind(_ place: FindPlace, older: Bool, items: [TranscriptItem]) {
         if let next = place.step(older: older) {
-            foundKey = next
+            find.current = next
             reveal(next, in: items)
             return
         }
         guard older, place.olderIsOnMac else { return }
         let stood = place.current
         Task {
-            askingEarlier = true
+            find.asking = true
             await model.openEarlier(sessionId)
-            askingEarlier = false
+            find.asking = false
             let transcript = model.store.transcript(sessionId)
-            let keys = transcript.keys(saying: findQuery)
+            let keys = transcript.keys(saying: find.query)
             let landed = FindPlace(keys: keys, current: stood, macHasEarlier: transcript.hasMore).step(older: true)
             guard let landed else { return }
-            foundKey = landed
+            find.current = landed
             let status = transcript.status ?? transcript.session?.status
             reveal(landed, in: TranscriptLayout.items(transcript.rows, settled: status != .running && status != .waiting))
         }
     }
 
-    /// Opened from a search: once the Mac's rows are here, the message that matched is shown and washed
-    /// for a moment. Once only, and not over this iPhone's copy, which may not reach back to it.
+    /// Opened from a search: once the Mac's rows are here, the message that matched is shown with its
+    /// words marked for a moment. Once only, and not over this iPhone's copy, which may not reach back to it.
     private func revealSearchMatch(_ transcript: Transcript, items: [TranscriptItem]) {
-        guard transcript.isLive, !transcript.rows.isEmpty, let seq = model.searchMatches[sessionId] else { return }
+        guard transcript.isLive, !transcript.rows.isEmpty, let match = model.searchMatches[sessionId] else { return }
         model.searchMatches[sessionId] = nil
-        guard let key = transcript.rowKey(matching: seq), let id = TranscriptLayout.itemId(holding: key, in: items) else { return }
+        guard let key = transcript.rowKey(matching: match.seq), let id = TranscriptLayout.itemId(holding: key, in: items) else { return }
         reveal(key, in: items)
-        flashed = id
+        flashed = (id, match.words)
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(2))
-            withAnimation(.easeOut(duration: 0.6)) { if flashed == id { flashed = nil } }
+            withAnimation(.easeOut(duration: 0.6)) { if flashed?.item == id { flashed = nil } }
         }
+    }
+
+    /// The words marked in an item: while a find is open, its words wherever they appear, a step more
+    /// in the match it stands on; else a search's words in the message it opened the session at.
+    private func findMark(on item: String, found: String?) -> FindMark? {
+        if find.isOpen { return FindMark.find(find.query, current: item == found) }
+        guard let flashed, flashed.item == item else { return nil }
+        return .search(flashed.words)
     }
 
     private func scrollToBottom() {

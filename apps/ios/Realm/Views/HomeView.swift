@@ -616,17 +616,16 @@ extension Binding where Value: Equatable & Sendable {
     }
 }
 
-/// Home's search field, and a session's find, there only once the bar's Search asks for it, as Manus's is; closed, it clears
+/// Home's search field, there only once the bar's Search asks for it, as Manus's is; closed, it clears
 /// what was typed and goes again.
-struct SearchWhenAsked: ViewModifier {
+private struct SearchWhenAsked: ViewModifier {
     @Binding var query: String
     @Binding var searching: Bool
-    var prompt = "Search sessions"
 
     func body(content: Content) -> some View {
         content.safeAreaBar(edge: .bottom) {
             if searching {
-                SearchBar(prompt: prompt, query: $query, focusesFirst: true) {
+                SearchBar(prompt: "Search sessions", query: $query, focusesFirst: true) {
                     query = ""
                     searching = false
                 }
