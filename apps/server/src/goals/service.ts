@@ -106,6 +106,8 @@ export class GoalService {
 
   get(sessionId: string): Goal | null { return this.d.goals.get(sessionId); }
 
+  list(): Goal[] { return this.d.goals.all(); }
+
   /**
    * Start pursuing an objective. The objective itself is the first turn's prompt: `/goal ship the
    * release notes` should get to work, not acknowledge.

@@ -165,3 +165,8 @@ export function goalBudgetPrompt(goal: { objective: string; tokensUsed: number; 
 /** How a goal's own turns are labelled in the transcript, so a continuation is never mistaken for
  *  something a person typed. The renderer reads this off the event; nothing infers it from the text. */
 export const GOAL_CONTINUATION_TAG = "goal-continuation";
+
+/** What a turn goal mode started says in place of a message: nobody typed it, so it is attributed.
+ *  The desktop's transcript and a phone's both draw this line where the prompt would be. */
+export const goalTurnLabel = (kind: "continuation" | "budget"): string =>
+  kind === "budget" ? "Goal budget spent — Realm asked for a handover" : "Realm continued this goal";

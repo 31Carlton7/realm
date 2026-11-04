@@ -4,11 +4,11 @@ import { basename, join } from "node:path";
 import {
   AGENT_META, AGENT_SKILL_SUPPORT, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, isSecretPath, keepLiveRefs, MAC_SKILL_ID, mentionIds, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, PERMISSION_MODES, readEffortSupport,
   resolveMidTurnMode, runnableCommands, SELECTABLE_AGENT_KINDS, TeammateIconSchema, withStreamed, type AgentKind, type DelegatedChild, type IconAsset, type Item, type Machine, type MethodResult, type ModelInfo,
-  type PendingMove, type QueuedPrompt, type Schedule, type Session, type Skill, type Space, type StoredSessionEvent, type Teammate, type TeammateIcon, type TurnChanges,
+  type Goal, type PendingMove, type QueuedPrompt, type Schedule, type Session, type Skill, type Space, type StoredSessionEvent, type Teammate, type TeammateIcon, type TurnChanges,
 } from "@realm/contracts";
 import { givenAttachmentName, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
 import {
-  MobileCalls, RECENT_LIMIT, SEND_LIMITS, type Home, type MentionRef, type MobileErrorCode, type MobileMethod, type MobileParams, type MobileResult, type MoveOptions, type QueuedMessage,
+  MobileCalls, RECENT_LIMIT, SEND_LIMITS, type Goal as PhoneGoal, type Home, type MentionRef, type MobileErrorCode, type MobileMethod, type MobileParams, type MobileResult, type MoveOptions, type QueuedMessage,
   type ScheduledTask, type Screen, type SessionOptions, type SessionRow, type Subagent, type Teammate as PhoneTeammate,
 } from "@realm/remote";
 import {
@@ -102,6 +102,12 @@ const MOVE_REFUSALS = new Set(["SESSION_MOVE_REFUSED", "SESSION_BUSY", "SESSION_
 const mobileStatus = (s: Session["status"]): SessionRow["status"] => (s === "waiting_permission" ? "waiting" : s === "moving" ? "running" : s);
 
 const isUnread = (s: Session): boolean => s.seenSeq > 0 && s.lastEventSeq > s.seenSeq;
+
+/** A session's goal as a phone reads it: the desktop's, without the session it is already under. */
+export const phoneGoal = (g: Goal | null): PhoneGoal | null => (g ? {
+  objective: g.objective, status: g.status, turns: g.turns, tokensUsed: g.tokensUsed, tokenBudget: g.tokenBudget,
+  note: g.note, startedAt: g.startedAt, updatedAt: g.updatedAt,
+} : null);
 
 /** Home's order, and a space's page's: the conversation that moved last first (`activityAt` — never
  *  `updatedAt`, which a change of settings or a rename moves too), then the newer session, then by id,
@@ -288,6 +294,7 @@ export class MobileApi {
           return { text, missing };
         }
         case "session.goal": await rpc.call("goals.start", { sessionId: p.id as string, objective: p.objective as string, tokenBudget: null }); return { ok: true };
+        case "session.goalControl": return await this.goalControl(rpc, p.id as string, p.action as MobileParams<"session.goalControl">["action"]);
         case "session.options": {
           const { session, input, shared } = await this.optionsContext(rpc, p.id as string);
           return this.sessionOptions(session, input, shared);
@@ -383,7 +390,7 @@ export class MobileApi {
 
   /** `item` is the session's sidebar row, for its title and pin; `need` is the ids Needs you lists, so a
    *  row says it is in that list exactly when it is. */
-  private row(s: Session, item: Pick<Item, "title" | "pinned"> | undefined, space: Space | undefined, need: ReadonlySet<string>, atWork: ReadonlySet<string>, probe: Probe): SessionRow {
+  private row(s: Session, item: Pick<Item, "title" | "pinned"> | undefined, space: Space | undefined, need: ReadonlySet<string>, atWork: ReadonlySet<string>, probe: Probe, goal?: Goal | null): SessionRow {
     const meta = AGENT_META[s.agentKind as AgentKind] as { label: string; icon: string } | undefined;
     return {
       id: s.id, title: item?.title || s.title, spaceId: s.spaceId, spaceName: space?.name ?? "", agent: s.agentKind, model: s.model,
@@ -393,6 +400,7 @@ export class MobileApi {
       createdAt: s.createdAt, effort: s.effort, permissionMode: s.permissionMode, activityAt: s.activityAt, pinned: item?.pinned ?? false,
       ...(isChild(s) && s.dispatchedBy?.sessionId ? { leadId: s.dispatchedBy.sessionId } : {}),
       ...(s.status === "moving" ? { moving: true } : {}),
+      ...(goal ? { goal: { status: goal.status, objective: goal.objective } } : {}),
     };
   }
 
@@ -400,7 +408,8 @@ export class MobileApi {
    *  run on the lists the sidebar is seeded from, and the sessions a row lists — every session item that
    *  is not archived — newest first, each made into its row. */
   private async listing(rpc: RpcPort) {
-    const [lists, probe] = await Promise.all([this.lists(rpc), this.probes(rpc)]);
+    const [lists, probe, { goals }] = await Promise.all([this.lists(rpc), this.probes(rpc), rpc.call("goals.list", {})]);
+    const goalOf = new Map(goals.map((g) => [g.sessionId, g]));
     const spaceById = new Map(lists.spaces.map((s) => [s.id, s]));
     const rows = new Map<string, Item>();
     for (const it of lists.items) if (it.kind === "session") rows.set(it.refId, it);
@@ -415,7 +424,7 @@ export class MobileApi {
     const agentsOf = new Map(nested.filter((n) => n.agents.length > 0).map((n) => [n.row.id, n.agents.map((a) => a.session)]));
     const row = (s: Session, title?: string, spaceId = s.spaceId) => {
       const item = rows.get(s.id);
-      const own = this.row(s, title === undefined ? item : { title, pinned: item?.pinned ?? false }, spaceById.get(spaceId), need, atWork, probe);
+      const own = this.row(s, title === undefined ? item : { title, pinned: item?.pinned ?? false }, spaceById.get(spaceId), need, atWork, probe, goalOf.get(s.id));
       const agents = agentsOf.get(s.id);
       return agents ? { ...own, ...subagentsOn(agents) } : own;
     };
@@ -608,7 +617,9 @@ export class MobileApi {
         after = page.at(-1)!.seq;
       }
       // The reply streaming now is in no stored event yet; read after the log, so it covers it.
-      const [lists, probe, streaming] = await Promise.all([this.lists(rpc), this.probes(rpc), rpc.call("sessions.streaming", { id })]);
+      const [lists, probe, streaming, { goal }] = await Promise.all([
+        this.lists(rpc), this.probes(rpc), rpc.call("sessions.streaming", { id }), rpc.call("goals.get", { sessionId: id }),
+      ]);
       // From here to the answer nothing is awaited, so nothing can arrive between the two.
       for (const ev of withStreamed(id, entry.buffer ?? [], streaming)) entry.projector.apply(ev);
       const queued = entry.queued ?? read.queued;
@@ -621,12 +632,28 @@ export class MobileApi {
       const need = new Set(needsYou(input).map((r) => r.session.id));
       const all = entry.projector.all();
       return {
-        session: this.row(session, item, lists.spaces.find((s) => s.id === session.spaceId), need, agentsAtWork(input), probe),
+        session: this.row(session, item, lists.spaces.find((s) => s.id === session.spaceId), need, agentsAtWork(input), probe, goal),
         rows: all.slice(-limit), hasMore: all.length > limit, hint: entry.projector.hint, queued: this.queuedMessages(queued),
-        move: pendingMove(move),
+        move: pendingMove(move), goal: phoneGoal(goal), todos: entry.projector.todos,
       };
     } catch (e) {
       ctx.sessions.delete(id);
+      throw e;
+    }
+  }
+
+  /** The goal strip's controls, as the desktop's pane wires them, with the same words for why it stopped.
+   *  A resume of a goal that is running or finished is refused in the Mac's words. */
+  private async goalControl(rpc: RpcPort, id: string, action: MobileParams<"session.goalControl">["action"]): Promise<MobileResult<"session.goalControl">> {
+    try {
+      switch (action) {
+        case "pause": return { goal: phoneGoal((await rpc.call("goals.set", { sessionId: id, status: "paused", note: "You paused it." })).goal) };
+        case "done": return { goal: phoneGoal((await rpc.call("goals.set", { sessionId: id, status: "complete", note: "Marked done by you." })).goal) };
+        case "resume": return { goal: phoneGoal((await rpc.call("goals.resume", { sessionId: id })).goal) };
+        case "drop": await rpc.call("goals.clear", { sessionId: id }); return { goal: null };
+      }
+    } catch (e) {
+      if (e instanceof RpcCallError && e.code === "INVALID_ARGUMENT") throw new MobileError("FORBIDDEN", e.message);
       throw e;
     }
   }

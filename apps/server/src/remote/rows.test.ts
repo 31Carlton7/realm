@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { moveFailedSentence, movedSentence, sessionEvent, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
+import { goalContinuationPrompt, goalTurnLabel, moveFailedSentence, movedSentence, sessionEvent, type SessionEvent, type StoredSessionEvent } from "@realm/contracts";
 import { RowSchema } from "@realm/remote";
 import { SessionProjector, summarize } from "./rows";
 
@@ -284,5 +284,42 @@ describe("the phone's rows", () => {
     expect(summarize("WebSearch", { query: "noise protocol" })).toBe("noise protocol");
     expect(summarize("mcp__x__y", { url: "https://x" })).toBe("https://x");
     expect(summarize("Mystery", {})).toBe("Mystery");
+  });
+});
+
+describe("a goal's turns and the agent's to-do list on the phone", () => {
+  const prompt = goalContinuationPrompt({ objective: "ship the notes", turns: 1, tokensUsed: 900, tokenBudget: null }, "mcp__realm__realm-goal__update_goal");
+
+  it("draws a goal's own turn as the desktop's attributed line with the prompt under it, never as the person's bubble", () => {
+    const p = new SessionProjector();
+    p.apply(persisted(sessionEvent("user_message", { text: "ship the notes", attachments: [] })));
+    p.apply(persisted(sessionEvent("user_message", { text: prompt, attachments: [], goal: "continuation" })));
+    p.apply(persisted(sessionEvent("user_message", { text: "Say what is done.", attachments: [], goal: "budget" })));
+    const [objective, continued, handover] = p.all();
+    // The objective is the person's own words, and stays their bubble.
+    expect(objective).toMatchObject({ kind: "user", text: "ship the notes" });
+    expect(continued).toEqual({ key: continued!.key, seq: continued!.seq, kind: "notice", text: goalTurnLabel("continuation"), detail: prompt, goal: "continuation" });
+    expect(handover).toMatchObject({ kind: "notice", text: "Goal budget spent — Realm asked for a handover", goal: "budget" });
+    expect(p.all().some((r) => r.kind === "user" && r.text.includes("update_goal"))).toBe(false);
+    for (const row of p.all()) expect(RowSchema.safeParse(row).success).toBe(true);
+  });
+
+  it("keeps the newest TodoWrite as the list, in the agent's order, and never a sub-agent's", () => {
+    const p = new SessionProjector();
+    const todo = (content: string, status: string, activeForm?: string) => ({ content, status, ...(activeForm ? { activeForm } : {}) });
+    const write = (toolUseId: string, todos: unknown[], parentToolUseId: string | null = null) =>
+      p.apply(persisted(sessionEvent("tool_call", { toolUseId, name: "TodoWrite", input: { todos }, parentToolUseId })));
+    expect(p.todos).toEqual([]);
+    write("t1", [todo("Write it", "in_progress", "Writing it"), todo("Test it", "pending")]);
+    write("t2", [todo("Write it", "completed", "Writing it"), todo("Test it", "in_progress", "Testing it"), todo("Ship it", "pending")]);
+    write("t3", [todo("A helper's own step", "in_progress")], "t-task");
+    expect(p.todos).toEqual([
+      { content: "Write it", status: "completed", activeForm: "Writing it" },
+      { content: "Test it", status: "in_progress", activeForm: "Testing it" },
+      { content: "Ship it", status: "pending", activeForm: null },
+    ]);
+    // An empty or unreadable list drops the plan, rather than putting an older one back.
+    write("t4", [todo("Bad", "someday")]);
+    expect(p.todos).toEqual([]);
   });
 });

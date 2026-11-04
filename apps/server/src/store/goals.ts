@@ -36,6 +36,10 @@ export class GoalsStore {
     return r ? toGoal(r) : null;
   }
 
+  all(): Goal[] {
+    return (this.db.prepare("SELECT * FROM session_goals").all() as Row[]).map(toGoal);
+  }
+
   /** Every goal in a status, for the boot sweep and for the sidebar's counts. */
   withStatus(status: GoalStatus): Goal[] {
     return (this.db.prepare("SELECT * FROM session_goals WHERE status = ?").all(status) as Row[]).map(toGoal);

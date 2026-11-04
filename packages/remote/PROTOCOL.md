@@ -392,6 +392,8 @@ SessionRow {
                           or finished a turn
   pinned?: bool,          pinned in the desktop's sidebar, so Home lists it in Pinned
   moving?: true           being moved to another checkout (`session.move`); absent otherwise
+  goal?: {status, objective}
+                          the goal it pursues, by `Goal.status`; absent for none
 }
 ```
 
@@ -415,7 +417,7 @@ then the fields its kind adds:
 | `tool` | `name`, `summary`, `state: "running"\|"done"\|"error"`, `detail: string\|null`, `teammate?: {id: string\|null, handle, message}` |
 | `request` | `requestId`, `tool`, `title`, `summary`, `state: "pending"\|"allowed"\|"denied"`, `questions: [Question] \| null`, `asker?`, `message?`, `answers?`, `plan?: {text: string\|null, steps: [{text, status}] \| null}` |
 | `plan` | `text: string\|null`, `steps: [{text, status}] \| null` |
-| `notice` | `text`, `checkpointId?`, `files?: [{path, size}]`, `move?: "moving"\|"moved"\|"failed"`, `detail?` |
+| `notice` | `text`, `checkpointId?`, `files?: [{path, size}]`, `move?: "moving"\|"moved"\|"failed"`, `detail?`, `goal?: "continuation"\|"budget"` |
 | `error` | `text`, `hint: string\|null` |
 | `unknown` | `type`: the event type this phone cannot draw |
 
@@ -465,6 +467,13 @@ checkout. It's still in tidy-settings."), with the Mac's reason, then whatever i
 `detail`. Each step is stored, so a session opened mid-move shows its progress row, and one opened
 later shows how the move ended. A phone that knows no `move` draws each as the notice it is.
 
+A **goal's own turn** is a notice, never a user row. When a session's goal sends the next turn itself
+(`user_message` with `goal`), the row says so in the desktop's words, "Realm continued this goal" or
+"Goal budget spent — Realm asked for a handover", with `goal` set and the prompt Realm sent in
+`detail`, which the desktop also keeps behind a tap. A phone that knows no `goal` draws the plain
+notice, so the prompt never reads as words the person typed. The objective itself is the person's
+own message, and stays a user row.
+
 A **user row** carries `attachments` when files were sent with the message: each by its path on the
 Mac, its name and its type, as the message's `user_message` recorded them. `session.file` previews
 each. `name` is the name the person gave the file: one a phone sent, or a paste, is written into the
@@ -478,7 +487,7 @@ else keeps its own name, whatever it looks like.
 | `ping` | `{}` | `{at: ms}`, the Mac's clock |
 | `home.get` | `{profileId?}` | `{mac: {name}, needsYou: [SessionRow], spaces: [Space], profiles?: [Profile], profileId?: string\|null, recent?: [SessionRow]}` |
 | `space.sessions` | `{id, offset?: int = 0, limit?: int = 50}` | `{sessions: [SessionRow], more: bool}`. `limit` is at most 100. |
-| `session.open` | `{id, limit?: int = 200}` | `{session: SessionRow, rows: [Row], hasMore: bool, hint?: string\|null, queued?: [QueuedMessage], move?: PendingMove\|null}` |
+| `session.open` | `{id, limit?: int = 200}` | `{session: SessionRow, rows: [Row], hasMore: bool, hint?: string\|null, queued?: [QueuedMessage], move?: PendingMove\|null, goal?: Goal\|null, todos?: [Todo]}` |
 | `session.close` | `{id}` | `{ok: true}` |
 | `session.update` | `{id, title?, pinned?: bool, archived?: bool}` | `{session: SessionRow\|null}`: null once it is archived |
 | `session.queue` | `{id}` | `{queued: [QueuedMessage], move?: PendingMove\|null}` |
@@ -506,6 +515,7 @@ else keeps its own name, whatever it looks like.
 | `session.mentionFiles` | `{id, query?: string = ""}` | `{files: [{path, rel}]}` |
 | `session.expandCommand` | `{id, name, args?: string = ""}` | `{text, missing: [string]}` |
 | `session.goal` | `{id, objective}` | `{ok: true}` |
+| `session.goalControl` | `{id, action: "pause"\|"resume"\|"done"\|"drop"}` | `{goal: Goal\|null}`: null once dropped |
 | `session.options` | `{id}` | `SessionOptions` |
 | `session.configure` | `{id, model?: string\|null, effort?: string\|null, mode?: "build"\|"plan"\|"ask", permission?}` | `SessionOptions`, as they are now |
 | `session.answer` | `{id, requestId, decision: "allow"\|"allow_always"\|"deny", answers?: {<question id>: <value> \| [<value>]}}` | `{ok: true}` |
@@ -667,7 +677,33 @@ MentionRef  { kind: "role", label, roleId }                     a teammate, by i
   `rel` is where it is in the folder, `path` where it is on the Mac. A file that holds a secret is left
   out.
 - **`session.goal`** starts a goal on `objective` (`goals.start`), as `/goal` does on the desktop. An
-  objective of no words is `INVALID_PARAMS`.
+  objective of no words is `INVALID_PARAMS`. A goal set on a session that has one replaces it.
+- **`session.goalControl`** is the desktop's goal strip: `pause` an active goal ("You paused it."),
+  `resume` a paused, blocked or spent one, which starts a turn, `done` marks an unfinished one
+  complete ("Marked done by you."), and `drop` forgets the objective, never the work. A resume the Mac
+  refuses, of a goal running or finished, is `FORBIDDEN` in its words.
+
+```
+Goal {
+  objective: string,
+  status: "active"|"paused"|"blocked"|"budget_limited"|"complete"|"abandoned",
+  turns: int,               turns run under it, the first included
+  tokensUsed: int,
+  tokenBudget: int|null,    its ceiling, or null for none
+  note: string|null,        why it stopped, in the agent's words or Realm's
+  startedAt: ms, updatedAt: ms
+}
+
+Todo {
+  content: string,
+  status: "pending"|"in_progress"|"completed",
+  activeForm: string|null   what an item in progress says it is doing ("Running the suite")
+}
+```
+
+- **`todos`** is the agent's to-do list as it stands: the session's newest `TodoWrite`, in the order
+  the agent wrote it, as the desktop's strip above the prompter draws it. A sub-agent's list is its
+  own, not the session's; an empty or unreadable list clears it.
 - **A message names things as the desktop's does.** A teammate or a file is `@[label]` in `text`, and
   `mentionRefs` says what each label is; a skill is `@id`. The Mac sends the session the skills the
   words name, scanned against the ones `session.composer` lists, and the refs whose `@[label]` is still
@@ -955,7 +991,7 @@ Checkout { environmentId, path, branch: string|null, kind: "primary"|"checkout"|
 
 **Opening a session subscribes the channel to it.** From then until `session.close` or the end of
 the channel, the Mac sends that session's `session.rows`, `session.status`, `session.hint`,
-`session.queue` and `session.subagents` events. A change to the queue that comes while the session is
+`session.queue`, `session.subagents`, `session.goal` and `session.todos` events. A change to the queue that comes while the session is
 still opening is not sent: the open's answer carries it.
 
 **Answers are the desktop's shape.** `answers` maps a question's `id` (its `question` on a Phase 1
@@ -1001,6 +1037,8 @@ phone read, and what bounds it:
   command's file are not sent.
 - **`space.icon`**: the picture a person uploaded or had made for a space, at most 256 KB.
 - **`session.hint`** and `hint`: the suggested next message the desktop's prompter shows.
+- **`goal`, `todos` and their events**: the session's objective, where it stands, its turns, tokens and
+  note, and the agent's to-do list's items; a goal's own turns carry the prompt Realm sent.
 - **`session.update`**: a session's own sidebar row — its name, its pin, whether it is archived — and
   nothing else of it.
 - **The queue's calls**: the messages waiting in that session's queue, each by the id the queue gave
@@ -1050,6 +1088,8 @@ setting, or a key.
 | `home.changed` | `{}` | Call `home.get` again. Sent at most once a second. |
 | `session.queue` | `{id, queued: [QueuedMessage], move?: PendingMove\|null}` | An open session's queue changed, or its move was queued, reached a step or ended: the whole queue, and the move. |
 | `session.subagents` | `{id}` | An open session's sub-agents changed: call `session.subagents` again. |
+| `session.goal` | `{id, goal: Goal\|null}` | An open session's goal changed: started, stopped, resumed, counted a turn, or dropped. Home's rows change with it (`home.changed`). |
+| `session.todos` | `{id, todos: [Todo]}` | An open session's to-do list changed: the whole list. |
 | `work.changed` | `{}` | Reviews or scheduled tasks changed somewhere: call `reviews.list` and `schedules.list` again. Sent at most once a second. |
 | `pair.result` | see §4.1 | Pairing channels only. |
 

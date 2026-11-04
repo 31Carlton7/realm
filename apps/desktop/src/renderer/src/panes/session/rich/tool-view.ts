@@ -1,4 +1,5 @@
 import { isPlayablePath } from "@realm/contracts";
+import { parseTodos, type Todo } from "@realm/view";
 import { fileDiffsFor, isUnifiedDiff, parseUnifiedDiff, type FileDiff } from "./diff";
 import { mcpParts } from "../tool-summary";
 
@@ -16,7 +17,7 @@ import { mcpParts } from "../tool-summary";
  *    codes, no "probably a file list".
  */
 
-export type Todo = { content: string; status: "pending" | "in_progress" | "completed"; activeForm: string | null };
+export { parseTodos, type Todo };
 export type Match = { line: number | null; text: string };
 export type MatchGroup = { path: string; matches: Match[] };
 
@@ -42,23 +43,6 @@ const str = (o: Record<string, unknown>, k: string): string | null => (typeof o[
 
 const DIFF_TOOLS = new Set(["Edit", "MultiEdit", "Write", "NotebookEdit", "apply_patch"]);
 const COMMAND_TOOLS = new Set(["Bash", "exec_command"]);
-
-/** TodoWrite's list, or null if the payload is not the shape it documents. `activeForm` is optional
- *  in practice, so its absence is carried as null rather than faked from `content`. */
-export function parseTodos(input: Record<string, unknown>): Todo[] | null {
-  const todos = input["todos"];
-  if (!Array.isArray(todos) || todos.length === 0) return null;
-  const out: Todo[] = [];
-  for (const t of todos) {
-    if (!t || typeof t !== "object") return null;
-    const bag = t as Record<string, unknown>;
-    const content = str(bag, "content");
-    const status = str(bag, "status");
-    if (content === null || (status !== "pending" && status !== "in_progress" && status !== "completed")) return null;
-    out.push({ content, status, activeForm: str(bag, "activeForm") });
-  }
-  return out;
-}
 
 /**
  * The files a `browser_upload` names, or null if the payload is not the shape the browser provider

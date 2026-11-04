@@ -845,6 +845,8 @@ export const Methods = {
      `set` is the one verb the AGENT also reaches, through the `goal` tool provider: pause, blocked
      and complete are the same state change whoever decides it. */
   "goals.get": { params: z.object({ sessionId: IdSchema }), result: z.object({ goal: GoalSchema.nullable() }) },
+  /** Every session's goal, for a list of sessions that says which are pursuing one. */
+  "goals.list": { params: z.object({}), result: z.object({ goals: z.array(GoalSchema) }) },
   "goals.start": {
     params: z.object({
       sessionId: IdSchema,

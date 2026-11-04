@@ -4,7 +4,7 @@ import {
   b64u, deviceId, encodeLink, FrameReader, fromB64u, HandshakeState, NoiseError, PROLOGUE, sealMessage,
   type CipherState, type DeviceKeys, type MobileErrorCode, type MobileEventPayload, type Row,
 } from "@realm/remote";
-import { MobileApi, MobileError, type ChannelContext } from "./api";
+import { MobileApi, MobileError, phoneGoal, type ChannelContext } from "./api";
 import { RelayLink, type LinkState } from "./link";
 import type { RpcPort } from "./rpc-port";
 import { pendingMove } from "./rows";
@@ -457,6 +457,16 @@ export class RemoteGateway {
         }
         return;
       }
+      case "goal.changed": {
+        // Still opening, a session's answer reads its goal after this, so it carries the change already.
+        const p = payload as EventPayload<"goal.changed">;
+        for (const c of this.channels.values()) {
+          const open = c.ctx.sessions.get(p.sessionId);
+          if (open && !open.buffer && c.send) this.sendEvent(c, "session.goal", { id: p.sessionId, goal: phoneGoal(p.goal) } satisfies MobileEventPayload<"session.goal">);
+        }
+        this.homeChanged();
+        return;
+      }
       case "delegation.changed": {
         // A run began, settled or was collected: the lead's list of sub-agents is not what it was.
         const p = payload as EventPayload<"delegation.changed">;
@@ -479,9 +489,12 @@ export class RemoteGateway {
     if (!entry || !c.send) return;
     if (entry.buffer) { entry.buffer.push(ev); return; }
     const hint = entry.projector.hint;
+    const todos = entry.projector.todos;
     const changed = entry.projector.apply(ev);
     // The suggested next message is no row: a new one after a turn, or none once something is sent.
     if (entry.projector.hint !== hint) this.sendEvent(c, "session.hint", { id: ev.sessionId, text: entry.projector.hint } satisfies MobileEventPayload<"session.hint">);
+    // Nor is the to-do list, which each TodoWrite replaces whole.
+    if (entry.projector.todos !== todos) this.sendEvent(c, "session.todos", { id: ev.sessionId, todos: entry.projector.todos } satisfies MobileEventPayload<"session.todos">);
     if (changed.length === 0) return;
     if (ev.seq < 0) {
       // A text delta: mark the row and let the timer send its latest text, at most ten times a second.
