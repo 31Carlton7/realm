@@ -11,6 +11,7 @@ struct SessionInfoSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var previewing: SessionFile?
+    @State private var moveShown = false
 
     var body: some View {
         let transcript = model.store.transcript(sessionId)
@@ -40,7 +41,8 @@ struct SessionInfoSheet: View {
                     .listRowBackground(Fill.card)
                 }
                 if let runsOn = info?.runsOn {
-                    RunsOnSection(runsOn: runsOn)
+                    // A Mac before moves gives no options, and the section only says where it runs.
+                    RunsOnSection(runsOn: runsOn, move: model.moveOptions[sessionId] == nil ? nil : { moveShown = true })
                 }
                 if let usage = info?.usage {
                     Section("Usage") {
@@ -115,18 +117,28 @@ struct SessionInfoSheet: View {
         .sheet(item: $previewing) { file in
             FilePreviewSheet(path: file.path, name: file.name, sessionId: sessionId, size: file.size)
         }
+        .sheet(isPresented: $moveShown) {
+            MoveSheet(sessionId: sessionId)
+        }
+        // Moved, it runs somewhere else.
+        .onChange(of: moveShown) { _, shown in
+            if !shown { Task { await model.work.loadInfo(sessionId) } }
+        }
         .task {
             async let info: Void = model.work.loadInfo(sessionId)
             async let subagents: Void = model.work.loadSubagents(sessionId)
-            _ = await (info, subagents)
+            async let moves: Void = model.loadMoveOptions(sessionId)
+            _ = await (info, subagents, moves)
         }
     }
 }
 
 /// Where the session runs: the Mac, the kind of checkout, its folder and its branch. A section of its
-/// own, as one place to say it, so choosing where a session runs can be laid on this later.
+/// own, as one place to say it, which opens the Move sheet where the Mac can move the session.
 struct RunsOnSection: View {
     let runsOn: RunsOn
+    /// Opens where the session could be moved to; nil where its Mac cannot move it.
+    var move: (() -> Void)?
 
     var body: some View {
         Section("Runs on") {
@@ -147,6 +159,10 @@ struct RunsOnSection: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
+            }
+            if let move {
+                Button("Move this session", systemImage: "arrow.triangle.branch", action: move)
+                    .foregroundStyle(Palette.accent)
             }
         }
         .listRowBackground(Fill.card)
