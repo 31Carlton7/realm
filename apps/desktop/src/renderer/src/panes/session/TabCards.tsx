@@ -15,20 +15,33 @@ import { tabDetail } from "./mention-sources";
 
 const fmtChars = (n: number): string => n.toLocaleString("en-US");
 
-/** A card's second line — what the pane is, its size, and a word when it is cut or large — and the
- *  sentence its tip says when there is one. Only a cut is a warning: a large card asks nothing of
- *  the person, so it says so in the quiet ink. */
-function tabLine(t: Pick<TabEntry, "kind" | "url">, card: TabCard | null): { line: string; flag: "truncated" | "large" | "closed" | null; tip: string | null } {
-  if (!card) return { line: "Reading…", flag: null, tip: null };
-  if (card.closed) return { line: "Closed", flag: "closed", tip: "This pane is closed, so nothing of it will be sent." };
+type TabLine = { what: string; word: string | null; flag: "truncated" | "large" | "closed" | null; tip: string | null };
+
+/** A card's second line — what the pane is and its size, then a word when it is cut, large or closed —
+ *  and the sentence its tip says when there is one. Only a cut or a closed pane is a warning, and only
+ *  its word wears the warning ink: a large card asks nothing of the person. */
+function tabLine(t: Pick<TabEntry, "kind" | "url">, card: TabCard | null): TabLine {
+  if (!card) return { what: "Reading…", word: null, flag: null, tip: null };
+  if (card.closed) return { what: "", word: "Closed", flag: "closed", tip: "This pane is closed, so nothing of it will be sent." };
   const what = `${tabDetail(t)} · ${formatAttachmentSize(card.bytes)}`;
   const flag = tabCardFlag(card);
   if (flag === "truncated") {
     const kept = card.kind === "terminal" ? `the last ${fmtChars(TAB_TEXT_CAPS.terminal)} characters of its output` : `its first ${fmtChars(TAB_TEXT_CAPS[card.kind as "browser" | "documents"])} characters`;
-    return { line: `${what} · Cut to fit`, flag, tip: `Too long to send whole: the agent gets ${kept}.` };
+    return { what, word: "Cut to fit", flag, tip: `Too long to send whole: the agent gets ${kept}.` };
   }
-  if (flag === "large") return { line: `${what} · Large`, flag, tip: "A large card takes a good share of the agent's context." };
-  return { line: what, flag: null, tip: null };
+  if (flag === "large") return { what, word: "Large", flag, tip: "A large card takes a good share of the agent's context." };
+  return { what, word: null, flag: null, tip: null };
+}
+
+/** The line as text, for a screen reader and the tip's sentence. */
+const lineText = (l: TabLine): string => [l.what, l.word].filter(Boolean).join(" · ");
+
+function LineView({ line }: { line: TabLine }) {
+  return (
+    <span className="attach-card-kind">
+      {line.what}{line.what && line.word ? " · " : ""}{line.word && <span className="tab-card-word">{line.word}</span>}
+    </span>
+  );
 }
 
 function TabMark({ tab }: { tab: Pick<TabEntry, "kind" | "favicon"> }) {
@@ -41,7 +54,8 @@ export function DraftTabRow({ tabs, onRemove }: { tabs: readonly DraftTab[]; onR
   return (
     <ul className="composer-attachments composer-tabs" aria-label="Tabs">
       {tabs.map((t) => {
-        const { line, flag, tip } = tabLine(t, t.card);
+        const line = tabLine(t, t.card);
+        const { flag, tip } = line;
         const name = t.card?.title || t.title;
         return (
           <li key={t.itemId} className="composer-attach-item">
@@ -50,9 +64,9 @@ export function DraftTabRow({ tabs, onRemove }: { tabs: readonly DraftTab[]; onR
                 <TabMark tab={t} />
                 <span className="attach-card-text" aria-hidden="true">
                   <span className="attach-card-name">{name}</span>
-                  <span className="attach-card-kind">{line}</span>
+                  <LineView line={line} />
                 </span>
-                <span className="visually-hidden">{name} — {line}{tip ? `. ${tip}` : ""}</span>
+                <span className="visually-hidden">{name} — {lineText(line)}{tip ? `. ${tip}` : ""}</span>
               </span>
               <span className="attach-tip" aria-hidden="true">
                 <span className="attach-tip-name">{t.path ?? tabDetail(t)}</span>
@@ -88,15 +102,15 @@ function SentTabRow({ tabs, favicons, onOpen }: { tabs: readonly TabCard[]; favi
   return (
     <ul className="msg-user-files msg-user-tabs" aria-label="Tabs">
       {tabs.map((t) => {
-        const { line, flag } = t.closed ? { line: "Was closed", flag: null } : tabLine(t, t);
+        const line: TabLine = t.closed ? { what: "Was closed", word: null, flag: null, tip: null } : tabLine(t, t);
         return (
           <li key={t.itemId}>
-            <span className="attach-tile" data-layout="card" data-tab={t.kind} data-flag={flag ?? undefined}>
+            <span className="attach-tile" data-layout="card" data-tab={t.kind} data-flag={line.flag ?? undefined}>
               <button type="button" className="attach-open" aria-label={`Open ${t.title}`} onClick={() => onOpen(t)}>
                 <TabMark tab={{ kind: t.kind, favicon: favicons[t.itemId] ?? "" }} />
                 <span className="attach-card-text" aria-hidden="true">
                   <span className="attach-card-name">{t.title}</span>
-                  <span className="attach-card-kind">{line}</span>
+                  <LineView line={line} />
                 </span>
               </button>
             </span>

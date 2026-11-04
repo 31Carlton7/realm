@@ -5622,11 +5622,11 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 /* A file this agent will discard says so on the card's own edge, as the square's well does. */
 .attach-tile[data-layout="card"][data-disposition="ignored"] .attach-open {
   background-color: var(--orange-tint); box-shadow: 0 0 0 var(--hairline-w) var(--orange), var(--shadow-card-lift); }
-/* A tab's card is the same card. Under the files it takes no second top gap; one that will be cut, or
-   is closed, says so in its second line in the warning ink before the send, and a large one says so
-   in the line's own quiet ink. Its tip opens under it, where the × on its corner is not. */
+/* A tab's card is the same card. Under the files it takes no second top gap. One that will be cut, or
+   is closed, says so before the send with a word in its second line, and only that word wears the
+   warning ink; a large one says so in the line's quiet ink. Its tip opens under it, clear of its ×. */
 .composer-attachments + .composer-tabs { padding-top: 0; }
-.attach-tile[data-flag="truncated"] .attach-card-kind, .attach-tile[data-flag="closed"] .attach-card-kind { color: var(--rl-warning); }
+.attach-tile[data-flag="truncated"] .tab-card-word, .attach-tile[data-flag="closed"] .tab-card-word { color: var(--rl-warning); }
 .composer-tabs .attach-tip { bottom: auto; top: calc(100% + 6px); }
 /* The honesty row: what THIS agent does with these files, named before the message goes. */
 /* No flex `gap`: the sentence carries its own trailing space (Composer.tsx), so a gap here would

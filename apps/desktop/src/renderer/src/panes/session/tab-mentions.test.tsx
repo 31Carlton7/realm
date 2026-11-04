@@ -106,7 +106,8 @@ describe("a picked tab is a card beside the draft", () => {
     fireEvent.click(option("All open tabs"));
     // THE MUTANT: no flag — a 40 KB document sent cut, and nothing before the send says so.
     await waitFor(() => expect(cardLines()).toEqual(["Pricing127.0.0.1:4100/pricing · 12 KB", "DocumentsDocuments · 39 KB · Cut to fit"]));
-    expect(cards()!.querySelector("[data-flag=truncated]")).not.toBeNull();
+    // Only the word is the warning: the kind and size stay in the line's quiet ink.
+    expect(Array.from(cards()!.querySelectorAll("[data-flag=truncated] .tab-card-word")).map((e) => e.textContent)).toEqual(["Cut to fit"]);
     expect(cards()!.querySelector(".attach-tip-detail")?.textContent).toBe("Too long to send whole: the agent gets its first 32,000 characters.");
   });
 
