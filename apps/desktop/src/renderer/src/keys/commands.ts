@@ -42,7 +42,7 @@ export function keyContext(s: AppState, target: EventTarget | null): KeyContext 
   return {
     // The media viewer covers the window as the palette does: a pane behind it is not the one a chord
     // should split, close or move off — and a space switched under it would be shown nowhere.
-    overlayOpen: s.paletteOpen || s.spacesOpen || sheetOpen || s.viewer !== null,
+    overlayOpen: s.paletteOpen || s.spacesOpen || sheetOpen || s.viewer !== null || s.voice !== null,
     paletteOpen: s.paletteOpen,
     spacesOpen: s.spacesOpen,
     sheetOpen,

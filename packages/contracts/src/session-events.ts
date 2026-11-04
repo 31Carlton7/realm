@@ -34,6 +34,9 @@ const P = {
      *  user attached: a mentioned file is a chip in the sentence, and a tile above it would be the
      *  same file shown twice. Optional, so every row written before mentions existed still parses. */
     refs: z.array(MentionRefSchema).optional(),
+    /** Said aloud in voice mode and transcribed on this Mac. The text is the transcription, which is
+     *  what the agent was handed; the mark is what tells a reader a misheard word was not a typo. */
+    spoken: z.literal(true).optional(),
   }),
   assistant_text: z.object({ messageId: z.string(), text: z.string() }),
   /** `at` is where the delta starts in the text streamed so far for its message, stamped by the server

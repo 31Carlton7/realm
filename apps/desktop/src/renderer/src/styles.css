@@ -11040,3 +11040,46 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 /* Its check-in, a card of its own in Schedule a task's rows: the switch, WHEN, then what it is told. */
 .tm-clock .settings-row-main { flex-direction: column; align-items: flex-start; gap: 2px; }
 .tm-clock-prompt > textarea { flex: 1; min-height: 52px; }
+
+/* ── Voice mode (voice/VoiceView.tsx) ──
+   The whole window, as the media viewer is, on the working plane's ground: the two voices stacked, the
+   person's below Realm's as the prompter is below the transcript, each with its words under it, and
+   the controls at the foot where the prompter stands. Nothing here is a card: the waveforms and the
+   words are the working object, and the line between them is the gap. */
+.voice-view {
+  position: fixed; inset: 0; z-index: 75; display: flex; flex-direction: column; outline: none;
+  background: var(--canvas); color: var(--rl-text-bright);
+  animation: rl-fade-in var(--dur-swap) var(--ease-out-strong);
+}
+.voice-head { flex: none; display: flex; align-items: center; gap: 8px; height: var(--frame-top);
+  padding: 0 12px 0 var(--lead-x); user-select: none; -webkit-user-select: none; -webkit-app-region: drag; }
+.voice-name { flex: none; font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
+.voice-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--rl-text-dim); }
+.voice-stage { flex: 1; min-height: 0; width: min(640px, calc(100% - 48px)); margin: 0 auto; display: flex; flex-direction: column;
+  justify-content: center; gap: 28px; }
+.voice-side { display: flex; flex-direction: column; gap: 10px; }
+.voice-wave { display: block; width: 100%; height: 64px; }
+.voice-wave[data-side="realm"] { color: var(--rl-accent); }
+.voice-wave[data-side="mine"] { color: var(--rl-text-dim); }
+/* Two lines of a sentence held open, so a reply arriving does not move the person's side under it. */
+.voice-words { min-height: 40px; margin: 0; font-size: 15px; line-height: 20px; color: var(--rl-text-dim); text-wrap: pretty; }
+.voice-words[data-live] { font-size: 20px; line-height: 28px; font-weight: var(--fw-title); color: var(--rl-text-bright); }
+.voice-state { margin: 0; font-size: 13px; color: var(--rl-text-dim); text-align: center; }
+.voice-view[data-phase="unavailable"] .voice-state { color: var(--rl-text-bright); }
+.voice-stage > .btn { align-self: center; }
+.voice-controls { flex: none; display: flex; align-items: center; justify-content: center; gap: 12px;
+  padding: 16px 24px max(28px, env(safe-area-inset-bottom)); }
+.voice-control { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 64px; padding: 8px 0; border-radius: var(--r-row);
+  font-size: 12px; color: var(--rl-text-dim); transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
+.voice-control:hover:not(:disabled) { background: var(--rl-hover); color: var(--rl-text-bright); }
+.voice-control[aria-pressed="true"] { background: var(--rl-active); color: var(--rl-text-bright); }
+.voice-control:disabled { color: var(--rl-text-faint); }
+/* The one primary: talking. It lights with the accent only while it is held, which is when it is the
+   thing happening. */
+.voice-talk { display: flex; align-items: center; gap: 10px; height: 56px; padding: 0 24px; border-radius: 999px;
+  background: var(--rl-hover); color: var(--rl-text-bright); font-size: 14px; font-weight: var(--fw-label);
+  touch-action: none; user-select: none; -webkit-user-select: none; transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
+.voice-talk:hover:not(:disabled) { background: var(--rl-active); }
+.voice-talk[data-held] { background: var(--rl-accent-fill); color: var(--rl-accent-contrast); box-shadow: var(--fill-bevel); }
+.voice-talk:disabled { color: var(--rl-text-faint); }
+.msg-spoken { display: inline-flex; align-items: center; gap: 4px; }

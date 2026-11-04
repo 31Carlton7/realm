@@ -473,7 +473,7 @@ export type FakeApi = Api & {
   destroyedBrowserViews: string[];
   /** Every `sendMessage`, with the attachments that actually went on the wire. `mentions` is present
    *  only when non-empty, so mention-free assertions stay byte-for-byte what they always were. */
-  sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[]; elements?: ElementChip[]; delivery?: "auto" | "queue" | "steer"; mentionRefs?: MentionRef[] }[];
+  sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[]; elements?: ElementChip[]; delivery?: "auto" | "queue" | "steer"; mentionRefs?: MentionRef[]; spoken?: true }[];
   /** What `scripts.save` was handed, verbatim — the fields a form sends are the thing worth
    *  asserting, and the `calls` log only carries an id. */
   savedScripts: { spaceId: string; script: ScriptInput }[];
@@ -509,7 +509,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
   const calls: string[] = [];
   const disposed: string[] = [];
   const destroyedBrowserViews: string[] = [];
-  const sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[]; elements?: ElementChip[]; delivery?: "auto" | "queue" | "steer"; mentionRefs?: MentionRef[] }[] = [];
+  const sent: { id: string; text: string; attachments: Attachment[]; mentions?: string[]; elements?: ElementChip[]; delivery?: "auto" | "queue" | "steer"; mentionRefs?: MentionRef[]; spoken?: true }[] = [];
   /** What `scripts.save` was handed, verbatim. A typed capture beside `sent`, because the fields a
    *  form sends are the thing worth asserting and the `calls` log only carries an id. */
   const savedScripts: { spaceId: string; script: ScriptInput }[] = [];
@@ -1186,6 +1186,10 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     sendMessage: async (id, text, attachments, mentions, elements, delivery, sessionRefs, mentionRefs) => {
       calls.push(`sendMessage:${id}=${text}${attachments.length ? ` +[${attachments.map((a) => `${a.path}:${a.mime}`).join(",")}]` : ""}`);
       sent.push({ id, text, attachments, ...(mentions.length ? { mentions } : {}), ...(elements?.length ? { elements } : {}), ...(sessionRefs?.length ? { sessionRefs } : {}), ...(mentionRefs?.length ? { mentionRefs } : {}), ...(delivery && delivery !== "auto" ? { delivery } : {}) });
+    },
+    sendSpoken: async (id, text) => {
+      calls.push(`sendSpoken:${id}=${text}`);
+      sent.push({ id, text, attachments: [], spoken: true });
     },
     mentionFiles: async (sessionId, query, limit) => {
       calls.push(`mentionFiles:${sessionId}:${query}`);

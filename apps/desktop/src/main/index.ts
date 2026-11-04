@@ -6,6 +6,7 @@ import { spawn, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
 import { basename, isAbsolute, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { serverEntry, spawnDaemon, startServer } from "./server-process";
 import { daemonStatePath, forgetDeadServer, readDaemonState, readStateForPort, realmHomePath } from "./daemon-state";
 import { callDaemon, daemonModeEnabled, ensureDaemon, followDaemon, probeDaemon, type DaemonEndpoint, type HandoffResult, type HandoffWhy } from "./daemon";
@@ -28,6 +29,7 @@ import { shareImage } from "./share-images";
 import { clearBrowserPartition, createBrowserPane, governBrowserDownloads, shareSiteCookies, type BrowserPane, type DownloadPolicy } from "./browser-pane";
 import { labelAppProcesses, type AppProcessLabel } from "./app-metrics";
 import { refuseCapture } from "./capture-guard";
+import { VoiceHelper, voiceHelperPath } from "./voice-helper";
 import { viewNavigationAllowed } from "./app-views";
 import { BlockedDownloads, DownloadGovernor, SavedDownloads, retryBlockedDownload } from "./downloads";
 import { nextZoomFactor, retainedBudget, searchUrl, type ViewRect } from "./browser-host";
@@ -1343,6 +1345,7 @@ ipcMain.handle("compress-icon-image", async (_e, path: unknown): Promise<PickedF
 ipcMain.handle("tcc:probe", (): TccRow[] => probeTcc({
   screenStatus: () => systemPreferences.getMediaAccessStatus("screen"),
   cameraStatus: () => systemPreferences.getMediaAccessStatus("camera"),
+  microphoneStatus: () => systemPreferences.getMediaAccessStatus("microphone"),
   // false = never show the prompt; querying trust only.
   accessibilityTrusted: () => systemPreferences.isTrustedAccessibilityClient(false),
   openForRead: (path) => { closeSync(openSync(path, "r")); },
@@ -1353,6 +1356,34 @@ ipcMain.handle("tcc:open-settings", (_e, pane: unknown) => {
   if (!isTccPermissionId(pane)) throw new Error(`unknown permissions pane: ${String(pane)}`);
   void shell.openExternal(TCC_SETTINGS_URLS[pane]);
 });
+
+/** Realm's own page, in a window: the dev server in development, the bundled index.html otherwise. */
+const rendererFile = pathToFileURL(join(__dirname, "../renderer/index.html")).href;
+function isRealmPage(url: string): boolean {
+  const dev = process.env.ELECTRON_RENDERER_URL ? new URL(process.env.ELECTRON_RENDERER_URL).origin : null;
+  return dev ? url === dev || url.startsWith(`${dev}/`) : url.split(/[?#]/)[0] === rendererFile;
+}
+
+// ── Voice mode ───────────────────────────────────────────────────────────────────────────────────
+// The renderer listens and plays; the helper turns speech into words and words into speech
+// (voice-helper.ts). Starting asks for the microphone, which is the one prompt voice mode raises,
+// and only from the press that opened it.
+const voice = new VoiceHelper(() => voiceHelperPath(app.getAppPath(), process.resourcesPath));
+ipcMain.handle("voice:microphone", async (): Promise<string> => {
+  if (process.platform !== "darwin") return "granted";
+  if (systemPreferences.getMediaAccessStatus("microphone") === "not-determined") await systemPreferences.askForMediaAccess("microphone");
+  return systemPreferences.getMediaAccessStatus("microphone");
+});
+const voiceWindows = new WeakSet<WebContents>();
+ipcMain.handle("voice:start", (e) => {
+  if (!voiceWindows.has(e.sender)) { voiceWindows.add(e.sender); e.sender.once("destroyed", () => voice.stop(e.sender)); }
+  return voice.start(e.sender);
+});
+ipcMain.on("voice:command", (e, command: unknown) => voice.command(e.sender, command));
+ipcMain.on("voice:audio", (e, pcm: unknown) => { if (pcm instanceof Uint8Array) voice.audio(e.sender, pcm); });
+ipcMain.on("voice:stop", (e) => voice.stop(e.sender));
+ipcMain.handle("voice:voices", () => voice.voices());
+app.on("will-quit", () => voice.stop());
 
 /** A real iPhone's picture, live. macOS reaches a connected iPhone's screen as a camera, so this raises
  *  the camera prompt — on purpose, and only from a click on the pane's Show live. Answers the status
@@ -2115,9 +2146,10 @@ if (!app.requestSingleInstanceLock()) {
 
 app.whenReady().then(async () => {
   try {
-    // Nothing Realm draws asks for the camera or microphone, and nothing it shows may: the camera grant
-    // is the phone's picture's (capture-guard.ts says why), and the browser partition refuses the same.
-    refuseCapture(session.defaultSession);
+    // Nothing Realm draws asks for the camera, and nothing it shows may: the camera grant is the
+    // phone's picture's (capture-guard.ts says why), and the browser partition refuses the same. The
+    // microphone is voice mode's, and only Realm's own page may ask for it.
+    refuseCapture(session.defaultSession, isRealmPage);
     installMenu();
     // Before the first window, so the chosen icon is the one the Dock bounces.
     const savedIcon = appIcons.saved();

@@ -36,6 +36,7 @@ import { EditPasswordSheet, ImportPasswordsButton, KeychainNeededNotice, Keychai
 import { PageRail } from "../../components/page-nav";
 import { CATEGORY_COPY, SETTINGS_INDEX, searchSettings, settingPlace, settingsTabLabel, tabAvailable, visibleSettingsGroups, type SettingEntry, type SettingsTab } from "./settings-index";
 import { capabilities } from "../../platform";
+import { END_OF_TURN_RANGE, RATE_RANGE } from "../../voice/voice-prefs";
 
 /**
  * The Settings page (Plan 12 W6, Universe screenshot 5) — a `settings-page` destination on W4's
@@ -143,6 +144,7 @@ export function SettingsPage(_props: PaneProps) {
               {tab === "appearance" && <AppearanceTab />}
               {tab === "keys" && <KeybindingsPanel />}
               {tab === "notifications" && <NotificationsTab />}
+              {tab === "voice" && <VoiceTab />}
               {tab === "devices" && <DevicesPanel onOpenSetting={openSetting} />}
               {tab === "engines" && <EnginesTab />}
               {tab === "usage" && <UsagePanel />}
@@ -1499,6 +1501,65 @@ function AboutLinks() {
  * Notifications: whether a notification leaves the app and how, then which kinds count. The first
  * group goes unheaded for the reason Appearance's does.
  */
+/** Voice mode's settings. The voices are this Mac's own, best first, as the helper ranks them. */
+function VoiceTab() {
+  const prefs = useApp((s) => s.voicePrefs);
+  const loadVoicePrefs = useApp((s) => s.loadVoicePrefs);
+  const setVoicePrefs = useApp((s) => s.setVoicePrefs);
+  const run = useApp((s) => s.run);
+  const [voices, setVoices] = useState<{ voice: string; voices: { id: string; name: string; language: string }[] } | null>(null);
+  useEffect(() => { void run(() => loadVoicePrefs()); }, [run, loadVoicePrefs]);
+  useEffect(() => {
+    let live = true;
+    void window.realm?.voice?.voices().then((v) => { if (live) setVoices(v as typeof voices); });
+    return () => { live = false; };
+  }, []);
+  const best = voices?.voices.find((v) => v.id === voices.voice);
+  return (
+    <div className="form">
+      <ul className="settings-list">
+        <li className="settings-row" data-setting="voice-voice">
+          <div className="settings-row-main">
+            <span className="settings-row-name">Voice</span>
+            {/* Every Mac has a compact voice or two; the natural-sounding ones are a download the
+                person makes, and nothing else in Realm says where. */}
+            <span className="settings-row-desc">Premium and Siri voices sound most natural. Download them in System Settings ▸ Accessibility ▸ Spoken Content.</span>
+          </div>
+          <select aria-label="Voice" value={prefs.voice ?? ""} disabled={!voices}
+            onChange={(e) => run(() => setVoicePrefs({ voice: e.target.value || null }))}>
+            <option value="">{best ? `Best installed (${best.name})` : "Best installed"}</option>
+            {voices?.voices.map((v) => <option key={v.id} value={v.id}>{v.name} ({v.language})</option>)}
+          </select>
+        </li>
+        <li className="settings-row" data-setting="voice-rate">
+          <div className="settings-row-main"><span className="settings-row-name">Speaking rate</span></div>
+          <div className="slider-row">
+            <Slider aria-label="Speaking rate" min={RATE_RANGE.min} max={RATE_RANGE.max} step={RATE_RANGE.step} value={prefs.rate}
+              onChange={(e) => run(() => setVoicePrefs({ rate: Number(e.target.value) }))} />
+            <span className="slider-value">{prefs.rate.toFixed(2)}×</span>
+          </div>
+        </li>
+        <li className="settings-row" data-setting="voice-pause" title="How long you can stop talking before what you said is sent. Longer suits thinking aloud; shorter answers faster.">
+          <div className="settings-row-main"><span className="settings-row-name">Send after a pause of</span></div>
+          <div className="slider-row">
+            <Slider aria-label="Send after a pause of" min={END_OF_TURN_RANGE.min} max={END_OF_TURN_RANGE.max} step={END_OF_TURN_RANGE.step} value={prefs.endOfTurnMs}
+              onChange={(e) => run(() => setVoicePrefs({ endOfTurnMs: Number(e.target.value) }))} />
+            <span className="slider-value">{(prefs.endOfTurnMs / 1000).toFixed(1)} s</span>
+          </div>
+        </li>
+        <li className="settings-row" data-setting="voice-hands-free">
+          <div className="settings-row-main">
+            <span className="settings-row-name">Listen hands-free</span>
+            <span className="settings-row-desc">Off, voice mode only listens while you hold Space or the talk button.</span>
+          </div>
+          <input type="checkbox" role="switch" className="switch" aria-label="Listen hands-free" checked={prefs.handsFree}
+            onChange={(e) => run(() => setVoicePrefs({ handsFree: e.target.checked }))} />
+        </li>
+      </ul>
+    </div>
+  );
+}
+
 function NotificationsTab() {
   const prefs = useApp((s) => s.settingsPrefs);
   const refreshSettingsPrefs = useApp((s) => s.refreshSettingsPrefs);
