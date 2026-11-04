@@ -21,6 +21,44 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-8-0",
+    title: "Realm v2.8.0",
+    date: "2026-11-04",
+    version: "v2.8.0",
+    area: "Release",
+    summary:
+      "Move a running session to another checkout or a new worktree, from the Mac or your phone, and keep the conversation. Plus a file gallery and sharing from any app in Realm Mobile.",
+    body: [
+      { kind: "h", text: "Move a session to another checkout" },
+      { kind: "ul", items: [
+        "**Move a running session to another checkout or a new worktree.** The conversation carries over.",
+        "**Move it from the Mac or from your phone.**",
+      ] },
+      { kind: "h", text: "Realm Mobile" },
+      { kind: "ul", items: [
+        "**A full-screen gallery for a message's files.**",
+        "**Share photos, videos and files from any app** into a session or a teammate.",
+        "**Tap a session's title for its info.**",
+        "**Sub-agents sit under their lead.**",
+      ] },
+    ],
+  },
+  {
+    slug: "v2-7-2",
+    title: "Realm v2.7.2",
+    date: "2026-11-04",
+    version: "v2.7.2",
+    area: "Release",
+    summary: "A teammate's chat keeps the model you pick for it.",
+    body: [
+      { kind: "h", text: "Fixes" },
+      { kind: "ul", items: [
+        "**Picking a model or effort in a teammate's chat now saves to the teammate.**",
+        "**Setting a teammate back to Default takes effect in its open chat.**",
+      ] },
+    ],
+  },
+  {
     slug: "v2-7-1",
     title: "Realm v2.7.1",
     date: "2026-11-03",
