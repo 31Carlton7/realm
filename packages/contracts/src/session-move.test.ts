@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PERSISTED_EVENT_TYPES, SessionEventSchema } from "./session-events";
 import { SessionStatusSchema } from "./entities";
-import { MoveOptionsSchema, MoveTargetSchema, movedSentence, placeName } from "./session-move";
+import { MoveOptionsSchema, MoveStepSchema, MoveTargetSchema, moveFailedSentence, movedSentence, placeName } from "./session-move";
 import { Methods } from "./rpc";
 
 const place = { machine: null, environmentId: "01J00000000000000000000000", cwd: "/repo", branch: "main" };
@@ -15,6 +15,7 @@ describe("session move contracts", () => {
     const moved = { type: "moved", ts: 1, payload: { moveId: "m", from: place, to: { ...place, cwd: "/wt" }, conversation: "native", changedFiles: 2, leftBehind: ["the terminal"], preface: "p", note: "n" } };
     expect(SessionEventSchema.parse(moved)).toEqual(moved);
     expect(SessionEventSchema.safeParse({ type: "move_failed", ts: 1, payload: { moveId: "m", step: "place", reason: "r", note: "n" } }).success).toBe(true);
+    expect(SessionEventSchema.parse({ type: "move_failed", ts: 1, payload: { moveId: "m", step: "place", reason: "r", from: place, note: "n" } }).payload).toMatchObject({ from: place });
     expect(SessionEventSchema.safeParse({ type: "moving", ts: 1, payload: { moveId: "m", step: "sending" } }).success).toBe(false);
   });
 
@@ -58,5 +59,31 @@ describe("naming the ends of a move", () => {
       .toBe("Moved from shop (main) to fix-tests. The conversation continued.");
     expect(movedSentence({ from: at("/a/shop", null), to: at("/b/shop-2", null), conversation: "notes" }))
       .toBe("Moved from shop to shop-2. The conversation continued from notes.");
+  });
+
+  it("says a failed move by the step it stopped at and where the session still is", () => {
+    const from = at("/Users/me/shop", "main");
+    const lines = Object.fromEntries(MoveStepSchema.options.map((step) => [step, moveFailedSentence({ step, from })]));
+    expect(lines).toEqual({
+      preflight: "Couldn't move this session while checking it could move. It's still in shop (main).",
+      freeze: "Couldn't move this session while pausing the agent. It's still in shop (main).",
+      snapshot: "Couldn't move this session while saving a checkpoint. It's still in shop (main).",
+      place: "Couldn't move this session while setting up the checkout. It's still in shop (main).",
+      boot: "Couldn't move this session while starting the agent. It's still in shop (main).",
+      commit: "Couldn't move this session while finishing. It's still in shop (main).",
+    });
+  });
+
+  it("says only the step when where the session is was not kept", () => {
+    const lines = MoveStepSchema.options.map((step) => moveFailedSentence({ step }));
+    expect(lines).toEqual([
+      "Couldn't move this session while checking it could move.",
+      "Couldn't move this session while pausing the agent.",
+      "Couldn't move this session while saving a checkpoint.",
+      "Couldn't move this session while setting up the checkout.",
+      "Couldn't move this session while starting the agent.",
+      "Couldn't move this session while finishing.",
+    ]);
+    expect(moveFailedSentence({ step: "place", from: undefined })).toBe("Couldn't move this session while setting up the checkout.");
   });
 });

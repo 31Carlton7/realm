@@ -292,6 +292,8 @@ const P = {
     moveId: z.string(),
     step: MoveStepSchema,
     reason: z.string(),
+    /** Where the session still is. Absent when its checkout was gone, and on a failure written before it was kept. */
+    from: MovePlaceSchema.optional(),
     /** The sentence shown. Built server-side so every surface tells it identically. */
     note: z.string(),
   }),

@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import {
-  AGENT_SESSION_RESUME, HANDOFF_CONTEXT_MAX, buildMoveContext, carriedTranscript, fenceFor, handoffContextKey, movedSentence, sessionEvent,
+  AGENT_SESSION_RESUME, HANDOFF_CONTEXT_MAX, buildMoveContext, carriedTranscript, fenceFor, handoffContextKey, moveFailedSentence, movedSentence, sessionEvent,
   type AgentKind, type Environment, type MoveConversation, type MovePlace, type MoveStep, type MoveTarget, type Session,
   type SessionEvent, type SessionEventPayload,
 } from "@realm/contracts";
@@ -178,9 +178,10 @@ export async function runMove(d: MoveDeps, s: Session, plan: MovePlan): Promise<
     for (const u of undo.reverse()) { try { await u(); } catch { /* the failure being reported is the one that matters */ } }
     const reason = e instanceof Error ? e.message : String(e);
     const where = source ? tilde(source.path, d.home ?? homedir()) : "its checkout";
-    const note = [`Could not move this session: ${reason}. It is still in ${where}, as it was.`, ...leftAsItWas].join(" ");
-    d.emit(s.id, sessionEvent("move_failed", { moveId: plan.moveId, step, reason, note }));
-    throw new RpcError("MOVE_FAILED", note);
+    const from = source ? await placeOf(d.git, source).catch(() => undefined) : undefined;
+    const note = [moveFailedSentence({ step, from }), ...leftAsItWas].join(" ");
+    d.emit(s.id, sessionEvent("move_failed", { moveId: plan.moveId, step, reason, note, ...(from ? { from } : {}) }));
+    throw new RpcError("MOVE_FAILED", [`Could not move this session: ${reason}. It is still in ${where}, as it was.`, ...leftAsItWas].join(" "));
   }
 }
 

@@ -99,3 +99,20 @@ export function movedSentence(b: { from: Pick<MovePlace, "cwd" | "branch">; to: 
   const how = b.conversation === "native" ? "The conversation continued." : "The conversation continued from notes.";
   return `Moved from ${placeName(b.from)} to ${placeName(b.to)}. ${how}`;
 }
+
+/** Each step as a failed move's line names it, from the step names the progress row shows. */
+const failedWhile: Record<MoveStep, string> = {
+  preflight: "checking it could move",
+  freeze: "pausing the agent",
+  snapshot: "saving a checkpoint",
+  place: "setting up the checkout",
+  boot: "starting the agent",
+  commit: "finishing",
+};
+
+/** The failed-move line, the same on every surface: the step it stopped at, and where the session
+ *  still is when that is known. Why it failed is the event's `reason`, kept out of the line. */
+export function moveFailedSentence(b: { step: MoveStep; from?: Pick<MovePlace, "cwd" | "branch"> | undefined }): string {
+  const line = `Couldn't move this session while ${failedWhile[b.step]}.`;
+  return b.from ? `${line} It's still in ${placeName(b.from)}.` : line;
+}

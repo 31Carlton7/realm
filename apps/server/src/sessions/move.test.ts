@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Environment, Session, SessionEvent } from "@realm/contracts";
+import { moveFailedSentence, type Environment, type Session, type SessionEvent } from "@realm/contracts";
 import { moveInFlightKey, runMove, undoInterruptedMove, type MoveDeps, type MoveInFlight, type MovePlan } from "./move";
 import type { CapturedState } from "../workspace/checkpoints";
 
@@ -14,7 +14,7 @@ const state = (commitSha: string): CapturedState => ({ commitSha, worktreeTree: 
 const session = { id: "s1", spaceId: "sp", environmentId: SOURCE.id, agentKind: "codex", providerSessionId: null, accountId: null, title: "t", status: "idle" } as unknown as Session;
 
 /** `changed`: the checkouts that changed since the move last looked; `busy`: asked with the calls so far. */
-function fakes(o: { busy?: (environmentId: string, calls: string[]) => boolean; changed?: string[]; work?: string[]; bootFails?: boolean } = {}) {
+function fakes(o: { busy?: (environmentId: string, calls: string[]) => boolean; changed?: string[]; work?: string[]; bootFails?: boolean; worktreeFails?: string } = {}) {
   const calls: string[] = [];
   const settings = new Map<string, unknown>();
   const events: SessionEvent[] = [];
@@ -44,7 +44,10 @@ function fakes(o: { busy?: (environmentId: string, calls: string[]) => boolean; 
     environment: (id) => [SOURCE, TARGET].find((e) => e.id === id) ?? null,
     othersWorkingIn: (environmentId) => o.busy?.(environmentId, calls) ?? false,
     capture: async (c) => ({ state: state(c.environmentId) }),
-    createWorktree: async () => env("e-new", "/new"),
+    createWorktree: async () => {
+      if (o.worktreeFails) throw new Error(o.worktreeFails);
+      return env("e-new", "/new");
+    },
     discardWorktree: async () => { calls.push("discard"); },
     stop: async () => {},
     engineWork: async () => o.work ?? [],
@@ -60,7 +63,7 @@ function fakes(o: { busy?: (environmentId: string, calls: string[]) => boolean; 
 }
 const plan = (o: Partial<MovePlan> = {}): MovePlan => ({ moveId: "m1", to: { kind: "environment", environmentId: TARGET.id }, keepSourceChanges: true, stopping: false, signal: new AbortController().signal, ...o });
 const moved = (events: SessionEvent[]) => events.find((e) => e.type === "moved")?.payload as { leftBehind: string[] } | undefined;
-const failed = (events: SessionEvent[]) => events.find((e) => e.type === "move_failed")?.payload as { note: string } | undefined;
+const failed = (events: SessionEvent[]) => events.find((e) => e.type === "move_failed")?.payload as { note: string; reason: string; from?: unknown } | undefined;
 /** A session whose engine boots at the target, so the move waits there after the merge. */
 const booting = { ...session, providerSessionId: "p" } as Session;
 
@@ -123,14 +126,14 @@ describe("runMove", () => {
     const { d, calls, events } = fakes({ bootFails: true });
     await expect(runMove(d, booting, plan())).rejects.toThrow("the boot timed out");
     expect(calls).toEqual(["apply /dst", "hazard /dst merged-tree", "restore /dst"]);
-    expect(failed(events)?.note).toBe("Could not move this session: the boot timed out. It is still in /src, as it was.");
+    expect(failed(events)?.note).toBe("Couldn't move this session while starting the agent. It's still in src (main).");
   });
 
   it("leaves what it merged into a checkout that changed while the target booted, and says so", async () => {
     const { d, calls, events } = fakes({ bootFails: true, changed: ["/dst"] });
     await expect(runMove(d, booting, plan())).rejects.toThrow("the boot timed out");
     expect(calls).not.toContain("restore /dst");
-    expect(failed(events)?.note).toBe("Could not move this session: the boot timed out. It is still in /src, as it was. " +
+    expect(failed(events)?.note).toBe("Couldn't move this session while starting the agent. It's still in src (main). " +
       "The changes it merged into /dst are still there, since that checkout changed after they went in.");
   });
 
@@ -139,6 +142,17 @@ describe("runMove", () => {
     await expect(runMove(d, booting, plan())).rejects.toThrow("the boot timed out");
     expect(calls).not.toContain("restore /dst");
     expect(failed(events)?.note).toContain("The changes it merged into /dst are still there, since another session is working there.");
+  });
+
+  it("says a failed move in the shared line and keeps git's own words in the reason", async () => {
+    const git = "Command failed: git -c core.fsmonitor= worktree add -b realm/t /var/folders/xk/T/realm-wt/t HEAD\nfatal: a branch named 'realm/t' already exists";
+    const { d, events } = fakes({ worktreeFails: git });
+    await expect(runMove(d, session, plan({ to: { kind: "worktree" } }))).rejects.toThrow("a branch named 'realm/t' already exists");
+    const f = failed(events)!;
+    expect(f.note).toBe(moveFailedSentence({ step: "place", from: { cwd: "/src", branch: "main" } }));
+    expect(f.note).not.toMatch(/git|fatal|\/var\/folders/);
+    expect(f.reason).toBe(git);
+    expect(f.from).toEqual({ machine: null, environmentId: SOURCE.id, cwd: "/src", branch: "main", kind: "checkout" });
   });
 });
 

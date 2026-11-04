@@ -593,7 +593,8 @@ describe("sessions.move", () => {
     const row = new SessionsStore(app.db).get(session.id)!;
     expect(row).toMatchObject({ status: "idle", environmentId: session.environmentId });
     const failed = new SessionEventsStore(app.db).listAfter(session.id, 0, 1000).map((e) => e.event).find((e) => e.type === "move_failed");
-    expect(failed?.payload).toMatchObject({ moveId: "m1", step: "place" });
+    expect(failed?.payload).toMatchObject({ moveId: "m1", step: "place", reason: "Realm stopped before the move finished", from: { environmentId: session.environmentId } });
+    expect(failed?.type === "move_failed" && failed.payload.note).toBe(`Couldn't move this session while setting up the checkout. It's still in ${basename(repo)} (main).`);
   });
 
   it("closes a move the server stopped before the session froze, and leaves its status alone", async () => {
@@ -610,7 +611,7 @@ describe("sessions.move", () => {
     // Replayed, the progress row is gone: its row now says the move did not happen.
     const phone = new SessionProjector();
     for (const e of log) phone.apply(e);
-    expect(phone.all().find((r) => r.key === "mv:m1")).toMatchObject({ text: expect.stringContaining("Could not move this session") });
+    expect(phone.all().find((r) => r.key === "mv:m1")).toMatchObject({ text: `Couldn't move this session while checking it could move. It's still in ${basename(repo)} (main).` });
   });
 
   /** A move the server stopped while the target booted: the changes merged into another checkout,
