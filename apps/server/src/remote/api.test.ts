@@ -8,9 +8,9 @@ import {
   type QueuedPrompt, type Run, type Schedule, type Session, type StoredSessionEvent, type Teammate, type TeammateTaskSession,
   type TurnChanges, type UsageSessionRow,
 } from "@realm/contracts";
-import { HomeSchema, MobileCalls, RECENT_LIMIT, SCREEN_SIDE, SEND_LIMITS } from "@realm/remote";
+import { HomeSchema, MobileCalls, RECENT_LIMIT, SCREEN_SIDE, SEND_LIMITS, SESSION_OPEN_MAX } from "@realm/remote";
 import { needsYou } from "@realm/view";
-import { ICON_MAX_BYTES, MobileApi, MobileError, needsYouInput } from "./api";
+import { ICON_MAX_BYTES, MobileApi, MobileError, needsYouInput, openingRow } from "./api";
 import {
   channel, fakeRpc, item, jpegHeader, machine, machineState, pngHeader, profile, session, simulator, simulatorState, space, type Lists,
 } from "./api.test-fakes";
@@ -2029,5 +2029,97 @@ describe("a session's goal from the phone", () => {
     const r = rig([goal("c", "active")]);
     expect(await r.call("session.goalControl", { id: "c", action: "resume" })).toEqual({ ok: false, code: "FORBIDDEN", message: "that goal is already running" });
     expect(await r.call("session.goalControl", { id: "c", action: "edit" })).toMatchObject({ ok: false, code: "INVALID_PARAMS" });
+  });
+});
+
+describe("search.query", () => {
+  const snip = (before: string, match: string) => [{ text: before, match: false }, { text: match, match: true }];
+  const lists = (): Lists => ({
+    sessions: [session("a", "s1"), session("b", "s1"), session("c", "s2"), session("gone", "s1")],
+    items: [item("a", "s1", "Pelican migration"), item("b", "s1", "Notes"), item("c", "s2", "Pelican deck")],
+  });
+  /** The desktop's `search.query`, per profile: p1 found "a" by its title and in "b" and "a" by what was
+   *  said; p2 found "c" by what was said; and a hit on a session the Mac no longer lists. */
+  const desktop = (asked: unknown[]) => (p: never) => {
+    const { profileId } = p as { profileId: string };
+    asked.push(p);
+    const none = { items: [], sessions: [], skills: [], memory: [] };
+    if (profileId === "p2") return { ...none, sessions: [{ sessionId: "c", spaceId: "s2", title: "Pelican deck", seq: 40, snippet: snip("the ", "pelican") }] };
+    return {
+      ...none,
+      items: [{ itemId: "i-a", spaceId: "s1", itemKind: "session", title: "Pelican migration", snippet: snip("", "Pelican") },
+              { itemId: "i-x", spaceId: "s1", itemKind: "browser", title: "Pelican docs", snippet: snip("", "Pelican") }],
+      sessions: [{ sessionId: "b", spaceId: "s1", title: "Notes", seq: 7, snippet: snip("a ", "pelican") },
+                 { sessionId: "a", spaceId: "s1", title: "Pelican migration", seq: 3, snippet: snip("move the ", "pelican") },
+                 { sessionId: "missing", spaceId: "s1", title: "?", seq: 1, snippet: snip("", "pelican") }],
+    };
+  };
+  const search = async (params: Record<string, unknown>) => {
+    const asked: unknown[] = [];
+    const result = MobileCalls["search.query"].result.parse(
+      await api().handle(channel(fakeRpc(lists(), { "search.query": desktop(asked) as never })), "search.query", params));
+    return { hits: result.hits, asked };
+  };
+
+  it("lists title matches first, then sessions where something said matched, each session once with its best message", async () => {
+    const { hits } = await search({ query: "pelican", profileId: "p1" });
+    expect(hits.map((h) => h.session.id)).toEqual(["a", "b"]);
+    expect(hits[0]!.title).toEqual(snip("", "Pelican"));
+    expect(hits[0]!.message).toEqual({ seq: 3, snippet: snip("move the ", "pelican") });
+    expect(hits[1]!.title).toBeNull();
+    expect(hits[1]!.message?.seq).toBe(7);
+    // A hit carries the row Home would draw: its space and its agent.
+    expect(hits[1]!.session).toMatchObject({ spaceName: "Space s1", agentMark: expect.any(String) });
+  });
+
+  it("asks the desktop in the profile named, and in every profile, in their order, where none is or the Mac has no such one", async () => {
+    expect((await search({ query: "pelican", profileId: "p2" })).hits.map((h) => h.session.id)).toEqual(["c"]);
+    const every = await search({ query: "pelican" });
+    expect(every.hits.map((h) => h.session.id)).toEqual(["a", "b", "c"]);
+    expect(every.asked.map((p) => (p as { profileId: string }).profileId)).toEqual(["p1", "p2"]);
+    expect((await search({ query: "pelican", profileId: "nope" })).asked).toHaveLength(2);
+  });
+
+  it("hands the desktop the query as typed, trimmed, at the most hits a group can have", async () => {
+    const { asked } = await search({ query: "  pelican  ", profileId: "p1" });
+    expect(asked).toEqual([{ profileId: "p1", query: "pelican", limit: 20 }]);
+  });
+
+  it("refuses a query of nothing but spaces", async () => {
+    await expect(api().handle(channel(fakeRpc(lists())), "search.query", { query: "   " })).rejects.toMatchObject({ code: "INVALID_PARAMS" });
+  });
+});
+
+describe("session.open's from", () => {
+  const rows = (seqs: number[]) => seqs.map((seq) => ({ seq }));
+
+  it("starts at the newest rows without it, and reaches back to the row of that seq with it", () => {
+    const log = rows([1, 2, 3, 4, 5, 6]);
+    expect(openingRow(log, 2)).toBe(4);
+    expect(openingRow(log, 2, 2)).toBe(1);
+    // Already among the newest: the newest rows, as without it.
+    expect(openingRow(log, 2, 6)).toBe(4);
+    // Past every row: the newest rows.
+    expect(openingRow(log, 2, 99)).toBe(4);
+  });
+
+  it("finds the row of that seq even after an earlier row took a later seq", () => {
+    // The first row is a tool call whose result came last; the match is the third.
+    expect(openingRow(rows([9, 2, 3, 4, 5]), 1, 3)).toBe(2);
+    // A seq no row has now: the first with a later one, at or before where it stood.
+    expect(openingRow(rows([1, 4, 6, 8]), 1, 5)).toBe(2);
+  });
+
+  it("never answers with more than the most rows an opening holds", () => {
+    const log = rows(Array.from({ length: SESSION_OPEN_MAX + 500 }, (_, i) => i + 1));
+    expect(openingRow(log, 200, 1)).toBe(500);
+  });
+
+  it("is what session.open answers with", async () => {
+    const log = Array.from({ length: 6 }, (_, i) => stored("long", sessionEvent("user_message", { text: `message ${i}`, attachments: [] })));
+    const rpc = fakeRpc({ sessions: [session("long", "s1")], items: [item("long", "s1", "Long")] }, { "sessions.events": eventsOf(log) as never });
+    const opened = MobileCalls["session.open"].result.parse(await api().handle(channel(rpc), "session.open", { id: "long", limit: 2, from: log[1]!.seq }));
+    expect(opened.rows.map((r) => r.seq)).toEqual(log.slice(1).map((e) => e.seq));
+    expect(opened.hasMore).toBe(true);
   });
 });

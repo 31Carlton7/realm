@@ -474,6 +474,9 @@ export const ScheduledTaskSchema = z.object({
 });
 export type ScheduledTask = z.infer<typeof ScheduledTaskSchema>;
 
+/** The most rows `session.open` answers with, `from` or not. */
+export const SESSION_OPEN_MAX = 1000;
+
 /** The most sessions `home.get`'s `recent` holds. */
 export const RECENT_LIMIT = 40;
 
@@ -497,6 +500,25 @@ export const HomeSchema = z.object({
   recent: z.array(SessionRowSchema).optional(),
 });
 export type Home = z.infer<typeof HomeSchema>;
+
+/** Words with what a search matched marked: alternating runs, as the desktop's palette draws them, so
+ *  nothing in a transcript can be mistaken for a marker. */
+export const SnippetSchema = z.array(z.object({ text: z.string(), match: z.boolean() }));
+export type Snippet = z.infer<typeof SnippetSchema>;
+
+/** The longest query `search.query` takes, as the desktop's palette. */
+export const SEARCH_QUERY_MAX = 256;
+
+/** A session the Mac's search found, by its title, by something said in it, or both. */
+export const SearchHitSchema = z.object({
+  session: SessionRowSchema,
+  /** Its title with the match marked, where the title matched. */
+  title: SnippetSchema.nullable(),
+  /** The best-matching message: its row's `seq`, which `session.open`'s `from` reaches back to, and
+   *  the words around the match. Null where only the title matched. */
+  message: z.object({ seq: z.number().int(), snippet: SnippetSchema }).nullable(),
+});
+export type SearchHit = z.infer<typeof SearchHitSchema>;
 
 /** One file a turn changed, as git counted it. Lines are null for a binary file. */
 const ChangedFileSchema = z.object({
@@ -661,7 +683,12 @@ export const MobileCalls = {
     result: z.object({ sessions: z.array(SessionRowSchema), more: z.boolean() }),
   },
   "session.open": {
-    params: z.object({ id: Id, limit: z.number().int().min(1).max(1000).default(200) }),
+    params: z.object({
+      id: Id, limit: z.number().int().min(1).max(SESSION_OPEN_MAX).default(200),
+      /** Reach back to the row of this seq — a search's match — though it is further back than `limit`
+       *  rows, up to `SESSION_OPEN_MAX` rows in all. */
+      from: z.number().int().min(0).optional(),
+    }),
     result: z.object({
       session: SessionRowSchema, rows: z.array(RowSchema), hasMore: z.boolean(),
       /** The suggested next message (`prompt_hint`), until something is sent. */
@@ -677,6 +704,12 @@ export const MobileCalls = {
     }),
   },
   "session.close": { params: z.object({ id: Id }), result: Ok },
+  /** The desktop's ⌘K search over sessions: titles first, then what was said, best first, one hit a
+   *  session. In one profile, or in every profile where none is named. */
+  "search.query": {
+    params: z.object({ query: z.string().trim().min(1).max(SEARCH_QUERY_MAX), profileId: Id.optional() }),
+    result: z.object({ hits: z.array(SearchHitSchema) }),
+  },
   /** Renames, pins or archives a session's row, as the desktop's sidebar does. Archived, it leaves every list. */
   "session.update": {
     params: z.object({ id: Id, title: z.string().min(1).max(200).optional(), pinned: z.boolean().optional(), archived: z.boolean().optional() }),

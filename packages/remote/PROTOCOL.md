@@ -488,7 +488,8 @@ else keeps its own name, whatever it looks like.
 | `ping` | `{}` | `{at: ms}`, the Mac's clock |
 | `home.get` | `{profileId?}` | `{mac: {name}, needsYou: [SessionRow], spaces: [Space], profiles?: [Profile], profileId?: string\|null, recent?: [SessionRow]}` |
 | `space.sessions` | `{id, offset?: int = 0, limit?: int = 50}` | `{sessions: [SessionRow], more: bool}`. `limit` is at most 100. |
-| `session.open` | `{id, limit?: int = 200}` | `{session: SessionRow, rows: [Row], hasMore: bool, hint?: string\|null, queued?: [QueuedMessage], move?: PendingMove\|null, goal?: Goal\|null, todos?: [Todo]}` |
+| `session.open` | `{id, limit?: int = 200, from?: int}` | `{session: SessionRow, rows: [Row], hasMore: bool, hint?: string\|null, queued?: [QueuedMessage], move?: PendingMove\|null, goal?: Goal\|null, todos?: [Todo]}`. `limit` is at most 1,000. `from` is a row's `seq`, a search's match: the rows reach back to it where it is further back than `limit`, up to 1,000 rows in all. An older Mac ignores it. |
+| `search.query` | `{query, profileId?}` | `{hits: [{session: SessionRow, title: Snippet\|null, message: {seq, snippet: Snippet}\|null}]}`. See below. |
 | `session.close` | `{id}` | `{ok: true}` |
 | `session.update` | `{id, title?, pinned?: bool, archived?: bool}` | `{session: SessionRow\|null}`: null once it is archived |
 | `session.queue` | `{id}` | `{queued: [QueuedMessage], move?: PendingMove\|null}` |
@@ -1071,6 +1072,14 @@ phone read, and what bounds it:
   ids, names and descriptions of the skills; and the paths of the session's folder's files that match
   what was typed, never one that holds a secret, nor anything in them. A skill's instructions and a
   command's file are not sent.
+- **`search.query`**: the desktop's ⌘K search, over the sessions of one profile, or of each profile in
+  the desktop's order where `profileId` names none the Mac has. `query` is trimmed, 1 to 256
+  characters; a phone searches from two, as the palette does. Each session is listed once: those whose
+  title matched first, then those where a user or assistant message matched, each group best first as
+  the desktop ranks it, at most 20 of each in a profile. `title` is the title with the match marked,
+  where it matched; `message` is the best-matching message, by its row's `seq`, and the words around
+  the match. A `Snippet` is `[{text, match: bool}]`, runs that join into the words. The palette's other
+  groups — terminals, browsers and documents by title, skills, memory — are not sent.
 - **`space.icon`**: the picture a person uploaded or had made for a space, at most 256 KB.
 - **`session.hint`** and `hint`: the suggested next message the desktop's prompter shows.
 - **`goal`, `todos` and their events**: the session's objective, where it stands, its turns, tokens and

@@ -1446,6 +1446,240 @@
         }
       ]
     },
+    "search.query": {
+      "hits": [
+        {
+          "session": {
+            "id": "01JSESSION00000000000000000",
+            "title": "Theme column",
+            "spaceId": "sp1",
+            "spaceName": "Realm",
+            "agent": "claude",
+            "model": "claude-opus-5-5",
+            "status": "waiting",
+            "needsYou": true,
+            "unread": false,
+            "updatedAt": 1790000000000,
+            "agentName": "Claude",
+            "agentMark": "claude",
+            "modelLabel": "Opus 5.5",
+            "createdAt": 1789990000000,
+            "effort": "high",
+            "permissionMode": "acceptEdits",
+            "activityAt": 1790000000000,
+            "pinned": false,
+            "goal": {
+              "status": "active",
+              "objective": "Ship the theme column: migration, backfill and a down step, with the suite green."
+            }
+          },
+          "title": [
+            {
+              "text": "Theme",
+              "match": true
+            },
+            {
+              "text": " column",
+              "match": false
+            }
+          ],
+          "message": {
+            "seq": 3,
+            "snippet": [
+              {
+                "text": "Filing the ",
+                "match": false
+              },
+              {
+                "text": "theme",
+                "match": true
+              },
+              {
+                "text": " issue",
+                "match": false
+              }
+            ]
+          }
+        },
+        {
+          "session": {
+            "id": "01JREALM000000000000000005",
+            "title": "Ship 2.0.3",
+            "spaceId": "sp1",
+            "spaceName": "Realm",
+            "agent": "claude",
+            "model": "claude-opus-5-5",
+            "status": "idle",
+            "needsYou": false,
+            "unread": false,
+            "updatedAt": 1789910000000,
+            "agentName": "Claude",
+            "agentMark": "claude",
+            "modelLabel": "Opus 5.5",
+            "createdAt": 1789000000004,
+            "effort": null,
+            "permissionMode": "default",
+            "activityAt": 1789910000000,
+            "pinned": true
+          },
+          "title": null,
+          "message": {
+            "seq": 1,
+            "snippet": [
+              {
+                "text": "Ship it with the ",
+                "match": false
+              },
+              {
+                "text": "theme",
+                "match": true
+              },
+              {
+                "text": " fix",
+                "match": false
+              }
+            ]
+          }
+        },
+        {
+          "session": {
+            "id": "01JQUIET000000000000000000",
+            "title": "Lecture notes",
+            "spaceId": "sp3",
+            "spaceName": "School",
+            "agent": "acp:cursor",
+            "model": "composer-2",
+            "status": "idle",
+            "needsYou": false,
+            "unread": false,
+            "updatedAt": 1790000200000,
+            "agentName": "Cursor",
+            "agentMark": "cursor",
+            "modelLabel": "Composer 2",
+            "createdAt": 1789800000000,
+            "effort": null,
+            "permissionMode": "default",
+            "activityAt": 1790000200000,
+            "pinned": false
+          },
+          "title": null,
+          "message": {
+            "seq": 1,
+            "snippet": [
+              {
+                "text": "…the ",
+                "match": false
+              },
+              {
+                "text": "theme",
+                "match": true
+              },
+              {
+                "text": " of the lecture",
+                "match": false
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "search.query:profile": {
+      "hits": [
+        {
+          "session": {
+            "id": "01JSESSION00000000000000000",
+            "title": "Theme column",
+            "spaceId": "sp1",
+            "spaceName": "Realm",
+            "agent": "claude",
+            "model": "claude-opus-5-5",
+            "status": "waiting",
+            "needsYou": true,
+            "unread": false,
+            "updatedAt": 1790000000000,
+            "agentName": "Claude",
+            "agentMark": "claude",
+            "modelLabel": "Opus 5.5",
+            "createdAt": 1789990000000,
+            "effort": "high",
+            "permissionMode": "acceptEdits",
+            "activityAt": 1790000000000,
+            "pinned": false,
+            "goal": {
+              "status": "active",
+              "objective": "Ship the theme column: migration, backfill and a down step, with the suite green."
+            }
+          },
+          "title": [
+            {
+              "text": "Theme",
+              "match": true
+            },
+            {
+              "text": " column",
+              "match": false
+            }
+          ],
+          "message": {
+            "seq": 3,
+            "snippet": [
+              {
+                "text": "Filing the ",
+                "match": false
+              },
+              {
+                "text": "theme",
+                "match": true
+              },
+              {
+                "text": " issue",
+                "match": false
+              }
+            ]
+          }
+        },
+        {
+          "session": {
+            "id": "01JREALM000000000000000005",
+            "title": "Ship 2.0.3",
+            "spaceId": "sp1",
+            "spaceName": "Realm",
+            "agent": "claude",
+            "model": "claude-opus-5-5",
+            "status": "idle",
+            "needsYou": false,
+            "unread": false,
+            "updatedAt": 1789910000000,
+            "agentName": "Claude",
+            "agentMark": "claude",
+            "modelLabel": "Opus 5.5",
+            "createdAt": 1789000000004,
+            "effort": null,
+            "permissionMode": "default",
+            "activityAt": 1789910000000,
+            "pinned": true
+          },
+          "title": null,
+          "message": {
+            "seq": 1,
+            "snippet": [
+              {
+                "text": "Ship it with the ",
+                "match": false
+              },
+              {
+                "text": "theme",
+                "match": true
+              },
+              {
+                "text": " fix",
+                "match": false
+              }
+            ]
+          }
+        }
+      ]
+    },
     "session.changes": {
       "checkpointId": "01JCHECKPOINT0000000000000",
       "files": [
