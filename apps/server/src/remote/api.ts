@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { basename, join } from "node:path";
 import {
   AGENT_META, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, isSecretPath, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, readEffortSupport,
   resolveMidTurnMode, SELECTABLE_AGENT_KINDS, type AgentKind, type DelegatedChild, type IconAsset, type Item, type Machine, type MethodResult, type ModelInfo,
@@ -14,6 +15,7 @@ import {
   FALLBACK_AGENT, isChild, isLive, LAST_AGENT_SETTING, modelLabel, needsYou, nestChildren, QUICK_CHAT_SETTING, quickChatIdOf, subagentState, upcomingOrder, type NeedsYouState,
 } from "@realm/view";
 import { resolveDefaultPermissionMode } from "../sessions/service";
+import { tildify } from "../skills/discovery";
 import { diffPage } from "./changes";
 import { agentOptions, changesFor, ChoiceRefused, probeList, type InitFacts, type OptionsInput, type ProbeRow } from "./options";
 import { filePreview, PreviewRefused, sipsDownscale, type Downscale } from "./preview";
@@ -224,6 +226,7 @@ export class MobileApi {
         }
         case "session.editQueued": return await this.editQueued(rpc, p as MobileParams<"session.editQueued">);
         case "session.subagents": return await this.subagents(ctx, p.id as string);
+        case "session.info": return await this.info(rpc, p.id as string);
         case "usage.get": return await this.usage(rpc);
         // Review went with the first Teams: the phone's Review screen is told there is nothing in it,
         // and a review it still holds is gone, rather than either being an error it cannot read.
@@ -564,6 +567,36 @@ export class MobileApi {
     const inFlight = new Set(running.map((r) => r.sessionId));
     const subagents = children.map((c) => subagentOf(c, row(c.session), inFlight.has(c.session.id)));
     return { subagents: subagents.sort((a, b) => b.startedAt - a.startedAt || (a.session.id < b.session.id ? 1 : a.session.id > b.session.id ? -1 : 0)) };
+  }
+
+  /** Where a session runs, what its turns have cost as Settings ▸ Usage counts it, and the files it made
+   *  or was sent, newest first, the newest mention of each — leaving out any `session.file` refuses. */
+  private async info(rpc: RpcPort, id: string): Promise<MobileResult<"session.info">> {
+    const s = await rpc.call("sessions.get", { id });
+    const [env, summary, made, sent] = await Promise.all([
+      rpc.call("environments.get", { id: s.environmentId }), rpc.call("usage.summary", { from: s.createdAt, to: Date.now(), spaceId: s.spaceId }),
+      this.eventsOf(rpc, id, "files_made"), this.eventsOf(rpc, id, "user_message"),
+    ]);
+    const totals = summary.sessions.find((r) => r.id === id)?.totals;
+    const inputTokens = totals ? totals.inputTokens + totals.cacheReadTokens + totals.cacheWriteTokens : 0;
+    const measured = totals !== undefined && totals.unmeasuredSessions === 0 && (totals.costUsd > 0 || inputTokens + totals.outputTokens > 0);
+    const files: NonNullable<MobileResult<"session.info">["files"]> = [];
+    for (const ev of made) {
+      if (ev.event.type === "files_made") for (const f of ev.event.payload.files) files.push({ path: f.path, name: basename(f.path), size: f.size, sent: false, at: ev.event.ts });
+    }
+    for (const ev of sent) {
+      if (ev.event.type !== "user_message") continue;
+      for (const a of ev.event.payload.attachments) files.push({ path: a.path, name: givenAttachmentName(a.path, tempAttachmentDir(this.o.realmHome)), size: null, sent: true, at: ev.event.ts });
+    }
+    const newest = new Map<string, (typeof files)[number]>();
+    for (const f of files.sort((a, b) => b.at - a.at)) {
+      if (!isSecretPath(f.path) && !newest.has(f.path)) newest.set(f.path, f);
+    }
+    return {
+      runsOn: { machine: this.o.macName(), checkout: env.kind, folder: tildify(env.path, homedir()), branch: env.branch },
+      ...(measured ? { usage: { costUsd: totals.costUsd, estimated: totals.estimatedUsd > 0, inputTokens, outputTokens: totals.outputTokens, turns: totals.turns } } : {}),
+      files: [...newest.values()],
+    };
   }
 
   /** Every agent's plan as Settings ▸ Usage draws it, and this calendar month's spend on the Mac's clock,

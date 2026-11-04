@@ -631,6 +631,11 @@ public struct MobileAPI: Sendable {
         return try await connection.call("session.subagents", params: SessionID(id: id), as: Answer.self).subagents
     }
 
+    /// Where a session runs, what it has cost, and its files: what its info sheet says beyond its row.
+    public func info(id: String) async throws -> SessionInfo {
+        try await connection.call("session.info", params: SessionID(id: id), as: SessionInfo.self)
+    }
+
     /// Every agent's plan limits, and this month's spend.
     public func usage() async throws -> Usage {
         try await connection.call("usage.get", as: Usage.self)

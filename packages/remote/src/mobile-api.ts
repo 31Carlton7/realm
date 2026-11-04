@@ -229,6 +229,41 @@ export const SubagentSchema = z.object({
 });
 export type Subagent = z.infer<typeof SubagentSchema>;
 
+/** What a session's info sheet says beyond its row. Every part is optional: a Mac leaves out what it
+ *  does not know, and a phone draws only what came. */
+export const SessionInfoSchema = z.object({
+  /** Where the session runs: the Mac, and the checkout on it. */
+  runsOn: z.object({
+    machine: z.string(),
+    /** The space's own folder, another checkout of it, or a git worktree Realm made. */
+    checkout: z.enum(["primary", "checkout", "worktree"]),
+    /** The checkout's folder, under `~` where it is in the person's home. */
+    folder: z.string(),
+    /** Null until something on the Mac has asked git. */
+    branch: z.string().nullable(),
+  }).optional(),
+  /** What its turns have cost, for an engine that reports usage; absent for one that does not, and
+   *  before its first turn. Input counts cached input too. */
+  usage: z.object({
+    costUsd: z.number(),
+    /** Some of the cost is the catalog's list price for tokens the agent reported, not dollars it stated. */
+    estimated: z.boolean(),
+    inputTokens: z.number(),
+    outputTokens: z.number(),
+    turns: z.number().int(),
+  }).optional(),
+  /** The files its turns made and the ones sent to it, newest first: each one `session.file` previews. */
+  files: z.array(z.object({
+    path: z.string(),
+    name: z.string(),
+    /** Bytes, where the turn that made it said. */
+    size: z.number().nullable(),
+    sent: z.boolean(),
+    at: z.number(),
+  })).optional(),
+});
+export type SessionInfo = z.infer<typeof SessionInfoSchema>;
+
 /** One window of a plan's quota: how much of it is used, and when it starts again. */
 const PlanWindowSchema = z.object({
   id: z.string(),
@@ -447,6 +482,8 @@ export const MobileCalls = {
   "session.editQueued": { params: z.object({ id: Id, queuedId: z.string().min(1), text: z.string().max(100_000) }), result: Ok },
   /** The sub-agents a session started, newest first, as its Agents tab lists them. */
   "session.subagents": { params: z.object({ id: Id }), result: z.object({ subagents: z.array(SubagentSchema) }) },
+  /** Where a session runs, what it has cost, and its files: what its info sheet says beyond its row. */
+  "session.info": { params: z.object({ id: Id }), result: SessionInfoSchema },
   /** Every agent's plan limits, and this month's spend. */
   "usage.get": { params: z.object({}), result: z.object({ limits: z.array(PlanLimitsSchema), spend: SpendSchema }) },
   /** What teams have handed back for review and is still open, across every space, newest first. */

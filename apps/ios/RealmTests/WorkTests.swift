@@ -500,3 +500,32 @@ struct WorkFixtureWordsTests {
         #expect(PlanWords.title(claude) == "Claude Max")
     }
 }
+
+@MainActor
+@Suite("What a session's info sheet says")
+struct SessionInfoWordsTests {
+    static let us = Locale(identifier: "en_US")
+
+    @Test func itsCostSaysWhenPartOfItIsTheCatalogsPrice() {
+        let stated = SessionUsage(costUsd: 3.5, estimated: false, inputTokens: 21_300, outputTokens: 4_000, turns: 6)
+        let priced = SessionUsage(costUsd: 3.5, estimated: true, inputTokens: 999, outputTokens: 1_260_000, turns: 0)
+        #expect(SessionInfoWords.cost(stated, locale: Self.us) == "$3.50")
+        #expect(SessionInfoWords.cost(priced, locale: Self.us) == "About $3.50")
+        #expect(SessionInfoWords.tokens(stated, locale: Self.us) == "21.3K in · 4K out")
+        #expect(SessionInfoWords.tokens(priced, locale: Self.us) == "999 in · 1.3M out")
+    }
+
+    @Test func itNamesTheCheckoutAndTheStatusInTheBarsWords() {
+        #expect(["primary", "checkout", "worktree", "something-newer"].map(SessionInfoWords.checkout) == ["Space folder", "Checkout", "Worktree", "Checkout"])
+        #expect(SessionInfoWords.status(.running) == "Working")
+        #expect(SessionInfoWords.status(.waiting) == SessionStatus.waiting.word)
+    }
+
+    @Test func aFileSaysWhetherItWasMadeOrSentAndHowBig() {
+        let now = Date(timeIntervalSince1970: 1_790_000_120)
+        let made = SessionFile(path: "/w/shot.png", name: "shot.png", size: 4_096, sent: false, at: 1_790_000_000_000)
+        let sent = SessionFile(path: "/w/brief.pdf", name: "brief.pdf", size: nil, sent: true, at: 1_790_000_000_000)
+        #expect(SessionInfoWords.fileLine(made, now: now) == "Made 2m ago · 4 kB")
+        #expect(SessionInfoWords.fileLine(sent, now: now) == "Sent 2m ago")
+    }
+}
