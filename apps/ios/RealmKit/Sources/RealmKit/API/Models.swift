@@ -1051,13 +1051,16 @@ public struct OpenedSession: Codable, Sendable, Hashable {
     public let hint: String?
     /// The messages waiting in the Mac's queue when the session opened; nil from a Mac before it said.
     public let queued: [QueuedMessage]?
+    /// The move queued behind the turn or under way when it opened, or nil.
+    public let move: PendingMove?
 
-    public init(session: SessionRow, rows: [TranscriptRow], hasMore: Bool, hint: String? = nil, queued: [QueuedMessage]? = nil) {
+    public init(session: SessionRow, rows: [TranscriptRow], hasMore: Bool, hint: String? = nil, queued: [QueuedMessage]? = nil, move: PendingMove? = nil) {
         self.session = session
         self.rows = rows
         self.hasMore = hasMore
         self.hint = hint
         self.queued = queued
+        self.move = move
     }
 }
 
@@ -1703,14 +1706,16 @@ public struct SessionHintEvent: Decodable, Sendable, Equatable {
     }
 }
 
-/// `session.queue`: an open session's queue, whole.
+/// `session.queue`: an open session's queue, whole, and the move that waits ahead of it.
 public struct SessionQueueEvent: Decodable, Sendable, Equatable {
     public let id: String
     public let queued: [QueuedMessage]
+    public let move: PendingMove?
 
-    public init(id: String, queued: [QueuedMessage]) {
+    public init(id: String, queued: [QueuedMessage], move: PendingMove? = nil) {
         self.id = id
         self.queued = queued
+        self.move = move
     }
 }
 

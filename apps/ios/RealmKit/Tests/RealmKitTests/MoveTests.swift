@@ -52,6 +52,46 @@ struct MoveTests {
         #expect(others.allSatisfy { $0.noticeDetail == nil })
     }
 
+    @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
+    func aMoveWaitingForTheTurnComesWithTheQueue() throws {
+        struct Queue: Decodable { let queued: [QueuedMessage]; let move: PendingMove? }
+        let queue = try APIFixtureTests.decode(Queue.self, "calls", "session.queue:move")
+        #expect(queue.move == PendingMove(moveId: "01JMOVE0000000000000000004", to: .checkout(environmentId: "01JWORKTREE000000000000001"), step: nil))
+        #expect(queue.move?.isQueued == true)
+        // A session with no move waiting says so as null.
+        #expect(try APIFixtureTests.decode(Queue.self, "calls", "session.queue").move == nil)
+        let events = try APIFixtureTests.decode([SessionQueueEvent].self, "events", "session.queue")
+        #expect(events.map(\.move) == [nil, nil, queue.move])
+    }
+
+    @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
+    func aSessionOpenedMidMoveOpensOnItsProgressRow() throws {
+        let opened = try APIFixtureTests.decode(OpenedSession.self, "calls", "session.open:moving")
+        #expect(opened.move == PendingMove(moveId: "01JMOVE0000000000000000005", to: .worktree, step: "place"))
+        #expect(opened.move?.isQueued == false)
+        #expect(opened.rows.map(\.key) == ["mv:01JMOVE0000000000000000005"])
+        #expect(opened.rows.first?.move == .moving)
+        #expect(opened.rows.first?.content == .notice(text: "Moving · Setting up the checkout"))
+    }
+
+    @Test @MainActor func aMoveQueuedWhileTheSessionOpensIsTheOneItOpensWith() throws {
+        let row = try JSONDecoder().decode(SessionRow.self, from: Data(#"{"id":"s1","title":"T","spaceId":"sp","spaceName":"S","agent":"claude","model":null,"status":"running","needsYou":false,"unread":false,"updatedAt":0}"#.utf8))
+        let queued = PendingMove(moveId: "m", to: .worktree, step: nil)
+        let store = RealmStore()
+        store.beginOpening("s1")
+        store.apply(.sessionQueue(SessionQueueEvent(id: "s1", queued: [], move: queued)))
+        store.finishOpening(OpenedSession(session: row, rows: [], hasMore: false, queued: [], move: nil))
+        #expect(store.transcript("s1").move == queued)
+        store.apply(.sessionQueue(SessionQueueEvent(id: "s1", queued: [], move: nil)))
+        #expect(store.transcript("s1").move == nil)
+        let options = MoveOptions(mac: "MacBook Pro", from: Checkout(environmentId: "e", path: "~/realm", branch: "main", kind: .primary), busy: true, blocked: nil, pending: true,
+                                  conversation: .native, changedFiles: 0, leftBehind: [],
+                                  checkouts: [Checkout(environmentId: "w", path: "~/Realm/worktrees/realm/feat-theme", branch: "feat-theme", kind: .worktree)],
+                                  worktree: .init(available: true, reason: nil))
+        #expect(MoveWords.destination(.worktree, in: options) == "New worktree")
+        #expect(MoveWords.destination(.checkout(environmentId: "w"), in: options) == "feat-theme")
+    }
+
     @Test func aProgressRowIsReplacedByHowTheMoveEnded() throws {
         func row(_ json: String) throws -> TranscriptRow { try JSONDecoder().decode(TranscriptRow.self, from: Data(json.utf8)) }
         var transcript = Transcript(rows: [try row(#"{"key":"m:a","seq":4,"kind":"assistant","text":"Done.","streaming":false}"#)])
