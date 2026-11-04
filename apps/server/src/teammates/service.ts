@@ -36,7 +36,7 @@ const louder = (a: TeammateState, b: TeammateState): TeammateState =>
 
 /** The teammate sessions with work still going under them: a session one of them started, or work a
  *  teammate took on when one asked (`askedBy`). Such a session is not unread until that is done. */
-function agentsAtWork(sessions: readonly TeammateSessionRow[]): Set<string> {
+function teamAtWork(sessions: readonly TeammateSessionRow[]): Set<string> {
   const byId = new Map(sessions.map((s) => [s.id, s]));
   return leadsWithAgentsAtWork(sessions.map((s) => [s.id, s.status] as const), (id) => {
     const s = byId.get(id);
@@ -142,7 +142,7 @@ export class TeammatesService {
     const state = own.reduce<TeammateState>((acc, s) => louder(acc, stateOf(s.status)), "idle");
     const live = own.find((s) => !s.home && LIVE.has(s.status)) ?? null;
     const was = this.since.get(row.id);
-    const atWork = agentsAtWork(sessions);
+    const atWork = teamAtWork(sessions);
     return {
       id: row.id, spaceId: row.spaceId, handle: row.handle, name: row.name, brief: row.brief, icon: row.icon,
       agentKind: row.agentKind, model: row.model, effort: row.effort, permissionMode: row.permissionMode,
@@ -175,7 +175,7 @@ export class TeammatesService {
     const listed = new Set(own.filter((s) => !s.home).map((s) => s.id));
     const handed = sessions.filter((s) => s.teammateId !== row.id && !s.home && s.askedBy !== null && ownIds.has(s.askedBy));
     for (const s of handed) listed.add(s.id);
-    const atWork = agentsAtWork(sessions);
+    const atWork = teamAtWork(sessions);
     return sessions.filter((s) => listed.has(s.id)).map((s) => {
       const parent = s.teammateId === row.id ? s.dispatchedBy : s.askedBy;
       return {
