@@ -56,4 +56,24 @@ enum Palette {
     static let divider = Color("Divider")
     /// `--mark`: A fill that is not an edge: a track, an idle dot. Dark `#ffffff14`, light `#0000000f`.
     static let mark = Color("Mark")
+    /// `--series-1`: Slot 1 of the categorical chart palette. Dark `#3987e5`, light `#2a78d6`.
+    static let series1 = Color("Series1")
+    /// `--series-2`: Slot 2 of the categorical chart palette. Dark `#d95926`, light `#eb6834`.
+    static let series2 = Color("Series2")
+    /// `--series-3`: Slot 3 of the categorical chart palette. Dark `#199e70`, light `#1baf7a`.
+    static let series3 = Color("Series3")
+    /// `--series-4`: Slot 4 of the categorical chart palette. Dark `#c98500`, light `#eda100`.
+    static let series4 = Color("Series4")
+    /// `--series-5`: Slot 5 of the categorical chart palette. Dark `#d55181`, light `#e87ba4`.
+    static let series5 = Color("Series5")
+    /// `--series-6`: Slot 6 of the categorical chart palette. Dark `#008300`, light `#008300`.
+    static let series6 = Color("Series6")
+    /// `--series-7`: Slot 7 of the categorical chart palette. Dark `#9085e9`, light `#4a3aa7`.
+    static let series7 = Color("Series7")
+    /// `--series-8`: Slot 8 of the categorical chart palette. Dark `#e66767`, light `#e34948`.
+    static let series8 = Color("Series8")
+    /// `--chart-grid`: A chart's gridlines. Dark `oklch(1 0 0 / 0.08)`, light `oklch(0 0 0 / 0.07)`.
+    static let chartGrid = Color("ChartGrid")
+    /// `--chart-axis`: A chart's axis. Dark `oklch(1 0 0 / 0.14)`, light `oklch(0 0 0 / 0.13)`.
+    static let chartAxis = Color("ChartAxis")
 }

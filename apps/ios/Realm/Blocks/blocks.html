@@ -1,0 +1,22 @@
+<!doctype html>
+<!-- The page BlockDrawer keeps off screen to draw TeX and Mermaid into pictures. It loads nothing but
+     the files beside it: the web view's content rules block every other address. -->
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="vendor/katex.min.css">
+<script src="vendor/katex.min.js"></script>
+<script src="blocks.js"></script>
+<style>
+  html { background: #000; }
+  html, body { margin: 0; padding: 0; -webkit-text-size-adjust: none; }
+  #stage { position: absolute; left: 0; top: 0; width: max-content; padding: 8px; }
+  #stage:has(svg) { padding: 0; }
+  #stage .katex { font-size: 1.05em; }
+  #stage .katex-display { margin: 0; }
+  #scratch { position: absolute; left: 0; top: 0; width: 1200px; visibility: hidden; }
+</style>
+</head>
+<body><div id="stage"></div><div id="scratch"></div></body>
+</html>
