@@ -366,7 +366,7 @@ private struct TeammateForm<Handle: View, Place: View>: View {
     }
 }
 
-/// The eight shapes, each drawn in the colour chosen, the chosen one ringed.
+/// The eight shapes, each drawn in the colour chosen, the chosen one on the pill's grey.
 private struct ShapeChoices: View {
     @Binding var draft: TeammateDraft
 
@@ -380,11 +380,6 @@ private struct ShapeChoices: View {
                     TeammateMark(icon: TeammateIcon(shape: shape.rawValue, color: draft.color), size: 34)
                         .frame(maxWidth: .infinity, minHeight: 52)
                         .background(chosen ? Fill.bubble : Color.clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .overlay {
-                            if chosen {
-                                RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Palette.accent, lineWidth: 2)
-                            }
-                        }
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)

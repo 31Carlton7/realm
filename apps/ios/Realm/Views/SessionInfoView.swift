@@ -104,7 +104,8 @@ struct SessionInfoSheet: View {
             .toolbarBackground(Ground.grouped, for: .navigationBar)
             .toolbarBackgroundVisibility(.visible, for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                // At the trailing corner, as every sheet whose only control is its close has it.
+                ToolbarItem(placement: .topBarTrailing) {
                     Button(role: .close) { dismiss() }
                         .accessibilityLabel("Close")
                 }

@@ -189,6 +189,8 @@ struct SettingsView: View {
                 }
             }
         }
+        // A group's note belongs to the group over it, not to the head under it.
+        .listSectionSpacing(28)
         .scrollContentBackground(.hidden)
         .background(Ground.grouped)
         .contentMargins(.top, 12, for: .scrollContent)
@@ -251,12 +253,13 @@ private struct MacHeader: View {
         let layout = dynamicTypeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 14))
         layout {
-            // A round avatar, as Manus heads its profile with the person's.
+            // A round avatar, as Manus heads its profile with the person's: the glyph in ink on the
+            // pill's grey, as a row's tile is.
             Image(systemName: "laptopcomputer")
                 .font(.system(size: 24, weight: .medium))
-                .foregroundStyle(.white)
+                .foregroundStyle(Palette.ink)
                 .frame(width: 56, height: 56)
-                .background(Palette.accentFill, in: Circle())
+                .background(Fill.pill, in: Circle())
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
                 Text(name)

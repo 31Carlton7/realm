@@ -20,6 +20,9 @@ struct HomeView: View {
     @State private var now = Date()
     @Namespace private var settingsZoom
 
+    /// Between a section's last row and the next head: a little more than between its own rows.
+    static let sectionSpacing: CGFloat = 12
+
     var body: some View {
         @Bindable var model = model
         let home = model.store.home.map { model.rowEdits.applied(to: $0) }
@@ -98,7 +101,10 @@ struct HomeView: View {
             }
         }
         .listStyle(.plain)
+        .listSectionSpacing(Self.sectionSpacing)
         .scrollContentBackground(.hidden)
+        // The last row scrolls clear of the New session button floating over the list's foot.
+        .contentMargins(.bottom, 72, for: .scrollContent)
         .background(Ground.transcript)
         .id(ListIdentity(choice: choice, style: style))
         // Manus's chips under the bar: what the list holds, by what it asks of the person.
@@ -286,7 +292,9 @@ enum RowState: Equatable {
     }
 }
 
-/// A section's name in sentence case beside its glyph, at the list's head rung.
+/// A section's name in sentence case beside its glyph, at the list's head rung. A plain list pins its
+/// heads, so a head stands on the list's own ground from edge to edge: the rows scrolling under it
+/// go out of sight rather than showing through its words.
 struct SectionHead<Glyph: View>: View {
     let title: String
     /// The head opens what it names, and a chevron after the name says so.
@@ -310,7 +318,19 @@ struct SectionHead<Glyph: View>: View {
         .font(.subheadline.weight(.semibold))
         .foregroundStyle(Palette.ink)
         .textCase(nil)
-        .padding(.top, 6)
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Ground.transcript)
+        // Pinned, a row passing under the head dissolves into it rather than being cut at its edge.
+        .background(alignment: .bottom) {
+            LinearGradient(colors: [Ground.transcript, Ground.transcript.opacity(0)], startPoint: .top, endPoint: .bottom)
+                .frame(height: 12)
+                .offset(y: 12)
+                .allowsHitTesting(false)
+        }
+        .listRowInsets(EdgeInsets())
     }
 }
 
@@ -328,10 +348,10 @@ struct ListSectionHead: View {
                     // The whole head is pressed, not only its words: it is a row's width to a finger,
                     // as it is to VoiceOver.
                     SectionHead(title: space.name, opens: true) { SpaceGlyph(space: space) }
-                        .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .listRowInsets(EdgeInsets())
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityHint("Shows all of its sessions")
             } else {
@@ -390,7 +410,7 @@ private struct SpaceFooterRow: View {
                 NavigationLink(value: Route.space(spaceId)) {
                     Text(footer.words)
                         .font(.subheadline.weight(.medium))
-                        .foregroundStyle(Palette.accentInk)
+                        .foregroundStyle(Palette.ink2)
                 }
                 .accessibilityLabel("Show all \(count) sessions in \(spaceName)")
             case .more:
@@ -623,7 +643,7 @@ struct SessionLink: View {
 }
 
 /// One session, as Manus lists a task: a round tile with its space's mark (or the agent's, where the
-/// section names the space), ringed while a turn works and dotted while it waits on you or is unread;
+/// section names the space), ringed while a turn works and dotted while it waits on you;
 /// its title on one line, with its age at the end; and under it a quiet line — the state worth acting
 /// on, else what it is about.
 struct SessionRowView: View {
@@ -697,8 +717,9 @@ struct SessionRowView: View {
 }
 
 /// A row's round tile, as Manus marks a task: the space's mark, or the agent's where the section
-/// names the space; a ring of the accent while a turn works, and a dot — orange while it waits on
-/// you, the accent while it is unread — at its corner, each beside the words that say it too.
+/// names the space; a quiet ring while a turn works, and the amber dot at its corner while it waits
+/// on you, each beside the words that say it too. Unread is the title's weight, never a dot, so amber
+/// is the only colour a row's state wears.
 private struct RowTile: View {
     let row: SessionRow
     let space: Space?
@@ -718,14 +739,14 @@ private struct RowTile: View {
         .overlay {
             if state == .working {
                 Circle()
-                    .strokeBorder(Palette.accent, lineWidth: 2)
+                    .strokeBorder(Tone.working.agentColor, lineWidth: 1.5)
                     .restingPulse(when: true)
             }
         }
         .overlay(alignment: .topTrailing) {
-            if state?.isWaiting == true || row.unread {
+            if state?.isWaiting == true {
                 Circle()
-                    .fill(state?.isWaiting == true ? Palette.orange : Palette.accent)
+                    .fill(Tone.waiting.agentColor)
                     .frame(width: 11, height: 11)
                     .overlay(Circle().strokeBorder(Ground.transcript, lineWidth: 2))
                     .offset(x: 1, y: -1)
@@ -791,7 +812,8 @@ private struct SubagentCount: View {
     }
 }
 
-/// A row's state as its glyph and its word, bold, in its tone: never colour alone.
+/// A row's state as its glyph and its word, bold: amber where it needs you or failed, else the quiet
+/// ink, and never colour alone.
 struct StateWord: View {
     let state: RowState
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -804,7 +826,7 @@ struct StateWord: View {
             Text(state.word)
         }
         .font(.footnote.weight(.semibold))
-        .foregroundStyle(state.tone.color)
+        .foregroundStyle(state.tone.agentColor)
         // On a line of its own at the accessibility sizes, it wraps rather than run past the row's edge.
         .fixedSize(horizontal: !dynamicTypeSize.isAccessibilitySize, vertical: true)
         .accessibilityHidden(true)

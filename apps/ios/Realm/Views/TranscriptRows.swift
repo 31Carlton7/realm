@@ -345,7 +345,7 @@ struct FoldedWork: View {
 }
 
 /// What a running turn is doing at the transcript's foot — thinking, or writing the words above it —
-/// as Manus says it: a small dot of the accent beside the word, which shimmers a few times and rests.
+/// as Manus says it: a small dot in the quiet ink beside the word, which shimmers a few times and rests.
 struct LiveLine: View {
     /// What the turn is doing, in the present tense: "Thinking", "Writing".
     let word: String
@@ -354,7 +354,7 @@ struct LiveLine: View {
     var body: some View {
         HStack(spacing: 8) {
             Circle()
-                .fill(Palette.accent)
+                .fill(Tone.working.agentColor)
                 .frame(width: dot, height: dot)
                 .restingPulse(when: true)
                 .accessibilityHidden(true)
@@ -717,7 +717,7 @@ private struct ToolStateGlyph: View {
 
     var body: some View {
         let (symbol, color): (String, Color) = switch state {
-        case .running: ("progress.indicator", Tone.working.color)
+        case .running: ("progress.indicator", Tone.working.agentColor)
         case .done: (kind.glyph, Palette.ink3)
         case .error: ("xmark.circle.fill", Tone.failed.color)
         }
