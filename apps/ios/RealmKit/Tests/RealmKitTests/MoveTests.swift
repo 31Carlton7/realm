@@ -12,7 +12,7 @@ struct MoveTests {
     func theOptionsNameTheMacTheCheckoutAndWhereItCanGo() throws {
         let options = try APIFixtureTests.decode(MoveOptions.self, "calls", "session.moveOptions")
         #expect(options.mac == "MacBook Pro")
-        #expect(options.from == Checkout(environmentId: "01ARZ3NDEKTSV4RRFFQ69G5FAV", path: "~/realm", branch: "main", kind: .primary))
+        #expect(options.from == Checkout(environmentId: "01JCHECKOUT000000000000001", path: "~/realm", branch: "main", kind: .primary))
         #expect(options.busy)
         #expect(options.blocked == nil)
         #expect(options.conversation == .native)
