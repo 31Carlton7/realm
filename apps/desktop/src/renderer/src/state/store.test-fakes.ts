@@ -1,6 +1,6 @@
 /** Shared in-memory Api fake for renderer tests (store, sidebar, palette). Not a test file itself. */
 import { COMPUTER_FORBIDDEN_BUNDLE_IDS, DEFAULT_FAILOVER_POLICY, LIBRARY_PAGE_SIZE, MCP_SECRET_STORAGE_NOTE, MEMORY_DOC_MAX, type ElementChip, type PlanLimits, type QueuedPrompt, type Goal, type UnlockedEggPack, type UnlockPolicy, unlockPolicyRank } from "@realm/contracts";
-import type { GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpSignInOptions, McpTool, MemoryClaudeBackfill, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
+import type { MoveOptions, GuideProgress, Lecture, PlynnMeeting, AgentsFileState, Attachment, BrowserCredential, Passkey, Checkpoint, DiffSummary, Environment, FileDiff, GitInfo, IconAsset, ImportApplyParams, ImportResult, ImportScan, Item, McpCall, McpServer, McpSignInOptions, McpTool, MemoryClaudeBackfill, MemoryClaudeImport, MemoryRemoteCheck, MemoryRepoCommit, MemoryRepoState, MemorySources, MemoryState, Notification, Profile, Project, RestorePreview, ReviewResult, DelegatedRun, Session, Ship, ShipResult, InstalledFont, CatalogFont, Skill, SkillResource, StoredTheme, Space, StoredSessionEvent, WorktreeStatus, SkillSource, DocumentWorkspace, Run, RunAttempt, FailoverPolicy, LibraryEntry, UserCommand, Script, ScriptInput, SandboxState, ProjectGrepResult, ProjectFilesResult, InstalledEditor } from "@realm/contracts";
 import type { AddMcpServerInput, AgentProbe, Api, BranchList, CredentialStatus, DelegableModels, McpTestResult, PickedAttachment, UpdateMcpServerInput } from "./store";
 import { artifactTypeOf, basenameOf, expandCommand, extOf, LIBRARY_ADD_MAX, mimeForPath, nextFireOf, rankPaths, type InstalledApp, type LibraryAddInput, type LibraryAddResult, type MentionRef } from "@realm/contracts";
 import type { Account, CliStatus, DelegatedChild, LayaStatus, ModelInfo, ResourcePolicies, ResourceReport, Schedule, SearchResults, UsageDay, UsageRecords, UsageSummary, UsageTotals } from "@realm/contracts";
@@ -199,6 +199,8 @@ export type FakeData = {
   settings?: Record<string, unknown>;
   computerAllowedApps?: Record<string, string[]>;
   sessions?: Session[]; sessionEvents?: Record<string, StoredSessionEvent[]>;
+  /** What `sessions.moveOptions` answers, by session id. Absent: a quiet checkout with nothing pending. */
+  moveOptions?: Record<string, Partial<MoveOptions>>;
   /** What `accounts.list` answers: each CLI's own account first, as a fresh home has them. */
   accounts?: Account[];
   importScan?: ImportScan; importResult?: ImportResult;
@@ -532,6 +534,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       { id: "default-codex", kind: "codex", label: "Default", configDir: null, signedIn: null, email: null, plan: null, createdAt: 0 },
     ],
     sessionEvents: overrides.sessionEvents ?? {},
+    moveOptions: overrides.moveOptions ?? {},
     sessionTerminals: overrides.sessionTerminals ?? {},
     gitInfo: overrides.gitInfo ?? {},
     diffs: overrides.diffs ?? {},
@@ -1592,6 +1595,27 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       if (!env) throw new Error(`no environment ${environmentId}`);
       if (env.spaceId !== data.sessions[i]!.spaceId) throw new Error("that environment belongs to another space");
       const s = { ...data.sessions[i]!, environmentId, cwd: env.path }; data.sessions[i] = s; return s;
+    },
+    sessionMoveOptions: async (id) => {
+      calls.push(`sessionMoveOptions:${id}`);
+      const cur = data.sessions.find((x) => x.id === id); if (!cur) throw new Error(`no session ${id}`);
+      const envs = data.environments[cur.spaceId] ?? [];
+      return {
+        from: { machine: null, environmentId: cur.environmentId, cwd: cur.cwd, branch: "main" },
+        busy: false, blocked: null, pending: false, conversation: "native", changedFiles: 0, leftBehind: [],
+        environments: envs.filter((e) => e.id !== cur.environmentId).map((e) => ({ environmentId: e.id, path: e.path, branch: e.branch, kind: e.kind })),
+        worktree: { available: true, reason: null },
+        ...data.moveOptions[id],
+      };
+    },
+    moveSession: async (id, to, keepSourceChanges, when) => {
+      calls.push(`moveSession:${id}=${JSON.stringify({ to, keepSourceChanges, when })}`);
+      const cur = data.sessions.find((x) => x.id === id); if (!cur) throw new Error(`no session ${id}`);
+      return cur;
+    },
+    cancelSessionMove: async (id) => {
+      calls.push(`cancelSessionMove:${id}`);
+      return { cancelled: true };
     },
     moveSessionToSpace: async (id, spaceId) => {
       calls.push(`moveSessionToSpace:${id}=${spaceId}`);

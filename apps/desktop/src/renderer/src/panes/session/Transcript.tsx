@@ -1,6 +1,6 @@
 import { Icon, TeammateIcon } from "@realm/ui";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { LINK_SERVICE_META, MAC_SKILL_ID, chipRuns, mediaCandidatesIn, teammateWords, type MentionRef, type SessionMode, type Teammate, type SessionStatus, type AskAnswers, type Checkpoint, type TurnChanges } from "@realm/contracts";
+import { LINK_SERVICE_META, MAC_SKILL_ID, chipRuns, moveFailedSentence, movedSentence, mediaCandidatesIn, teammateWords, type MentionRef, type SessionMode, type Teammate, type SessionStatus, type AskAnswers, type Checkpoint, type TurnChanges } from "@realm/contracts";
 import { AttachmentTile } from "./AttachmentTile";
 import { fileMark } from "./mention-sources";
 import { CommandCopy } from "../../components/CommandCopy";
@@ -28,6 +28,8 @@ import { formatTokens } from "./SessionUsage";
 import { useEnterTracker } from "./transcript-enter";
 import { TranscriptSummary } from "./TranscriptSummary";
 import { ReportFold } from "../agents-tab/ReportFold";
+import { MoveProgress, moveStepLabel } from "./MoveProgress";
+import { moveFailureReason, moveLeftAsItWas } from "./move-place";
 import { MediaStrip } from "./media/MediaView";
 import { useMediaFiles } from "./media/use-media";
 import { NEAR_END_PX, SETTLE_MS, applyScrollTop, markOf, recallScroll, rememberScroll, type ScrollMark } from "../scroll-memory";
@@ -276,10 +278,14 @@ function TeammateSender({ from, teammates }: { from: { title: string; teammateId
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null, track = false, saved = NO_SAVED, onSave, reveal = null, onRevealed, onEarlier, requestsOwnEscape = true, brief = null, report = null, teammates = NO_TEAMMATES, onContinueOn }: {
+export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null, track = false, saved = NO_SAVED, onSave, reveal = null, onRevealed, onEarlier, requestsOwnEscape = true, brief = null, report = null, teammates = NO_TEAMMATES, onContinueOn, agentLabel = "the agent", onCancelMove }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: AskAnswers) => void; visible?: boolean;
   /** Take the turn a usage limit stopped onto another of the agent's accounts. Absent draws no offer. */
   onContinueOn?: (accountId: string) => void;
+  /** The session's agent by name, for the move's progress row ("Starting Claude"). */
+  agentLabel?: string;
+  /** Stop a move under way (`sessions.cancelMove`). Absent draws no Cancel on the progress row. */
+  onCancelMove?: () => void;
   /** A message drawn as something other than its bubble: a sub-agent's first message, which carries
    *  the brief its lead wrote, shown as that brief (the sub-agent viewer's `AskedFor`). Matched on the
    *  message's text; every other message stays the user's bubble. */
@@ -837,6 +843,28 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
             case "context_reset": return <div key={key} className="msg-handoff" role="note" data-enter={enter || undefined}>
               <span>{b.note}</span>
             </div>;
+            // A move is a seam too: the paths above it are under the old checkout's root. It wraps
+            // rather than cut, because the end that gets cut is where the session went.
+            case "moved": return <div key={key} className="msg-handoff" data-move role="note" data-enter={enter || undefined}>
+              <span title={`${movedSentence(b)}\n${b.from.cwd} → ${b.to.cwd}`}>{movedSentence(b)}</span>
+            </div>;
+            // A move that did not happen changed nothing, so it is told as calmly as the seams are.
+            // Where the session still is reads inline; the error that stopped it is the tooltip's.
+            // A failure that did not keep where the session is says its step and reason instead.
+            case "move_failed": {
+              const line = moveFailedSentence(b);
+              const left = moveLeftAsItWas(b.note, line);
+              return b.from
+                ? <div key={key} className="msg-handoff" data-move="failed" role="note" title={moveFailureReason(b.reason)} data-enter={enter || undefined}>
+                  <span>{line}</span>
+                  {left && <span className="move-failed-reason" data-selectable>{left}</span>}
+                </div>
+                : <div key={key} className="msg-handoff" data-move="failed" role="note" title={b.note} data-enter={enter || undefined}>
+                  <span className="move-failed-head">Couldn't move this session.<span className="msg-handoff-tries">{moveStepLabel(b.step, agentLabel)}</span></span>
+                  <span className="move-failed-reason" data-selectable>{moveFailureReason(b.reason)}</span>
+                  {left && <span className="move-failed-reason" data-selectable>{left}</span>}
+                </div>;
+            }
             // Not a seam: nothing changed about the agent here, and wearing the seam's class would
             // say it had. This is a mark about the READER — where they stopped — so it is the one
             // rule in the column that carries the accent, and it says so in the second person.
@@ -854,6 +882,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
         {/* Plan 9 W2: BUI LoadingState's shimmer label — shown by the session's real status, never a clock.
             The word is this run's (run-label.ts), and `run.startedAt` holds it still: seeding it on
             anything that moves would re-roll the verb on every streaming delta. */}
+        {sessionStatus === "moving" && transcript.move && <MoveProgress step={transcript.move.step} agent={agentLabel} onCancel={onCancelMove} />}
         {sessionStatus === "running" && (!lastText || lastText.kind !== "assistant" || !lastText.streaming) && <div className="msg-working muted"><span className="shimmer-text">{runLabelFor(transcript.run?.startedAt ?? 0, mode, eggs, packLabels).present}…</span></div>}
         {/* Last in the column, so it reads as the closing line of the session rather than as another
             message in it. Draws nothing while a turn is live, and nothing on a session with nothing

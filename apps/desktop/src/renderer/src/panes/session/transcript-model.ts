@@ -1,4 +1,4 @@
-import { bareToolName, type MoveStep, type AcpSessionMode, type AppViewRef, type AskAnswers, type AskCard, type MentionRef, type SessionEvent, type SessionEventPayload, type TurnChanges, type FilesMade } from "@realm/contracts";
+import { bareToolName, type MovePlace, type MoveStep, type AcpSessionMode, type AppViewRef, type AskAnswers, type AskCard, type MentionRef, type SessionEvent, type SessionEventPayload, type TurnChanges, type FilesMade } from "@realm/contracts";
 import { questionOf } from "@realm/view";
 
 export type PlanStep = NonNullable<SessionEventPayload<"plan">["steps"]>[number];
@@ -75,6 +75,13 @@ export type Block =
    * the provider was asked to continue and declined, or the build could not be asked at all.
    */
   | { kind: "context_reset"; note: string; reason: "declined" | "unsupported"; ts: number }
+  /**
+   * The session moved to another checkout, and runs there from here on. The fourth seam: everything
+   * above it ran at `from`, and its paths are under that root.
+   */
+  | { kind: "moved"; from: MovePlace; to: MovePlace; conversation: "native" | "notes"; ts: number }
+  /** A move that did not happen, and where it stopped. The session is where it was. */
+  | { kind: "move_failed"; step: MoveStep; reason: string; from?: MovePlace; note: string; ts: number }
   /**
    * Where you stopped reading.
    *
@@ -473,10 +480,14 @@ export function reduceTranscript(t: Transcript, e: SessionEvent, markUnseen = fa
     // per-agent state off the event stream. The transcript is unchanged by it on purpose: a block
     // saying "weekly window at 78%" would be a sentence nobody said, stuck between two that were.
     case "rate_limit": return t;
-    // The progress row is one row: each step replaces the last. Its moved line is the session pane's
-    // to draw (the move spec's second stream); until it does, the transcript skips it.
+    // The progress row is one row: each step replaces the last. How the move ended clears it only when
+    // it is the same move, and lands in the transcript as its moved line or failed notice.
     case "moving": return { ...t, move: { moveId: e.payload.moveId, step: e.payload.step } };
-    case "moved": case "move_failed": return t.move?.moveId === e.payload.moveId ? { ...t, move: null } : t;
+    case "moved":
+      return { ...t, move: t.move?.moveId === e.payload.moveId ? null : t.move, blocks: [...dropPending(blocks),
+        { kind: "moved", from: e.payload.from, to: e.payload.to, conversation: e.payload.conversation, ts: e.ts }] };
+    case "move_failed":
+      return { ...t, move: t.move?.moveId === e.payload.moveId ? null : t.move, blocks: [...blocks, { kind: "move_failed", step: e.payload.step, reason: e.payload.reason, from: e.payload.from, note: e.payload.note, ts: e.ts }] };
     // The four numbers are replaced wholesale; the context measurement is CARRIED when the new event
     // does not state one. Not staleness — occupancy does not reset between turns, so the last
     // measurement is still the last true thing known about this window, and the adapter restates the

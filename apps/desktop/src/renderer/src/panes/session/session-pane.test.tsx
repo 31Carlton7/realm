@@ -2569,17 +2569,30 @@ describe("under-strip (Plan 12 W1)", () => {
     await waitFor(() => expect(api.calls).toContain("moveSessionToSpace:se1=s4"));
   });
 
-  it("after the first event the selector is display-only — a label, not a button (named mutant)", async () => {
-    await mountStrip({ lastEventSeq: 3 });
-    expect(screen.queryByRole("button", { name: "Workspace" })).toBeNull();
-    const strip = document.querySelector(".composer-understrip")!;
-    expect(strip).toHaveTextContent("Versed"); // still names where the session ran
-    expect(within(strip as HTMLElement).getByTitle(/can only change before its first message/)).toHaveAttribute("data-static");
+  it("after the first event a pick asks to MOVE the session rather than switching it (named mutant)", async () => {
+    // THE MUTANT: a started session's pick still calls setSessionEnvironment, which the server refuses.
+    const { api, store } = await mountStrip({ lastEventSeq: 3 });
+    fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
+    fireEvent.click(within(screen.getByRole("menu", { name: "Workspace" })).getByRole("menuitemcheckbox", { name: "realm/fix-tests" }));
+    expect(store.getState().sheet).toEqual({ kind: "move-session", sessionId: "se1", to: { kind: "environment", environmentId: "envB" } });
+    expect(api.calls.some((c) => c.startsWith("setSessionEnvironment"))).toBe(false);
   });
 
-  it("events known only to the transcript lock it too — the row's seq is not the only witness", async () => {
-    await mountStrip({ lastSeq: 2 });
-    expect(screen.queryByRole("button", { name: "Workspace" })).toBeNull();
+  it("events known only to the transcript count as started too — the row's seq is not the only witness", async () => {
+    const { api, store } = await mountStrip({ lastSeq: 2 });
+    fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
+    fireEvent.click(within(screen.getByRole("menu", { name: "Workspace" })).getByRole("menuitemcheckbox", { name: "realm/fix-tests" }));
+    expect(store.getState().sheet?.kind).toBe("move-session");
+    expect(api.calls.some((c) => c.startsWith("setSessionEnvironment"))).toBe(false);
+  });
+
+  it("a started session with nowhere to move to keeps a label", async () => {
+    const { api } = await mountStrip({ lastEventSeq: 3, plainFolder: true, onlyPrimary: true });
+    await waitFor(() => expect(api.calls).toContain("gitInfo:/tmp"));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Workspace" })).toBeNull());
+    const strip = document.querySelector(".composer-understrip")!;
+    expect(strip).toHaveTextContent("Versed"); // still names where the session runs
+    expect(within(strip as HTMLElement).getByTitle(/can only change before its first message/)).toHaveAttribute("data-static");
   });
 
   it("the strip lives INSIDE the dock, so the hero→docked transform moves it with the card", async () => {

@@ -1,6 +1,6 @@
 import { Icon, type IconName } from "@realm/ui";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
-import { AGENT_SKILL_SUPPORT, MAC_SKILL_ID, PLAN_PERMISSION_MODE, basenameOf, defaultAccountId, hasAccounts, offeredModes, sessionModeOf, type Item, type LinkChip, type MentionRef, type UnlabelledRef, type SessionMode, type Skill, runnableCommands, type UserCommand, type TurnChanges } from "@realm/contracts";
+import { AGENT_META, AGENT_SKILL_SUPPORT, MAC_SKILL_ID, PLAN_PERMISSION_MODE, basenameOf, defaultAccountId, hasAccounts, offeredModes, sessionModeOf, type Item, type LinkChip, type MentionRef, type UnlabelledRef, type SessionMode, type Skill, runnableCommands, type UserCommand, type TurnChanges } from "@realm/contracts";
 
 /** A stable empty list for the commands selector. A fresh `[]` in the selector is a new reference on
  *  every render, which is how a zustand subscription turns into a render loop. */
@@ -228,6 +228,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const entry = useApp((s) => s.transcripts[id]);
   const spaces = useApp((s) => s.spaces);
   const moveSessionToSpace = useApp((s) => s.moveSessionToSpace);
+  const cancelSessionMove = useApp((s) => s.cancelSessionMove);
+  const pendingMoveTo = useApp((s) => s.pendingMoves[id]?.to ?? null);
   const openSession = useApp((s) => s.openSession);
   const sendMessage = useApp((s) => s.sendMessage);
   const interruptSession = useApp((s) => s.interruptSession);
@@ -713,7 +715,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
         onDecide={(requestId, d, answers) => run(() => respondPermission(id, requestId, d, answers))}
         onRetry={() => { setSends((n) => n + 1); run(() => retryLastTurn(id)); }}
         onContinueOn={(accountId) => { setSends((n) => n + 1); run(async () => { await setSessionAccount(id, accountId); await retryLastTurn(id); }); }}
-        onRate={(messageId, rating) => run(() => rateMessage(id, messageId, rating))} />
+        onRate={(messageId, rating) => run(() => rateMessage(id, messageId, rating))}
+        agentLabel={AGENT_META[session.agentKind].label}
+        onCancelMove={peek ? undefined : () => run(() => cancelSessionMove(id))} />
       {peek
         ? <PeekBar spaceName={space?.name ?? "another space"} elsewhere={session.spaceId !== activeSpaceId} onOpen={() => run(() => openPeek())} />
         : blocked && isBlocked(availability)
@@ -780,6 +784,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             machineName={machineName} userName={userName} environments={spaceEnvironments}
             onSelectEnvironment={(envId) => run(() => setSessionEnvironment(id, envId))}
             onNewWorktree={plainFolder ? undefined : () => run(() => moveSessionToNewWorktree(id))}
+            onMoveSession={teammate ? undefined : (to) => openSheet({ kind: "move-session", sessionId: id, to })}
+            pendingMove={pendingMoveTo === null ? null : { to: pendingMoveTo, onCancel: () => run(() => cancelSessionMove(id)) }}
             otherSpaces={otherSpaces} onMoveToSpace={(spaceId) => run(() => moveSessionToSpace(id, spaceId))}
             connectors={connectors} onConnectorsOpened={() => run(() => refreshConnectors(session.spaceId))}
             onAddFolder={() => run(() => attachFoldersFromPicker(id))}
