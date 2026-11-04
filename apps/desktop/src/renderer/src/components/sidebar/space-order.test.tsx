@@ -1,25 +1,25 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { Sidebar } from "./Sidebar";
+import { Rail } from "./Rail";
 import { StoreContext, createAppStore, spaceActivity, spaceBadge } from "../../state/store";
 import { fakeApi, session, space } from "../../state/store.test-fakes";
 
 /**
- * Which spaces the list shows, in what order, and what keeps the order honest — what the space strip
- * used to be tested for, now that the spaces are sections of the sidebar's list (Plan 27).
+ * Which spaces the rail shows, in what order, and what keeps the order honest — what the space strip
+ * used to be tested for, now that the spaces are the rail's tiles (direction A).
  */
 
 async function mount(api = fakeApi()) {
   const store = createAppStore(api);
   await store.getState().boot();
-  const r = render(<StoreContext.Provider value={store}><Sidebar /></StoreContext.Provider>);
+  const r = render(<StoreContext.Provider value={store}><Rail /></StoreContext.Provider>);
   return { store, api, ...r };
 }
 
 afterEach(() => cleanup());
 
-const order = (container: HTMLElement) => [...container.querySelectorAll(".sb-section")].map((s) => s.getAttribute("aria-label"));
-const headOf = (name: string) => screen.getByRole("region", { name }).querySelector<HTMLElement>(".sb-section-head")!;
+const order = (container: HTMLElement) => [...container.querySelectorAll(".rail-space")].map((s) => s.getAttribute("aria-label"));
+const headOf = (name: string) => within(screen.getByRole("group", { name: "Spaces" })).getByRole("button", { name: new RegExp(`^${name}`) });
 
 describe("spaceBadge priority (U-H3)", () => {
   const space = { a: "s1", b: "s1", c: "s1", other: "s2" };
@@ -98,28 +98,28 @@ describe("what keeps sessionActivityAt current", () => {
   });
 });
 
-describe("a section's state, live from every space (U-H3)", () => {
-  it("a status broadcast for a session in a space not on screen shows on that space's head", async () => {
+describe("a tile's count, live from every space (U-H3)", () => {
+  it("a status broadcast for a session in a space not on screen shows on that space's tile", async () => {
+    // Only what waits on you is counted: working is said on the session's own row, not the tile.
     const { store } = await mount(fakeApi({ sessions: [session("se2", "s2", { status: "idle" })] }));
     expect(store.getState().activeSpaceId).toBe("s1");
     await waitFor(() => expect(store.getState().sessionSpace.se2).toBe("s2"));
-    const homework = () => within(headOf("Homework")).getByRole("button", { name: /^Homework/ });
-    expect(homework()).toHaveAccessibleName("Homework");
+    expect(headOf("Homework")).toHaveAccessibleName("Homework");
     act(() => store.getState().applySessionStatus("se2", "running"));
-    expect(homework()).toHaveAccessibleName("Homework — 1 running");
+    expect(headOf("Homework")).toHaveAccessibleName("Homework");
     act(() => store.getState().applySessionStatus("se2", "waiting_permission"));
-    expect(homework()).toHaveAccessibleName("Homework — 1 waiting on you");
-    expect(homework().querySelector(".item-trail .status-dot")).toHaveAttribute("data-status", "waiting_permission");
-    expect(within(headOf("Versed")).getByRole("button", { name: /^Versed/ })).toHaveAccessibleName("Versed");
+    expect(headOf("Homework")).toHaveAccessibleName("Homework, 1 needs you");
+    expect(headOf("Homework").querySelector(".sb-badge")).toHaveTextContent("1");
+    expect(headOf("Versed")).toHaveAccessibleName("Versed");
   });
 
   it("a broadcast for a session made after boot triggers a refetch that learns its space", async () => {
     const api = fakeApi();
     const { store } = await mount(api);
-    api.data.sessions.push(session("seNew", "s2", { status: "running" }));
-    act(() => store.getState().applySessionStatus("seNew", "running"));
+    api.data.sessions.push(session("seNew", "s2", { status: "waiting_permission" }));
+    act(() => store.getState().applySessionStatus("seNew", "waiting_permission"));
     await waitFor(() => expect(store.getState().sessionSpace.seNew).toBe("s2"));
-    expect(within(headOf("Homework")).getByRole("button", { name: /^Homework/ })).toHaveAccessibleName("Homework — 1 running");
+    await waitFor(() => expect(headOf("Homework")).toHaveAccessibleName("Homework, 1 needs you"));
   });
 });
 
@@ -143,7 +143,7 @@ describe("sorted by activity", () => {
   /* `draggable` is browser-enforced — jsdom fires drag events regardless — so the attribute itself is
      the honest thing to assert. A drop into a spot the next status change would re-sort away from is a
      drop that looks like it did nothing. */
-  it("turns off dragging the heads while the setting is on, and gives it back when it's off", async () => {
+  it("turns off dragging the tiles while the setting is on, and gives it back when it's off", async () => {
     const { store } = await mount(twoSpaces());
     expect(headOf("Homework")).toHaveAttribute("draggable", "true");
     await act(async () => { await store.getState().setSidebarActivityOrder(true); });
@@ -170,13 +170,13 @@ describe("the profile's spaces, and only its", () => {
     const { store } = await mount(twoProfiles());
     await act(async () => { await store.getState().selectSpace("s2"); });
     await act(async () => { await store.getState().selectSpace("s3"); });
-    fireEvent.click(within(document.querySelector<HTMLElement>(".sb-title")!).getByRole("button", { name: "Profile: School" }));
+    fireEvent.click(document.querySelector<HTMLElement>(".rail-foot [aria-haspopup=menu]")!);
     fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: /Work/ }));
     // Where it left off (s2), not the profile's first space — the named mutant is falling back to spaces[0].
     await waitFor(() => expect(store.getState().activeSpaceId).toBe("s2"));
   });
 
-  it("a head dragged onto another reorders WITHIN the profile and leaves every other profile's order alone", async () => {
+  it("a tile dragged onto another reorders WITHIN the profile and leaves every other profile's order alone", async () => {
     const api = twoProfiles();
     const { store } = await mount(api);
     const dt = { effectAllowed: "", types: ["application/x-realm-space"], setData: () => {}, getData: () => "s1" };
@@ -190,7 +190,7 @@ describe("the profile's spaces, and only its", () => {
     expect(api.calls.filter((c) => c.startsWith("reorderSpaces:")).at(-1)).toBe("reorderSpaces:s2,s1,s3");
   });
 
-  it("ignores a drag that is not a space's — a session row dropped on a head moves nothing", async () => {
+  it("ignores a drag that is not a space's — a session row dropped on a tile moves nothing", async () => {
     const api = twoProfiles();
     await mount(api);
     const dt = { effectAllowed: "", types: ["application/x-realm-item"], setData: () => {}, getData: () => "i1" };

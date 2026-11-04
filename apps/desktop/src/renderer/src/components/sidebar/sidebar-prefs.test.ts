@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createAppStore } from "../../state/store";
 import { fakeApi, space } from "../../state/store.test-fakes";
 
-/** The sidebar's two remembered choices (Plan 27's store block): the lens, and the folded sections. */
+/** The sidebar's remembered choices (Plan 27's store block): the lens, and the folded lists. */
 async function booted(settings: Record<string, unknown> = {}) {
   const api = fakeApi({ settings, spaces: [space("s1", "p1", "Versed"), space("s2", "p1", "Homework")] });
   const store = createAppStore(api);
@@ -13,32 +13,20 @@ async function booted(settings: Record<string, unknown> = {}) {
 describe("the sidebar's remembered choices", () => {
 
   it("reads anything else a settings file holds as the resting state", async () => {
-    for (const [lens, folded] of [["sideways", "s2"], [7, [3, "s1"]], [null, null]] as const) {
-      const { store } = await booted({ "ui.sidebarLens": lens, "ui.sidebarCollapsedSpaces": folded });
+    for (const lens of ["sideways", 7, null] as const) {
+      const { store } = await booted({ "ui.sidebarLens": lens });
       await store.getState().hydrateSidebarPrefs();
       expect(store.getState().sidebarLens, `lens ${JSON.stringify(lens)}`).toBe("spaces");
-      expect(store.getState().sidebarCollapsedSpaces, `folded ${JSON.stringify(folded)}`).toEqual(Array.isArray(folded) ? ["s1"] : []);
     }
   });
 
   it("lets a choice made while the settings are read win over what they said", async () => {
-    const { store } = await booted({ "ui.sidebarLens": "spaces", "ui.sidebarCollapsedSpaces": [] });
-    // The read is in flight when the person picks: the picks land before it answers.
+    const { store } = await booted({ "ui.sidebarLens": "spaces" });
+    // The read is in flight when the person picks: the pick lands before it answers.
     const reading = store.getState().hydrateSidebarPrefs();
     await store.getState().setSidebarLens("recent");
-    await store.getState().setSpaceSectionCollapsed("s1", true);
     await reading;
     expect(store.getState().sidebarLens).toBe("recent");
-    expect(store.getState().sidebarCollapsedSpaces).toEqual(["s1"]);
-  });
-
-  it("remembers a folded section, and forgets it when it is opened again", async () => {
-    const { api, store } = await booted();
-    await store.getState().setSpaceSectionCollapsed("s2", true);
-    expect(store.getState().sidebarCollapsedSpaces).toEqual(["s2"]);
-    expect(api.data.settings["ui.sidebarCollapsedSpaces"]).toEqual(["s2"]);
-    await store.getState().setSpaceSectionCollapsed("s2", false);
-    expect(store.getState().sidebarCollapsedSpaces).toEqual([]);
   });
 
   it("remembers a folded Team or Sessions list per space, and reads junk as all open", async () => {
@@ -49,12 +37,5 @@ describe("the sidebar's remembered choices", () => {
     expect(api.data.settings["ui.sidebarFoldedLists"]).toEqual(["s1/team", "s2/sessions"]);
     await store.getState().setSpaceListFolded("s1", "team", false);
     expect(store.getState().sidebarFoldedLists).toEqual(["s2/sessions"]);
-  });
-
-  it("drops a deleted space's id on the way past", async () => {
-    const { store } = await booted({ "ui.sidebarCollapsedSpaces": ["gone"] });
-    await store.getState().hydrateSidebarPrefs();
-    await store.getState().setSpaceSectionCollapsed("s1", true);
-    expect(store.getState().sidebarCollapsedSpaces).toEqual(["s1"]);
   });
 });

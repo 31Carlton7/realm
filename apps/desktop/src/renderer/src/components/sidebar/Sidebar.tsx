@@ -5,22 +5,22 @@ import { usePageNavHost } from "../page-nav";
 import { useDissolve } from "../ScrollFades";
 import { NeedsYou } from "./NeedsYou";
 import { PinnedList } from "./PinnedList";
-import { ProfileSwitcher } from "./ProfileSwitcher";
 import { RecentList } from "./RecentList";
 import { SidebarHeader } from "./SidebarHeader";
 import { SidebarLens } from "./SidebarLens";
 import { SidebarResizer } from "./SidebarResizer";
 import { SpaceSections } from "./SpaceSections";
+import { SpaceTitle } from "./SpaceTitle";
 import { pinnedItems } from "./model";
 import { useAllItemsFresh, useOpenAnywhere, useProfileRows, useSidebarState } from "./use-sidebar-model";
 
 /**
  * The sidebar (Plan 27): get me to my work, and tell me what needs me.
  *
- * Six things, in this order, and nothing the window already shows: its toggle, search and a new
- * session in the head row; the profile under it; what waits on you; the profile's pinned items; its
- * spaces as sections of one list, or the same sessions by time; and New space at the foot. The app's
- * destinations are the rail's. It lists SESSIONS — a terminal, a browser or a diff is something a
+ * One space at a time (direction A, the owner 11-03), and nothing the window already shows: its
+ * toggle, search and a new session in the head row; the space's name under it; what waits on you,
+ * from every space and profile; the profile's pinned items; the space's team and sessions, or every
+ * session by time. The app's destinations, the spaces and the profile are the rail's. It lists SESSIONS — a terminal, a browser or a diff is something a
  * session opens, and lives in that session's side pane, not here.
  *
  * One scroller holds the list, so a long one lengthens the column rather than pushing anything
@@ -52,22 +52,17 @@ export function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
         <SidebarHeader />
         {page !== null && pageNav && <PageNavColumn label={page.label} back={page.back} title={page.title} setSlot={pageNav.setSlot} />}
         <div className="sb-list" hidden={page !== null || undefined}>
-          {/* The profile is what the column lists, so it heads the column — outside the scroller, where
-              it holds still while the spaces move under it. */}
-          <div className="sb-title"><ProfileSwitcher /></div>
+          {/* The space is what the column lists, so it heads the column — outside the scroller, where
+              it holds still while the list moves under it. */}
+          <div className="sb-title"><SpaceTitle /></div>
           <div className="space-body" ref={scroller}>
             <NeedsYou />
             <Pinned onChanged={refresh} />
             <SidebarLens />
             {lens === "recent"
               ? <RecentList rows={rows} onChanged={refresh} />
-              : <SpaceSections state={state} rows={rows} onChanged={refresh} />}
+              : <SpaceSections rows={rows} onChanged={refresh} />}
           </div>
-          {/* Pinned at the column's foot rather than at the list's end, where a long list carried it out
-              of sight (the owner, 10-04: "the button disappears when the list is too long"). The list
-              dissolves into it while rows run on below. In both readings: a space is the one thing
-              either list cannot make for you. */}
-          <div className="sb-foot"><NewSpaceRow /></div>
         </div>
       </div>
       {/* Inside the column rather than between it and the panes, so that `inert` above reaches it:
@@ -130,15 +125,5 @@ function Pinned({ onChanged }: { onChanged: () => void }) {
       <div className="group-label">Pinned</div>
       <PinnedList items={items} state={state} spaceName={spaceName} onOpen={open} onChanged={onChanged} />
     </section>
-  );
-}
-
-/** New space, at the foot of the column. */
-function NewSpaceRow() {
-  const openSheet = useApp((s) => s.openSheet);
-  return (
-    <button type="button" className="item-row sb-new-space" onClick={() => openSheet({ kind: "new-space" })}>
-      <Icon name="add" size={16} /><span>New space</span>
-    </button>
   );
 }

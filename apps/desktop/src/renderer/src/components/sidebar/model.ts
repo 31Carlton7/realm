@@ -220,27 +220,6 @@ export function tallyOf(rows: readonly SessionRow[]): Tally {
   return t;
 }
 
-/**
- * A space's tally, for its section's head.
- *
- * The states come from EVERY session working in the space — a sub-agent running or waiting is
- * something happening there, even though it is listed under its lead — and the read mark from the
- * space's own rows, which are the ones a person reads.
- */
-export function spaceTally(s: SidebarState, spaceId: string, rows: readonly SessionRow[]): Tally {
-  const t: Tally = { waiting: 0, running: 0, failed: 0, unread: 0 };
-  for (const [id, st] of Object.entries(s.sessionStatus)) {
-    if (id === s.quickChatId || s.sessionSpace[id] !== spaceId) continue;
-    if (st === "waiting_permission") t.waiting++;
-    else if (st === "running") t.running++;
-    else if (st === "error") t.failed++;
-  }
-  for (const r of rows) {
-    if (r.spaceId === spaceId && r.status !== "waiting_permission" && r.status !== "running" && r.status !== "error" && r.unread) t.unread++;
-  }
-  return t;
-}
-
 /** A fan-out's sibling: a session the user dispatched with no agent behind it. */
 const fanOutCandidate = (r: SessionRow): boolean =>
   r.session?.dispatchedBy?.kind === "user-dispatch" && r.session.dispatchedBy.sessionId === null;
