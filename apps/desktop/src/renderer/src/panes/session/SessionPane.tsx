@@ -35,6 +35,7 @@ import { useSpaceTint } from "../../components/sidebar/use-sidebar-model";
 import type { SlashCommand } from "./slash-commands";
 import { sessionAsker } from "./PendingRequest";
 import { MediaSessionContext } from "../../components/viewer/open";
+import { capabilities } from "../../platform";
 
 /** Stable empty array: a fresh `[]` from the selector on every render makes useSyncExternalStore
  *  re-render (and warn) forever. */
@@ -241,6 +242,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const openSession = useApp((s) => s.openSession);
   const sendMessage = useApp((s) => s.sendMessage);
   const interruptSession = useApp((s) => s.interruptSession);
+  const openVoice = useApp((s) => s.openVoice);
   const queued = useApp((s) => s.sessionQueues[id]);
   const midTurnMode = useApp((s) => s.midTurnMode);
   // This session's own agent's row. A warning about the Claude account means nothing in a Cursor
@@ -771,6 +773,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             }}
             onSend={(text) => { setSends((n) => n + 1); run(() => sendMessage(id, text)); }}
             onStop={() => run(() => interruptSession(id))}
+            voice={capabilities().voice && window.realm?.voice ? { name: teammate?.name ?? AGENT_META[session.agentKind].label, onOpen: (held) => openVoice(id, held) } : undefined}
             onOptions={(o) => run(() => setSessionOptions(id, o))}
             onPickModel={(kind, modelId) => run(async () => {
               // Order matters and both halves are one user action: setAgent clears `model` (a

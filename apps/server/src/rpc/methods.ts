@@ -1241,7 +1241,7 @@ export function registerMethods(d: Deps): void {
     const woken = p.mentionRefs?.some((r) => r.kind === "role") ? await d.team.passMentioned(p.id, p.text, p.mentionRefs) : p.mentionRefs;
     // And a sub-agent named in it is passed the message too, its chip told whether it was.
     const mentionRefs = woken?.some((r) => r.kind === "agent") && d.teammates ? await d.teammates.passMentioned(p.id, p.text, woken) : woken;
-    await d.sessions.send(p.id, { text: p.text, attachments: p.attachments, mentions: p.mentions, elements: p.elements, sessionRefs: p.sessionRefs, mentionRefs, byPerson: true, ...(p.tabs?.length ? { tabRefs: p.tabs } : {}) }, p.delivery);
+    await d.sessions.send(p.id, { text: p.text, attachments: p.attachments, mentions: p.mentions, elements: p.elements, sessionRefs: p.sessionRefs, mentionRefs, byPerson: true, ...(p.tabs?.length ? { tabRefs: p.tabs } : {}), ...(p.spoken ? { spoken: true as const } : {}) }, p.delivery);
     return { ok: true as const };
   });
   reg("sessions.dequeue", async (p) => { d.sessions.dequeue(p.id, p.queuedId); return { ok: true as const }; });

@@ -39,6 +39,9 @@ const P = {
      *  the log draws each card and opens its pane on a click. What the agent was handed of them rides
      *  on the wire alone. Optional, so every row written before tabs existed still parses. */
     tabs: z.array(TabCardSchema).max(MAX_TAB_REFS).optional(),
+    /** Said aloud in voice mode and transcribed on this Mac. The text is the transcription, which is
+     *  what the agent was handed; the mark is what tells a reader a misheard word was not a typo. */
+    spoken: z.literal(true).optional(),
   }),
   assistant_text: z.object({ messageId: z.string(), text: z.string() }),
   /** `at` is where the delta starts in the text streamed so far for its message, stamped by the server

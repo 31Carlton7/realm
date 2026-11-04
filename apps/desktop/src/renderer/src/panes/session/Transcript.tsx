@@ -739,6 +739,8 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
                     its bubble stays theirs; it is the clock that sent it, and the line above says so.
                     The note Realm added for the agent is under the pointer, not in the bubble. */}
                 {b.scheduled && <span className="msg-user-from" title={b.scheduled.note}>{scheduledLine(b.scheduled, b.ts)}</span>}
+                {/* Said aloud, so the words are what this Mac heard: a misheard one is not a typo. */}
+                {b.spoken && <span className="msg-user-from msg-spoken" title="Said in voice mode and transcribed on this Mac."><Icon name="mic" size={12} />Spoken</span>}
                 {b.attachments && <UserAttachments attachments={b.attachments} />}
                 {b.tabs && <UserTabs tabs={b.tabs} />}
                 {/* An attachment-only message has no text at all, and an empty bubble would read as a

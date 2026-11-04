@@ -220,6 +220,21 @@ contextBridge.exposeInMainWorld("realm", {
     ipcRenderer.on("realm:scroll-phase", handler);
     return () => ipcRenderer.removeListener("realm:scroll-phase", handler);
   },
+  /** Voice mode (main/voice-helper.ts). `microphone` may raise macOS's prompt, and is only called from
+   *  the press that opens voice mode; `start` answers once the helper is ready, or why it cannot be. */
+  voice: {
+    microphone: (): Promise<string> => ipcRenderer.invoke("voice:microphone"),
+    start: (): Promise<unknown> => ipcRenderer.invoke("voice:start"),
+    command: (command: Record<string, unknown>): void => ipcRenderer.send("voice:command", command),
+    audio: (pcm: Uint8Array): void => ipcRenderer.send("voice:audio", pcm),
+    stop: (): void => ipcRenderer.send("voice:stop"),
+    voices: (): Promise<unknown> => ipcRenderer.invoke("voice:voices"),
+    onEvent: (cb: (event: unknown) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, event: unknown) => cb(event);
+      ipcRenderer.on("realm:voice", handler);
+      return () => ipcRenderer.removeListener("realm:voice", handler);
+    },
+  },
   /** Settings page's macOS Permissions tab (Plan 12 W6). `probe` never triggers a TCC prompt —
    *  tcc.ts's governing rule; `openSettings` takes a ROW id (validated in main against a closed
    *  table), never a URL. */
