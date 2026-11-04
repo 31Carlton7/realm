@@ -94,12 +94,12 @@ struct WorkActivityTests {
     }
 
     @Test func aTapOpensItsSession() throws {
-        let url = try #require(SessionLink.url("01JSESSION00000000000000000"))
+        let url = try #require(SessionURL.url("01JSESSION00000000000000000"))
         #expect(url.absoluteString == "realm-mobile://session/01JSESSION00000000000000000")
-        #expect(SessionLink.sessionId(in: url) == "01JSESSION00000000000000000")
-        #expect(SessionLink.sessionId(in: URL(string: "realm-mobile://share")!) == nil)
-        #expect(SessionLink.sessionId(in: URL(string: "realm-mobile://session/")!) == nil)
-        #expect(SessionLink.sessionId(in: URL(string: "https://realm.computer/session/x")!) == nil)
+        #expect(SessionURL.sessionId(in: url) == "01JSESSION00000000000000000")
+        #expect(SessionURL.sessionId(in: URL(string: "realm-mobile://share")!) == nil)
+        #expect(SessionURL.sessionId(in: URL(string: "realm-mobile://session/")!) == nil)
+        #expect(SessionURL.sessionId(in: URL(string: "https://realm.computer/session/x")!) == nil)
     }
 
     @Test func theClockReadsAsTheDocksDoes() {

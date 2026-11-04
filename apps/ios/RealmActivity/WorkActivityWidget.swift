@@ -19,7 +19,7 @@ struct WorkActivityWidget: Widget {
             LockScreenActivity(subject: context.attributes, state: context.state)
                 .activityBackgroundTint(Palette.surface)
                 .activitySystemActionForegroundColor(Palette.ink)
-                .widgetURL(SessionLink.url(context.attributes.sessionId))
+                .widgetURL(SessionURL.url(context.attributes.sessionId))
         } dynamicIsland: { context in
             let subject = context.attributes, state = context.state
             return DynamicIsland {
@@ -71,7 +71,7 @@ struct WorkActivityWidget: Widget {
                 }
                 .island()
             }
-            .widgetURL(SessionLink.url(subject.sessionId))
+            .widgetURL(SessionURL.url(subject.sessionId))
         }
     }
 }

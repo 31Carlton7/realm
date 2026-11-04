@@ -122,7 +122,7 @@ public enum WorkActivityRules {
 }
 
 /// `realm-mobile://session/<id>`: what a tap on a session's Live Activity opens.
-public enum SessionLink {
+public enum SessionURL {
     public static func url(_ sessionId: String) -> URL? {
         var parts = URLComponents()
         parts.scheme = "realm-mobile"

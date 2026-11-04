@@ -15,7 +15,7 @@ final class WorkActivities {
     static let enabledKey = "liveActivities"
     /// How long an update stands before the Lock Screen draws it as out of date: past this the app has
     /// likely been suspended, and the turn may have moved on without it.
-    static let freshFor: TimeInterval = 15 * 60
+    nonisolated static let freshFor: TimeInterval = 15 * 60
 
     private struct Live {
         let activity: Activity<WorkActivityAttributes>
@@ -34,9 +34,11 @@ final class WorkActivities {
 
     /// Activities a previous run of the app left: nothing follows them now, so they go.
     func endLeftovers() async {
-        for activity in Activity<WorkActivityAttributes>.activities where live[activity.attributes.sessionId] == nil {
-            await activity.end(nil, dismissalPolicy: .immediate)
-        }
+        let followed = Set(live.values.map(\.activity.id))
+        let ids = Activity<WorkActivityAttributes>.activities.map(\.id).filter { !followed.contains($0) }
+        await Task.detached {
+            for id in ids { await Self.activity(id)?.end(nil, dismissalPolicy: .immediate) }
+        }.value
     }
 
     func start(_ trigger: WorkActivityRules.Trigger, _ subject: WorkActivityAttributes, content: WorkActivityContent,
@@ -64,10 +66,10 @@ final class WorkActivities {
         guard let content else { return }
         if WorkActivityRules.ends(content, turnSeen: entry.turnSeen) {
             live[sessionId] = nil
-            let activity = entry.activity
-            Task {
-                await activity.end(ActivityContent(state: content, staleDate: nil),
-                                   dismissalPolicy: .after(Date().addingTimeInterval(WorkActivityContent.dismissal)))
+            let id = entry.activity.id
+            Task.detached {
+                await Self.activity(id)?.end(ActivityContent(state: content, staleDate: nil),
+                                             dismissalPolicy: .after(Date().addingTimeInterval(WorkActivityContent.dismissal)))
             }
             return
         }
@@ -75,29 +77,35 @@ final class WorkActivities {
         guard !content.isFinal, content != entry.content else { return }
         entry.content = content
         live[sessionId] = entry
-        let activity = entry.activity
-        Task { await activity.update(Self.fresh(content)) }
+        let id = entry.activity.id
+        Task.detached { await Self.activity(id)?.update(Self.fresh(content)) }
     }
 
     /// The channel is going while activities are live: each says so at once, rather than standing as
     /// though the turn had stopped where it was.
     func markOutOfDate() {
         for entry in live.values {
-            let activity = entry.activity, content = entry.content
-            Task { await activity.update(ActivityContent(state: content, staleDate: Date())) }
+            let id = entry.activity.id, content = entry.content
+            Task.detached { await Self.activity(id)?.update(ActivityContent(state: content, staleDate: Date())) }
         }
     }
 
     /// Show on Lock Screen turned off, or the Mac forgotten: every activity goes at once.
     func endAll() {
-        let activities = live.values.map(\.activity)
+        let ids = live.values.map(\.activity.id)
         live = [:]
-        Task {
-            for activity in activities { await activity.end(nil, dismissalPolicy: .immediate) }
+        Task.detached {
+            for id in ids { await Self.activity(id)?.end(nil, dismissalPolicy: .immediate) }
         }
     }
 
-    private static func fresh(_ content: WorkActivityContent) -> ActivityContent<WorkActivityContent> {
+    /// ActivityKit's own handle on an activity, found by its id where it is used: the handle cannot be
+    /// handed from the main actor to the task that updates it.
+    private nonisolated static func activity(_ id: String) -> Activity<WorkActivityAttributes>? {
+        Activity<WorkActivityAttributes>.activities.first { $0.id == id }
+    }
+
+    private nonisolated static func fresh(_ content: WorkActivityContent) -> ActivityContent<WorkActivityContent> {
         ActivityContent(state: content, staleDate: Date().addingTimeInterval(freshFor))
     }
 }

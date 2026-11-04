@@ -287,7 +287,7 @@ final class AppModel {
             return
         }
         // `realm-mobile://session/<id>`: a tap on a session's Live Activity.
-        if let session = SessionLink.sessionId(in: url) {
+        if let session = SessionURL.sessionId(in: url) {
             show(session: session)
             return
         }
