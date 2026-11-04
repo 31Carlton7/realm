@@ -7469,7 +7469,6 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       closeViewer() { if (get().viewer) set({ viewer: null }); },
       openVoice(sessionId, held = false) {
         set({ voice: { sessionId, held }, viewer: null });
-        void get().run(() => get().loadVoicePrefs());
       },
       closeVoice() { if (get().voice) set({ voice: null }); },
       async loadVoicePrefs() { set({ voicePrefs: readVoicePrefs(await api.getSetting(VOICE_PREFS_KEY)) }); },

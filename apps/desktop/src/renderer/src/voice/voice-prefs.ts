@@ -2,6 +2,8 @@
 export type VoicePrefs = {
   /** The system voice to speak with, by identifier. Null speaks with the best one installed. */
   voice: string | null;
+  /** The microphone to listen with, by device id. Null listens with the system's default input. */
+  microphone: string | null;
   /** Speaking rate, as a multiple of the system's default. */
   rate: number;
   /** The pause after speech that sends the message. */
@@ -18,7 +20,7 @@ export const VOICE_PREFS_KEY = "ui.voice";
 export const RATE_RANGE = { min: 0.8, max: 1.5, step: 0.05 } as const;
 export const END_OF_TURN_RANGE = { min: 400, max: 2000, step: 100 } as const;
 
-export const DEFAULT_VOICE_PREFS: VoicePrefs = { voice: null, rate: 1, endOfTurnMs: 700, handsFree: true, speech: "system" };
+export const DEFAULT_VOICE_PREFS: VoicePrefs = { voice: null, microphone: null, rate: 1, endOfTurnMs: 700, handsFree: true, speech: "system" };
 
 const clamp = (v: unknown, r: { min: number; max: number }, fallback: number): number =>
   typeof v === "number" && Number.isFinite(v) ? Math.min(r.max, Math.max(r.min, v)) : fallback;
@@ -28,6 +30,7 @@ export function readVoicePrefs(stored: unknown): VoicePrefs {
   const v = stored && typeof stored === "object" ? (stored as Record<string, unknown>) : {};
   return {
     voice: typeof v["voice"] === "string" && v["voice"] ? v["voice"] : null,
+    microphone: typeof v["microphone"] === "string" && v["microphone"] ? v["microphone"] : null,
     rate: clamp(v["rate"], RATE_RANGE, DEFAULT_VOICE_PREFS.rate),
     endOfTurnMs: Math.round(clamp(v["endOfTurnMs"], END_OF_TURN_RANGE, DEFAULT_VOICE_PREFS.endOfTurnMs)),
     handsFree: typeof v["handsFree"] === "boolean" ? v["handsFree"] : DEFAULT_VOICE_PREFS.handsFree,

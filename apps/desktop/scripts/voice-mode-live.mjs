@@ -35,7 +35,7 @@ const CMD_PORT = Number(process.env.LIVE_CMD_PORT ?? 9453);
 const THEME = process.env.LIVE_THEME === "light" ? "light" : "dark";
 const MODEL = process.env.LIVE_MODEL ?? "claude-haiku-4-5";
 const shots = process.env.LIVE_SHOT_DIR ?? path.join(os.tmpdir(), "realm-voice-live");
-const SAY_VOICE = process.env.LIVE_SAY_VOICE ?? "Daniel";
+const SAY_VOICE = process.env.LIVE_SAY_VOICE ?? "Samantha";
 /** The Mac's own speakers and microphone, whatever the system's defaults are (headphones, often):
  *  the person's side has to cross the room to be heard. Matched by name, in `say` and in the page. */
 const SPEAKERS = process.env.LIVE_SPEAKERS ?? "MacBook Pro Speakers";
@@ -111,7 +111,7 @@ function ask(line) {
 /** The person, through the speakers. Resolves when they stop talking. */
 function say(text) {
   note("say", text);
-  return new Promise((resolve) => { const p = spawn("say", ["-v", SAY_VOICE, "-r", process.env.LIVE_SAY_RATE ?? "185", "-a", SPEAKERS, text]); p.on("close", resolve); });
+  return new Promise((resolve) => { const p = spawn("say", ["-v", SAY_VOICE, "-r", process.env.LIVE_SAY_RATE ?? "185", "-a", SPEAKERS, `[[volm ${process.env.LIVE_SAY_VOLUME ?? "0.35"}]] ${text}`]); p.on("close", resolve); });
 }
 
 let electron = null, recorder = null;
@@ -267,17 +267,16 @@ async function main() {
   await shot(c, "1-prompter-mic");
 
   // The page's audio goes to the Mac's own microphone and speakers rather than the system defaults,
-  // without touching the defaults: getUserMedia is given the device, and the audio context its sink.
+  // without touching the defaults: the microphone is chosen in voice mode's own setting, and the
+  // audio context is given the speakers as its sink.
   await evalIn(c, `(() => {
     const pick = async (kind, name) => (await navigator.mediaDevices.enumerateDevices()).find((d) => d.kind === kind && d.label.includes(name))?.deviceId;
+    // Which microphone the app opened, by its label: the proof that the setting chose it.
     const gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
     navigator.mediaDevices.getUserMedia = async (want) => {
-      const id = await pick("audioinput", ${JSON.stringify(MIC_LABEL)});
-      window.__liveMic = id ?? null;
-      // LIVE_MIC_PROCESSING overrides the page's own constraints (e.g. {"noiseSuppression":false}), to
-      // find which of Chromium's stages a recognition problem comes from.
-      const override = ${process.env.LIVE_MIC_PROCESSING ?? "{}"};
-      return gum(id && want?.audio ? { ...want, audio: { ...(typeof want.audio === "object" ? want.audio : {}), ...(want.audio?.echoCancellation ? override : {}), deviceId: { exact: id } } } : want);
+      const stream = await gum(want);
+      if (want?.audio?.echoCancellation) window.__liveMicLabel = stream.getAudioTracks()[0]?.label ?? null;
+      return stream;
     };
     // LIVE_TAP: keep what the page's microphone processor is handed, frame by frame, with the time
     // each frame arrived — what the recogniser was given, to listen to and to check for gaps.
@@ -304,6 +303,13 @@ async function main() {
     };
     return true;
   })()`);
+  window_mic: {
+    const id = await evalIn(c, `(async () => (await navigator.mediaDevices.enumerateDevices()).find((d) => d.kind === "audioinput" && d.label.includes(${JSON.stringify(MIC_LABEL)}))?.deviceId ?? null)()`);
+    if (!id) break window_mic;
+    const prefs = (await api.call("settings.get", { key: "ui.voice" })).value ?? {};
+    await api.call("settings.set", { key: "ui.voice", value: { ...prefs, microphone: id } });
+    await evalIn(c, `window.__liveMic = ${JSON.stringify(id)}, true`);
+  }
   const mic = (await evalIn(c, `window.realm.permissions.probe()`)).find((r) => r.id === "microphone");
   note("microphone grant before", mic?.state);
   if (mic?.state !== "granted") console.log("ACTION macOS is asking whether Electron may use the microphone: click Allow. (The script waits up to five minutes.)");
@@ -318,8 +324,8 @@ async function main() {
   const ready = await until(async () => { const v = await view(c); return v && v.phase !== "starting" ? v : null; }, 300_000, "voice mode to start");
   if (ready.phase === "unavailable") throw new Error(`voice mode did not start: ${ready.state}`);
   check("voice mode opens over the window, listening", ready.phase === "listening", ready);
-  const devices = await evalIn(c, `({ mic: window.__liveMic, sink: window.__liveSink })`);
-  check("the Mac's own microphone and speakers are in use", !!devices.mic && !!devices.sink, devices);
+  const devices = await evalIn(c, `({ mic: window.__liveMic, opened: window.__liveMicLabel, sink: window.__liveSink })`);
+  check("the Mac's own microphone and speakers are in use", !!devices.mic && devices.opened?.includes(MIC_LABEL) && !!devices.sink, devices);
   if (!SPEECH) { await uiOnly(c, api, voiceSession.id); api.close(); return; }
 
   // The room, recorded by the app (it holds the microphone grant): no echo cancellation, so what the

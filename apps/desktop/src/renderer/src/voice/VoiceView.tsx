@@ -84,13 +84,22 @@ function VoiceWindow({ sessionId, held }: { sessionId: string; held: boolean }) 
     // Read from the moment voice mode opens: a session not yet loaded is loaded now, and what it held
     // before is not read aloud.
     if (!store.getState().transcripts[sessionId]) void store.getState().run(() => store.getState().openSession(sessionId));
-    const io = new WebVoiceAudio();
-    audio.current = io;
-    const vs = new VoiceSession({ helper, audio: io, session: sessionPort(store, sessionId), agentName: name, prefs: () => store.getState().voicePrefs });
-    ctl.current = vs;
-    const off = vs.subscribe(() => setSnap(vs.state));
-    void vs.start().then(() => { if (stillHeld.current) vs.press(); });
-    return () => { off(); vs.stop(); ctl.current = null; audio.current = null; };
+    // The prefs are read before the microphone opens, since they say which microphone; unread, the
+    // ones already held do.
+    let gone = false;
+    let vs: VoiceSession | null = null;
+    let off = () => {};
+    void store.getState().loadVoicePrefs().catch(() => {}).then(() => {
+      if (gone) return;
+      const io = new WebVoiceAudio(store.getState().voicePrefs.microphone);
+      audio.current = io;
+      const talk = new VoiceSession({ helper, audio: io, session: sessionPort(store, sessionId), agentName: name, prefs: () => store.getState().voicePrefs });
+      vs = talk;
+      ctl.current = talk;
+      off = talk.subscribe(() => setSnap(talk.state));
+      void talk.start().then(() => { if (stillHeld.current) talk.press(); });
+    });
+    return () => { gone = true; off(); vs?.stop(); ctl.current = null; audio.current = null; };
     // The conversation is this session's for as long as the view is up: a teammate renamed under it
     // does not restart the microphone.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -161,7 +170,7 @@ function VoiceWindow({ sessionId, held }: { sessionId: string; held: boolean }) 
       <div className="voice-controls">
         <button type="button" className="voice-control" aria-pressed={snap.muted} aria-label="Mute" disabled={!vs || snap.phase === "unavailable"}
           title={snap.muted ? "Unmute (M)" : "Mute (M)"} onClick={() => vs?.setMuted(!snap.muted)}>
-          <Icon name={snap.muted ? "micOff" : "mic"} size={20} />
+          <Icon name="micOff" size={20} />
         </button>
         {canStop ? (
           <button type="button" className="voice-talk" aria-label="Stop" title="Stop (Esc)" onClick={() => void vs?.interrupt()}>
@@ -198,6 +207,7 @@ export function captionOf(s: VoiceSnapshot): { text: string; tone: "live" | "qui
  *  frame's): enough to move with each syllable without flickering. */
 const BAR_COUNT = 5;
 const FOLLOW = 0.35;
+const ROOM = 0.3;
 
 /**
  * The voice that is talking, as a few bars across the speech range — the person's in ink while Realm
@@ -220,7 +230,8 @@ function Bars({ audio, side, live }: { audio: { current: VoiceAudio | null }; si
         // The middle bars carry the voice's body; the outer ones its edges. Order the bands from the
         // centre out so the shape stays a voice's rather than a spectrum's slope.
         const band = [2, 1, 0, 3, 4][i]!;
-        const target = have ? Math.min(1, levels[band]! * 1.6) : 0;
+        // The analyser's quietest third is the room; a bar starts to rise above it.
+        const target = have ? Math.max(0, Math.min(1, (levels[band]! - ROOM) / (1 - ROOM))) : 0;
         shown[i] = shown[i]! + (target - shown[i]!) * FOLLOW;
         bars[i]?.style.setProperty("--level", shown[i]!.toFixed(3));
       }

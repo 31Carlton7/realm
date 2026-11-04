@@ -50,6 +50,8 @@ export function rms(input: Float32Array): number {
   return Math.sqrt(sum / Math.max(1, input.length));
 }
 
+/** The analyser's range, in dB: a voice at the microphone sits near the top without pinning it. */
+const BANDS_MIN_DB = -95, BANDS_MAX_DB = -15;
 /** Where a voice's energy is: from its fundamental to the top of its consonants. */
 const SPEECH_LOW_HZ = 90, SPEECH_HIGH_HZ = 4_000;
 
@@ -80,14 +82,23 @@ export class WebVoiceAudio implements VoiceAudio {
   private playing = new Set<AudioBufferSourceNode>();
   private until = 0;
 
+  constructor(private readonly microphone: string | null = null) {}
+
   async start(onFrame: (level: number, samples: Int16Array) => void): Promise<void> {
-    this.mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+    const audio: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 };
+    // A chosen microphone that is unplugged falls back to the default input rather than leaving
+    // voice mode deaf.
+    this.mic = await (this.microphone
+      ? navigator.mediaDevices.getUserMedia({ audio: { ...audio, deviceId: { exact: this.microphone } } }).catch(() => navigator.mediaDevices.getUserMedia({ audio }))
+      : navigator.mediaDevices.getUserMedia({ audio }));
     const ctx = new AudioContext({ latencyHint: "interactive" });
     this.ctx = ctx;
     const source = ctx.createMediaStreamSource(this.mic);
     this.mineAnalyser = ctx.createAnalyser();
     this.mineAnalyser.fftSize = 1024;
     this.mineAnalyser.smoothingTimeConstant = 0.6;
+    this.mineAnalyser.minDecibels = BANDS_MIN_DB;
+    this.mineAnalyser.maxDecibels = BANDS_MAX_DB;
     source.connect(this.mineAnalyser);
     // A ScriptProcessor rather than a worklet: a worklet's module has to be fetched, and the window's
     // page is a file the renderer's CSP and file:// both make awkward to fetch from. This one writes
@@ -103,6 +114,8 @@ export class WebVoiceAudio implements VoiceAudio {
     this.realmAnalyser = ctx.createAnalyser();
     this.realmAnalyser.fftSize = 1024;
     this.realmAnalyser.smoothingTimeConstant = 0.6;
+    this.realmAnalyser.minDecibels = BANDS_MIN_DB;
+    this.realmAnalyser.maxDecibels = BANDS_MAX_DB;
     this.gain.connect(this.realmAnalyser);
     this.realmAnalyser.connect(ctx.destination);
   }
