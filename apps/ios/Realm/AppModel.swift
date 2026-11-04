@@ -81,6 +81,14 @@ final class AppModel {
     var replacingPairLink: String?
     /// What is typed in each session's composer and not sent yet: leaving a session keeps it.
     var composerDrafts: [String: String] = [:]
+    /// What each `@label` picked into a session's composer names, until it is sent.
+    var draftRefs: [String: [MentionRef]] = [:]
+    /// The person's own commands and the skills each session's agent can be handed, as its Mac last said.
+    /// A session whose Mac is from before them is absent: its `/` lists the modes, and its `@` the
+    /// teammates, sent as words.
+    private(set) var composerLists: [String: ComposerLists] = [:]
+    /// The files in each session's folder that matched what was last typed after an `@`.
+    private(set) var mentionFiles: [String: [MentionFile]] = [:]
     /// The files in each session's composer, not sent yet: leaving a session keeps them, as it keeps
     /// the words.
     private(set) var draftAttachments: [String: [OutgoingAttachment]] = [:]
@@ -610,6 +618,7 @@ final class AppModel {
         }
         guard let api, isConnected else { return }
         Task { await work.loadSubagents(sessionId) }
+        Task { await loadComposer(sessionId) }
         Task {
             await loadOptions(sessionId)
             #if DEBUG
@@ -638,21 +647,37 @@ final class AppModel {
 
     /// A message, in line behind anything already waiting, with the files it takes and what it does if
     /// a turn is under way when it arrives. It shows as Sending… until the Mac has it.
-    func send(_ text: String, attachments: [OutgoingAttachment] = [], delivery: Delivery = .auto, to sessionId: String) {
+    func send(_ text: String, attachments: [OutgoingAttachment] = [], delivery: Delivery = .auto, mentionRefs: [MentionRef] = [],
+              to sessionId: String) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !attachments.isEmpty else { return }
-        store.enqueueMessage(text, attachments: attachments, delivery: delivery, in: sessionId)
+        store.enqueueMessage(text, attachments: attachments, delivery: delivery, mentionRefs: mentionRefs, in: sessionId)
         saveOutbox()
         Task { await deliver(sessionId) }
     }
 
     /// Sends what is in a session's composer, words and files, and empties it.
+    /// A draft that is a call to a command that takes words — `/goal ship the notes` — runs it instead.
     func sendDraft(_ sessionId: String, delivery: Delivery) {
         let text = composerDrafts[sessionId] ?? "", attachments = draftAttachments[sessionId] ?? []
+        if let call = ComposerCommand.call(in: text, commands: composerCommands(sessionId)) {
+            // `/goal ` on its own has nothing to run on; the composer keeps waiting.
+            guard !call.rest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            composerDrafts[sessionId] = nil
+            Task { await run(call.command, words: call.rest, in: sessionId) }
+            return
+        }
         guard ComposerAction.hasContent(text: text, attachments: attachments) else { return }
-        send(text, attachments: attachments, delivery: delivery, to: sessionId)
+        // A Mac from before `session.composer` would refuse the refs: it is sent the words as typed.
+        if composerLists[sessionId] != nil {
+            let named = Mentions.wire(text, refs: draftRefs[sessionId] ?? [])
+            send(named.text, attachments: attachments, delivery: delivery, mentionRefs: named.refs, to: sessionId)
+        } else {
+            send(text, attachments: attachments, delivery: delivery, to: sessionId)
+        }
         composerDrafts[sessionId] = nil
         draftAttachments[sessionId] = nil
+        draftRefs[sessionId] = nil
     }
 
     func answer(_ decision: Decision, to request: TranscriptRow.Request, in sessionId: String) {
@@ -728,6 +753,68 @@ final class AppModel {
             optionsUnanswered.insert(sessionId)
         } catch {
             // The chips keep what they last knew, and the sheet asks again when it opens.
+        }
+    }
+
+    /// The person's own commands and the skills an `@` can hand the session's agent.
+    func loadComposer(_ sessionId: String) async {
+        guard let api, isConnected else { return }
+        do {
+            composerLists[sessionId] = try await api.composer(id: sessionId)
+        } catch ChannelError.rpc(let error) where error.code == "METHOD_NOT_FOUND" {
+            composerLists[sessionId] = nil
+        } catch {
+            // The lists keep what they last held.
+        }
+    }
+
+    /// The files in the session's folder that match what is typed after an `@`. An answer to a query
+    /// typed over since is dropped.
+    func loadMentionFiles(_ sessionId: String, query: String) async {
+        guard composerLists[sessionId] != nil, let api, isConnected else { return }
+        guard let files = try? await api.mentionFiles(id: sessionId, query: query), !Task.isCancelled else { return }
+        mentionFiles[sessionId] = files
+    }
+
+    /// The session's `/` commands, in the desktop's order: its agent's modes, `/goal` where its Mac can
+    /// start one, `/attach` where it takes files, then the person's own.
+    func composerCommands(_ sessionId: String) -> [ComposerCommand] {
+        let options = sessionOptions[sessionId], lists = composerLists[sessionId]
+        return ComposerCommand.list(modes: options?.agent.modes ?? [], goal: lists != nil, attach: options != nil, user: lists?.commands ?? [])
+    }
+
+    /// Runs a picked or sent command on the words after it. `/attach` is the composer's own: it opens
+    /// a picker there.
+    func run(_ command: ComposerCommand, words: String, in sessionId: String) async {
+        switch command.action {
+        case .mode(let id):
+            guard let mode = SessionMode(rawValue: id) else { return }
+            await configure(SessionChanges(mode: mode), .mode, in: sessionId)
+        case .goal:
+            guard let api, isConnected else {
+                composerDrafts[sessionId] = "/goal \(words)"
+                show(toast: "Connect to your Mac to start a goal.")
+                return
+            }
+            do {
+                try await api.startGoal(id: sessionId, objective: words)
+            } catch {
+                composerDrafts[sessionId] = "/goal \(words)"
+                report(error)
+            }
+        case .user(let user):
+            guard let api, isConnected else {
+                show(toast: "Connect to your Mac to run /\(user.name).")
+                return
+            }
+            do {
+                // The words fill the composer, never a send: an unfilled `$2` is read before Send.
+                composerDrafts[sessionId] = try await api.expandCommand(id: sessionId, name: user.name, args: words).text
+            } catch {
+                report(error)
+            }
+        case .attach:
+            break
         }
     }
 

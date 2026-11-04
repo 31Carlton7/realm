@@ -99,6 +99,14 @@ struct ComposerView: View {
     @State private var previewing: URL?
     /// The field had the keyboard when a sheet or a picker opened over it: it takes it back after.
     @State private var refocus = false
+    /// Where the caret is, which says which `/` or `@` token the list is for.
+    @State private var selection: TextSelection?
+    /// The token whose list Escape closed: it stays closed until the caret leaves it.
+    @State private var dismissed: ComposerToken?
+    /// The row a hardware keyboard's arrows have reached.
+    @State private var active = 0
+    /// `/attach` asks where the files come from, as `+` does.
+    @State private var attachAsked = false
 
     var body: some View {
         let transcript = model.store.transcript(sessionId)
@@ -108,7 +116,12 @@ struct ComposerView: View {
         let attachments = model.draftAttachments[sessionId] ?? []
         let preparing = model.preparingAttachments[sessionId] ?? 0
         let options = model.sessionOptions[sessionId]
-        let presenting = settingsShown || moveShown || picking != nil || previewing != nil
+        let presenting = settingsShown || moveShown || picking != nil || previewing != nil || attachAsked
+        let open = suggestions(text, session: session)
+        // Asked whether or not anything else matches: a word that names only a file opens the list
+        // once the Mac's answer comes.
+        let fileQuery = model.composerLists[sessionId] == nil ? nil
+            : ComposerToken.mention(in: text, caret: Self.caret(in: text, selection))?.query
         let action = ComposerAction(working: status == .running || status == .waiting,
                                     hasContent: ComposerAction.hasContent(text: text, attachments: attachments),
                                     midTurn: options?.midTurn, canSteer: options != nil)
@@ -125,12 +138,32 @@ struct ComposerView: View {
                     .layoutValue(key: ComposerPart.self, value: .strip)
                     .transition(.opacity)
             }
-            TextField(placeholder(session), text: draft, axis: .vertical)
+            TextField(placeholder(session), text: draft, selection: $selection, axis: .vertical)
                 .tint(Palette.accent)
                 .font(.body)
                 .foregroundStyle(Palette.ink)
                 // Then it scrolls; at the accessibility sizes sooner, so the newest row stays in view.
                 .lineLimit(dynamicTypeSize.isAccessibilitySize ? 1...4 : 1...8)
+                .onKeyPress(.escape) {
+                    guard let open else { return .ignored }
+                    dismissed = open.token
+                    return .handled
+                }
+                .onKeyPress(.downArrow) {
+                    guard let open else { return .ignored }
+                    active = min(active + 1, open.list.count - 1)
+                    return .handled
+                }
+                .onKeyPress(.upArrow) {
+                    guard open != nil else { return .ignored }
+                    active = max(active - 1, 0)
+                    return .handled
+                }
+                .onKeyPress(keys: [.tab, .return]) { _ in
+                    guard let open else { return .ignored }
+                    pick(at: min(active, open.list.count - 1), in: open, text: text)
+                    return .handled
+                }
                 .focused(focused)
                 .padding(.vertical, ComposerLayout.fieldInset)
                 .accessibilityLabel("Message")
@@ -163,6 +196,33 @@ struct ComposerView: View {
         // A solid card with Manus's soft lift: the composer is a thing to write on, not chrome.
         .background(Fill.card, in: RoundedRectangle(cornerRadius: Radius.composer, style: .continuous))
         .floatingLift()
+        // Standing on the card's top edge, next to the keyboard. In the layout rather than over it, so
+        // its rows take taps where they are drawn.
+        .safeAreaInset(edge: .top, spacing: 8) {
+            if let open {
+                SuggestionPanel(suggestions: open.list, active: min(active, open.list.count - 1),
+                                pickCommand: { pick($0, token: open.token, text: text) },
+                                pickMention: { pick($0, token: open.token, text: text) })
+            }
+        }
+        .onChange(of: open?.token) { _, token in
+            active = 0
+            if token == nil { dismissed = nil }
+        }
+        .task(id: fileQuery) {
+            guard let fileQuery else { return }
+            // A pause in typing, so each letter is not a question to the Mac.
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled else { return }
+            await model.loadMentionFiles(sessionId, query: fileQuery)
+        }
+        .confirmationDialog("Add to this message", isPresented: $attachAsked, titleVisibility: .hidden) {
+            Button("Photo library") { picking = .photos }
+            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                Button("Take photo") { picking = .camera }
+            }
+            Button("Choose files") { picking = .files }
+        }
         // Under Reduce Motion the strip does not grow into place: it is there.
         .animation(reduceMotion ? nil : Motion.morph, value: attachments.count + preparing)
         .padding(.horizontal, 12)
@@ -187,6 +247,61 @@ struct ComposerView: View {
         }
     }
 
+    /// The list for the `/` or `@` token under the caret, and the token; nil when there is none, when
+    /// Escape closed it, or when nothing matches.
+    private func suggestions(_ text: String, session: SessionRow?) -> OpenSuggestions? {
+        let caret = Self.caret(in: text, selection)
+        let commands = model.composerCommands(sessionId)
+        if !commands.isEmpty, let token = ComposerToken.slash(in: text, caret: caret) {
+            let matches = ComposerCommand.filter(commands, query: token.query)
+            return token == dismissed || matches.isEmpty ? nil : OpenSuggestions(token: token, list: .commands(matches))
+        }
+        guard let token = ComposerToken.mention(in: text, caret: caret), token != dismissed else { return nil }
+        // The teammates of the session's space, but the one whose chat this is.
+        let teammates = (model.work.teammates ?? []).filter { $0.spaceId == session?.spaceId && $0.chatId != sessionId }
+        let rows = Mentions.rows(teammates: teammates, files: model.mentionFiles[sessionId] ?? [],
+                                 skills: model.composerLists[sessionId]?.skills ?? [], query: token.query)
+        return rows.isEmpty ? nil : OpenSuggestions(token: token, list: .mentions(rows))
+    }
+
+    /// The caret, in characters: the end of a selection, and the end of the words while the field has
+    /// said nothing.
+    private static func caret(in text: String, _ selection: TextSelection?) -> Int {
+        guard case .selection(let range) = selection?.indices, range.upperBound <= text.endIndex else { return text.count }
+        return text.distance(from: text.startIndex, to: range.upperBound)
+    }
+
+    private func pick(at index: Int, in open: OpenSuggestions, text: String) {
+        switch open.list {
+        case .commands(let commands): pick(commands[index], token: open.token, text: text)
+        case .mentions(let rows): pick(rows[index], token: open.token, text: text)
+        }
+    }
+
+    /// Runs the command, or arms it where it waits for words, as the desktop's prompter does.
+    private func pick(_ command: ComposerCommand, token: ComposerToken, text: String) {
+        let picked = ComposerCommand.pick(command, in: text, token: token)
+        setDraft(picked.draft, caret: picked.caret)
+        guard let words = picked.run else { return }
+        if case .attach = command.action {
+            refocus = focused.wrappedValue
+            attachAsked = true
+            return
+        }
+        Task { await model.run(command, words: words, in: sessionId) }
+    }
+
+    private func pick(_ row: MentionRow, token: ComposerToken, text: String) {
+        let picked = Mentions.pick(row, in: text, token: token, refs: model.draftRefs[sessionId] ?? [])
+        if let ref = picked.ref { model.draftRefs[sessionId, default: []].append(ref) }
+        setDraft(picked.draft, caret: picked.caret)
+    }
+
+    private func setDraft(_ text: String, caret: Int) {
+        model.composerDrafts[sessionId] = text
+        selection = TextSelection(insertionPoint: text.index(text.startIndex, offsetBy: min(caret, text.count)))
+    }
+
     /// The field names who the message goes to, and when the Mac is away, when it will go.
     private func placeholder(_ session: SessionRow?) -> String {
         switch model.linkStatus.kind {
@@ -205,6 +320,12 @@ struct ComposerView: View {
     private var draft: Binding<String> {
         Binding(get: { model.composerDrafts[sessionId] ?? "" }, set: { model.composerDrafts[sessionId] = $0 })
     }
+}
+
+/// The list open over the composer: the token it is for, and what it offers.
+struct OpenSuggestions {
+    let token: ComposerToken
+    let list: Suggestions
 }
 
 /// A part of the composer, as `ComposerLayout` places it.

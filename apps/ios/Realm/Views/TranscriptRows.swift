@@ -58,13 +58,14 @@ struct TranscriptRowView: View {
 }
 
 /// What the person sent: right of the column, in a bubble a step off the transcript. Held, it copies.
+/// A teammate or a file it names reads as `@designer` in the accent, as the desktop draws its chip.
 struct UserBubble: View {
     let text: String
 
     var body: some View {
         HStack {
             Spacer(minLength: 56)
-            Text(text)
+            Text(Self.named(text))
                 .font(.body)
                 .foregroundStyle(Palette.ink)
                 .padding(.horizontal, 14)
@@ -79,7 +80,22 @@ struct UserBubble: View {
                 }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("You: \(text)")
+        .accessibilityLabel("You: \(String(Self.named(text).characters))")
+    }
+
+    static func named(_ text: String) -> AttributedString {
+        var shown = AttributedString()
+        var cursor = text.startIndex
+        for chip in Mentions.chips(in: text) {
+            shown += AttributedString(text[cursor..<chip.range.lowerBound])
+            var name = AttributedString("@\(chip.label)")
+            name.foregroundColor = Palette.accent
+            name.font = .body.weight(.medium)
+            shown += name
+            cursor = chip.range.upperBound
+        }
+        shown += AttributedString(text[cursor...])
+        return shown
     }
 }
 
