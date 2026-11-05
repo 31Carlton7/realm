@@ -1156,7 +1156,7 @@ export type AppState = TeammatesSlice & {
   sidebarActivityOrder: boolean;
   // ——— Plan 27: the sidebar's own remembered choices (one block; nothing else in this file is the
   //     sidebar's). Read by `hydrateSidebarPrefs` when the sidebar mounts, so boot is untouched. ———
-  /** Which lens the sidebar's list wears: the profile's spaces as sections, or every session by time
+  /** Which lens the sidebar's list wears: the space on screen, or every session of the profile by time
    *  (`ui.sidebarLens`). */
   sidebarLens: "spaces" | "recent";
   hydrateSidebarPrefs(): Promise<void>;
