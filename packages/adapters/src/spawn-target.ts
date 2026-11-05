@@ -14,6 +14,12 @@ type Env = Record<string, string | undefined>;
  * A name that already has a directory in it is checked where it is.
  */
 export function findExecutable(name: string, env: Env = process.env, platform: string = process.platform): string | null {
+  for (const candidate of executablesOnPath(name, env, platform)) return candidate;
+  return null;
+}
+
+/** Every file `findExecutable` would consider a match, in PATH order — the first is the one it returns. */
+export function* executablesOnPath(name: string, env: Env = process.env, platform: string = process.platform): Generator<string> {
   const names = executableNames(name, platform, env);
   const hasDir = /[\\/]/.test(name);
   const dirs = hasDir ? [""] : (env.PATH ?? env.Path ?? "").split(pathDelimiter(platform));
@@ -26,13 +32,13 @@ export function findExecutable(name: string, env: Env = process.env, platform: s
         // directory named like the command is not one.
         accessSync(candidate, platform === "win32" ? constants.F_OK : constants.X_OK);
         if (platform === "win32" && statSync(candidate).isDirectory()) continue;
-        return candidate;
       } catch {
         // Not here, or not executable: the next entry is the next candidate, as for a spawn.
+        continue;
       }
+      yield candidate;
     }
   }
-  return null;
 }
 
 /** cmd.exe's metacharacters, which a caret escapes. */

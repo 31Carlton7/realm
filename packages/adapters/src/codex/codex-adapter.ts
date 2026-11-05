@@ -1,6 +1,7 @@
 import { ASK_PERMISSION_MODE, AskCardSchema, askCardFromElicitation, elicitationContent, loggableAnswers, normalizeAnswers, requiredAnswered, sessionEvent, type AskAnswers, type AskCard, type SessionEvent } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { JsonRpcCallError, isRpcTimeout, type JsonRpcId } from "../jsonrpc/stdio";
+import { newestExecutable } from "../newest-executable";
 import { CodexConnection, type ThreadListener } from "./connection";
 import { createCodexMapper } from "./map-codex";
 import { CODEX_FAST_TIER, parseCodexModelPage, probeCodex, type CodexModel } from "./probe";
@@ -300,12 +301,21 @@ export class CodexAdapter implements AgentAdapter {
    */
   get connection(): Promise<CodexConnection> | null { return this.shared.get("")?.conn ?? null; }
 
+  /** What a probe or a new process runs: the binary this adapter was given, the REALM_CODEX_BIN override,
+   *  or the newest `codex` on PATH — so a stale copy earlier on PATH cannot shrink the catalog. */
+  private async resolveBin(): Promise<string> {
+    if (this.bin) return this.bin;
+    const override = process.env.REALM_CODEX_BIN;
+    if (override?.trim()) return override;
+    return (await newestExecutable("codex")) ?? "codex";
+  }
+
   async probe(): Promise<ProbeResult> {
     // The adapter's OWN args, so the probe runs the command the adapter would run. With no args —
     // production, where `bin` is the `codex` binary itself — this is `codex --version`, unchanged.
     // With them it is the same wrapper the sessions go through, which is the only honest thing to
     // ask for a version, and the only way the latch below can ever see one change.
-    const p = await probeCodex(this.bin, [...(this.args ?? []), "--version"]);
+    const p = await probeCodex(await this.resolveBin(), [...(this.args ?? []), "--version"]);
     // A different binary is a different set of capabilities. Both latches are re-armed together —
     // they were learned from the same process and there is no reason one would outlive the other.
     if (p.available && p.version !== this.latchedVersion) {
@@ -344,7 +354,7 @@ export class CodexAdapter implements AgentAdapter {
       const own = this.shared.get("");
       const shared = own ? await own.conn.catch(() => null) : null;
       const conn = shared ?? (owned = await CodexConnection.open({
-        bin: this.bin ?? process.env.REALM_CODEX_BIN ?? "codex",
+        bin: await this.resolveBin(),
         args: this.args,
         cwd: process.cwd(),
         initializeTimeoutMs: this.bootTimeoutMs,
@@ -378,14 +388,14 @@ export class CodexAdapter implements AgentAdapter {
     let entry = this.shared.get(home);
     if (!entry) {
       entry = {
-        conn: CodexConnection.open({
-          bin: this.bin ?? process.env.REALM_CODEX_BIN ?? "codex",
+        conn: this.resolveBin().then((bin) => CodexConnection.open({
+          bin,
           args: this.args,
           cwd: opts.cwd,
           env: opts.env,
           onLog: opts.onLog,
           initializeTimeoutMs: this.bootTimeoutMs,
-        }),
+        })),
         refs: 0,
         home,
         roots: new Map(),

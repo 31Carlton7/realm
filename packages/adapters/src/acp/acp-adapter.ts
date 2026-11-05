@@ -5,6 +5,7 @@ import { acpAskMode, acpBuildMode, acpPlanMode, acpSessionConfig, askCardFromEli
 import { AsyncQueue } from "../event-queue";
 import { JsonRpcCallError, StdioJsonRpc, withTimeout, type JsonRpcId } from "../jsonrpc/stdio";
 import { createAcpMapper } from "./map-acp";
+import { newestExecutable } from "../newest-executable";
 import { fetchAcpCatalog, probeAcp } from "./probe";
 import type { AgentAdapter, AgentHandle, McpServerConfig, PermissionDecision, ProbeResult, StartOptions, UserMessage } from "../types";
 import { obj, str, type Bag } from "../bag";
@@ -246,6 +247,11 @@ function acpModeFor(permissionMode: string, modes: readonly AcpSessionMode[], bo
  * Unlike Codex's multiplexed app-server, an ACP session belongs to its connection, so this spawns **one child
  * per session** and `dispose()` takes that child down.
  */
+/** The newest copy of `bin` on the PATH its process will see, or `bin` as given when there is none — the
+ *  spawn then fails with the name the user knows. */
+const newestBin = async (bin: string, env?: Record<string, string | undefined>): Promise<string> =>
+  (await newestExecutable(bin, { ...process.env, ...env })) ?? bin;
+
 export class AcpAdapter implements AgentAdapter {
   readonly kind: AgentKind;
 
@@ -254,10 +260,11 @@ export class AcpAdapter implements AgentAdapter {
   }
 
   async probe(): Promise<ProbeResult> {
-    const base = await probeAcp(this.spec.bin, undefined, this.spec.env);
+    const bin = await newestBin(this.spec.bin, this.spec.env);
+    const base = await probeAcp(bin, undefined, this.spec.env);
     // tmpdir because the throwaway catalog session needs SOME real cwd and must not imply a project.
     const catalog = base.available && this.spec.modelCatalog === true
-      ? await fetchAcpCatalog({ bin: this.spec.bin, args: this.spec.args, cwd: tmpdir(), env: this.spec.env })
+      ? await fetchAcpCatalog({ bin, args: this.spec.args, cwd: tmpdir(), env: this.spec.env })
       : null;
     return { kind: this.kind, ...base, models: catalog?.models ?? null,
       ...(catalog && catalog.efforts.length > 0 ? { efforts: catalog.efforts, defaultEffort: catalog.defaultEffort } : {}) };
@@ -449,7 +456,7 @@ export class AcpAdapter implements AgentAdapter {
     const boot = (async () => {
       try {
         const transport = new StdioJsonRpc({
-          command: spec.bin,
+          command: await newestBin(spec.bin, { ...spec.env, ...opts.env }),
           args: spec.args,
           cwd: opts.cwd,
           env: { ...spec.env, ...opts.env },

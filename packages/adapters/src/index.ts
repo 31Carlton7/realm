@@ -19,3 +19,4 @@ export { CodexAdapter, CODEX_SANDBOX_REFUSAL, pickCodexDecision, codexPolicyFor 
 export { probeCodex } from "./codex/probe";
 export { AcpAdapter, pickAcpOption, type AcpAgentSpec } from "./acp/acp-adapter";
 export { findExecutable, killTree, spawnTarget, type SpawnTarget } from "./spawn-target";
+export { newestExecutable } from "./newest-executable";

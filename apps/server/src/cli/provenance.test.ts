@@ -13,10 +13,10 @@ function tree(): string {
 
 /** A real executable file, and a PATH symlink pointing at it — the layout every package manager here
  *  produces, and the only one `resolveInstall` is allowed to reason about. */
-function install(root: string, opts: { real: string; link: string }): { binDir: string } {
+function install(root: string, opts: { real: string; link: string; version?: string }): { binDir: string } {
   const realPath = join(root, opts.real);
   mkdirSync(dirname(realPath), { recursive: true });
-  writeFileSync(realPath, "#!/bin/sh\n", { mode: 0o755 });
+  writeFileSync(realPath, opts.version ? `#!/bin/sh\necho 'codex-cli ${opts.version}'\n` : "#!/bin/sh\n", { mode: 0o755 });
   const linkPath = join(root, opts.link);
   mkdirSync(dirname(linkPath), { recursive: true });
   symlinkSync(realPath, linkPath);
@@ -90,12 +90,22 @@ describe("resolveInstall", () => {
     expect(found?.realPath).toContain(join("node_modules", "opencode-ai"));
   });
 
-  it("takes the first PATH entry that holds it, as a spawn would", async () => {
+  it("takes the first PATH entry that holds it when no copy states a version", async () => {
     const root = tree();
     const a = install(root, { real: "Cellar/x/1/bin/tool", link: "first/tool" });
     const b = install(root, { real: "lib/node_modules/x/bin/tool", link: "second/tool" });
     expect((await resolveInstall("tool", { PATH: `${a.binDir}:${b.binDir}` }))?.provenance).toBe("brew");
     expect((await resolveInstall("tool", { PATH: `${b.binDir}:${a.binDir}` }))?.provenance).toBe("npm");
+  });
+
+  it("reports the newest copy on PATH, the one the adapters run, over a stale one ahead of it", async () => {
+    // Measured 2026-11-05: brew's 0.146.0 cask ahead of nvm's 0.166.0 on the server's PATH.
+    const root = tree();
+    const brew = install(root, { real: "Caskroom/codex/0.146.0/bin/codex", link: "brew/codex", version: "0.146.0" });
+    const npm = install(root, { real: "lib/node_modules/@openai/codex/bin/codex.js", link: "nvm/codex", version: "0.166.0" });
+    const found = await resolveInstall("codex", { PATH: `${brew.binDir}:${npm.binDir}` });
+    expect(found?.path).toBe(join(npm.binDir, "codex"));
+    expect(found?.provenance).toBe("npm");
   });
 
   it("skips a non-executable file and keeps searching", async () => {

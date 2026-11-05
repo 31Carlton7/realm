@@ -1,7 +1,8 @@
 import { constants } from "node:fs";
 import { access, realpath } from "node:fs/promises";
-import { delimiter, isAbsolute, resolve, sep } from "node:path";
-import { executableNames, type InstallProvenance } from "@realm/contracts";
+import { isAbsolute, resolve, sep } from "node:path";
+import { newestExecutable } from "@realm/adapters";
+import type { InstallProvenance } from "@realm/contracts";
 
 /**
  * Where an agent CLI on this machine came from, so Realm never runs an update command that would not
@@ -61,7 +62,7 @@ export function classifyPath(realPath: string): InstallProvenance {
 }
 
 /**
- * Find `bin` the way a spawn would, then follow it to the real file.
+ * Find `bin` the way the adapters do, then follow it to the real file.
  *
  * PATH is read from the passed environment rather than resolved through a shell: the server child was
  * started by the desktop main *after* `mergePath(loginShellPath())`, so `process.env.PATH` here is
@@ -69,27 +70,25 @@ export function classifyPath(realPath: string): InstallProvenance {
  * a second, slower answer to a question already answered — and `login-shell-path.ts` exists precisely
  * because getting it wrong is subtle.
  *
+ * With more than one copy on PATH this is the newest one (`newestExecutable`), which is the copy every
+ * session spawns — so the version, provenance and update command shown are for the CLI that runs.
+ *
  * Returns null when the binary is not on PATH, is not executable, or its symlink chain is broken.
  */
 export async function resolveInstall(
   bin: string,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<{ path: string; realPath: string; provenance: InstallProvenance } | null> {
-  // On Windows a CLI is `codex.cmd` or `codex.exe`, never the bare name (platform.ts).
-  const names = executableNames(bin, process.platform, env);
-  const candidates = bin.includes(sep) || (process.platform === "win32" && bin.includes("/"))
-    // An explicit path (a REALM_*_BIN override pointing at a stub) is used as given, not searched for.
-    ? [isAbsolute(bin) ? bin : resolve(bin)]
-    : (env.PATH ?? env.Path ?? "").split(delimiter).filter(Boolean).flatMap((dir) => names.map((name) => resolve(dir, name)));
-  for (const path of candidates) {
-    try {
-      await access(path, constants.X_OK);
-      const real = await realpath(path);
-      return { path, realPath: real, provenance: classifyPath(real) };
-    } catch {
-      // Not here, not executable, or a dangling link — the next PATH entry is the next candidate,
-      // exactly as a spawn would carry on.
-    }
+  const explicit = bin.includes(sep) || (process.platform === "win32" && bin.includes("/"));
+  // An explicit path (a REALM_*_BIN override pointing at a stub) is used as given, not searched for.
+  const path = explicit ? (isAbsolute(bin) ? bin : resolve(bin)) : await newestExecutable(bin, env);
+  if (!path) return null;
+  try {
+    await access(path, constants.X_OK);
+    const real = await realpath(path);
+    return { path, realPath: real, provenance: classifyPath(real) };
+  } catch {
+    // Not executable, or a dangling link.
+    return null;
   }
-  return null;
 }
