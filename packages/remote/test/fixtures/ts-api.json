@@ -2314,7 +2314,7 @@
           "models": [
             {
               "id": null,
-              "label": "Fable 5.1",
+              "label": "Default",
               "efforts": [
                 {
                   "id": "low",
@@ -2867,7 +2867,7 @@
           "models": [
             {
               "id": null,
-              "label": "DeepSeek V4 Pro"
+              "label": "Default"
             },
             {
               "id": "deepseek-v4-pro",

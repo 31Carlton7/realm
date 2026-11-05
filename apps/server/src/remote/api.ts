@@ -12,12 +12,12 @@ import {
   type ScheduledTask, type Screen, type SessionOptions, type SessionRow, type Subagent, type Teammate as PhoneTeammate,
 } from "@realm/remote";
 import {
-  agentsAtWork, FALLBACK_AGENT, isChild, isLive, LAST_AGENT_SETTING, LAST_MODELS_SETTING, modelLabel, needsYou, nestChildren, QUICK_CHAT_SETTING, quickChatIdOf, subagentState, upcomingOrder, type NeedsYouState,
+  agentsAtWork, FALLBACK_AGENT, isChild, isLive, LAST_AGENT_SETTING, LAST_MODELS_SETTING, needsYou, nestChildren, QUICK_CHAT_SETTING, quickChatIdOf, subagentState, upcomingOrder, type NeedsYouState,
 } from "@realm/view";
 import { resolveDefaultPermissionMode } from "../sessions/service";
 import { tildify } from "../skills/discovery";
 import { diffPage } from "./changes";
-import { agentOptions, changesFor, ChoiceRefused, probeList, type InitFacts, type OptionsInput, type ProbeRow } from "./options";
+import { agentOptions, changesFor, ChoiceRefused, probeList, sessionModelLabel, type InitFacts, type OptionsInput, type ProbeRow } from "./options";
 import { fileData, filePreview, PreviewRefused, sipsDownscale, type Downscale } from "./preview";
 import { pendingMove, queuedMessage, SessionProjector, tilde } from "./rows";
 import { RpcCallError, type RpcPort } from "./rpc-port";
@@ -420,14 +420,15 @@ export class MobileApi {
   }
 
   /** `item` is the session's sidebar row, for its title and pin; `need` is the ids Needs you lists, so a
-   *  row says it is in that list exactly when it is. */
-  private row(s: Session, item: Pick<Item, "title" | "pinned"> | undefined, space: Space | undefined, need: ReadonlySet<string>, atWork: ReadonlySet<string>, probe: Probe, goal?: Goal | null): SessionRow {
+   *  row says it is in that list exactly when it is. `ran` is the model the session's handshake
+   *  reported, where it has been read. */
+  private row(s: Session, item: Pick<Item, "title" | "pinned"> | undefined, space: Space | undefined, need: ReadonlySet<string>, atWork: ReadonlySet<string>, probe: Probe, goal?: Goal | null, ran: string | null = null): SessionRow {
     const meta = AGENT_META[s.agentKind as AgentKind] as { label: string; icon: string } | undefined;
     return {
       id: s.id, title: item?.title || s.title, spaceId: s.spaceId, spaceName: space?.name ?? "", agent: s.agentKind, model: s.model,
       status: mobileStatus(s.status), needsYou: need.has(s.id), unread: isUnread(s) && !atWork.has(s.id), updatedAt: s.updatedAt,
       agentName: meta?.label ?? s.agentKind, agentMark: meta?.icon ?? "bot",
-      modelLabel: meta ? modelLabel(s.agentKind, s.model, probe) : s.model ?? "",
+      modelLabel: meta ? sessionModelLabel(s.agentKind, s.model, probe, ran) : s.model ?? "",
       createdAt: s.createdAt, effort: s.effort, permissionMode: s.permissionMode, activityAt: s.activityAt, pinned: item?.pinned ?? false,
       ...(isChild(s) && s.dispatchedBy?.sessionId ? { leadId: s.dispatchedBy.sessionId } : {}),
       ...(s.status === "moving" ? { moving: true } : {}),
@@ -506,7 +507,7 @@ export class MobileApi {
   private sessionOptions(session: Session, input: OptionsInput, shared: Shared): SessionOptions {
     return {
       agent: agentOptions(session.agentKind, input, session.model),
-      model: session.model, modelLabel: modelLabel(session.agentKind, session.model, probeList(input)),
+      model: session.model, modelLabel: sessionModelLabel(session.agentKind, session.model, probeList(input), input.init?.model ?? null),
       effort: session.effort, permissionMode: session.permissionMode, midTurn: shared.midTurn, attachments: { ...SEND_LIMITS },
     };
   }
@@ -640,9 +641,13 @@ export class MobileApi {
       entry.queued = null;
       let after = 0;
       let total = 0;
+      let ran: string | null = null;
       for (;;) {
         const page = await rpc.call("sessions.events", { id, afterSeq: after, limit: HISTORY_PAGE });
-        for (const ev of page) entry.projector.apply(ev);
+        for (const ev of page) {
+          entry.projector.apply(ev);
+          if (ev.event.type === "init") ran = ev.event.payload.model;
+        }
         total += page.length;
         if (page.length < HISTORY_PAGE || total >= HISTORY_LIMIT) break;
         after = page.at(-1)!.seq;
@@ -663,7 +668,7 @@ export class MobileApi {
       const need = new Set(needsYou(input).map((r) => r.session.id));
       const all = entry.projector.all();
       return {
-        session: this.row(session, item, lists.spaces.find((s) => s.id === session.spaceId), need, agentsAtWork(input), probe, goal),
+        session: this.row(session, item, lists.spaces.find((s) => s.id === session.spaceId), need, agentsAtWork(input), probe, goal, ran),
         rows: all.slice(-limit), hasMore: all.length > limit, hint: entry.projector.hint, queued: this.queuedMessages(queued),
         move: pendingMove(move), goal: phoneGoal(goal), todos: entry.projector.todos,
       };

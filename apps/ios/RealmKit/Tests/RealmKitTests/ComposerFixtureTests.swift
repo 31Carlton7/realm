@@ -74,6 +74,8 @@ struct ComposerFixtureTests {
         #expect(!gemini.available && gemini.note == "not installed")
         #expect(list.agents.first { $0.kind == "acp:opencode" }?.defaultEffort == "low")
         #expect(list.agents.first?.models.first?.id == nil, "a new session can start on the default")
+        // No probe here marks the model Claude Code runs by default, so the Mac names no model for it.
+        #expect(list.agents.first?.models.first?.label == "Default")
     }
 
     /// A message that carried files names each as it was sent, by the path the Mac previews it by.

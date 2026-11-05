@@ -232,7 +232,7 @@ describe("a session row's agent, model and space, as the desktop names them", ()
     }, { "agents.probe": () => [{ kind: "codex", available: true, version: "1", loggedIn: true, reason: null, models: [{ id: "gpt-6-luna", label: "GPT-6 Luna" }] }] })), "home.get", {}));
     const rows = h.spaces.flatMap((sp) => sp.sessions);
     expect(rows.map((r) => [r.id, r.agentName, r.agentMark, r.modelLabel])).toEqual([
-      ["opus", "Claude", "claude", "Opus 5.5"], ["default", "Claude", "claude", "Fable 5.1"], ["luna", "Codex", "openai", "GPT-6 Luna"],
+      ["opus", "Claude", "claude", "Opus 5.5"], ["default", "Claude", "claude", "Default"], ["luna", "Codex", "openai", "GPT-6 Luna"],
     ]);
     expect(h.spaces.map((sp) => [sp.iconKind, sp.emoji ?? sp.glyph ?? null])).toEqual([["emoji", "🌊"], ["glyph", "code"], ["picture", null]]);
   });
@@ -246,6 +246,13 @@ describe("a session row's agent, model and space, as the desktop names them", ()
     }, { "agents.probe": () => never })), "home.get", {}));
     expect(Date.now() - started).toBeLessThan(1_000);
     expect(h.spaces[0]!.sessions.map((r) => r.modelLabel)).toEqual(["gpt-6-luna", "Opus 5.5"]);
+  });
+
+  it("names an opened session that pinned no model by the model its handshake reported", async () => {
+    const log = [stored("ran", sessionEvent("init", { providerSessionId: "p1", model: "claude-opus-5-5[1m]", tools: [], cwd: "/tmp" }))];
+    const rpc = fakeRpc({ sessions: [session("ran", "s1", { agentKind: "claude", model: null })], items: [item("ran", "s1", "Ran")] }, { "sessions.events": eventsOf(log) as never });
+    const opened = MobileCalls["session.open"].result.parse(await api().handle(channel(rpc), "session.open", { id: "ran" }));
+    expect(opened.session.modelLabel).toBe("Opus 5.5");
   });
 });
 
@@ -561,10 +568,27 @@ describe("session.options", () => {
     expect(o.agent.permissions).toEqual(PERMISSION_MODES.map(({ id, label }) => ({ id, label })));
   });
 
-  it("leads with the agent's default, named, for a session that pinned no model; the Mac's mid-turn choice is Queue unless it says Steer", async () => {
+  it("leads with the agent's default for a session that pinned no model; the Mac's mid-turn choice is Queue unless it says Steer", async () => {
     const o = await options(session("fresh", "s1", { agentKind: "claude", model: null }));
-    expect(o.agent.models[0]).toMatchObject({ id: null, label: "Fable 5.1", defaultEffort: "high" });
-    expect(o).toMatchObject({ modelLabel: "Fable 5.1", midTurn: "queue" });
+    // No probe has said which model Claude Code runs by default, so neither names the curated list's first.
+    expect(o.agent.models[0]).toMatchObject({ id: null, label: "Default", defaultEffort: "high" });
+    expect(o).toMatchObject({ modelLabel: "Default", midTurn: "queue" });
+  });
+
+  it("names a session that pinned no model by the default its CLI marks, and by the model its handshake reported once it has run", async () => {
+    const models = [{ id: "claude-fable-5-1", label: "Claude Fable 5.1" }, { id: "claude-opus-5-5", label: "Claude Opus 5.5", isDefault: true }];
+    const probe = { "agents.probe": () => [probeRow("claude", { models })] };
+    const fresh = await options(session("fresh", "s1", { agentKind: "claude", model: null }), probe);
+    expect(fresh.modelLabel).toBe("Opus 5.5");
+    expect(fresh.agent.models[0]).toMatchObject({ id: null, label: "Opus 5.5" });
+
+    const init = (model: string) => ({ "sessions.events": eventsOf([stored("ran", sessionEvent("init", { providerSessionId: "p1", model, tools: [], cwd: "/tmp" }))]) as never });
+    const ran = await options(session("ran", "s1", { agentKind: "claude", model: null }), init("claude-sonnet-5-5[1m]"));
+    expect(ran.modelLabel).toBe("Sonnet 5.5");
+    expect(ran.agent.models[0]).toMatchObject({ id: null, label: "Sonnet 5.5" });
+    expect((await options(session("ran", "s1", { agentKind: "claude", model: null }), { ...probe, ...init("claude-sonnet-5-5") })).modelLabel).toBe("Sonnet 5.5");
+    // A pinned model is what the next turn runs, whatever an earlier one reported.
+    expect((await options(session("ran", "s1", { agentKind: "claude", model: "claude-haiku-4-5" }), init("claude-sonnet-5-5"))).modelLabel).toBe("Haiku 4.5");
   });
 
   it("reads Codex's models and each one's levels off the Mac's probe, the default's off the model its catalog marks", async () => {
@@ -592,7 +616,8 @@ describe("session.options", () => {
     expect(o.agent.efforts).toEqual([{ id: "fast", label: "Fast" }, { id: "deep", label: "Deep" }]);
     // THE MUTANT: no default, and the phone cannot say which level runs while none is chosen.
     expect(o.agent.defaultEffort).toBe("fast");
-    expect(o.agent.models).toEqual([{ id: null, label: "Composer" }]);
+    // No catalog names it, so the default is the id its handshake reported.
+    expect(o.agent.models).toEqual([{ id: null, label: "composer-2" }]);
   });
 
   it("answers at once on the curated models while no probe has answered, and asks only the session's agent", async () => {
