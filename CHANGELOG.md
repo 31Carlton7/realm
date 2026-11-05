@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.8.3 - 2026-11-05
+
+- Hand the space's open tabs to an agent from the prompter's @ list; each goes in as a card beside your message.
+- Realm runs the newest copy of an agent's CLI on your PATH, so an older copy no longer hides newer models.
+- A session with no model picked is named and ticked by the model its CLI really runs.
+- The Photos-style edge blur is back under the bars.
+- Realm Mobile: search the Mac's sessions and find words inside a session; watch the Mac's browser and terminal panes; delete, fork, move and switch a session's agent, and save its turns; follow a session's goal and to-do list, with a working session on the Lock Screen and in the Dynamic Island; make, archive, lead and reorder teammates; no more glass, and quieter colour throughout.
+
 ## v2.8.2 - 2026-11-04
 
 - Sub-agents run on the model their parent runs, and every label shows the model they really run.
