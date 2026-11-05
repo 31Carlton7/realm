@@ -926,6 +926,31 @@ describe("Plan 29's parity: the queue, sub-agents and Review on a paired phone",
     phone.close();
   });
 
+  it("saves a turn from the phone, tells every phone with the session open, and lists it as Library ▸ Saved does", async () => {
+    const r = await boot();
+    const id = await newSession(r);
+    const phone = await pairPhone(r);
+    await phone.call("session.open", { id });
+    const idle = phone.waitFor("session.status", (p) => { const e = MobileEvents["session.status"].parse(p); return e.id === id && e.status === "idle" ? e : undefined; });
+    await phone.call("session.send", { id, text: "keep this one" });
+    await idle;
+    const { rows } = MobileCalls["session.open"].result.parse(await phone.call("session.open", { id }));
+    const prompt = rows.find((row) => row.kind === "user")!;
+    // THE MUTANT: leave `session.saved` among the broadcasts the gateway drops, and this never comes.
+    const heard = phone.waitFor("session.saved", (p) => { const e = MobileEvents["session.saved"].parse(p); return e.id === id && e.seqs.length === 1 ? e.seqs : undefined; });
+    expect(MobileCalls["session.setSaved"].result.parse(await phone.call("session.setSaved", { id, seq: prompt.seq, saved: true })).seqs).toEqual([prompt.seq]);
+    expect(await heard).toEqual([prompt.seq]);
+    const session = await r.mac.call("sessions.get", { id });
+    const profileId = (await r.mac.call("spaces.list", {})).find((sp) => sp.id === session.spaceId)!.profileId;
+    const { entries } = MobileCalls["saved.list"].result.parse(await phone.call("saved.list", { profileId }));
+    expect(entries.map((e) => [e.sessionId, e.seq, e.text])).toEqual([[id, prompt.seq, "keep this one"]]);
+    // Unsaved on the Mac, the phone hears that too.
+    const gone = phone.waitFor("session.saved", (p) => { const e = MobileEvents["session.saved"].parse(p); return e.id === id && e.seqs.length === 0 ? true : undefined; });
+    await r.mac.call("sessions.setSaved", { id, seq: prompt.seq, saved: false });
+    await gone;
+    phone.close();
+  });
+
   it("answers the phone's Review with nothing in it, now that Review is gone", async () => {
     const r = await boot();
     const phone = await pairPhone(r);

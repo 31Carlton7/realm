@@ -184,6 +184,7 @@ struct SessionView: View {
             SessionInfoSheet(sessionId: sessionId)
         }
         .task(id: model.channelGeneration) { await model.open(sessionId) }
+        .task(id: model.channelGeneration) { await model.loadSaved(sessionId) }
         // Where it runs changes as a move ends, whichever device asked for it.
         .task(id: ScreensAsked(generation: model.channelGeneration, connected: model.isConnected, status: status)) {
             await model.loadMoveOptions(sessionId)

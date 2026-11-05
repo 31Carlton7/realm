@@ -533,6 +533,15 @@ else keeps its own name, whatever it looks like.
 | `session.moveOptions` | `{id}` | `MoveOptions` |
 | `session.move` | `{id, to: {kind: "checkout", environmentId} \| {kind: "worktree"}, when?: "now"\|"after-turn"\|"stop" = "now"}` | `{session: SessionRow}`, once the move is done, or queued for `after-turn` |
 | `session.cancelMove` | `{id}` | `{cancelled: bool}`: false when there was nothing left to stop |
+| `session.delete` | `{id}` | `{ok: true}` |
+| `session.fork` | `{id, agent?}` | `{session: SessionRow}`: the fork |
+| `session.moveToSpace` | `{id, spaceId}` | `{session: SessionRow}`, in the space it is in now |
+| `session.switchAgent` | `{id, agent, model?: string\|null}` | `{session: SessionRow}` |
+| `session.accounts` | `{id}` | `{accounts: [{id, label, email: string\|null, cliDefault: bool, signedIn: bool\|null}], current: string\|null}` |
+| `session.setAccount` | `{id, accountId}` | `{session: SessionRow}` |
+| `session.saved` | `{id}` | `{seqs: [int]}` |
+| `session.setSaved` | `{id, seq, saved: bool}` | `{seqs: [int]}`: the session's saved turns now |
+| `saved.list` | `{profileId}` | `{entries: [SavedTurn], total: int}` |
 | `debug.report` | `{name, data}` | `{ok: true}` |
 
 `Space` is `{id, name, icon, color, sessions: [SessionRow], more: int, iconKind?, glyph?, emoji?, profileId?}`.
@@ -999,6 +1008,24 @@ Mac) to an option's `value` or words of the person's own; a multi-select questio
 list. The Mac holds them to the request's card, as it holds the desktop's. A Phase 1 phone's
 `{<question>: <label>}` is still accepted.
 
+**The session actions are the desktop's menus'.** `session.delete` deletes, as the desktop's Delete
+does: the agent is stopped and the transcript and row go; nothing is archived. `session.fork` takes a
+checkpoint of the session as it is now and forks from it, as Checkpoints ▸ Fork… does from the one
+picked: a new worktree restored to it, and a new session in it named `Fork: <title>`, with the
+conversation carried in as text; `agent` forks onto another agent. `session.moveToSpace` is the
+sidebar's Move to space…: a session that has run takes its checkout along. `session.switchAgent` is the
+model picker's switch: the new agent starts fresh with a summary of the conversation. `session.setAccount`
+runs the session on another of its agent's logins, where the conversation picks up where it left off,
+or from notes where it cannot; `session.accounts` lists the agent's logins, and none for an agent with
+no accounts. A switch of either kind mid-turn, and a fork of a session whose folder is not a git
+repository, is refused (`FORBIDDEN`) in the Mac's words.
+
+**Saved turns are the prompts'.** `seq` is a `user` row's: the turn it starts. `saved.list` is the
+desktop's Library ▸ Saved for one profile, the newest saved first. `SavedTurn` is `{sessionId, seq,
+savedAt, at, text, attachments: [string], reply: string|null, sessionTitle, spaceId, spaceName}`: `at`
+is when the prompt was sent, `attachments` the names of the files an attachment-only prompt carried,
+and `reply` the start of its answer.
+
 `debug.report` exists only in development builds. The Mac writes it to `<home>/remote/reports/`.
 Phase 1 uses it to bring the phone's measurements back.
 
@@ -1068,6 +1095,12 @@ phone read, and what bounds it:
   checkouts, how many files are uncommitted in its own and the names of the secret-looking files a
   move leaves behind (never their contents). A move goes only to one of those checkouts or a new
   worktree of the session's own; the phone names no path.
+- **The session actions**: a session's deletion, a fork of it into a new worktree of its own space, a
+  move of it to another space, a switch of its agent or of its login among its agent's, each by the
+  desktop's own call. `session.accounts` sends each login's name and email, never its folder or a
+  credential.
+- **`session.saved`**, **`session.setSaved`** and **`saved.list`**: which turns are saved, and for each
+  saved turn its prompt, the start of its answer, and its session's and space's names.
 - **`session.screens`** and **`session.screen`**: the simulators and machines open in that session's
   space, by their panes' names, what kind each is and whether it is live; and a picture of one of them
   as it is now, at most 1280 px on its longer side, while it is live. A screen is shared by every
@@ -1090,6 +1123,7 @@ setting, or a key.
 | `session.subagents` | `{id}` | An open session's sub-agents changed: call `session.subagents` again. |
 | `session.goal` | `{id, goal: Goal\|null}` | An open session's goal changed: started, stopped, resumed, counted a turn, or dropped. Home's rows change with it (`home.changed`). |
 | `session.todos` | `{id, todos: [Todo]}` | An open session's to-do list changed: the whole list. |
+| `session.saved` | `{id, seqs: [int]}` | An open session's saved turns changed, on the Mac or another phone: the whole set. |
 | `work.changed` | `{}` | Reviews or scheduled tasks changed somewhere: call `reviews.list` and `schedules.list` again. Sent at most once a second. |
 | `pair.result` | see §4.1 | Pairing channels only. |
 

@@ -607,6 +607,40 @@ export const ScreenFrameSchema = z.object({
 });
 export type ScreenFrame = z.infer<typeof ScreenFrameSchema>;
 
+/** One login a session's agent can run on, as the desktop picker's Account list names it. */
+export const SessionAccountSchema = z.object({
+  id: z.string(),
+  /** The person's name for it. */
+  label: z.string(),
+  /** The email the CLI says it is signed in as, or null before it has said. */
+  email: z.string().nullable(),
+  /** The CLI's own folder, which the desktop calls "CLI sign-in" until it names an email. */
+  cliDefault: z.boolean(),
+  /** False once the CLI says it is signed out; null when it has not been asked. */
+  signedIn: z.boolean().nullable(),
+});
+export type SessionAccount = z.infer<typeof SessionAccountSchema>;
+
+/** A turn saved from a session, as the desktop's Library ▸ Saved lists it: the prompt, the start of
+ *  its answer, and whose session it was. */
+export const SavedTurnEntrySchema = z.object({
+  sessionId: Id,
+  /** The prompt's row's `seq`. */
+  seq: z.number().int(),
+  savedAt: z.number(),
+  /** When the prompt was sent. */
+  at: z.number(),
+  /** The prompt's words; empty for one that only carried files, which `attachments` names. */
+  text: z.string(),
+  attachments: z.array(z.string()),
+  /** The first stretch of its answer, or null before anything answered it. */
+  reply: z.string().nullable(),
+  sessionTitle: z.string(),
+  spaceId: Id,
+  spaceName: z.string(),
+});
+export type SavedTurnEntry = z.infer<typeof SavedTurnEntrySchema>;
+
 /** What a session runs on, as `session.configure` changes it and `session.create` starts it. */
 const sessionChoices = {
   /** A model by its id, or null for the agent's own default. */
@@ -842,6 +876,38 @@ export const MobileCalls = {
   /** Drops a move queued behind the turn, or stops one under way; `cancelled` is false when there was
    *  nothing left to stop. */
   "session.cancelMove": { params: z.object({ id: Id }), result: z.object({ cancelled: z.boolean() }) },
+  /** Deletes the session, as the desktop's Delete does: its agent is stopped, and its transcript and its
+   *  row go. Nothing is archived; it cannot be brought back. */
+  "session.delete": { params: z.object({ id: Id }), result: Ok },
+  /**
+   * A new session forked from this one's newest turn, as the desktop's Checkpoints ▸ Fork… makes one: a
+   * new worktree restored to that turn's checkpoint, a session in it named "Fork: <title>", and the
+   * conversation carried into it as text. `agent` forks onto another agent; left out, it keeps this
+   * one's. Refused (FORBIDDEN), in the Mac's words, for a session with no turn to fork from.
+   */
+  "session.fork": { params: z.object({ id: Id, agent: z.string().min(1).max(64).optional() }), result: z.object({ session: SessionRowSchema }) },
+  /** Moves the session to another space, as the sidebar's Move to space… does. One that has run takes
+   *  its checkout along, so its transcript still names the folder it ran in. */
+  "session.moveToSpace": { params: z.object({ id: Id, spaceId: Id }), result: z.object({ session: SessionRowSchema }) },
+  /** Moves the session onto another agent, as the desktop's model picker does: the new agent starts
+   *  fresh with a summary of the conversation. Refused (FORBIDDEN) while a turn runs, in the Mac's words.
+   *  `model: null` is the new agent's own default. */
+  "session.switchAgent": {
+    params: z.object({ id: Id, agent: z.string().min(1).max(64), model: z.string().max(200).nullable().optional() }),
+    result: z.object({ session: SessionRowSchema }),
+  },
+  /** The logins the session's agent can run on and the one it runs on now; none for an agent with no
+   *  accounts. */
+  "session.accounts": { params: z.object({ id: Id }), result: z.object({ accounts: z.array(SessionAccountSchema), current: z.string().nullable() }) },
+  /** Runs the session on another of its agent's logins. The conversation picks up where it left off,
+   *  or from notes where it cannot. Refused (FORBIDDEN) while a turn runs, in the Mac's words. */
+  "session.setAccount": { params: z.object({ id: Id, accountId: z.string().min(1).max(200) }), result: z.object({ session: SessionRowSchema }) },
+  /** The turns saved in a session, as their prompts' rows' `seq`s, in order. */
+  "session.saved": { params: z.object({ id: Id }), result: z.object({ seqs: z.array(z.number().int()) }) },
+  /** Saves or unsaves one turn by its prompt's row; answers with the session's saved turns. */
+  "session.setSaved": { params: z.object({ id: Id, seq: z.number().int().min(1), saved: z.boolean() }), result: z.object({ seqs: z.array(z.number().int()) }) },
+  /** Every turn saved in a profile's sessions, the newest saved first, as Library ▸ Saved lists them. */
+  "saved.list": { params: z.object({ profileId: Id }), result: z.object({ entries: z.array(SavedTurnEntrySchema), total: z.number().int() }) },
   "debug.report": { params: z.object({ name: z.string().regex(/^[\w.-]{1,80}$/), data: z.unknown() }), result: Ok },
 } as const;
 export type MobileMethod = keyof typeof MobileCalls;
@@ -859,6 +925,8 @@ export const MobileEvents = {
   "session.queue": z.object({ id: Id, queued: z.array(QueuedMessageSchema), move: PendingMoveSchema.nullable().optional() }),
   /** An open session's sub-agents changed: one started, settled or was stopped. `session.subagents` reads them. */
   "session.subagents": z.object({ id: Id }),
+  /** An open session's saved turns changed, here or on the Mac: the whole set. */
+  "session.saved": z.object({ id: Id, seqs: z.array(z.number().int()) }),
   /** Reviews or scheduled tasks changed somewhere: `reviews.list` and `schedules.list` read them again. */
   "work.changed": z.object({}),
   /** An open session's goal changed: started, stopped, resumed, counted a turn, or dropped (null). */

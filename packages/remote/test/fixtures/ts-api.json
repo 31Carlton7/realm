@@ -3913,6 +3913,145 @@
     },
     "session.update:archived": {
       "session": null
+    },
+    "session.saved": {
+      "seqs": [
+        2
+      ]
+    },
+    "session.setSaved": {
+      "seqs": [
+        2,
+        5
+      ]
+    },
+    "saved.list": {
+      "entries": [
+        {
+          "sessionId": "01JSESSION00000000000000000",
+          "seq": 2,
+          "savedAt": 1790000300000,
+          "at": 1790000000000,
+          "text": "Add a theme column to the settings table",
+          "attachments": [],
+          "reply": "Added the column and a migration for it.",
+          "sessionTitle": "Theme column",
+          "spaceId": "sp1",
+          "spaceName": "Realm"
+        }
+      ],
+      "total": 1
+    },
+    "session.accounts": {
+      "accounts": [
+        {
+          "id": "default-claude",
+          "label": "Default",
+          "email": "me@example.com",
+          "cliDefault": true,
+          "signedIn": true
+        },
+        {
+          "id": "01JACCOUNT0000000000000000",
+          "label": "Work",
+          "email": null,
+          "cliDefault": false,
+          "signedIn": null
+        }
+      ],
+      "current": "default-claude"
+    },
+    "session.setAccount": {
+      "session": {
+        "id": "01JSESSION00000000000000000",
+        "title": "Theme column",
+        "spaceId": "sp1",
+        "spaceName": "Realm",
+        "agent": "claude",
+        "model": "claude-opus-5-5",
+        "status": "waiting",
+        "needsYou": true,
+        "unread": false,
+        "updatedAt": 1790000000000,
+        "agentName": "Claude",
+        "agentMark": "claude",
+        "modelLabel": "Opus 5.5",
+        "createdAt": 1789990000000,
+        "effort": "high",
+        "permissionMode": "acceptEdits",
+        "activityAt": 1790000000000,
+        "pinned": false,
+        "goal": {
+          "status": "active",
+          "objective": "Ship the theme column: migration, backfill and a down step, with the suite green."
+        }
+      }
+    },
+    "session.switchAgent": {
+      "session": {
+        "id": "01JREALM000000000000000005",
+        "title": "Ship 2.0.3",
+        "spaceId": "sp1",
+        "spaceName": "Realm",
+        "agent": "codex",
+        "model": "gpt-6-astra",
+        "status": "idle",
+        "needsYou": false,
+        "unread": false,
+        "updatedAt": 1789910000000,
+        "agentName": "Codex",
+        "agentMark": "openai",
+        "modelLabel": "GPT-6 Astra",
+        "createdAt": 1789000000004,
+        "effort": null,
+        "permissionMode": "default",
+        "activityAt": 1789910000000,
+        "pinned": true
+      }
+    },
+    "session.moveToSpace": {
+      "session": {
+        "id": "01JREALM000000000000000001",
+        "title": "Tidy the settings page",
+        "spaceId": "sp2",
+        "spaceName": "Deck",
+        "agent": "claude",
+        "model": "claude-opus-5-5",
+        "status": "idle",
+        "needsYou": false,
+        "unread": false,
+        "updatedAt": 1789982000000,
+        "agentName": "Claude",
+        "agentMark": "claude",
+        "modelLabel": "Opus 5.5",
+        "createdAt": 1789000000000,
+        "effort": null,
+        "permissionMode": "default",
+        "activityAt": 1789982000000,
+        "pinned": false
+      }
+    },
+    "session.fork": {
+      "session": {
+        "id": "01JFORK0000000000000000000",
+        "title": "Fork: Theme column",
+        "spaceId": "sp1",
+        "spaceName": "Realm",
+        "agent": "claude",
+        "model": "claude-opus-5-5",
+        "status": "idle",
+        "needsYou": false,
+        "unread": false,
+        "updatedAt": 1790000000000,
+        "agentName": "Claude",
+        "agentMark": "claude",
+        "modelLabel": "Opus 5.5",
+        "createdAt": 1790000600000,
+        "effort": null,
+        "permissionMode": "default",
+        "activityAt": 1790000600000,
+        "pinned": false
+      }
     }
   },
   "events": {
@@ -4010,6 +4149,15 @@
       {
         "id": "01JSESSION00000000000000000",
         "todos": []
+      }
+    ],
+    "session.saved": [
+      {
+        "id": "01JSESSION00000000000000000",
+        "seqs": [
+          2,
+          5
+        ]
       }
     ]
   },

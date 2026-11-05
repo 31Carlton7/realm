@@ -23,6 +23,7 @@ struct RootView: View {
                                 case .review(let id): ReviewView(reviewId: id)
                                 case .scheduled: ScheduledView()
                                 case .usage: UsageView()
+                                case .saved: SavedView()
                                 case .team: TeamView()
                                 }
                             }
@@ -30,6 +31,7 @@ struct RootView: View {
                         }
                 }
                 .renameAlert()
+                .sessionActionSheets()
                 // A lead's sub-agents, from its row's press-and-hold.
                 .sheet(item: subagentsLead) { lead in
                     SubagentsSheet(sessionId: lead.id)

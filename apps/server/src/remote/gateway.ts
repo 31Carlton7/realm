@@ -467,6 +467,14 @@ export class RemoteGateway {
         this.homeChanged();
         return;
       }
+      case "session.saved": {
+        // A turn saved or unsaved, on the Mac or another phone: each phone with the session open hears the set.
+        const p = payload as EventPayload<"session.saved">;
+        for (const c of this.channels.values()) {
+          if (c.send && c.ctx.sessions.has(p.sessionId)) this.sendEvent(c, "session.saved", { id: p.sessionId, seqs: p.seqs } satisfies MobileEventPayload<"session.saved">);
+        }
+        return;
+      }
       case "delegation.changed": {
         // A run began, settled or was collected: the lead's list of sub-agents is not what it was.
         const p = payload as EventPayload<"delegation.changed">;

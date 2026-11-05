@@ -84,6 +84,7 @@ public enum Envelope {
         case "session.subagents": return payload(EventSession.self).map { .sessionSubagents(id: $0.id) } ?? .unknown(name: name)
         case "session.goal": return payload(SessionGoalEvent.self).map(MobileEvent.sessionGoal) ?? .unknown(name: name)
         case "session.todos": return payload(SessionTodosEvent.self).map(MobileEvent.sessionTodos) ?? .unknown(name: name)
+        case "session.saved": return payload(SessionSavedEvent.self).map(MobileEvent.sessionSaved) ?? .unknown(name: name)
         case "home.changed": return .homeChanged
         case "work.changed": return .workChanged
         case "pair.result": return payload(PairResult.self).map(MobileEvent.pairResult) ?? .unknown(name: name)

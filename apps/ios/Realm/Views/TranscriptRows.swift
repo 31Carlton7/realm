@@ -18,7 +18,7 @@ struct TranscriptRowView: View {
             if let teammateId = row.fromTeammate { TeammateSaid(teammateId: teammateId, text: text) }
         case .user(let text):
             VStack(alignment: .trailing, spacing: 6) {
-                if !text.isEmpty { UserBubble(text: text) }
+                if !text.isEmpty { UserBubble(text: text, turn: PromptTurn(sessionId: sessionId, seq: row.seq)) }
                 if let files = row.sentFiles, !files.isEmpty { SentFiles(files: files, sessionId: sessionId) }
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
@@ -59,14 +59,31 @@ struct TranscriptRowView: View {
     }
 }
 
-/// What the person sent: right of the column, in a bubble a step off the transcript. Held, it copies.
-/// A teammate or a file it names reads as `@designer` in the accent, as the desktop draws its chip.
+/// The turn a sent message starts, which its press-and-hold saves or unsaves.
+struct PromptTurn: Equatable {
+    let sessionId: String
+    let seq: Int
+}
+
+/// What the person sent: right of the column, in a bubble a step off the transcript. Held, it copies,
+/// and where it starts a turn the Mac has, saves the turn or unsaves it; a saved one has a bookmark
+/// beside it. A teammate or a file it names reads as `@designer` in the accent, as the desktop draws
+/// its chip.
 struct UserBubble: View {
     let text: String
+    var turn: PromptTurn?
+    @Environment(AppModel.self) private var model
 
     var body: some View {
-        HStack {
+        let saved = turn.map { model.store.saved[$0.sessionId]?.contains($0.seq) == true } ?? false
+        HStack(alignment: .center, spacing: 8) {
             Spacer(minLength: 56)
+            if saved {
+                Image(systemName: "bookmark.fill")
+                    .font(.footnote)
+                    .foregroundStyle(Palette.ink3)
+                    .accessibilityLabel("Saved")
+            }
             Text(Self.named(text))
                 .font(.body)
                 .foregroundStyle(Palette.ink)
@@ -79,10 +96,16 @@ struct UserBubble: View {
                         UIPasteboard.general.string = text
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     }
+                    if let turn {
+                        Button(saved ? "Unsave turn" : "Save turn", systemImage: saved ? "bookmark.slash" : "bookmark") {
+                            model.toggleSaved(turn.seq, in: turn.sessionId)
+                        }
+                        .disabled(!model.isConnected)
+                    }
                 }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("You: \(String(Self.named(text).characters))")
+        .accessibilityLabel("You: \(String(Self.named(text).characters))\(saved ? ", saved" : "")")
     }
 
     static func named(_ text: String) -> AttributedString {
