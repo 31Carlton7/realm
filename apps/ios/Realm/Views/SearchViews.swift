@@ -222,64 +222,64 @@ struct FindBar: View {
 
     var body: some View {
         let typed = !query.trimmingCharacters(in: .whitespaces).isEmpty
-        GlassEffectContainer(spacing: 8) {
-            HStack(spacing: 8) {
-                HStack(spacing: 0) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(Palette.ink2)
-                        .padding(.trailing, 6)
-                        .accessibilityHidden(true)
-                    TextField("Find in session", text: $query)
-                        .focused($focused)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .submitLabel(.search)
-                        // Return goes on up the session, as the find starts from its foot.
-                        .onSubmit {
-                            if place.hasOlder { older() }
-                            focused = true
-                        }
-                        .foregroundStyle(Palette.ink)
-                        .accessibilityIdentifier("find-field")
-                    if typed {
-                        Text(place.words)
-                            .font(.subheadline)
-                            .monospacedDigit()
-                            .foregroundStyle(Palette.ink3)
-                            .lineLimit(1)
-                            .fixedSize()
-                            .padding(.leading, 6)
-                            .accessibilityIdentifier("find-place")
-                        Button(action: older) {
-                            Image(systemName: "chevron.up")
-                                .frame(width: 40, height: 44)
-                        }
-                        .disabled(!place.hasOlder)
-                        .accessibilityLabel(place.olderIsOnMac ? "Search earlier messages" : "Previous match")
-                        .accessibilityIdentifier("find-older")
-                        Button(action: newer) {
-                            Image(systemName: "chevron.down")
-                                .frame(width: 40, height: 44)
-                        }
-                        .disabled(!place.hasNewer)
-                        .accessibilityLabel("Next match")
-                        .accessibilityIdentifier("find-newer")
+        HStack(spacing: 8) {
+            HStack(spacing: 0) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(Palette.ink2)
+                    .padding(.trailing, 6)
+                    .accessibilityHidden(true)
+                TextField("Find in session", text: $query)
+                    .focused($focused)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.search)
+                    // Return goes on up the session, as the find starts from its foot.
+                    .onSubmit {
+                        if place.hasOlder { older() }
+                        focused = true
                     }
-                }
-                .font(.body)
-                .tint(Palette.ink)
-                .padding(.leading, 14)
-                .padding(.trailing, typed ? 2 : 14)
-                .frame(minHeight: 48)
-                .glassEffect(.regular, in: Capsule())
-                Button("Done", action: done)
-                    .font(.body.weight(.semibold))
                     .foregroundStyle(Palette.ink)
-                    .frame(minHeight: 48)
-                    .padding(.horizontal, 16)
-                    .glassEffect(.regular.interactive(), in: Capsule())
-                    .accessibilityIdentifier("find-done")
+                    .accessibilityIdentifier("find-field")
+                if typed {
+                    Text(place.words)
+                        .font(.subheadline)
+                        .monospacedDigit()
+                        .foregroundStyle(Palette.ink3)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .padding(.leading, 6)
+                        .accessibilityIdentifier("find-place")
+                    Button(action: older) {
+                        Image(systemName: "chevron.up")
+                            .frame(width: 40, height: 44)
+                    }
+                    .disabled(!place.hasOlder)
+                    .accessibilityLabel(place.olderIsOnMac ? "Search earlier messages" : "Previous match")
+                    .accessibilityIdentifier("find-older")
+                    Button(action: newer) {
+                        Image(systemName: "chevron.down")
+                            .frame(width: 40, height: 44)
+                    }
+                    .disabled(!place.hasNewer)
+                    .accessibilityLabel("Next match")
+                    .accessibilityIdentifier("find-newer")
+                }
             }
+            .font(.body)
+            .tint(Palette.ink)
+            .padding(.leading, 14)
+            .padding(.trailing, typed ? 2 : 14)
+            .frame(minHeight: 48)
+            .background(Fill.card, in: Capsule())
+            .floatingLift()
+            Button("Done", action: done)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Palette.ink)
+                .frame(minHeight: 48)
+                .padding(.horizontal, 16)
+                .background(Fill.card, in: Capsule())
+                .floatingLift()
+                .accessibilityIdentifier("find-done")
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
