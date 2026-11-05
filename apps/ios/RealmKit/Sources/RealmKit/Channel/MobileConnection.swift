@@ -539,9 +539,18 @@ public struct MobileAPI: Sendable {
         try await connection.call("agents.list", as: AgentList.self)
     }
 
-    public func openSession(id: String, limit: Int? = nil) async throws -> OpenedSession {
-        struct Params: Encodable, Sendable { let id: String; let limit: Int? }
-        return try await connection.call("session.open", params: Params(id: id, limit: limit), as: OpenedSession.self)
+    /// `from` reaches back to the row of that seq, a search's match, though it is further back than
+    /// `limit` rows. An older Mac ignores it.
+    public func openSession(id: String, limit: Int? = nil, from: Int? = nil) async throws -> OpenedSession {
+        struct Params: Encodable, Sendable { let id: String; let limit: Int?; let from: Int? }
+        return try await connection.call("session.open", params: Params(id: id, limit: limit, from: from), as: OpenedSession.self)
+    }
+
+    /// The desktop's search over sessions, in one profile, or in every profile for nil. A Mac before
+    /// it answers `METHOD_NOT_FOUND`.
+    public func search(_ query: String, profileId: String?) async throws -> [SearchHit] {
+        struct Params: Encodable, Sendable { let query: String; let profileId: String? }
+        return try await connection.call("search.query", params: Params(query: query, profileId: profileId), as: SearchResults.self).hits
     }
 
     public func closeSession(id: String) async throws {

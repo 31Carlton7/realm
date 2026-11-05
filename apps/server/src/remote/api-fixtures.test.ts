@@ -22,7 +22,8 @@ import { channel, fakeRpc, jpegHeader, machine, machineState, pngHeader, profile
  * the queue, the lead's sub-agents (one working, two ended), a space's teammates (one working, one idle, one archived) with one's chat, an edit to one, one made, one
  * archived, a new Lead and a new order, the plans and the month's spend, an empty
  * Review (it went with the first Teams), the scheduled tasks and one run now, the screens the theme column's space has open and a frame of one, a rename with a pin and an
- * archive, a move queued behind a turn and a session opened mid-move; and every event but `session.rows` and `session.status` —
+ * archive, a move queued behind a turn and a session opened mid-move, the desktop's search in every profile and in
+ * one; and every event but `session.rows` and `session.status` —
  * every one made by the real projector and the real `MobileApi`, over a fake of the desktop's RPC.
  * Generated, not hand-written, so this test also proves the committed file is what the code produces
  * today: `REALM_WRITE_FIXTURES=1 pnpm vitest run apps/server/src/remote/api-fixtures.test.ts` rewrites it.
@@ -319,6 +320,23 @@ async function generate(): Promise<Record<string, unknown>> {
   }, {
     "sessions.events": ((p: { id: string; afterSeq?: number; limit?: number; types?: string[] }) =>
       log.filter((e) => e.sessionId === p.id && e.seq > (p.afterSeq ?? 0) && (!p.types || p.types.includes(e.event.type))).slice(0, p.limit ?? 2_000)) as never,
+    // The desktop's search for "theme": the theme column by its title and its first answer, a pinned
+    // session by what was said in it, and in School a lecture's notes.
+    "search.query": ((p: { profileId: string }) => {
+      const none = { items: [], sessions: [], skills: [], memory: [] };
+      if (p.profileId === "p2") {
+        return { ...none, sessions: [{ sessionId: QUIET, spaceId: "sp3", title: "Lecture notes", seq: 1,
+          snippet: [{ text: "…the ", match: false }, { text: "theme", match: true }, { text: " of the lecture", match: false }] }] };
+      }
+      return {
+        ...none,
+        items: [{ itemId: `i-${S}`, spaceId: "sp1", itemKind: "session", title: "Theme column", snippet: [{ text: "Theme", match: true }, { text: " column", match: false }] }],
+        sessions: [
+          { sessionId: S, spaceId: "sp1", title: "Theme column", seq: 3, snippet: [{ text: "Filing the ", match: false }, { text: "theme", match: true }, { text: " issue", match: false }] },
+          { sessionId: OLDER[4]!, spaceId: "sp1", title: "Ship 2.0.3", seq: 1, snippet: [{ text: "Ship it with the ", match: false }, { text: "theme", match: true }, { text: " fix", match: false }] },
+        ],
+      };
+    }) as never,
     "checkpoints.turnDiff": (() => patch) as never,
     "iconAssets.list": (() => [{ id: "01JASSET", profileId: "p2", kind: "upload", mime: "image/png", dataText: `data:image/png;base64,${Buffer.from("a picture").toString("base64")}`, prompt: null, createdAt: 0 }]) as never,
     "agents.probe": (() => [
@@ -453,6 +471,8 @@ async function generate(): Promise<Record<string, unknown>> {
       "space.sessions": await call("space.sessions", { id: "sp1", offset: 0, limit: 4 }),
       "space.sessions:last": await call("space.sessions", { id: "sp1", offset: 4, limit: 4 }),
       "session.open": await call("session.open", { id: S, limit: 200 }),
+      "search.query": await call("search.query", { query: "theme" }),
+      "search.query:profile": await call("search.query", { query: "theme", profileId: "p1" }),
       "session.changes": await call("session.changes", { id: S, checkpointId: "01JCHECKPOINT0000000000000" }),
       "session.diff": await call("session.diff", { id: S, checkpointId: "01JCHECKPOINT0000000000000", path: "src/theme.ts" }),
       "session.file:image": await call("session.file", { id: S, path: made[0]!.path }),

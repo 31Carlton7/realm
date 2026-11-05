@@ -22,6 +22,10 @@ struct SessionView: View {
     @State private var viewport: CGFloat = 0
     @FocusState private var composing: Bool
     @State private var showsInfo = false
+    @State private var find = FindState()
+    /// The item a search opened the session at, and the words it matched, marked for a moment so the
+    /// eye finds them.
+    @State private var flashed: (item: String, words: String)?
 
     /// The items drawn at a time. Every one drawn is measured as it is, so the foot is where the
     /// transcript really ends at any text size — a lazy list places it by guesses, and a long answer
@@ -39,6 +43,9 @@ struct SessionView: View {
         let items = TranscriptLayout.items(transcript.rows.filter { !$0.isRequest(footRequest) && !$0.changedNothing },
                                            settled: status != .running && status != .waiting)
         let drawn = items.suffix(shown)
+        let finds = find.isOpen ? transcript.keys(saying: find.query) : []
+        let place = FindPlace(keys: finds, current: find.current, macHasEarlier: transcript.hasMore, asking: find.asking)
+        let found = find.current.flatMap { TranscriptLayout.itemId(holding: $0, in: items) }
         // A teammate's chat is headed by the teammate, and its replies are the teammate's.
         let teammate = model.work.teammate(chat: sessionId)
         ScrollView {
@@ -79,6 +86,7 @@ struct SessionView: View {
                             SpeakerLabel(session: row)
                         }
                         TranscriptItemView(item: item, sessionId: sessionId)
+                            .environment(\.findMark, findMark(on: item.id, found: found))
                     }
                     .keepsToOfferedWidth()
                     .freshEntrance(born: item.firstKey.flatMap { model.rowBirths[$0] })
@@ -153,9 +161,28 @@ struct SessionView: View {
         .background(Ground.transcript)
         .softEdges(ground: Ground.transcript)
         .safeAreaBar(edge: .bottom) {
-            SessionFoot(sessionId: sessionId, composing: $composing, showsLatest: !atBottom && !transcript.rows.isEmpty) {
-                scrollToBottom()
+            // A find is the foot's one bar while it is open: the composer, and the press for the newest
+            // row, come back when it is done.
+            if find.showsComposer {
+                SessionFoot(sessionId: sessionId, composing: $composing, showsLatest: !atBottom && !transcript.rows.isEmpty) {
+                    scrollToBottom()
+                }
+            } else {
+                FindBar(query: $find.query, place: place) {
+                    stepFind(place, older: true, items: items)
+                } newer: {
+                    stepFind(place, older: false, items: items)
+                } done: {
+                    find.close()
+                }
             }
+        }
+        .onChange(of: find.query) {
+            find.typed(matching: finds)
+            if let current = find.current { reveal(current, in: items) }
+        }
+        .onChange(of: MatchReady(live: transcript.isLive, rows: transcript.rows.count), initial: true) {
+            revealSearchMatch(transcript, items: items)
         }
         .navigationTitle(teammate?.name ?? row?.displayTitle ?? "Session")
         .navigationBarTitleDisplayMode(.inline)
@@ -176,7 +203,7 @@ struct SessionView: View {
                 .accessibilityIdentifier("session-title")
             }
             if let row {
-                ToolbarItem(placement: .topBarTrailing) { SessionMenu(row: row) }
+                ToolbarItem(placement: .topBarTrailing) { SessionMenu(row: row) { find.open() } }
                 .sharedBackgroundVisibility(.hidden)
             }
         }
@@ -204,6 +231,65 @@ struct SessionView: View {
         guard model.isConnected, let status = transcript.status ?? transcript.session?.status else { return model.macLine }
         return [status == .running ? "Working" : status.word, transcript.session?.spaceName]
             .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    /// Brings an item into the drawn window and to the middle of the screen, letting go of the foot.
+    private func reveal(_ rowKey: String, in items: [TranscriptItem]) {
+        guard let id = TranscriptLayout.itemId(holding: rowKey, in: items),
+              let index = items.firstIndex(where: { $0.id == id }) else { return }
+        shown = max(shown, items.count - index)
+        follows = false
+        Task { @MainActor in
+            // Drawn first, so there is a row of that id to scroll to.
+            await Task.yield()
+            withAnimation(Motion.animation(reduceMotion)) { position.scrollTo(id: id, anchor: .center) }
+        }
+    }
+
+    /// The next match a step of the find goes to. Before the oldest here, the Mac is asked for every row
+    /// it sends, and the step lands on the match before where the find stood, if one came.
+    private func stepFind(_ place: FindPlace, older: Bool, items: [TranscriptItem]) {
+        if let next = place.step(older: older) {
+            find.current = next
+            reveal(next, in: items)
+            return
+        }
+        guard older, place.olderIsOnMac else { return }
+        let stood = place.current
+        Task {
+            find.asking = true
+            await model.openEarlier(sessionId)
+            find.asking = false
+            let transcript = model.store.transcript(sessionId)
+            let keys = transcript.keys(saying: find.query)
+            let landed = FindPlace(keys: keys, current: stood, macHasEarlier: transcript.hasMore).step(older: true)
+            guard let landed else { return }
+            find.current = landed
+            let status = transcript.status ?? transcript.session?.status
+            reveal(landed, in: TranscriptLayout.items(transcript.rows, settled: status != .running && status != .waiting))
+        }
+    }
+
+    /// Opened from a search: once the Mac's rows are here, the message that matched is shown with its
+    /// words marked for a moment. Once only, and not over this iPhone's copy, which may not reach back to it.
+    private func revealSearchMatch(_ transcript: Transcript, items: [TranscriptItem]) {
+        guard transcript.isLive, !transcript.rows.isEmpty, let match = model.searchMatches[sessionId] else { return }
+        model.searchMatches[sessionId] = nil
+        guard let key = transcript.rowKey(matching: match.seq), let id = TranscriptLayout.itemId(holding: key, in: items) else { return }
+        reveal(key, in: items)
+        flashed = (id, match.words)
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            withAnimation(.easeOut(duration: 0.6)) { if flashed?.item == id { flashed = nil } }
+        }
+    }
+
+    /// The words marked in an item: while a find is open, its words wherever they appear, a step more
+    /// in the match it stands on; else a search's words in the message it opened the session at.
+    private func findMark(on item: String, found: String?) -> FindMark? {
+        if find.isOpen { return FindMark.find(find.query, current: item == found) }
+        guard let flashed, flashed.item == item else { return nil }
+        return .search(flashed.words)
     }
 
     private func scrollToBottom() {
@@ -244,6 +330,12 @@ private struct ScreensAsked: Equatable {
     let generation: Int
     let connected: Bool
     let status: SessionStatus?
+}
+
+/// The transcript as a search's match waits on it: fresh from the Mac, and how many rows it holds.
+private struct MatchReady: Equatable {
+    let live: Bool
+    let rows: Int
 }
 
 /// Where a transcript stands in its scroll view, as one value, so a change can be told apart from the
@@ -648,6 +740,16 @@ enum TranscriptLayout {
             close()
         }
         return items
+    }
+
+    /// The item a row is drawn in: its own, or the run of work or the fold it is in.
+    static func itemId(holding rowKey: String, in items: [TranscriptItem]) -> String? {
+        items.first { item in
+            switch item {
+            case .row(let row): row.key == rowKey
+            case .work(let rows, _), .folded(let rows, _): rows.contains { $0.key == rowKey }
+            }
+        }?.id
     }
 
     /// The items a reply opens with — the first after something the person said — which Manus heads

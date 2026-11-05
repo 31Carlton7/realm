@@ -42,6 +42,7 @@ private struct BlockView: View {
     let block: MarkdownBlock
     @Environment(\.proseGround) private var ground
     @Environment(\.legibilityWeight) private var legibilityWeight
+    @Environment(\.findMark) private var findMark
     /// Reading leading near ChatGPT's and Claude's, about 1.45 of the body's size: a reply is read, not
     /// scanned, and the system's own leading is set for a row of a list.
     @ScaledMetric(relativeTo: .body) private var lineSpacing: CGFloat = 5
@@ -138,7 +139,7 @@ private struct BlockView: View {
             if intent.contains(.strikethrough) { text[run.range].strikethroughStyle = .single }
             if run.link != nil { text[run.range].foregroundColor = Palette.accentInk }
         }
-        return text
+        return findMark?.marked(text) ?? text
     }
 }
 

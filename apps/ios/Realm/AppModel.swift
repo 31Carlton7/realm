@@ -142,6 +142,9 @@ final class AppModel {
     var queueCalls: [String: Set<String>] = [:]
     /// The person asked to pair again over the Mac this phone shows (after the Mac removed it).
     var pairingRequested = false
+    /// A session opened from a search, by the message that matched and the words searched for: it
+    /// opens there, and the words are shown, once.
+    var searchMatches: [String: SearchMatch] = [:]
     /// The profile Home shows, as the person last chose it for this Mac; nil until they choose.
     private(set) var keptProfile: ProfileChoice?
     private(set) var notificationStatus: UNAuthorizationStatus = .notDetermined
@@ -714,7 +717,7 @@ final class AppModel {
         }
         store.beginOpening(sessionId)
         do {
-            store.finishOpening(try await api.openSession(id: sessionId))
+            store.finishOpening(try await api.openSession(id: sessionId, from: searchMatches[sessionId]?.seq))
             updateActivities()
             saveTranscript(sessionId)
             await deliver(sessionId)
@@ -722,6 +725,29 @@ final class AppModel {
             store.cancelOpening(sessionId)
             report(error)
         }
+    }
+
+    /// The session again with as many of its rows as the Mac sends, for a find that has reached the
+    /// oldest of the rows here.
+    func openEarlier(_ sessionId: String) async {
+        guard let api, isConnected else { return }
+        store.beginOpening(sessionId)
+        do {
+            store.finishOpening(try await api.openSession(id: sessionId, limit: Self.mostRows))
+        } catch {
+            store.cancelOpening(sessionId)
+            report(error)
+        }
+    }
+
+    /// The most rows `session.open` sends (`SESSION_OPEN_MAX`).
+    static let mostRows = 1000
+
+    /// The Mac's search over the sessions of the profile Home shows. Nil where the Mac is away, is from
+    /// before search, or did not answer: then Home's own list is what is searched, and says so.
+    func search(_ query: String) async -> [SearchHit]? {
+        guard let api, isConnected else { return nil }
+        return try? await api.search(query, profileId: profileChoice.profileId)
     }
 
     func close(_ sessionId: String) async {

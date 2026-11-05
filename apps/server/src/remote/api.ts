@@ -3,13 +3,13 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import {
   AGENT_META, AGENT_SKILL_SUPPORT, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, defaultAccountId, hasAccounts, isSecretPath, keepLiveRefs, MAC_SKILL_ID, mentionIds, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, PERMISSION_MODES, readEffortSupport,
-  resolveMidTurnMode, runnableCommands, SELECTABLE_AGENT_KINDS, TeammateIconSchema, withStreamed, type AgentKind, type DelegatedChild, type IconAsset, type Item, type Machine, type MethodResult, type ModelInfo,
+  resolveMidTurnMode, runnableCommands, SEARCH_GROUP_LIMIT_MAX, SELECTABLE_AGENT_KINDS, TeammateIconSchema, withStreamed, type AgentKind, type DelegatedChild, type IconAsset, type Item, type Machine, type MethodResult, type ModelInfo,
   type Goal, type PendingMove, type QueuedPrompt, type Schedule, type Session, type Skill, type Space, type StoredSessionEvent, type Teammate, type TeammateIcon, type TurnChanges,
 } from "@realm/contracts";
 import { givenAttachmentName, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
 import {
-  MobileCalls, RECENT_LIMIT, SEND_LIMITS, type Goal as PhoneGoal, type Home, type MentionRef, type MobileErrorCode, type MobileMethod, type MobileParams, type MobileResult, type MoveOptions, type QueuedMessage,
-  type ScheduledTask, type Screen, type SessionOptions, type SessionRow, type Subagent, type Teammate as PhoneTeammate,
+  MobileCalls, RECENT_LIMIT, SEND_LIMITS, SESSION_OPEN_MAX, type Goal as PhoneGoal, type Home, type MentionRef, type MobileErrorCode, type MobileMethod, type MobileParams, type MobileResult, type MoveOptions, type QueuedMessage,
+  type ScheduledTask, type Screen, type SearchHit, type SessionOptions, type SessionRow, type Subagent, type Teammate as PhoneTeammate,
 } from "@realm/remote";
 import {
   agentsAtWork, FALLBACK_AGENT, isChild, isLive, LAST_AGENT_SETTING, LAST_MODELS_SETTING, needsYou, nestChildren, QUICK_CHAT_SETTING, quickChatIdOf, subagentState, upcomingOrder, type NeedsYouState,
@@ -212,6 +212,19 @@ const optionsInput = (probe: ProbeRow | null, init: InitFacts | null, shared: Sh
 
 /** What a lead's row says of its sub-agents, as the sidebar's row says it (`agentsWaiting`): how many,
  *  how many wait on a request, and the one that has waited longest. */
+/** Where a session's opening rows start: the newest `limit`, reaching back to the row of `from` where
+ *  that is further, but never to more than `SESSION_OPEN_MAX` rows. A row keeps its place and takes the
+ *  seq of the event that last changed it, so where none has `from` itself, the first with a later seq
+ *  stands at or before where it was. */
+export function openingRow(rows: readonly { seq: number }[], limit: number, from?: number): number {
+  const newest = Math.max(0, rows.length - limit);
+  if (from === undefined) return newest;
+  const exact = rows.findIndex((r) => r.seq === from);
+  const at = exact !== -1 ? exact : rows.findIndex((r) => r.seq >= from);
+  if (at === -1) return newest;
+  return Math.max(Math.min(at, newest), rows.length - SESSION_OPEN_MAX);
+}
+
 function subagentsOn(agents: readonly Session[]): Pick<SessionRow, "subagents" | "subagentsWaiting" | "subagentWaiting"> {
   const waiting = agents.filter((a) => a.status === "waiting_permission").sort((a, b) => a.updatedAt - b.updatedAt);
   return { subagents: agents.length, subagentsWaiting: waiting.length, ...(waiting[0] ? { subagentWaiting: waiting[0].id } : {}) };
@@ -263,7 +276,8 @@ export class MobileApi {
         case "ping": return { at: Date.now() };
         case "home.get": return await this.home(rpc, (p.profileId as string | undefined) ?? null);
         case "space.sessions": return await this.spaceSessions(rpc, p.id as string, p.offset as number, p.limit as number);
-        case "session.open": return await this.open(ctx, p.id as string, p.limit as number);
+        case "session.open": return await this.open(ctx, p.id as string, p.limit as number, p.from as number | undefined);
+        case "search.query": return await this.search(rpc, p.query as string, (p.profileId as string | undefined) ?? null);
         case "session.close": ctx.sessions.delete(p.id as string); return { ok: true };
         case "session.update": return await this.update(rpc, p as MobileParams<"session.update">);
         case "session.queue": return await this.queue(rpc, p.id as string);
@@ -460,7 +474,7 @@ export class MobileApi {
       const agents = agentsOf.get(s.id);
       return agents ? { ...own, ...subagentsOn(agents) } : own;
     };
-    return { spaces: lists.spaces, spaceById, waiting, listed, row };
+    return { spaces: lists.spaces, spaceById, waiting, listed, row, sessions: lists.sessions, items: lists.items };
   }
 
   /** Every space's newest few and Needs you, across every profile; `recent` in the profile asked for.
@@ -486,6 +500,37 @@ export class MobileApi {
       profileId: scope,
       recent: listed.filter((s) => scope === null || profileOf(s.spaceId) === scope).slice(0, RECENT_LIMIT).map((s) => row(s)),
     };
+  }
+
+  /** The desktop's search (`search.query`) as the palette lists its sessions: the ones whose title
+   *  matched, then the ones where something said matched, each once, with its best message. In the
+   *  profile asked for, or profile by profile in the desktop's order where none is, or none the Mac has. */
+  private async search(rpc: RpcPort, query: string, profileId: string | null): Promise<MobileResult<"search.query">> {
+    const [{ row, sessions, items }, profiles] = await Promise.all([this.listing(rpc), rpc.call("profiles.list", {})]);
+    const scope = profiles.some((pr) => pr.id === profileId) ? [profileId!] : profiles.map((pr) => pr.id);
+    const found = await Promise.all(scope.map((id) => rpc.call("search.query", { profileId: id, query, limit: SEARCH_GROUP_LIMIT_MAX })));
+    const sessionById = new Map(sessions.map((s) => [s.id, s]));
+    const sessionOfItem = new Map(items.filter((it) => it.kind === "session").map((it) => [it.id, it.refId]));
+    const hits = new Map<string, Omit<SearchHit, "session">>();
+    for (const results of found) {
+      for (const hit of results.items) {
+        const id = hit.itemKind === "session" ? sessionOfItem.get(hit.itemId) : undefined;
+        if (id && !hits.has(id)) hits.set(id, { title: hit.snippet, message: null });
+      }
+    }
+    for (const results of found) {
+      for (const hit of results.sessions) {
+        const known = hits.get(hit.sessionId);
+        if (known) known.message ??= { seq: hit.seq, snippet: hit.snippet };
+        else hits.set(hit.sessionId, { title: null, message: { seq: hit.seq, snippet: hit.snippet } });
+      }
+    }
+    const out: SearchHit[] = [];
+    for (const [id, hit] of hits) {
+      const session = sessionById.get(id);
+      if (session) out.push({ session: row(session), ...hit });
+    }
+    return { hits: out };
   }
 
   /** One page of a space's listed sessions, by Home's rule and in Home's order. */
@@ -624,7 +669,7 @@ export class MobileApi {
     return newest > 0 && seq >= newest ? Math.max(seq, open.projector.seq) : seq;
   }
 
-  private async open(ctx: ChannelContext, id: string, limit: number): Promise<MobileResult<"session.open">> {
+  private async open(ctx: ChannelContext, id: string, limit: number, from?: number): Promise<MobileResult<"session.open">> {
     // Opened again, it keeps the sub-agents the phone has read of it: their changes are still its list's.
     const entry: OpenSession = {
       projector: new SessionProjector({ attachmentsDir: tempAttachmentDir(this.o.realmHome), home: this.o.userHome ?? homedir() }), buffer: [], queued: null, move: null,
@@ -667,9 +712,10 @@ export class MobileApi {
       const input = needsYouInput(lists);
       const need = new Set(needsYou(input).map((r) => r.session.id));
       const all = entry.projector.all();
+      const first = openingRow(all, limit, from);
       return {
         session: this.row(session, item, lists.spaces.find((s) => s.id === session.spaceId), need, agentsAtWork(input), probe, goal, ran),
-        rows: all.slice(-limit), hasMore: all.length > limit, hint: entry.projector.hint, queued: this.queuedMessages(queued),
+        rows: all.slice(first), hasMore: first > 0, hint: entry.projector.hint, queued: this.queuedMessages(queued),
         move: pendingMove(move), goal: phoneGoal(goal), todos: entry.projector.todos,
       };
     } catch (e) {
