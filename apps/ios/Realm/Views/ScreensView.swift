@@ -52,6 +52,9 @@ struct ScreensSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var selected: String?
+    /// A browser or terminal of the space's, picked from the menu: its viewer, over the sheet.
+    @State private var browser: BrowserPane?
+    @State private var terminal: TerminalPane?
     @State private var paused = false
     @State private var picture: ScreenPicture?
     @State private var trouble: String?
@@ -62,6 +65,12 @@ struct ScreensSheet: View {
     static let maxSide = 1000
     /// Between one picture's arrival and asking for the next.
     static let interval: Duration = .seconds(1)
+
+    /// `initial` is the screen it opens on, else the first.
+    init(sessionId: String, initial: String? = nil) {
+        self.sessionId = sessionId
+        _selected = State(initialValue: initial)
+    }
 
     struct ScreenPicture: Equatable {
         let screenId: String
@@ -122,12 +131,29 @@ struct ScreensSheet: View {
                     Button("Close", systemImage: "xmark") { dismiss() }
                 }
                 .sharedBackgroundVisibility(.hidden)
-                if screens.count > 1, let screen {
+                let panes = model.sessionPanes[sessionId]
+                let others = (panes?.browsers.isEmpty ?? true) && (panes?.terminals.isEmpty ?? true) ? nil : panes
+                if screens.count > 1 || others != nil, let screen {
                     ToolbarItem(placement: .topBarTrailing) {
                         Menu {
                             Picker("Screen", selection: Binding(get: { screen.id }, set: { selected = $0 })) {
                                 ForEach(screens) { screen in
                                     Label(screen.name, systemImage: ScreenWords.glyph(screen.kind)).tag(screen.id)
+                                }
+                            }
+                            // The space's other panes, grouped as the desktop names them: each opens its viewer.
+                            if let others, !others.browsers.isEmpty {
+                                Section("Browsers") {
+                                    ForEach(others.browsers) { pane in
+                                        Button(pane.name, systemImage: PaneWords.browserGlyph) { browser = pane }
+                                    }
+                                }
+                            }
+                            if let others, !others.terminals.isEmpty {
+                                Section("Terminals") {
+                                    ForEach(others.terminals) { pane in
+                                        Button(pane.name, systemImage: PaneWords.terminalGlyph) { terminal = pane }
+                                    }
                                 }
                             }
                         } label: {
@@ -142,7 +168,17 @@ struct ScreensSheet: View {
         }
         .presentationDetents([.large])
         .presentationBackground(Ground.grouped)
-        .task { await model.loadScreens(sessionId) }
+        .task {
+            async let screens: Void = model.loadScreens(sessionId)
+            async let panes: Void = model.loadPanes(sessionId)
+            _ = await (screens, panes)
+        }
+        .fullScreenCover(item: $browser) { pane in
+            BrowserViewer(sessionId: sessionId, pane: pane)
+        }
+        .fullScreenCover(item: $terminal) { pane in
+            TerminalViewer(sessionId: sessionId, pane: pane)
+        }
         .task(id: Watch(screen: screen, paused: paused, connected: model.isConnected)) {
             await watch(screen)
         }

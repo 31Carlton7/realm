@@ -58,6 +58,11 @@ const BRIEF_SESSION = "01JBRIEF000000000000000000";
 /** The theme column forked from a phone. */
 const FORK = "01JFORK0000000000000000000";
 const SIM = "01JSIMULATOR00000000000001";
+/** The Realm space's browser and terminal panes. */
+const DOCS = "01JBROWSER0000000000000001";
+const ADMIN = "01JBROWSER0000000000000002";
+const SHELL = "01JTERMINAL000000000000001";
+const BUILD = "01JTERMINAL000000000000002";
 const PHONE = "01JSIMULATOR00000000000002";
 const TEXTEDIT = "01JMACHINE0000000000000001";
 const GUEST = "01JMACHINE0000000000000002";
@@ -304,7 +309,11 @@ async function generate(): Promise<Record<string, unknown>> {
   const items = [item(S, "sp1", "Theme column"), item(CODEX, "sp2", "The deck"), item(QUIET, "sp3", "Lecture notes"),
     // Pinned in the sidebar, so Home lists it in Pinned.
     ...["Tidy the settings page", "Plan the release", "Fix the flaky upload test", "Audit the sign-in sheet", "Ship 2.0.3", "Write the changelog"]
-      .map((title, i) => item(OLDER[i]!, "sp1", title, { pinned: i === 4 }))];
+      .map((title, i) => item(OLDER[i]!, "sp1", title, { pinned: i === 4 })),
+    // The Realm space's panes: a browser on the docs, loaded, and one given up for memory; a shell and a build that ended.
+    item(DOCS, "sp1", "Realm docs", { kind: "browser", favicon: `data:image/png;base64,${Buffer.from("an icon").toString("base64")}` }),
+    item(ADMIN, "sp1", "Admin", { kind: "browser" }),
+    item(SHELL, "sp1", "realm", { kind: "terminal" }), item(BUILD, "sp1", "build", { kind: "terminal" })];
   const rpc = fakeRpc({
     profiles: [profile("p1", "Work", "briefcase-01"), profile("p2", "School", "emoji:🎓")],
     spaces: [space("sp1", "Realm", "code"), space("sp2", "Deck", "emoji:🌊"), space("sp3", "School", "asset:01JASSET", "p2")],
@@ -407,6 +416,18 @@ async function generate(): Promise<Record<string, unknown>> {
     "teammates.reorder": ((p: { order: { id: string; group: string | null }[] }) => p.order.map((o) => ({ ...(o.id === CTO ? cto : designer), group: o.group }))) as never,
     "teammates.home": ((p: { id: string }) => ({ sessionId: p.id === CTO ? CTO_CHAT : DESIGNER_CHAT })) as never,
     "simulators.capture": (() => ({ data: pngHeader(1206, 2622).toString("base64"), mimeType: "image/png", width: 1206, height: 2622 })) as never,
+    "browsers.views": (() => ({ browserIds: [DOCS] })) as never,
+    "browsers.get": ((p: { browserId: string }) => ({ id: p.browserId, spaceId: "sp1", url: p.browserId === DOCS ? "http://localhost:4000/docs" : "https://admin.example.com/", title: "", favicon: "", createdAt: 0, updatedAt: 0 })) as never,
+    // The page as main makes it, its password fields covered: here its JPEG header alone, at the side asked for.
+    "browsers.capture": ((p: { maxSide: number }) => ({ data: jpegHeader(p.maxSide, Math.round(p.maxSide * 0.625)).toString("base64"), width: p.maxSide, height: Math.round(p.maxSide * 0.625) })) as never,
+    "terminals.list": ((p: { spaceId: string }) => (p.spaceId !== "sp1" ? [] : [
+      { terminalId: SHELL, spaceId: "sp1", cwd: "/Users/me/realm", command: null, running: true, exitCode: null, signal: null, startedAt: 0, exitedAt: null },
+      { terminalId: BUILD, spaceId: "sp1", cwd: "/Users/me/realm", command: "pnpm build", running: false, exitCode: 0, signal: 0, startedAt: 0, exitedAt: 1 },
+    ])) as never,
+    // A shell's first read: the screen the last shell left, then this one's prompt and a coloured `ls`.
+    "terminals.read": (() => ({ runId: "01JRUN0000000000000000000A", seq: 4, truncated: false, running: true,
+      history: { data: "\u001b[2mLast login: Tue Nov  4 08:00\u001b[0m", cols: 80, rows: 24 },
+      live: "\u001b[1;34mme@mac\u001b[0m realm % ls\r\n\u001b[1;36mapps\u001b[0m  \u001b[1;36mpackages\u001b[0m  README.md\r\n\u001b[31merror\u001b[0m \u001b[38;5;214mwarn\u001b[0m \u001b[38;2;0;200;120mok\u001b[0m\r\n" })) as never,
     // The composer's lists: the space's skills, the person's own commands, and the checkout's files.
     "skills.list": (() => ({ root: "/Users/me/Realm/skills", skills: [
       { id: "code-review", name: "Code review", description: "Review the diff for bugs before it ships", path: "/Users/me/Realm/skills/code-review/SKILL.md", enabled: true, valid: true },
@@ -511,6 +532,9 @@ async function generate(): Promise<Record<string, unknown>> {
       "session.expandCommand": await call("session.expandCommand", { id: S, name: "changelog", args: "2.8.0" }),
       "session.screens": await call("session.screens", { id: S }),
       "session.screen": frame,
+      "session.panes": await call("session.panes", { id: S }),
+      "session.browserFrame": await frames.handle(channel(rpc), "session.browserFrame", { id: S, browserId: DOCS, maxSide: 1000 }).then((f) => ({ ...(f as object), capturedAt: 1_790_000_500_000 })),
+      "session.terminal": await call("session.terminal", { id: S, terminalId: SHELL, cursor: null }),
       "session.open:moved": await call("session.open", { id: OLDER[0]!, limit: 200 }),
       "session.open:blocked": await call("session.open", { id: OLDER[3]!, limit: 200 }),
       "session.goalControl": await call("session.goalControl", { id: S, action: "pause" }),

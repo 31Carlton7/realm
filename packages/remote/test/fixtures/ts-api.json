@@ -3883,6 +3883,54 @@
       "height": 1000,
       "capturedAt": 1790000500000
     },
+    "session.panes": {
+      "browsers": [
+        {
+          "id": "01JBROWSER0000000000000001",
+          "name": "Realm docs",
+          "url": "http://localhost:4000/docs",
+          "favicon": {
+            "mime": "image/png",
+            "data": "YW4gaWNvbg=="
+          },
+          "live": true
+        },
+        {
+          "id": "01JBROWSER0000000000000002",
+          "name": "Admin",
+          "url": "https://admin.example.com/",
+          "live": false
+        }
+      ],
+      "terminals": [
+        {
+          "id": "01JTERMINAL000000000000001",
+          "name": "realm",
+          "detail": "~/realm",
+          "running": true
+        },
+        {
+          "id": "01JTERMINAL000000000000002",
+          "name": "build",
+          "detail": "pnpm build",
+          "running": false
+        }
+      ]
+    },
+    "session.browserFrame": {
+      "mime": "image/jpeg",
+      "data": "/9j/wAARCAJxA+gDASIAAhEBAxEB/9k=",
+      "width": 1000,
+      "height": 625,
+      "capturedAt": 1790000500000
+    },
+    "session.terminal": {
+      "runId": "01JRUN0000000000000000000A",
+      "seq": 4,
+      "text": "\u001b[2mLast login: Tue Nov  4 08:00\u001b[0m\r\n\u001b[1;34mme@mac\u001b[0m realm % ls\r\n\u001b[1;36mapps\u001b[0m  \u001b[1;36mpackages\u001b[0m  README.md\r\n\u001b[31merror\u001b[0m \u001b[38;5;214mwarn\u001b[0m \u001b[38;2;0;200;120mok\u001b[0m\r\n",
+      "reset": true,
+      "running": true
+    },
     "session.open:moved": {
       "session": {
         "id": "01JREALM000000000000000001",

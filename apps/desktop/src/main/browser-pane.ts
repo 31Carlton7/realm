@@ -1,4 +1,4 @@
-import { WebContentsView, app, screen, session, type BrowserWindow, type HandlerDetails, type WebContents, type WindowOpenHandlerResponse } from "electron";
+import { WebContentsView, app, nativeImage, screen, session, type BrowserWindow, type HandlerDetails, type WebContents, type WindowOpenHandlerResponse } from "electron";
 import { FAVICON_MAX_BYTES, type BrowserLoadError } from "@realm/contracts";
 import {
   BrowserPaneHost, FAVICON_FETCH_MS, PageLoad, browserUserAgent, createFaviconResolver, isFindShortcut, normalizeAddress, popupBounds, popupTitle, readCapped,
@@ -6,6 +6,7 @@ import {
 } from "./browser-host";
 import { attachTextContextMenu } from "./text-context-menu";
 import { PAGE_BUSY, TypedSince } from "./page-busy";
+import { bothReads, coverFields, fitWithin, pageFields, SECRET_FIELDS, WITHHELD } from "./phone-frame";
 import { refuseCapture } from "./capture-guard";
 import type { CdpBinding } from "./browser-agent-host";
 import { asDownloadItem, type DownloadDecision, type DownloadItemLike } from "./downloads";
@@ -366,6 +367,12 @@ export type BrowserPane = {
    *  The VIEW's own capture: the window's `capturePage` composites no child view and comes back blank
    *  over the whole of the page. */
   capture(id: string): Promise<Uint8Array | null>;
+  /** The panes whose page is loaded now: what a phone may watch. */
+  phoneViews(): string[];
+  /** The page as a phone is shown it (phone-frame.ts): a JPEG at most `maxSide` long, its secret
+   *  fields covered. Null data when the page is not loaded — never loaded for this — and `withheld`
+   *  when it holds a secret field this cannot cover. */
+  phoneFrame(id: string, o: { maxSide: number; quality: number }): Promise<{ data: string | null; width: number; height: number; withheld?: string }>;
   /** The partition the view lives in — its profile's — or null when there is no view. */
   partitionOf(id: string): string | null;
   /** Where the view's page sits in the window, in window points, and how many of those a CSS pixel is
@@ -480,6 +487,43 @@ export function createBrowserPane(win: BrowserWindow, installPasskeysFor?: Passk
       }
       const image = await wc.capturePage();
       return image.isEmpty() ? null : new Uint8Array(image.toPNG());
+    },
+    phoneViews: () => [...views].filter(([, wc]) => !wc.isDestroyed()).map(([id]) => id),
+    phoneFrame: async (id, o) => {
+      const none = { data: null, width: 0, height: 0 };
+      // Not `host.live`: a pane given up for memory stays given up, whoever is watching.
+      const wc = views.get(id);
+      if (!wc || wc.isDestroyed()) return none;
+      // A frame that does not answer within a second answers as one that lies: no picture.
+      const read = async () => {
+        const ask = (frame: Electron.WebFrameMain) => Promise.race([
+          frame.executeJavaScript(SECRET_FIELDS).catch(() => null),
+          new Promise((resolve) => setTimeout(() => resolve("late"), 1_000).unref?.()),
+        ]);
+        const top = await ask(wc.mainFrame);
+        const below = await Promise.all(wc.mainFrame.framesInSubtree.filter((f) => f !== wc.mainFrame).map(ask));
+        return pageFields(top, below);
+      };
+      const before = await read();
+      if (!before) return { ...none, withheld: WITHHELD };
+      // At a device preset, the emulated viewport, as `capture` takes it; else the view's own picture.
+      let image: Electron.NativeImage | null = null;
+      if (host.deviceOf(id) && wc.debugger.isAttached()) {
+        const shot = await wc.debugger.sendCommand("Page.captureScreenshot", { format: "png" }).catch(() => null) as { data?: string } | null;
+        if (shot?.data) image = nativeImage.createFromBuffer(Buffer.from(shot.data, "base64"));
+      }
+      image ??= await wc.capturePage(undefined, { stayHidden: true });
+      if (image.isEmpty()) return none;
+      const fields = bothReads(before, await read());
+      if (!fields) return { ...none, withheld: WITHHELD };
+      const size = image.getSize();
+      const small = image.resize({ ...fitWithin(size.width, size.height, o.maxSide), quality: "good" });
+      const { width, height } = small.getSize();
+      const bitmap = small.toBitmap({ scaleFactor: 1 });
+      if (bitmap.length !== width * height * 4) return { ...none, withheld: WITHHELD };
+      coverFields(bitmap, width, height, fields);
+      const jpeg = nativeImage.createFromBitmap(bitmap, { width, height }).toJPEG(o.quality);
+      return { data: jpeg.toString("base64"), width, height };
     },
     attachCdp: (id) => {
       host.live(id);

@@ -845,7 +845,7 @@ export function registerMethods(d: Deps): void {
     return d.terminals.open(p);
   });
   reg("terminals.list", (p) => d.terminals.list(p.spaceId));
-  reg("terminals.read", (p) => d.terminals.read(p.terminalId, p.cursor));
+  reg("terminals.read", (p) => d.terminals.read(p.terminalId, p.cursor, { peek: p.peek === true }));
   reg("terminals.write", (p) => { d.terminals.write(p.terminalId, p.data); return { ok: true as const }; });
   reg("terminals.prefill", async (p) => { await d.terminals.prefill(p.terminalId, p.command); return { ok: true as const }; });
   reg("terminals.resize", (p) => { d.terminals.resize(p.terminalId, p.cols, p.rows); return { ok: true as const }; });
@@ -862,6 +862,12 @@ export function registerMethods(d: Deps): void {
   reg("browsers.suggest", (p) => ({ pages: d.browsers.suggest(p.spaceId, p.query, p.limit) }));
   reg("browsers.recent", (p) => ({ pages: d.browsers.recent(p.spaceId, p.limit) }));
   reg("browsers.clearHistory", (p) => { d.browsers.clearHistory(p.profileId); return { ok: true as const }; });
+  // A phone watching a pane (mobile.v1): main has the views, and covers a page's password fields
+  // before its picture leaves it. With no window there is no page loaded to picture.
+  reg("browsers.views", async () => d.browserBridge.level === "window"
+    ? { browserIds: ((await d.browserBridge.call("phoneViews", {})) as { browserIds: string[] }).browserIds }
+    : { browserIds: [] });
+  reg("browsers.capture", async (p) => (await d.browserBridge.call("phoneFrame", p)) as MethodResult<"browsers.capture">);
 
   /* Machines (Plan 25 W3). `create` and `update` are the only two that take a password, and neither
      hands one back: `passwordStored` is a boolean about what happened, because with no encryption

@@ -663,6 +663,53 @@ export const SavedTurnEntrySchema = z.object({
 });
 export type SavedTurnEntry = z.infer<typeof SavedTurnEntrySchema>;
 
+/** A browser pane the session's space has open on the Mac, by the name its tab shows. */
+export const BrowserPaneSchema = z.object({
+  id: Id,
+  /** What its pane is called: the page's title, as the tab shows it. */
+  name: z.string(),
+  /** The address the pane shows, "" for a blank tab. */
+  url: z.string(),
+  /** The page's own icon, as the tab draws it: a PNG, JPEG, GIF, WebP or icon file, base64. Absent
+   *  when the page offered none, or only a picture a phone does not draw (SVG). */
+  favicon: z.object({ mime: z.string(), data: z.string() }).optional(),
+  /** There is a picture to fetch right now: the pane's page is loaded in Realm's window. */
+  live: z.boolean(),
+});
+export type BrowserPane = z.infer<typeof BrowserPaneSchema>;
+
+/** A terminal the session's space has open on the Mac. */
+export const TerminalPaneSchema = z.object({
+  id: Id,
+  /** What its pane is called ("realm"). */
+  name: z.string(),
+  /** Where it runs, a path the person reads ("~/Code/realm"), or the command it was started with. */
+  detail: z.string(),
+  /** Its shell or command is running. A terminal whose shell has not started since the Mac's Realm
+   *  did, and one whose command ended, are not. */
+  running: z.boolean(),
+});
+export type TerminalPane = z.infer<typeof TerminalPaneSchema>;
+
+/** Where a phone is in a terminal's output: the run it read and the last piece of it. */
+export const TerminalCursorSchema = z.object({ runId: z.string().max(64), seq: z.number().int() });
+
+/** How much of a terminal's output one `session.terminal` answer carries, in UTF-16 units. */
+export const TERMINAL_TEXT_MAX = 64 * 1024;
+
+/** A terminal's output since a phone's cursor, as the pty wrote it, colours and all. */
+export const TerminalOutputSchema = z.object({
+  runId: z.string(),
+  seq: z.number().int(),
+  /** The output itself, ANSI escapes included: at most TERMINAL_TEXT_MAX of it. */
+  text: z.string(),
+  /** `text` is the terminal's output from the top rather than what follows the cursor: the first
+   *  read, a shell that started again, or more output than one answer carries, kept from its end. */
+  reset: z.boolean(),
+  running: z.boolean(),
+});
+export type TerminalOutput = z.infer<typeof TerminalOutputSchema>;
+
 /** What a session runs on, as `session.configure` changes it and `session.create` starts it. */
 const sessionChoices = {
   /** A model by its id, or null for the agent's own default. */
@@ -888,6 +935,25 @@ export const MobileCalls = {
   "session.screen": {
     params: z.object({ id: Id, screenId: Id, kind: ScreenSchema.shape.kind, maxSide: z.number().optional() }),
     result: ScreenFrameSchema,
+  },
+  /** The browser and terminal panes the session's space has open on the Mac, each kind live first,
+   *  then by name. A Mac before them answers METHOD_NOT_FOUND, and the phone shows none. */
+  "session.panes": {
+    params: z.object({ id: Id }),
+    result: z.object({ browsers: z.array(BrowserPaneSchema), terminals: z.array(TerminalPaneSchema) }),
+  },
+  /** A picture of one of its browser panes as it is now, for a phone watching it, with every password
+   *  field covered: only a pane of the session's own space, and only while it is live. `maxSide` is
+   *  brought inside `SCREEN_SIDE`. */
+  "session.browserFrame": {
+    params: z.object({ id: Id, browserId: Id, maxSide: z.number().optional() }),
+    result: ScreenFrameSchema,
+  },
+  /** One of its terminals' output since `cursor`, for a phone following it: only a terminal of the
+   *  session's own space. Read only; nothing a phone sends reaches the terminal. */
+  "session.terminal": {
+    params: z.object({ id: Id, terminalId: Id, cursor: TerminalCursorSchema.nullable().default(null) }),
+    result: TerminalOutputSchema,
   },
   /** Where the session can be moved to on its Mac, and what would go with it and stay. A Mac before
    *  moves answers METHOD_NOT_FOUND, and the phone offers none. */

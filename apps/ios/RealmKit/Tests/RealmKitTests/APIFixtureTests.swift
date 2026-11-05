@@ -143,6 +143,29 @@ struct APIFixtureTests {
         #expect(frame.width == 460 && frame.height == 1000 && frame.capturedAt > 0)
     }
 
+    /// A session's browser and terminal panes, a picture of a page, and a terminal's output drawn as text.
+    @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
+    func aSessionsPanesAPageAndATerminalDecode() throws {
+        let panes = try Self.decode(SessionPanes.self, "calls", "session.panes")
+        #expect(panes.browsers.map(\.name) == ["Realm docs", "Admin"])
+        #expect(panes.browsers.map(\.live) == [true, false])
+        #expect(panes.browsers[0].url == "http://localhost:4000/docs")
+        #expect(panes.browsers[0].favicon == Data("an icon".utf8))
+        #expect(panes.browsers[1].favicon == nil)
+        #expect(panes.terminals == [TerminalPane(id: "01JTERMINAL000000000000001", name: "realm", detail: "~/realm", running: true),
+                                    TerminalPane(id: "01JTERMINAL000000000000002", name: "build", detail: "pnpm build", running: false)])
+        let frame = try Self.decode(ScreenFrame.self, "calls", "session.browserFrame")
+        #expect(frame.data.starts(with: [0xFF, 0xD8]))
+        #expect(frame.width == 1000 && frame.height == 625)
+        let output = try Self.decode(TerminalOutput.self, "calls", "session.terminal")
+        #expect(output.reset && output.running)
+        #expect(output.cursor == TerminalCursor(runId: "01JRUN0000000000000000000A", seq: 4))
+        var text = TerminalText()
+        text.feed(output.text)
+        #expect(text.lines.map(\.text) == ["Last login: Tue Nov  4 08:00", "me@mac realm % ls", "apps  packages  README.md", "error warn ok"])
+        #expect(text.lines[3].runs.map(\.style.foreground) == [.indexed(1), nil, .indexed(214), nil, .rgb(0, 200, 120)])
+    }
+
     @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
     func theHintEventDecodes() throws {
         let hints = try JSONSerialization.jsonObject(with: Self.part(["events", "session.hint"])) as? [Any] ?? []

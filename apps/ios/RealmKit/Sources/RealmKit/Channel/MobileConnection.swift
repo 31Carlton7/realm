@@ -671,6 +671,23 @@ public struct MobileAPI: Sendable {
                                          as: ScreenFrame.self)
     }
 
+    /// The browser and terminal panes open in the session's space, each kind live first.
+    public func panes(id: String) async throws -> SessionPanes {
+        try await connection.call("session.panes", params: SessionID(id: id), as: SessionPanes.self)
+    }
+
+    /// One picture of a browser pane's page, its password fields covered, no larger than `maxSide`.
+    public func browserFrame(id: String, browserId: String, maxSide: Int) async throws -> ScreenFrame {
+        struct Params: Encodable, Sendable { let id: String; let browserId: String; let maxSide: Int }
+        return try await connection.call("session.browserFrame", params: Params(id: id, browserId: browserId, maxSide: maxSide), as: ScreenFrame.self)
+    }
+
+    /// A terminal's output since `cursor`, or from the top with none.
+    public func terminal(id: String, terminalId: String, cursor: TerminalCursor?) async throws -> TerminalOutput {
+        struct Params: Encodable, Sendable { let id: String; let terminalId: String; let cursor: TerminalCursor? }
+        return try await connection.call("session.terminal", params: Params(id: id, terminalId: terminalId, cursor: cursor), as: TerminalOutput.self)
+    }
+
     public func spaceIcon(id: String) async throws -> SpacePicture {
         try await connection.call("space.icon", params: SessionID(id: id), as: SpacePicture.self)
     }

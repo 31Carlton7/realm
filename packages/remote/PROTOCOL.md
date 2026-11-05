@@ -532,6 +532,9 @@ else keeps its own name, whatever it looks like.
 | `space.icon` | `{id}` | `{mime, data}`: base64 |
 | `session.screens` | `{id}` | `{screens: [Screen]}`: the live first, then by name |
 | `session.screen` | `{id, screenId, kind: "simulator"\|"machine", maxSide?: number = 1000}` | `{mime: "image/jpeg", data, width: int, height: int, capturedAt: ms}`: `data` is base64 |
+| `session.panes` | `{id}` | `{browsers: [BrowserPane], terminals: [TerminalPane]}`: each kind live first, then by name |
+| `session.browserFrame` | `{id, browserId, maxSide?: number = 1000}` | a frame, as `session.screen` answers one, with every password field covered |
+| `session.terminal` | `{id, terminalId, cursor?: {runId, seq}\|null = null}` | `{runId, seq, text, reset: bool, running: bool}` |
 | `session.moveOptions` | `{id}` | `MoveOptions` |
 | `session.move` | `{id, to: {kind: "checkout", environmentId} \| {kind: "worktree"}, when?: "now"\|"after-turn"\|"stop" = "now"}` | `{session: SessionRow}`, once the move is done, or queued for `after-turn` |
 | `session.cancelMove` | `{id}` | `{cancelled: bool}`: false when there was nothing left to stop |
@@ -966,6 +969,50 @@ Screen {
   and what a server that stopped part way left there is cleared by the next one to start, once it is
   ten minutes old.
 
+**A session's panes are its space's too.** `session.panes` lists the browser and terminal panes the
+session's space has open on the Mac — the desktop's own names for them — whichever session opened
+them. A closed pane is not listed.
+
+```
+BrowserPane {
+  id,
+  name,                      what its tab is called: the page's title
+  url,                       the address it shows, "" for a blank tab
+  favicon?: {mime, data},    the page's own icon, base64: PNG, JPEG, GIF, WebP or an icon file; absent
+                             when the page offered none, or only an SVG
+  live: bool                 its page is loaded in one of Realm's windows: a pane given up for memory,
+                             and every pane while Realm has no window open, is not
+}
+TerminalPane {
+  id,
+  name,                      what its pane is called
+  detail,                    the command it was started with, else where it runs ("~/Code/realm")
+  running: bool              its shell or command is running; a command that ended is not
+}
+```
+
+- **`session.browserFrame`** is a picture of a browser pane's page as it is now, bounded exactly as a
+  screen's (`SCREEN_SIDE`, 320 KB, made again smaller twice) and taken by Realm's window from the pane's
+  own view. **Every field that could hold a secret is covered before the picture leaves the app**: a
+  password field (its dots, and its text once a page's Show password has made it plain), and any field
+  whose type, name, id or autocomplete names a password, a one-time code, a token or a card's number or
+  security code is painted over in flat grey, a little past its edges. Such a field inside a frame of
+  the page cannot be placed in the picture, so while one is on the page there is no picture: the answer
+  is `INTERNAL`, in the Mac's words, and the next call may bring one. A pane not live is `FORBIDDEN`,
+  and its page is never loaded to answer.
+- **At most one picture of a pane a second.** Every call for a pane within a second of its last picture
+  — the viewer's, another phone's — is answered with that picture. A phone asks about once a second
+  while its viewer is open, and nothing while it is not: listing the panes takes no picture.
+- **`session.terminal`** is a terminal's output since `cursor`, as its pty wrote it, ANSI escapes and
+  all, for a phone to draw. Following on from the cursor it last read, only what came after
+  (`reset: false`). With no cursor, a cursor of another run (the shell started again), or a gap the Mac
+  no longer holds, it is the whole of what the Mac holds — the screen the terminal's last shell left,
+  then this one's output — as `reset: true`. More than 64 KB (`TERMINAL_TEXT_MAX`) is cut to its end,
+  from the first line that starts inside it, and is `reset: true` too. A read never starts a terminal
+  that has not started since the Mac's Realm did. A shell echoes no password typed at its prompt, so
+  none is in its output.
+- **Read only.** No call writes to a terminal, resizes one, or acts on a page: a phone only looks.
+
 **A session moves within its Mac.** `session.moveOptions` is what the desktop's Move sheet reads:
 
 ```
@@ -1107,6 +1154,12 @@ phone read, and what bounds it:
 - **`review.file`**: a preview, as `session.file`'s, of one picture one of that review's items carries,
   by the exact path `review.get` gave, while it is a file inside its space's folder, through any link.
   Anything else, a file that holds a secret included, is `FORBIDDEN`.
+- **`session.panes`**, **`session.browserFrame`** and **`session.terminal`**: the browser and terminal
+  panes open in that session's space, by their panes' names, each browser's address and icon; a picture
+  of a browser's page as it is now, its password, one-time-code and card fields covered, at most once a
+  second and 1280 px; and a terminal's output as its pty wrote it, at most 64 KB an answer. A pane is
+  shared by every session in its space, and shows whatever is in it. Nothing a phone sends reaches a
+  pane. A pane of another space is not found.
 - **`schedules.list`** and **`schedules.runNow`**: every space's scheduled tasks, each with how its last
   run went and that run's session, and Run now. A task's instructions are not sent.
 - **`session.moveOptions`** and **`session.move`**: the paths and branches of the session's space's
@@ -1125,8 +1178,8 @@ phone read, and what bounds it:
   session in its space, and a picture shows whatever is on it: another session's work on a simulator,
   or any window on a machine's screen. A screen of another space is not found.
 
-Beyond those pictures, which show whatever is on a screen the person opened in that space, no call or
-event carries a terminal's output, a file outside those rules, another session's stream, any other
+Beyond those pictures and that output, which show whatever is in a pane the person opened in that
+space, no call or event carries a file outside those rules, another session's stream, any other
 setting, or a key.
 
 ### Events

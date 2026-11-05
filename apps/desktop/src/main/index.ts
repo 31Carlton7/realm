@@ -2228,6 +2228,14 @@ app.whenReady().then(async () => {
         // for a window that might open: a CDP click executed four minutes late against a page that
         // moved on is worse than a refusal.
         if (windows.size === 0) return Promise.reject(new Error("Realm's window is closed — open it from the menu bar, then try again"));
+        // A phone watching a pane: the views of every window, and a picture of one with its secret
+        // fields covered (phone-frame.ts). Neither loads a page or attaches to one.
+        if (op === "phoneViews") return Promise.resolve({ browserIds: [...windowPanes.values()].flatMap(({ pane }) => pane.phoneViews()) });
+        if (op === "phoneFrame") {
+          const { browserId, maxSide, quality } = params as { browserId: string; maxSide: number; quality: number };
+          const pane = [...windowPanes.values()].find((w) => w.pane.phoneViews().includes(browserId))?.pane;
+          return pane ? pane.phoneFrame(browserId, { maxSide, quality }) : Promise.resolve({ data: null, width: 0, height: 0 });
+        }
         return agentHost.handleOp(op, params);
       },
       onLog: (line) => console.error(line),
