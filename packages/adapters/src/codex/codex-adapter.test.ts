@@ -1,4 +1,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tempDir } from "@realm/test-utils";
 import { HIDDEN_ANSWER, type SessionEvent, type SessionEventOf, type SessionEventType } from "@realm/contracts";
@@ -1303,6 +1305,24 @@ describe("CodexAdapter model catalog", () => {
     process.env.FAKE_CODEX_MODEL_PAGES = "1";
     const r = await newAdapter().probe();
     expect(r.models).toEqual([{ id: "gpt-5.6-sol", label: "GPT-5.6-Sol", fastMode: false }, { id: "gpt-5.4-mini", label: "GPT-5.4-Mini", fastMode: false }]);
+  });
+
+  it.skipIf(process.platform === "win32")("with no bin given, asks the newest codex on PATH, not the first", async () => {
+    // The measured split: brew's stale cask ahead of nvm's newer npm copy on the server's PATH. The
+    // stale one here predates model/list, so running it leaves the picker without the CLI's catalog.
+    const install = (version: string, hooks: string) => {
+      const dir = tempDir("realm-codex-path-");
+      writeFileSync(join(dir, "codex"), `#!/bin/sh\nexport FAKE_CODEX_VERSION=${version} ${hooks}\nexec "${process.execPath}" "${FAKE}" "$@"\n`, { mode: 0o755 });
+      return dir;
+    };
+    vi.stubEnv("PATH", `${install("0.146.0", "FAKE_CODEX_NO_MODEL_LIST=1")}:${install("0.166.0", "")}:${process.env.PATH ?? ""}`);
+    try {
+      const r = await new CodexAdapter().probe();
+      expect(r.version).toBe("codex-cli 0.166.0");
+      expect(r.models?.map((m) => m.id)).toEqual(["gpt-5.6-sol", "gpt-5.6-terra"]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("degrades -32601 to models:null (a build from before model/list) without failing the probe, sticky", async () => {

@@ -3,7 +3,8 @@ import { promisify } from "node:util";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { findExecutable, spawnTarget } from "../spawn-target";
+import { newestExecutable } from "../newest-executable";
+import { spawnTarget } from "../spawn-target";
 
 const run = promisify(execFile);
 
@@ -86,7 +87,7 @@ async function locate(bin: string | undefined, o: ClaudeLookup): Promise<Located
   // Blank counts as unset, as it does for `agentBin` — the two must name the same binary.
   const override = bin ?? (env.REALM_CLAUDE_BIN?.trim() ? env.REALM_CLAUDE_BIN : undefined);
   if (override) return versionOf(override, env, false);
-  const found = findExecutable("claude", env);
+  const found = await newestExecutable("claude", env);
   const tried = found ? await versionOf(found, env, false) : null;
   if (tried?.ok) return tried;
   const carried = (o.bundled ?? bundledClaude)();
