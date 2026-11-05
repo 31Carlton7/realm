@@ -256,9 +256,6 @@ struct BrowserViewer: View {
             }
             .background(Ground.grouped)
             .navigationBarTitleDisplayMode(.inline)
-            // What scrolls under the bar stops at it, as the info sheet's rows do.
-            .toolbarBackground(Ground.grouped, for: .navigationBar)
-            .toolbarBackgroundVisibility(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     VStack(spacing: 1) {
@@ -277,6 +274,7 @@ struct BrowserViewer: View {
                     Button(role: .close) { dismiss() }
                         .accessibilityLabel("Close")
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
         }
         .task(id: PaneWatch(connected: model.isConnected, active: scenePhase == .active)) {
@@ -408,9 +406,6 @@ struct TerminalViewer: View {
             }
             .background(Ground.grouped)
             .navigationBarTitleDisplayMode(.inline)
-            // What scrolls under the bar stops at it, as the info sheet's rows do.
-            .toolbarBackground(Ground.grouped, for: .navigationBar)
-            .toolbarBackgroundVisibility(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     VStack(spacing: 1) {
@@ -430,6 +425,7 @@ struct TerminalViewer: View {
                     Button(role: .close) { dismiss() }
                         .accessibilityLabel("Close")
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
         }
         .task(id: PaneWatch(connected: model.isConnected, active: scenePhase == .active)) {
