@@ -1,12 +1,32 @@
 "use client"
 
 import { useEffect, useRef } from "react"
-import { clock, frame, frameLoop, init, surface, type Frame } from "vgpu"
+import { clock, frame, init, surface, type Frame } from "vgpu"
 
 import { PAGE, type Rect, type StageFactory, type StageInput } from "./stage"
 
 /** The moment a reduced-motion frame is composed at: past every concept's opening, before any loop repeats. */
 const STILL_SECONDS = 6
+
+/**
+ * The pace of a field nobody is moving. Left alone, a sky's own motion is slow (it turns a seventh of a
+ * degree a second; a hand-off takes two seconds to cross it), and drawing it at 120 frames a second on a
+ * ProMotion display shows nothing that 60 do not, at twice the GPU, the main thread, and the
+ * compositor's re-blur of every glass pane over it. So the field is drawn at most every
+ * `IDLE_FRAME_MS`, less half a 120 Hz frame of slack so a jittery timestamp never drops it to 40,
+ * unless the reader is moving the view.
+ */
+const IDLE_FRAME_MS = 1000 / 60 - 4
+
+/**
+ * How long after the reader last scrolled, pointed, or resized the field stays at the display's own
+ * rate. Those move the camera and the DOM it lines up with, and both have to step together on every
+ * frame the display shows.
+ */
+const SETTLE_MS = 600
+
+/** The opening's warp or dive is the one fast move nobody asks for; it is over within this. */
+const ARRIVAL_MS = 3000
 
 declare global {
   interface Window {
@@ -48,7 +68,12 @@ export function FieldCanvas({ create }: { create: StageFactory }) {
 
     // The pointer eases rather than snaps, so light drifts after it instead of twitching.
     const pointer = { x: window.innerWidth / 2, y: window.innerHeight / 2, tx: 0, ty: 0, presence: 0, target: 0, last: performance.now() }
+    let lastInput = performance.now() + ARRIVAL_MS - SETTLE_MS
+    const onInput = () => {
+      lastInput = Math.max(lastInput, performance.now())
+    }
     const onPointerMove = (event: PointerEvent) => {
+      onInput()
       if (event.pointerType !== "mouse") return
       pointer.tx = event.clientX
       pointer.ty = event.clientY
@@ -117,18 +142,30 @@ export function FieldCanvas({ create }: { create: StageFactory }) {
           window.__fieldFrames = (window.__fieldFrames ?? 0) + 1
         }
 
-        let loop: { stop(): void } | undefined
+        // The loop: every display frame while the reader is moving the view, at most every
+        // IDLE_FRAME_MS otherwise. A skipped tick touches nothing (no clock step, no resize, no
+        // submit), so the canvas keeps the frame it has, and the clock, which is wall time, carries
+        // the next one to the same moment the display's own rate would have.
+        let loop = 0
+        let lastDrawn = -Infinity
+        const tick = (now: number) => {
+          loop = requestAnimationFrame(tick)
+          if (now - lastInput > SETTLE_MS && now - lastDrawn < IDLE_FRAME_MS) return
+          lastDrawn = now
+          frame(gpu, paint)
+        }
         const start = () => {
           if (loop || still || document.visibilityState !== "visible" || !stageOnScreen()) return
-          loop = frameLoop(gpu, paint)
+          loop = requestAnimationFrame(tick)
         }
         const stop = () => {
-          loop?.stop()
-          loop = undefined
+          cancelAnimationFrame(loop)
+          loop = 0
         }
 
         let queued = false
         const onMoved = () => {
+          onInput()
           if (still) {
             if (queued) return
             queued = true
@@ -157,6 +194,8 @@ export function FieldCanvas({ create }: { create: StageFactory }) {
         root.addEventListener("pointerleave", onPointerLeave)
         window.addEventListener("scroll", onMoved, { passive: true })
         window.addEventListener("resize", onMoved)
+        // A press can throw a doorway open, which bursts faster than the sky's own motion.
+        window.addEventListener("pointerdown", onInput, { passive: true })
         document.addEventListener("visibilitychange", onVisibility)
         motionQuery.addEventListener("change", onMotionChange)
 
@@ -169,6 +208,7 @@ export function FieldCanvas({ create }: { create: StageFactory }) {
           root.removeEventListener("pointerleave", onPointerLeave)
           window.removeEventListener("scroll", onMoved)
           window.removeEventListener("resize", onMoved)
+          window.removeEventListener("pointerdown", onInput)
           document.removeEventListener("visibilitychange", onVisibility)
           motionQuery.removeEventListener("change", onMotionChange)
           stop()
