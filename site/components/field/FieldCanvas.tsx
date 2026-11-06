@@ -148,11 +148,14 @@ export function FieldCanvas({ create }: { create: StageFactory }) {
         // the next one to the same moment the display's own rate would have.
         let loop = 0
         let lastDrawn = -Infinity
+        // The next tick is asked for after the frame, as frameLoop did, so a frame that throws (a lost
+        // device) ends the loop instead of throwing again on every display frame.
         const tick = (now: number) => {
+          if (now - lastInput <= SETTLE_MS || now - lastDrawn >= IDLE_FRAME_MS) {
+            lastDrawn = now
+            frame(gpu, paint)
+          }
           loop = requestAnimationFrame(tick)
-          if (now - lastInput > SETTLE_MS && now - lastDrawn < IDLE_FRAME_MS) return
-          lastDrawn = now
-          frame(gpu, paint)
         }
         const start = () => {
           if (loop || still || document.visibilityState !== "visible" || !stageOnScreen()) return
