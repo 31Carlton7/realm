@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { sessionEvent, sessionLink, type TeammateTaskSession } from "@realm/contracts";
+import { sessionEvent, sessionLink, type SessionStatus, type TeammateTaskSession } from "@realm/contracts";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, session, space, profile, teammate, type FakeData } from "../../state/store.test-fakes";
 import { PanelBar } from "../../components/PanelBar";
@@ -291,8 +291,8 @@ describe("@ in a prompter", () => {
 });
 
 describe("a teammate's computer", () => {
-  async function mountComputer() {
-    const api = fakeApi(team());
+  async function mountComputer(over: FakeData = {}) {
+    const api = fakeApi(team(over));
     const store = createAppStore(api); await store.getState().boot();
     await act(() => store.getState().refreshTeammates());
     const r = render(<StoreContext.Provider value={store}><ComputerPane item={item("i-comp", "s1", { kind: "computer", refId: "cto", title: "Computer" })} visible /></StoreContext.Provider>);
@@ -308,9 +308,12 @@ describe("a teammate's computer", () => {
   });
 
   it("stops everything it is running, its chat and its live sessions, and says how many", async () => {
-    const { api } = await mountComputer();
+    const { api } = await mountComputer({ sessions: [
+      session("home-cto", "s1", { title: "cto", teammateId: "cto", teammateHome: true, status: "running" }),
+      session("t1", "s1", { title: "cto - sqlite search", teammateId: "cto", status: "running" }),
+    ] });
     await waitFor(() => expect(api.calls).toContain("teammateSessions:cto"));
-    fireEvent.click(screen.getByRole("button", { name: "Stop 1 session" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop 2 sessions" }));
     // THE MUTANT: Stop on the chat alone, leaving the session it started running.
     await waitFor(() => expect(api.calls.filter((c) => c.startsWith("interrupt:")).sort()).toEqual(["interrupt:home-cto", "interrupt:t1"]));
   });
@@ -333,13 +336,13 @@ describe("a teammate's work, on its computer", () => {
     task("plain", { title: "cto - tidy", updatedAt: now - 8000, outcome: null }),
   ];
 
-  async function mount(tasks: TeammateTaskSession[], over: FakeData = {}) {
+  async function mount(tasks: TeammateTaskSession[], over: FakeData = {}, homeStatus: SessionStatus = "idle") {
     const cto = teammate("cto", "s1", { name: "cto", handle: "cto", homeSessionId: "home-cto", taskSessions: tasks, icon: { shape: "hexagon", color: "blue" } });
     const design = teammate("design", "s1", { name: "design", handle: "design", icon: { shape: "cloud", color: "pink" } });
     const api = fakeApi(team({
       teammates: [cto, design],
       items: { s1: [sessionItem("home-cto", "cto"), ...tasks.map((t) => sessionItem(t.id, t.title))] },
-      sessions: [session("home-cto", "s1", { title: "cto", teammateId: "cto", teammateHome: true }), ...tasks.map((t) => session(t.id, "s1", { title: t.title, teammateId: t.teammateId }))],
+      sessions: [session("home-cto", "s1", { title: "cto", teammateId: "cto", teammateHome: true, status: homeStatus }), ...tasks.map((t) => session(t.id, "s1", { title: t.title, teammateId: t.teammateId }))],
       ...over,
     }));
     const store = createAppStore(api); await store.getState().boot();
@@ -359,6 +362,38 @@ describe("a teammate's work, on its computer", () => {
     expect(document.querySelector(".tm-needs")).toHaveTextContent("1 needs you");
     expect(screen.getByText(/^Today:/)).toHaveTextContent("Today: 1 PR opened · v2.7.2 shipped · 1 failed");
     expect(screen.getByRole("button", { name: "Stop 3 sessions" })).toBeInTheDocument();
+  });
+
+  const interrupted = (api: { calls: string[] }) => api.calls.filter((c) => c.startsWith("interrupt:")).sort();
+
+  it("names how many of the working sessions Stop stops when some are another teammate's", async () => {
+    const { api } = await mount([
+      task("live", { title: "cto - space rail tiles", state: "working", updatedAt: now - 60_000 }),
+      task("child", { title: "design - move notices", teammateId: "design", parentId: "live", state: "working", updatedAt: now - 2000 }),
+    ]);
+    // THE MUTANTS: the label counting only cto's own while the head counts both; the click reaching
+    // the hand-off on design, or the idle chat, which the label does not name.
+    expect(document.querySelector(".tm-headline")).toHaveTextContent("2 sessions working");
+    fireEvent.click(screen.getByRole("button", { name: "Stop 1 of 2 sessions" }));
+    await waitFor(() => expect(interrupted(api)).toEqual(["interrupt:live"]));
+  });
+
+  it("stops every working session when all are its own, and only those", async () => {
+    const { api } = await mount([
+      task("live", { title: "cto - space rail tiles", state: "working", updatedAt: now - 60_000 }),
+      task("live2", { title: "cto - type ladder", state: "working", updatedAt: now - 120_000 }),
+    ]);
+    expect(document.querySelector(".tm-headline")).toHaveTextContent("2 sessions working");
+    fireEvent.click(screen.getByRole("button", { name: "Stop 2 sessions" }));
+    await waitFor(() => expect(interrupted(api)).toEqual(["interrupt:live", "interrupt:live2"]));
+  });
+
+  it("counts its chat as working when only the chat runs, and stops just the chat", async () => {
+    const { api } = await mount([task("old", { title: "cto - quiet labels", updatedAt: now - DAY })], {}, "running");
+    // THE MUTANT: the head saying nothing runs while Stop offers to stop one.
+    expect(document.querySelector(".tm-headline")).toHaveTextContent("1 session working");
+    fireEvent.click(screen.getByRole("button", { name: "Stop 1 session" }));
+    await waitFor(() => expect(interrupted(api)).toEqual(["interrupt:home-cto"]));
   });
 
   it("puts the session that needs you first in Now, with Answer, then the working ones with a spinner", async () => {

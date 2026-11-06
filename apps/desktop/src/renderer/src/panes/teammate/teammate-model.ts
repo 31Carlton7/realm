@@ -1,4 +1,4 @@
-import { sideTabsOf, type Item, type Layout, type SimulatorState, type Teammate, type TeammateState, type TeammateTaskSession, type TerminalStatus } from "@realm/contracts";
+import { sideTabsOf, type Item, type Layout, type SessionStatus, type SimulatorState, type Teammate, type TeammateState, type TeammateTaskSession, type TerminalStatus } from "@realm/contracts";
 import { age } from "../code-review/code-review-model";
 
 /** The dot a teammate or one of its sessions wears, in the session rows' vocabulary (attention.ts),
@@ -62,8 +62,29 @@ export function headline(working: number, needsYou: number): { working: string; 
   };
 }
 
-/** What Stop stops, in its own label. */
-export const stopLabel = (sessions: number): string => `Stop ${plural(sessions, "session", "sessions")}`;
+/**
+ * What is live on a teammate's computer and what its Stop stops, read off one list so the headline
+ * and the button cannot disagree: its chat while it runs, and each listed session that works or waits
+ * on you. Stop reaches only the teammate's own; a session handed to another teammate is theirs to stop.
+ */
+export function liveWork(teammateId: string, homeId: string | null, homeStatus: SessionStatus | undefined, listed: readonly TeammateTaskSession[]):
+  { working: number; needsYou: number; live: number; stops: string[] } {
+  const homeState: TeammateState = homeStatus === "running" ? "working" : homeStatus === "waiting_permission" ? "needs-you" : "idle";
+  const live = [
+    ...(homeId && homeState !== "idle" ? [{ id: homeId, teammateId, state: homeState }] : []),
+    ...listed.filter((s) => s.state !== "idle"),
+  ];
+  return {
+    working: live.filter((s) => s.state === "working").length,
+    needsYou: live.filter((s) => s.state === "needs-you").length,
+    live: live.length,
+    stops: live.filter((s) => s.teammateId === teammateId).map((s) => s.id),
+  };
+}
+
+/** What Stop stops, in its own label, and out of how many when some of what is live is not its to stop. */
+export const stopLabel = (stops: number, live: number): string =>
+  stops === live ? `Stop ${plural(stops, "session", "sessions")}` : `Stop ${stops} of ${plural(live, "session", "sessions")}`;
 
 /** Midnight before `ts`, in the person's own time. */
 const dayStart = (ts: number): number => { const d = new Date(ts); d.setHours(0, 0, 0, 0); return d.getTime(); };

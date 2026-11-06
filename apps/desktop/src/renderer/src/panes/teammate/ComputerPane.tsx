@@ -11,7 +11,7 @@ import { useMinuteClock } from "../settings/usage/PlanCard";
 import { age } from "../code-review/code-review-model";
 import type { PaneProps } from "../registry";
 import {
-  doneDays, firstRows, headline, macResources, plainTitle, resourcesLine, sessionTree, stopLabel, todayLine,
+  doneDays, firstRows, headline, liveWork, macResources, plainTitle, resourcesLine, sessionTree, stopLabel, todayLine,
   type MacResource, type MacResourceKind, type SessionNode,
 } from "./teammate-model";
 
@@ -48,6 +48,7 @@ export function ComputerPane({ item }: PaneProps) {
   const layout = useApp((s) => s.layout);
   const sidePanes = useApp((s) => s.view?.sidePanes);
   const sessionTerminals = useApp((s) => s.sessionTerminals);
+  const homeStatus = useApp((s) => teammate?.homeSessionId ? s.sessionStatus[teammate.homeSessionId] : undefined);
   const simulators = useApp((s) => s.simulatorState);
   const now = useMinuteClock();
   const [showAll, setShowAll] = useState(false);
@@ -99,13 +100,9 @@ export function ComputerPane({ item }: PaneProps) {
 
   const handles = (team ?? [teammate]).map((t) => t.handle);
   const byId = new Map((team ?? [teammate]).map((t) => [t.id, t]));
-  const live = listed.filter((s) => s.state !== "idle" && s.teammateId === teammate.id);
-  const homeLive = teammate.state !== "idle" && live.length === 0;
-  const stopCount = live.length + (homeLive ? 1 : 0);
-  const stop = () => run(async () => {
-    await Promise.all([...(home ? [home] : []), ...live.map((s) => s.id)].map((id) => interruptSession(id)));
-  });
-  const head = headline(working.length, needsYou.length);
+  const work = liveWork(teammate.id, home, homeStatus, listed);
+  const stop = () => run(async () => { await Promise.all(work.stops.map((id) => interruptSession(id))); });
+  const head = headline(work.working, work.needsYou);
   const today = todayLine(listed, now);
   const onMac = resourcesLine(resources);
   const shown = showAll ? done : firstRows(done, DONE_SHOWN);
@@ -171,9 +168,9 @@ export function ComputerPane({ item }: PaneProps) {
       <header className="tm-report-head">
         <div className="tm-report-top">
           <span className="tm-report-where"><Icon name="laptop" size={14} /><span>{teammate.name}'s work on this Mac</span></span>
-          {stopCount > 0 && (
+          {work.stops.length > 0 && (
             <button type="button" className="btn tm-stop" title={`Stop everything ${teammate.name} is running`} onClick={stop}>
-              <Icon name="stop" size={12} />{stopLabel(stopCount)}
+              <Icon name="stop" size={12} />{stopLabel(work.stops.length, work.live)}
             </button>
           )}
         </div>
