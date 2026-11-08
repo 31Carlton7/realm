@@ -51,7 +51,7 @@ import { SecretStore, SecretStoreError } from "./secret-store";
 import { canPromptDeviceOwner, machineId, promptDeviceOwner } from "./device-owner";
 import { keychainPolicyStamp, policyStampHelper } from "./policy-stamp";
 import { livePresenceStandIn } from "./live-presence";
-import { liveScratch } from "./live-scratch";
+import { liveScratch, SCRATCH_TITLE } from "./live-scratch";
 import { PasskeyBroker } from "./passkeys";
 import { DesktopNotifier, type DesktopNotificationInput } from "./notify";
 import { applyReducedMotion } from "./reduced-motion";
@@ -70,7 +70,7 @@ import { attachTextContextMenu } from "./text-context-menu";
 import { windowOpenTarget } from "./link-open";
 import { appMenuTemplate, CHANGELOG_URL, pageChords, shouldPageOwn } from "./app-menu";
 import { readWindowState, restoredBounds, trackWindowState, windowStateFileName } from "./window-state";
-import { WindowRegistry, cascadeFrom, spaceForNewWindow } from "./window-registry";
+import { WindowRegistry, cascadeFrom, readSavedWindows, spaceForNewWindow, windowTitle, windowsToRestore, writeSavedWindows } from "./window-registry";
 import { registerFileActions } from "./file-actions";
 import { AppIconStore, registerAppIcon } from "./app-icon";
 import { registerAppearance, savedAppearance } from "./appearance";
@@ -179,13 +179,24 @@ async function browserOwner(browserId: string): Promise<{ profileId: string; par
   } catch { return null; }
 }
 
-/** Every window titled by the profile it shows, as the names stand now — a rename re-titles it. */
+/** Every space with its name and profile, as main last heard — what the windows are titled by. */
+let spaceNames: { id: string; profileId: string; name: string }[] = [];
+
+/** A window titled by the space it shows (`windowTitle`). A live check's window keeps saying it is
+ *  scratch. */
+function titleWindow(win: BrowserWindow): void {
+  const title = windowTitle(windows.spaceOf(win), windows.showing(win), spaceNames, (id) => profileDirectory.get(id)?.name);
+  win.setTitle(liveScratch({ packaged: app.isPackaged, env: process.env }) ? `${title} — ${SCRATCH_TITLE}` : title);
+}
+
+/** Every window titled as the names stand now — a space or profile renamed re-titles its window. */
 function retitleWindows(): void {
-  for (const win of windows.all()) {
-    const id = windows.showing(win);
-    const name = id ? profileDirectory.get(id)?.name : null;
-    if (name) win.setTitle(name);
-  }
+  for (const win of windows.all()) titleWindow(win);
+}
+
+async function refreshSpaceNames(): Promise<void> {
+  spaceNames = await listSpaces();
+  retitleWindows();
 }
 
 /** A deleted profile: its panes close, its partition's cookies, site data and cache are cleared — a
@@ -258,7 +269,7 @@ async function daemonCounts(): Promise<{ working: number; needsYou: number } | n
  * turned toasts off did not mean "except when the window is closed".
  */
 async function residentToast(payload: unknown) {
-  const p = payload as { notification?: { id?: unknown; title?: unknown; body?: unknown } | null; unread?: unknown } | undefined;
+  const p = payload as { notification?: { id?: unknown; title?: unknown; body?: unknown; spaceId?: unknown } | null; unread?: unknown } | undefined;
   if (typeof p?.unread === "number") desktopNotifier.badge(p.unread);
   const n = p?.notification;
   if (!n || typeof n.id !== "string" || typeof n.title !== "string") return;
@@ -266,7 +277,8 @@ async function residentToast(payload: unknown) {
     const enabled = await bridgeClient?.call("settings.get", { key: NOTIFICATIONS_DESKTOP_KEY });
     if ((enabled as { value?: unknown } | null)?.value === false) return;
   } catch { return; }
-  desktopNotifier.show({ id: n.id, title: n.title, body: typeof n.body === "string" ? n.body : null }, "main");
+  desktopNotifier.show({ id: n.id, title: n.title, body: typeof n.body === "string" ? n.body : null,
+    spaceId: typeof n.spaceId === "string" ? n.spaceId : null }, "main");
 }
 
 /** Refresh the tray from the daemon. Called on every `session.status` and on each reconnect, both of
@@ -545,7 +557,7 @@ app.commandLine.appendSwitch("disk-cache-size", String(256 * 1024 * 1024));
  * line (`window.realm.profileId`) so its first paint is already that profile's. With a `spaceId` too it
  * is that space's window (`window.realm.spaceId`), opened on it, with a view and a place of its own.
  */
-async function createWindow(info: { port: number; home: string; token: string }, profileId: string | null = null, spaceId: string | null = null) {
+async function createWindow(info: { port: number; home: string; token: string }, profileId: string | null = null, spaceId: string | null = null, land: string | null = null) {
   if (relaunchIfBundleReplaced()) return;
   // Where it was left (window-state.ts) — each profile window its own place. The primary display
   // first: a place that can no longer be reached is replaced by the saved size, centred there. A
@@ -569,15 +581,16 @@ async function createWindow(info: { port: number; home: string; token: string },
     webPreferences: { preload: join(__dirname, "../preload/index.mjs"), contextIsolation: true, sandbox: false,
       additionalArguments: [`--realm-port=${info.port}`, `--realm-home=${info.home}`, `--realm-token=${info.token}`,
         ...(profileId !== null ? [`--realm-profile=${profileId}`] : []),
-        ...(spaceId !== null ? [`--realm-space=${spaceId}`] : [])] },
+        ...(spaceId !== null ? [`--realm-space=${spaceId}`] : []),
+        ...(land !== null ? [`--realm-land=${land}`] : [])] },
   });
-  windows.add(win, profileId);
+  windows.add(win, profileId, spaceId);
   presence.check();
-  win.on("focus", () => windows.focused(win));
-  // The title is the profile's name — what the Window menu, Mission Control and the Dock list the
+  win.on("focus", () => { windows.focused(win); saveWindows(); });
+  // The title is the space's name — what the Window menu, Mission Control and the Dock list the
   // window by — and main sets it, so the page's own <title> does not put "Realm" back over it.
   win.on("page-title-updated", (e) => e.preventDefault());
-  if (profileId !== null && !scratch) win.setTitle(profileDirectory.get(profileId)?.name ?? "Realm");
+  titleWindow(win);
   // Every link in the app reaches main as a window request (they are all target="_blank"): denied as
   // a window, and opened where Settings ▸ General ▸ Links says — the default browser, or a Realm
   // Browser tab the renderer makes beside the session.
@@ -635,6 +648,7 @@ async function createWindow(info: { port: number; home: string; token: string },
     appPicks.set(pickKey, false);
     phases.stop();
     windows.remove(win);
+    saveWindows();
     presence.check();
     windowPanes.delete(id);
     if (appDriveWindow === id) { appDriveHost.forget(); appDriveWindow = null; }
@@ -1705,6 +1719,8 @@ ipcMain.handle("updates:check", () => updater.check());
 ipcMain.handle("updates:download", () => updater.download());
 ipcMain.handle("updates:install", () => { void updater.install(); });
 
+/** The windows a click on a resident's toast is bringing back, for its row to wait on. */
+let reopening: Promise<void> | null = null;
 /**
  * Desktop notifications (the feed's last hop). The DECISIONS live in notify.ts — this is only the
  * Electron wiring. Two things are worth reading here:
@@ -1712,9 +1728,10 @@ ipcMain.handle("updates:install", () => { void updater.install(); });
  *   - `windowFocused` is main's own `isFocused()`, not something the renderer claims. The renderer
  *     asks for a toast for every row the server surfaces; whether the user is already looking is a
  *     fact about the window, and main is the one holding it.
- *   - A click hands the ROW ID back to the renderer and nothing else. Main knows nothing about
- *     spaces, panes or read state — `openNotificationTarget` in the store owns all of that, and this
- *     path reuses it rather than growing a second jump implementation in the wrong process.
+ *   - A click hands the ROW ID back to the renderer and nothing else. Main picks the window by the
+ *     row's space and knows nothing about panes or read state — `openNotificationTarget` in the store
+ *     owns those, and this path reuses it rather than growing a second jump implementation in the
+ *     wrong process.
  *
  * In dev these post as "Electron" (the toast's title is the running app's bundle identity, and an
  * unsigned dev binary has Electron's); a packaged Realm.app posts as Realm.
@@ -1727,12 +1744,12 @@ const desktopNotifier = new DesktopNotifier({
   create: (o) => new Notification(o),
   // The window used last — which is where the row id goes below, so the window raised is the one
   // that opens the row.
-  focusWindow: () => {
+  focusWindow: (spaceId) => {
     if (relaunchIfBundleReplaced()) return;
-    const win = windows.primary();
+    const win = windows.windowToOpen(spaceId);
     // No window at all: this is the resident's own toast, and a click on it is a request to come
-    // back. `reattach` recreates the window; the row id below lands once it exists.
-    if (!win) { void reattach(); return; }
+    // back. `reattach` brings the windows back; the row id below lands once they exist.
+    if (!win) { reopening = reattach(); return; }
     if (win.isMinimized()) win.restore();
     win.show();
     win.focus();
@@ -1740,13 +1757,15 @@ const desktopNotifier = new DesktopNotifier({
     // window behind whatever the user was in would be worse than not raising it at all.
     if (process.platform === "darwin") app.focus({ steal: true });
   },
-  activate: (id) => {
-    const win = windows.primary();
+  activate: (id, spaceId) => void Promise.resolve(reopening).then(() => {
+    reopening = null;
+    // The window showing the row's space opens it. With none, the one used last does, and switches.
+    const win = windows.windowToOpen(spaceId);
     // A click that recreated the window has no renderer listening yet — the send would land nowhere.
     // Waiting for the first paint is the honest fix; `did-finish-load` is when a listener exists.
     if (win && !win.webContents.isLoading()) win.webContents.send("realm:notification-activate", id);
     else win?.webContents.once("did-finish-load", () => win.webContents.send("realm:notification-activate", id));
-  },
+  }),
   setBadge: (count) => { app.setBadgeCount(count); },
 });
 ipcMain.handle("daemon:quit-and-stop", () => quitAndStopAll());
@@ -2144,7 +2163,7 @@ app.whenReady().then(async () => {
     // Sweep once at launch; saveTempAttachment sweeps again on every paste, so a session that never
     // restarts the app is bounded too.
     void sweepTempAttachments(tempAttachmentDir(info.home)).catch(() => {});
-    await createWindow(info);
+    await restoreWindows(info);
     // Disabled builds return their existing state without loading electron-updater. Signed packaged
     // builds check the public feed and download in the background; failures remain visible in
     // Settings without blocking startup.
@@ -2188,6 +2207,8 @@ app.whenReady().then(async () => {
       onEvent: (event, payload) => {
         // A profile made, renamed or deleted: main's partitions, names and sign-ins follow.
         if (event === "profiles.changed") { void profileDirectory.refresh().then(retitleWindows); return; }
+        // A space made, renamed or deleted: the window showing it is titled by its name.
+        if (event === "spaces.changed") { void refreshSpaceNames(); return; }
         // The counts the tray shows change on exactly one event.
         if (event === "session.status") { void refreshTray(); void refreshSleepGuard(); return; }
         // A phone paired or removed: whether a waiting session keeps the Mac awake goes with it.
@@ -2359,12 +2380,13 @@ async function reattach(target?: { sessionId: string; spaceId: string | null }) 
   if (relaunchIfBundleReplaced()) return;
   if (process.platform === "darwin") app.dock?.show();
   const profileId = target?.spaceId ? await profileOfSpace(target.spaceId) : null;
-  let win = (profileId ? windows.windowFor(profileId) : null) ?? windows.primary();
+  let win = (target?.spaceId ? windows.windowForSpace(target.spaceId) : null)
+    ?? (profileId ? windows.windowFor(profileId) : null) ?? windows.primary();
   if (win && !win.isDestroyed()) {
     bringForward(win);
   } else if (serverInfo) {
-    await createWindow(serverInfo);
-    win = windows.primary();
+    await restoreWindows(serverInfo);
+    win = windows.windowToOpen(target?.spaceId ?? null);
   }
   sessionTray.hide();
   void bridgeClient?.call("browserHost.register", { hasWindow: true }).catch(() => {});
@@ -2379,9 +2401,31 @@ function bringForward(win: BrowserWindow): void {
   if (process.platform === "darwin") app.focus({ steal: true });
 }
 
-/** Every space with its profile, in the person's order, asked of the server — none when it cannot say. */
-async function listSpaces(): Promise<{ id: string; profileId: string }[]> {
-  try { return (await askServer("spaces.list", {})) as { id: string; profileId: string }[]; } catch { return []; }
+/** Every space with its profile and name, in the person's order, asked of the server — none when it
+ *  cannot say. */
+async function listSpaces(): Promise<{ id: string; profileId: string; name: string }[]> {
+  try { return (await askServer("spaces.list", {})) as { id: string; profileId: string; name: string }[]; } catch { return []; }
+}
+
+/** The windows to bring back on the next launch (window-registry.ts). Each window's place stays in
+ *  its own window-state file; this is only which windows there were. */
+const savedWindowsFile = () => join(app.getPath("userData"), "windows.json");
+/** Set while Realm closes every window at once — ⌘Q, a real quit, an update. Those windows all come
+ *  back, so their closing is not written down. */
+let closingAll = false;
+
+/** Write down the open windows. One the person closes while others stay open is forgotten; the last
+ *  one closed is kept, so reopening lands where it was. */
+function saveWindows(): void {
+  if (closingAll || windows.size === 0) return;
+  writeSavedWindows(savedWindowsFile(), windows.saved());
+}
+
+/** Open the windows that were open at quit, each on its space, the one used last in front. */
+async function restoreWindows(info: { port: number; home: string; token: string }): Promise<void> {
+  closingAll = false;
+  const restore = windowsToRestore(readSavedWindows(savedWindowsFile()), await listSpaces());
+  for (const w of restore) await createWindow(info, w.profileId, w.spaceId, w.land);
 }
 
 /** A space's profile, asked of the server — null when it cannot say. */
@@ -2417,8 +2461,8 @@ ipcMain.on("window:set-profile", (e, profileId: unknown) => {
   if (!win) return;
   const id = profileArg(profileId) || null;
   windows.setShowing(win, id);
-  const name = id ? profileDirectory.get(id)?.name : null;
-  if (name) win.setTitle(name);
+  titleWindow(win);
+  saveWindows();
 });
 
 /**
@@ -2446,18 +2490,26 @@ ipcMain.handle("window:new", async (e): Promise<boolean> => {
 });
 /** A window's question before it switches space: is this space open in ANOTHER window? If so that
  *  window comes forward, and the answer is yes — the asking window stays as it is. */
-ipcMain.handle("window:focus-space", (e, spaceId: unknown): boolean => {
+ipcMain.handle("window:focus-space", (e, spaceId: unknown, sessionId: unknown): boolean => {
   const id = profileArg(spaceId);
   if (!id) return false;
   const open = windows.windowForSpace(id, BrowserWindow.fromWebContents(e.sender) ?? undefined);
   if (!open) return false;
   bringForward(open);
+  // A session the asking window was opening: the window that has its space opens it instead.
+  const session = profileArg(sessionId);
+  if (session) open.webContents.send("realm:open-session", { sessionId: session, spaceId: id });
   return true;
 });
-/** A window's renderer says which space it shows now. */
+/** A window's renderer says which space it shows now. The window is titled by it. */
 ipcMain.on("window:set-space", (e, spaceId: unknown) => {
   const win = BrowserWindow.fromWebContents(e.sender);
-  if (win) windows.setSpace(win, profileArg(spaceId) || null);
+  if (!win) return;
+  const id = profileArg(spaceId) || null;
+  windows.setSpace(win, id);
+  if (id && !spaceNames.some((sp) => sp.id === id)) void refreshSpaceNames();
+  else titleWindow(win);
+  saveWindows();
 });
 
 /** True once a gesture that really means "stop everything" has been taken. Read by `before-quit` and
@@ -2496,6 +2548,8 @@ let serverStoppedForQuit = false;
  * *Quit Realm & stop agents* — lets a quit through to `shutdownForQuit`.
  */
 app.on("before-quit", (e) => {
+  // Every window is about to close, and every one of them comes back.
+  closingAll = true;
   // `quitAndInstall` calls `app.quit()` once its windows are closed, so an update restart arrives here
   // too, after `before-quit-for-update` — and must not go on to stop the daemon.
   if (detachOnQuit) { detachFromDaemon(); return; }
@@ -2537,4 +2591,4 @@ let askedServerToStop = false;
 // it costs nothing while the updater gate (updater.ts) keeps quitAndInstall unreachable.
 // The server is not stopped here: `RealmUpdater.install` has stopped it already, before it asked for
 // the quit (see `stopServerForUpdate`), and a quit for the update must not go on to stop it again.
-electronAutoUpdater.on("before-quit-for-update", () => { quittingForReal = true; detachOnQuit = true; detachFromDaemon(); });
+electronAutoUpdater.on("before-quit-for-update", () => { quittingForReal = true; closingAll = true; detachOnQuit = true; detachFromDaemon(); });

@@ -19,13 +19,14 @@ interface Window {
     profileId?: string;
     /** The space this window was opened for, or undefined. Boot lands on it. */
     spaceId?: string;
+    landSpaceId?: string;
     /** Realm's windows (main/window-registry.ts). Optional like every bridge: jsdom has none. */
     windows?: {
       openProfile(profileId: string): Promise<void>;
       focusProfile(profileId: string): Promise<boolean>;
       setProfile(profileId: string | null): void;
       openSpace(spaceId: string): Promise<void>;
-      focusSpace(spaceId: string): Promise<boolean>;
+      focusSpace(spaceId: string, sessionId?: string): Promise<boolean>;
       setSpace(spaceId: string | null): void;
       newWindow(): Promise<boolean>;
     };
@@ -236,7 +237,7 @@ interface Window {
     /** Desktop notifications (the feed's last hop). `show` answers whether a toast was posted — main
      *  suppresses one while the window is focused. `onActivate` carries a clicked toast's row id. */
     notify: {
-      show(input: { id: string; title: string; body: string | null }): Promise<boolean>;
+      show(input: { id: string; title: string; body: string | null; spaceId: string | null }): Promise<boolean>;
       badge(count: number): Promise<void>;
       onActivate(cb: (id: string) => void): () => void;
     };

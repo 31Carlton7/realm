@@ -25,7 +25,9 @@
  */
 
 /** What the caller hands over: the row's id (to route a click back), plus the words to show. */
-export type DesktopNotificationInput = { id: string; title: string; body: string | null };
+export type DesktopNotificationInput = { id: string; title: string; body: string | null;
+  /** The space the row is about, so a click opens it in the window showing that space. */
+  spaceId?: string | null };
 
 /** Who asked. `renderer` is a window that is open and unfocused; `main` is the resident with no
  *  window at all. */
@@ -49,10 +51,11 @@ export class DesktopNotifier {
      *  an unfocused window still has a renderer asking for toasts, and no window has nobody. */
     hasWindow?: () => boolean;
     create: (o: { title: string; body: string }) => NativeNotification;
-    /** Bring Realm forward — a click on a toast is a request to be here. */
-    focusWindow: () => void;
-    /** Hand the row id back to the renderer, which owns jumping to its target. */
-    activate: (id: string) => void;
+    /** Bring Realm forward — a click on a toast is a request to be here — in the window showing the
+     *  row's space, when one does. */
+    focusWindow: (spaceId: string | null) => void;
+    /** Hand the row id back to that window's renderer, which owns jumping to its target. */
+    activate: (id: string, spaceId: string | null) => void;
     setBadge: (count: number) => void;
   }) {}
 
@@ -70,7 +73,8 @@ export class DesktopNotifier {
     if (this.shown.has(input.id)) return false;
     this.remember(input.id);
     const n = this.d.create({ title: input.title, body: input.body ?? "" });
-    n.on("click", () => { this.d.focusWindow(); this.d.activate(input.id); });
+    const spaceId = input.spaceId ?? null;
+    n.on("click", () => { this.d.focusWindow(spaceId); this.d.activate(input.id, spaceId); });
     n.show();
     return true;
   }
