@@ -87,7 +87,7 @@ struct TabChip: View {
             }
         }
         .padding(.horizontal, 10)
-        .frame(maxWidth: 220, minHeight: 44, alignment: .leading)
+        .frame(maxWidth: 256, minHeight: 44, alignment: .leading)
     }
 }
 
