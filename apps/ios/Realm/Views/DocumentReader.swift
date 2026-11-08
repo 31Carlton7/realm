@@ -67,6 +67,7 @@ struct DocumentReader: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     ShareLink(item: whole) { Label("Share", systemImage: "square.and.arrow.up") }
                 }
+                .sharedBackgroundVisibility(.hidden)
             }
         }
         .quickLookPreview($previewing)
