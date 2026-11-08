@@ -211,14 +211,17 @@ struct AttachmentChip: View {
 }
 
 /// The files a message being written takes, over its field: photos as small squares, other files as
-/// chips. Each opens in Quick Look, and has its own button to take it out.
+/// chips. Each opens in Quick Look, and has its own button to take it out. The tabs it hands over
+/// follow them as cards, each taken out by a tap.
 struct AttachmentStrip: View {
     let attachments: [OutgoingAttachment]
+    var tabs: [DraftTab] = []
     /// Picked, and still being read or made smaller.
     let preparing: Int
     let files: OutboxFiles
     let open: (OutgoingAttachment) -> Void
     let remove: (OutgoingAttachment) -> Void
+    var removeTab: (DraftTab) -> Void = { _ in }
 
     static let side: CGFloat = 56
 
@@ -270,6 +273,16 @@ struct AttachmentStrip: View {
                         .frame(width: Self.side, height: Self.side)
                         .background(Palette.mark, in: RoundedRectangle(cornerRadius: Radius.thumbnail, style: .continuous))
                         .accessibilityLabel("Adding a file")
+                }
+                ForEach(tabs) { tab in
+                    Button { removeTab(tab) } label: {
+                        TabChip(tab: tab.tab, card: tab.card, removable: true)
+                            .frame(height: Self.side)
+                            .background(Palette.mark, in: RoundedRectangle(cornerRadius: Radius.thumbnail, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Remove \(Mentions.tabName(tab.tab))")
+                    .accessibilityValue(TabWords.line(tab.tab, card: tab.card))
                 }
             }
             // Room for the remove buttons over the tiles' corners.

@@ -559,15 +559,17 @@ public struct MobileAPI: Sendable {
 
     /// `attachments` go only to a Mac that answers `session.options`: an older one would drop them.
     /// `mentionRefs` say what each `@[label]` in `text` names; they go only to a Mac that answers
-    /// `session.composer`, since an older one refuses a field it does not know.
+    /// `session.composer`, since an older one refuses a field it does not know. `tabs` go only to a Mac
+    /// that answers `session.tabs`.
     public func send(id: String, text: String, delivery: Delivery? = nil, attachments: [AttachmentUpload] = [],
-                     mentionRefs: [MentionRef] = [], timeout: Duration? = nil) async throws {
+                     mentionRefs: [MentionRef] = [], tabs: [TabRef] = [], timeout: Duration? = nil) async throws {
         struct Params: Encodable, Sendable {
             let id: String
             let text: String
             let delivery: Delivery?
             let attachments: [AttachmentUpload]
             let mentionRefs: [MentionRef]
+            let tabs: [TabRef]
             func encode(to encoder: Encoder) throws {
                 var c = encoder.container(keyedBy: Key.self)
                 try c.encode(id, forKey: .id)
@@ -576,11 +578,12 @@ public struct MobileAPI: Sendable {
                 // Left out when empty, so a message without files reads to an older Mac as it always did.
                 if !attachments.isEmpty { try c.encode(attachments, forKey: .attachments) }
                 if !mentionRefs.isEmpty { try c.encode(mentionRefs, forKey: .mentionRefs) }
+                if !tabs.isEmpty { try c.encode(tabs, forKey: .tabs) }
             }
-            enum Key: String, CodingKey { case id, text, delivery, attachments, mentionRefs }
+            enum Key: String, CodingKey { case id, text, delivery, attachments, mentionRefs, tabs }
         }
         _ = try await connection.call("session.send",
-                                      params: Params(id: id, text: text, delivery: delivery, attachments: attachments, mentionRefs: mentionRefs),
+                                      params: Params(id: id, text: text, delivery: delivery, attachments: attachments, mentionRefs: mentionRefs, tabs: tabs),
                                       as: Acknowledged.self, timeout: timeout)
     }
 
@@ -595,6 +598,19 @@ public struct MobileAPI: Sendable {
         struct Params: Encodable, Sendable { let id: String; let query: String }
         struct Answer: Decodable, Sendable { let files: [MentionFile] }
         return try await connection.call("session.mentionFiles", params: Params(id: id, query: query), as: Answer.self).files
+    }
+
+    /// The panes of the session's space an `@` can hand a message. A Mac from before them answers
+    /// METHOD_NOT_FOUND.
+    public func tabs(id: String) async throws -> [SpaceTab] {
+        struct Answer: Decodable, Sendable { let tabs: [SpaceTab] }
+        return try await connection.call("session.tabs", params: SessionID(id: id), as: Answer.self).tabs
+    }
+
+    /// One pane read as a send would read it: the size its card shows.
+    public func tabPreview(id: String, tab: TabRef) async throws -> TabCard {
+        struct Params: Encodable, Sendable { let id: String; let tab: TabRef }
+        return try await connection.call("session.tabPreview", params: Params(id: id, tab: tab), as: TabCard.self)
     }
 
     /// One of the person's own commands filled in with `args`, for the composer to hold.

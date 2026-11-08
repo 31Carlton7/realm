@@ -168,7 +168,8 @@ async function generate(): Promise<Record<string, unknown>> {
   const blocked: Goal = { sessionId: OLDER[3]!, objective: "Audit the sign-in sheet against the design.", status: "blocked", tokenBudget: 2_000_000,
     tokensUsed: 1_500_000, turns: 6, note: "The design file is not in the repository, and three turns could not find it.", startedAt: 1_789_900_000_000, updatedAt: 1_789_950_000_000 };
   const evs: SessionEvent[] = [
-    sessionEvent("user_message", { text: "File the issue, then plan the column", attachments: sent }, 1_790_000_000_000),
+    sessionEvent("user_message", { text: "File the issue, then plan the column", attachments: sent,
+      tabs: [{ itemId: `i-${DOCS}`, kind: "browser", title: "Realm docs", url: "http://localhost:4000/docs", bytes: 18_432, truncated: false }] }, 1_790_000_000_000),
     sessionEvent("thinking", { messageId: "k1", text: "Linear first." }),
     sessionEvent("assistant_text", { messageId: "m1", text: "Filing it in **Linear**." }),
     sessionEvent("tool_call", { toolUseId: "t1", name: "Bash", input: { command: "pnpm test --silent" }, parentToolUseId: null }),
@@ -471,6 +472,13 @@ async function generate(): Promise<Record<string, unknown>> {
       sessionId: S, seq: 2, savedAt: 1_790_000_300_000, ts: 1_790_000_000_000, text: "Add a theme column to the settings table", attachments: [], goal: null,
       reply: "Added the column and a migration for it.", sessionTitle: "Theme column", spaceId: "sp1",
     }] })) as never,
+    // The space's panes as the @ list offers them, and the docs page read as a card.
+    "tabs.list": (() => ({ tabs: [
+      { itemId: `i-${DOCS}`, kind: "browser", title: "Realm docs", favicon: "", url: "http://localhost:4000/docs" },
+      { itemId: `i-${ADMIN}`, kind: "browser", title: "Admin", favicon: "", url: "https://admin.example.com/" },
+      { itemId: `i-${SHELL}`, kind: "terminal", title: "realm", favicon: "" },
+    ] })) as never,
+    "tabs.preview": ((p: { tab: { itemId: string; kind: "browser"; title: string } }) => ({ ...p.tab, url: "http://localhost:4000/docs", bytes: 18_432, truncated: false })) as never,
     "mentions.files": (() => ({ hits: [{ path: "src/theme.ts", score: 12, marks: [] }, { path: "apps/ios/Realm/Theme/Palette.swift", score: 7, marks: [] }], truncated: false, source: "git" })) as never,
   });
   const api = new MobileApi({ macName: () => "MacBook Pro", reportsDir: "/nonexistent", realmHome: home, userHome: "/Users/me", dev: false, downscale: async () => Buffer.from("jpeg") });
@@ -529,6 +537,8 @@ async function generate(): Promise<Record<string, unknown>> {
       "schedules.runNow": await call("schedules.runNow", { id: WEEKLY }),
       "session.composer": await call("session.composer", { id: S }),
       "session.mentionFiles": await call("session.mentionFiles", { id: S, query: "theme" }),
+      "session.tabs": await call("session.tabs", { id: S }),
+      "session.tabPreview": await call("session.tabPreview", { id: S, tab: { itemId: `i-${DOCS}`, kind: "browser", title: "Realm docs" } }),
       "session.expandCommand": await call("session.expandCommand", { id: S, name: "changelog", args: "2.8.0" }),
       "session.screens": await call("session.screens", { id: S }),
       "session.screen": frame,

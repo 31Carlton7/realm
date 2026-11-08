@@ -20,6 +20,7 @@ struct TranscriptRowView: View {
             VStack(alignment: .trailing, spacing: 6) {
                 if !text.isEmpty { UserBubble(text: text, turn: PromptTurn(sessionId: sessionId, seq: row.seq)) }
                 if let files = row.sentFiles, !files.isEmpty { SentFiles(files: files, sessionId: sessionId) }
+                if let tabs = row.sentTabs, !tabs.isEmpty { SentTabs(tabs: tabs) }
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
         case .assistant(let text, let streaming):

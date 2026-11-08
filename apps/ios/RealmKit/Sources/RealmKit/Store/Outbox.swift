@@ -44,10 +44,12 @@ public struct OutgoingItem: Codable, Sendable, Identifiable, Equatable {
     /// What each `@[label]` in a message's words names. None on an answer, or on an item saved before
     /// messages named anything.
     public let mentionRefs: [MentionRef]
+    /// The panes a message hands over as cards. None on an answer, or on an item saved before tabs.
+    public let tabs: [TabRef]
 
     public init(id: UUID = UUID(), sessionId: String, payload: Payload, createdAt: Date = Date(), state: State = .waiting,
                 afterSeq: Int, answerValues: [String: AnswerValue]? = nil, attachments: [OutgoingAttachment] = [],
-                delivery: Delivery = .auto, mentionRefs: [MentionRef] = []) {
+                delivery: Delivery = .auto, mentionRefs: [MentionRef] = [], tabs: [TabRef] = []) {
         self.id = id
         self.sessionId = sessionId
         self.payload = payload
@@ -58,10 +60,11 @@ public struct OutgoingItem: Codable, Sendable, Identifiable, Equatable {
         self.attachments = attachments
         self.delivery = delivery
         self.mentionRefs = mentionRefs
+        self.tabs = tabs
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, sessionId, payload, createdAt, state, afterSeq, answerValues, attachments, delivery, mentionRefs
+        case id, sessionId, payload, createdAt, state, afterSeq, answerValues, attachments, delivery, mentionRefs, tabs
     }
 
     /// An outbox saved by an earlier build still reads: what it did not know about is absent.
@@ -77,6 +80,7 @@ public struct OutgoingItem: Codable, Sendable, Identifiable, Equatable {
         attachments = try c.decodeIfPresent([OutgoingAttachment].self, forKey: .attachments) ?? []
         delivery = try c.decodeIfPresent(Delivery.self, forKey: .delivery) ?? .auto
         mentionRefs = try c.decodeIfPresent([MentionRef].self, forKey: .mentionRefs) ?? []
+        tabs = try c.decodeIfPresent([TabRef].self, forKey: .tabs) ?? []
     }
 
     public var isMessage: Bool {
@@ -238,6 +242,7 @@ public struct Outbox: Sendable, Equatable {
                     guard row.seq > item.afterSeq, !taken.contains(row.key), case .user(let sent) = row.content else { return false }
                     // Photos sent alone have no words: their count tells them from another message.
                     return Self.normalized(sent) == wanted && (row.sentFiles?.count ?? 0) == item.attachments.count
+                        && (row.sentTabs?.count ?? 0) == item.tabs.count
                 }
                 if let row {
                     taken.insert(row.key)

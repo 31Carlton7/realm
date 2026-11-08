@@ -96,6 +96,11 @@ final class AppModel {
     private(set) var composerLists: [String: ComposerLists] = [:]
     /// The files in each session's folder that matched what was last typed after an `@`.
     private(set) var mentionFiles: [String: [MentionFile]] = [:]
+    /// The panes of each session's space an `@` can hand a message, as its Mac last said. A session
+    /// whose Mac is from before them is absent, and its `@` lists no tabs.
+    private(set) var spaceTabs: [String: [SpaceTab]] = [:]
+    /// The tabs picked into each session's composer as cards, not sent yet.
+    private(set) var draftTabs: [String: [DraftTab]] = [:]
     /// The files in each session's composer, not sent yet: leaving a session keeps them, as it keeps
     /// the words.
     private(set) var draftAttachments: [String: [OutgoingAttachment]] = [:]
@@ -765,10 +770,10 @@ final class AppModel {
     /// A message, in line behind anything already waiting, with the files it takes and what it does if
     /// a turn is under way when it arrives. It shows as Sending… until the Mac has it.
     func send(_ text: String, attachments: [OutgoingAttachment] = [], delivery: Delivery = .auto, mentionRefs: [MentionRef] = [],
-              to sessionId: String) {
+              tabs: [TabRef] = [], to sessionId: String) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty || !attachments.isEmpty else { return }
-        store.enqueueMessage(text, attachments: attachments, delivery: delivery, mentionRefs: mentionRefs, in: sessionId)
+        guard !text.isEmpty || !attachments.isEmpty || !tabs.isEmpty else { return }
+        store.enqueueMessage(text, attachments: attachments, delivery: delivery, mentionRefs: mentionRefs, tabs: tabs, in: sessionId)
         saveOutbox()
         startActivity(sessionId, .sent)
         Task { await deliver(sessionId) }
@@ -778,6 +783,7 @@ final class AppModel {
     /// A draft that is a call to a command that takes words — `/goal ship the notes` — runs it instead.
     func sendDraft(_ sessionId: String, delivery: Delivery) {
         let text = composerDrafts[sessionId] ?? "", attachments = draftAttachments[sessionId] ?? []
+        let tabs = (draftTabs[sessionId] ?? []).map(\.tab.ref)
         if let call = ComposerCommand.call(in: text, commands: composerCommands(sessionId)) {
             // `/goal ` on its own has nothing to run on; the composer keeps waiting.
             guard !call.rest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -785,17 +791,18 @@ final class AppModel {
             Task { await run(call.command, words: call.rest, in: sessionId) }
             return
         }
-        guard ComposerAction.hasContent(text: text, attachments: attachments) else { return }
+        guard ComposerAction.hasContent(text: text, attachments: attachments, tabs: tabs.count) else { return }
         // A Mac from before `session.composer` would refuse the refs: it is sent the words as typed.
         if composerLists[sessionId] != nil {
             let named = Mentions.wire(text, refs: draftRefs[sessionId] ?? [])
-            send(named.text, attachments: attachments, delivery: delivery, mentionRefs: named.refs, to: sessionId)
+            send(named.text, attachments: attachments, delivery: delivery, mentionRefs: named.refs, tabs: tabs, to: sessionId)
         } else {
-            send(text, attachments: attachments, delivery: delivery, to: sessionId)
+            send(text, attachments: attachments, delivery: delivery, tabs: tabs, to: sessionId)
         }
         composerDrafts[sessionId] = nil
         draftAttachments[sessionId] = nil
         draftRefs[sessionId] = nil
+        draftTabs[sessionId] = nil
     }
 
     func answer(_ decision: Decision, to request: TranscriptRow.Request, in sessionId: String) {
@@ -918,6 +925,33 @@ final class AppModel {
         guard composerLists[sessionId] != nil, let api, isConnected else { return }
         guard let files = try? await api.mentionFiles(id: sessionId, query: query), !Task.isCancelled else { return }
         mentionFiles[sessionId] = files
+    }
+
+    /// The panes of the session's space, asked each time its `@` list opens: a tab opened on the Mac
+    /// since is offered.
+    func loadTabs(_ sessionId: String) async {
+        guard let api, isConnected else { return }
+        do {
+            spaceTabs[sessionId] = try await api.tabs(id: sessionId)
+        } catch ChannelError.rpc(let error) where error.code == "METHOD_NOT_FOUND" {
+            spaceTabs[sessionId] = nil
+        } catch {
+            // The list keeps what it last held.
+        }
+    }
+
+    /// Puts a pane's card beside the draft, once, up to the eight a message takes, and asks the Mac
+    /// what it comes to.
+    func addTab(_ tab: SpaceTab, to sessionId: String) {
+        guard DraftTab.add(tab, to: &draftTabs[sessionId, default: []]) else { return }
+        Task {
+            guard let api, isConnected, let card = try? await api.tabPreview(id: sessionId, tab: tab.ref) else { return }
+            DraftTab.read(card, into: &draftTabs[sessionId, default: []])
+        }
+    }
+
+    func removeTab(_ itemId: String, from sessionId: String) {
+        draftTabs[sessionId]?.removeAll { $0.id == itemId }
     }
 
     /// The session's `/` commands, in the desktop's order: its agent's modes, `/goal` where its Mac can
@@ -1390,6 +1424,8 @@ final class AppModel {
         // A draft's files were for that Mac's sessions, and so is every share still waiting.
         store.files.remove(draftAttachments.values.joined())
         draftAttachments = [:]
+        draftTabs = [:]
+        spaceTabs = [:]
         shareInbox?.removeAll()
         sharedNewSession = nil
         teammateChats = [:]

@@ -18,6 +18,22 @@ describe("the phone's rows", () => {
     expect(p.all()[1]).toMatchObject({ streaming: false });
   });
 
+  it("draws the tabs a message handed over as cards, by what they came to and never what was read", () => {
+    const p = new SessionProjector();
+    p.apply(persisted(sessionEvent("user_message", { text: "compare these", attachments: [], tabs: [
+      { itemId: "b1", kind: "browser", title: "Pricing", url: "https://example.com/pricing", bytes: 2048, truncated: false },
+      { itemId: "t1", kind: "terminal", title: "zsh", bytes: 0, truncated: false, closed: true },
+    ] })));
+    const row = p.all()[0]!;
+    expect(row).toMatchObject({ kind: "user", text: "compare these", tabs: [
+      { itemId: "b1", kind: "browser", title: "Pricing", url: "https://example.com/pricing", bytes: 2048, truncated: false },
+      { itemId: "t1", kind: "terminal", title: "zsh", bytes: 0, truncated: false, closed: true },
+    ] });
+    expect(RowSchema.safeParse(row).success).toBe(true);
+    p.apply(persisted(sessionEvent("user_message", { text: "no tabs", attachments: [] })));
+    expect(p.all()[1]).not.toHaveProperty("tabs");
+  });
+
   it("turns a tool call and its result into one row that finishes in place", () => {
     const p = new SessionProjector();
     p.apply(persisted(sessionEvent("tool_call", { toolUseId: "t1", name: "Bash", input: { command: "pnpm test\n--silent" }, parentToolUseId: null })));

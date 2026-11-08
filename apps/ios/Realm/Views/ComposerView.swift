@@ -37,8 +37,8 @@ struct ComposerAction: Equatable {
     }
 
     /// Words or a file: something to send.
-    static func hasContent(text: String, attachments: [OutgoingAttachment]) -> Bool {
-        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty
+    static func hasContent(text: String, attachments: [OutgoingAttachment], tabs: Int = 0) -> Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty || tabs > 0
     }
 
     /// How a message goes when this is pressed; nil for Stop.
@@ -114,27 +114,29 @@ struct ComposerView: View {
         let status = transcript.status ?? session?.status
         let text = model.composerDrafts[sessionId] ?? ""
         let attachments = model.draftAttachments[sessionId] ?? []
+        let tabs = model.draftTabs[sessionId] ?? []
         let preparing = model.preparingAttachments[sessionId] ?? 0
         let options = model.sessionOptions[sessionId]
         let presenting = settingsShown || moveShown || picking != nil || previewing != nil || attachAsked
         let open = suggestions(text, session: session)
         // Asked whether or not anything else matches: a word that names only a file opens the list
         // once the Mac's answer comes.
-        let fileQuery = model.composerLists[sessionId] == nil ? nil
-            : ComposerToken.mention(in: text, caret: Self.caret(in: text, selection))?.query
+        let mention = ComposerToken.mention(in: text, caret: Self.caret(in: text, selection))
+        let fileQuery = model.composerLists[sessionId] == nil ? nil : mention?.query
         let action = ComposerAction(working: status == .running || status == .waiting,
-                                    hasContent: ComposerAction.hasContent(text: text, attachments: attachments),
+                                    hasContent: ComposerAction.hasContent(text: text, attachments: attachments, tabs: tabs.count),
                                     midTurn: options?.midTurn, canSteer: options != nil)
         // Always the card, as Manus's composer is: the field, and under it the toolbar of `+`, the
         // model and mode, and the one button — so the model a message goes to is never a tap away.
         ComposerLayout(card: true) {
-            if !attachments.isEmpty || preparing > 0 {
-                AttachmentStrip(attachments: attachments, preparing: preparing, files: model.store.files,
+            if !attachments.isEmpty || preparing > 0 || !tabs.isEmpty {
+                AttachmentStrip(attachments: attachments, tabs: tabs, preparing: preparing, files: model.store.files,
                                 open: { attachment in
                                     refocus = focused.wrappedValue
                                     previewing = AttachmentStrip.previewLink(attachment, files: model.store.files)
                                 },
-                                remove: { model.removeAttachment($0, from: sessionId) })
+                                remove: { model.removeAttachment($0, from: sessionId) },
+                                removeTab: { model.removeTab($0.id, from: sessionId) })
                     .layoutValue(key: ComposerPart.self, value: .strip)
                     .transition(.opacity)
             }
@@ -216,6 +218,11 @@ struct ComposerView: View {
             guard !Task.isCancelled else { return }
             await model.loadMentionFiles(sessionId, query: fileQuery)
         }
+        // The space's panes, asked once each time the list opens: typing only narrows them.
+        .task(id: mention?.start) {
+            guard mention != nil else { return }
+            await model.loadTabs(sessionId)
+        }
         .confirmationDialog("Add to this message", isPresented: $attachAsked, titleVisibility: .hidden) {
             Button("Photo library") { picking = .photos }
             if UIImagePickerController.isSourceTypeAvailable(.camera) {
@@ -224,7 +231,7 @@ struct ComposerView: View {
             Button("Choose files") { picking = .files }
         }
         // Under Reduce Motion the strip does not grow into place: it is there.
-        .animation(reduceMotion ? nil : Motion.morph, value: attachments.count + preparing)
+        .animation(reduceMotion ? nil : Motion.morph, value: attachments.count + preparing + tabs.count)
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
         .attachmentPickers($picking, room: (options?.attachments.maxCount ?? 1) - attachments.count - preparing) { sources in
@@ -259,7 +266,7 @@ struct ComposerView: View {
         guard let token = ComposerToken.mention(in: text, caret: caret), token != dismissed else { return nil }
         // The teammates of the session's space, but the one whose chat this is.
         let teammates = (model.work.teammates ?? []).filter { $0.spaceId == session?.spaceId && $0.chatId != sessionId }
-        let rows = Mentions.rows(teammates: teammates, files: model.mentionFiles[sessionId] ?? [],
+        let rows = Mentions.rows(teammates: teammates, tabs: model.spaceTabs[sessionId] ?? [], files: model.mentionFiles[sessionId] ?? [],
                                  skills: model.composerLists[sessionId]?.skills ?? [], query: token.query)
         return rows.isEmpty ? nil : OpenSuggestions(token: token, list: .mentions(rows))
     }
@@ -294,6 +301,7 @@ struct ComposerView: View {
     private func pick(_ row: MentionRow, token: ComposerToken, text: String) {
         let picked = Mentions.pick(row, in: text, token: token, refs: model.draftRefs[sessionId] ?? [])
         if let ref = picked.ref { model.draftRefs[sessionId, default: []].append(ref) }
+        if case .tab(let tab) = row.kind { model.addTab(tab, to: sessionId) }
         setDraft(picked.draft, caret: picked.caret)
     }
 

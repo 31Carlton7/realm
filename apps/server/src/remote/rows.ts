@@ -1,9 +1,9 @@
 import {
   appendDelta, bareToolName, goalTurnLabel, moveFailedSentence, normalizeHandle, TEAM_MESSAGE_TOOL, teammateByHandle, teammateWords,
-  type AskCard, type AskQuestion, type MoveStep, type PendingMove, type QueuedPrompt, type SessionEvent, type SessionEventType, type StoredSessionEvent,
+  type AskCard, type AskQuestion, type MoveStep, type PendingMove, type QueuedPrompt, type SessionEvent, type SessionEventType, type StoredSessionEvent, type TabCard,
 } from "@realm/contracts";
 import { givenAttachmentName } from "@realm/contracts/src/temp-attachments";
-import type { PendingMove as PhonePendingMove, QueuedMessage, Row, Todo } from "@realm/remote";
+import type { PendingMove as PhonePendingMove, QueuedMessage, Row, TabCard as PhoneTabCard, Todo } from "@realm/remote";
 import { parseTodos, questionOf } from "@realm/view";
 
 /**
@@ -59,6 +59,14 @@ function questionRow(q: AskQuestion): Question {
     id: q.id, kind: q.kind, allowOther: q.allowOther === true, secret: q.secret === true,
     ...(q.required ? { required: true } : {}), ...(q.detail ? { detail: q.detail } : {}),
     ...(q.placeholder ? { placeholder: q.placeholder } : {}), ...(q.default !== undefined ? { default: q.default } : {}),
+  };
+}
+
+/** A tab's card as a phone is told it: the pane, and what it came to, never what was read of it. */
+export function phoneTabCard(c: TabCard): PhoneTabCard {
+  return {
+    itemId: c.itemId, kind: c.kind, title: c.title, ...(c.url ? { url: c.url } : {}), ...(c.path ? { path: c.path } : {}),
+    bytes: c.bytes, truncated: c.truncated, ...(c.closed ? { closed: true } : {}),
   };
 }
 
@@ -150,9 +158,10 @@ export class SessionProjector {
         }
         const files = ev.payload.attachments.map((a) => ({ path: a.path, name: givenAttachmentName(a.path, this.o.attachmentsDir), mime: a.mime }));
         const teammateId = ev.payload.from?.teammateId;
+        const tabs = ev.payload.tabs?.map(phoneTabCard) ?? [];
         return put({
           key: `u:${seq}`, seq, kind: "user", text: teammateId ? teammateWords(ev.payload.text) : ev.payload.text,
-          ...(files.length ? { attachments: files } : {}), ...(teammateId ? { teammateId } : {}),
+          ...(files.length ? { attachments: files } : {}), ...(tabs.length ? { tabs } : {}), ...(teammateId ? { teammateId } : {}),
         });
       }
       case "assistant_delta": {

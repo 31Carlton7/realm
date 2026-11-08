@@ -228,9 +228,9 @@ public final class RealmStore {
     /// (kept in `files` already) and what it does if a turn is under way when it arrives.
     @discardableResult
     public func enqueueMessage(_ text: String, attachments: [OutgoingAttachment] = [], delivery: Delivery = .auto,
-                               mentionRefs: [MentionRef] = [], in sessionId: String, at date: Date = Date()) -> OutgoingItem {
+                               mentionRefs: [MentionRef] = [], tabs: [TabRef] = [], in sessionId: String, at date: Date = Date()) -> OutgoingItem {
         let item = OutgoingItem(sessionId: sessionId, payload: .message(text: text), createdAt: date,
-                                afterSeq: transcript(sessionId).lastSeq, attachments: attachments, delivery: delivery, mentionRefs: mentionRefs)
+                                afterSeq: transcript(sessionId).lastSeq, attachments: attachments, delivery: delivery, mentionRefs: mentionRefs, tabs: tabs)
         outbox.add(item)
         return item
     }

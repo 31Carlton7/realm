@@ -20,7 +20,7 @@ import { diffPage } from "./changes";
 import { agentOptions, changesFor, ChoiceRefused, probeList, sessionModelLabel, type InitFacts, type OptionsInput, type ProbeRow } from "./options";
 import { fileData, filePreview, PreviewRefused, sipsDownscale, type Downscale } from "./preview";
 import { BROWSER_FRAME_EVERY_MS, browserPane, openPanes, paneOrder, terminalOutput, terminalPane } from "./panes";
-import { pendingMove, queuedMessage, SessionProjector, tilde } from "./rows";
+import { pendingMove, phoneTabCard, queuedMessage, SessionProjector, tilde } from "./rows";
 import { RpcCallError, type RpcPort } from "./rpc-port";
 import { FRAME_MAX_BYTES, FRAME_QUALITY, frameSide, jpegSize, machineScreen, phoneMayWatch, SCREEN_DEADLINE_MS, screenFrame, screenOrder, simulatorScreen } from "./screens";
 import { checkUploads, saveUploads, UploadRefused, type Upload } from "./uploads";
@@ -314,13 +314,19 @@ export class MobileApi {
           return { task: (await this.tasks(rpc, [fired]))[0]! };
         }
         case "session.send": {
-          const files = await this.uploads(p.text as string, p.attachments as Upload[]);
+          const tabs = p.tabs as MobileParams<"session.send">["tabs"];
+          const files = await this.uploads(p.text as string, p.attachments as Upload[], tabs?.length ?? 0);
           const named = await this.named(rpc, p.id as string, p.text as string, p.mentionRefs as MentionRef[] | undefined);
-          await rpc.call("sessions.send", { id: p.id as string, text: p.text as string, attachments: files, delivery: p.delivery as "auto" | "queue" | "steer", ...named });
+          await rpc.call("sessions.send", { id: p.id as string, text: p.text as string, attachments: files, delivery: p.delivery as "auto" | "queue" | "steer", ...named, ...(tabs?.length ? { tabs } : {}) });
           return { ok: true };
         }
         case "session.composer": return await this.composer(rpc, p.id as string);
         case "session.mentionFiles": return await this.mentionFiles(rpc, p.id as string, p.query as string);
+        case "session.tabs": {
+          const { tabs } = await rpc.call("tabs.list", { sessionId: p.id as string });
+          return { tabs: tabs.map(({ itemId, kind, title, url, path }) => ({ itemId, kind, title, ...(url ? { url } : {}), ...(path ? { path } : {}) })) };
+        }
+        case "session.tabPreview": return phoneTabCard(await rpc.call("tabs.preview", { sessionId: p.id as string, tab: p.tab as MobileParams<"session.tabPreview">["tab"] }));
         case "session.expandCommand": {
           const session = await rpc.call("sessions.get", { id: p.id as string });
           const { text, missing } = await rpc.call("commands.expand", { spaceId: session.spaceId, name: p.name as string, args: p.args as string });
@@ -656,9 +662,9 @@ export class MobileApi {
   }
 
   /** A message's files, checked whole and written where a desktop paste goes; a message must carry
-   *  words or a file. */
-  private async uploads(text: string, uploads: readonly Upload[]): Promise<{ path: string; mime: string }[]> {
-    if (text.length === 0 && uploads.length === 0) throw new MobileError("INVALID_PARAMS", "A message needs words or a file.");
+   *  words, a file or a tab. */
+  private async uploads(text: string, uploads: readonly Upload[], tabs = 0): Promise<{ path: string; mime: string }[]> {
+    if (text.length === 0 && uploads.length === 0 && tabs === 0) throw new MobileError("INVALID_PARAMS", "A message needs words, a file or a tab.");
     return await saveUploads(this.o.realmHome, checkUploads(uploads));
   }
 

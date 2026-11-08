@@ -96,3 +96,88 @@ public enum MentionRef: Codable, Sendable, Hashable {
         }
     }
 }
+
+/// The kinds of pane an `@` can hand a message as a card, as the desktop's `tab-context.ts` names them.
+public enum TabKind: String, Codable, Sendable, Hashable, CaseIterable {
+    case browser, documents, terminal, simulator
+
+    /// What a pane of the kind is called where it has no address to show.
+    public var label: String {
+        switch self {
+        case .browser: "Browser"
+        case .documents: "Documents"
+        case .terminal: "Terminal"
+        case .simulator: "Simulator"
+        }
+    }
+}
+
+/// One of the session's space's panes, as the `@` list offers it (`session.tabs`): `url` is a browser's
+/// page and `path` the file a documents pane shows.
+public struct SpaceTab: Codable, Sendable, Hashable {
+    public let itemId: String
+    public let kind: TabKind
+    public let title: String
+    public let url: String?
+    public let path: String?
+
+    public init(itemId: String, kind: TabKind, title: String, url: String? = nil, path: String? = nil) {
+        self.itemId = itemId
+        self.kind = kind
+        self.title = title
+        self.url = url
+        self.path = path
+    }
+
+    /// What a message sends for its card.
+    public var ref: TabRef { TabRef(itemId: itemId, kind: kind, title: title) }
+
+    /// Its quiet line, as the desktop's `tabDetail`: a page's address without its scheme, or its kind.
+    public var detail: String {
+        guard let url, !url.isEmpty else { return kind.label }
+        var shown = url
+        for scheme in ["https://", "http://"] where shown.hasPrefix(scheme) { shown.removeFirst(scheme.count) }
+        if shown.hasSuffix("/") { shown.removeLast() }
+        return shown
+    }
+}
+
+/// A pane a message hands over, as `session.send` names it: which one, and the title it read as when
+/// it was picked.
+public struct TabRef: Codable, Sendable, Hashable {
+    public let itemId: String
+    public let kind: TabKind
+    public let title: String
+
+    public init(itemId: String, kind: TabKind, title: String) {
+        self.itemId = itemId
+        self.kind = kind
+        self.title = title
+    }
+}
+
+/// A card as the Mac read it (`session.tabPreview`, and a sent message's row): what it came to, whether
+/// it was cut to its kind's cap, and whether the pane was gone. What was read stays on the Mac.
+public struct TabCard: Codable, Sendable, Hashable {
+    public let itemId: String
+    public let kind: TabKind
+    public let title: String
+    public let url: String?
+    public let path: String?
+    public let bytes: Int
+    public let truncated: Bool
+    public let closed: Bool?
+
+    public init(itemId: String, kind: TabKind, title: String, url: String? = nil, path: String? = nil, bytes: Int, truncated: Bool, closed: Bool? = nil) {
+        self.itemId = itemId
+        self.kind = kind
+        self.title = title
+        self.url = url
+        self.path = path
+        self.bytes = bytes
+        self.truncated = truncated
+        self.closed = closed
+    }
+
+    public var tab: SpaceTab { SpaceTab(itemId: itemId, kind: kind, title: title, url: url, path: path) }
+}

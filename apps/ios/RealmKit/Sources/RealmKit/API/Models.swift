@@ -467,6 +467,9 @@ public struct TranscriptRow: Codable, Sendable, Hashable, Identifiable {
     /// What the person sent with a message, each file by its path on the Mac, which `session.file`
     /// previews. Nil from a Mac before Plan 29, and on every other kind of row.
     public let sentFiles: [SentFile]?
+    /// The panes the person handed over with a message, as cards. Nil from a Mac before tabs, and on
+    /// every other kind of row.
+    public let sentTabs: [TabCard]?
     /// A notice about moving the session: how far it has got, or how it ended. Nil on every other row.
     public let move: MoveMark?
     /// A notice's quieter second line: a move's paths, from and to, or the step a failed move stopped
@@ -484,7 +487,7 @@ public struct TranscriptRow: Codable, Sendable, Hashable, Identifiable {
     public var id: String { key }
 
     public init(key: String, seq: Int, content: Content, checkpointId: String? = nil, madeFiles: [MadeFile]? = nil,
-                sentFiles: [SentFile]? = nil, move: MoveMark? = nil, noticeDetail: String? = nil,
+                sentFiles: [SentFile]? = nil, sentTabs: [TabCard]? = nil, move: MoveMark? = nil, noticeDetail: String? = nil,
                 teammateCall: TeammateCall? = nil, fromTeammate: String? = nil, goalTurn: GoalTurn? = nil) {
         self.key = key
         self.seq = seq
@@ -492,6 +495,7 @@ public struct TranscriptRow: Codable, Sendable, Hashable, Identifiable {
         self.checkpointId = checkpointId
         self.madeFiles = madeFiles
         self.sentFiles = sentFiles
+        self.sentTabs = sentTabs
         self.move = move
         self.noticeDetail = noticeDetail
         self.teammateCall = teammateCall
@@ -505,6 +509,7 @@ public struct TranscriptRow: Codable, Sendable, Hashable, Identifiable {
         case requestId, tool, title, questions, steps, hint
         case asker, message, answers, plan, checkpointId, files, move
         case sentFiles = "attachments"
+        case sentTabs = "tabs"
         case teammateCall = "teammate"
         case fromTeammate = "teammateId"
     }
@@ -524,6 +529,7 @@ public struct TranscriptRow: Codable, Sendable, Hashable, Identifiable {
         checkpointId = try? c.decodeIfPresent(String.self, forKey: .checkpointId)
         madeFiles = try? c.decodeIfPresent([MadeFile].self, forKey: .files)
         sentFiles = try? c.decodeIfPresent([SentFile].self, forKey: .sentFiles)
+        sentTabs = try? c.decodeIfPresent([TabCard].self, forKey: .sentTabs)
         move = try? c.decodeIfPresent(MoveMark.self, forKey: .move)
         // A tool's `detail` is its content's own.
         noticeDetail = kind == "notice" ? try? c.decodeIfPresent(String.self, forKey: .detail) : nil
@@ -623,6 +629,7 @@ public struct TranscriptRow: Codable, Sendable, Hashable, Identifiable {
         try c.encodeIfPresent(checkpointId, forKey: .checkpointId)
         try c.encodeIfPresent(madeFiles, forKey: .files)
         try c.encodeIfPresent(sentFiles, forKey: .sentFiles)
+        try c.encodeIfPresent(sentTabs, forKey: .sentTabs)
         try c.encodeIfPresent(move, forKey: .move)
         try c.encodeIfPresent(noticeDetail, forKey: .detail)
         try c.encodeIfPresent(teammateCall, forKey: .teammateCall)

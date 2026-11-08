@@ -178,6 +178,23 @@ export type MentionSkill = z.infer<typeof MentionSkillSchema>;
 export const MentionFileSchema = z.object({ path: z.string(), rel: z.string() });
 export type MentionFile = z.infer<typeof MentionFileSchema>;
 
+/** The panes an `@` can hand a message as cards, as the desktop's `tab-context.ts` names them. */
+export const TabKindSchema = z.enum(["browser", "documents", "terminal", "simulator"]);
+
+/** One of the session's space's panes, as the `@` list offers it: a page's address, a document's file. */
+export const SpaceTabSchema = z.object({
+  itemId: z.string(), kind: TabKindSchema, title: z.string(), url: z.string().optional(), path: z.string().optional(),
+});
+export type SpaceTab = z.infer<typeof SpaceTabSchema>;
+
+/** What a message sends for a card: which pane, and the title it read as when it was picked. */
+const TabRefSchema = z.object({ itemId: Id, kind: TabKindSchema, title: z.string().max(200) });
+
+/** A card as the Mac read it: what it comes to (`bytes`), whether it was cut to its kind's cap, and
+ *  whether the pane was gone. Its text stays on the Mac. */
+export const TabCardSchema = SpaceTabSchema.extend({ bytes: z.number().int(), truncated: z.boolean(), closed: z.boolean().optional() });
+export type TabCard = z.infer<typeof TabCardSchema>;
+
 const MidTurnSchema = z.enum(["queue", "steer"]);
 
 /** A session's settings as the composer shows them, and what each could be changed to. */
@@ -228,6 +245,8 @@ export const RowSchema = z.discriminatedUnion("kind", [
     ...rowBase, kind: z.literal("user"), text: z.string(),
     /** What was sent with it, each file by its path on the Mac, which `session.file` previews. */
     attachments: z.array(z.object({ path: z.string(), name: z.string(), mime: z.string() })).optional(),
+    /** The panes it handed over as cards, as they were read when it was sent. */
+    tabs: z.array(TabCardSchema).optional(),
     /** Another teammate wrote it, with `team_message`: its words stand under that teammate, not in the
      *  person's bubble. */
     teammateId: Id.optional(),
@@ -840,7 +859,7 @@ export const MobileCalls = {
   "schedules.list": { params: z.object({}), result: z.object({ tasks: z.array(ScheduledTaskSchema) }) },
   /** Runs a scheduled task now, as the desktop's Run now does. */
   "schedules.runNow": { params: z.object({ id: Id }), result: z.object({ task: ScheduledTaskSchema }) },
-  /** `text` may be empty when files go with it; a message must carry one or the other. A phone offers
+  /** `text` may be empty when files or tabs go with it; a message must carry one of them. A phone offers
    *  files only to a Mac that answers `session.options`, since an older one would drop them. */
   "session.send": {
     params: z.object({
@@ -848,6 +867,8 @@ export const MobileCalls = {
       attachments: z.array(AttachmentUploadSchema).max(SEND_LIMITS.maxCount).default([]),
       /** What each `@[label]` in `text` names. One whose token is no longer in the words is dropped. */
       mentionRefs: z.array(MentionRefSchema).max(12).optional(),
+      /** The panes it hands over as cards, read on the Mac as it is sent. */
+      tabs: z.array(TabRefSchema).max(8).optional(),
     }),
     result: Ok,
   },
@@ -861,6 +882,17 @@ export const MobileCalls = {
   "session.mentionFiles": {
     params: z.object({ id: Id, query: z.string().max(200).default("") }),
     result: z.object({ files: z.array(MentionFileSchema) }),
+  },
+  /** The panes of the session's space an `@` can hand a message: its browser tabs, documents,
+   *  terminals and simulators, in the space's order. */
+  "session.tabs": {
+    params: z.object({ id: Id }),
+    result: z.object({ tabs: z.array(SpaceTabSchema) }),
+  },
+  /** One pane read as a send would read it, and what it comes to: the card a pick shows. */
+  "session.tabPreview": {
+    params: z.object({ id: Id, tab: TabRefSchema }),
+    result: TabCardSchema,
   },
   /** One of the person's own commands, filled in with `args`: the words the composer then holds. A
    *  `$2` the args did not reach stays in `text`, and is named in `missing`. */
