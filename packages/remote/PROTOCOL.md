@@ -412,7 +412,7 @@ then the fields its kind adds:
 
 | `kind` | Fields |
 |---|---|
-| `user` | `text`, `attachments?: [{path, name, mime}]`, `teammateId?` |
+| `user` | `text`, `attachments?: [{path, name, mime}]`, `tabs?: [TabCard]`, `teammateId?` |
 | `assistant` | `text`, `streaming: bool` |
 | `thinking` | `text` |
 | `tool` | `name`, `summary`, `state: "running"\|"done"\|"error"`, `detail: string\|null`, `teammate?: {id: string\|null, handle, message}` |
@@ -512,9 +512,11 @@ else keeps its own name, whatever it looks like.
 | `review.file` | `{id, path}` | as `session.file`'s |
 | `schedules.list` | `{}` | `{tasks: [ScheduledTask]}` |
 | `schedules.runNow` | `{id}` | `{task: ScheduledTask}`, with the run it started |
-| `session.send` | `{id, text, delivery?: "auto"\|"queue"\|"steer", attachments?: [Upload], mentionRefs?: [MentionRef]}` | `{ok: true}` |
+| `session.send` | `{id, text, delivery?: "auto"\|"queue"\|"steer", attachments?: [Upload], mentionRefs?: [MentionRef], tabs?: [TabRef]}` | `{ok: true}` |
 | `session.composer` | `{id}` | `{commands: [UserCommand], skills: [{id, name, description}]}` |
 | `session.mentionFiles` | `{id, query?: string = ""}` | `{files: [{path, rel}]}` |
+| `session.tabs` | `{id}` | `{tabs: [{itemId, kind, title, url?, path?}]}` |
+| `session.tabPreview` | `{id, tab: TabRef}` | `TabCard` |
 | `session.expandCommand` | `{id, name, args?: string = ""}` | `{text, missing: [string]}` |
 | `session.goal` | `{id, objective}` | `{ok: true}` |
 | `session.goalControl` | `{id, action: "pause"\|"resume"\|"done"\|"drop"}` | `{goal: Goal\|null}`: null once dropped |
@@ -698,6 +700,22 @@ MentionRef  { kind: "role", label, roleId }                     a teammate, by i
 - **Files** are the session's folder's, as the desktop's `@` ranks them for `query` (`mentions.files`):
   `rel` is where it is in the folder, `path` where it is on the Mac. A file that holds a secret is left
   out.
+- **Tabs** are the session's space's panes, as the desktop's `@` lists them (`tabs.list`), in the
+  space's order: its browser tabs by page, its documents by the file each shows, its terminals and its
+  simulators. A pick is a card beside the draft, not words in it; `session.tabPreview` reads the pane
+  as a send would and says what it comes to, and `session.send`'s `tabs` hands the cards over, at most
+  8. The Mac reads each pane again as the message goes, into one `<tab kind=… title=… url|path=…>`
+  block the agent is handed after the words, and the user row keeps the cards. A message of tabs
+  alone is a message.
+
+```
+TabRef  { itemId, kind: "browser"|"documents"|"terminal"|"simulator", title }
+TabCard { itemId, kind, title, url?, path?,
+          bytes: int,         what was sent of it: its text's UTF-8 bytes, a simulator's screenshot's
+          truncated: bool,    longer than its kind's cap, so the agent got its start (a terminal: its end)
+          closed?: true }     gone when it was read, so nothing of it was sent
+```
+
 - **`session.goal`** starts a goal on `objective` (`goals.start`), as `/goal` does on the desktop. An
   objective of no words is `INVALID_PARAMS`. A goal set on a session that has one replaces it.
 - **`session.goalControl`** is the desktop's goal strip: `pause` an active goal ("You paused it."),
@@ -1119,6 +1137,11 @@ phone read, and what bounds it:
   ids, names and descriptions of the skills; and the paths of the session's folder's files that match
   what was typed, never one that holds a secret, nor anything in them. A skill's instructions and a
   command's file are not sent.
+- **`session.tabs`** and **`session.tabPreview`**: a pane's kind, title, page address or file, and what
+  a read of it comes to. What was read is not sent, and a page's password, one-time-code and card
+  fields never leave the Mac in any form: the read hides them by contracts' `isSecretField` rule, the
+  one the agent's page read and a phone's browser picture keep. A pane of another space is read as
+  closed.
 - **`search.query`**: the desktop's ⌘K search, over the sessions of one profile, or of each profile in
   the desktop's order where `profileId` names none the Mac has. `query` is trimmed, 1 to 256
   characters; a phone searches from two, as the palette does. Each session is listed once: those whose

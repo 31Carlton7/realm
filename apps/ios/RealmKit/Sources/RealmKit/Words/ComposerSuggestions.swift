@@ -141,6 +141,8 @@ public struct MentionRow: Hashable, Sendable, Identifiable {
         case mac(MentionSkill)
         /// A teammate in the space: naming it hands it the message.
         case teammate(Teammate)
+        /// One of the space's panes: picking it puts its card beside the draft, not words in it.
+        case tab(SpaceTab)
         case file(MentionFile)
         case skill(MentionSkill)
     }
@@ -154,6 +156,7 @@ public struct MentionRow: Hashable, Sendable, Identifiable {
         switch kind {
         case .mac: "mac"
         case .teammate(let t): "role:\(t.id)"
+        case .tab(let t): "tab:\(t.itemId)"
         case .file(let f): "file:\(f.path)"
         case .skill(let s): "skill:\(s.id)"
         }
@@ -161,8 +164,8 @@ public struct MentionRow: Hashable, Sendable, Identifiable {
 }
 
 /// The `@` list and what a pick from it puts in the draft, as the desktop's prompter does
-/// (`mention-sources.ts`): teammates, the session's folder's files, and skills, with the `mac` skill as
-/// @Mac. A bare `@` is a short tour, each kind under its head; a word after it is one list ranked across
+/// (`mention-sources.ts`): teammates, the space's panes (its tabs), the session's folder's files, and
+/// skills, with the `mac` skill as @Mac. A bare `@` is a short tour, each kind under its head; a word after it is one list ranked across
 /// every kind, so the best match is first whatever it is.
 public enum Mentions {
     public static let macId = "mac"
@@ -170,12 +173,12 @@ public enum Mentions {
     /// The longest label a named thing wears, as the desktop's chip.
     static let labelMax = 56
 
-    private enum Group: Int { case mac, teammate, skill, file }
+    private enum Group: Int { case mac, teammate, skill, tab, file }
 
-    private static let tourCaps: [Group: Int] = [.teammate: 4, .file: 4, .skill: 5]
-    private static let rankedCaps: [Group: Int] = [.mac: 1, .teammate: 4, .skill: 4, .file: 6]
+    private static let tourCaps: [Group: Int] = [.teammate: 4, .tab: 5, .file: 4, .skill: 5]
+    private static let rankedCaps: [Group: Int] = [.mac: 1, .teammate: 4, .skill: 4, .tab: 5, .file: 6]
 
-    public static func rows(teammates: [Teammate], files: [MentionFile], skills: [MentionSkill], query: String) -> [MentionRow] {
+    public static func rows(teammates: [Teammate], tabs: [SpaceTab] = [], files: [MentionFile], skills: [MentionSkill], query: String) -> [MentionRow] {
         let mac = skills.first { $0.id == macId }
         let others = skills.filter { $0.id != macId }
         let q = query.trimmingCharacters(in: .whitespaces)
@@ -184,6 +187,9 @@ public enum Mentions {
             if let mac { rows.append(MentionRow(kind: .mac(mac), name: macId, detail: macDetail, head: nil)) }
             for (i, t) in teammates.prefix(tourCaps[.teammate]!).enumerated() {
                 rows.append(MentionRow(kind: .teammate(t), name: t.handle, detail: teammateDetail(t), head: i == 0 ? "Team" : nil))
+            }
+            for (i, t) in tabs.prefix(tourCaps[.tab]!).enumerated() {
+                rows.append(MentionRow(kind: .tab(t), name: tabName(t), detail: t.detail, head: i == 0 ? "Tabs" : nil))
             }
             for (i, f) in files.prefix(tourCaps[.file]!).enumerated() {
                 rows.append(MentionRow(kind: .file(f), name: basename(f.rel), detail: directory(f.rel), head: i == 0 ? "Files" : nil))
@@ -215,6 +221,14 @@ public enum Mentions {
         groups.append(others.compactMap { k in
             score(names: [k.id, k.name], query: q).map {
                 Scored(row: MentionRow(kind: .skill(k), name: k.id, detail: "Skill · \(skillDetail(k))", head: nil), group: .skill, score: $0.score, length: $0.length)
+            }
+        })
+        groups.append(tabs.compactMap { t in
+            var names = [tabName(t)]
+            if t.url != nil { names.append(t.detail) }
+            if let path = t.path { names.append(basename(path)) }
+            return score(names: names, query: q).map {
+                Scored(row: MentionRow(kind: .tab(t), name: tabName(t), detail: "Tab · \(t.detail)", head: nil), group: .tab, score: $0.score, length: $0.length)
             }
         })
         groups.append(files.compactMap { f in
@@ -290,6 +304,10 @@ public enum Mentions {
         return role.isEmpty ? "Gets the message in its own chat" : "Gets the message · \(role)"
     }
 
+    public static func tabName(_ t: SpaceTab) -> String {
+        t.title.isEmpty ? t.kind.label : t.title
+    }
+
     static func skillDetail(_ s: MentionSkill) -> String {
         s.name != s.id ? "\(s.name) — \(s.description)" : s.description
     }
@@ -304,7 +322,8 @@ public enum Mentions {
     }
 
     /// What picking `row` over `token` puts in the draft, and the caret after it: `@id ` for a skill and
-    /// for @Mac; for a teammate or a file, its label and the ref that says what the label names. The
+    /// for @Mac; for a teammate or a file, its label and the ref that says what the label names; for a
+    /// tab, nothing, since its card goes beside the draft and the `@` that found it is taken out. The
     /// draft shows the label as `@designer`, and Send writes it as the desktop's `@[designer]`
     /// (`wire`); a label with a space in it is written that way at once.
     public static func pick(_ row: MentionRow, in text: String, token: ComposerToken, refs: [MentionRef]) -> (draft: String, caret: Int, ref: MentionRef?) {
@@ -321,9 +340,11 @@ public enum Mentions {
             let label = label(candidates: fileLabelCandidates(f.rel), taken: Set(refs.map(\.label)))
             ref = .file(label: label, path: f.path)
             mention = written(label)
+        case .tab:
+            mention = ""
         }
         let chars = Array(text)
-        let insert = mention + " "
+        let insert = mention.isEmpty ? "" : mention + " "
         let draft = String(chars[..<token.start]) + insert + String(chars[min(token.end, chars.count)...])
         return (draft, token.start + insert.count, ref)
     }

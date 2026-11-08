@@ -10,6 +10,9 @@ struct ComposerSuggestionsTests {
     static let mac = MentionSkill(id: "mac", name: "mac", description: "The Mac's apps")
     static let auth = MentionFile(path: "/Users/me/realm/src/server/auth.ts", rel: "src/server/auth.ts")
     static let otherAuth = MentionFile(path: "/Users/me/realm/apps/web/auth.ts", rel: "apps/web/auth.ts")
+    static let pricing = SpaceTab(itemId: "i-b1", kind: .browser, title: "Pricing", url: "https://example.com/pricing/")
+    static let notes = SpaceTab(itemId: "i-d1", kind: .documents, title: "notes.md", path: "/Users/me/realm/notes.md")
+    static let shell = SpaceTab(itemId: "i-t1", kind: .terminal, title: "")
 
     static let commands = ComposerCommand.list(
         modes: [Choice(id: "build", label: "Build"), Choice(id: "plan", label: "Plan"), Choice(id: "ask", label: "Ask")],
@@ -116,7 +119,36 @@ struct ComposerSuggestionsTests {
         #expect(Mentions.rows(teammates: [], files: [], skills: [Self.review], query: "cr").map(\.id) == ["skill:code-review"])
     }
 
+    @Test func theTabsGroupFollowsTheTeamAsTheDesktopsDoesEachByItsTitleAndAddress() {
+        let rows = Mentions.rows(teammates: [Self.cto], tabs: [Self.pricing, Self.notes, Self.shell], files: [Self.auth], skills: [Self.review, Self.mac], query: "")
+        #expect(rows.map(\.id) == ["mac", "role:t1", "tab:i-b1", "tab:i-d1", "tab:i-t1", "file:/Users/me/realm/src/server/auth.ts", "skill:code-review"])
+        #expect(rows.map(\.head) == [nil, "Team", "Tabs", nil, nil, "Files", "Skills"])
+        // A page by its address without the scheme; a document and an untitled terminal by their kind.
+        #expect(rows[2...4].map(\.name) == ["Pricing", "notes.md", "Terminal"])
+        #expect(rows[2...4].map(\.detail) == ["example.com/pricing", "Documents", "Terminal"])
+        // The tour shows five; typing is how the rest is reached.
+        let many = (1...7).map { SpaceTab(itemId: "i-\($0)", kind: .browser, title: "Page \($0)") }
+        #expect(Mentions.rows(teammates: [], tabs: many, files: [], skills: [], query: "").count == 5)
+    }
+
+    @Test func aTabIsFoundByItsTitleOrItsAddress() {
+        let byTitle = Mentions.rows(teammates: [], tabs: [Self.pricing, Self.notes], files: [], skills: [], query: "pric")
+        #expect(byTitle.map(\.id) == ["tab:i-b1"])
+        #expect(byTitle[0].detail == "Tab · example.com/pricing")
+        #expect(Mentions.rows(teammates: [], tabs: [Self.pricing], files: [], skills: [], query: "example").map(\.id) == ["tab:i-b1"])
+        #expect(Mentions.rows(teammates: [], tabs: [Self.notes], files: [], skills: [], query: "notes").map(\.id) == ["tab:i-d1"])
+        #expect(Mentions.rows(teammates: [], tabs: [Self.pricing], files: [], skills: [], query: "zz").isEmpty)
+    }
+
     // MARK: - What a pick puts in the draft
+
+    @Test func pickingATabTakesTheAtOutAndWritesNothingForIt() {
+        let row = MentionRow(kind: .tab(Self.pricing), name: "Pricing", detail: "", head: nil)
+        let picked = Mentions.pick(row, in: "compare @pri with ours", token: ComposerToken(start: 8, end: 12, query: "pri"), refs: [])
+        #expect(picked.draft == "compare  with ours")
+        #expect(picked.caret == 8)
+        #expect(picked.ref == nil)
+    }
 
     @Test func pickingATeammateWritesItsHandleAndKeepsWhatItNames() {
         let token = ComposerToken(start: 4, end: 8, query: "des")
@@ -183,7 +215,30 @@ struct ComposerSuggestionsTests {
         #expect(try JSONDecoder().decode(OutgoingItem.self, from: JSONSerialization.data(withJSONObject: saved)).mentionRefs == [])
     }
 
+    @Test func tabsTravelAsTheMacReadsThemAndAnOutboxFromBeforeThemStillReads() throws {
+        let data = try JSONEncoder().encode(Self.pricing.ref)
+        let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(json == ["itemId": "i-b1", "kind": "browser", "title": "Pricing"])
+        let item = OutgoingItem(sessionId: "s1", payload: .message(text: "compare"), afterSeq: 1, tabs: [Self.pricing.ref])
+        var saved = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(item)) as? [String: Any])
+        #expect(try JSONDecoder().decode(OutgoingItem.self, from: JSONSerialization.data(withJSONObject: saved)).tabs == [Self.pricing.ref])
+        saved["tabs"] = nil
+        #expect(try JSONDecoder().decode(OutgoingItem.self, from: JSONSerialization.data(withJSONObject: saved)).tabs == [])
+    }
+
     // MARK: - mobile.v1 as the Mac writes it
+
+    @Test(.enabled(if: APIFixtureTests.available, "ts-api.json is not written yet (the server's suite writes it)"))
+    func theTabsCallsAndASentMessagesCardsDecode() throws {
+        struct Tabs: Decodable { let tabs: [SpaceTab] }
+        let tabs = try APIFixtureTests.decode(Tabs.self, "calls", "session.tabs").tabs
+        #expect(tabs.map(\.kind) == [.browser, .browser, .terminal])
+        #expect(tabs.first?.detail == "localhost:4000/docs")
+        let card = try APIFixtureTests.decode(TabCard.self, "calls", "session.tabPreview")
+        #expect(card.title == "Realm docs" && card.bytes == 18_432 && card.truncated == false && card.closed == nil)
+        let row = try #require(try APIFixtureTests.opened().rows.first { $0.sentTabs != nil })
+        #expect(row.sentTabs?.map(\.title) == ["Realm docs"])
+    }
 
     @Test(.enabled(if: APIFixtureTests.available, "ts-api.json is not written yet (the server's suite writes it)"))
     func theComposersCallsDecode() throws {

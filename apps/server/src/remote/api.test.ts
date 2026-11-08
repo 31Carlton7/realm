@@ -1975,6 +1975,61 @@ describe("the composer's / and @ lists", () => {
   });
 });
 
+describe("the @ list's tabs from the phone", () => {
+  function rig() {
+    const sent: Record<string, unknown>[] = [];
+    const asked: [string, Record<string, unknown>][] = [];
+    const rpc = fakeRpc({ sessions: [session("s1", "sp1")], items: [] }, {
+      "tabs.list": ((p: Record<string, unknown>) => { asked.push(["tabs.list", p]); return { tabs: [
+        { itemId: "b1", kind: "browser", title: "Sign in", favicon: "data:image/png;base64,AAAA", url: "https://example.com/login" },
+        { itemId: "d1", kind: "documents", title: "notes.md", favicon: "", path: "/Users/me/realm/notes.md" },
+        { itemId: "t1", kind: "terminal", title: "zsh", favicon: "" },
+      ] }; }) as never,
+      // The read behind a preview has the page's text and its fields; a card says only what it came to.
+      "tabs.preview": ((p: Record<string, unknown>) => { asked.push(["tabs.preview", p]); return {
+        itemId: "b1", kind: "browser", title: "Sign in", url: "https://example.com/login", bytes: 812, truncated: false,
+        text: "Password: hunter2", fields: [{ label: "Password", value: "hunter2", hidden: false }],
+      }; }) as never,
+      "sessions.send": ((p: Record<string, unknown>) => { sent.push(p); return { ok: true }; }) as never,
+    });
+    return { sent, asked, call: (method: string, params: Record<string, unknown>) => attempt(api(), rpc, method, { id: "s1", ...params }) };
+  }
+
+  it("lists the space's panes in its order, by kind, title and address, without their page icons", async () => {
+    const r = rig();
+    const got = await r.call("session.tabs", {});
+    expect(got).toEqual({ ok: true, result: { tabs: [
+      { itemId: "b1", kind: "browser", title: "Sign in", url: "https://example.com/login" },
+      { itemId: "d1", kind: "documents", title: "notes.md", path: "/Users/me/realm/notes.md" },
+      { itemId: "t1", kind: "terminal", title: "zsh" },
+    ] } });
+    expect(r.asked).toEqual([["tabs.list", { sessionId: "s1" }]]);
+    expect(MobileCalls["session.tabs"].result.safeParse((got as { result: unknown }).result).success).toBe(true);
+  });
+
+  it("previews a card by its size alone: nothing read of the page reaches the phone", async () => {
+    const r = rig();
+    const tab = { itemId: "b1", kind: "browser", title: "Sign in" };
+    const got = await r.call("session.tabPreview", { tab });
+    expect(got).toEqual({ ok: true, result: { itemId: "b1", kind: "browser", title: "Sign in", url: "https://example.com/login", bytes: 812, truncated: false } });
+    expect(JSON.stringify(got)).not.toContain("hunter2");
+    expect(r.asked).toEqual([["tabs.preview", { sessionId: "s1", tab }]]);
+  });
+
+  it("sends the cards with the words, and a message of tabs alone", async () => {
+    const r = rig();
+    const tabs = [{ itemId: "b1", kind: "browser", title: "Sign in" }];
+    expect(await r.call("session.send", { text: "what is this page?", tabs })).toEqual({ ok: true, result: { ok: true } });
+    expect(await r.call("session.send", { text: "", tabs })).toEqual({ ok: true, result: { ok: true } });
+    expect(r.sent).toEqual([
+      { id: "s1", text: "what is this page?", attachments: [], delivery: "auto", tabs },
+      { id: "s1", text: "", attachments: [], delivery: "auto", tabs },
+    ]);
+    expect(await r.call("session.send", { text: "", tabs: [] })).toMatchObject({ ok: false, code: "INVALID_PARAMS" });
+    expect(await r.call("session.send", { text: "x", tabs: Array.from({ length: 9 }, (_, i) => ({ ...tabs[0], itemId: `b${i}` })) })).toMatchObject({ ok: false, code: "INVALID_PARAMS" });
+  });
+});
+
 describe("a session's goal from the phone", () => {
   const goal = (sessionId: string, status: Goal["status"], extra: Partial<Goal> = {}): Goal =>
     ({ sessionId, objective: `Finish ${sessionId}`, status, tokenBudget: null, tokensUsed: 0, turns: 1, note: null, startedAt: 1, updatedAt: 2, ...extra });

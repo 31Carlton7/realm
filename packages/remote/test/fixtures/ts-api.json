@@ -1075,6 +1075,16 @@
               "name": "brief.pdf",
               "mime": "application/pdf"
             }
+          ],
+          "tabs": [
+            {
+              "itemId": "i-01JBROWSER0000000000000001",
+              "kind": "browser",
+              "title": "Realm docs",
+              "url": "http://localhost:4000/docs",
+              "bytes": 18432,
+              "truncated": false
+            }
           ]
         },
         {
@@ -3839,6 +3849,35 @@
           "rel": "apps/ios/Realm/Theme/Palette.swift"
         }
       ]
+    },
+    "session.tabs": {
+      "tabs": [
+        {
+          "itemId": "i-01JBROWSER0000000000000001",
+          "kind": "browser",
+          "title": "Realm docs",
+          "url": "http://localhost:4000/docs"
+        },
+        {
+          "itemId": "i-01JBROWSER0000000000000002",
+          "kind": "browser",
+          "title": "Admin",
+          "url": "https://admin.example.com/"
+        },
+        {
+          "itemId": "i-01JTERMINAL000000000000001",
+          "kind": "terminal",
+          "title": "realm"
+        }
+      ]
+    },
+    "session.tabPreview": {
+      "itemId": "i-01JBROWSER0000000000000001",
+      "kind": "browser",
+      "title": "Realm docs",
+      "url": "http://localhost:4000/docs",
+      "bytes": 18432,
+      "truncated": false
     },
     "session.expandCommand": {
       "text": "Write the changelog for 2.8.0.",
