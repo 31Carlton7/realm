@@ -556,6 +556,13 @@ else keeps its own name, whatever it looks like.
 | `library.files` | `{profileId?, spaceId?, origin?: "output"\|"upload"\|"added", query?: string = "", before?: {ts, id}, limit?: int = 40}` | `{entries: [LibraryFile], next: {ts, id}\|null}`: `limit` is at most 100 |
 | `library.file` | `{path}` | as `session.file` |
 | `library.fileData` | `{path, from?: int = 0}` | as `session.fileData`, and `modifiedAt` |
+| `memory.overview` | `{profileId}` | `{places: [MemoryPlace], homes: [{sourceId, spaceId: string\|null, label}], learning: bool}`: each place's newest 5 of its `count` |
+| `memory.list` | `{profileId, place?, query?: string = "", offset?: int = 0, limit?: int = 100}` | `{entries: [MemoryRow], total: int, next: int\|null}`: `limit` is at most 200 |
+| `memory.file` | `{id, profileId}` | `MemoryFile` |
+| `memory.write` | `{id, profileId, text, confirmExternal?: bool, baseUpdatedAt?: number}` | `MemoryFile`: `text` is at most 100,000 characters |
+| `memory.create` | `{profileId, sourceId, spaceId?, name, description, type: "user"\|"feedback"\|"project"\|"reference", body}` | `MemoryFile` |
+| `memory.delete` | `{id, confirmExternal?: bool}` | `{trashed: bool}`: true where a file outside Realm went to the Trash |
+| `memory.setLearning` | `{profileId, on: bool}` | `{on: bool}` |
 | `debug.report` | `{name, data}` | `{ok: true}` |
 
 `Space` is `{id, name, icon, color, sessions: [SessionRow], more: int, iconKind?, glyph?, emoji?, profileId?}`.
@@ -1239,6 +1246,17 @@ phone read, and what bounds it:
   row to a file: its name, full path, where it came from and when it was last touched, and the title of
   the session it came from. Only a path the Library lists can be read, by the rules of `session.file`,
   and never one that holds a secret.
+- **`memory.overview`**, **`memory.list`**, **`memory.file`**, **`memory.write`**, **`memory.create`**,
+  **`memory.delete`** and **`memory.setLearning`**: the desktop's memory library, by its own calls, so a
+  save is the same one commit and the Mac's repo stays the only store. Only a file a source lists can be
+  read, wherever a link leads, as on the desktop. A row carries a memory's name, description, type and
+  where it is kept, each at most 200 characters, and a search's best line, and never its path;
+  `memory.file` adds the file's text, at most 100,000 characters, and its path from the home folder. A
+  file outside Realm is written or moved to the Trash only with `confirmExternal`, the person's yes. A
+  phone is never sent a file `isSecretPath` names, nor one whose text has the shape of a key or a token
+  (the shapes memory itself refuses to save): a row of the second kind says only the file's name and
+  where it is kept, and a read of it is refused (`FORBIDDEN`). A write with `baseUpdatedAt` is refused
+  when the file has changed since, so a phone's slow edit does not overwrite what an agent just saved.
 - **`session.saved`**, **`session.setSaved`** and **`saved.list`**: which turns are saved, and for each
   saved turn its prompt, the start of its answer, and its session's and space's names.
 - **`session.screens`** and **`session.screen`**: the simulators and machines open in that session's
