@@ -345,7 +345,7 @@ struct SentFiles: View {
         .gesture(GallerySwipe { opening = GalleryOpening(page: 0) })
         .accessibilityAction(named: "Show all files") { opening = GalleryOpening(page: 0) }
         .fullScreenCover(item: $opening) { opening in
-            AttachmentGallery(pages: pages, sessionId: sessionId, page: opening.page)
+            AttachmentGallery(pages: pages, source: .session(sessionId), page: opening.page)
         }
     }
 }

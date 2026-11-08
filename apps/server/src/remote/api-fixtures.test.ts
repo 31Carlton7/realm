@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { tempDir } from "@realm/test-utils";
 import {
@@ -146,6 +146,10 @@ async function generate(): Promise<Record<string, unknown>> {
   writeFileSync(join(dir, "slide.png"), "png");
   writeFileSync(join(dir, "walkthrough.mp4"), "mp4");
   const made = ["slide.png", "notes.md", "walkthrough.mp4"].map((name) => ({ path: join(dir, name), size: 1024 }));
+  // The time `fileData` says, fixed: the fixture is compared with what this run writes.
+  for (const name of ["slide.png", "notes.md", "walkthrough.mp4"]) utimesSync(join(dir, name), 1_790_000_000, 1_790_000_000);
+  mkdirSync(join(dir, "drafts"));
+  writeFileSync(join(dir, ".env"), "TOKEN=hidden");
   // What a phone sent with the first message, where the Mac wrote it.
   const home = tempDir("realm-api-fixture-home-");
   const attachments = tempAttachmentDir(home);
@@ -468,6 +472,17 @@ async function generate(): Promise<Record<string, unknown>> {
     "sessions.setAccount": ((p: { id: string; accountId: string | null }) => ({ ...sessions.find((x) => x.id === p.id)!, accountId: p.accountId })) as never,
     "sessions.saved": (() => ({ seqs: [2] })) as never,
     "sessions.setSaved": ((p: { seq: number; saved: boolean }) => ({ seqs: p.saved ? [2, p.seq] : [2] })) as never,
+    "documents.spaceRoot": (() => ({ root: dir })) as never,
+    "documents.listInSpace": (() => ({ entries: [
+      { path: "drafts", name: "drafts", isDir: true, size: 0 },
+      { path: "notes.md", name: "notes.md", isDir: false, size: 27 },
+      { path: "slide.png", name: "slide.png", isDir: false, size: 3 },
+    ] })) as never,
+    "project.files": (() => ({ hits: [{ path: "notes.md", score: 9, segments: [] }, { path: ".env", score: 1, segments: [] }], truncated: false, source: "git" })) as never,
+    "library.artifacts": (() => ({ total: 2, entries: [
+      { id: `${S}:7:${made[1]!.path}`, sessionId: S, spaceId: "sp1", kind: "output", path: made[1]!.path, name: "notes.md", ext: "md", ts: 1_790_000_200_000, sessionTitle: "Theme column", agentKind: "claude" },
+      { id: `added:${sent[1]!.path}`, sessionId: null, spaceId: null, kind: "added", path: sent[1]!.path, name: "report.pdf", ext: "pdf", ts: 1_790_000_100_000, sessionTitle: null, agentKind: null },
+    ] })) as never,
     "library.saved": (() => ({ total: 1, entries: [{
       sessionId: S, seq: 2, savedAt: 1_790_000_300_000, ts: 1_790_000_000_000, text: "Add a theme column to the settings table", attachments: [], goal: null,
       reply: "Added the column and a migration for it.", sessionTitle: "Theme column", spaceId: "sp1",
@@ -560,6 +575,15 @@ async function generate(): Promise<Record<string, unknown>> {
       "session.saved": await call("session.saved", { id: S }),
       "session.setSaved": await call("session.setSaved", { id: S, seq: 5, saved: true }),
       "saved.list": await call("saved.list", { profileId: "p1" }),
+      "documents.list": await call("documents.list", { spaceId: "sp1" }),
+      "documents.list:page": await call("documents.list", { spaceId: "sp1", offset: 1, limit: 1 }),
+      "documents.search": await call("documents.search", { spaceId: "sp1", query: "notes" }),
+      "documents.search:withheld": await call("documents.search", { spaceId: "sp1", query: ".env" }),
+      "documents.file": await call("documents.file", { spaceId: "sp1", path: "notes.md" }),
+      "documents.fileData": await call("documents.fileData", { spaceId: "sp1", path: "notes.md", from: 0 }),
+      "library.files": await call("library.files", { profileId: "p1" }),
+      "library.file": await call("library.file", { path: made[1]!.path }),
+      "library.fileData": await call("library.fileData", { path: made[1]!.path, from: 0 }),
       "session.accounts": await call("session.accounts", { id: S }),
       "session.setAccount": await call("session.setAccount", { id: S, accountId: "01JACCOUNT0000000000000000" }),
       "session.switchAgent": await call("session.switchAgent", { id: OLDER[4]!, agent: "codex", model: "gpt-6-astra" }),
@@ -584,7 +608,7 @@ async function generate(): Promise<Record<string, unknown>> {
       values: normalizeAnswers(card, answers),
     },
   };
-  return JSON.parse(JSON.stringify(fixture).replaceAll(dir, DECK).replaceAll(home, HOME)) as Record<string, unknown>;
+  return JSON.parse(JSON.stringify(fixture).replaceAll(dir, DECK).replaceAll(home, HOME).replaceAll(basename(dir), "Deck")) as Record<string, unknown>;
 }
 
 describe("mobile.v1 fixtures for RealmKit (PROTOCOL.md §9)", () => {

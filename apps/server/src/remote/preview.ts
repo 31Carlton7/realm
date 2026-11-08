@@ -136,7 +136,7 @@ export async function fileData(path: string, from: number): Promise<FileData> {
     const { bytesRead } = await f.read(buf, 0, buf.length, from);
     const next = from + bytesRead;
     return {
-      path, name: basename(path), size: s.size, mime: mimeForPath(path),
+      path, name: basename(path), size: s.size, modifiedAt: Math.round(s.mtimeMs), mime: mimeForPath(path),
       from, data: buf.subarray(0, bytesRead).toString("base64"), next: next < s.size && bytesRead > 0 ? next : null,
     };
   } finally {

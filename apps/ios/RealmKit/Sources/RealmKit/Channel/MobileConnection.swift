@@ -673,6 +673,51 @@ public struct MobileAPI: Sendable {
         return try await connection.call("session.fileData", params: Params(id: id, path: path, from: from), as: FilePiece.self)
     }
 
+    /// A preview of a file, from wherever it is read.
+    public func file(_ source: FileSource, path: String) async throws -> FilePreview {
+        struct InSpace: Encodable, Sendable { let spaceId: String; let path: String }
+        struct InLibrary: Encodable, Sendable { let path: String }
+        switch source {
+        case .session(let id): return try await file(id: id, path: path)
+        case .space(let id): return try await connection.call("documents.file", params: InSpace(spaceId: id, path: path), as: FilePreview.self)
+        case .library: return try await connection.call("library.file", params: InLibrary(path: path), as: FilePreview.self)
+        }
+    }
+
+    /// A piece of a file, from wherever it is read, from byte `from`.
+    public func fileData(_ source: FileSource, path: String, from: Int) async throws -> FilePiece {
+        struct InSpace: Encodable, Sendable { let spaceId: String; let path: String; let from: Int }
+        struct InLibrary: Encodable, Sendable { let path: String; let from: Int }
+        switch source {
+        case .session(let id): return try await fileData(id: id, path: path, from: from)
+        case .space(let id): return try await connection.call("documents.fileData", params: InSpace(spaceId: id, path: path, from: from), as: FilePiece.self)
+        case .library: return try await connection.call("library.fileData", params: InLibrary(path: path, from: from), as: FilePiece.self)
+        }
+    }
+
+    /// One page of one level of a space's folder, folders first and then files, each by name.
+    public func documents(spaceId: String, dir: String, offset: Int) async throws -> DocumentListing {
+        struct Params: Encodable, Sendable { let spaceId: String; let dir: String; let offset: Int }
+        return try await connection.call("documents.list", params: Params(spaceId: spaceId, dir: dir, offset: offset), as: DocumentListing.self)
+    }
+
+    /// The files of a space's folder that best match `query`.
+    public func searchDocuments(spaceId: String, query: String) async throws -> DocumentSearch {
+        struct Params: Encodable, Sendable { let spaceId: String; let query: String }
+        return try await connection.call("documents.search", params: Params(spaceId: spaceId, query: query), as: DocumentSearch.self)
+    }
+
+    /// One page of the Library's files: every profile's where `profileId` is nil, one space's where
+    /// `spaceId` is given, of one `origin` where one is given.
+    public func libraryFiles(profileId: String?, spaceId: String? = nil, origin: String? = nil, query: String = "",
+                             before: LibraryCursor? = nil, limit: Int = 40) async throws -> LibraryPage {
+        struct Params: Encodable, Sendable {
+            let profileId: String?; let spaceId: String?; let origin: String?; let query: String; let before: LibraryCursor?; let limit: Int
+        }
+        let params = Params(profileId: profileId, spaceId: spaceId, origin: origin, query: query, before: before, limit: limit)
+        return try await connection.call("library.files", params: params, as: LibraryPage.self)
+    }
+
     /// A space's own picture, for a space whose icon is one.
     /// The simulators and machines open in the session's space, live ones first.
     public func screens(id: String) async throws -> [SessionScreen] {

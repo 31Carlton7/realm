@@ -25,6 +25,10 @@ struct RootView: View {
                                 case .usage: UsageView()
                                 case .saved: SavedView()
                                 case .team: TeamView()
+                                case .documents(let spaceId, let dir): FolderView(spaceId: spaceId, dir: dir)
+                                case .library: LibraryView()
+                                case .libraryFiles(let shelf): LibraryShelfView(shelf: shelf)
+                                case .document(let ref): DocumentReader(document: ref)
                                 }
                             }
                             .backOnGround()

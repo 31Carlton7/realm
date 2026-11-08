@@ -257,14 +257,18 @@ export class DocumentService {
   // ---------------------------------------------------------------- files
 
   async list(documentsId: string, dir: string): Promise<DocumentEntry[]> {
-    const ws = this.get(documentsId);
-    const root = this.rootOf(ws);
+    return this.listInRoot(this.rootOf(this.get(documentsId)), dir);
+  }
+
+  /** One directory level under `root`: what the pane's picker and a phone both read. */
+  async listInRoot(root: string, dir: string): Promise<DocumentEntry[]> {
     const absDir = resolveInRoot(root, dir);
     let names: string[];
     try {
       names = await readdir(absDir);
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === "ENOENT") throw new RpcError("NOT_FOUND", `no such directory: ${dir}`);
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === "ENOENT" || code === "ENOTDIR") throw new RpcError("NOT_FOUND", `no such directory: ${dir}`);
       throw e;
     }
     const entries: DocumentEntry[] = [];

@@ -961,6 +961,10 @@ export const Methods = {
   "documents.close":  { params: z.object({ documentsId: IdSchema }), result: z.object({ ok: z.literal(true) }) },
   /** One directory level for the pane's file picker. `dir` is "" for the environment root. */
   "documents.list":   { params: z.object({ documentsId: IdSchema, dir: z.string().default("") }), result: z.object({ entries: z.array(DocumentEntrySchema) }) },
+  /** A space's folder, for a caller that reads it without opening a pane on it: the phone. */
+  "documents.spaceRoot": { params: z.object({ spaceId: IdSchema }), result: z.object({ root: z.string() }) },
+  /** `documents.list` over a space's folder, by the same rules, with no pane opened. */
+  "documents.listInSpace": { params: z.object({ spaceId: IdSchema, dir: z.string().default("") }), result: z.object({ entries: z.array(DocumentEntrySchema) }) },
   /** `hash` is the content hash the client must send back with its next write — see `documents.write`. */
   "documents.read":   { params: z.object({ documentsId: IdSchema, path: z.string() }), result: z.object({ text: z.string(), hash: z.string() }) },
   /**

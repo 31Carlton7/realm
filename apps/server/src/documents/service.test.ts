@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tempDir } from "@realm/test-utils";
 import { createApp, type App } from "../app";
+import { DocumentService } from "./service";
 import { waitFor } from "../test-utils";
 import { hashText } from "./files";
 
@@ -33,6 +35,21 @@ async function setup() {
     .find((e: any) => e.id === ws.environmentId);
   return { app, c, space, env, documentsId, itemId, root: env.path as string };
 }
+
+describe("DocumentService.listInRoot", () => {
+  it("lists folders first, each by name, leaving out dotfiles and what the picker never shows", async () => {
+    const root = tempDir("realm-list-in-root-");
+    mkdirSync(join(root, "zebra"));
+    mkdirSync(join(root, "alpha"));
+    mkdirSync(join(root, "node_modules"));
+    mkdirSync(join(root, ".git"));
+    for (const name of ["b.md", "a.md", ".env", ".hidden.md"]) writeFileSync(join(root, name), "x");
+    const service = new DocumentService({} as never);
+    expect((await service.listInRoot(root, "")).map((e) => e.name)).toEqual(["alpha", "zebra", "a.md", "b.md"]);
+    await expect(service.listInRoot(root, "../")).rejects.toMatchObject({ code: "BAD_PATH" });
+    await expect(service.listInRoot(root, "a.md")).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
 
 describe("documents RPC — lifecycle", () => {
   it("create makes row + item as one unit, titled after the checkout", async () => {

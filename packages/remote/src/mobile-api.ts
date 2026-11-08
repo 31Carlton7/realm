@@ -574,6 +574,28 @@ export const FilePreviewSchema = z.object({
 export const FileDataSchema = z.object({
   path: z.string(), name: z.string(), size: z.number().int(), mime: z.string(),
   from: z.number().int(), data: z.string(), next: z.number().int().nullable(),
+  /** When the file last changed, in the Mac's milliseconds: what says a copy a phone kept is still it. */
+  modifiedAt: z.number().int().optional(),
+});
+
+/** A page of a folder's listing that a phone asks for by default, and the most it may ask for. */
+export const DOCUMENTS_PAGE = 100;
+export const DOCUMENTS_PAGE_MAX = 200;
+/** A page of the Library a phone asks for by default, and the most it may ask for. */
+export const LIBRARY_FILES_PAGE = 40;
+export const LIBRARY_FILES_PAGE_MAX = 100;
+
+/** What a phone needs to know to open a file: the desktop's `documentKindFor`, and its mime type. */
+const FileTraits = { kind: z.string(), mime: z.string() };
+
+/** A file or folder in a space's folder: `path` is relative to it. `kind` is "folder" for a folder. */
+export const DocumentRowSchema = z.object({ path: z.string(), name: z.string(), isDir: z.boolean(), size: z.number(), ...FileTraits });
+
+/** A file of the Library, whichever session it came from: `path` is its full path on the Mac. `origin`
+ *  is the desktop's kind of artifact: made by an agent, attached by the person, or added by them. */
+export const LibraryFileSchema = z.object({
+  id: z.string(), path: z.string(), name: z.string(), origin: z.string(), at: z.number(),
+  sessionId: z.string().nullable(), sessionTitle: z.string().nullable(), spaceId: z.string().nullable(), ...FileTraits,
 });
 
 /** A checkout of the session's space, as the Move sheet names it: its path (`~` for the Mac's home),
@@ -957,6 +979,44 @@ export const MobileCalls = {
     params: z.object({ id: Id, path: z.string().min(1).max(4096), from: z.number().int().min(0).default(0) }),
     result: FileDataSchema,
   },
+  /** One page of one level of a space's folder, in the desktop's order: folders first, then files, each
+   *  by name. Hidden files and those that hold a secret are not listed. `next` is the next page's offset. */
+  "documents.list": {
+    params: z.object({
+      spaceId: Id, dir: z.string().max(4096).default(""), offset: z.number().int().min(0).default(0),
+      limit: z.number().int().min(1).max(DOCUMENTS_PAGE_MAX).default(DOCUMENTS_PAGE),
+    }),
+    result: z.object({ folder: z.string(), entries: z.array(DocumentRowSchema), total: z.number().int(), next: z.number().int().nullable() }),
+  },
+  /** The files in a space's folder that best match `query`, as the desktop's file search ranks them.
+   *  `withheld` is the file `query` names exactly where that file holds a secret: said, never sent. */
+  "documents.search": {
+    params: z.object({ spaceId: Id, query: z.string().trim().min(1).max(200) }),
+    result: z.object({ entries: z.array(DocumentRowSchema), withheld: DocumentRowSchema.nullable() }),
+  },
+  /** A bounded preview of a file in a space's folder, by its path in that folder. Not a path outside
+   *  the folder, nor a file that holds a secret. */
+  "documents.file": { params: z.object({ spaceId: Id, path: z.string().min(1).max(4096) }), result: FilePreviewSchema },
+  /** The file itself, a piece at a time: the same files `documents.file` previews, and only those. */
+  "documents.fileData": {
+    params: z.object({ spaceId: Id, path: z.string().min(1).max(4096), from: z.number().int().min(0).default(0) }),
+    result: FileDataSchema,
+  },
+  /** One page of the Library's files, the newest touched first, one row to a file: every profile's, or
+   *  one's or one space's, of one `origin` or all, whose names match `query`. Files that hold a secret
+   *  are not listed. `before` is the last page's `next`. */
+  "library.files": {
+    params: z.object({
+      profileId: Id.optional(), spaceId: Id.optional(), origin: z.enum(["output", "upload", "added"]).optional(),
+      query: z.string().trim().max(200).default(""), before: z.object({ ts: z.number(), id: z.string() }).optional(),
+      limit: z.number().int().min(1).max(LIBRARY_FILES_PAGE_MAX).default(LIBRARY_FILES_PAGE),
+    }),
+    result: z.object({ entries: z.array(LibraryFileSchema), next: z.object({ ts: z.number(), id: z.string() }).nullable() }),
+  },
+  /** A bounded preview of a file `library.files` lists, by its full path, and of no other. */
+  "library.file": { params: z.object({ path: z.string().min(1).max(4096) }), result: FilePreviewSchema },
+  /** The file itself, a piece at a time: the same files `library.file` previews, and only those. */
+  "library.fileData": { params: z.object({ path: z.string().min(1).max(4096), from: z.number().int().min(0).default(0) }), result: FileDataSchema },
   /** A space's own picture, for an icon `home.get` calls a picture. */
   "space.icon": {
     params: z.object({ id: Id }),

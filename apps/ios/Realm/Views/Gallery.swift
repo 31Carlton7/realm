@@ -94,7 +94,7 @@ struct GalleryOpening: Identifiable {
 /// Quick Look, and shared or saved.
 struct AttachmentGallery: View {
     let pages: GalleryPages
-    let sessionId: String
+    let source: FileSource
     @State var page: Int
     @State private var showsAll = false
     /// The files fetched whole so far, by path: what Share hands on.
@@ -106,7 +106,7 @@ struct AttachmentGallery: View {
         NavigationStack {
             ZStack {
                 if showsAll {
-                    GalleryGrid(pages: pages, sessionId: sessionId, page: page) { picked in
+                    GalleryGrid(pages: pages, source: source, page: page) { picked in
                         page = picked
                         withAnimation(Motion.morph) { showsAll = false }
                     }
@@ -114,7 +114,7 @@ struct AttachmentGallery: View {
                 } else {
                     TabView(selection: $page) {
                         ForEach(pages.files.indices, id: \.self) { index in
-                            GalleryPage(file: pages.files[index], sessionId: sessionId, isCurrent: index == page) { url in
+                            GalleryPage(file: pages.files[index], source: source, isCurrent: index == page) { url in
                                 fetched[pages.files[index].path] = url
                             }
                             .tag(index)
@@ -160,7 +160,7 @@ struct AttachmentGallery: View {
 /// One file of the gallery: its preview at once where it is a picture, then the file itself.
 private struct GalleryPage: View {
     let file: SentFile
-    let sessionId: String
+    let source: FileSource
     let isCurrent: Bool
     let fetched: (URL) -> Void
     @Environment(AppModel.self) private var model
@@ -200,14 +200,14 @@ private struct GalleryPage: View {
         .task {
             // The Mac's small copy first, so a picture is there while the file itself comes.
             guard kind == .picture, picture == nil,
-                  let preview = try? await model.preview(file.path, in: sessionId),
+                  let preview = try? await model.preview(file.path, in: source),
                   case .image(_, let data) = preview.preview else { return }
             if picture == nil { picture = UIImage(data: data) }
         }
         .task(id: isCurrent) {
             guard isCurrent, whole == nil else { return }
             do {
-                let url = try await model.wholeFile(file.path, name: file.name, in: sessionId) { share in
+                let url = try await model.wholeFile(file.path, name: file.name, in: source) { share in
                     Task { @MainActor in progress = share }
                 }
                 whole = url
@@ -265,7 +265,7 @@ private struct GalleryPage: View {
 /// at the head and its kind's glyph in the middle. The one on screen before is ringed.
 private struct GalleryGrid: View {
     let pages: GalleryPages
-    let sessionId: String
+    let source: FileSource
     let page: Int
     let pick: (Int) -> Void
 
@@ -278,7 +278,7 @@ private struct GalleryGrid: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.narrowestTile), spacing: 6)], spacing: 6) {
                 ForEach(pages.files.indices, id: \.self) { index in
                     Button { pick(index) } label: {
-                        GalleryTile(file: pages.files[index], sessionId: sessionId)
+                        GalleryTile(file: pages.files[index], source: source)
                             .overlay {
                                 if index == page {
                                     RoundedRectangle(cornerRadius: Radius.thumbnail, style: .continuous)
@@ -298,7 +298,7 @@ private struct GalleryGrid: View {
 
 private struct GalleryTile: View {
     let file: SentFile
-    let sessionId: String
+    let source: FileSource
     @Environment(AppModel.self) private var model
     @Environment(\.displayScale) private var displayScale
     /// The Mac's preview made small enough for the tile, its short side covering the widest tile the grid
@@ -307,11 +307,17 @@ private struct GalleryTile: View {
     /// A video's first frame or a document's first page, made from the file once it is on this phone.
     @State private var cover: UIImage?
 
+    /// The small copy the message's row already drew, for a file of a session.
+    private var sessionThumbnail: UIImage? {
+        guard case .session(let id) = source else { return nil }
+        return model.thumbnail(file.path, in: id)
+    }
+
     var body: some View {
         Color.clear
             .aspectRatio(1, contentMode: .fit)
             .overlay {
-                if file.isImage, let thumbnail = picture ?? model.thumbnail(file.path, in: sessionId) {
+                if file.isImage, let thumbnail = picture ?? sessionThumbnail {
                     Image(uiImage: thumbnail)
                         .resizable()
                         .scaledToFill()
@@ -351,7 +357,7 @@ private struct GalleryTile: View {
             }
             .pictureTile()
             .task {
-                guard file.isImage, let preview = try? await model.preview(file.path, in: sessionId),
+                guard file.isImage, let preview = try? await model.preview(file.path, in: source),
                       case .image(_, let data) = preview.preview, let image = UIImage(data: data),
                       image.size.width > 0, image.size.height > 0 else { return }
                 let scale = GalleryGrid.widestTile * displayScale / min(image.size.width, image.size.height)
@@ -359,7 +365,7 @@ private struct GalleryTile: View {
                 picture = await image.byPreparingThumbnail(ofSize: CGSize(width: image.size.width * scale, height: image.size.height * scale)) ?? image
             }
             .task {
-                guard !file.isImage, let kept = model.keptFile(file.path, name: file.name, in: sessionId) else { return }
+                guard !file.isImage, let kept = model.keptFile(file.path, name: file.name, in: source) else { return }
                 cover = await GalleryCover.image(of: kept, kind: GalleryKind(mime: file.mime), side: GalleryGrid.widestTile, scale: displayScale)
             }
     }
@@ -446,7 +452,7 @@ struct ZoomableImage: UIViewRepresentable {
 /// A document's first page, and Quick Look over the gallery from a tap on it, with Quick Look's own
 /// Share and Save. Quick Look is not drawn in the page itself: it keeps every sideways swipe for its own
 /// paging, and the gallery could never be swiped on from a document.
-private struct DocumentPage: View {
+struct DocumentPage: View {
     let url: URL
     let name: String
     @State private var cover: UIImage?

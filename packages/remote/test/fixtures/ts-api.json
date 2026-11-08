@@ -1780,6 +1780,7 @@
       "path": "/Users/me/Desktop/Deck/notes.md",
       "name": "notes.md",
       "size": 28,
+      "modifiedAt": 1790000000000,
       "mime": "text/markdown",
       "from": 0,
       "data": "IyBEZWNrIG5vdGVzCgpUaHJlZSBzbGlkZXMuCg==",
@@ -4264,6 +4265,156 @@
         }
       ],
       "total": 1
+    },
+    "documents.list": {
+      "folder": "Deck",
+      "entries": [
+        {
+          "path": "drafts",
+          "name": "drafts",
+          "isDir": true,
+          "size": 0,
+          "kind": "folder",
+          "mime": ""
+        },
+        {
+          "path": "notes.md",
+          "name": "notes.md",
+          "isDir": false,
+          "size": 28,
+          "kind": "doc",
+          "mime": "text/markdown"
+        },
+        {
+          "path": "slide.png",
+          "name": "slide.png",
+          "isDir": false,
+          "size": 3,
+          "kind": "preview",
+          "mime": "image/png"
+        }
+      ],
+      "total": 3,
+      "next": null
+    },
+    "documents.list:page": {
+      "folder": "Deck",
+      "entries": [
+        {
+          "path": "notes.md",
+          "name": "notes.md",
+          "isDir": false,
+          "size": 28,
+          "kind": "doc",
+          "mime": "text/markdown"
+        }
+      ],
+      "total": 3,
+      "next": 2
+    },
+    "documents.search": {
+      "entries": [
+        {
+          "path": "notes.md",
+          "name": "notes.md",
+          "isDir": false,
+          "size": 28,
+          "kind": "doc",
+          "mime": "text/markdown"
+        }
+      ],
+      "withheld": null
+    },
+    "documents.search:withheld": {
+      "entries": [
+        {
+          "path": "notes.md",
+          "name": "notes.md",
+          "isDir": false,
+          "size": 28,
+          "kind": "doc",
+          "mime": "text/markdown"
+        }
+      ],
+      "withheld": {
+        "path": ".env",
+        "name": ".env",
+        "isDir": false,
+        "size": 12,
+        "kind": "code",
+        "mime": "application/octet-stream"
+      }
+    },
+    "documents.file": {
+      "path": "/Users/me/Desktop/Deck/notes.md",
+      "name": "notes.md",
+      "size": 28,
+      "mime": "text/markdown",
+      "preview": {
+        "kind": "text",
+        "text": "# Deck notes\n\nThree slides.\n",
+        "truncated": false
+      }
+    },
+    "documents.fileData": {
+      "path": "/Users/me/Desktop/Deck/notes.md",
+      "name": "notes.md",
+      "size": 28,
+      "modifiedAt": 1790000000000,
+      "mime": "text/markdown",
+      "from": 0,
+      "data": "IyBEZWNrIG5vdGVzCgpUaHJlZSBzbGlkZXMuCg==",
+      "next": null
+    },
+    "library.files": {
+      "entries": [
+        {
+          "id": "01JSESSION00000000000000000:7:/Users/me/Desktop/Deck/notes.md",
+          "path": "/Users/me/Desktop/Deck/notes.md",
+          "name": "notes.md",
+          "origin": "output",
+          "at": 1790000200000,
+          "sessionId": "01JSESSION00000000000000000",
+          "sessionTitle": "Theme column",
+          "spaceId": "sp1",
+          "kind": "doc",
+          "mime": "text/markdown"
+        },
+        {
+          "id": "added:/Users/me/Realm/tmp/attachments/8c1d2e3f4a5b-brief.pdf",
+          "path": "/Users/me/Realm/tmp/attachments/8c1d2e3f4a5b-brief.pdf",
+          "name": "brief.pdf",
+          "origin": "added",
+          "at": 1790000100000,
+          "sessionId": null,
+          "sessionTitle": null,
+          "spaceId": null,
+          "kind": "pdf",
+          "mime": "application/pdf"
+        }
+      ],
+      "next": null
+    },
+    "library.file": {
+      "path": "/Users/me/Desktop/Deck/notes.md",
+      "name": "notes.md",
+      "size": 28,
+      "mime": "text/markdown",
+      "preview": {
+        "kind": "text",
+        "text": "# Deck notes\n\nThree slides.\n",
+        "truncated": false
+      }
+    },
+    "library.fileData": {
+      "path": "/Users/me/Desktop/Deck/notes.md",
+      "name": "notes.md",
+      "size": 28,
+      "modifiedAt": 1790000000000,
+      "mime": "text/markdown",
+      "from": 0,
+      "data": "IyBEZWNrIG5vdGVzCgpUaHJlZSBzbGlkZXMuCg==",
+      "next": null
     },
     "session.accounts": {
       "accounts": [

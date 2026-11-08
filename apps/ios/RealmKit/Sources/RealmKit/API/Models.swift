@@ -1788,10 +1788,13 @@ public struct FilePiece: Decodable, Sendable, Hashable {
     public let from: Int
     public let data: Data
     public let next: Int?
+    /// When the file last changed, on the Mac; nil from a Mac that does not say.
+    public let modifiedAt: Millis?
 
-    private enum CodingKeys: String, CodingKey { case path, name, size, mime, from, data, next }
+    private enum CodingKeys: String, CodingKey { case path, name, size, mime, from, data, next, modifiedAt }
 
-    public init(path: String, name: String, size: Int, mime: String, from: Int, data: Data, next: Int?) {
+    public init(path: String, name: String, size: Int, mime: String, from: Int, data: Data, next: Int?, modifiedAt: Millis? = nil) {
+        self.modifiedAt = modifiedAt
         self.path = path
         self.name = name
         self.size = size
@@ -1813,6 +1816,7 @@ public struct FilePiece: Decodable, Sendable, Hashable {
         }
         self.data = data
         next = try c.decodeIfPresent(Int.self, forKey: .next)
+        modifiedAt = try c.decodeIfPresent(Millis.self, forKey: .modifiedAt)
     }
 }
 

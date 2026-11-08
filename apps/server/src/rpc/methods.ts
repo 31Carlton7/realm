@@ -991,6 +991,8 @@ export function registerMethods(d: Deps): void {
   reg("documents.close", (p) => { d.documents.close(p.documentsId); return { ok: true as const }; });
   reg("documents.detach", (p) => { d.documents.detach(p.documentsId); return { ok: true as const }; });
   reg("documents.list", async (p) => ({ entries: await d.documents.list(p.documentsId, p.dir) }));
+  reg("documents.spaceRoot", (p) => ({ root: d.documents.rootForSpace(p.spaceId) }));
+  reg("documents.listInSpace", async (p) => ({ entries: await d.documents.listInRoot(d.documents.rootForSpace(p.spaceId), p.dir) }));
   reg("documents.read", (p) => d.documents.read(p.documentsId, p.path));
   reg("documents.write", (p) => d.documents.write(p.documentsId, p.path, p.text, p.baseHash));
   reg("documents.createFile", (p) => d.documents.createFile(p.documentsId, p.path, p.kind, p.title));
