@@ -13,24 +13,22 @@
  *
  * The fields are found by `SECRET_FIELDS`, run in each frame in the page's own world, as `PAGE_BUSY`
  * is: a page that lies about its fields can only hide its own, which it could as well draw anywhere.
+ * Which fields count is `isSecretField`'s rule, built from the same two constants.
  */
+import { PLAIN_INPUT_TYPES, SECRET_FIELD_WORDS } from "@realm/contracts";
 
 /** A field's place in its frame's viewport, in CSS pixels: x, y, width, height. */
 export type FieldRect = [number, number, number, number];
 /** What `SECRET_FIELDS` answers: the frame's viewport and its secret fields within it. */
 export type SecretFields = { vw: number; vh: number; rects: FieldRect[] };
 
-/** Words in a field's type, name, id or autocomplete that say it holds a secret. Broad on purpose:
- *  covering a passport number by mistake costs a phone nothing. */
-export const SECRET_WORDS = /pass|pwd|secret|token|otp|one-time-code|cc-number|cc-csc|cvc|cvv|csc/i;
-
 /** How far past a field's edges the cover reaches, in CSS pixels: a focus ring, a caret's shadow. */
 export const COVER_MARGIN = 4;
 
 /** Every field of the frame (open shadow roots too) that holds or may hold a secret, by its place. */
 export const SECRET_FIELDS = `(() => {
-  const words = ${SECRET_WORDS.toString()};
-  const plain = ["hidden", "checkbox", "radio", "submit", "button", "reset", "image", "file", "range", "color"];
+  const words = ${SECRET_FIELD_WORDS.toString()};
+  const plain = ${JSON.stringify(PLAIN_INPUT_TYPES)};
   const rects = [];
   const visit = (root) => {
     for (const el of root.querySelectorAll("*")) {
