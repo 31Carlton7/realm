@@ -1357,10 +1357,13 @@ final class AppModel {
         if case .session = source, manager.fileExists(atPath: destination.path) { return destination }
         guard let api, isConnected else { throw ChannelError.notConnected }
         var changed: Date?
-        if case .session = source {} else {
+        switch source {
+        case .session:
+            break
+        case .space, .library:
             // A folder's file can change on the Mac: a read past its end says when it last did, for no bytes.
             let modifiedAt = try await api.fileData(source, path: path, from: Self.pastAnyEnd).modifiedAt
-            changed = modifiedAt.map { Date(timeIntervalSince1970: Double($0) / 1000) }
+            changed = modifiedAt.map { Date(timeIntervalSince1970: $0 / 1000) }
             let kept = try? manager.attributesOfItem(atPath: destination.path)[.modificationDate] as? Date
             if let changed, let kept, abs(kept.timeIntervalSince(changed)) < 1 { return destination }
             try? manager.removeItem(at: destination)

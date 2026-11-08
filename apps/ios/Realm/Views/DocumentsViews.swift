@@ -118,6 +118,7 @@ struct FileLine: View {
     var goesIn = false
     /// The first under a section head: clear of the fade that hangs from a pinned head.
     var leadsSection = false
+    static let fadeRoom: CGFloat = 14
 
     var body: some View {
         HStack(spacing: 12) {
@@ -157,16 +158,10 @@ struct FileLine: View {
             }
         }
         .padding(.vertical, 3)
-        .padding(.top, leadsSection ? SectionHead<EmptyView>.fadeRoom : 0)
+        .padding(.top, leadsSection ? Self.fadeRoom : 0)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
-}
-
-extension SectionHead {
-    /// How far a section's first row sits down, where a line of its text would otherwise rest in the
-    /// fade under the head.
-    static var fadeRoom: CGFloat { 14 }
 }
 
 extension View {

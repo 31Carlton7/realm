@@ -234,7 +234,7 @@ private struct SavedLine: View {
                 .lineLimit(1)
         }
         .padding(.vertical, 3)
-        .padding(.top, leadsSection ? SectionHead<EmptyView>.fadeRoom : 0)
+        .padding(.top, leadsSection ? FileLine.fadeRoom : 0)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }

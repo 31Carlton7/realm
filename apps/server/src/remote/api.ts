@@ -903,7 +903,7 @@ export class MobileApi {
     const { root } = await rpc.call("documents.spaceRoot", { spaceId });
     const { hits } = await rpc.call("project.files", { cwd: root, query, limit: DOCUMENTS_SEARCH_LIMIT });
     const paths = hits.map((h) => h.path);
-    const shown = await Promise.all(paths.filter((path) => !isSecretPath(path)).map((path) => documentRow(root, path, false)));
+    const shown = await Promise.all(paths.map((path) => documentRow(root, path, false)));
     return { entries: shown.filter((r) => r !== null), withheld: await withheldFile(root, query, paths) };
   }
 
