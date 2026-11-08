@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import {
-  AGENT_META, AGENT_SKILL_SUPPORT, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, defaultAccountId, hasAccounts, isSecretPath, keepLiveRefs, MAC_SKILL_ID, mentionIds, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, PERMISSION_MODES, readEffortSupport,
+  AGENT_META, AGENT_SKILL_SUPPORT, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, defaultAccountId, documentKindFor, hasAccounts, isSecretPath, keepLiveRefs, LIBRARY_QUERY_MAX, MAC_SKILL_ID, mentionIds, mimeForPath, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, PERMISSION_MODES, readEffortSupport,
   resolveMidTurnMode, runnableCommands, SEARCH_GROUP_LIMIT_MAX, SELECTABLE_AGENT_KINDS, TeammateIconSchema, withStreamed, type AgentKind, type DelegatedChild, type IconAsset, type Item, type Machine, type MethodResult, type ModelInfo,
   type Goal, type PendingMove, type QueuedPrompt, type Schedule, type Session, type Skill, type Space, type StoredSessionEvent, type Teammate, type TeammateIcon, type TurnChanges,
 } from "@realm/contracts";
@@ -17,6 +17,7 @@ import {
 import { resolveDefaultPermissionMode } from "../sessions/service";
 import { tildify } from "../skills/discovery";
 import { diffPage } from "./changes";
+import { checkSpacePath, documentRow, DOCUMENTS_SEARCH_LIMIT, SECRET_REFUSAL, withheldFile } from "./documents";
 import { agentOptions, changesFor, ChoiceRefused, probeList, sessionModelLabel, type InitFacts, type OptionsInput, type ProbeRow } from "./options";
 import { fileData, filePreview, PreviewRefused, sipsDownscale, type Downscale } from "./preview";
 import { BROWSER_FRAME_EVERY_MS, browserPane, openPanes, paneOrder, terminalOutput, terminalPane } from "./panes";
@@ -388,6 +389,25 @@ export class MobileApi {
         case "session.saved": return await rpc.call("sessions.saved", { id: p.id as string });
         case "session.setSaved": return await rpc.call("sessions.setSaved", { id: p.id as string, seq: p.seq as number, saved: p.saved as boolean });
         case "saved.list": return await this.savedTurns(rpc, p.profileId as string);
+        case "documents.list": return await this.documentsList(rpc, p as MobileParams<"documents.list">);
+        case "documents.search": return await this.documentsSearch(rpc, p.spaceId as string, p.query as string);
+        case "documents.file": {
+          const abs = await this.spaceFile(rpc, p.spaceId as string, p.path as string);
+          return await this.preview(abs);
+        }
+        case "documents.fileData": {
+          const abs = await this.spaceFile(rpc, p.spaceId as string, p.path as string);
+          return await this.read(() => fileData(abs, p.from as number));
+        }
+        case "library.files": return await this.libraryFiles(rpc, p as MobileParams<"library.files">);
+        case "library.file": {
+          await this.inLibrary(rpc, p.path as string);
+          return { ...await this.preview(p.path as string), name: givenAttachmentName(p.path as string, tempAttachmentDir(this.o.realmHome)) };
+        }
+        case "library.fileData": {
+          await this.inLibrary(rpc, p.path as string);
+          return { ...await this.read(() => fileData(p.path as string, p.from as number)), name: givenAttachmentName(p.path as string, tempAttachmentDir(this.o.realmHome)) };
+        }
         case "debug.report": {
           if (!this.o.dev) throw new MobileError("FORBIDDEN", "debug.report is for development builds");
           mkdirSync(this.o.reportsDir, { recursive: true });
@@ -866,6 +886,64 @@ export class MobileApi {
     };
   }
 
+  /** One page of a level of a space's folder: the desktop's listing, without what a phone is not shown. */
+  private async documentsList(rpc: RpcPort, p: MobileParams<"documents.list">): Promise<MobileResult<"documents.list">> {
+    const { root } = await rpc.call("documents.spaceRoot", { spaceId: p.spaceId });
+    await this.read(() => checkSpacePath(root, p.dir));
+    const { entries } = await rpc.call("documents.listInSpace", { spaceId: p.spaceId, dir: p.dir });
+    const listed = entries.filter((e) => !isSecretPath(e.path));
+    const end = p.offset + p.limit;
+    const page = await Promise.all(listed.slice(p.offset, end).map((e) => documentRow(root, e.path, e.isDir)));
+    return { folder: basename(root), entries: page.filter((r) => r !== null), total: listed.length, next: end < listed.length ? end : null };
+  }
+
+  /** The files of a space's folder the desktop's search finds, without what a phone is not shown, and
+   *  the one the words name exactly where that one holds a secret. */
+  private async documentsSearch(rpc: RpcPort, spaceId: string, query: string): Promise<MobileResult<"documents.search">> {
+    const { root } = await rpc.call("documents.spaceRoot", { spaceId });
+    const { hits } = await rpc.call("project.files", { cwd: root, query, limit: DOCUMENTS_SEARCH_LIMIT });
+    const paths = hits.map((h) => h.path);
+    const shown = await Promise.all(paths.filter((path) => !isSecretPath(path)).map((path) => documentRow(root, path, false)));
+    return { entries: shown.filter((r) => r !== null), withheld: await withheldFile(root, query, paths) };
+  }
+
+  /** The full path of a file in a space's folder, or a refusal. */
+  private async spaceFile(rpc: RpcPort, spaceId: string, path: string): Promise<string> {
+    const { root } = await rpc.call("documents.spaceRoot", { spaceId });
+    return await this.read(() => checkSpacePath(root, path));
+  }
+
+  /** One page of the Library, one row to a file. A page may come back short of what it holds where a file
+   *  in it holds a secret, so `next` is what says there is more. */
+  private async libraryFiles(rpc: RpcPort, p: MobileParams<"library.files">): Promise<MobileResult<"library.files">> {
+    const { entries } = await rpc.call("library.artifacts", {
+      perFile: true, limit: p.limit, query: p.query, profileId: p.profileId ?? null, spaceId: p.spaceId ?? null, kind: p.origin ?? null, before: p.before ?? null,
+    });
+    const last = entries.at(-1);
+    return {
+      entries: entries.filter((e) => !isSecretPath(e.path)).map((e) => ({
+        id: e.id, path: e.path, name: givenAttachmentName(e.path, tempAttachmentDir(this.o.realmHome)), origin: e.kind, at: e.ts,
+        sessionId: e.sessionId, sessionTitle: e.sessionTitle, spaceId: e.spaceId, kind: documentKindFor(e.path), mime: mimeForPath(e.path),
+      })),
+      next: last && entries.length === p.limit ? { ts: last.ts, id: last.id } : null,
+    };
+  }
+
+  /** Refuses a path the Library does not list, or one that holds a secret. */
+  private async inLibrary(rpc: RpcPort, path: string): Promise<void> {
+    if (isSecretPath(path)) throw new MobileError("FORBIDDEN", SECRET_REFUSAL);
+    let before: { ts: number; id: string } | null = null;
+    for (;;) {
+      const { entries }: { entries: { path: string; ts: number; id: string }[] } = await rpc.call("library.artifacts", {
+        perFile: true, limit: LIBRARY_QUERY_MAX, query: basename(path), profileId: null, spaceId: null, kind: null, before,
+      });
+      if (entries.some((e) => e.path === path)) return;
+      const last = entries.at(-1);
+      if (!last || entries.length < LIBRARY_QUERY_MAX) throw new MobileError("FORBIDDEN", "That file is not in the Library.");
+      before = { ts: last.ts, id: last.id };
+    }
+  }
+
   /** New words for a queued message, which keeps its files and its place, and lets go of its hold. */
   private async editQueued(rpc: RpcPort, p: MobileParams<"session.editQueued">): Promise<{ ok: true }> {
     if (p.text.length === 0) {
@@ -1033,7 +1111,7 @@ export class MobileApi {
     for (const q of queued) for (const a of q.attachments) listed.add(a.path);
     if (!listed.has(path)) throw new MobileError("FORBIDDEN", "That file is not one this session made or was sent.");
     // A message on the Mac can carry any file someone picked, a key among them; a phone is never sent one.
-    if (isSecretPath(path)) throw new MobileError("FORBIDDEN", "That file holds a secret, so Realm does not send it to a phone.");
+    if (isSecretPath(path)) throw new MobileError("FORBIDDEN", SECRET_REFUSAL);
   }
 
   /** `filePreview`, its refusals and a file gone since it was listed said as mobile.v1 says them;
@@ -1052,6 +1130,7 @@ export class MobileApi {
       return await reading();
     } catch (e) {
       if (e instanceof PreviewRefused) throw new MobileError("FORBIDDEN", e.message);
+      if ((e as NodeJS.ErrnoException).code === "ENOTDIR") throw new MobileError("NOT_FOUND", "That file is no longer on this Mac.");
       if ((e as NodeJS.ErrnoException).code === "ENOENT") throw new MobileError("NOT_FOUND", "That file is no longer on this Mac.");
       throw e;
     }

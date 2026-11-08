@@ -530,7 +530,7 @@ else keeps its own name, whatever it looks like.
 | `session.changes` | `{id, checkpointId}` | `{checkpointId, files: [{path, oldPath, status, additions, deletions}], totalFiles}` |
 | `session.diff` | `{id, checkpointId, path, from?: int = 0}` | `{path, oldPath, status, binary, additions, deletions, lines: [string], from, next: int\|null, total, truncated, truncatedReason}` |
 | `session.file` | `{id, path}` | `{path, name, size, mime, preview: {kind: "image", mime, data} \| {kind: "text", text, truncated} \| {kind: "none", reason}}` |
-| `session.fileData` | `{id, path, from?: int = 0}` | `{path, name, size, mime, from, data, next: int\|null}`: `data` is up to 512 KB of the file from `from`, base64 |
+| `session.fileData` | `{id, path, from?: int = 0}` | `{path, name, size, mime, from, data, next: int\|null, modifiedAt?: int}`: `data` is up to 512 KB of the file from `from`, base64; `modifiedAt` is when the file last changed, and a phone from before it does not ask. A `from` past the end answers with no bytes, which is how a phone asks whether a copy it kept is still the file. |
 | `space.icon` | `{id}` | `{mime, data}`: base64 |
 | `session.screens` | `{id}` | `{screens: [Screen]}`: the live first, then by name |
 | `session.screen` | `{id, screenId, kind: "simulator"\|"machine", maxSide?: number = 1000}` | `{mime: "image/jpeg", data, width: int, height: int, capturedAt: ms}`: `data` is base64 |
@@ -549,6 +549,13 @@ else keeps its own name, whatever it looks like.
 | `session.saved` | `{id}` | `{seqs: [int]}` |
 | `session.setSaved` | `{id, seq, saved: bool}` | `{seqs: [int]}`: the session's saved turns now |
 | `saved.list` | `{profileId}` | `{entries: [SavedTurn], total: int}` |
+| `documents.list` | `{spaceId, dir?: string = "", offset?: int = 0, limit?: int = 100}` | `{folder, entries: [DocumentRow], total: int, next: int\|null}`: `limit` is at most 200; `folder` is the folder's name |
+| `documents.search` | `{spaceId, query}` | `{entries: [DocumentRow], withheld: DocumentRow\|null}`: at most 50 |
+| `documents.file` | `{spaceId, path}` | as `session.file` |
+| `documents.fileData` | `{spaceId, path, from?: int = 0}` | as `session.fileData`, and `modifiedAt` |
+| `library.files` | `{profileId?, spaceId?, origin?: "output"\|"upload"\|"added", query?: string = "", before?: {ts, id}, limit?: int = 40}` | `{entries: [LibraryFile], next: {ts, id}\|null}`: `limit` is at most 100 |
+| `library.file` | `{path}` | as `session.file` |
+| `library.fileData` | `{path, from?: int = 0}` | as `session.fileData`, and `modifiedAt` |
 | `debug.report` | `{name, data}` | `{ok: true}` |
 
 `Space` is `{id, name, icon, color, sessions: [SessionRow], more: int, iconKind?, glyph?, emoji?, profileId?}`.
@@ -951,6 +958,29 @@ the app by the helper an agent's computer use acts through, which keeps one snap
 phone watching it would leave the agent's own snapshot stale.
 
 ```
+DocumentRow {
+  path,                      relative to the space's folder, `/`-separated
+  name,
+  isDir: bool,
+  size: number,              bytes; 0 for a folder
+  kind: string,              the desktop's `documentKindFor` ("doc", "code", "pdf", "preview", "video", ...),
+                             or "folder"
+  mime: string               "" for a folder
+}
+
+LibraryFile {
+  id,
+  path,                      the file's full path on the Mac
+  name,
+  origin: string,            "output" made by an agent, "upload" attached by the person, "added" added by them
+  at: number,                when it was last touched
+  sessionId: string|null,    null for a file the person added, as are the next two
+  sessionTitle: string|null,
+  spaceId: string|null,
+  kind: string,              as DocumentRow's
+  mime: string
+}
+
 Screen {
   id,
   kind: "simulator"|"machine",
@@ -1196,6 +1226,19 @@ phone read, and what bounds it:
   move of it to another space, a switch of its agent or of its login among its agent's, each by the
   desktop's own call. `session.accounts` sends each login's name and email, never its folder or a
   credential.
+- **`documents.list`**, **`documents.search`**, **`documents.file`** and **`documents.fileData`**: the
+  names, sizes and bytes of what is in a space's folder, read without opening a pane on the Mac. They
+  list what the desktop's file picker lists: never a dotfile, nor `.git`, `node_modules`, `dist`, `out`,
+  `.next` or `.turbo`. Beyond that a phone is never sent a file that holds a secret (contracts'
+  `isSecretPath`, the rule `session.mentionFiles` keeps) nor a link to one, and a read of one is refused
+  (`FORBIDDEN`), as is a read of a path outside the folder, whether it says so or a link lands there.
+  A linked folder that stays in the folder is listed and a linked file is not, as `session.file` will
+  not read one. `withheld` names a file only where the words searched for are that file's name or path;
+  a near match to a secret is not said. There is no call that writes a document.
+- **`library.files`**, **`library.file`** and **`library.fileData`**: the desktop's Library ▸ Files, one
+  row to a file: its name, full path, where it came from and when it was last touched, and the title of
+  the session it came from. Only a path the Library lists can be read, by the rules of `session.file`,
+  and never one that holds a secret.
 - **`session.saved`**, **`session.setSaved`** and **`saved.list`**: which turns are saved, and for each
   saved turn its prompt, the start of its answer, and its session's and space's names.
 - **`session.screens`** and **`session.screen`**: the simulators and machines open in that session's
