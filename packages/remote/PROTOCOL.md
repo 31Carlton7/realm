@@ -515,7 +515,7 @@ else keeps its own name, whatever it looks like.
 | `session.send` | `{id, text, delivery?: "auto"\|"queue"\|"steer", attachments?: [Upload], mentionRefs?: [MentionRef], tabs?: [TabRef]}` | `{ok: true}` |
 | `session.composer` | `{id}` | `{commands: [UserCommand], skills: [{id, name, description}]}` |
 | `session.mentionFiles` | `{id, query?: string = ""}` | `{files: [{path, rel}]}` |
-| `session.tabs` | `{id}` | `{tabs: [{itemId, kind, title, url?, path?}]}` |
+| `session.tabs` | `{id}` | `{tabs: [{itemId, kind, title, url?, path?, cwd?, program?}]}` |
 | `session.tabPreview` | `{id, tab: TabRef}` | `TabCard` |
 | `session.expandCommand` | `{id, name, args?: string = ""}` | `{text, missing: [string]}` |
 | `session.goal` | `{id, objective}` | `{ok: true}` |
@@ -706,11 +706,13 @@ MentionRef  { kind: "role", label, roleId }                     a teammate, by i
   as a send would and says what it comes to, and `session.send`'s `tabs` hands the cards over, at most
   8. The Mac reads each pane again as the message goes, into one `<tab kind=… title=… url|path=…>`
   block the agent is handed after the words, and the user row keeps the cards. A message of tabs
-  alone is a message.
+  alone is a message. A terminal also says where it runs (`cwd`, from `~` where it can) and the name
+  of the program in front of it (`program`, absent at its shell), so a phone can tell two of one name
+  apart; an older Mac sends neither.
 
 ```
 TabRef  { itemId, kind: "browser"|"documents"|"terminal"|"simulator", title }
-TabCard { itemId, kind, title, url?, path?,
+TabCard { itemId, kind, title, url?, path?, cwd?, program?,
           bytes: int,         what was sent of it: its text's UTF-8 bytes, a simulator's screenshot's
           truncated: bool,    longer than its kind's cap, so the agent got its start (a terminal: its end)
           closed?: true }     gone when it was read, so nothing of it was sent
@@ -1137,8 +1139,9 @@ phone read, and what bounds it:
   ids, names and descriptions of the skills; and the paths of the session's folder's files that match
   what was typed, never one that holds a secret, nor anything in them. A skill's instructions and a
   command's file are not sent.
-- **`session.tabs`** and **`session.tabPreview`**: a pane's kind, title, page address or file, and what
-  a read of it comes to. What was read is not sent, and a page's password, one-time-code and card
+- **`session.tabs`** and **`session.tabPreview`**: a pane's kind, title, page address or file, a
+  terminal's folder and its program's name (never its command line), and what a read of it comes to.
+  What was read is not sent, and a page's password, one-time-code and card
   fields never leave the Mac in any form: the read hides them by contracts' `isSecretField` rule, the
   one the agent's page read and a phone's browser picture keep. A pane of another space is read as
   closed.

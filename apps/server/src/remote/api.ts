@@ -324,9 +324,12 @@ export class MobileApi {
         case "session.mentionFiles": return await this.mentionFiles(rpc, p.id as string, p.query as string);
         case "session.tabs": {
           const { tabs } = await rpc.call("tabs.list", { sessionId: p.id as string });
-          return { tabs: tabs.map(({ itemId, kind, title, url, path }) => ({ itemId, kind, title, ...(url ? { url } : {}), ...(path ? { path } : {}) })) };
+          const home = this.o.userHome ?? homedir();
+          return { tabs: tabs.map(({ itemId, kind, title, url, path, cwd, program }) => ({
+            itemId, kind, title, ...(url ? { url } : {}), ...(path ? { path } : {}), ...(cwd ? { cwd: tilde(cwd, home) } : {}), ...(program ? { program } : {}),
+          })) };
         }
-        case "session.tabPreview": return phoneTabCard(await rpc.call("tabs.preview", { sessionId: p.id as string, tab: p.tab as MobileParams<"session.tabPreview">["tab"] }));
+        case "session.tabPreview": return phoneTabCard(await rpc.call("tabs.preview", { sessionId: p.id as string, tab: p.tab as MobileParams<"session.tabPreview">["tab"] }), this.o.userHome ?? homedir());
         case "session.expandCommand": {
           const session = await rpc.call("sessions.get", { id: p.id as string });
           const { text, missing } = await rpc.call("commands.expand", { spaceId: session.spaceId, name: p.name as string, args: p.args as string });

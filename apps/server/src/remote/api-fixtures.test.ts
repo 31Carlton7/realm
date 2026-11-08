@@ -476,7 +476,7 @@ async function generate(): Promise<Record<string, unknown>> {
     "tabs.list": (() => ({ tabs: [
       { itemId: `i-${DOCS}`, kind: "browser", title: "Realm docs", favicon: "", url: "http://localhost:4000/docs" },
       { itemId: `i-${ADMIN}`, kind: "browser", title: "Admin", favicon: "", url: "https://admin.example.com/" },
-      { itemId: `i-${SHELL}`, kind: "terminal", title: "realm", favicon: "" },
+      { itemId: `i-${SHELL}`, kind: "terminal", title: "realm", favicon: "", cwd: "/Users/me/code/realm", program: "claude" },
     ] })) as never,
     "tabs.preview": ((p: { tab: { itemId: string; kind: "browser"; title: string } }) => ({ ...p.tab, url: "http://localhost:4000/docs", bytes: 18_432, truncated: false })) as never,
     "mentions.files": (() => ({ hits: [{ path: "src/theme.ts", score: 12, marks: [] }, { path: "apps/ios/Realm/Theme/Palette.swift", score: 7, marks: [] }], truncated: false, source: "git" })) as never,

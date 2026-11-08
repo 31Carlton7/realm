@@ -3867,7 +3867,9 @@
         {
           "itemId": "i-01JTERMINAL000000000000001",
           "kind": "terminal",
-          "title": "realm"
+          "title": "realm",
+          "cwd": "~/code/realm",
+          "program": "claude"
         }
       ]
     },

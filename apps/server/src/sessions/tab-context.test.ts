@@ -28,7 +28,7 @@ function reader(over: Partial<TabContextDeps> = {}, items: Item[] = []) {
     items: { get: (id) => items.find((i) => i.id === id), list: () => items },
     browsers: { get: () => ({ url: "https://saved.example/" }) },
     bridge: { call: async (op, p) => { calls.push(`${op}:${String(p.browserId)}`); return op === "describe" ? { open: true, url: "https://a.example/", title: "A" } : { text: "page", fields: [] }; } },
-    terminals: { screen: async () => null },
+    terminals: { screen: async () => null, list: () => [], programs: () => ({}) },
     documents: { get: () => ({ activePath: "notes.md" }), rootOfWorkspace: () => "/repo", read: async () => "doc" },
     simulators: { capture: async () => Buffer.from("png-bytes") },
     home,
@@ -76,9 +76,24 @@ describe("each kind of pane, read for a message", () => {
     expect(withheld.context).toContain("does not hand over files that hold secrets");
   });
 
+  it("a terminal says where it runs and its program's name, to the list and the card, and not to the agent's block", async () => {
+    const status = { terminalId: "r-t", spaceId: "s1", cwd: "/repo/realm", command: null, running: true, exitCode: null, signal: null, startedAt: 0, exitedAt: null };
+    const program = { id: "claude", label: "claude", mark: "claude", agent: true };
+    const { r } = reader({ terminals: { screen: async () => screenOf(["hi"]), list: () => [status], programs: () => ({ "r-t": program }) } }, [at("t", "terminal"), at("u", "terminal")]);
+    const [known, unknown] = r.list("s1");
+    expect(known).toMatchObject({ itemId: "t", cwd: "/repo/realm", program: "claude" });
+    // A terminal with no status and no program says neither.
+    expect(unknown).not.toHaveProperty("cwd");
+    expect(unknown).not.toHaveProperty("program");
+    const out = await r.gather("s1", [{ itemId: "t", kind: "terminal", title: "t" }]);
+    expect(out.cards[0]).toMatchObject({ cwd: "/repo/realm", program: "claude" });
+    // THE MUTANT: the block changing what the agent has always been handed.
+    expect(out.context).toContain('<tab kind="terminal" title="t">');
+  });
+
   it("a terminal: its latest output, cut from the top when long", async () => {
     const lines = Array.from({ length: 3000 }, (_, i) => `line ${i}`);
-    const { r } = reader({ terminals: { screen: async () => screenOf(lines) } }, [at("t", "terminal")]);
+    const { r } = reader({ terminals: { screen: async () => screenOf(lines), list: () => [], programs: () => ({}) } }, [at("t", "terminal")]);
     const out = await r.gather("s1", [{ itemId: "t", kind: "terminal", title: "zsh" }]);
     expect(out.cards[0]).toMatchObject({ bytes: TAB_TEXT_CAPS.terminal, truncated: true });
     // THE MUTANT: a terminal kept from its start — the oldest output, and the command that just ran gone.

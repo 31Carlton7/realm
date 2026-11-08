@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import {
   TAB_KINDS, capTabText, isSecretPath, pageWithFields, tabBlock, tabsContext, utf8Bytes,
-  type Attachment, type BrowserDescribeResult, type BrowserReadResult, type Item, type TabCard, type TabEntry, type TabKind, type TabRef,
+  type Attachment, type BrowserDescribeResult, type BrowserReadResult, type Item, type TabCard, type TabEntry, type TabKind, type TabRef, type TerminalProgram, type TerminalStatus,
 } from "@realm/contracts";
 import { prefixedAttachmentName, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
 import { screenText, MAX_SCROLLBACK_LINES, type TerminalScreen } from "../terminals/screen";
@@ -20,7 +20,7 @@ export type TabContextDeps = {
   browsers: { get(id: string): { url: string } | null | undefined };
   /** Main's page ops (`BrowserHostBridge`). */
   bridge: { call(op: "describe" | "read", params: Record<string, unknown>): Promise<unknown> };
-  terminals: { screen(terminalId: string, scrollback?: number): Promise<TerminalScreen | null> };
+  terminals: { screen(terminalId: string, scrollback?: number): Promise<TerminalScreen | null>; list(spaceId: string): TerminalStatus[]; programs(): Record<string, TerminalProgram> };
   documents: { get(documentsId: string): { activePath: string | null }; rootOfWorkspace(documentsId: string): string | null;
     /** The file's text, by its path in the pane's checkout. */
     read(documentsId: string, path: string): Promise<string> };
@@ -46,6 +46,7 @@ export class TabContextReader {
       if (i.kind === "browser") { const url = this.d.browsers.get(i.refId)?.url; if (url) entry.url = url; }
       // A documents pane is named by the file it shows: its own title is the pane's, "Documents · realm".
       if (i.kind === "documents") { const path = this.documentPath(i.refId); if (path) { entry.path = path; entry.title = basename(path); } }
+      if (i.kind === "terminal") Object.assign(entry, this.terminalPlace(spaceId, i.refId));
       return entry;
     });
   }
@@ -92,7 +93,7 @@ export class TabContextReader {
       }
       case "terminal": {
         const screen = await this.d.terminals.screen(item.refId, MAX_SCROLLBACK_LINES);
-        return textTab(base, "terminal", screen ? screenText(screen).trimEnd() : "(this terminal has no output to read)");
+        return textTab({ ...base, ...this.terminalPlace(spaceId, item.refId) }, "terminal", screen ? screenText(screen).trimEnd() : "(this terminal has no output to read)");
       }
       case "simulator": {
         const png = await this.d.simulators.capture(item.refId);
@@ -105,6 +106,13 @@ export class TabContextReader {
         return { card, block: tabBlock(card, null), image: { path, mime: "image/png" } };
       }
     }
+  }
+
+  /** Where a terminal runs and the program in front of it, for telling it from one of the same name. */
+  private terminalPlace(spaceId: string, terminalId: string): Pick<TabEntry, "cwd" | "program"> {
+    const cwd = this.d.terminals.list(spaceId).find((t) => t.terminalId === terminalId)?.cwd;
+    const program = this.d.terminals.programs()[terminalId]?.label;
+    return { ...(cwd ? { cwd } : {}), ...(program ? { program } : {}) };
   }
 
   private documentPath(documentsId: string): string | null {

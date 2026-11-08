@@ -216,6 +216,8 @@ struct AttachmentChip: View {
 struct AttachmentStrip: View {
     let attachments: [OutgoingAttachment]
     var tabs: [DraftTab] = []
+    /// The quiet line of each pane the space has, for telling apart those of one name.
+    var tabLines: [String: String] = [:]
     /// Picked, and still being read or made smaller.
     let preparing: Int
     let files: OutboxFiles
@@ -276,13 +278,13 @@ struct AttachmentStrip: View {
                 }
                 ForEach(tabs) { tab in
                     Button { removeTab(tab) } label: {
-                        TabChip(tab: tab.tab, card: tab.card, removable: true)
+                        TabChip(tab: tab.tab, card: tab.card, detail: tabLines[tab.id], removable: true)
                             .frame(height: Self.side)
                             .background(Palette.mark, in: RoundedRectangle(cornerRadius: Radius.thumbnail, style: .continuous))
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Remove \(Mentions.tabName(tab.tab))")
-                    .accessibilityValue(TabWords.line(tab.tab, card: tab.card))
+                    .accessibilityValue(TabWords.line(tab.tab, detail: tabLines[tab.id], card: tab.card))
                 }
             }
             // Room for the remove buttons over the tiles' corners.

@@ -8,8 +8,8 @@ import UIKit
 @Suite("Watching a session's browser and terminal panes", .serialized)
 struct PanesTests {
     @Test func anAddressIsReadWithoutItsScheme() {
-        #expect(PaneWords.address("http://localhost:4000/docs") == "localhost:4000/docs")
-        #expect(PaneWords.address("https://example.com/") == "example.com")
+        #expect(SpaceTab.address("http://localhost:4000/docs") == "localhost:4000/docs")
+        #expect(SpaceTab.address("https://example.com/") == "example.com")
         #expect(PaneWords.browserLine(BrowserPane(id: "b", name: "New tab", url: "", live: true)) == "New tab")
     }
 

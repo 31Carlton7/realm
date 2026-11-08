@@ -181,9 +181,11 @@ export type MentionFile = z.infer<typeof MentionFileSchema>;
 /** The panes an `@` can hand a message as cards, as the desktop's `tab-context.ts` names them. */
 export const TabKindSchema = z.enum(["browser", "documents", "terminal", "simulator"]);
 
-/** One of the session's space's panes, as the `@` list offers it: a page's address, a document's file. */
+/** One of the session's space's panes, as the `@` list offers it: a page's address, a document's file,
+ *  a terminal's folder and the name of the program in front of it. */
 export const SpaceTabSchema = z.object({
   itemId: z.string(), kind: TabKindSchema, title: z.string(), url: z.string().optional(), path: z.string().optional(),
+  cwd: z.string().optional(), program: z.string().optional(),
 });
 export type SpaceTab = z.infer<typeof SpaceTabSchema>;
 

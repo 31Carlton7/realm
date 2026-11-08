@@ -18,6 +18,15 @@ describe("the phone's rows", () => {
     expect(p.all()[1]).toMatchObject({ streaming: false });
   });
 
+  it("says where a sent terminal card runs, from ~, and the name of its program", () => {
+    const p = new SessionProjector({ attachmentsDir: null, home: "/Users/me" });
+    p.apply(persisted(sessionEvent("user_message", { text: "look", attachments: [], tabs: [
+      { itemId: "t1", kind: "terminal", title: "realm", cwd: "/Users/me/code/realm", program: "vim", bytes: 12, truncated: false },
+    ] })));
+    expect(p.all()[0]).toMatchObject({ tabs: [{ itemId: "t1", cwd: "~/code/realm", program: "vim" }] });
+    expect(RowSchema.safeParse(p.all()[0]).success).toBe(true);
+  });
+
   it("draws the tabs a message handed over as cards, by what they came to and never what was read", () => {
     const p = new SessionProjector();
     p.apply(persisted(sessionEvent("user_message", { text: "compare these", attachments: [], tabs: [

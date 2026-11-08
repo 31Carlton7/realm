@@ -120,7 +120,7 @@ private struct MentionRowView: View {
     @ScaledMetric(relativeTo: .body) private var markSide: CGFloat = 22
 
     var body: some View {
-        SuggestionLine(active: active, detail: row.detail) {
+        SuggestionLine(active: active, detail: row.detail, detailCut: detailCut) {
             switch row.kind {
             case .teammate(let teammate):
                 TeammateMark(icon: teammate.icon, size: markSide, lead: teammate.lead)
@@ -139,6 +139,11 @@ private struct MentionRowView: View {
         .accessibilityLabel(row.name)
         .accessibilityHint(row.detail)
     }
+
+    /// A tab's line ends in what tells it from another of its name, so it is cut from the middle.
+    private var detailCut: Text.TruncationMode {
+        if case .tab = row.kind { .middle } else { .tail }
+    }
 }
 
 /// One row's line: a mark in a fixed column, the name, and the quiet words after it, cut before the
@@ -148,12 +153,14 @@ private struct SuggestionLine<Mark: View, Name: View>: View {
     @ViewBuilder let mark: Mark
     @ViewBuilder let name: Name
     let detail: String
+    let detailCut: Text.TruncationMode
     @ScaledMetric(relativeTo: .body) private var height: CGFloat = 44
     @ScaledMetric(relativeTo: .body) private var markColumn: CGFloat = 24
 
-    init(active: Bool, detail: String, @ViewBuilder mark: () -> Mark, @ViewBuilder name: () -> Name) {
+    init(active: Bool, detail: String, detailCut: Text.TruncationMode = .tail, @ViewBuilder mark: () -> Mark, @ViewBuilder name: () -> Name) {
         self.active = active
         self.detail = detail
+        self.detailCut = detailCut
         self.mark = mark()
         self.name = name()
     }
@@ -169,6 +176,7 @@ private struct SuggestionLine<Mark: View, Name: View>: View {
                 .font(.subheadline)
                 .foregroundStyle(Palette.ink3)
                 .lineLimit(1)
+                .truncationMode(detailCut)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 16)

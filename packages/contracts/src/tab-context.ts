@@ -31,8 +31,10 @@ export const TAB_TEXT_CAPS = { browser: 24_000, documents: 32_000, terminal: 12_
 export const TAB_LARGE_BYTES = 16 * 1024;
 
 /** One pane, as the `@` list offers it (`tabs.list`). `url` is a browser's page and `path` the file
- *  a documents pane shows; `favicon` is the browser row's data URL, '' when none is known. */
-export type TabEntry = { itemId: string; kind: TabKind; title: string; favicon: string; url?: string; path?: string };
+ *  a documents pane shows; `favicon` is the browser row's data URL, '' when none is known. `cwd` is
+ *  where a terminal runs and `program` the name of what is in front of it, absent at its shell: never
+ *  its command line, which can hold whatever was typed. */
+export type TabEntry = { itemId: string; kind: TabKind; title: string; favicon: string; url?: string; path?: string; cwd?: string; program?: string };
 
 /** What the prompter sends for a card: which pane, and the title it read as when it was picked. */
 export const TabRefSchema = z.object({
@@ -51,6 +53,8 @@ export type TabRef = z.infer<typeof TabRefSchema>;
 export const TabCardSchema = TabRefSchema.extend({
   url: z.string().max(2048).optional(),
   path: z.string().max(4096).optional(),
+  cwd: z.string().max(4096).optional(),
+  program: z.string().max(200).optional(),
   bytes: z.number().int().min(0),
   truncated: z.boolean(),
   closed: z.boolean().optional(),
