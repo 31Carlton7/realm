@@ -51,24 +51,19 @@ export function leadStar(size: number): { d: string; soften: number; cut: number
  * outline, gradient, shading, motion or mood. It says who, never how it is doing; state is the dot
  * beside it.
  *
- * `size` is the rendered square in px (16 in a row, 24 in a head, 64 in the maker), and the eyes are
- * laid on that size's pixel grid. Give it a `title` where nothing beside it names the teammate; leave
- * it out beside the name, where it is decoration.
+ * `size` is the rendered square in px, and the eyes are laid on that size's pixel grid.
  */
-export function TeammateIcon({ icon, size, lead = false, title, className }: {
+export function TeammateIcon({ icon, size, lead = false }: {
   icon: TeammateIconSpec;
   size: number;
   lead?: boolean;
-  title?: string;
-  className?: string;
 }) {
   const mask = `tm${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const geo = SHAPE_GEO[icon.shape];
   const eyes = eyeStrokes(geo.face, size);
   const star = leadStar(size);
   return (
-    <svg className={className} width={size} height={size} viewBox="0 0 64 64" role={title ? "img" : undefined}
-      aria-label={title} aria-hidden={title ? undefined : true} data-shape={icon.shape}
+    <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden
       style={{ display: "block", flex: "none", overflow: "visible" }}>
       {lead && (
         <mask id={mask} maskUnits="userSpaceOnUse" x="-8" y="-8" width="80" height="80">

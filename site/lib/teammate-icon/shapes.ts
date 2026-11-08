@@ -7,17 +7,6 @@ export type TeammateShape = "circle" | "flower" | "squircle" | "pill" | "triangl
  *  optical mass as the circle, not to the same box: a triangle filling the square would read twice as
  *  heavy as the pill beside it. `face` is the point the pair of eyes is centred on, set up and to the
  *  right of the mass's middle, where the recipe puts it. */
-export const TEAMMATE_SHAPE_LABELS: Record<TeammateShape, string> = {
-  circle: "Circle",
-  flower: "Flower",
-  squircle: "Rounded square",
-  pill: "Pill",
-  triangle: "Triangle",
-  hexagon: "Hexagon",
-  cloud: "Cloud",
-  drop: "Drop",
-};
-
 export type Prim = { circle: [cx: number, cy: number, r: number] } | { d: string };
 export type ShapeGeo = { prims: Prim[]; face: [number, number] };
 

@@ -43,8 +43,8 @@ export function Lede({ className = "" }: { className?: string }) {
   return (
     <p className={`text-[17px] leading-[1.55] text-ink-2 ${className}`}>
       Bring the coding agent you already use. Each space holds a checkout, the agents working on it, and the
-      terminals, browsers and documents they open. Every space is a click away on the rail, on your computer, and it&rsquo;s all
-      still there tomorrow.
+      terminals, browsers and documents they open. Every space is a click away on the rail, and it&rsquo;s all still there
+      tomorrow.
     </p>
   )
 }

@@ -482,7 +482,7 @@ function SessionBody({
           </ul>
           <div className="rounded-[12px] bg-surface/80 p-3.5 shadow-[inset_0_0_0_1px_var(--color-line)]">
             <div className="flex items-center gap-2">
-              <span className="font-[520]">Edited 2 files</span>
+              <span className="font-[520]">Changed 2 code files</span>
               <span className="font-mono text-[11.5px] text-green">+20</span>
               <span className="-ml-1 font-mono text-[11.5px] text-red">−3</span>
               <span className="ml-auto flex items-center gap-1 text-[12px] text-ink-3">
@@ -1041,15 +1041,6 @@ function ToolRow({ icon, label, detail, tone }: { icon: IconName; label: string;
 
 function Dot({ tone }: { tone: "orange" | "green" }) {
   return <span aria-hidden className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${tone === "orange" ? "bg-orange" : "bg-green"}`} />
-}
-
-function Count({ n, tone }: { n: number; tone: "orange" | "green" }) {
-  return (
-    <span className="flex items-center gap-1 text-[11.5px] text-ink-3">
-      {n}
-      <Dot tone={tone} />
-    </span>
-  )
 }
 
 function StatusDot({ status }: { status: Status }) {
