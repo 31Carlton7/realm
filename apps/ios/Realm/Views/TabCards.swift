@@ -45,7 +45,8 @@ enum TabWords {
         return "\(tab.detail) · \(ByteCountFormatter.string(fromByteCount: Int64(card.bytes), countStyle: .binary))"
     }
 
-    /// The word a card cut to fit wears after its line, in the one warning ink.
+    /// The word a card cut to fit wears after its line, in the line's own quiet ink: amber is kept for
+    /// needs-you and failed.
     static func flag(_ card: TabCard?) -> String? {
         card?.truncated == true && card?.closed != true ? "Cut to fit" : nil
     }
@@ -73,7 +74,7 @@ struct TabChip: View {
                     Text(TabWords.line(tab, card: card)).foregroundStyle(Palette.ink2)
                     if let flag = TabWords.flag(card) {
                         Text(" · ").foregroundStyle(Palette.ink2)
-                        Text(flag).foregroundStyle(Palette.orange)
+                        Text(flag).foregroundStyle(Palette.ink2)
                     }
                 }
                 .font(.caption)
