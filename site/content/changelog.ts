@@ -21,6 +21,46 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-8-3",
+    title: "Realm v2.8.3",
+    date: "2026-11-07",
+    version: "v2.8.3",
+    area: "Release",
+    summary:
+      "A window for each space, your open tabs as context, and no more glass. Plus search, panes, goals and teammates in Realm Mobile.",
+    body: [
+      { kind: "h", text: "Windows and context" },
+      { kind: "ul", items: [
+        "**Open a space in a new window.** Windows come back after a relaunch, and each one is named by its space.",
+        "**@ mention your open tabs as context cards,** on the Mac and the phone.",
+      ] },
+      { kind: "h", text: "Look and feel" },
+      { kind: "ul", items: [
+        "**The Photos-style blur is back and the glass is gone,** on the Mac and the phone.",
+        "**The Computer tab's Stop button says exactly what it stops.**",
+        "**Tooltips no longer cover open menus.**",
+      ] },
+      { kind: "h", text: "Agents and models" },
+      { kind: "ul", items: [
+        "**Realm runs the newest copy of an agent's CLI on your PATH,** so an older copy no longer hides newer models.",
+        "**A session with no model picked is named and ticked by the model its CLI really runs.**",
+      ] },
+      { kind: "h", text: "Realm Mobile" },
+      { kind: "ul", items: [
+        "**Search the Mac's sessions** and find words inside a session.",
+        "**Watch the Mac's browser and terminal panes.**",
+        "**Delete, fork, move and switch a session's agent,** and save its turns.",
+        "**Follow a session's goal and to-do list,** with a working session on the Lock Screen and in the Dynamic Island.",
+        "**Make, archive, lead and reorder teammates.**",
+        "**Quieter colour throughout.**",
+      ] },
+      { kind: "h", text: "This site" },
+      { kind: "ul", items: [
+        "**The background draws at 60 fps while nothing is moving,** and at your display's full rate while you scroll, point or resize. Thanks to Jack Lau (jackulau) for the fix.",
+      ] },
+    ],
+  },
+  {
     slug: "v2-8-2",
     title: "Realm v2.8.2",
     date: "2026-11-04",
