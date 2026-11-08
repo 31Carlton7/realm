@@ -28,7 +28,7 @@ enum WorkHead {
 
 /// The Mac's pages beyond Home that the phone shows, as the profile sheet offers them.
 enum WorkPage: CaseIterable {
-    case reviews, scheduled, usage, saved, library
+    case reviews, scheduled, usage, saved, library, memory
 
     var title: String {
         switch self {
@@ -37,6 +37,7 @@ enum WorkPage: CaseIterable {
         case .usage: "Usage"
         case .saved: "Saved"
         case .library: "Library"
+        case .memory: "Memory"
         }
     }
 
@@ -47,6 +48,7 @@ enum WorkPage: CaseIterable {
         case .usage: "gauge.with.needle"
         case .saved: "bookmark"
         case .library: "books.vertical"
+        case .memory: "text.book.closed"
         }
     }
 
@@ -57,6 +59,7 @@ enum WorkPage: CaseIterable {
         case .usage: .usage
         case .saved: .saved
         case .library: .library
+        case .memory: .memory
         }
     }
 
@@ -69,7 +72,7 @@ enum WorkPage: CaseIterable {
         case .scheduled:
             let count = ScheduleWords.unreadResults(schedules ?? [])
             return count > 0 ? (count == 1 ? "1 unread result" : "\(count) unread results") : nil
-        case .usage, .saved, .library:
+        case .usage, .saved, .library, .memory:
             return nil
         }
     }

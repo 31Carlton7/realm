@@ -31,10 +31,14 @@ const cut = (text: string): string => (text.length <= MEMORY_ROW_TEXT_MAX ? text
 /** What a row says of a file, without what looks like a secret: a file's own lines, never read here whole. */
 const said = (text: string | null): string | null => (text === null || secretShapeIn(text) ? null : cut(text));
 
+/** A search's line as prose: an index's lines are Markdown links, which a row shows as text. */
+const plainLine = (line: string | null): string | null => line && line.trim()
+  .replace(/^[-*+]\s+/, "").replace(/\[\[([^\]]+)\]\]/g, "$1").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[*_`]/g, "");
+
 function phoneRow(e: MemoryLibraryEntry, source: MemoryLibrarySource | undefined): Row {
   return {
     id: e.id, title: said(e.title) ?? basename(e.rel), description: said(e.description), type: e.type,
-    source: sourceName(source), folder: e.folder, index: e.index, updatedAt: e.updatedAt, match: said(e.match),
+    source: sourceName(source), folder: e.folder, index: e.index, updatedAt: e.updatedAt, match: said(plainLine(e.match)),
   };
 }
 

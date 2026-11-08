@@ -27,7 +27,7 @@ async function rpcOf(port: number): Promise<RpcPort> {
   return {
     call: (method: string, params: unknown) => new Promise((res, rej) => {
       const id = String(++n);
-      pending.set(id, (m) => (m.error ? rej(new RpcCallError(m.error.code, m.error.message)) : res(m.result)));
+      pending.set(id, (m) => (m.error ? rej(new RpcCallError(m.error.code, m.error.message)) : res(m.result as never)));
       ws.send(JSON.stringify({ id, method, params }));
     }),
   } as RpcPort;
@@ -127,6 +127,9 @@ describe("memory.list", () => {
     const byBody: Page = await m.ask("memory.list", { profileId: m.profileId, query: "melt report" });
     expect(byBody.entries[0]).toMatchObject({ title: "Release day" });
     expect(byBody.entries[0]!.match).toContain("melt report");
+    await m.ask("memory.create", { profileId: m.profileId, sourceId: m.sourceId, name: "Links", description: "d", type: "project", body: "- See [the field guide](guide.md) and [[stakes]]." });
+    const linked: Page = await m.ask("memory.list", { profileId: m.profileId, query: "field guide" });
+    expect(linked.entries.find((e) => e.title === "Links")!.match).toBe("See the field guide and stakes.");
     const typing: Page = await m.ask("memory.list", { profileId: m.profileId, query: "relea" });
     expect(typing.entries.map((e) => e.title)).toContain("Release day");
     expect(((await m.ask("memory.list", { profileId: m.profileId, query: "nothing like this" })) as Page).entries).toEqual([]);
@@ -156,6 +159,15 @@ describe("memory.file", () => {
     expect(JSON.stringify(overview)).not.toContain(token);
     const searched = await m.ask("memory.list", { profileId: m.profileId, query: "API" });
     expect(JSON.stringify(searched)).not.toContain(token);
+  });
+
+  it("does not list or send a file in a folder that holds secrets, whatever its name", async () => {
+    const m = await mac();
+    mkdirSync(join(m.repo, ".ssh"));
+    writeFileSync(join(m.repo, ".ssh", "notes.md"), "# Server keys\n\nThe bastion's address.\n");
+    const listed = await m.ask("memory.list", { profileId: m.profileId });
+    expect(JSON.stringify(listed)).not.toContain("Server keys");
+    expect((await m.refusal("memory.file", { id: `${m.sourceId}:.ssh/notes.md`, profileId: m.profileId })).code).toBe("FORBIDDEN");
   });
 
   it("does not send the whole of a file past what a phone edits, and will not take it back", async () => {

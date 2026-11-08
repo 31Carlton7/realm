@@ -29,6 +29,9 @@ struct RootView: View {
                                 case .library: LibraryView()
                                 case .libraryFiles(let shelf): LibraryShelfView(shelf: shelf)
                                 case .document(let ref): DocumentReader(document: ref)
+                                case .memory: MemoryView()
+                                case .memoryPlace(let place): MemoryPlaceView(place: place)
+                                case .memoryFile(let ref): MemoryFileView(memory: ref)
                                 }
                             }
                             .backOnGround()
