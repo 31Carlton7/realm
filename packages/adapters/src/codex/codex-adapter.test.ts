@@ -1315,7 +1315,8 @@ describe("CodexAdapter model catalog", () => {
       writeFileSync(join(dir, "codex"), `#!/bin/sh\nexport FAKE_CODEX_VERSION=${version} ${hooks}\nexec "${process.execPath}" "${FAKE}" "$@"\n`, { mode: 0o755 });
       return dir;
     };
-    vi.stubEnv("PATH", `${install("0.146.0", "FAKE_CODEX_NO_MODEL_LIST=1")}:${install("0.166.0", "")}:${process.env.PATH ?? ""}`);
+    // Only these two: a real codex on the machine's PATH may be newer than either, and would win.
+    vi.stubEnv("PATH", `${install("0.146.0", "FAKE_CODEX_NO_MODEL_LIST=1")}:${install("0.166.0", "")}`);
     try {
       const r = await new CodexAdapter().probe();
       expect(r.version).toBe("codex-cli 0.166.0");
