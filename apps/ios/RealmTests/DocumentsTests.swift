@@ -95,6 +95,12 @@ struct DocumentsTests {
         #expect(TextHead.next(truncated: true, size: 3 * 1024 * 1024) == .onTheMac)
     }
 
+    @Test func anAnswerStandsOnlyForTheWordsItAnswers() {
+        let answered = SearchAnswer(words: ".en", answer: DocumentSearch(entries: [], withheld: nil))
+        #expect(answered.answer(to: ".en") != nil)
+        #expect(answered.answer(to: ".env") == nil)
+    }
+
     @Test func theMenuOffersTheLibrary() {
         #expect(WorkPage.library.route == .library)
         #expect(WorkPage.library.note(reviews: nil, schedules: nil) == nil)

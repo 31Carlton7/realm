@@ -108,6 +108,17 @@ struct FolderPages: Equatable {
     }
 }
 
+/// A search's answer and the words it answers, so an answer to what was typed a moment ago never stands
+/// as the answer to what is typed now.
+struct SearchAnswer<Answer> {
+    let words: String
+    let answer: Answer
+
+    func answer(to words: String) -> Answer? {
+        words == self.words ? answer : nil
+    }
+}
+
 /// A row of a list of files: its kind's glyph, its name, what its list knows of it, and how big or how
 /// old. A folder has a chevron, because a press goes further in; a file opens.
 struct FileLine: View {
@@ -183,7 +194,7 @@ struct FolderView: View {
     @State private var pages = FolderPages()
     @State private var recent: [LibraryFile] = []
     @State private var query = ""
-    @State private var found: DocumentSearch?
+    @State private var searched: SearchAnswer<DocumentSearch>?
     @State private var problem: String?
     @State private var loading = false
     @State private var gallery: GalleryShown?
@@ -193,6 +204,7 @@ struct FolderView: View {
 
     var body: some View {
         let words = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let found = searched?.answer(to: words)
         List {
             if words.isEmpty {
                 if !recent.isEmpty {
@@ -315,10 +327,13 @@ struct FolderView: View {
 
     /// Rested a moment first, so a word typed is one question to the Mac.
     private func search(_ words: String) async {
-        found = nil
         guard !words.isEmpty, let api = model.api, model.isConnected else { return }
-        try? await Task.sleep(for: .milliseconds(250))
-        guard !Task.isCancelled, let answer = try? await api.searchDocuments(spaceId: spaceId, query: words), !Task.isCancelled else { return }
-        found = answer
+        do {
+            try await Task.sleep(for: .milliseconds(250))
+            searched = SearchAnswer(words: words, answer: try await api.searchDocuments(spaceId: spaceId, query: words))
+        } catch is CancellationError {
+        } catch {
+            if !Task.isCancelled { model.show(toast: AppModel.describe(error)) }
+        }
     }
 }

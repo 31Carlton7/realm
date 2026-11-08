@@ -77,13 +77,14 @@ struct LibraryView: View {
     @State private var shelves: [LibraryShelf: ShelfHead] = [:]
     @State private var problem: String?
     @State private var query = ""
-    @State private var found: [LibraryFile]?
+    @State private var searched: SearchAnswer<[LibraryFile]>?
     @State private var gallery: GalleryShown?
 
     private static let savedShown = 3
 
     var body: some View {
         let words = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let found = searched?.answer(to: words)
         List {
             if words.isEmpty {
                 if let saved, !saved.entries.isEmpty {
@@ -208,11 +209,15 @@ struct LibraryView: View {
     }
 
     private func search(_ words: String) async {
-        found = nil
         guard !words.isEmpty, let api = model.api, model.isConnected else { return }
-        try? await Task.sleep(for: .milliseconds(250))
-        guard !Task.isCancelled, let page = try? await api.libraryFiles(profileId: model.profileChoice.profileId, query: words), !Task.isCancelled else { return }
-        found = page.entries
+        do {
+            try await Task.sleep(for: .milliseconds(250))
+            let page = try await api.libraryFiles(profileId: model.profileChoice.profileId, query: words)
+            searched = SearchAnswer(words: words, answer: page.entries)
+        } catch is CancellationError {
+        } catch {
+            if !Task.isCancelled { model.show(toast: AppModel.describe(error)) }
+        }
     }
 }
 
