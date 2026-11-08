@@ -18,6 +18,7 @@ export function useSpaceMenu(space: Space | undefined): MenuItem[] {
   const openSheet = useApp((s) => s.openSheet);
   const setSpaceSessionsView = useApp((s) => s.setSpaceSessionsView);
   const setSidebarLens = useApp((s) => s.setSidebarLens);
+  const openSpaceWindow = useApp((s) => s.openSpaceWindow);
   const plainFolder = useApp((s) => (space ? spaceIsPlainFolder(s, space.id) : true));
   const run = useApp((s) => s.run);
   if (!space) return [];
@@ -29,6 +30,9 @@ export function useSpaceMenu(space: Space | undefined): MenuItem[] {
       { label: "New session in a worktree…", icon: <Icon name="branch" size={16} />, onSelect: () => run(() => askNewWorktree(space.id)) },
     ] satisfies MenuItem[]),
     { label: "Add a teammate…", icon: <Icon name="team" size={16} />, onSelect: () => openSheet({ kind: "teammate", spaceId: space.id }) },
+    { kind: "separator" },
+    // A space is open in at most one window, so this brings forward the one already showing it.
+    { label: "Open in new window", icon: <Icon name="layout" size={16} />, onSelect: () => run(() => openSpaceWindow(space.id)) },
     { kind: "separator" },
     { label: "All sessions by time", icon: <Icon name="activity" size={16} />, onSelect: () => run(() => setSidebarLens("recent")) },
     { label: "Archived sessions", icon: <Icon name="archive" size={16} />,

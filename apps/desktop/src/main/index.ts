@@ -70,7 +70,7 @@ import { attachTextContextMenu } from "./text-context-menu";
 import { windowOpenTarget } from "./link-open";
 import { appMenuTemplate, CHANGELOG_URL, pageChords, shouldPageOwn } from "./app-menu";
 import { readWindowState, restoredBounds, trackWindowState, windowStateFileName } from "./window-state";
-import { WindowRegistry, cascadeFrom } from "./window-registry";
+import { WindowRegistry, cascadeFrom, spaceForNewWindow } from "./window-registry";
 import { registerFileActions } from "./file-actions";
 import { AppIconStore, registerAppIcon } from "./app-icon";
 import { registerAppearance, savedAppearance } from "./appearance";
@@ -542,14 +542,15 @@ app.commandLine.appendSwitch("disk-cache-size", String(256 * 1024 * 1024));
 /**
  * Open a Realm window. With no `profileId` it is the first window, which shows whichever profile its
  * saved space is in; with one it is that profile's window (Plan 27 Phase 2), told so on its command
- * line (`window.realm.profileId`) so its first paint is already that profile's.
+ * line (`window.realm.profileId`) so its first paint is already that profile's. With a `spaceId` too it
+ * is that space's window (`window.realm.spaceId`), opened on it, with a view and a place of its own.
  */
-async function createWindow(info: { port: number; home: string; token: string }, profileId: string | null = null) {
+async function createWindow(info: { port: number; home: string; token: string }, profileId: string | null = null, spaceId: string | null = null) {
   if (relaunchIfBundleReplaced()) return;
   // Where it was left (window-state.ts) — each profile window its own place. The primary display
   // first: a place that can no longer be reached is replaced by the saved size, centred there. A
   // profile window with no place yet opens just off the window it was opened from.
-  const windowStateFile = join(app.getPath("userData"), windowStateFileName(profileId));
+  const windowStateFile = join(app.getPath("userData"), windowStateFileName(spaceId ?? profileId));
   const savedWindow = readWindowState(windowStateFile) ?? (profileId !== null ? cascadeFrom(windows.primary()?.getNormalBounds() ?? null) : null);
   const primary = screen.getPrimaryDisplay();
   const place = restoredBounds(savedWindow,
@@ -567,7 +568,8 @@ async function createWindow(info: { port: number; home: string; token: string },
     // sandbox: false because electron-vite emits an ESM preload (.mjs), which Electron only loads unsandboxed.
     webPreferences: { preload: join(__dirname, "../preload/index.mjs"), contextIsolation: true, sandbox: false,
       additionalArguments: [`--realm-port=${info.port}`, `--realm-home=${info.home}`, `--realm-token=${info.token}`,
-        ...(profileId !== null ? [`--realm-profile=${profileId}`] : [])] },
+        ...(profileId !== null ? [`--realm-profile=${profileId}`] : []),
+        ...(spaceId !== null ? [`--realm-space=${spaceId}`] : [])] },
   });
   windows.add(win, profileId);
   presence.check();
@@ -2377,12 +2379,14 @@ function bringForward(win: BrowserWindow): void {
   if (process.platform === "darwin") app.focus({ steal: true });
 }
 
+/** Every space with its profile, in the person's order, asked of the server — none when it cannot say. */
+async function listSpaces(): Promise<{ id: string; profileId: string }[]> {
+  try { return (await askServer("spaces.list", {})) as { id: string; profileId: string }[]; } catch { return []; }
+}
+
 /** A space's profile, asked of the server — null when it cannot say. */
 async function profileOfSpace(spaceId: string): Promise<string | null> {
-  try {
-    const spaces = (await askServer("spaces.list", {})) as { id: string; profileId: string }[];
-    return spaces.find((sp) => sp.id === spaceId)?.profileId ?? null;
-  } catch { return null; }
+  return (await listSpaces()).find((sp) => sp.id === spaceId)?.profileId ?? null;
 }
 
 /**
@@ -2415,6 +2419,45 @@ ipcMain.on("window:set-profile", (e, profileId: unknown) => {
   windows.setShowing(win, id);
   const name = id ? profileDirectory.get(id)?.name : null;
   if (name) win.setTitle(name);
+});
+
+/**
+ * A space in a window of its own, or the window already showing it brought forward: a space is open in
+ * at most one window, since two would show its panes twice.
+ */
+ipcMain.handle("window:open-space", async (_e, spaceId: unknown): Promise<void> => {
+  const id = profileArg(spaceId); // an id, shaped as a profile's is
+  if (!id || !serverInfo) return;
+  const open = windows.windowForSpace(id);
+  if (open) { bringForward(open); return; }
+  const profileId = await profileOfSpace(id);
+  if (profileId) await createWindow(serverInfo, profileId, id);
+});
+/** File ▸ New Window: a window on the next space nobody is looking at (`spaceForNewWindow`). False
+ *  when every space is already open, for the asking window to offer to make one. */
+ipcMain.handle("window:new", async (e): Promise<boolean> => {
+  if (!serverInfo) return false;
+  const front = BrowserWindow.fromWebContents(e.sender) ?? windows.primary();
+  const pick = spaceForNewWindow(await listSpaces(),
+    front ? { profileId: windows.showing(front), spaceId: windows.spaceOf(front) } : null, windows.openSpaces());
+  if (!pick) return false;
+  await createWindow(serverInfo, pick.profileId, pick.id);
+  return true;
+});
+/** A window's question before it switches space: is this space open in ANOTHER window? If so that
+ *  window comes forward, and the answer is yes — the asking window stays as it is. */
+ipcMain.handle("window:focus-space", (e, spaceId: unknown): boolean => {
+  const id = profileArg(spaceId);
+  if (!id) return false;
+  const open = windows.windowForSpace(id, BrowserWindow.fromWebContents(e.sender) ?? undefined);
+  if (!open) return false;
+  bringForward(open);
+  return true;
+});
+/** A window's renderer says which space it shows now. */
+ipcMain.on("window:set-space", (e, spaceId: unknown) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (win) windows.setSpace(win, profileArg(spaceId) || null);
 });
 
 /** True once a gesture that really means "stop everything" has been taken. Read by `before-quit` and

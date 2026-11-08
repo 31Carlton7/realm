@@ -111,6 +111,8 @@ describe("chordFromEvent", () => {
       ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => chordFromEvent(press({ code: `Digit${n}`, key: String(n), metaKey: true }))),
       chordFromEvent(press({ code: "KeyT", key: "t", metaKey: true })),
       chordFromEvent(press({ code: "KeyN", key: "n", metaKey: true })),
+      // ⌥⌘N arrives as "˜"; Quick Chat's chord since New Window took ⌘⇧N.
+      chordFromEvent(press({ code: "KeyN", key: "˜", metaKey: true, altKey: true })),
       chordFromEvent(press({ code: "KeyN", key: "N", metaKey: true, shiftKey: true })),
       chordFromEvent(press({ code: "KeyU", key: "u", metaKey: true })),
       // Select in Realm. Shifted, the key reports a capital; `code` still says C.

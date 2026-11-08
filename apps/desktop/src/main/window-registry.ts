@@ -6,8 +6,10 @@
  * model, so main keeps every window here with the profile it is showing, and answers the questions the
  * single window used to answer by being the only one:
  *
- *   - which window shows this profile (a profile is open in at most one: opening it again brings that
- *     window forward rather than making a second);
+ *   - which window shows this profile — opening it again brings that window forward rather than
+ *     making a second;
+ *   - which window shows this space (a space is open in at most one: asking for it from another
+ *     window brings this one forward, so one space's panes are never on screen twice);
  *   - which window to talk to when no window asked — a toast click, the tray, a second launch: the one
  *     the person used last.
  *
@@ -23,6 +25,8 @@ type Entry<W> = {
   /** The profile it shows right now, as its renderer last said — the bound one at first, and whatever
    *  the person switched it to since. */
   showing: string | null;
+  /** The space it shows right now, as its renderer last said. */
+  space: string | null;
   /** When it was last focused, in registry order — the larger, the more recent. */
   focusedAt: number;
 };
@@ -36,7 +40,7 @@ export class WindowRegistry<W extends RegisteredWindow> {
   /** A new window, opened for `profileId` (null for the first window). It counts as the most recently
    *  used, since a window that has just opened is the one in front. */
   add(win: W, profileId: string | null): void {
-    this.entries.set(win.id, { win, bound: profileId, showing: profileId, focusedAt: ++this.clock });
+    this.entries.set(win.id, { win, bound: profileId, showing: profileId, space: null, focusedAt: ++this.clock });
   }
 
   remove(win: W): void { this.entries.delete(win.id); }
@@ -53,7 +57,14 @@ export class WindowRegistry<W extends RegisteredWindow> {
     if (e) e.showing = profileId;
   }
 
+  /** The window's renderer says which space it is showing now. */
+  setSpace(win: W, spaceId: string | null): void {
+    const e = this.entries.get(win.id);
+    if (e) e.space = spaceId;
+  }
+
   showing(win: W): string | null { return this.entries.get(win.id)?.showing ?? null; }
+  spaceOf(win: W): string | null { return this.entries.get(win.id)?.space ?? null; }
   boundTo(win: W): string | null { return this.entries.get(win.id)?.bound ?? null; }
 
   /** The live window showing this profile, other than `except` — the one to bring forward instead of
@@ -62,6 +73,16 @@ export class WindowRegistry<W extends RegisteredWindow> {
     return this.live()
       .filter((e) => e.showing === profileId && e.win.id !== except?.id)
       .sort((a, b) => b.focusedAt - a.focusedAt)[0]?.win ?? null;
+  }
+
+  /** The live window showing this space, other than `except`. */
+  windowForSpace(spaceId: string, except?: W): W | null {
+    return this.live().find((e) => e.space === spaceId && e.win.id !== except?.id)?.win ?? null;
+  }
+
+  /** Every space some window is showing. */
+  openSpaces(): Set<string> {
+    return new Set(this.live().flatMap((e) => (e.space ? [e.space] : [])));
   }
 
   /** The window to talk to when no window asked: the one used last. */
@@ -74,6 +95,20 @@ export class WindowRegistry<W extends RegisteredWindow> {
   private live(): Entry<W>[] {
     return [...this.entries.values()].filter((e) => !e.win.isDestroyed());
   }
+}
+
+/**
+ * The space File ▸ New Window opens on: the next one after the space the front window shows, in the
+ * front window's profile and the person's order, wrapping round — skipping every space a window
+ * already has. Then the other profiles' spaces in their order. Null when every space is open.
+ */
+export function spaceForNewWindow<S extends { id: string; profileId: string }>(
+  spaces: readonly S[], front: { profileId: string | null; spaceId: string | null } | null, open: ReadonlySet<string>,
+): S | null {
+  const mine = spaces.filter((sp) => sp.profileId === front?.profileId);
+  const at = mine.findIndex((sp) => sp.id === front?.spaceId);
+  const after = [...mine.slice(at + 1), ...mine.slice(0, at + 1)];
+  return [...after, ...spaces.filter((sp) => sp.profileId !== front?.profileId)].find((sp) => !open.has(sp.id)) ?? null;
 }
 
 /**

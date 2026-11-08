@@ -314,6 +314,23 @@ describe("the profile's spaces on the rail", () => {
     expect(store.getState().activeSpaceId).toBe("s2");
   });
 
+  it("opens a space in a window of its own from its tile's right-click", async () => {
+    // THE MUTANT: the item gone from the space menu, which is how #272 lost the way to a second window.
+    const { api } = await mount(work());
+    fireEvent.contextMenu(within(spaces()).getByRole("button", { name: /^Homework/ }), { clientX: 20, clientY: 200 });
+    fireEvent.click(within(await screen.findByRole("menu", { name: "Homework" })).getByRole("menuitem", { name: "Open in new window" }));
+    await waitFor(() => expect(api.calls).toContain("openSpaceWindow:s2"));
+  });
+
+  it("brings forward the window showing a space rather than showing it here too", async () => {
+    // THE MUTANT: no ask before the switch, so one space's panes are in two windows at once.
+    const { api, store } = await mount({ ...work(), spacesInOtherWindows: ["s2"] });
+    fireEvent.click(within(spaces()).getByRole("button", { name: /^Homework/ }));
+    await waitFor(() => expect(api.calls).toContain("focusSpaceWindow:s2"));
+    expect(store.getState().activeSpaceId).toBe("s1");
+    expect(within(spaces()).getByRole("button", { name: /^Versed/ })).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("reorders within the profile by dragging one tile onto another, and not while sorted by activity", async () => {
     const { api, store } = await mount(work());
     const tile = (name: RegExp) => within(spaces()).getByRole("button", { name });

@@ -146,6 +146,12 @@ describe("the column's title", () => {
     expect((await open()).queryByRole("menuitem", { name: "Show in Finder" })).toBeNull();
   });
 
+  it("opens its space in a window of its own from the ···", async () => {
+    const { api } = await mount(home());
+    fireEvent.click((await open()).getByRole("menuitem", { name: "Open in new window" }));
+    await waitFor(() => expect(api.calls).toContain("openSpaceWindow:s1"));
+  });
+
   it("makes a new session, a teammate and the activity view from the ···", async () => {
     const { api, store } = await mount(home());
     fireEvent.click((await open()).getByRole("menuitem", { name: "New session" }));

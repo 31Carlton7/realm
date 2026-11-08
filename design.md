@@ -783,6 +783,15 @@ accelerator fires first and would skip the `when` clauses that keep ⌘B bold in
 system's chords (copy, paste, undo, quit, hide) stay the menu's. Reload and Developer Tools are for
 development builds only: ⌘R must never reload the app out from under someone's work.
 
+Realm has as many windows as you open, and a space is open in at most one of them: the same space in
+two windows would show its panes twice. File ▸ New Window (⌘⇧N) opens one on the next space nobody is
+looking at, after the front window's, and offers to make a space when every one is open. A space's
+right-click and its "···" both offer Open in new window. Asking for a space another window shows —
+a tile click, ⌃Tab, Open in new window — brings that window forward and leaves this one as it was.
+Each window keeps its own rail selection and its own view; switching profile from the avatar changes
+only the window it was done in, unless another window already shows that profile, which comes forward
+instead.
+
 The window comes back where it was left — size, place, maximised or full screen — unless the display
 it was on is gone, in which case its size comes back centred on the main display.
 
