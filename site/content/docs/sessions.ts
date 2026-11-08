@@ -25,7 +25,7 @@ export default page({
     ),
     figure(
       { part: "turn" },
-      "One turn of a session. A collapsed row reads Worked for 1m 4s, 1 read, 2 edits, 1 command. The answer explains a fix in web/lib/orgs.ts at line 83 and lists what was verified. Below it, a card reads Edited 2 files, +20 −3, with Undo and Review and the two files. At the foot, the prompter with Ask each time and Opus 5.5 High.",
+      "One turn of a session. A collapsed row reads Worked for 1m 4s, 1 read, 2 edits, 1 command. The answer explains a fix in web/lib/orgs.ts at line 83 and lists what was verified. Below it, a card reads Changed 2 code files, +20 −3, with Undo and Review and the two files. At the foot, the prompter with Ask each time and Opus 5.5 High.",
       "One turn: the work folded into one row, the answer, and the files it edited.",
     ),
 
@@ -54,8 +54,8 @@ export default page({
     h2("Pick the model"),
     figure(
       { part: "models" },
-      "The model picker open. A search field, then Claude's models (Fable 5.1, Fable 5, Opus 5.5 checked, Opus 5, Sonnet 5.5, Sonnet 5, Haiku 5.5, Haiku 4.5) and Codex's below. A line describes Opus 5.5 with its context and price. At the foot, the effort track lit at Max, a fast mode bolt, and the note Fast mode starts on the next turn.",
-      "The model picker: every installed agent's models, and the effort track at Max.",
+      "The model picker open. A search field, then Claude's models: Fable 5.1, Fable 5, Opus 5.5 checked, Opus 5, Sonnet 5.5 and Sonnet 5, with more under them. A line describes Opus 5.5 with its context and price. At the foot, the effort track lit at Max, a fast mode bolt, the note Fast mode starts on the next turn, and the Account row.",
+      "The model picker, with the effort track at Max.",
     ),
     p(
       "The chip at the right of the prompter names the model, its effort level in grey, and a bolt when fast mode is on. Click it to open the picker:",

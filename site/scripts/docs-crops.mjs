@@ -42,7 +42,7 @@ const CROPS = {
   // First run's agent step: the two cards and the fold of the other agents.
   "onboarding-agents": { scene: "onboarding", rect: [380, 296, 680, 232], radius: 12 },
   // A sub-agent's permission card, in its lead's Agents tab.
-  "permission-card": { scene: "delegation", rect: [930.33, 175.33, 481.34, 307.34], radius: 12 },
+  "permission-card": { scene: "delegation", rect: [930, 190, 482, 302], radius: 12 },
   // The command palette, on its own rim.
   palette: { scene: "palette", rect: [440, 108, 560, 498], radius: 16 },
   // Library ▸ Files: the kind tabs and two whole rows of the grid, three tiles across, so the tiles are

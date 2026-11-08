@@ -1,5 +1,4 @@
 import { figure, h2, note, p, page, table, tip, ul } from "@/lib/docs-blocks"
-import subAgents from "@/public/product/details/sub-agents.webp"
 
 export default page({
   slug: "sub-agents",
@@ -12,8 +11,8 @@ export default page({
     ),
     figure(
       { part: "delegation" },
-      "A session's Agents tab. Under Sub-agents, 1 needs you, 1 done: Dark-mode toggle on GPT-6 Luna through Codex is waiting on a permission card, Allow Bash?, with Allow, Allow always and Deny. Theme migration on Fable 5.1 through Claude is Done. Each card names its checkout, its mode and how much of its time budget it used. Below, Build with offers Claude Opus 5.5, Claude Fable 5.1 and GPT-6 Luna.",
-      "One sub-agent waiting on a permission, one done, and Build with under them.",
+      "A session's Agents tab, with All, Dark-mode toggle and Theme migration across its top. Under Sub-agents, 1 needs you, 1 done: Dark-mode toggle on GPT-6 Luna through Codex is waiting on a permission card, Allow Bash?, with Allow, Allow always and Deny. Theme migration on Fable 5.1 through Claude is Done. Each card names its checkout, its mode and how much of its time budget it used.",
+      "One sub-agent waiting on a permission, and one done.",
       "One sub-agent waiting on a permission, and one done.",
     ),
 
@@ -41,11 +40,6 @@ export default page({
       "where it stands (**Needs you**, working, **Done**) and for how long",
       "the model and agent it runs on, its checkout and its permission mode",
       "how much of its time budget it has used",
-    ),
-    figure(
-      { detail: subAgents },
-      "Two sub-agent cards: GPT-6 Luna through Codex, Needs you, building the dark-mode toggle and asking Allow Bash?; Claude Fable 5.1, Done, having written the migration with all twelve tests passing.",
-      "Two sub-agents in the Agents tab, one waiting on you and one finished.",
     ),
     p(
       "Click a card, a sub-agent's mark on the row over the prompter, or its line in the transcript, to open it in the side panel: its live transcript, its state, what it was asked, and what it reported once it finishes. Its requests can be answered there; **Message this sub-agent** writes to it alone, **Stop** stops it, and **Open as session** opens it with its own prompter.",

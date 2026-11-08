@@ -2,7 +2,7 @@
 
 The marketing site for Realm — Next.js 16 and Tailwind 4, over real captures of the app.
 
-Three routes and nothing else:
+Three routes for readers:
 
 | Route | What it is |
 | --- | --- |
@@ -10,7 +10,7 @@ Three routes and nothing else:
 | `/changelog`, `/changelog/[slug]` | Every notable change under one date marker per day, eight at a time behind a **Load more**; each one opens as an article. |
 | `/docs`, `/docs/[slug]` | The documentation, described in [The docs](#the-docs) below. |
 
-`/features` redirects to `/`, which shows every feature it listed with its capture.
+`/features` redirects to `/`, which shows every feature it listed with its capture. `/oauth/callback` bounces a sign-in back to Realm on the reader's computer, and `/share` holds the pages the share images are captured from.
 
 The entries live in `content/changelog.ts` as typed blocks rather than Markdown — the site sits
 outside the workspace's vitest projects, so a union the compiler checks beats a parser nothing can
@@ -35,10 +35,10 @@ words the field keeps its light off.
 
 | Section | Component | What it does |
 | --- | --- | --- |
-| Opening | `realms/HeroParts`, `home/mini/MiniRealm` | The 2.1 link, the headline, and a working sample of Realm's window you can click through, labelled as one; its copy is `content/mini-realm.ts`. |
+| Opening | `realms/HeroParts`, `home/mini/MiniRealm` | The newest release's link, the headline, and a working sample of Realm's window you can click through, labelled as one; its copy is `content/mini-realm.ts`. |
 | What a realm holds | `realms/Chapter` (`stacked`) | The six things a space holds, then the whole window across the page. |
 | The claims | `realms/Chapter`, `realms/Screen` | One chapter per claim in `content/home.ts`, sides alternating: the words, and the part of the window the claim is about, photographed on its own. |
-| Teams | `realms/Team`, `lib/realmite` | 2.1's teams, clickable, with a Realmite at each of the team's doors in the field. |
+| Teams | `realms/Team`, `lib/teammate-icon` | A space's teammates, clickable, with a teammate's icon at each of the team's doors in the field. |
 | Facts, questions | `realms/RealmsHome` | Where the work lives, and the questions. |
 | Close | `realms/RealmsHome` | The download once more as the camera climbs off the field. |
 
@@ -61,7 +61,7 @@ scrolling tab row) so the clip cannot cut them off.
 ## The docs
 
 `/docs` is how Realm works, page by page, written for the shipped app: every label is the one the app
-shows, read from its source at the release the pages name (Realm 2.4). When the app changes, the page
+shows, read from its source (last checked against Realm 2.8.3). When the app changes, the page
 changes with it, and a feature the source does not have is not documented.
 
 Each page is a module in `content/docs/`, written with the small constructors in
@@ -94,15 +94,15 @@ alone: 63 packages, no native builds, no private registry.
 
 ## Deploying to Vercel
 
-Import the repository and set exactly one thing:
+The Vercel project has no Git repository connected, so pushing or merging ships nothing. A deploy is
+`vercel deploy --prod` from inside `site/`, and it ships whatever that folder holds, so check first
+that it holds what is live. Framework preset, install command and build command all come from
+`vercel.json`.
 
-| Setting | Value |
-| --- | --- |
-| **Root Directory** | `site` |
-
-Framework preset, install command and build command all come from `vercel.json`. Leave *Include
-source files outside of the Root Directory* **off** — the site needs nothing from the rest of the
-repository.
+`pnpm build` ends with `scripts/check-release-drift.mjs`, which fails the deploy if the rendered landing
+page names any release but the newest in `content/changelog.ts`. The page reads its version, its short
+line (`short` on the entry) and its link from that entry, so adding a release to the changelog is all it
+takes to change them.
 
 Every changelog entry is prerendered at build time. `/` and `/changelog` revalidate hourly, for the
 release lookup described below.
@@ -115,11 +115,13 @@ release lookup described below.
 
 ## The download button
 
-`lib/release.ts` asks GitHub for the latest release and links its `.dmg` directly, cached for an
-hour. The disk image is named for its version (`Realm-0.6.0-arm64.dmg`), so there is no fixed URL
+`lib/release.ts` asks GitHub for the latest release and links its files directly, cached for an
+hour. Each file is named for its version (`Realm-2.8.3-arm64.dmg`), so there is no fixed URL
 that always points at the newest one — resolving it at render is what keeps the button from going
-stale a release after someone last edited the file. Rate limit, network failure or a release with no
-disk image all fall back to the releases page, which is always true.
+stale a release after someone last edited the file. Rate limit, network failure or a release missing a
+build all fall back to the releases page, which is always true. The version the page prints comes from
+the changelog, not from here, so for up to an hour after a release the buttons can still point at the
+one before it.
 
 Because of that fetch, `/` and `/changelog` revalidate hourly rather than being pure static output;
 the entry pages are fully prerendered.
@@ -197,8 +199,4 @@ icon has no file convention and naming any icon in the metadata replaces the fil
 
 `lib/mark.ts` works the mark's geometry out the way `mark.mjs` does: its six faces, the walls and
 the doorway's floor, jamb and back. The landing page's field builds every realm on it from exactly that
-drawing (`components/realms/hive/cube.ts`), the cube with its doorway cut where the logo cuts it. Separately, `lib/realm-liquid-glass.ts` bakes the same mark's walls into a signed distance field and refracts
-Realm-blue, white and silver light streams through it, and `components/RealmCanvas.tsx` runs it —
-pausing offscreen and in a hidden tab, one frozen frame under reduced motion, the vector mark where
-WebGPU is unavailable. No page mounts it now: the landing page leads with a capture of the product,
-and the mark sits in the lockup, where a shader would draw a smudge.
+drawing (`components/realms/hive/cube.ts`), the cube with its doorway cut where the logo cuts it.

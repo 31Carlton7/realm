@@ -44,7 +44,7 @@ export const claims: Claim[] = [
       "Each space is a tile on the rail, with a count of what's waiting on you, and the sidebar shows one space at a time. Needs you sits on top and collects every session waiting on you, from every space and every profile.",
     capture: "sidebar",
     part: "sidebar",
-    caption: "Two questions waiting on you, above every space.",
+    caption: "Two questions waiting on you from other spaces, over one space's team and sessions.",
   },
   {
     id: "transcript",
@@ -63,7 +63,7 @@ export const claims: Claim[] = [
       "Each agent below runs with its own login, models and permission modes. Realm never asks for an API key.",
     capture: "models",
     part: "models",
-    caption: "Claude's and Codex's models in one picker, with Opus\u00a05.5 at Max and fast mode on.",
+    caption: "Claude's models in the picker, with Opus\u00a05.5 at Max and fast mode on.",
   },
   {
     id: "delegation",

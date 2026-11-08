@@ -4,35 +4,35 @@
 
 # Realm
 
-**One workspace for every coding agent, on your Mac.**
+**One workspace for every coding agent, on your computer.**
 
 [realm.computer](https://realm.computer) &nbsp;·&nbsp; [Download](https://github.com/31Carlton7/realm/releases/latest) &nbsp;·&nbsp; [Changelog](https://realm.computer/changelog)
 
-macOS · Apple silicon · in active development
+macOS on Apple silicon · previews for Windows and Linux · in active development
 
 </div>
 
-![Realm 2.0: every space in the sidebar under Needs you, a session that fixed a crash with the card for the two files it edited, and the file its answer named open in the side panel at the line it named.](docs/images/workspace.png)
+![Realm: every space on the rail, Needs you over one space in the sidebar, a session that fixed a crash with the card for the two files it changed, and the file its answer named open in the side panel at the line it named.](docs/images/workspace.png)
 
-*Every space in the sidebar, a session and the two files its turn edited, and the file its answer named, open beside it at the line it named.*
+*Every space on the rail, a session and the two files its turn edited, and the file its answer named, open beside it at the line it named.*
 
-Local-first agent control plane for macOS — profiles → spaces, every space in one sidebar, split panes for sessions beside one side panel for terminals / browsers / devices / documents, a context pool, and an MCP gateway. See `docs/superpowers/specs/2026-08-17-realm-v1-design.md`.
+Local-first agent control plane — profiles → spaces, every space on the rail with one in the sidebar at a time, split panes for sessions beside one side panel for terminals / browsers / devices / documents, a context pool, and an MCP gateway. See `docs/superpowers/specs/2026-08-17-realm-v1-design.md`.
 
 ## Dev
 - Node ≥ 22.13, pnpm 10, macOS.
-- Hugeicons Pro token in `.npmrc` (see `.npmrc.example`).
+- A Hugeicons Pro token in `.npmrc` is optional (see `.npmrc.example`). Without one, the build draws Hugeicons' free pack.
 - `pnpm install && pnpm dev`
 - Tests: `pnpm test`  ·  Types: `pnpm typecheck`
 - Data lives in `~/Realm/` (override with `REALM_HOME`).
 
 ## Website
 
-`site/` is the marketing site and docs (Next.js, deployed on Vercel with **Root Directory = `site`**).
+`site/` is the marketing site and docs (Next.js). It ships only by running `vercel deploy --prod` from inside `site/`.
 It is deliberately outside the pnpm workspace and carries its own lockfile — see `site/README.md` for
 why that matters and how to verify the WebGPU hero shader headlessly.
 
 ## Agent sessions
-- **Claude** sessions run on `@anthropic-ai/claude-agent-sdk`, which drives the `claude` CLI: install it and log in first (`claude auth login`). An expired login shows up as an error in the transcript.
+- **Claude** sessions run on `@anthropic-ai/claude-agent-sdk`, which drives the newest `claude` CLI on your PATH, or the copy Realm ships when there is none. Log in first (`claude auth login`). An expired login shows up as an error in the transcript.
 - **ACP agents** — Cursor, Gemini, OpenCode, GitHub Copilot, goose, Qwen Code, Grok and fx all speak the
   Agent Client Protocol, so they share one generic adapter (`packages/adapters/src/acp/`) and adding another
   is an `AcpAgentSpec` entry in `apps/server/src/app.ts`. Install and sign in to each out of band; Settings →
@@ -71,7 +71,7 @@ never installs it.
 
 An agent driving a browser pane can sign you in to a site without ever seeing the password.
 
-- **You enroll your own passwords in Settings → Sign-ins.** That is the only path for a value you
+- **You enroll your own passwords in Settings → Passwords.** That is the only path for a value you
   supply. No tool, no RPC method, no file import and no chat message can hand a password to the store
   — which is what makes the origin check below worth anything, since an agent that could enroll one
   could enroll a password you use elsewhere against whatever page it is standing on.
@@ -208,17 +208,17 @@ These are the site's frames with Realm's page colour painted in behind them — 
 translucent material, so a capture laid straight onto GitHub's white theme washes its sidebar out.
 `node scripts/readme-images.mjs` repaints them after a re-capture.
 
-**Every space, in one sidebar.** Each space is a section of one list, and Needs you heads it with
-every session waiting on a permission or a question, from every space and every profile.
+**Every space, a click away.** Each space is a tile on the rail and the sidebar shows one at a time, with
+Needs you at its head: every session waiting on a permission or a question, from every space and every profile.
 
-![The sidebar: Needs you lists two questions and a sub-agent's permission, one from another profile, above the Realm, Dashboard, Site and School spaces and their sessions.](docs/images/sidebar.png)
+![The rail's tiles for each space, and the sidebar: Needs you lists two questions, one from another profile, above the Dashboard space's teammates and sessions.](docs/images/sidebar.png)
 
-*Three sessions waiting on you, above every space's sessions.*
+*Two sessions waiting on you, above one space's team and sessions.*
 
 **Bring the agent you already use.** Claude Code, Codex, Cursor, Gemini, OpenCode, GitHub Copilot,
 goose, Qwen Code and Grok all run here, each keeping its own login, models and permission modes.
 
-![The model picker open on a new session: Claude's and Codex's models grouped by harness, Opus 5.5 picked with its description, context and price, and the effort track at Max, lit, with fast mode on.](docs/images/models.png)
+![The model picker open on a new session: Claude's models and Codex's under them, Opus 5.5 picked with its description, context and price, and the effort track at Max, lit, with fast mode on.](docs/images/models.png)
 
 *Every installed agent's models in one list: Opus 5.5 picked, at Max, with fast mode on.*
 

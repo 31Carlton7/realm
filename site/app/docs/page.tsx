@@ -56,7 +56,7 @@ export default function DocsHome() {
         <Screen
           kind="window"
           image={sceneImage("workspace")}
-          alt="Realm's window. On the left, the rail of icons and the sidebar, with two sessions under Needs you and the Realm, Dashboard, Site and School spaces below. In the middle, a session whose answer explains a fix and lists the two files it edited, above the prompter. On the right, the side panel's Documents tab with orgs.ts open at line 83."
+          alt="Realm's window. On the left, the rail of icons with a tile for each space, and the sidebar with two sessions under Needs you and the Dashboard space's teammates and sessions under them. In the middle, a session that fixed a crash, with a card for the two code files it changed. On the right, the side panel with the file its answer named, open at that line."
           caption="A session that fixed a crash, beside the file its answer named."
           phone={turn ? { image: turn, caption: "A session's turn: the work in one row, the answer, and the two files it edited." } : undefined}
           zoom={1}

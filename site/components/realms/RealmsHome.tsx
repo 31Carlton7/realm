@@ -131,7 +131,7 @@ export async function RealmsHome({ download, claims }: HomeProps) {
             phone: phoneRealm(),
             kind: "window",
             caption: "A session in the Dashboard space, and the file its turn edited open in vim beside it.",
-            alt: "Realm's window with the sidebar folded: a session in the Dashboard space whose turn edited two files, and beside it a terminal with vim open on web/lib/orgs.ts at the function the turn rewrote.",
+            alt: "Realm's window with the sidebar folded, the rail still beside it: a session in the Dashboard space whose turn edited two files, and beside it a terminal with vim open on web/lib/orgs.ts at the function the turn rewrote.",
           }}
         >
           <p className="max-w-[60ch]">A realm is one space in Realm: a project, with everything its work needs kept beside it.</p>

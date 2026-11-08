@@ -67,7 +67,7 @@ export default page({
     h2("The Library"),
     figure(
       { crop: "library-files" },
-      "Library ▸ Files, with tabs for All, Images, Documents, Code and Data. Under Today, square tiles: migrations.ts, AppSettings.tsx and blocks.md, each labelled with the session that made it; a picture shown edge to edge; and release-brief.pdf and launch-notes.md, marked Added.",
+      "Library ▸ Files, with tabs for All, Images, Documents, Code and Data. Under Today, square tiles: auto-compact.ts, migrations.ts and AppSettings.tsx, each labelled with the session that made it; two pictures shown edge to edge; and release-brief.pdf, marked Added.",
       "The Library's newest files, each labelled with where it came from.",
     ),
     p(

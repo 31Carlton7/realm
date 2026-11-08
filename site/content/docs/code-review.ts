@@ -23,7 +23,7 @@ export default page({
     h2("Pull requests"),
     figure(
       { part: "review" },
-      "Code review with a pull request open, titled Stream the tokenizer instead of buffering its input. A Review by Fable 5.1 summarises two risks and lists three findings on src/tokenizer.ts, src/parser.ts and README.md, each with Add to review or Add to my comment. At the top, Review with Fable 5.1 and Submit review.",
+      "Code review with a pull request open, titled Stream the tokenizer instead of buffering its input. A Review by Fable 5.1 summarises two risks and lists three findings on src/tokenizer.ts, src/parser.ts and README.md, each with Add to review or Add to my comment.",
       "A pull request reviewed by Fable 5.1: a summary and three findings, each one click from your review.",
     ),
     p(

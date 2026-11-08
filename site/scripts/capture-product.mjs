@@ -44,6 +44,8 @@ import { CAPTURE_DENSITY, WINDOW } from "../lib/frames.ts"
 import { encode, rawDir } from "./encode-product.mjs"
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
+/** The checkout whose built app is photographed. The site's line isn't a release, so name the tag's worktree here. */
+const buildRoot = path.resolve(process.env.REALM_CAPTURE_BUILD ?? repoRoot)
 const outputDir = path.join(repoRoot, "site/public/product")
 const sceneRawDir = path.join(rawDir, "scenes")
 const detailRawDir = path.join(rawDir, "details")
@@ -175,7 +177,7 @@ function seedWebApp(dir) {
 
 /** The site's checkout: a changelog to ask about, and branches for a question to offer. */
 function seedSite(dir) {
-  fs.writeFileSync(path.join(dir, "CHANGELOG.md"), "# Changelog\n\n## 2.0.0\n\n- Every space in one sidebar.\n- One side panel for what agents open.\n")
+  fs.writeFileSync(path.join(dir, "CHANGELOG.md"), "# Changelog\n\n## 2.0.0\n\n- Every space on the rail.\n- One side panel for what agents open.\n")
   fs.writeFileSync(path.join(dir, "README.md"), "# Site\n\nrealm.computer: the landing page, the features and the changelog.\n")
   commitAll(dir, "Start the site")
   for (const branch of ["release/2.0", "site/changelog"]) git(dir, "branch", branch)
@@ -196,7 +198,7 @@ function commitAll(dir, message) {
  * as tiles, and the images, poster and brief a Library is made of — drawn by headless Chrome from the
  * markup below, so the run reproduces without a folder of binaries beside it.
  */
-const mark = fs.readFileSync(path.join(repoRoot, "resources/icon-src/mark.svg"), "utf8")
+const mark = fs.readFileSync(path.join(buildRoot, "resources/icon-src/mark.svg"), "utf8")
 const font = `font-family: -apple-system, 'Inter', 'Helvetica Neue', sans-serif;`
 const settingsMock = ({ ground, ink, quiet, line, card, accent, title, rows, gap, size }) => `<!doctype html><html><body style="margin:0;background:${ground};${font}">
 <div style="display:flex;height:780px">
@@ -232,17 +234,17 @@ const PICTURES = {
   "desk/launch-poster.png": { width: 1200, height: 1500, html: `<!doctype html><html><body style="margin:0;${font}">
 <div style="width:1200px;height:1500px;background:linear-gradient(#33353a,#151619);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#f4f5f7">
   <div style="width:460px">${mark.replace(/width="40" height="48"/, 'width="460" height="552"')}</div>
-  <div style="margin-top:72px;font-size:128px;font-weight:650;letter-spacing:-0.045em">Realm 2.0</div>
+  <div style="margin-top:72px;font-size:128px;font-weight:650;letter-spacing:-0.045em">Realm</div>
   <div style="margin-top:20px;font-size:40px;color:#b4b8be">One workspace for every coding agent.</div>
 </div></body></html>` },
 }
 
 /** The brief is a PDF, printed by the same Chrome. */
 const BRIEF = `<!doctype html><html><body style="${font};color:#1d1d1f;padding:56px 64px">
-<h1 style="font-size:34px;letter-spacing:-0.02em">Release brief — Realm 2.0</h1>
+<h1 style="font-size:34px;letter-spacing:-0.02em">Release brief</h1>
 <p style="font-size:15px;line-height:1.6;color:#3a3a3c">What ships, what is gone, and what to check before the tag.</p>
 <h2 style="font-size:20px;margin-top:32px">What ships</h2>
-<ul style="font-size:15px;line-height:1.8"><li>Every space in one sidebar, under Needs you</li><li>As many panes as there is room for, beside one side panel</li><li>The model picker, with effort and fast mode at its foot</li><li>One card for every agent's questions</li><li>Code review, through your own gh</li></ul>
+<ul style="font-size:15px;line-height:1.8"><li>Every space on the rail, under Needs you</li><li>As many panes as there is room for, beside one side panel</li><li>The model picker, with effort and fast mode at its foot</li><li>One card for every agent's questions</li><li>Code review, through your own gh</li></ul>
 <h2 style="font-size:20px;margin-top:32px">Before the tag</h2>
 <ol style="font-size:15px;line-height:1.8"><li>The full suite, and the live checks on a scratch home</li><li>A signed, notarized build</li><li>The changelog, dated</li></ol>
 </body></html>`
@@ -432,9 +434,9 @@ window.__capture = window.__capture ?? {
     }
     return null;
   },
-  /** A session's row in the sidebar's spaces, never its copy under Needs you. */
+  /** A session's row in the sidebar's space, never its copy under Needs you. */
   row(title) {
-    return [...document.querySelectorAll(".sb-sections .item-row, .sb-section .item-row")]
+    return [...document.querySelectorAll(".sb-section .item-row")]
       .find((row) => !row.closest(".sb-needs") && row.textContent.trim().startsWith(title)) ?? null;
   },
   /**
@@ -544,9 +546,12 @@ function makeContext(page, rpc) {
     if (!lit) await click(`.app-rail .rail-btn[aria-label=${JSON.stringify(label)}]`)
   }
 
-  /** Open a session from its row in the sidebar, and wait for its pane to take the front. */
+  /** Open a session from its row in the sidebar, in its own space, and wait for its pane to take the front. */
   const openSession = async (title) => {
     await home()
+    const session = (await rpc.call("sessions.listAll", { profileId: null })).find((s) => s.title === title)
+    if (session) await evaluate(`__capture.store().getState().selectSpace(${JSON.stringify(session.spaceId)}).then(() => true)`)
+    await until(() => evaluate(`!!__capture.row(${JSON.stringify(title)})`), 5_000, `the row for “${title}”`).catch(() => null)
     const found = await evaluate(`(() => { const row = __capture.row(${JSON.stringify(title)}); if (!row) return false; row.click(); return true; })()`)
     if (!found) throw new Error(`No sidebar row for “${title}”`)
     await until(() => evaluate(`__capture.front() === ${JSON.stringify(title)}`), 10_000, `“${title}” in front`)
@@ -849,6 +854,10 @@ async function stage(ctx) {
   const folder = async (s) => (await rpc.call("spaces.list", {})).find((x) => x.id === s.id)?.folderPath ?? s.folderPath
 
   seedWebApp(await folder(dashboard))
+  // A team in the space the sidebar is shot on: the app's own quick starts, on the scripted agent.
+  await rpc.call("teammates.create", { spaceId: dashboard.id, name: "Lead", brief: "Hand each ask to the teammate who fits.", icon: { shape: "circle", color: "graphite" }, agentKind: "claude", lead: true })
+  await rpc.call("teammates.create", { spaceId: dashboard.id, name: "CTO", brief: "Own the technical direction.", icon: { shape: "hexagon", color: "blue" }, agentKind: "claude" })
+  await rpc.call("teammates.create", { spaceId: dashboard.id, name: "Design engineer", brief: "Build and polish the interface.", icon: { shape: "flower", color: "pink" }, agentKind: "claude" })
   const siteDir = await folder(site)
   seedSite(siteDir)
   const pictures = await renderPictures(siteDir)
@@ -936,34 +945,20 @@ async function stage(ctx) {
  */
 const scenes = [
   {
-    // Every space at once, under Needs you: questions from this profile and another, a lead whose
-    // sub-agent is stopped on a permission (a count on its row since 2.1, answered in its Agents
-    // tab), a lecture being worked on and a session with news. The changelog's figure of this
-    // sidebar is 2.0's, when a sub-agent's request was a row of its own, and stays as it was shot.
+    // The rail's tiles, one space in the column, and Needs you over it: questions from this profile
+    // and another, and the space's team and sessions under them.
     name: "sidebar",
-    async run({ evaluate, openSession, park, shot, part, viewport, rpc, until, boxOf }, staged) {
-      const lecture = (await rpc.call("sessions.listAll", { profileId: null })).find((s) => s.title === TITLES.lecture)
-      if (lecture) await rpc.call("sessions.send", { id: lecture.id, text: "keep working", attachments: [], mentions: [] }).catch(() => null)
+    async run({ evaluate, openSession, park, shot, part, viewport, until, boxOf }) {
       await openSession(TITLES.fix)
       await until(() => evaluate(`document.querySelectorAll('.sb-needs .item-row').length >= 2`), 15_000, "two rows under Needs you")
-      await until(() => evaluate(`!!document.querySelector('.sb-section .status-dot[data-status="running"]')`), 15_000, "a session working").catch(() => null)
       await park()
-      const expect = `document.querySelectorAll('.sb-needs .item-row').length >= 2 && document.querySelectorAll('.sb-section').length >= 4 && !!document.querySelector('.transcript')`
+      const expect = `document.querySelectorAll('.sb-needs .item-row').length >= 2 && document.querySelectorAll('.rail-space').length >= 4 && !!document.querySelector('.transcript')`
       await shot("sidebar", expect)
-      // The column on its own, from the profile to New space, in a window short enough that the last
-      // space's sessions are its last rows. Its box is the shade's, which is the column's own shape:
-      // below the head row, with the rim's corner.
+      // The rail and the column together, down to the rail's foot, in a window short enough to read.
       try {
-        await viewport(VIEWPORT.width, 740)
-        // Then shorter by whatever ground lies between the last session and New space, past a row's gap.
-        const slack = await evaluate(`(() => { const last = [...document.querySelectorAll('.sb-sections .item-row')].at(-1).getBoundingClientRect(); const add = document.querySelector('.sb-new-space').getBoundingClientRect(); return Math.floor(add.top - last.bottom); })()`)
-        if (slack > 20) await viewport(VIEWPORT.width, 740 - (slack - 20))
+        await viewport(VIEWPORT.width, 640)
         const column = await boxOf([".sidebar-shade"], 0)
-        // Every row on screen and none under a dissolve: the list does not scroll at this height.
-        const fits = `${expect} && (() => { const rows = [...document.querySelectorAll('.sb-sections .item-row')]; const last = rows.at(-1); const add = document.querySelector('.sb-new-space')?.getBoundingClientRect();
-          let s = last?.parentElement; while (s && !/(auto|scroll)/.test(getComputedStyle(s).overflowY)) s = s.parentElement;
-          return !!last && !!add && last.getBoundingClientRect().bottom <= add.top && (!s || s.scrollHeight - s.clientHeight < 2); })()`
-        await part("sidebar", fits, { box: column, radius: 12 })
+        await part("sidebar", expect, { box: { x: 0, y: 0, width: column.x + column.width, height: 640 }, radius: 16 })
       } finally {
         await viewport()
       }
@@ -983,7 +978,7 @@ const scenes = [
       await sleep(600)
       await reveal(".session-pane .edit-summary", "end", 40)
       await park()
-      const expect = `!!document.querySelector('.session-pane .edit-summary') && document.querySelector('.session-pane .edit-summary-title')?.textContent.startsWith('Edited 2 files') && !!document.querySelector('.sidebar[data-collapsed]')`
+      const expect = `!!document.querySelector('.session-pane .edit-summary') && document.querySelector('.session-pane .edit-summary-title')?.textContent.startsWith('Changed 2 code files') && !!document.querySelector('.sidebar[data-collapsed]')`
       await shot("session", expect)
       // The second turn on its own, from the ask to its card: the folded row of tool calls, the answer
       // and the files it edited. A taller window holds all of it in the middle of the transcript, clear
@@ -1106,6 +1101,8 @@ const scenes = [
       const shown = await evaluate(`[...document.querySelectorAll('.view-panel:not([hidden]) [role=tab]')].some((t) => t.textContent.trim() === 'Agents')`)
       if (shown) await evaluate(`(() => { [...document.querySelectorAll('.view-panel:not([hidden]) [role=tab]')].find((t) => t.textContent.trim() === 'Agents').click(); return true; })()`)
       else await sideTool("Agents")
+      // The tab may have opened on one sub-agent; its cards are under All.
+      await evaluate(`(() => { [...document.querySelectorAll('.view-panel:not([hidden]) [role=tab], .view-panel:not([hidden]) button')].find((t) => t.textContent.trim() === 'All')?.click(); return true; })()`)
       await until(() => evaluate(`(() => { const s = [...document.querySelectorAll('.subagent')].map((li) => li.dataset.state); return s.includes('done') && s.includes('waiting'); })()`), 40_000, "one sub-agent done and one waiting")
       await until(() => evaluate(`[...document.querySelectorAll('.delegation-line .tool-row')].some((r) => /^Sub-?agent finished/.test(r.textContent))`), 15_000, "the lead's line for the finished one")
       await park()
@@ -1200,6 +1197,8 @@ const scenes = [
       // 1280 by 820 with the sidebar folded (the session's bar still names its space), so the session's
       // turn and the terminal beside it take the room. vim redraws for the new size before it is taken.
       try {
+        await evaluate(`document.activeElement?.blur?.(); true`)
+        // Out of the terminal first: there ⌘B is a keystroke, not the app's.
         await evaluate(`document.activeElement?.blur?.(); true`)
         await press("b", { code: "KeyB", vk: 66, meta: true })
         await until(() => evaluate(`!!document.querySelector('.sidebar[data-collapsed]')`), 5_000, "the sidebar folded")
@@ -1342,10 +1341,9 @@ const scenes = [
         const page = await evaluate(`(() => { const c = document.querySelector('.sched-col').getBoundingClientRect(); const v = document.querySelector('.sched-view-session').getBoundingClientRect();
           return { x: c.x, y: c.y, width: v.right - c.x, height: v.bottom - c.y }; })()`)
         await part("schedules", `${expect} && !!document.querySelector('.sched-run') && document.querySelector('.sched-view-session')?.textContent.includes('Scheduled run')`, { box: page, radius: 12 })
-        // For a phone, the column of tasks on its own, down to the last one on the clock: each task's
-        // next time and model, and today's run under Weekly numbers.
-        const tasks = await evaluate(`(() => { const c = document.querySelector('.sched-col').getBoundingClientRect(); const all = [...document.querySelectorAll('.sched-task')];
-          const last = all.find((t) => t.querySelector('.sched-task-name')?.textContent.includes('Dependency sweep')) ?? all.at(-1);
+        // For a phone, the column of tasks on its own, down to today's run under Weekly numbers: each
+        // task's next time and model. The column runs soonest first, so the run is under the last.
+        const tasks = await evaluate(`(() => { const c = document.querySelector('.sched-col').getBoundingClientRect(); const last = document.querySelector('.sched-run');
           return { x: c.x, y: c.y, width: c.width, height: __capture.room(last, "bottom", 22) - c.y }; })()`)
         await part("schedules-phone", `${expect} && !!document.querySelector('.sched-run')`, { box: tasks, radius: 12 })
       } finally {
@@ -1527,7 +1525,7 @@ const scenes = [
     name: "new-space",
     async run({ evaluate, home, click, press, park, shot, until, sleep }) {
       await home()
-      await click(".sb-new-space")
+      await click(".rail-new-space")
       await until(() => evaluate(`!!document.querySelector('[role="dialog"][aria-label="New space"]')`), 8_000, "the New space sheet")
       await sleep(500)
       await evaluate(`(() => { const i = document.querySelector('[role="dialog"][aria-label="New space"] input[aria-label="Space name"]'); __capture.setInput(i, 'Garden journal'); return true; })()`)
@@ -1584,12 +1582,12 @@ async function main() {
 
   // A fake gh, signed in, answering from the Code review fixture — so the page lists, opens and
   // reviews the same pull requests every run, and nothing reaches GitHub.
-  const { buildFixture } = await import(pathToFileURL(path.join(repoRoot, "apps/server/scripts/fixtures/code-review-fixture.mjs")).href)
+  const { buildFixture } = await import(pathToFileURL(path.join(buildRoot, "apps/server/scripts/fixtures/code-review-fixture.mjs")).href)
   const ghDir = path.join(scratch, "gh")
   fs.mkdirSync(ghDir, { recursive: true })
   fs.writeFileSync(path.join(ghDir, "fixture.json"), JSON.stringify({ ...buildFixture(), auth: "ready" }))
   const ghBin = path.join(ghDir, "gh")
-  fs.writeFileSync(ghBin, `#!/bin/sh\nFAKE_GH_FIXTURE='${path.join(ghDir, "fixture.json")}' exec '${process.execPath}' '${path.join(repoRoot, "apps/server/scripts/fixtures/fake-gh.mjs")}' "$@"\n`)
+  fs.writeFileSync(ghBin, `#!/bin/sh\nFAKE_GH_FIXTURE='${path.join(ghDir, "fixture.json")}' exec '${process.execPath}' '${path.join(buildRoot, "apps/server/scripts/fixtures/fake-gh.mjs")}' "$@"\n`)
   fs.chmodSync(ghBin, 0o755)
 
   const wrapper = path.join(scratch, "wrapper.mjs")
@@ -1604,11 +1602,8 @@ async function main() {
 
   const electronBinary =
     process.platform === "darwin"
-      ? path.join(
-          repoRoot,
-          "node_modules/.pnpm/electron@37.10.3/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron",
-        )
-      : path.join(repoRoot, "apps/desktop/node_modules/.bin/electron")
+      ? path.join(buildRoot, "apps/desktop/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron")
+      : path.join(buildRoot, "apps/desktop/node_modules/.bin/electron")
 
   // The terminals' shell is a clean zsh: its dotfiles are this run's, so the captures show nobody's
   // prompt and nothing typed into them reaches anybody's history. It is also the login shell the app
@@ -1660,9 +1655,9 @@ async function main() {
       REALM_GH_BIN: ghBin,
       REALM_PORT: String(serverPort),
       REALM_DEVTOOLS_PORT: String(cdpPort),
-      REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"),
+      REALM_SERVER_ENTRY: path.join(buildRoot, "apps/server/dist/main.js"),
       REALM_CAPTURE_USER_DATA: path.join(scratch, "userData"),
-      REALM_CAPTURE_MAIN: path.join(repoRoot, "apps/desktop/out/main/index.js"),
+      REALM_CAPTURE_MAIN: path.join(buildRoot, "apps/desktop/out/main/index.js"),
     },
     stdio: ["ignore", "ignore", "ignore"],
   })
@@ -1777,6 +1772,9 @@ async function main() {
   await rpc.call("settings.set", { key: "ui.theme", value: "dark" })
   // The last agent used is what Code review's reviewer and a fresh prompter take.
   await rpc.call("settings.set", { key: "ui.lastAgentKind", value: "claude" })
+  // The reviewer the pull request's figure names.
+  const [firstProfile] = await rpc.call("profiles.list", {})
+  await rpc.call("codeReview.setReviewerPick", { profileId: firstProfile.id, pick: { agentKind: "claude", model: "claude-fable-5-1" } })
   // What Claude's own report would have said by now: Opus 5.5 runs fast. Without it the bolt carries
   // the note a first turn would settle, which is true of the harness and not of a session in use.
   await rpc.call("settings.set", { key: "models.fastSupport", value: { "claude:claude-opus-5-5": true } })

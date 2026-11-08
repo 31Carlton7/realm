@@ -1,6 +1,6 @@
 {
   "connections": {
-    "width": 754,
+    "width": 755,
     "height": 568,
     "radius": 12,
     "cutout": false
@@ -13,13 +13,13 @@
   },
   "delegation": {
     "width": 553,
-    "height": 663,
+    "height": 640,
     "radius": 16,
     "cutout": false
   },
   "delegation-phone": {
     "width": 453,
-    "height": 663,
+    "height": 640,
     "radius": 16,
     "cutout": false
   },
@@ -48,20 +48,20 @@
     "cutout": false
   },
   "review-phone": {
-    "width": 515,
-    "height": 608,
+    "width": 516,
+    "height": 633,
     "radius": 12,
     "cutout": false
   },
   "sandbox": {
     "width": 765,
-    "height": 419,
+    "height": 465,
     "radius": 12,
     "cutout": false
   },
   "sandbox-phone": {
-    "width": 383,
-    "height": 602,
+    "width": 384,
+    "height": 639,
     "radius": 12,
     "cutout": false
   },
@@ -78,14 +78,14 @@
     "cutout": false
   },
   "sidebar": {
-    "width": 280,
-    "height": 678,
-    "radius": 12,
+    "width": 332,
+    "height": 640,
+    "radius": 16,
     "cutout": false
   },
   "turn": {
-    "width": 764,
-    "height": 738,
+    "width": 765,
+    "height": 739,
     "radius": 12,
     "cutout": false
   },

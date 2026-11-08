@@ -8,7 +8,7 @@ export default page({
   body: [
     figure(
       { part: "schedules" },
-      "The Scheduled page. On the left, New task, then Upcoming: Morning triage tomorrow at 9:00 AM on weekdays with GPT-6 Luna, Weekly numbers on Fridays with Opus 5.5 and its run from today at 11:30 AM selected, and Dependency sweep on Mondays with Sonnet 5. Under Suggested, Weekly review, Morning brief and Watch CI. In the middle, the selected run's transcript with a chart. On the right, the task's card: Fridays at 4:00 PM, its instructions, 1 output, the next run, its model, and its sources.",
+      "The Scheduled page. On the left, New task, then Upcoming: Dependency sweep on Mondays with Sonnet 5, Morning triage tomorrow at 9:00 AM on weekdays with GPT-6 Luna, and Weekly numbers on Fridays with Opus 5.5 and its run from today selected. Under Suggested, Weekly review, Morning brief and Watch CI. In the middle, the selected run's transcript with a chart. On the right, the task's card: Fridays at 4:00 PM, its instructions, 1 output, the next run, its model, and its sources.",
       "Three tasks, a run of Weekly numbers open, and the task's card beside it.",
       "Three scheduled tasks, and today's run of Weekly numbers.",
     ),
