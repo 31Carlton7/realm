@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { isSecretField } from "@realm/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { bothReads, COVER_MARGIN, coverFields, fitWithin, isSecretFields, pageFields, SECRET_FIELDS, type SecretFields } from "./phone-frame";
 
@@ -32,6 +33,10 @@ describe("the fields a phone is not shown", () => {
     for (const [i, id] of ["user", "pw", "shown", "otp", "card", "cvc", "search", "remember"].entries()) place(`#${id}`, { left: 10, top: 10 + i * 40, width: 200, height: 30 });
     // THE MUTANT: `type=password` alone — a page's "Show password" turns the field to text, and a phone reads it.
     expect(found().rects.map(([, y]) => (y - 10) / 40)).toEqual([1, 2, 3, 4, 5]);
+    // The page script and the agent's page read hide the same fields.
+    const typed = [...document.querySelectorAll("input")].filter((el) => el.type !== "checkbox");
+    expect(typed.filter((el) => isSecretField({ type: el.getAttribute("type"), name: el.getAttribute("name"), id: el.id, autocomplete: el.getAttribute("autocomplete") })).map((el) => el.id))
+      .toEqual(["pw", "shown", "otp", "card", "cvc"]);
   });
 
   it("finds one inside an open shadow root", () => {
