@@ -168,6 +168,16 @@ describe("a page overlay when another space is made current", () => {
     expect(store.getState().activeSpaceId).toBe("s2");
   });
 
+  it("a session in a space another window shows is handed to that window, and this one stays put", async () => {
+    /* THE mutant: open it here, and the space window 2 shows is on screen twice — in window 1 too. */
+    const { api, store } = await boot({ items: TWO_SPACE_ITEMS, sessions: SESSIONS, spacesInOtherWindows: ["s2"] });
+    const before = store.getState().layout;
+    expect(await store.getState().revealSession("se2", "s2")).toBe(true);
+    expect(api.calls).toContain("focusSpaceWindow:s2:se2");
+    expect(store.getState().activeSpaceId).toBe("s1");
+    expect(store.getState().layout).toBe(before);
+  });
+
   it("opens ONE pane when a chat in another space is revealed from behind a page", async () => {
     /* `revealSession` opens the pane it was asked for, and nothing on the way: every space is loaded,
        so there is no switch that could land on the newest session first and open a pane nobody asked

@@ -107,6 +107,23 @@ describe("store · a window per space", () => {
     expect(api.data.settings["ui.view:p1"]).toBeUndefined();
   });
 
+  it("a window brought back after a relaunch lands on the space it showed, keeping the view it was opened with", async () => {
+    /* THE mutants: ignore the landing, and a Homework window that had moved to Versed comes back on
+       Homework — or on wherever the first window was left, the same space twice. */
+    const spaces = [space("s1", "p1", "Versed"), space("s2", "p1", "Homework"), space("s3", "p2", "Notes")];
+    const api = fakeApi({ spaces, boundProfileId: "p1", boundSpaceId: "s2", landingSpaceId: "s1", settings: { "ui.activeSpaceId": "s3" } });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    expect(store.getState().activeSpaceId).toBe("s1");
+    await store.getState().newSession({ agentKind: "claude" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(api.data.settings["ui.view:p1:s2"]).toBeTruthy();
+    // The first window, brought back on a space of another profile than where the app was left.
+    const first = createAppStore(fakeApi({ spaces, landingSpaceId: "s3", settings: { "ui.activeSpaceId": "s1" } }));
+    await first.getState().boot();
+    expect(first.getState().activeSpaceId).toBe("s3");
+  });
+
   it("File ▸ New Window with every space already open offers to make one here", async () => {
     const api = fakeApi({ newWindowOpens: false });
     const store = createAppStore(api);

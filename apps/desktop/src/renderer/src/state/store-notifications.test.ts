@@ -84,7 +84,8 @@ describe("store — the desktop (OS) hop", () => {
     const { api, store } = await boot();
     store.getState().applyNotificationsChanged({ notification: notification("n1", { title: "a session", body: "Finished a turn" }), unread: 1 });
     await tick();
-    expect(api.data.shownNotifications).toEqual([{ id: "n1", title: "a session", body: "Finished a turn" }]);
+    // The row's space rides along, so main opens a click in the window showing that space.
+    expect(api.data.shownNotifications).toEqual([{ id: "n1", title: "a session", body: "Finished a turn", spaceId: "s1" }]);
     // Null row = a permission answered, an MCP server recovered, a markRead elsewhere. Nothing new
     // happened to the user, so nothing leaves the app.
     store.getState().applyNotificationsChanged({ notification: null, unread: 0 });
