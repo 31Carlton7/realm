@@ -4,8 +4,6 @@ import { releasesUrl, site } from "@/lib/site"
 export type Platform = "mac" | "windows" | "linux"
 
 export type Downloads = {
-  /** `v2.4.0`, or null when the current release could not be established. Never guessed. */
-  version: string | null
   /** Each build's file when GitHub answered and the release has one, the releases page otherwise. */
   mac: string
   windows: string
@@ -15,7 +13,7 @@ export type Downloads = {
   deb: string
 }
 
-const FALLBACK: Downloads = { version: null, mac: releasesUrl, windows: releasesUrl, linux: releasesUrl, deb: releasesUrl }
+const FALLBACK: Downloads = { mac: releasesUrl, windows: releasesUrl, linux: releasesUrl, deb: releasesUrl }
 
 /**
  * The current release's builds, asked of GitHub rather than pinned here.
@@ -41,14 +39,12 @@ export async function downloads(): Promise<Downloads> {
     if (!response.ok) return FALLBACK
 
     const release = (await response.json()) as {
-      tag_name?: string
       assets?: { name?: string; browser_download_url?: string }[]
     }
     const asset = (suffix: string) =>
       release.assets?.find((file) => file.name?.endsWith(suffix))?.browser_download_url ?? releasesUrl
 
     return {
-      version: release.tag_name ?? null,
       mac: asset(".dmg"),
       windows: asset(".exe"),
       linux: asset(".AppImage"),

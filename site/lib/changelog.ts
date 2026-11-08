@@ -34,6 +34,8 @@ export type Entry = {
   area: "Release" | "Agents" | "Interface" | "Workspace" | "Documents" | "Browser" | "Platform"
   /** One or two sentences. This is what the list shows, so it has to stand on its own. */
   summary: string
+  /** A few words for the landing page's badge, set on a release whose summary is too long to fit there. */
+  short?: string
   body: Block[]
 }
 
@@ -90,6 +92,9 @@ const grouped = group()
 /** Every release, newest first, each with its changes newest first; and any change not yet released. */
 export const releases: Release[] = grouped.releases
 export const unreleased: Entry[] = grouped.unreleased
+
+/** The newest release. The landing page's badge and the line under its download buttons say this one. */
+export const latestRelease: Release = releases[0]!
 
 /** The release an entry shipped in: itself for a release, the release above it for a change. */
 export function releaseOf(slug: string): Release | undefined {

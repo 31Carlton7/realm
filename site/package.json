@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev --port 3100",
-    "build": "next build",
+    "build": "next build && node scripts/check-release-drift.mjs",
     "start": "next start",
     "typecheck": "tsc --noEmit && node scripts/check-contrast.mjs",
     "capture:product": "node scripts/capture-product.mjs",

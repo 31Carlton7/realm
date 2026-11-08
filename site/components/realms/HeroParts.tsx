@@ -1,9 +1,11 @@
+import type { Route } from "next"
 import type { CSSProperties } from "react"
 
 import { DownloadButton, QuietButton } from "@/components/Buttons"
 import { MiniRealm } from "@/components/home/mini/MiniRealm"
 import { ArrowIcon, GitHubIcon } from "@/components/icons"
 import { PassageLink } from "@/components/passage/PassageLink"
+import { latestRelease } from "@/lib/changelog"
 import type { Downloads } from "@/lib/release"
 import { site } from "@/lib/site"
 
@@ -17,13 +19,13 @@ export type ConceptProps = { download: Downloads }
 export function Announcement({ className = "" }: { className?: string }) {
   return (
     <PassageLink
-      href="/changelog/v2-1-0"
+      href={`/changelog/${latestRelease.slug}` as Route}
       passage="warp"
       className={`inline-flex items-center gap-2.5 text-[13.5px] text-ink-2 transition-colors duration-150 ease-out hover:text-ink hover:duration-220 hover:ease-spring ${className}`}
     >
-      <span className="font-mono text-[12px] text-accent-ink">2.1</span>
+      <span className="font-mono text-[12px] text-accent-ink">{latestRelease.version.replace(/^v/, "")}</span>
       <span className="h-3.5 w-px bg-line-strong" aria-hidden />
-      Teams, and long sessions that open in a fifth of a second
+      {latestRelease.short ?? "Release notes"}
       <ArrowIcon className="nudge h-3.5 w-3.5" />
     </PassageLink>
   )
@@ -41,7 +43,7 @@ export function Lede({ className = "" }: { className?: string }) {
   return (
     <p className={`text-[17px] leading-[1.55] text-ink-2 ${className}`}>
       Bring the coding agent you already use. Each space holds a checkout, the agents working on it, and the
-      terminals, browsers and documents they open. Every space sits in one sidebar on your computer, and it&rsquo;s all
+      terminals, browsers and documents they open. Every space is a click away on the rail, on your computer, and it&rsquo;s all
       still there tomorrow.
     </p>
   )
@@ -72,7 +74,7 @@ const buildLink = "text-ink-2 transition-colors duration-150 ease-out hover:text
 export function Qualifiers({ download, className = "" }: ConceptProps & { className?: string }) {
   return (
     <div className={`font-mono text-[12px] leading-[1.7] text-ink-2 ${className}`}>
-      <p>{download.version ? `${download.version} · ` : ""}in active development</p>
+      <p>{latestRelease.version} · in active development</p>
       <p>
         <a href={download.mac} className={buildLink}>
           <span className="link-line">Mac (Apple silicon)</span>

@@ -28,6 +28,7 @@ export const entries: Entry[] = [
     area: "Release",
     summary:
       "A window for each space, your open tabs as context, and no more glass. Plus search, panes, goals and teammates in Realm Mobile.",
+    short: "A window for each space, and your open tabs as context",
     body: [
       { kind: "h", text: "Windows and context" },
       { kind: "ul", items: [
