@@ -182,6 +182,7 @@ public enum Mentions {
         let mac = skills.first { $0.id == macId }
         let others = skills.filter { $0.id != macId }
         let q = query.trimmingCharacters(in: .whitespaces)
+        let tabLines = SpaceTab.lines(tabs)
         if q.isEmpty {
             var rows: [MentionRow] = []
             if let mac { rows.append(MentionRow(kind: .mac(mac), name: macId, detail: macDetail, head: nil)) }
@@ -189,7 +190,7 @@ public enum Mentions {
                 rows.append(MentionRow(kind: .teammate(t), name: t.handle, detail: teammateDetail(t), head: i == 0 ? "Team" : nil))
             }
             for (i, t) in tabs.prefix(tourCaps[.tab]!).enumerated() {
-                rows.append(MentionRow(kind: .tab(t), name: tabName(t), detail: t.detail, head: i == 0 ? "Tabs" : nil))
+                rows.append(MentionRow(kind: .tab(t), name: tabName(t), detail: tabLines[t.itemId] ?? t.detail, head: i == 0 ? "Tabs" : nil))
             }
             for (i, f) in files.prefix(tourCaps[.file]!).enumerated() {
                 rows.append(MentionRow(kind: .file(f), name: basename(f.rel), detail: directory(f.rel), head: i == 0 ? "Files" : nil))
@@ -228,7 +229,7 @@ public enum Mentions {
             if t.url != nil { names.append(t.detail) }
             if let path = t.path { names.append(basename(path)) }
             return score(names: names, query: q).map {
-                Scored(row: MentionRow(kind: .tab(t), name: tabName(t), detail: "Tab · \(t.detail)", head: nil), group: .tab, score: $0.score, length: $0.length)
+                Scored(row: MentionRow(kind: .tab(t), name: tabName(t), detail: "Tab · \(tabLines[t.itemId] ?? t.detail)", head: nil), group: .tab, score: $0.score, length: $0.length)
             }
         })
         groups.append(files.compactMap { f in

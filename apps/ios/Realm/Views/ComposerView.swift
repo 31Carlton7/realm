@@ -130,7 +130,7 @@ struct ComposerView: View {
         // model and mode, and the one button — so the model a message goes to is never a tap away.
         ComposerLayout(card: true) {
             if !attachments.isEmpty || preparing > 0 || !tabs.isEmpty {
-                AttachmentStrip(attachments: attachments, tabs: tabs, preparing: preparing, files: model.store.files,
+                AttachmentStrip(attachments: attachments, tabs: tabs, tabLines: SpaceTab.lines(model.spaceTabs[sessionId] ?? []), preparing: preparing, files: model.store.files,
                                 open: { attachment in
                                     refocus = focused.wrappedValue
                                     previewing = AttachmentStrip.previewLink(attachment, files: model.store.files)

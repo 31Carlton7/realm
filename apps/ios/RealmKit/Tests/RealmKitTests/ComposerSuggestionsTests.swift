@@ -131,6 +131,72 @@ struct ComposerSuggestionsTests {
         #expect(Mentions.rows(teammates: [], tabs: many, files: [], skills: [], query: "").count == 5)
     }
 
+    @Test func twoTerminalsOfOneNameSayWhereTheyRunAndATitleAloneKeepsItsLine() {
+        let a = SpaceTab(itemId: "a", kind: .terminal, title: "realm", cwd: "~/Realm/worktrees/feature-a/realm", program: "claude")
+        let b = SpaceTab(itemId: "b", kind: .terminal, title: "realm", cwd: "~/Realm/worktrees/feature-b/realm")
+        let alone = SpaceTab(itemId: "c", kind: .terminal, title: "site", cwd: "~/code/site", program: "vim")
+        let rows = Mentions.rows(teammates: [], tabs: [a, b, alone, Self.pricing], files: [], skills: [], query: "")
+        #expect(rows.map(\.detail) == ["~/…/feature-a/realm", "~/…/feature-b/realm", "Terminal", "example.com/pricing"])
+        // A word typed after the `@` keeps the same line, after the row's kind.
+        #expect(Mentions.rows(teammates: [], tabs: [a, b], files: [], skills: [], query: "realm").map(\.detail) == ["Tab · ~/…/feature-a/realm", "Tab · ~/…/feature-b/realm"])
+    }
+
+    @Test func twoTerminalsInOneFolderSayWhatIsRunning() {
+        let tabs = [SpaceTab(itemId: "a", kind: .terminal, title: "realm", cwd: "~/code/realm", program: "claude"),
+                    SpaceTab(itemId: "b", kind: .terminal, title: "realm", cwd: "~/code/realm"),
+                    SpaceTab(itemId: "c", kind: .terminal, title: "realm", cwd: "~/work/realm", program: "vim")]
+        let lines = SpaceTab.lines(tabs)
+        #expect(lines["a"] == "claude · ~/code/realm")
+        #expect(lines["b"] == "~/code/realm")
+        #expect(lines["c"] == "~/work/realm")
+    }
+
+    @Test func folderLinesKeepWhatPartsThem() {
+        #expect(SpaceTab.shortened("~/a/realm", among: ["~/a/realm", "~/b/realm"]) == "~/a/realm")
+        #expect(SpaceTab.shortened("/opt/x/a/realm", among: ["/opt/x/a/realm", "/opt/x/b/realm"]) == "/…/a/realm")
+        #expect(SpaceTab.shortened("~/x/realm", among: ["~/x/realm", "~/x/realm/deep"]) == "~/…/realm")
+        #expect(SpaceTab.shortened("~/x/realm/deep", among: ["~/x/realm", "~/x/realm/deep"]) == "~/…/deep")
+        #expect(SpaceTab.shortened("~/x/realm", among: ["~/x/realm", "~/x/realm"]) == "~/…/realm")
+        #expect(SpaceTab.shortened("~", among: ["~", "~"]) == "~")
+    }
+
+    @Test func panesThatStillReadTheSameAreNumberedInOrder() {
+        let here = (1...3).map { SpaceTab(itemId: "t\($0)", kind: .terminal, title: "realm", cwd: "~/code/realm") }
+        let lines = SpaceTab.lines(here)
+        #expect(here.map { lines[$0.itemId] } == ["~/…/realm", "~/…/realm · 2", "~/…/realm · 3"])
+        // An older Mac says nothing of where they run.
+        let older = [SpaceTab(itemId: "o1", kind: .terminal, title: "zsh"), SpaceTab(itemId: "o2", kind: .terminal, title: "zsh")]
+        let olderLines = SpaceTab.lines(older)
+        #expect(older.map { olderLines[$0.itemId] } == ["Terminal", "Terminal · 2"])
+        let phones = [SpaceTab(itemId: "s1", kind: .simulator, title: "iPhone 17"), SpaceTab(itemId: "s2", kind: .simulator, title: "iPhone 17")]
+        let phoneLines = SpaceTab.lines(phones)
+        #expect(phones.map { phoneLines[$0.itemId] } == ["Simulator", "Simulator · 2"])
+    }
+
+    @Test func twoPagesOfOneTitleSayTheirHostAndPathAndNothingAfter() {
+        let tabs = [SpaceTab(itemId: "p1", kind: .browser, title: "Sign in", url: "https://me:hunter2@app.example.com:8443/login?token=abc#top"),
+                    SpaceTab(itemId: "p2", kind: .browser, title: "Sign in", url: "https://staging.example.com/login")]
+        let lines = SpaceTab.lines(tabs)
+        #expect(lines["p1"] == "app.example.com:8443/login")
+        #expect(lines["p2"] == "staging.example.com/login")
+    }
+
+    @Test func aTitleSharedAcrossKindsIsNotACollision() {
+        let tabs = [SpaceTab(itemId: "p", kind: .browser, title: "realm", url: "https://example.com/a?b=1"),
+                    SpaceTab(itemId: "t", kind: .terminal, title: "realm", cwd: "~/realm")]
+        let lines = SpaceTab.lines(tabs)
+        #expect(lines["p"] == "example.com/a?b=1")
+        #expect(lines["t"] == "Terminal")
+    }
+
+    @Test func documentsOfOneNameSayWhereTheFileIs() {
+        let tabs = [SpaceTab(itemId: "d1", kind: .documents, title: "notes.md", path: "work/a/notes.md"),
+                    SpaceTab(itemId: "d2", kind: .documents, title: "notes.md", path: "work/b/notes.md")]
+        let lines = SpaceTab.lines(tabs)
+        #expect(lines["d1"] == "work/a/notes.md")
+        #expect(lines["d2"] == "work/b/notes.md")
+    }
+
     @Test func aTabIsFoundByItsTitleOrItsAddress() {
         let byTitle = Mentions.rows(teammates: [], tabs: [Self.pricing, Self.notes], files: [], skills: [], query: "pric")
         #expect(byTitle.map(\.id) == ["tab:i-b1"])
@@ -234,6 +300,7 @@ struct ComposerSuggestionsTests {
         let tabs = try APIFixtureTests.decode(Tabs.self, "calls", "session.tabs").tabs
         #expect(tabs.map(\.kind) == [.browser, .browser, .terminal])
         #expect(tabs.first?.detail == "localhost:4000/docs")
+        #expect(tabs.last?.cwd == "~/code/realm" && tabs.last?.program == "claude")
         let card = try APIFixtureTests.decode(TabCard.self, "calls", "session.tabPreview")
         #expect(card.title == "Realm docs" && card.bytes == 18_432 && card.truncated == false && card.closed == nil)
         let row = try #require(try APIFixtureTests.opened().rows.first { $0.sentTabs != nil })

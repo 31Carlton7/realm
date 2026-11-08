@@ -1976,6 +1976,8 @@ describe("the composer's / and @ lists", () => {
 });
 
 describe("the @ list's tabs from the phone", () => {
+  const phone = () => new MobileApi({ macName: () => "Test Mac", reportsDir: "/nonexistent", realmHome: "/nonexistent", dev: false, userHome: "/Users/me" });
+
   function rig() {
     const sent: Record<string, unknown>[] = [];
     const asked: [string, Record<string, unknown>][] = [];
@@ -1983,7 +1985,8 @@ describe("the @ list's tabs from the phone", () => {
       "tabs.list": ((p: Record<string, unknown>) => { asked.push(["tabs.list", p]); return { tabs: [
         { itemId: "b1", kind: "browser", title: "Sign in", favicon: "data:image/png;base64,AAAA", url: "https://example.com/login" },
         { itemId: "d1", kind: "documents", title: "notes.md", favicon: "", path: "/Users/me/realm/notes.md" },
-        { itemId: "t1", kind: "terminal", title: "zsh", favicon: "" },
+        { itemId: "t1", kind: "terminal", title: "zsh", favicon: "", cwd: "/Users/me/code/realm", program: "claude" },
+        { itemId: "t2", kind: "terminal", title: "zsh", favicon: "", cwd: "/tmp/elsewhere" },
       ] }; }) as never,
       // The read behind a preview has the page's text and its fields; a card says only what it came to.
       "tabs.preview": ((p: Record<string, unknown>) => { asked.push(["tabs.preview", p]); return {
@@ -1992,7 +1995,7 @@ describe("the @ list's tabs from the phone", () => {
       }; }) as never,
       "sessions.send": ((p: Record<string, unknown>) => { sent.push(p); return { ok: true }; }) as never,
     });
-    return { sent, asked, call: (method: string, params: Record<string, unknown>) => attempt(api(), rpc, method, { id: "s1", ...params }) };
+    return { sent, asked, call: (method: string, params: Record<string, unknown>) => attempt(phone(), rpc, method, { id: "s1", ...params }) };
   }
 
   it("lists the space's panes in its order, by kind, title and address, without their page icons", async () => {
@@ -2001,7 +2004,8 @@ describe("the @ list's tabs from the phone", () => {
     expect(got).toEqual({ ok: true, result: { tabs: [
       { itemId: "b1", kind: "browser", title: "Sign in", url: "https://example.com/login" },
       { itemId: "d1", kind: "documents", title: "notes.md", path: "/Users/me/realm/notes.md" },
-      { itemId: "t1", kind: "terminal", title: "zsh" },
+      { itemId: "t1", kind: "terminal", title: "zsh", cwd: "~/code/realm", program: "claude" },
+      { itemId: "t2", kind: "terminal", title: "zsh", cwd: "/tmp/elsewhere" },
     ] } });
     expect(r.asked).toEqual([["tabs.list", { sessionId: "s1" }]]);
     expect(MobileCalls["session.tabs"].result.safeParse((got as { result: unknown }).result).success).toBe(true);
@@ -2014,6 +2018,14 @@ describe("the @ list's tabs from the phone", () => {
     expect(got).toEqual({ ok: true, result: { itemId: "b1", kind: "browser", title: "Sign in", url: "https://example.com/login", bytes: 812, truncated: false } });
     expect(JSON.stringify(got)).not.toContain("hunter2");
     expect(r.asked).toEqual([["tabs.preview", { sessionId: "s1", tab }]]);
+  });
+
+  it("says where a previewed terminal runs, from the phone's ~", async () => {
+    const rpc = fakeRpc({ sessions: [session("s1", "sp1")], items: [] }, {
+      "tabs.preview": (() => ({ itemId: "t1", kind: "terminal", title: "zsh", cwd: "/Users/me/code/realm", program: "claude", bytes: 12, truncated: false })) as never,
+    });
+    const got = await attempt(phone(), rpc, "session.tabPreview", { id: "s1", tab: { itemId: "t1", kind: "terminal", title: "zsh" } });
+    expect(got).toEqual({ ok: true, result: { itemId: "t1", kind: "terminal", title: "zsh", cwd: "~/code/realm", program: "claude", bytes: 12, truncated: false } });
   });
 
   it("sends the cards with the words, and a message of tabs alone", async () => {

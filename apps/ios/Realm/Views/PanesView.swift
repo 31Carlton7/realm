@@ -7,17 +7,9 @@ enum PaneWords {
     static let browserGlyph = "globe"
     static let terminalGlyph = "terminal"
 
-    /// The address as a person reads it in a list: its host and path, without the scheme.
-    static func address(_ url: String) -> String {
-        guard let parts = URLComponents(string: url), let host = parts.host else { return url }
-        let port = parts.port.map { ":\($0)" } ?? ""
-        let path = parts.path == "/" ? "" : parts.path
-        return host + port + path
-    }
-
     /// A browser pane's second line: where it is, or that it is a blank tab.
     static func browserLine(_ pane: BrowserPane) -> String {
-        pane.url.isEmpty ? "New tab" : address(pane.url)
+        pane.url.isEmpty ? "New tab" : SpaceTab.address(pane.url)
     }
 
     /// Why there is no picture of a pane that is not live.

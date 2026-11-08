@@ -37,12 +37,14 @@ enum TabWords {
         }
     }
 
-    /// A card's second line: where the pane is and its size, once the Mac has read it. A pane gone
-    /// when it was read says so instead.
-    static func line(_ tab: SpaceTab, card: TabCard?) -> String {
-        guard let card else { return tab.detail }
+    /// A card's second line: where the pane is, as `detail` says where one of its name needs telling
+    /// apart (`SpaceTab.lines`), and its size, once the Mac has read it. A pane gone when it was read says so
+    /// instead.
+    static func line(_ tab: SpaceTab, detail: String? = nil, card: TabCard?) -> String {
+        let detail = detail ?? tab.detail
+        guard let card else { return detail }
         if card.closed == true { return "Closed" }
-        return "\(tab.detail) · \(ByteCountFormatter.string(fromByteCount: Int64(card.bytes), countStyle: .binary))"
+        return "\(detail) · \(ByteCountFormatter.string(fromByteCount: Int64(card.bytes), countStyle: .binary))"
     }
 
     /// The word a card cut to fit wears after its line, in the line's own quiet ink: amber is kept for
@@ -56,6 +58,8 @@ enum TabWords {
 struct TabChip: View {
     let tab: SpaceTab
     let card: TabCard?
+    /// Its place among panes of its name (`SpaceTab.lines`).
+    var detail: String?
     /// In the composer, where a tap takes it out: a quiet × says so.
     var removable = false
 
@@ -71,7 +75,7 @@ struct TabChip: View {
                     .foregroundStyle(Palette.ink)
                     .lineLimit(1)
                 HStack(spacing: 0) {
-                    Text(TabWords.line(tab, card: card)).foregroundStyle(Palette.ink2)
+                    Text(TabWords.line(tab, detail: detail, card: card)).foregroundStyle(Palette.ink2)
                     if let flag = TabWords.flag(card) {
                         Text(" · ").foregroundStyle(Palette.ink2)
                         Text(flag).foregroundStyle(Palette.ink2)
@@ -79,6 +83,7 @@ struct TabChip: View {
                 }
                 .font(.caption)
                 .lineLimit(1)
+                .truncationMode(.middle)
             }
             if removable {
                 Image(systemName: "xmark")
@@ -96,9 +101,10 @@ struct SentTabs: View {
     let tabs: [TabCard]
 
     var body: some View {
+        let lines = SpaceTab.lines(tabs.map(\.tab))
         TrailingFlow(spacing: 6) {
             ForEach(tabs, id: \.itemId) { card in
-                TabChip(tab: card.tab, card: card)
+                TabChip(tab: card.tab, card: card, detail: lines[card.itemId])
                     .background(Fill.bubble, in: RoundedRectangle(cornerRadius: Radius.thumbnail, style: .continuous))
                     .accessibilityElement(children: .combine)
             }

@@ -113,20 +113,25 @@ public enum TabKind: String, Codable, Sendable, Hashable, CaseIterable {
 }
 
 /// One of the session's space's panes, as the `@` list offers it (`session.tabs`): `url` is a browser's
-/// page and `path` the file a documents pane shows.
+/// page, `path` the file a documents pane shows, `cwd` where a terminal runs and `program` the name of
+/// what is in front of it.
 public struct SpaceTab: Codable, Sendable, Hashable {
     public let itemId: String
     public let kind: TabKind
     public let title: String
     public let url: String?
     public let path: String?
+    public let cwd: String?
+    public let program: String?
 
-    public init(itemId: String, kind: TabKind, title: String, url: String? = nil, path: String? = nil) {
+    public init(itemId: String, kind: TabKind, title: String, url: String? = nil, path: String? = nil, cwd: String? = nil, program: String? = nil) {
         self.itemId = itemId
         self.kind = kind
         self.title = title
         self.url = url
         self.path = path
+        self.cwd = cwd
+        self.program = program
     }
 
     /// What a message sends for its card.
@@ -139,6 +144,63 @@ public struct SpaceTab: Codable, Sendable, Hashable {
         for scheme in ["https://", "http://"] where shown.hasPrefix(scheme) { shown.removeFirst(scheme.count) }
         if shown.hasSuffix("/") { shown.removeLast() }
         return shown
+    }
+
+    /// Each pane's quiet line among `tabs`, by its id. A pane alone in its name keeps `detail`. Panes
+    /// of one kind and one name would read the same, so each says what tells it from the others, and
+    /// any that still read the same are numbered in the space's order.
+    public static func lines(_ tabs: [SpaceTab]) -> [String: String] {
+        var lines: [String: String] = [:]
+        for same in Dictionary(grouping: tabs, by: { "\($0.kind.rawValue)/\(Mentions.tabName($0))" }).values {
+            guard same.count > 1 else {
+                lines[same[0].itemId] = same[0].detail
+                continue
+            }
+            var seen: [String: Int] = [:]
+            for tab in same {
+                let line = tab.telling(from: same)
+                seen[line, default: 0] += 1
+                lines[tab.itemId] = seen[line] == 1 ? line : "\(line) · \(seen[line]!)"
+            }
+        }
+        return lines
+    }
+
+    private func telling(from same: [SpaceTab]) -> String {
+        switch kind {
+        case .terminal:
+            let folders = same.compactMap(\.cwd)
+            let folder = cwd.map { Self.shortened($0, among: folders) }
+            // The folder is the shorter way to tell them apart; the program is for two in one folder.
+            let sharesFolder = folders.filter { $0 == cwd }.count != 1
+            let parts = [sharesFolder ? program : nil, folder].compactMap { $0 }
+            return parts.isEmpty ? kind.label : parts.joined(separator: " · ")
+        case .browser:
+            return url.map(Self.address) ?? detail
+        case .documents:
+            return path.map { Self.shortened($0, among: same.compactMap(\.path)) } ?? kind.label
+        case .simulator:
+            return kind.label
+        }
+    }
+
+    /// A page's host and path. What follows them is left out, since a query can hold a token.
+    public static func address(_ url: String) -> String {
+        guard let parts = URLComponents(string: url), let host = parts.host else { return url }
+        let port = parts.port.map { ":\($0)" } ?? ""
+        let path = parts.path == "/" ? "" : parts.path
+        return host + port + path
+    }
+
+    /// A path shortened from the middle, from where it parts from `paths`: `~/…/feature-a/realm`. Beside
+    /// only itself, its last folder is what is left to say.
+    static func shortened(_ path: String, among paths: [String]) -> String {
+        let parts = path.split(separator: "/", omittingEmptySubsequences: false)
+        let shared = paths.filter { $0 != path }.map { other in
+            zip(parts, other.split(separator: "/", omittingEmptySubsequences: false)).prefix { $0 == $1 }.count
+        }
+        let from = min(shared.max() ?? parts.count - 1, parts.count - 1)
+        return from <= 1 ? path : "\(parts[0])/…/\(parts[from...].joined(separator: "/"))"
     }
 }
 
@@ -164,20 +226,24 @@ public struct TabCard: Codable, Sendable, Hashable {
     public let title: String
     public let url: String?
     public let path: String?
+    public let cwd: String?
+    public let program: String?
     public let bytes: Int
     public let truncated: Bool
     public let closed: Bool?
 
-    public init(itemId: String, kind: TabKind, title: String, url: String? = nil, path: String? = nil, bytes: Int, truncated: Bool, closed: Bool? = nil) {
+    public init(itemId: String, kind: TabKind, title: String, url: String? = nil, path: String? = nil, cwd: String? = nil, program: String? = nil, bytes: Int, truncated: Bool, closed: Bool? = nil) {
         self.itemId = itemId
         self.kind = kind
         self.title = title
         self.url = url
         self.path = path
+        self.cwd = cwd
+        self.program = program
         self.bytes = bytes
         self.truncated = truncated
         self.closed = closed
     }
 
-    public var tab: SpaceTab { SpaceTab(itemId: itemId, kind: kind, title: title, url: url, path: path) }
+    public var tab: SpaceTab { SpaceTab(itemId: itemId, kind: kind, title: title, url: url, path: path, cwd: cwd, program: program) }
 }

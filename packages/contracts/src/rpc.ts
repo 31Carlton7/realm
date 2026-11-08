@@ -1669,7 +1669,7 @@ export const Methods = {
    *  document's open file. Which of them are on screen is the window's to say, not the server's. */
   "tabs.list": {
     params: z.object({ sessionId: IdSchema }),
-    result: z.object({ tabs: z.array(z.object({ itemId: IdSchema, kind: z.enum(TAB_KINDS), title: z.string(), favicon: z.string(), url: z.string().optional(), path: z.string().optional() })) }),
+    result: z.object({ tabs: z.array(z.object({ itemId: IdSchema, kind: z.enum(TAB_KINDS), title: z.string(), favicon: z.string(), url: z.string().optional(), path: z.string().optional(), cwd: z.string().optional(), program: z.string().optional() })) }),
   },
   /** Read one pane as a send would, and say what it comes to — its size, and whether it was cut —
    *  without keeping any of it. What the card in the prompter shows before sending. */

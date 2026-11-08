@@ -31,6 +31,14 @@ struct TabCardTests {
         #expect(TabWords.flag(closed) == nil)
     }
 
+    @Test func aChipOfACollidingNameSaysWhereItRunsBesideItsSize() {
+        let card = TabCard(itemId: "i-t1", kind: .terminal, title: "zsh", cwd: "~/a/realm", bytes: 2048, truncated: false)
+        #expect(card.tab.cwd == "~/a/realm")
+        #expect(TabWords.line(Self.shell, detail: "~/a/realm", card: nil) == "~/a/realm")
+        #expect(TabWords.line(Self.shell, detail: "~/a/realm", card: card) == "~/a/realm · 2 KB")
+        #expect(TabWords.line(Self.shell, card: card) == "Terminal · 2 KB")
+    }
+
     @Test func eachKindHasItsGlyph() {
         #expect(TabKind.allCases.map(TabWords.glyph) == ["globe", "doc.text", "terminal", "iphone"])
     }
