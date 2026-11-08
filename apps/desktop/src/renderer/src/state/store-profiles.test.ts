@@ -119,9 +119,12 @@ describe("store · a window per space", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(api.data.settings["ui.view:p1:s2"]).toBeTruthy();
     // The first window, brought back on a space of another profile than where the app was left.
-    const first = createAppStore(fakeApi({ spaces, landingSpaceId: "s3", settings: { "ui.activeSpaceId": "s1" } }));
+    // It boots into that profile, not into the one the app was left in first and then across.
+    const firstApi = fakeApi({ spaces, landingSpaceId: "s3", settings: { "ui.activeSpaceId": "s1" } });
+    const first = createAppStore(firstApi);
     await first.getState().boot();
     expect(first.getState().activeSpaceId).toBe("s3");
+    expect(firstApi.calls).not.toContain("getSetting:ui.view:p1");
   });
 
   it("File ▸ New Window with every space already open offers to make one here", async () => {
