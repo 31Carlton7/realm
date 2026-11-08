@@ -54,10 +54,5 @@ export default page({
     p(
       "Under a device's screen, **Record my use of this app…** records you using the app, for [Laya](/docs/computer-use#laya) to learn from. It shows what is kept before anything starts.",
     ),
-
-    h2("A Mac left running as a lab"),
-    p(
-      "**Settings ▸ Lab** is for a Mac that stays on to run a team's work, such as a Mac mini with phones plugged in. **This Mac is a lab** makes updates wait for the **Update window** you set and for team runs to finish, then install on their own. **Ready to be left alone** checks the settings an unattended Mac needs, and **Devices** lists the phones and simulators the lab can use. **From your laptop** says how to reach the lab Mac over Screen Sharing.",
-    ),
   ],
 })

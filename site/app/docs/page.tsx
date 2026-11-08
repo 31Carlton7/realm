@@ -18,8 +18,8 @@ export const metadata: Metadata = {
 
 /** The four parts of the window, as the picture above them shows them, left to right. */
 const REGIONS = [
-  { name: "The rail", text: "Home, the Library, Connections, Scheduled tasks and Code review, with your profile and Settings at its foot." },
-  { name: "The sidebar", text: "Needs you at the top, then every space with its sessions. A space is one project." },
+  { name: "The rail", text: "Home, the Library, Connections, Scheduled tasks and Code review, then a tile for each space, with your profile and Settings at its foot." },
+  { name: "The sidebar", text: "One space at a time, with its teammates and sessions under Needs you. A space is one project." },
   { name: "A session", text: "One conversation with one agent, and the prompter you talk to it through." },
   { name: "The side panel", text: "What the session works with: documents, a terminal, a browser, its sub-agents, a device." },
 ]

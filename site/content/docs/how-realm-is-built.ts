@@ -1,7 +1,7 @@
 import { h2, note, p, page, steps, table, ul } from "@/lib/docs-blocks"
 
-// Drawn from docs/architecture on main (README.md and features.md, written for 2.3.0) and checked against
-// the v2.4.0 tree where the two differ: the iPhone app, its relay and packages/remote and view are in 2.4.0.
+// Drawn from docs/architecture on main (README.md and features.md, written for 2.3.0), and checked against
+// the v2.8.3 tree on 8 November 2026.
 export default page({
   slug: "how-realm-is-built",
   title: "How Realm is built",
@@ -17,7 +17,7 @@ export default page({
       ["Process", "What it does"],
       [
         "The app",
-        "Electron 37, which is Chromium 138 and Node 22. It draws the windows and menus and owns everything native: browser panes, the Keychain and Touch ID, and the small Swift helpers that drive other apps on a Mac. It starts the agent server and is itself one of its clients.",
+        "Electron 45, with the Chromium and Node it carries. It draws the windows and menus and owns everything native: browser panes, the Keychain and Touch ID, and the small Swift helpers that drive other apps on a Mac. It starts the agent server and is itself one of its clients.",
       ],
       [
         "The interface",
@@ -29,7 +29,7 @@ export default page({
       ],
       [
         "The agent server",
-        "Holds all of Realm's state and does the work: sessions, terminals, worktrees, checkpoints, schedules, teams and connections. It runs on the app's own binary as Node. On a Mac it keeps running when the window closes, which is how agents keep working, and only **Quit Realm & stop agents** ends it. On Linux and Windows it's the app's child.",
+        "Holds all of Realm's state and does the work: sessions, terminals, worktrees, checkpoints, schedules, teammates and connections. It runs on the app's own binary as Node. On a Mac it keeps running when the window closes, which is how agents keep working, and only **Quit Realm & stop agents** ends it. On Linux and Windows it's the app's child.",
       ],
       [
         "Agents",
@@ -65,7 +65,7 @@ export default page({
     p("Every agent prints its work in its own format. An adapter for each protocol turns that into one kind of transcript, the one you read in a session:"),
     table(
       ["Agents", "How Realm runs them"],
-      ["Claude", "Through the Claude Agent SDK, which runs the `claude` binary Realm ships"],
+      ["Claude", "Through the Claude Agent SDK, which runs the newest `claude` on your `PATH`, or the copy Realm ships when there is none"],
       ["Codex", "One `codex app-server` process, shared by every Codex session, spoken to in JSON-RPC"],
       ["Cursor, Gemini, OpenCode, GitHub Copilot, goose, Qwen Code, Grok, fx, DeepSeek, OpenHands and Hermes", "The Agent Client Protocol (ACP), one process per session"],
     ),
@@ -133,6 +133,6 @@ export default page({
       "[Realm on Linux and Windows](https://github.com/31Carlton7/realm/blob/main/docs/platforms.md) lists everything that differs there, and why.",
       "Realm's source is [MIT-licensed](https://github.com/31Carlton7/realm/blob/main/LICENSE). A few bundled parts, such as the fonts, keep their own licenses.",
     ),
-    note("This page describes Realm 2.4. [Status and known limitations](/docs/status) says what's still a preview, and what isn't done yet."),
+    note("[Status and known limitations](/docs/status) says what's still a preview, and what isn't done yet."),
   ],
 })

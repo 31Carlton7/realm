@@ -1,19 +1,19 @@
 import { TESTFLIGHT_LINK } from "./mobile"
+import { formatDate, latestRelease, releases } from "@/lib/changelog"
 import { h2, p, page, table, ul } from "@/lib/docs-blocks"
 
-// Checked on 23 October 2026 against the v2.4.0 tree, main, CHANGELOG.md, docs/platforms.md, the release list on
-// GitHub and the troubleshooting page; the repository had no issues filed, open or closed, that day. Brought up to
-// date on 24 October with what Realm 2.5 brings: #219, #221, #222, feat/remote-runtime and
-// chore/build-without-private-registry, and the Linux bench run 40073363274.
-// TODO(owner): re-read this page at each release, and move the date in the summary when you do.
+// Checked on 8 November 2026 against the v2.8.3 tree and its release assets. The release count, its dates
+// and the latest version come from the changelog; the date and version in the summary are when a person
+// last read this page, so move them when you re-read it at a release.
+const firstRelease = releases.at(-1)!
 export default page({
   slug: "status",
   title: "Status and known limitations",
   summary:
-    "What's finished, what's still a preview or in beta, what Realm doesn't do yet, and the problems known today. Last updated 24 October 2026, for Realm 2.4.0 and what 2.5 brings.",
+    "What's finished, what's still a preview or in beta, what Realm doesn't do yet, and the problems known today. Last read through on 8 November 2026, against Realm 2.8.3.",
   body: [
     p(
-      "Realm is in active development and ships often: eighteen releases between 4 September and 19 October 2026, the latest Realm 2.4.0. This page is kept by hand, and its date is at the top.",
+      `Realm is in active development and ships often: ${releases.length} releases between ${formatDate(firstRelease.date)} and ${formatDate(latestRelease.date)}, the latest Realm ${latestRelease.version.replace(/^v/, "")}. This page is kept by hand, and the date it was last read through is at the top.`,
     ),
 
     h2("Where it runs"),
@@ -29,15 +29,16 @@ export default page({
       ["Android, the web", "No app."],
     ),
     p(
-      "Realm's CI builds, tests and packages the previews on Linux and on Windows for every pull request. The tests that must pass there are the ones written for those systems' own code paths; the rest of the suite runs there for information, because it was written on a Mac. Builds of 2.5 have run on GitHub's x86_64 Ubuntu 24.04 runners: the AppImage opens its first window in about 3.3 seconds, its server runs worktree tasks headless (see [Benchmarks](/docs/benchmarks)), and the .deb installs with apt. The packaged [command line](/docs/command-line) has run a worktree command on GitHub's macOS and Windows runners too, but Realm's window on Windows hasn't been measured yet. [Troubleshooting](/docs/troubleshooting#linux-and-windows) covers installing the previews.",
+      "Realm's CI builds, tests and packages the previews on Linux and on Windows for every pull request. The tests that must pass there are the ones written for those systems' own code paths; the rest of the suite runs there for information, because it was written on a Mac. Builds of 2.5 ran on GitHub's x86_64 Ubuntu 24.04 runners: the AppImage opens its first window in about 3.3 seconds, its server runs worktree tasks headless (see [Benchmarks](/docs/benchmarks)), and the .deb installs with apt. The packaged [command line](/docs/command-line) has run a worktree command on GitHub's macOS and Windows runners too, but Realm's window on Windows hasn't been measured yet. [Troubleshooting](/docs/troubleshooting#linux-and-windows) covers installing the previews.",
     ),
 
-    h2("New since 2.4.0"),
-    p("On main now:"),
-    ul(
-      "**The MIT License.** Realm's source has been MIT-licensed since 23 October 2026 (#221). The repository had no license before that, including at Realm 2.4.0. A few bundled parts, such as the fonts, keep their own licenses.",
+    h2("Licence"),
+    p(
+      "Realm's source has been MIT-licensed since 23 October 2026 (#221). The repository had no license before that, including at Realm 2.4.0. A few bundled parts, such as the fonts, keep their own licenses.",
     ),
-    p("New in Realm 2.5:"),
+
+    h2("What came in Realm 2.5"),
+    p("The [changelog](/changelog) has every release since."),
     ul(
       "**The command line.** `realm` runs the agent server without a window and drives it from scripts, and every packaged app carries it. See [Command line](/docs/command-line).",
       "**Realm on a server.** `realm serve` takes clients on other machines, behind access tokens and TLS or Tailscale Serve, and `realm service install` keeps it running. See [Run Realm on a server](/docs/run-on-a-server).",
@@ -48,11 +49,10 @@ export default page({
 
     h2("What Realm doesn't do"),
     ul(
-      "**Run agents in a cloud of its own.** There's no hosted runner or plan. Agents run where Realm runs: your computer, a Mac you leave on (see [A Mac left running as a lab](/docs/simulators#a-mac-left-running-as-a-lab)), or, from 2.5, a server of yours (see [Run Realm on a server](/docs/run-on-a-server)).",
+      "**Run agents in a cloud of its own.** There's no hosted runner or plan. Agents run where Realm runs: your computer, a Mac you leave on, or, from 2.5, a server of yours (see [Run Realm on a server](/docs/run-on-a-server)).",
       "**Run in a browser.** The app on your computer and the iPhone app are the only ways in.",
       "**Wall agents off from each other by itself.** A worktree keeps their files apart, but each agent runs as you, with your network and your files, unless the space has a [sandbox](/docs/permissions#the-sandbox), and the sandbox is on a Mac only.",
       "**Run Codex in a sandboxed space.** Every Codex session shares one process, and a process can hold only one sandbox policy, so a space with a sandbox refuses to start one. Set the space's **Sandbox** to **No sandbox**, or use another agent there.",
-      "**Send a team's posts, emails or DMs itself.** Review says so before you approve one, and once you've sent it yourself, **Mark as sent** or **Mark as posted** records it. See [Teams and Review](/docs/teams-and-review).",
     ),
 
     h2("Known issues"),

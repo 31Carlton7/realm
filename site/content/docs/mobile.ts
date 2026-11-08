@@ -25,7 +25,7 @@ export default page({
       "Your Mac asks **Pair <name>?**, saying it can read every session on this Mac and answer for you. Press **Pair**.",
     ),
     p(
-      "A paired iPhone shows what your Mac's sessions are doing, with **Needs you** at the top by the same rule as the sidebar, and each space's sessions under it. In a session you can read the transcript, send the next message, stop a turn, answer what it's waiting on, and look at the changes it made.",
+      "A paired iPhone shows what your Mac's sessions are doing, with **Needs you** at the top by the same rule as the sidebar, and each space's sessions under it. In a session you can read the transcript, send the next message, stop a turn, answer what it's waiting on, and look at the changes it made. You can also search the Mac's sessions, watch its browser and terminal panes, follow a session's goal and to-do list, delete, fork or move a session, and make, archive, lead and reorder teammates.",
     ),
     ul(
       "What passes between the phone and the Mac is encrypted end to end, so the relay carries nothing it can read. With no iPhone paired and none being paired, the Mac doesn't connect to the relay at all.",
@@ -56,9 +56,6 @@ export default page({
       "Close the window, or press [[⌘Q]]. Realm stays in the menu bar and your sessions keep running.",
       "Turn on **Settings ▸ General ▸ Keep the Mac awake while agents work**. The Mac stays awake only while a session is actually running (the display still sleeps). A session waiting on your answer counts only while an iPhone is paired, because you might answer from the phone.",
       "Pair an iPhone, or set up a text or a Slack post, above, so you know when one needs you.",
-    ),
-    p(
-      "For a Mac that stays on to run a team's work, **Settings ▸ Lab** has the rest: updates that wait for running work, and a checklist of what an unattended Mac needs. See [Simulators and devices](/docs/simulators#a-mac-left-running-as-a-lab).",
     ),
 
     h2("Build mobile apps"),

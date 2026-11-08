@@ -59,7 +59,6 @@ export default page({
       "**Other Mac apps.** Each app asks the first time in a space. Realm itself, System Settings, password prompts, Keychain Access and terminals can never be driven.",
       "**Real devices.** Driving a physical iPhone, iPad or Android device asks. Simulators don't.",
       "**Terminals the agent didn't open.** Reading or typing into one of yours asks.",
-      "**A team's policies.** In a space with a team, its rules bind every session in the space, yours included.",
     ),
     careful(
       "Agents can't press the confirm, the permission card, a plan's approval or a question's answer themselves, and they can't change permission or sandbox settings. Only a click or a key of yours does those.",
@@ -67,7 +66,7 @@ export default page({
 
     h2("Unattended work runs in Full access"),
     p(
-      "Nobody is there to answer a card when a [scheduled task](/docs/scheduled-tasks) or a [team role](/docs/teams-and-review) runs, so those always run in Full access. A team's policies still ask and refuse for its roles, and anything a role wants to post outside Realm waits for you in Review.",
+      "Nobody is there to answer a card when a [scheduled task](/docs/scheduled-tasks) runs, so those always run in Full access. A [teammate](/docs/teams-and-review) is different: it runs in the mode you gave it, so on **Ask each time** a scheduled check-in waits for you at its first card.",
     ),
     p(
       "A [sub-agent](/docs/sub-agents) runs in its lead's mode, or a stricter one if the lead asked for less. A sub-agent of a Full access session has Full access; one of an Ask each time session asks, on its own card in the lead's Agents tab.",

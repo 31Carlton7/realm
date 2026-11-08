@@ -65,7 +65,7 @@ export default page({
 
     h2("Linux and Windows"),
     p(
-      "The Linux (AppImage and .deb) and Windows builds of Realm 2.4 are previews. They are unsigned, so Windows SmartScreen warns on first run (choose **More info**, then **Run anyway**), and they don't update themselves: install a new version from the releases page. Features that exist only on a Mac, such as computer use, Laya, simulators, the Dock icon and window translucency, aren't shown there. On those systems Ctrl takes the place of [[⌘]] in every shortcut, and the Super or Windows key takes the place of [[⌃]].",
+      "The Linux (AppImage and .deb) and Windows builds of Realm are previews. They are unsigned, so Windows SmartScreen warns on first run (choose **More info**, then **Run anyway**), and they don't update themselves: install a new version from the releases page. Features that exist only on a Mac, such as computer use, Laya, simulators, the Dock icon and window translucency, aren't shown there. On those systems Ctrl takes the place of [[⌘]] in every shortcut, and the Super or Windows key takes the place of [[⌃]].",
     ),
 
     h2("A copy you built yourself"),

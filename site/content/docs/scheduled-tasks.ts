@@ -61,7 +61,7 @@ export default page({
       "Times are your Mac's local time, through daylight saving changes too. On the day the clocks go forward, a time in the skipped hour runs at the first minute after it, so a daily task at 2:30 runs at 3:00 (an hourly task skips that hour). On the day they go back, a time in the hour that repeats runs once.",
     ),
     note(
-      "Team roles use the same clock: a role's **Wakes** is a schedule like these, and a role whose week of budget is spent skips its run and records why. See [Teams and Review](/docs/teams-and-review).",
+      "A teammate can check in on a clock too, in its own chat and in the permission mode you gave it. See [Teams](/docs/teams-and-review#check-in-on-a-schedule).",
     ),
   ],
 })

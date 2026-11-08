@@ -21,9 +21,8 @@ export default page({
       ["**Sandbox**", "Whether agents and terminals here run inside a macOS sandbox. See [Permissions and Full access](/docs/permissions#the-sandbox)."],
       ["**Sessions**", "Every session in the space, active and archived, with search"],
       ["**Worktrees**", "Every checkout the space has, described [below](/docs/spaces-and-worktrees#worktrees)"],
-      ["**Tasks**", "What the space has run unattended: scheduled runs, team runs and sessions started by other sessions"],
+      ["**Tasks**", "What the space has run unattended: scheduled runs and sessions started by other sessions"],
       ["**History**", "Checkpoints, and the commits and pushes made from Realm, newest first"],
-      ["**Team**", "**Make this a team…**, or the team once it is one. See [Teams and Review](/docs/teams-and-review)."],
     ),
 
     h2("Make a space"),
@@ -33,7 +32,7 @@ export default page({
       "The New space sheet, with no folder chosen yet.",
     ),
     steps(
-      "Press **New space** at the foot of the sidebar, or choose **New space…** in the palette.",
+      "Press **+** under the space tiles on the rail, or choose **New space…** in the palette.",
       "Give it a **Name**, and an icon and colour if you like.",
       "Under **Folder**, press **Choose folder…** or drop a repository onto it. Leave it empty and sessions run in the folder the sheet names.",
       "Pick the **Profile** it belongs to. **Memory ▸ Write…** lets you give it standing instructions straight away, such as \"Use pnpm. Never push to main.\"",
@@ -41,15 +40,17 @@ export default page({
     ),
 
     h2("The space menu"),
-    p("Right-click a space's header in the sidebar, or press its **⋯**, for:"),
+    p("Right-click a space's tile on the rail, or press **⋯** beside its name at the head of the sidebar, for:"),
     ul(
-      "**New session in a worktree…** (in a git repository)",
+      "**New session**, and **New session in a worktree…** (in a git repository)",
+      "**Add a teammate…**. See [Teams](/docs/teams-and-review).",
+      "**Open in new window**. A space is open in one window at a time, so this brings forward a window already showing it. Windows come back after a relaunch.",
+      "**All sessions by time**, which lists every space's sessions by when they last moved",
+      "**Archived sessions**",
       "**Show in Finder**",
       "**Connections** and **Memory**",
       "**Worktrees** (in a git repository)",
-      "**Team**, or **Make this a team…**",
-      "**Archived sessions**",
-      "**Space settings**",
+      "**Rename…**, **Space settings** and **Delete space…**",
     ),
 
     h2("Profiles"),
@@ -57,18 +58,19 @@ export default page({
       "A profile is a set of spaces with its own browser sign-ins, saved passwords and passkeys. Nothing of one profile reaches another unless you share it, which makes profiles the way to keep work and personal accounts apart. Realm starts you with one called **Personal**.",
     ),
     ul(
-      "Switch profile from its name at the top of the sidebar. The same menu has **Open <name> in a new window**, **All spaces…**, **Profile settings…** and **New profile…**.",
+      "Switch profile from your picture at the foot of the rail. The same menu has **New profile…**, **Profile settings…** and **Settings**.",
       "[[⌘1]] to [[⌘9]] go to the first nine spaces of the profile you're in. [[⌃ Tab]] and [[⌃⇧ Tab]] go to the next and previous space.",
       "[[⌘⇧ Space]] shows every space at once.",
     ),
 
     h2("The sidebar"),
     ul(
-      "**Needs you** heads the sidebar whenever something is waiting on you: sessions waiting on a permission or a question, reviews from a team, and sessions that failed, from every space and every profile. **Answer here** opens a request in place.",
-      "**Pinned** holds the sessions you've pinned, from any space, each led by its space's icon in the space's colour.",
-      "Each space lists its sessions with what needs you first, then what's running, then the most recent. A session you haven't seen since it changed has a bold title and a blue dot.",
+      "The sidebar shows one space at a time. Its tile on the rail is how you change which, and a tile carries a count of what's waiting on you there.",
+      "**Needs you** heads the sidebar whenever something is waiting on you: sessions waiting on a permission or a question, and sessions that failed, from every space and every profile. **Answer here** opens a request in place.",
+      "**Pinned** holds what you've pinned, from any space: pinned teammates as a row of their icons, the Lead first, and sessions under them.",
+      "Under that are the space's teammates, then its sessions with what needs you first, then what's running, then the most recent. A session you haven't seen since it changed has a bold title and a blue dot.",
       "Right-click a session for **Pin**, **Archive**, **Rename**, **Checkpoints…**, **Move to space…** and **Delete**.",
-      "Spaces stay in the order you drag them into. Turn on **Settings ▸ General ▸ Sort spaces by activity** to keep the most recently active at the top instead.",
+      "Space tiles stay in the order you drag them into. Turn on **Settings ▸ General ▸ Sort spaces by activity** to keep the most recently active at the top instead.",
     ),
     tip("[[⌘B]] hides the sidebar and gives the room to your panes. The rail stays."),
 

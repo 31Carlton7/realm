@@ -16,7 +16,7 @@ export default page({
       "For agents other than Claude, their own installer's requirements. Claude comes with Realm; Codex and most others install from npm, so they need Node.js. **Settings ▸ Engines** names each one's command.",
     ),
     note(
-      "Realm 2.4 also comes as previews for Linux (AppImage and .deb) and Windows. They are unsigned, they don't update themselves yet, and they hide the features that only exist on a Mac, such as computer use and simulators.",
+      "Realm also comes as previews for Linux (AppImage and .deb) and Windows. They are unsigned, they don't update themselves yet, and they hide the features that only exist on a Mac, such as computer use and simulators.",
     ),
 
     h2("Install Realm"),
@@ -63,8 +63,8 @@ export default page({
 
     h2("Find your way around"),
     ul(
-      "**The rail** runs down the window's left edge: **Home**, then **Library**, **Connections**, **Scheduled tasks** and **Code review**. Your profile and **Settings** are at its foot. Home always takes you back to the session you were in.",
-      "**The sidebar** lists **Needs you** first, which is every session waiting on you, then each space with its sessions. [[⌘B]] hides it.",
+      "**The rail** runs down the window's left edge: **Home**, then **Library**, **Connections**, **Scheduled tasks** and **Code review**, then a tile for each space, with **+** to make another. Your profile and **Settings** are at its foot. Home always takes you back to the session you were in.",
+      "**The sidebar** shows one space at a time: **Needs you** first, which is every session waiting on you from every space, then the space's teammates and sessions. [[⌘B]] hides it.",
       "**A session** fills the middle: the transcript, and the prompter under it.",
       "**The side panel** is a column of tabs on the right for what the session works with: documents, a terminal, a web page, its sub-agents, a simulator. The button at the window's top right shows and hides it.",
     ),

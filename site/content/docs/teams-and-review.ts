@@ -12,7 +12,7 @@ export default page({
 
     h2("Add a teammate"),
     steps(
-      "In the sidebar, press **+** beside **Team** under the space. A space with no teammates offers **Add a teammate** on its page.",
+      "Press **⋯** beside the space's name at the head of the sidebar, or right-click its tile on the rail, and choose **Add a teammate…**.",
       "Name it, and say what it does. The quick starts (**Lead**, **CTO**, **Design engineer**, **Research**, **Cleanup**, **TPM**) fill in a brief you can change.",
       "Pick its icon, its model, its folder and its permissions, and press **Create**. Its chat opens.",
     ),
@@ -29,9 +29,6 @@ export default page({
     ),
 
     h2("Its sessions and its computer"),
-    p(
-      "A teammate's sessions are listed under it in the sidebar; press the arrow beside its name to show them. Work it handed to another teammate is listed under the session that asked for it.",
-    ),
     p(
       "Its chat opens with a **Computer** panel beside it: the Mac it runs on and whether it is working, with **Stop**; its **Files**, **Terminal** and **Simulator**, opened for its folder; and every session it started, newest first, with how long ago and a dot when one is unread.",
     ),

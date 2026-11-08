@@ -15,10 +15,10 @@ export default page({
     table(
       ["To", "Do this"],
       ["Start a session in the space you're in", "[[⌘N]], or **New session** at the top of the sidebar"],
-      ["Start one in another space", "The **+** on that space's header in the sidebar (**New session here**)"],
+      ["Start one in another space", "**New session** in the menu of that space's tile on the rail"],
       ["Start one beside this one", "[[⌘\\]] splits right with a new session, [[⌘⇧\\]] splits down"],
       ["Send this draft to a fresh session instead", "[[⌘⇧↩]] (**Dispatch the draft**): same agent, model, effort and mode, opened beside you"],
-      ["Ask something without changing your layout", "[[⌘⇧N]] (**Quick chat**): a session in a small window over whatever is on screen. It isn't listed anywhere, and closing it deletes the chat."],
+      ["Ask something without changing your layout", "[[⌘⌥N]] (**Quick chat**): a session in a small window over whatever is on screen. It isn't listed anywhere, and closing it deletes the chat."],
     ),
     p(
       "A session is titled from the first line of your first message, then given a short summary title. Its agent and its checkout can be changed until that message is sent, and not after: the conversation lives inside that agent and that folder from then on.",
@@ -54,7 +54,7 @@ export default page({
     h2("Pick the model"),
     figure(
       { part: "models" },
-      "The model picker open. A search field, then Claude's models (Fable 5.1, Fable 5, Opus 5.5 checked, Opus 5, Sonnet 5, Haiku 4.5) and Codex's below. A line describes Opus 5.5 with its context and price. At the foot, the effort track lit at Max, a fast mode bolt, and the note Fast mode starts on the next turn.",
+      "The model picker open. A search field, then Claude's models (Fable 5.1, Fable 5, Opus 5.5 checked, Opus 5, Sonnet 5.5, Sonnet 5, Haiku 5.5, Haiku 4.5) and Codex's below. A line describes Opus 5.5 with its context and price. At the foot, the effort track lit at Max, a fast mode bolt, and the note Fast mode starts on the next turn.",
       "The model picker: every installed agent's models, and the effort track at Max.",
     ),
     p(
@@ -126,7 +126,8 @@ export default page({
       "A **skill** is mentioned by name for this message.",
       "An **app** on your Mac gives this session computer use for that app alone. Its first action still asks you. See [Computer use and Laya](/docs/computer-use).",
       "An **agent** in this session, a sub-agent the agent started or one you added, gets the message too, once it finishes what it's doing.",
-      "A role of the space's [team](/docs/teams-and-review), in a space with one, starts as a sub-agent of this session.",
+      "A [teammate](/docs/teams-and-review) in the space gets the message in its own chat.",
+      "Your **open tabs** can be named too, and go to the agent as context cards.",
     ),
     careful(
       "Realm never offers files that usually hold secrets in the `@` list, such as `.env`, `id_rsa`, `*.pem` or anything under `~/.ssh`, `~/.aws` or `~/.gnupg`, and holds them back if you name one anyway.",
