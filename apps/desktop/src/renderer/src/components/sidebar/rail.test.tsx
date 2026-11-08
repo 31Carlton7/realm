@@ -6,6 +6,7 @@ import { Rail } from "./Rail";
 import { StoreContext, createAppStore } from "../../state/store";
 import { fakeApi, item, profile, session, space, type FakeData } from "../../state/store.test-fakes";
 import { exited } from "../popover-exit.test-fakes";
+import { installTooltips, TIP_DELAY_MS } from "../../tooltips";
 
 async function mount(over: FakeData = {}, shell = false) {
   const api = fakeApi(over);
@@ -320,6 +321,47 @@ describe("the profile's spaces on the rail", () => {
     fireEvent.contextMenu(within(spaces()).getByRole("button", { name: /^Homework/ }), { clientX: 20, clientY: 200 });
     fireEvent.click(within(await screen.findByRole("menu", { name: "Homework" })).getByRole("menuitem", { name: "Open in new window" }));
     await waitFor(() => expect(api.calls).toContain("openSpaceWindow:s2"));
+  });
+
+  it("keeps a tile's tooltip off its own menu until the pointer has left the tile and come back", async () => {
+    // THE MUTANT: a tooltip quiet only until the pointer next crosses something. Anything that brings
+    // the tile back under the pointer while its menu is up put "Homework" on top of the menu.
+    const uninstall = installTooltips(document);
+    try {
+      await mount(work());
+      const tile = within(spaces()).getByRole("button", { name: /^Homework/ });
+      const tooltip = () => document.querySelector(".tooltip")!;
+      const pointer = (el: Element, type: string, button = 0) => {
+        const e = new MouseEvent(type, { bubbles: true, button });
+        Object.defineProperty(e, "pointerType", { value: "mouse" });
+        el.dispatchEvent(e);
+      };
+      const waitOutDelay = () => act(async () => { await new Promise((r) => setTimeout(r, TIP_DELAY_MS + 50)); });
+
+      pointer(tile, "pointerover");
+      await waitOutDelay();
+      expect(tooltip()).toHaveAttribute("data-open");
+      expect(tooltip().textContent).toBe("Homework, 1 needs you");
+
+      pointer(tile, "pointerdown", 2);
+      fireEvent.contextMenu(tile, { clientX: 20, clientY: 200 });
+      const menu = await screen.findByRole("menu", { name: "Homework" });
+      expect(tooltip()).not.toHaveAttribute("data-open");
+      pointer(menu, "pointerover");
+      pointer(tile, "pointerover");
+      await waitOutDelay();
+      expect(tooltip()).not.toHaveAttribute("data-open");
+
+      fireEvent.keyDown(menu, { key: "Escape" });
+      await exited();
+      expect(screen.queryByRole("menu")).toBeNull();
+      pointer(rail(), "pointerover");
+      pointer(tile, "pointerover");
+      await waitOutDelay();
+      expect(tooltip()).toHaveAttribute("data-open");
+    } finally {
+      uninstall();
+    }
   });
 
   it("brings forward the window showing a space rather than showing it here too", async () => {

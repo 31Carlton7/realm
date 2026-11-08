@@ -30,6 +30,11 @@ type Open = { surface: RefObject<HTMLElement | null>; anchor?: RefObject<HTMLEle
  */
 const opened: Open[] = [];
 
+/** Whether an anchored surface is up and `target` is in none of them: the app behind a menu. */
+export function behindOpenSurface(target: Node): boolean {
+  return opened.length > 0 && !opened.some((s) => holds(s, target));
+}
+
 /** Whether `target` is in `s`, or in a surface opened from inside it. */
 function holds(s: Open, target: Node): boolean {
   if (s.surface.current?.contains(target)) return true;

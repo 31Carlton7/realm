@@ -1,3 +1,4 @@
+import { behindOpenSurface } from "./components/use-anchored-popover";
 import { placeTooltip, type Rect, type TooltipSide } from "./state/no-overlay";
 
 /**
@@ -15,7 +16,10 @@ import { placeTooltip, type Rect, type TooltipSide } from "./state/no-overlay";
  * It appears TIP_DELAY_MS after the pointer arrives, and at once for the next control if the last
  * tooltip went away within TIP_WARM_MS — sweeping along a toolbar reads every button without waiting
  * on each. A press, a key, a scroll of what it is pinned to, or the window going away hides it. It
- * never takes the pointer. Keyboard focus shows it too, when the focus is the visible kind.
+ * never takes the pointer. Keyboard focus shows it too, when the focus is the visible kind. While a
+ * menu or popover is up, only what is inside it has a tooltip: the press that opens a context menu
+ * quiets only the element it landed on, and a tile that comes under the pointer after it (the same
+ * right-click put away the sheet over it) said its name on top of its own menu.
  *
  * Where it goes is `placeTooltip`'s: under the element, over it where the window's foot or a browser
  * view is in the way below, beside it where both are. A native view composites over anything in its
@@ -174,7 +178,7 @@ export function installTooltips(doc: Document, opts: { avoid?: () => readonly Re
 
   const show = (instant: boolean) => {
     const h = hold;
-    if (!h || !h.el.isConnected || quiet === h.el) return;
+    if (!h || !h.el.isConnected || quiet === h.el || behindOpenSurface(h.el)) return;
     const spot = place(h.el, h.title, h.via);
     if (!spot) { handBack(h.el); return; }
     tip.style.left = `${spot.left}px`;

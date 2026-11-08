@@ -544,7 +544,8 @@ acronym that is uppercase anyway (a file extension on a tile).
 - A tooltip is the control's `title`, shown by the app's own layer (`tooltips.ts`) a fifth of a second
   after the pointer arrives and at once on the next control — the system's took a second and a half,
   which is a sweep across a toolbar that tells you nothing. Write the title as a plain sentence and end
-  it with the chord in brackets — "Search (⌘K)" — and the chord reads as a key.
+  it with the chord in brackets — "Search (⌘K)" — and the chord reads as a key. While a menu or
+  popover is up, only what is inside it shows a tooltip: a control never names itself over its own menu.
 - A control that names a setting can be the value's mark and its name, with no chevron and no fill
   at rest — the prompter's permission control, as Codex draws its own. Each rung of a ladder takes
   its own mark from one family (a shield that asks, one that has said yes, one that warns), the
