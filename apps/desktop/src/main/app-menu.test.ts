@@ -41,6 +41,18 @@ describe("the menu bar", () => {
     expect(find(build().template, "Split Down")?.accelerator).toBe("Command+Shift+\\");
   });
 
+  /* THE mutant: the row gone from File, which leaves New Window reachable only by a chord nobody can
+     discover. */
+  it("opens a new window from File on ⌘⇧N, and on Ctrl+Shift+N off a Mac", () => {
+    const { template, send } = build();
+    const file = template.find((m) => m.label === "File")!.submenu as MenuItemConstructorOptions[];
+    expect(file[0]).toMatchObject({ label: "New Window", accelerator: "Command+Shift+N" });
+    (file[0]!.click as () => void)();
+    expect(send).toHaveBeenCalledWith("window.new");
+    expect(find(build({ darwin: false }).template, "New Window")?.accelerator).toBe("Control+Shift+N");
+    expect(find(template, "New Quick Chat")?.accelerator).toBe("Command+Alt+N");
+  });
+
   it("runs a row's command in the renderer when clicked", () => {
     const { template, send } = build();
     (find(template, "Close Tab or Split")!.click as () => void)();

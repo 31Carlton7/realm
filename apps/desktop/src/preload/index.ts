@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld("realm", {
    *  for the first window. Main passes it on the command line it builds the window with; the store's
    *  boot lands in that profile. */
   profileId: arg("realm-profile") || undefined,
+  /** The space this window was opened for (Open in new window, File ▸ New Window), or undefined. */
+  spaceId: arg("realm-space") || undefined,
   /** The window's page zoom (⌘+/⌘−/⌘0, Chromium's own through the View menu). 1 at 100%.
    *
    *  A getter rather than a subscription because Chromium fires no zoom event, and a value rather
@@ -309,11 +311,17 @@ contextBridge.exposeInMainWorld("realm", {
   isWindowFullScreen: (): Promise<boolean> => ipcRenderer.invoke("window:is-full-screen"),
   /** A window per profile (Plan 27 Phase 2). `openProfile` opens the profile in a window of its own,
    *  or brings forward the window already showing it; `focusProfile` answers whether ANOTHER window
-   *  shows it (and brings that one forward); `setProfile` tells main which profile this window shows. */
+   *  shows it (and brings that one forward); `setProfile` tells main which profile this window shows.
+   *  The space calls are the same three for a space, which is open in at most one window; `newWindow`
+   *  opens one on a space nobody is looking at, and answers false when every space is open. */
   windows: {
     openProfile: (profileId: string): Promise<void> => ipcRenderer.invoke("window:open-profile", profileId),
     focusProfile: (profileId: string): Promise<boolean> => ipcRenderer.invoke("window:focus-profile", profileId),
     setProfile: (profileId: string | null): void => ipcRenderer.send("window:set-profile", profileId),
+    openSpace: (spaceId: string): Promise<void> => ipcRenderer.invoke("window:open-space", spaceId),
+    focusSpace: (spaceId: string): Promise<boolean> => ipcRenderer.invoke("window:focus-space", spaceId),
+    setSpace: (spaceId: string | null): void => ipcRenderer.send("window:set-space", spaceId),
+    newWindow: (): Promise<boolean> => ipcRenderer.invoke("window:new"),
   },
   /** The person's keybindings, for the menu bar to show and for main to hand their chords to the
    *  page rather than to the menu (main/app-menu.ts). */

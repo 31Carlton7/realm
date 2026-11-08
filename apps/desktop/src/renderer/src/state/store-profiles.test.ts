@@ -92,3 +92,31 @@ describe("store · profiles made real", () => {
   });
 
 });
+
+describe("store · a window per space", () => {
+  it("a window opened for a space boots on it and keeps its view apart from the profile's other window", async () => {
+    /* THE mutants: boot where the app was left, so Open in new window shows the same space twice; and
+       one view key per profile, so two Work windows write over each other's panes. */
+    const api = fakeApi({ boundProfileId: "p1", boundSpaceId: "s2", settings: { "ui.activeSpaceId": "s1" } });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    expect(store.getState().activeSpaceId).toBe("s2");
+    await store.getState().newSession({ agentKind: "claude" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(api.data.settings["ui.view:p1:s2"]).toBeTruthy();
+    expect(api.data.settings["ui.view:p1"]).toBeUndefined();
+  });
+
+  it("File ▸ New Window with every space already open offers to make one here", async () => {
+    const api = fakeApi({ newWindowOpens: false });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().newWindow();
+    expect(api.calls).toContain("newWindow");
+    expect(store.getState().sheet).toEqual({ kind: "new-space" });
+    const opens = createAppStore(fakeApi());
+    await opens.getState().boot();
+    await opens.getState().newWindow();
+    expect(opens.getState().sheet).toBeNull();
+  });
+});

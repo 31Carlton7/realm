@@ -188,6 +188,14 @@ export type Api = TeammatesApi & {
   openProfileWindow(profileId: string): Promise<void>;
   /** Whether ANOTHER window shows this profile — which, if so, main has just brought forward. */
   focusProfileWindow(profileId: string): Promise<boolean>;
+  /** The space this WINDOW was opened for (`window.realm.spaceId`), or null. */
+  boundSpaceId(): string | null;
+  /** Open a space in a window of its own, or bring forward the window already showing it. */
+  openSpaceWindow(spaceId: string): Promise<void>;
+  /** Whether ANOTHER window shows this space — which, if so, main has just brought forward. */
+  focusSpaceWindow(spaceId: string): Promise<boolean>;
+  /** A window on the next space no window shows. False when every space is open. */
+  newWindow(): Promise<boolean>;
   /** Global list across all profiles, in user sort order. */
   listSpaces(): Promise<Space[]>;
   listItems(spaceId: string): Promise<Item[]>;
@@ -1836,7 +1844,8 @@ export type AppState = TeammatesSlice & {
    * Make a space current: its most recent session opens in the main view, in the focused pane's
    * place. Nothing unloads and nothing slides — every space of the profile is already loaded. A space
    * with no session shows its Overview, which says how to start one. A space in another profile
-   * switches the window to that profile first.
+   * switches the window to that profile first. A space open in ANOTHER window brings that window
+   * forward instead, and this one stays as it is: a space is open in at most one window.
    */
   selectSpace(id: string): Promise<void>;
   /** Switch the window to another profile: its spaces load, and its own view comes back. The one
@@ -1867,6 +1876,11 @@ export type AppState = TeammatesSlice & {
   /** The profile switcher's choice. A profile already open in another window brings THAT window
    *  forward and this one stays as it is; otherwise this window switches to it (`selectProfile`). */
   switchProfile(profileId: string): Promise<void>;
+  /** "Open in new window" on a space: a window of its own, or the one already showing it. */
+  openSpaceWindow(spaceId: string): Promise<void>;
+  /** File ▸ New Window (⌘⇧N): a window on the next space nobody is looking at — or, with every space
+   *  already open, the New space sheet here. */
+  newWindow(): Promise<void>;
   /** The New space sheet's Create: the space, then a session in it with the keyboard — never the
    *  space's Overview (see `openNewSpace`). The sheet stays up while it runs and is closed HERE, just
    *  before the landing. `made` carries a failed attempt's work into the next; an aborted `signal` (the
@@ -3518,6 +3532,12 @@ export function createAppStore(api: Api): StoreApi<AppState> {
      *  mount with normalized sizes and that echo is not a user action, and no write may replace the
      *  stored view with the half-built one on screen. */
     let layoutHydrated = false;
+    /** Where this window keeps its view of `pid`: a window opened for one of the profile's spaces keeps
+     *  its own, so it and the profile's other window never write over each other's panes. */
+    const windowViewKey = (pid: string): string => {
+      const bound = api.boundSpaceId();
+      return viewSettingKey(pid, get().spaces.some((sp) => sp.id === bound && sp.profileId === pid) ? bound : null);
+    };
     const persist = async () => {
       if (persistTimer) { clearTimeout(persistTimer); persistTimer = null; }
       const { activeProfileId: pid, view, sheetSnap, peek } = get();
@@ -3536,7 +3556,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         focusedItemId: peek && focusedItem === peek.item.id ? peek.owner : focusedItem,
         focusedLeafId: focusedLeaf && findLeaf(kept.layout, focusedLeaf) ? focusedLeaf : null,
         ...(kept.panelShare !== undefined ? { panelShare: kept.panelShare } : {}) };
-      await api.setSetting(viewSettingKey(pid), stored);
+      await api.setSetting(windowViewKey(pid), stored);
     };
     const schedulePersist = () => {
       if (persistTimer) clearTimeout(persistTimer);
@@ -4419,7 +4439,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       const pid = get().activeProfileId;
       if (!pid) return;
       const epoch = profileEpoch;
-      const stored = parseStoredView(await api.getSetting(viewSettingKey(pid)).catch(() => null));
+      const stored = parseStoredView(await api.getSetting(windowViewKey(pid)).catch(() => null));
       if (epoch !== profileEpoch) return;
       let view: WindowView;
       let focusItem: string | null;
@@ -4678,7 +4698,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const known = (id: unknown): id is string => typeof id === "string" && profiles.some((p) => p.id === id);
         const pid = [api.boundProfileId(), savedProfile, savedSpace?.profileId].find(known)
           ?? profiles.find((p) => spaces.some((sp) => sp.profileId === p.id))?.id ?? profiles[0]?.id ?? null;
-        if (pid) await enterProfile(pid, savedSpace?.id ?? null);
+        /* A window opened for a space lands on it — on its newest session, or its Overview the first
+           time, when the window has no view of its own yet to bring back. */
+        const boundSpace = spaces.find((sp) => sp.id === api.boundSpaceId() && sp.profileId === pid);
+        if (pid) await enterProfile(pid, boundSpace?.id ?? savedSpace?.id ?? null);
+        if (boundSpace && (get().activeSpaceId !== boundSpace.id || allItems(get().layout ?? emptyLayout()).length === 0)) {
+          await get().selectSpace(boundSpace.id);
+        }
         // Cross-space badges need every session's space + status, not just the profile's.
         await get().refreshAllSessions();
         await restoreQuickChat(quick);
@@ -4746,6 +4772,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       selectSpace(id) { return holdTrail(async () => {
         const space = get().spaces.find((s) => s.id === id);
         if (!space) return;
+        if (id !== get().activeSpaceId && await api.focusSpaceWindow(id)) return;
         if (space.profileId !== get().activeProfileId) await get().selectProfile(space.profileId);
         if (get().activeProfileId !== space.profileId) return;
         // Remembered first: with nothing focused, this is the space a new session goes to.
@@ -4956,6 +4983,10 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async refreshProfiles() { set({ profiles: await api.listProfiles() }); },
       openNewProfileSheet() { get().openSheet({ kind: "new-profile" }); },
       openProfileWindow(profileId) { return api.openProfileWindow(profileId); },
+      openSpaceWindow(spaceId) { return api.openSpaceWindow(spaceId); },
+      async newWindow() {
+        if (!(await api.newWindow())) get().openSheet({ kind: "new-space" });
+      },
       async switchProfile(profileId) {
         if (await api.focusProfileWindow(profileId)) return;
         await get().selectProfile(profileId);

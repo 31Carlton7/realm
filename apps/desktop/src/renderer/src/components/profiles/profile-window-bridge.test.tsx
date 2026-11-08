@@ -21,13 +21,16 @@ describe("ProfileWindowBridge", () => {
        Personal's to main, and "Open Personal in a new window" would bring this window — now showing
        Work — forward instead of opening Personal. */
     const setProfile = vi.fn();
-    vi.stubGlobal("realm", { ...window.realm, windows: { openProfile: vi.fn(), focusProfile: vi.fn(), setProfile } });
+    const setSpace = vi.fn();
+    vi.stubGlobal("realm", { ...window.realm, windows: { openProfile: vi.fn(), focusProfile: vi.fn(), setProfile, setSpace } });
     const store = createAppStore(fakeApi({ spaces: [space("s1", "p1", "Versed"), space("s2", "p2", "Homework")] }));
     await store.getState().boot();
     render(<StoreContext.Provider value={store}><ProfileWindowBridge /></StoreContext.Provider>);
     expect(setProfile).toHaveBeenLastCalledWith("p1");
     await act(async () => { await store.getState().selectSpace("s2"); });
     expect(setProfile).toHaveBeenLastCalledWith("p2");
+    // The space too: main keeps a space in at most one window, and asks this one's to decide.
+    expect(setSpace).toHaveBeenLastCalledWith("s2");
   });
 
   it("re-reads profiles when the server says they changed — another window made one", async () => {

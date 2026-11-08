@@ -513,6 +513,7 @@ export const KEY_COMMANDS: readonly KeyCommand[] = [
   { id: "window.forward", label: "Go forward", group: "App" },
   { id: "settings.open", label: "Settings", group: "App" },
   { id: "app.whatsNew", label: "What's new", group: "App" },
+  { id: "window.new", label: "New window", group: "App" },
 ];
 
 /**
@@ -585,7 +586,11 @@ export const DEFAULT_KEYBINDINGS: readonly Keybinding[] = [
 
   { key: "mod+t", command: "terminal.new", when: WHEN_IDLE },
   { key: "mod+n", command: "session.new", when: WHEN_IDLE },
-  { key: "mod+shift+n", command: "session.quickChat", when: WHEN_IDLE },
+  /* ⌘⇧N is New Window, as it is in the Mac apps that pair ⌘N with something else — and from anywhere,
+     a text field included, since it types nothing there. Quick Chat moved to ⌥⌘N to make room;
+     `REVISED_DEFAULTS` is what carries that move into a keymap file written before it. */
+  { key: "mod+shift+n", command: "window.new", when: "!sheetOpen" },
+  { key: "mod+alt+n", command: "session.quickChat", when: WHEN_IDLE },
   { key: "mod+u", command: "session.attachFiles", when: "!overlayOpen && sessionFocus" },
   /* ⌘⇧C is the inspector's own chord — Chrome's, Safari's and Firefox's "select an element" — and
      nothing here held it. Not gated on a focused session: the part of Realm worth pointing at is as
@@ -647,6 +652,7 @@ export function defaultIsClaimed(existing: readonly Keybinding[], shipped: Keybi
 export const REVISED_DEFAULTS: readonly { was: Keybinding; now: Keybinding }[] = [
   { was: { key: "mod+\\", command: "pane.splitRight", when: WHEN_IDLE }, now: { key: "mod+\\", command: "pane.splitRight", when: WHEN_SPLIT } },
   { was: { key: "mod+shift+\\", command: "pane.splitDown", when: WHEN_IDLE }, now: { key: "mod+shift+\\", command: "pane.splitDown", when: WHEN_SPLIT } },
+  { was: { key: "mod+shift+n", command: "session.quickChat", when: WHEN_IDLE }, now: { key: "mod+alt+n", command: "session.quickChat", when: WHEN_IDLE } },
 ];
 
 const sameRule = (a: Keybinding, b: Keybinding): boolean =>

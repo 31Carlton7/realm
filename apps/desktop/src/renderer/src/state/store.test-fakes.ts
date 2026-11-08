@@ -334,6 +334,12 @@ export type FakeData = {
   boundProfileId?: string | null;
   /** Profiles another (fake) window is showing — what `focusProfileWindow` answers yes for. */
   profilesInOtherWindows?: string[];
+  /** The space this fake window was opened for (`window.realm.spaceId`). */
+  boundSpaceId?: string | null;
+  /** Spaces another (fake) window is showing — what `focusSpaceWindow` answers yes for. */
+  spacesInOtherWindows?: string[];
+  /** What `newWindow` answers: false when every space is already open. */
+  newWindowOpens?: boolean;
   /** Saved sign-ins. Each is profile p1's unless it names another `profileId` — sign-ins are a
    *  profile's own, and the fake answers each profile with its rows alone, as main does. */
   credentials?: (BrowserCredential & { profileId?: string })[];
@@ -525,6 +531,9 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     profiles: overrides.profiles ?? [profile("p1", "Work"), profile("p2", "School")],
     boundProfileId: overrides.boundProfileId ?? null,
     profilesInOtherWindows: overrides.profilesInOtherWindows ?? [],
+    boundSpaceId: overrides.boundSpaceId ?? null,
+    spacesInOtherWindows: overrides.spacesInOtherWindows ?? [],
+    newWindowOpens: overrides.newWindowOpens ?? true,
     spaces: overrides.spaces ?? [space("s1", "p1", "Versed", { color: "#7c6cff" }), space("s2", "p1", "Homework", { color: "#3ddc97" })],
     items: overrides.items ?? { s1: [item("i1", "s1", { title: "Terminal" })] },
     projects: overrides.projects ?? {},
@@ -906,6 +915,15 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       calls.push(`focusProfileWindow:${profileId}`);
       return data.profilesInOtherWindows.includes(profileId);
     },
+    boundSpaceId: () => data.boundSpaceId ?? null,
+    openSpaceWindow: async (spaceId) => { calls.push(`openSpaceWindow:${spaceId}`); },
+    /** Another window shows the space when the test says one does (`spacesInOtherWindows`). */
+    focusSpaceWindow: async (spaceId) => {
+      const elsewhere = data.spacesInOtherWindows.includes(spaceId);
+      if (elsewhere) calls.push(`focusSpaceWindow:${spaceId}`);
+      return elsewhere;
+    },
+    newWindow: async () => { calls.push("newWindow"); return data.newWindowOpens; },
     listSpaces: async () => { calls.push("listSpaces"); await wait("listSpaces"); return [...data.spaces]; },
     listItems: async (sid) => { calls.push(`listItems:${sid}`); await wait(`listItems:${sid}`); return data.items[sid] ?? []; },
     listAllItems: async () => {

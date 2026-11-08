@@ -215,10 +215,10 @@ describe("useKeybindings", () => {
     await waitFor(() => expect(api.calls).toContain("interrupt:sess1"));
   });
 
-  it("opens a quick chat on \u2318\u21e7N, which had no keyboard way in at all", async () => {
+  it("opens a quick chat on ⌥⌘N, which had no keyboard way in at all", async () => {
     const { api, store } = await mount();
     expect(store.getState().quickChat).toBe(null);
-    key({ key: "N", code: "KeyN", metaKey: true, shiftKey: true });
+    key({ key: "˜", code: "KeyN", metaKey: true, altKey: true });
     await waitFor(() => expect(store.getState().quickChat).not.toBe(null));
     expect(made(api, "createUnlistedSession")).toBe(true);
   });
@@ -227,10 +227,10 @@ describe("useKeybindings", () => {
     // THE MUTANT: bind the chord to a toggle. The second press would delete the conversation the
     // first one started, which is not what a second press of an OPEN command should ever mean.
     const { api, store } = await mount();
-    key({ key: "N", code: "KeyN", metaKey: true, shiftKey: true });
+    key({ key: "˜", code: "KeyN", metaKey: true, altKey: true });
     await waitFor(() => expect(store.getState().quickChat).not.toBe(null));
     const opened = store.getState().quickChat;
-    key({ key: "N", code: "KeyN", metaKey: true, shiftKey: true });
+    key({ key: "˜", code: "KeyN", metaKey: true, altKey: true });
     await tick();
     expect(store.getState().quickChat).toEqual(opened);
     expect(made(api, "deleteSession")).toBe(false);
@@ -454,5 +454,16 @@ describe("useKeybindings on panes", () => {
     key({ code: "Space", key: " ", metaKey: true, shiftKey: true });
     await waitFor(() => expect(store.getState().spacesOpen).toBe(true));
     expect(store.getState().paletteOpen).toBe(false);
+  });
+});
+
+describe("⌘⇧N", () => {
+  /* Quick Chat moved off ⌘⇧N to make room for New Window. THE mutant is both defaults left on one
+     chord: the later rule would win and the other command would silently lose its key. */
+  it("opens a new window, and no longer opens a quick chat", async () => {
+    const { api, store } = await mount();
+    key({ key: "N", code: "KeyN", metaKey: true, shiftKey: true });
+    await waitFor(() => expect(api.calls).toContain("newWindow"));
+    expect(store.getState().quickChat).toBe(null);
   });
 });
