@@ -20,6 +20,17 @@ struct SpaceView: View {
         let chats = words.isEmpty ? Set(team.compactMap(\.chatId)) : []
         let shown = rows.filter { $0.matches(words) && !chats.contains($0.id) }
         List {
+            if words.isEmpty {
+                Button {
+                    model.path.append(.documents(spaceId: spaceId, dir: ""))
+                } label: {
+                    HeadLabel(symbol: "folder", words: "Documents")
+                }
+                .buttonStyle(.plain)
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+                .accessibilityIdentifier("space-documents")
+            }
             if words.isEmpty, !team.isEmpty {
                 Section {
                     ForEach(team) { teammate in TeammateLink(teammate: teammate) }

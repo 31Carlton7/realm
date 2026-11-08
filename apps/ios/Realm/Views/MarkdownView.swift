@@ -19,22 +19,33 @@ extension EnvironmentValues {
 /// remote images, links followed only on a tap.
 struct MarkdownView: View {
     let blocks: [MarkdownBlock]
+    /// Draws only the blocks in view: a whole document, where a reply's few blocks need not.
+    var lazily = false
 
     init(_ text: String) {
         blocks = ParsedMarkdown.blocks(for: text)
     }
 
-    init(blocks: [MarkdownBlock]) {
+    init(blocks: [MarkdownBlock], lazily: Bool = false) {
         self.blocks = blocks
+        self.lazily = lazily
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                BlockView(block: block)
+        Group {
+            if lazily {
+                LazyVStack(alignment: .leading, spacing: 16) { blockViews }
+            } else {
+                VStack(alignment: .leading, spacing: 16) { blockViews }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var blockViews: some View {
+        ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+            BlockView(block: block)
+        }
     }
 }
 

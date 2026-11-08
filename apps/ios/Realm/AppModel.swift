@@ -20,6 +20,14 @@ enum Route: Hashable {
     case saved
     /// Every teammate of the profile Home shows, space by space.
     case team
+    /// One level of a space's folder; "" is the folder itself.
+    case documents(spaceId: String, dir: String)
+    /// The saved turns and files of the profile Home shows, as the desktop's Library has them.
+    case library
+    /// Every file on one of the Library's shelves.
+    case libraryFiles(LibraryShelf)
+    /// One file, open to read.
+    case document(DocumentRef)
 }
 
 enum PairingStatus: Equatable {
@@ -1316,6 +1324,14 @@ final class AppModel {
         return preview
     }
 
+    /// A file's preview from wherever it is read. A session's made files stay as they were made, and are
+    /// kept; a folder's can change on the Mac, so they are asked for each time.
+    func preview(_ path: String, in source: FileSource) async throws -> FilePreview {
+        if case .session(let id) = source { return try await preview(path, in: id) }
+        guard let api, isConnected else { throw ChannelError.notConnected }
+        return try await api.file(source, path: path)
+    }
+
     /// A picture a turn made, small enough for its tile.
     func loadThumbnail(_ path: String, in sessionId: String, side: CGFloat) async {
         let key = Self.previewKey(path, sessionId)
@@ -1335,30 +1351,53 @@ final class AppModel {
 
     /// A file a turn made or a message took, whole, on this phone: what the gallery plays, opens in Quick
     /// Look and shares. Fetched from the Mac once and kept in the cache, which the system may clear.
-    func wholeFile(_ path: String, name: String, in sessionId: String, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
-        let destination = Self.wholeFile(path, name: name, in: sessionId)
-        if FileManager.default.fileExists(atPath: destination.path) { return destination }
+    func wholeFile(_ path: String, name: String, in source: FileSource, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+        let destination = Self.wholeFile(path, name: name, in: source)
+        let manager = FileManager.default
+        if case .session = source, manager.fileExists(atPath: destination.path) { return destination }
         guard let api, isConnected else { throw ChannelError.notConnected }
-        try await FileFetch.fetch(to: destination, progress: progress) { from in
-            try await api.fileData(id: sessionId, path: path, from: from)
+        var changed: Date?
+        if case .session = source {} else {
+            // A folder's file can change on the Mac: a read past its end says when it last did, for no bytes.
+            let modifiedAt = try await api.fileData(source, path: path, from: Self.pastAnyEnd).modifiedAt
+            changed = modifiedAt.map { Date(timeIntervalSince1970: Double($0) / 1000) }
+            let kept = try? manager.attributesOfItem(atPath: destination.path)[.modificationDate] as? Date
+            if let changed, let kept, abs(kept.timeIntervalSince(changed)) < 1 { return destination }
+            try? manager.removeItem(at: destination)
         }
+        try await FileFetch.fetch(to: destination, progress: progress) { from in
+            try await api.fileData(source, path: path, from: from)
+        }
+        if let changed { try? manager.setAttributes([.modificationDate: changed], ofItemAtPath: destination.path) }
         return destination
     }
 
+    /// Past the end of any file a phone is sent whole.
+    private static let pastAnyEnd = 1 << 40
+
     /// A file `wholeFile` already brought to this phone; nil for one it has not.
-    func keptFile(_ path: String, name: String, in sessionId: String) -> URL? {
-        let kept = Self.wholeFile(path, name: name, in: sessionId)
+    func keptFile(_ path: String, name: String, in source: FileSource) -> URL? {
+        let kept = Self.wholeFile(path, name: name, in: source)
         return FileManager.default.fileExists(atPath: kept.path) ? kept : nil
     }
 
     private static let wholeFiles = URL.cachesDirectory.appending(path: "Files", directoryHint: .isDirectory)
 
-    private static func wholeFile(_ path: String, name: String, in sessionId: String) -> URL {
-        let digest = SHA256.hash(data: Data(previewKey(path, sessionId).utf8)).map { String(format: "%02x", $0) }.joined()
+    private static func wholeFile(_ path: String, name: String, in source: FileSource) -> URL {
+        let digest = SHA256.hash(data: Data(sourceKey(path, source).utf8)).map { String(format: "%02x", $0) }.joined()
         return wholeFiles.appending(path: digest, directoryHint: .isDirectory).appending(path: name.replacingOccurrences(of: "/", with: "-"))
     }
 
     private static func previewKey(_ path: String, _ sessionId: String) -> String { "\(sessionId)\u{0}\(path)" }
+
+    /// A session's files keep the key they have always been kept under, so what a phone already holds stays.
+    private static func sourceKey(_ path: String, _ source: FileSource) -> String {
+        switch source {
+        case .session(let id): previewKey(path, id)
+        case .space(let id): "space\u{0}\(id)\u{0}\(path)"
+        case .library: "library\u{0}\(path)"
+        }
+    }
     private static let previewsKept = 12
 
     /// A space's own picture, asked of the Mac once.

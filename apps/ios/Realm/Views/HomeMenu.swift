@@ -28,7 +28,7 @@ enum WorkHead {
 
 /// The Mac's pages beyond Home that the phone shows, as the profile sheet offers them.
 enum WorkPage: CaseIterable {
-    case reviews, scheduled, usage, saved
+    case reviews, scheduled, usage, saved, library
 
     var title: String {
         switch self {
@@ -36,6 +36,7 @@ enum WorkPage: CaseIterable {
         case .scheduled: "Scheduled"
         case .usage: "Usage"
         case .saved: "Saved"
+        case .library: "Library"
         }
     }
 
@@ -45,6 +46,7 @@ enum WorkPage: CaseIterable {
         case .scheduled: "calendar.badge.clock"
         case .usage: "gauge.with.needle"
         case .saved: "bookmark"
+        case .library: "books.vertical"
         }
     }
 
@@ -54,6 +56,7 @@ enum WorkPage: CaseIterable {
         case .scheduled: .scheduled
         case .usage: .usage
         case .saved: .saved
+        case .library: .library
         }
     }
 
@@ -66,7 +69,7 @@ enum WorkPage: CaseIterable {
         case .scheduled:
             let count = ScheduleWords.unreadResults(schedules ?? [])
             return count > 0 ? (count == 1 ? "1 unread result" : "\(count) unread results") : nil
-        case .usage, .saved:
+        case .usage, .saved, .library:
             return nil
         }
     }
@@ -95,30 +98,41 @@ struct HeadLine: View {
     let tone: Color
     let words: String
     let action: () -> Void
-    @ScaledMetric(relativeTo: .subheadline) private var glyph: CGFloat = 22
 
     var body: some View {
         Button(action: action) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: symbol)
-                    .foregroundStyle(tone)
-                    // The glyph stops growing before the words do, so a line's words keep the width.
-                    .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-                    .frame(width: min(glyph, 40))
-                    .accessibilityHidden(true)
-                Text(words)
-                    .foregroundStyle(Palette.ink)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Palette.ink3)
-                    .accessibilityHidden(true)
-            }
-            .font(.subheadline.weight(.medium))
-            .contentShape(Rectangle())
+            HeadLabel(symbol: symbol, tone: tone, words: words)
         }
         .buttonStyle(.plain)
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
+    }
+}
+
+/// What a head line says: its glyph, its words and its chevron.
+struct HeadLabel: View {
+    let symbol: String
+    var tone: Color = Palette.ink2
+    let words: String
+    @ScaledMetric(relativeTo: .subheadline) private var glyph: CGFloat = 22
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: symbol)
+                .foregroundStyle(tone)
+                // The glyph stops growing before the words do, so a line's words keep the width.
+                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+                .frame(width: min(glyph, 40))
+                .accessibilityHidden(true)
+            Text(words)
+                .foregroundStyle(Palette.ink)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Palette.ink3)
+                .accessibilityHidden(true)
+        }
+        .font(.subheadline.weight(.medium))
+        .contentShape(Rectangle())
     }
 }

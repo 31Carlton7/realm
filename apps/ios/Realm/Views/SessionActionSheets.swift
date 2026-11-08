@@ -360,16 +360,24 @@ struct SavedView: View {
 
     /// The profile Home shows, or every profile's, newest saved first.
     private func load() async {
-        guard let api = model.api, model.isConnected else { return }
-        let profiles = model.profileChoice.profileId.map { [$0] } ?? (model.store.home?.profiles?.map(\.id) ?? [])
+        if let turns = await model.savedInChoice() { saved = turns }
+    }
+}
+
+extension AppModel {
+    /// The turns saved in the profile Home shows, or every profile's, newest saved first; nil while the
+    /// Mac cannot say.
+    func savedInChoice() async -> SavedTurns? {
+        guard let api, isConnected else { return nil }
+        let profiles = profileChoice.profileId.map { [$0] } ?? (store.home?.profiles?.map(\.id) ?? [])
         var entries: [SavedTurn] = []
         var total = 0
         for profile in profiles {
-            guard let turns = try? await api.savedTurns(profileId: profile) else { return }
+            guard let turns = try? await api.savedTurns(profileId: profile) else { return nil }
             entries += turns.entries
             total += turns.total
         }
-        saved = SavedTurns(entries: entries.sorted { $0.savedAt > $1.savedAt }, total: total)
+        return SavedTurns(entries: entries.sorted { $0.savedAt > $1.savedAt }, total: total)
     }
 }
 
