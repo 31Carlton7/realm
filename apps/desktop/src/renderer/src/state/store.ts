@@ -190,10 +190,13 @@ export type Api = TeammatesApi & {
   focusProfileWindow(profileId: string): Promise<boolean>;
   /** The space this WINDOW was opened for (`window.realm.spaceId`), or null. */
   boundSpaceId(): string | null;
+  /** The space this window lands on after a relaunch (`window.realm.landSpaceId`), or null. */
+  landingSpaceId(): string | null;
   /** Open a space in a window of its own, or bring forward the window already showing it. */
   openSpaceWindow(spaceId: string): Promise<void>;
-  /** Whether ANOTHER window shows this space — which, if so, main has just brought forward. */
-  focusSpaceWindow(spaceId: string): Promise<boolean>;
+  /** Whether ANOTHER window shows this space — which, if so, main has just brought forward, and
+   *  handed `sessionId` to open there. */
+  focusSpaceWindow(spaceId: string, sessionId?: string): Promise<boolean>;
   /** A window on the next space no window shows. False when every space is open. */
   newWindow(): Promise<boolean>;
   /** Global list across all profiles, in user sort order. */
@@ -596,7 +599,7 @@ export type Api = TeammatesApi & {
   onUpdateStatus?(cb: (status: UpdateStatus) => void): () => void;
   /** Ask main to post an OS toast for a surfaced feed row. Answers whether one was actually shown —
    *  main suppresses it while the Realm window is focused, and that call is main's to make. */
-  showDesktopNotification(input: { id: string; title: string; body: string | null }): Promise<boolean>;
+  showDesktopNotification(input: { id: string; title: string; body: string | null; spaceId: string | null }): Promise<boolean>;
   /** Play one cue at `volume` (0…1). Synchronous and never throws — the synthesiser is a no-op wherever
    *  Web Audio is missing or still locked, and a silent renderer must not take the feed handler with
    *  it. Unlike the toast the sound is made in the window, but it still answers to main's decision
@@ -4696,11 +4699,13 @@ export function createAppStore(api: Api): StoreApi<AppState> {
            space it was in, then the first profile that has any space, then the first at all. */
         const savedSpace = typeof saved === "string" ? spaces.find((sp) => sp.id === saved) : undefined;
         const known = (id: unknown): id is string => typeof id === "string" && profiles.some((p) => p.id === id);
-        const pid = [api.boundProfileId(), savedProfile, savedSpace?.profileId].find(known)
+        // A window brought back after a relaunch lands where it was, ahead of everything else.
+        const landing = spaces.find((sp) => sp.id === api.landingSpaceId());
+        const pid = [landing?.profileId, api.boundProfileId(), savedProfile, savedSpace?.profileId].find(known)
           ?? profiles.find((p) => spaces.some((sp) => sp.profileId === p.id))?.id ?? profiles[0]?.id ?? null;
         /* A window opened for a space lands on it — on its newest session, or its Overview the first
            time, when the window has no view of its own yet to bring back. */
-        const boundSpace = spaces.find((sp) => sp.id === api.boundSpaceId() && sp.profileId === pid);
+        const boundSpace = landing ?? spaces.find((sp) => sp.id === api.boundSpaceId() && sp.profileId === pid);
         if (pid) await enterProfile(pid, boundSpace?.id ?? savedSpace?.id ?? null);
         if (boundSpace && (get().activeSpaceId !== boundSpace.id || allItems(get().layout ?? emptyLayout()).length === 0)) {
           await get().selectSpace(boundSpace.id);
@@ -8211,7 +8216,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           // implementation in notify.ts, and nothing sounds while Realm is the app you are in.
           if (get().desktopNotifications) {
             const cue = CUE_BY_CATEGORY[n.category];
-            void api.showDesktopNotification({ id: n.id, title: n.title, body: n.body })
+            void api.showDesktopNotification({ id: n.id, title: n.title, body: n.body, spaceId: n.spaceId })
               .then((posted) => { if (posted && cue && get().soundCues) api.playCue(cue, get().soundVolume); })
               .catch(() => {});
           }
@@ -8227,6 +8232,9 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         // nothing and look like a dead button.
         const target = get().sessionSpace[sessionId] ?? spaceId;
         const space = target ? get().spaces.find((sp) => sp.id === target) : undefined;
+        // A space another window shows is opened there: that window comes forward and opens the
+        // session itself, so the jump did land, just not here.
+        if (target && target !== get().activeSpaceId && await api.focusSpaceWindow(target, sessionId)) return true;
         // Every space of the profile is already loaded; only another profile's means a switch.
         if (space && space.profileId !== get().activeProfileId) await get().selectProfile(space.profileId);
         const item = get().items.find((i) => i.kind === "session" && i.refId === sessionId);

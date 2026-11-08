@@ -336,6 +336,8 @@ export type FakeData = {
   profilesInOtherWindows?: string[];
   /** The space this fake window was opened for (`window.realm.spaceId`). */
   boundSpaceId?: string | null;
+  /** The space this fake window lands on after a relaunch (`window.realm.landSpaceId`). */
+  landingSpaceId?: string | null;
   /** Spaces another (fake) window is showing — what `focusSpaceWindow` answers yes for. */
   spacesInOtherWindows?: string[];
   /** What `newWindow` answers: false when every space is already open. */
@@ -532,6 +534,7 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
     boundProfileId: overrides.boundProfileId ?? null,
     profilesInOtherWindows: overrides.profilesInOtherWindows ?? [],
     boundSpaceId: overrides.boundSpaceId ?? null,
+    landingSpaceId: overrides.landingSpaceId ?? null,
     spacesInOtherWindows: overrides.spacesInOtherWindows ?? [],
     newWindowOpens: overrides.newWindowOpens ?? true,
     spaces: overrides.spaces ?? [space("s1", "p1", "Versed", { color: "#7c6cff" }), space("s2", "p1", "Homework", { color: "#3ddc97" })],
@@ -916,11 +919,12 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       return data.profilesInOtherWindows.includes(profileId);
     },
     boundSpaceId: () => data.boundSpaceId ?? null,
+    landingSpaceId: () => data.landingSpaceId ?? null,
     openSpaceWindow: async (spaceId) => { calls.push(`openSpaceWindow:${spaceId}`); },
     /** Another window shows the space when the test says one does (`spacesInOtherWindows`). */
-    focusSpaceWindow: async (spaceId) => {
+    focusSpaceWindow: async (spaceId, sessionId) => {
       const elsewhere = data.spacesInOtherWindows.includes(spaceId);
-      if (elsewhere) calls.push(`focusSpaceWindow:${spaceId}`);
+      if (elsewhere) calls.push(`focusSpaceWindow:${spaceId}${sessionId ? `:${sessionId}` : ""}`);
       return elsewhere;
     },
     newWindow: async () => { calls.push("newWindow"); return data.newWindowOpens; },

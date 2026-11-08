@@ -1,5 +1,7 @@
+import { join } from "node:path";
+import { tempDir } from "@realm/test-utils";
 import { describe, expect, it } from "vitest";
-import { CASCADE_OFFSET, WindowRegistry, cascadeFrom, spaceForNewWindow } from "./window-registry";
+import { CASCADE_OFFSET, WindowRegistry, cascadeFrom, readSavedWindows, spaceForNewWindow, windowTitle, windowsToRestore, writeSavedWindows } from "./window-registry";
 
 const win = (id: number) => {
   const w = { id, destroyed: false, isDestroyed: () => w.destroyed };
@@ -91,5 +93,133 @@ describe("spaceForNewWindow", () => {
     expect(spaceForNewWindow(spaces, { profileId: "work", spaceId: "a" }, new Set(["a", "b", "c"]))?.id).toBe("x");
     expect(spaceForNewWindow(spaces, { profileId: "work", spaceId: "a" }, new Set(["a", "b", "c", "x"]))).toBeNull();
     expect(spaceForNewWindow(spaces, null, new Set())?.id).toBe("a");
+  });
+});
+
+describe("windows brought back on relaunch", () => {
+  const spaces = [{ id: "sRealm", profileId: "pWork" }, { id: "sPersona", profileId: "pWork" }, { id: "sGeneral", profileId: "pHome" }];
+  const quitWith = (reg: WindowRegistry<ReturnType<typeof win>>) => {
+    const file = join(tempDir("realm-windows-"), "windows.json");
+    writeSavedWindows(file, reg.saved());
+    return readSavedWindows(file);
+  };
+
+  it("every window comes back on its space, opened for what it was opened for, the one used last in front", () => {
+    /* THE mutants: save only the first window, and the Persona window is gone after ⌘Q; drop the space
+       a window was opened for, and it comes back with the profile's view instead of its own panes;
+       save in any other order, and the window behind is the one in front. */
+    const reg = new WindowRegistry<ReturnType<typeof win>>();
+    const first = win(1); const persona = win(2);
+    reg.add(first, null); reg.setSpace(first, "sRealm");
+    reg.add(persona, "pWork", "sPersona"); reg.setSpace(persona, "sPersona");
+    reg.focused(first);
+    expect(windowsToRestore(quitWith(reg), spaces)).toEqual([
+      { profileId: "pWork", spaceId: "sPersona", land: "sPersona" },
+      { profileId: null, spaceId: null, land: "sRealm" },
+    ]);
+  });
+
+  it("a window that switched space lands on the one it showed, and keeps the space it was opened for", () => {
+    const reg = new WindowRegistry<ReturnType<typeof win>>();
+    const w = win(2);
+    reg.add(w, "pWork", "sPersona"); reg.setSpace(w, "sGeneral");
+    expect(windowsToRestore(quitWith(reg), spaces)).toEqual([{ profileId: "pHome", spaceId: "sPersona", land: "sGeneral" }]);
+  });
+
+  it("a window whose space was deleted is skipped; one whose new space went lands where it was opened", () => {
+    /* THE mutant: restore without asking which spaces are left, and a deleted space's window opens on
+       nothing. */
+    expect(windowsToRestore([
+      { profileId: null, spaceId: null, showing: "sRealm" },
+      { profileId: "pWork", spaceId: "sGone", showing: "sGone" },
+      { profileId: "pWork", spaceId: "sPersona", showing: "sAlsoGone" },
+    ], spaces)).toEqual([
+      { profileId: null, spaceId: null, land: "sRealm" },
+      { profileId: "pWork", spaceId: "sPersona", land: "sPersona" },
+    ]);
+  });
+
+  it("never opens two windows on one space", () => {
+    /* THE mutant: no check, and a file that names a space twice — edited by hand, or a window that
+       switched onto a space whose own window is still listed — opens it in two windows. */
+    expect(windowsToRestore([
+      { profileId: "pWork", spaceId: "sPersona", showing: "sPersona" },
+      { profileId: "pWork", spaceId: "sRealm", showing: "sPersona" },
+      { profileId: null, spaceId: null, showing: "sRealm" },
+    ], spaces)).toEqual([
+      { profileId: "pWork", spaceId: "sPersona", land: "sPersona" },
+      { profileId: null, spaceId: null, land: "sRealm" },
+    ]);
+  });
+
+  it("with nothing saved, or nothing left, one window opens and finds its own way", () => {
+    const one = [{ profileId: null, spaceId: null, land: null }];
+    expect(windowsToRestore([], spaces)).toEqual(one);
+    expect(windowsToRestore([{ profileId: "pWork", spaceId: "sGone", showing: "sGone" }], spaces)).toEqual(one);
+    expect(windowsToRestore([{ profileId: null, spaceId: null, showing: "sGone" }], spaces)).toEqual(one);
+  });
+
+  it("reads a missing or hand-edited file as nothing saved", () => {
+    expect(readSavedWindows("/nonexistent/windows.json")).toEqual([]);
+    expect(readSavedWindows("x", () => "{\"windows\":[3,{\"spaceId\":\"sRealm\",\"showing\":7}]}")).toEqual([
+      { profileId: null, spaceId: "sRealm", showing: null },
+    ]);
+  });
+});
+
+describe("window titles", () => {
+  const spaces = [
+    { id: "s1", profileId: "pWork", name: "Realm" }, { id: "s2", profileId: "pWork", name: "Persona" },
+    { id: "s3", profileId: "pHome", name: "Persona" }, { id: "s4", profileId: "pHome", name: "General" },
+  ];
+  const names: Record<string, string> = { pWork: "Work", pHome: "Home" };
+  const profileName = (id: string) => names[id];
+
+  it("a window is titled by its space, with the profile only when another profile has a space of that name", () => {
+    /* THE mutants: title by profile, and two Work windows are both "Work" in the Window menu; always
+       add the profile, and every title carries a word the person never needed. */
+    expect(windowTitle("s1", "pWork", spaces, profileName)).toBe("Realm");
+    expect(windowTitle("s4", "pHome", spaces, profileName)).toBe("General");
+    expect(windowTitle("s2", "pWork", spaces, profileName)).toBe("Persona — Work");
+    expect(windowTitle("s3", "pHome", spaces, profileName)).toBe("Persona — Home");
+  });
+
+  it("follows the window as it switches space, and the name as it is renamed", () => {
+    const reg = new WindowRegistry<ReturnType<typeof win>>();
+    const w = win(1);
+    reg.add(w, null);
+    const title = (list = spaces) => windowTitle(reg.spaceOf(w), reg.showing(w), list, profileName);
+    expect(title()).toBe("Realm");
+    reg.setShowing(w, "pHome");
+    expect(title()).toBe("Home");
+    reg.setSpace(w, "s4");
+    expect(title()).toBe("General");
+    reg.setSpace(w, "s1");
+    expect(title()).toBe("Realm");
+    expect(title(spaces.map((sp) => (sp.id === "s1" ? { ...sp, name: "Realm HQ" } : sp)))).toBe("Realm HQ");
+  });
+});
+
+describe("where a toast opens", () => {
+  it("in the window showing the session's space, even when another window was used last", () => {
+    /* THE mutant: the window used last, as before, and a click on Persona's toast opens Persona's
+       session in window 1 — the same space on screen twice — while window 2 sits behind. */
+    const reg = new WindowRegistry<ReturnType<typeof win>>();
+    const w1 = win(1); const w2 = win(2);
+    reg.add(w1, null); reg.setSpace(w1, "sRealm");
+    reg.add(w2, "pWork", "sPersona"); reg.setSpace(w2, "sPersona");
+    reg.focused(w1);
+    expect(reg.windowToOpen("sPersona")).toBe(w2);
+    expect(reg.windowToOpen("sRealm")).toBe(w1);
+  });
+
+  it("a space no window shows goes to the window used last, which switches to it", () => {
+    const reg = new WindowRegistry<ReturnType<typeof win>>();
+    const w1 = win(1); const w2 = win(2);
+    reg.add(w1, null); reg.setSpace(w1, "sRealm");
+    reg.add(w2, "pWork", "sPersona"); reg.setSpace(w2, "sPersona");
+    reg.focused(w1);
+    expect(reg.windowToOpen("sGeneral")).toBe(w1);
+    expect(reg.windowToOpen(null)).toBe(w1);
   });
 });

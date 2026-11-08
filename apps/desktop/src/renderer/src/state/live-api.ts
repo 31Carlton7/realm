@@ -21,9 +21,13 @@ export const liveApi = (): Api => ({
     const id = (window.realm as { spaceId?: unknown } | undefined)?.spaceId;
     return typeof id === "string" && id !== "" ? id : null;
   },
+  landingSpaceId: () => {
+    const id = (window.realm as { landSpaceId?: unknown } | undefined)?.landSpaceId;
+    return typeof id === "string" && id !== "" ? id : null;
+  },
   openProfileWindow: async (profileId) => { await window.realm.windows?.openProfile(profileId); },
   openSpaceWindow: async (spaceId) => { await window.realm.windows?.openSpace(spaceId); },
-  focusSpaceWindow: async (spaceId) => (await window.realm.windows?.focusSpace(spaceId)) ?? false,
+  focusSpaceWindow: async (spaceId, sessionId) => (await window.realm.windows?.focusSpace(spaceId, sessionId)) ?? false,
   newWindow: async () => (await window.realm.windows?.newWindow()) ?? false,
   focusProfileWindow: async (profileId) => (await window.realm.windows?.focusProfile(profileId)) ?? false,
   listSpaces: () => rpc().call("spaces.list", {}),

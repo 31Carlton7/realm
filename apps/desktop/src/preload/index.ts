@@ -25,6 +25,9 @@ contextBridge.exposeInMainWorld("realm", {
   profileId: arg("realm-profile") || undefined,
   /** The space this window was opened for (Open in new window, File ▸ New Window), or undefined. */
   spaceId: arg("realm-space") || undefined,
+  /** The space a window brought back after a relaunch lands on: the one it showed, which can differ
+   *  from the one it was opened for. Undefined for a window opened now. */
+  landSpaceId: arg("realm-land") || undefined,
   /** The window's page zoom (⌘+/⌘−/⌘0, Chromium's own through the View menu). 1 at 100%.
    *
    *  A getter rather than a subscription because Chromium fires no zoom event, and a value rather
@@ -263,7 +266,7 @@ contextBridge.exposeInMainWorld("realm", {
    *  posted — main suppresses one while the window is focused, and the renderer does not second-guess
    *  that. `onActivate` fires with the ROW ID of a clicked toast; the store owns where that lands. */
   notify: {
-    show: (input: { id: string; title: string; body: string | null }): Promise<boolean> => ipcRenderer.invoke("notify:show", input),
+    show: (input: { id: string; title: string; body: string | null; spaceId: string | null }): Promise<boolean> => ipcRenderer.invoke("notify:show", input),
     badge: (count: number): Promise<void> => ipcRenderer.invoke("notify:badge", count),
     onActivate: (cb: (id: string) => void): (() => void) => {
       const handler = (_e: IpcRendererEvent, id: string) => cb(id);
@@ -319,7 +322,7 @@ contextBridge.exposeInMainWorld("realm", {
     focusProfile: (profileId: string): Promise<boolean> => ipcRenderer.invoke("window:focus-profile", profileId),
     setProfile: (profileId: string | null): void => ipcRenderer.send("window:set-profile", profileId),
     openSpace: (spaceId: string): Promise<void> => ipcRenderer.invoke("window:open-space", spaceId),
-    focusSpace: (spaceId: string): Promise<boolean> => ipcRenderer.invoke("window:focus-space", spaceId),
+    focusSpace: (spaceId: string, sessionId?: string): Promise<boolean> => ipcRenderer.invoke("window:focus-space", spaceId, sessionId ?? null),
     setSpace: (spaceId: string | null): void => ipcRenderer.send("window:set-space", spaceId),
     newWindow: (): Promise<boolean> => ipcRenderer.invoke("window:new"),
   },

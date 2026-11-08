@@ -22,8 +22,8 @@ function harness(o: { supported?: boolean; focused?: boolean; hasWindow?: boolea
       };
       return n;
     },
-    focusWindow: () => { log.push("focusWindow"); },
-    activate: (id) => { log.push(`activate:${id}`); },
+    focusWindow: (spaceId) => { log.push(`focusWindow:${spaceId}`); },
+    activate: (id, spaceId) => { log.push(`activate:${id}:${spaceId}`); },
     setBadge: (n) => { badge = n; log.push(`badge:${n}`); },
   });
   return { notifier, state, log, created, click: () => click?.(), badge: () => badge };
@@ -77,9 +77,19 @@ describe("DesktopNotifier — the OS hop", () => {
     h.notifier.show(row);
     h.notifier.show({ id: "n2", title: "another", body: null });
     h.click(); // the most recent toast's handler
-    expect(h.log).toContain("focusWindow");
-    expect(h.log).toContain("activate:n2");
-    expect(h.log).not.toContain("activate:n1");
+    expect(h.log).toContain("focusWindow:null");
+    expect(h.log).toContain("activate:n2:null");
+    expect(h.log).not.toContain("activate:n1:null");
+  });
+
+  it("a click names the row's space, so the window showing that space is the one raised and handed it", () => {
+    /* THE mutant: drop the space from the click, and a toast about Persona's session opens in whichever
+       window was used last, beside Realm's panes, while Persona's own window sits behind it. */
+    const h = harness();
+    h.notifier.show({ id: "n3", title: "Persona needs you", body: null, spaceId: "sPersona" });
+    h.click();
+    expect(h.log).toContain("focusWindow:sPersona");
+    expect(h.log).toContain("activate:n3:sPersona");
   });
 
   it("the badge clamps what arrives over IPC: negatives, fractions and NaN all become a number a dock can draw", () => {
