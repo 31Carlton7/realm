@@ -793,8 +793,15 @@ Each window keeps its own rail selection and its own view; switching profile fro
 only the window it was done in, unless another window already shows that profile, which comes forward
 instead.
 
-The window comes back where it was left — size, place, maximised or full screen — unless the display
-it was on is gone, in which case its size comes back centred on the main display.
+Each window is titled by the space it shows, which is what the Window menu, Mission Control and the
+Dock list it by. The profile's name follows only when a space in another profile has the same name, so
+two Persona windows read "Persona — Work" and "Persona — Home". A notification for a session opens in
+the window showing its space; when no window shows it, the window in front switches to it.
+
+Every window comes back where it was left — on its space, with its view, at its size and place,
+maximised or full screen — unless the display it was on is gone, in which case its size comes back
+centred on the main display. A window closed while others stay open is forgotten; the last one closed
+is kept, so reopening Realm lands where you were. A window whose space was deleted does not come back.
 
 ## Motion
 
