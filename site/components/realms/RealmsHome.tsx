@@ -78,7 +78,7 @@ const ROUTE: { id: string; side: "left" | "right" }[] = [
  *   chapters   one realm per claim, hung over its screen: the doorway lights, the claim's real capture
  *              opens out of it as a lit screen, and the doorway's light keeps running to the screen's
  *              frame while the claim sits beside it; between them the camera flies on through the realms
- *   teams      a team's four realms together, a Realmite at each door, the board beside them
+ *   teams      a team's four realms together, a teammate's icon at each door, the list beside them
  *   the climb  where the work lives, and the questions, as the camera rises out of the swarm
  *   finale     the camera lifts its eyes to the deep sky, and the page ends on a black hole under the
  *              footer, drawing a disk of realms in (blackhole.ts)

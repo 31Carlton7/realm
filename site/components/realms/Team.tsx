@@ -1,187 +1,126 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useState } from "react"
 
-import { Icon } from "@/components/home/mini/icons"
 import { FieldPanel } from "@/components/realms/FieldPanel"
 import { FIELD_PATTERN, TILE } from "@/components/realms/hive/fallback"
-import { Realmite, realmiteFromSeed, type RealmiteSpec, type RealmiteState } from "@/lib/realmite"
+import { TeammateIcon, type TeammateIconSpec } from "@/lib/teammate-icon/TeammateIcon"
 
-type Role = { id: string; name: string; goal: string; handsTo: string; seed: string }
-type Item = { id: string; title: string; from: string; detail: string }
+type State = "idle" | "working" | "needs-you"
+type Task = { title: string; ago: string; asks?: string }
+type Teammate = { id: string; name: string; brief: string; icon: TeammateIconSpec; lead?: boolean; resting: State; task?: Task }
 
-/** The board's roles and Review, as the landing page's Teams section has them. */
-export const ROLES: Role[] = [
-  { id: "researcher", name: "Researcher", goal: "Find three stories a week the audience hasn't seen yet.", handsTo: "Content Producer", seed: "realm-researcher-7" },
-  { id: "producer", name: "Content Producer", goal: "Turn each story into a newsletter and a set of posts.", handsTo: "Editor", seed: "realm-producer-2" },
-  { id: "editor", name: "Editor", goal: "Hold every draft to the style guide before it reaches you.", handsTo: "You, in Review", seed: "realm-editor-11" },
-  { id: "ops", name: "Ops", goal: "Keep the calendar, the accounts and the week's budget straight.", handsTo: "Researcher", seed: "realm-ops-4" },
+/** Four of the app's quick starts (panes/teammate/quick-starts.ts), with their shapes and colours. */
+export const ROLES: Teammate[] = [
+  { id: "lead", name: "Lead", brief: "Hands each ask to the teammate who fits, and comes back with finished work.", icon: { shape: "circle", hue: 264, chroma: 0.014 }, lead: true, resting: "idle" },
+  { id: "cto", name: "CTO", brief: "Owns the technical direction: architecture, data and performance.", icon: { shape: "hexagon", hue: 260, chroma: 0.15 }, resting: "working", task: { title: "cto - sqlite search", ago: "4m" } },
+  { id: "design", name: "Design engineer", brief: "Builds and polishes the interface, and checks it in the running app.", icon: { shape: "flower", hue: 350, chroma: 0.15 }, resting: "needs-you", task: { title: "design-engineer - settings page", ago: "1m", asks: "Allow Bash?" } },
+  { id: "research", name: "Research", brief: "Finds things out, and changes nothing in the project unless you ask.", icon: { shape: "cloud", hue: 188, chroma: 0.106 }, resting: "idle", task: { title: "research - sync engines", ago: "2h" } },
 ]
 
-const ITEMS: Item[] = [
-  { id: "newsletter", title: "Thursday's newsletter", from: "editor", detail: "1,240 words · 3 stories · links checked" },
-  { id: "posts", title: "Three posts for the launch", from: "producer", detail: "Scheduled for 4:10 PM, after you approve" },
-]
-
-/** The size the world's Realmites are drawn at before the field scales them to their distance. */
-export const WORLD_REALMITE = 64
+/** The size a figure in the world is drawn at before the field scales it to its distance. */
+export const WORLD_ICON = 64
 
 /**
- * Teams (2.1), as a place: the team's four realms stand together in the field with each role's
- * Realmite at its door, and the board beside them is the one the app shows. Picking a role lights its
- * doorway; what is waiting in Review shows on its role's face, never as a mood. The Realmites at the
- * doors are the app's own generator, the same seeds as the board's, positioned every frame by the
- * field from the doorway they stand at.
+ * Teams, as a place: four realms stand together in the field with a teammate's icon at each door, and
+ * the list beside them acts out what the app's does. Picking a teammate lights its doorway. An icon
+ * says who; state is the words and the dot beside it. The figures at the doors are positioned every
+ * frame by the field from the doorway they stand at.
  */
 export function Team({ side }: { side: "left" | "right" }) {
-  const [specs, setSpecs] = useState<Record<string, RealmiteSpec>>(() =>
-    Object.fromEntries(ROLES.map((r) => [r.id, realmiteFromSeed(r.seed)])),
-  )
-  const [picked, setPicked] = useState("editor")
-  const [decided, setDecided] = useState<Record<string, "approved" | "returned">>({})
-  const [shuffles, setShuffles] = useState(0)
+  const [picked, setPicked] = useState("design")
+  const [answer, setAnswer] = useState<"allowed" | "denied" | null>(null)
 
-  const waiting = ITEMS.filter((item) => !decided[item.id])
-  const states: Record<string, RealmiteState> = useMemo(() => {
-    const resting: Record<string, RealmiteState> = { researcher: "working", producer: "idle", editor: "idle", ops: "sleeping" }
-    return Object.fromEntries(
-      ROLES.map((r) => {
-        const made = ITEMS.filter((i) => i.from === r.id)
-        if (made.some((i) => !decided[i.id])) return [r.id, "needs-you"]
-        if (made.some((i) => decided[i.id] === "returned")) return [r.id, "working"]
-        return [r.id, resting[r.id]!]
-      }),
-    )
-  }, [decided])
-
-  const shuffle = () => {
-    const n = shuffles + 1
-    setShuffles(n)
-    setSpecs(Object.fromEntries(ROLES.map((r) => [r.id, realmiteFromSeed(`${r.seed}-shuffle-${n}`)])))
+  const stateOf = (t: Teammate): State => {
+    if (t.resting !== "needs-you" || !answer) return t.resting
+    return answer === "allowed" ? "working" : "idle"
   }
-
-  const role = ROLES.find((r) => r.id === picked)!
+  const teammate = ROLES.find((t) => t.id === picked)!
   const textCols = side === "right" ? "lg:col-start-1 lg:col-end-6" : "lg:col-start-7 lg:col-end-13"
   const slotCols = side === "right" ? "lg:col-start-6 lg:col-end-13" : "lg:col-start-1 lg:col-end-7"
+  const task = teammate.task
 
   return (
     <section aria-labelledby="teams-title" className="relative">
       <div className="mx-auto grid w-full max-w-[92rem] grid-cols-1 gap-y-10 px-6 py-24 sm:px-10 lg:min-h-[150vh] lg:grid-cols-12 lg:items-center lg:gap-x-8 lg:py-0">
         <FieldPanel anchor="k:teams" wrapClassName={`z-[2] min-w-0 lg:row-start-1 ${textCols}`} className="px-5 pt-7 pb-5 sm:px-7 sm:pt-8 sm:pb-6">
-          <p className="flex items-center gap-2 text-[13px] text-accent-ink">
-            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
-            New in Realm 2.1
-          </p>
-          <h2 id="teams-title" className="mt-4 text-[clamp(1.9rem,2.9vw,2.6rem)] leading-[1.06] font-[580] tracking-[-0.04em] text-balance text-ink">
+          <h2 id="teams-title" className="text-[clamp(1.9rem,2.9vw,2.6rem)] leading-[1.06] font-[580] tracking-[-0.04em] text-balance text-ink">
             A team in every space.
           </h2>
           <p className="mt-5 max-w-[34rem] text-[17px] leading-[1.6] text-ink-2">
-            Give a space roles that each work toward a goal, on their own schedule, and hand work along to one another.
-            Every role wears a Realmite whose face is its run&rsquo;s state, never a mood. What the team makes waits in
-            Review, and nothing is posted, sent or published until you approve it.
+            A teammate is an agent that stays in a space, with a name, a job, a model and one chat you come back to. For
+            real work it starts sessions of its own, it can message the other teammates, and it can check in on a
+            schedule. It runs in the permission mode you give it.
           </p>
 
           <div className="spot mt-8 p-4" style={{ borderRadius: 12 }}>
-            <div className="flex items-center justify-between px-1">
-              <p className="text-[13px] text-ink-2">
-                <span className="text-ink">Newsletter</span> · 4 roles
-              </p>
-              <button
-                type="button"
-                onClick={shuffle}
-                className="btn btn-ghost app-corner flex h-8 items-center gap-1.5 rounded-[8px] px-3 text-[13px]"
-              >
-                <Icon name="reload" className="turn h-3.5 w-3.5" /> Shuffle
-              </button>
-            </div>
+            <p className="px-1 text-[13px] text-ink-2">
+              <span className="text-ink">Site</span> · {ROLES.length} teammates
+            </p>
 
             <ul className="mt-3.5 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {ROLES.map((r) => (
-                <li key={r.id}>
-                  <button
-                    type="button"
-                    aria-pressed={picked === r.id}
-                    onClick={() => setPicked(r.id)}
-                    className="flex w-full flex-col items-center gap-1.5 rounded-[12px] bg-page px-2 pt-4 pb-3 shadow-[inset_0_0_0_1px_var(--color-line)] transition-[box-shadow,background-color] duration-150 ease-out hover:bg-surface hover:duration-220 hover:ease-spring aria-pressed:bg-surface aria-pressed:shadow-[inset_0_0_0_1px_oklch(0.68_0.173_253.301/0.55)]"
-                  >
-                    <Realmite spec={specs[r.id]!} size={48} state={states[r.id]} />
-                    <span className="text-[13px] font-[520] text-ink">{r.name}</span>
-                    <span className={`flex items-center gap-1.5 text-[12px] ${stateTone(states[r.id]!)}`}>
-                      {states[r.id] === "needs-you" || states[r.id] === "working" ? (
-                        <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${states[r.id] === "needs-you" ? "bg-orange" : "bg-green"}`} />
-                      ) : null}
-                      {stateLabel(states[r.id]!)}
-                    </span>
-                  </button>
-                </li>
-              ))}
+              {ROLES.map((t) => {
+                const state = stateOf(t)
+                return (
+                  <li key={t.id}>
+                    <button
+                      type="button"
+                      aria-pressed={picked === t.id}
+                      onClick={() => setPicked(t.id)}
+                      className="flex w-full flex-col items-center gap-1.5 rounded-[12px] bg-page px-2 pt-4 pb-3 shadow-[inset_0_0_0_1px_var(--color-line)] transition-[box-shadow,background-color] duration-150 ease-out hover:bg-surface hover:duration-220 hover:ease-spring aria-pressed:bg-surface aria-pressed:shadow-[inset_0_0_0_1px_oklch(0.68_0.173_253.301/0.55)]"
+                    >
+                      <TeammateIcon icon={t.icon} size={48} lead={t.lead} />
+                      <span className="text-[13px] font-[520] text-ink">{t.name}</span>
+                      <span className={`flex items-center gap-1.5 text-[12px] ${stateTone(state)}`}>
+                        {state !== "idle" ? <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${state === "needs-you" ? "bg-orange" : "bg-green"}`} /> : null}
+                        {stateLabel(state)}
+                      </span>
+                    </button>
+                  </li>
+                )
+              })}
             </ul>
 
             <div aria-live="polite" className="mt-2.5 rounded-[12px] bg-page px-3.5 py-2.5 text-[13.5px] shadow-[inset_0_0_0_1px_var(--color-line)]">
-              <p className="text-ink">{role.goal}</p>
-              <p className="mt-1 flex items-center gap-1.5 text-ink-2">
-                Hands work to <Icon name="chevronRight" className="h-3 w-3" /> <span className="text-ink">{role.handsTo}</span>
-              </p>
+              <p className="text-ink">{teammate.brief}</p>
             </div>
 
             <div className="mt-4 px-1">
-              <p className="flex items-center gap-2 text-[13px] text-ink-2">
-                Review
-                {waiting.length ? <span className="text-orange">{waiting.length} waiting</span> : <span className="text-ink-2">Nothing waiting</span>}
-              </p>
-              <ul className="mt-2 space-y-2">
-                {ITEMS.map((item) => {
-                  const from = ROLES.find((r) => r.id === item.from)!
-                  const outcome = decided[item.id]
-                  return (
-                    <li key={item.id} className="flex flex-wrap items-center gap-3 rounded-[12px] bg-page px-3 py-2.5 shadow-[inset_0_0_0_1px_var(--color-line)] sm:flex-nowrap">
-                      <Realmite spec={specs[from.id]!} size={24} state={outcome ? "idle" : "needs-you"} />
-                      <div className="min-w-0 flex-1 basis-[12rem]">
-                        <p className="truncate text-[13.5px] text-ink">{item.title}</p>
-                        <p className="truncate text-[12px] text-ink-2">
-                          {from.name} · {item.detail}
-                        </p>
-                      </div>
-                      {outcome ? (
-                        <span className={`ml-9 flex items-center gap-1 text-[12.5px] sm:ml-0 ${outcome === "approved" ? "text-green" : "text-ink-2"}`}>
-                          {outcome === "approved" ? <Icon name="check" className="h-3.5 w-3.5" /> : null}
-                          {outcome === "approved" ? "Approved" : `Back with ${from.name}`}
-                          <button
-                            type="button"
-                            onClick={() => setDecided(({ [item.id]: _, ...rest }) => rest)}
-                            className="ml-2 text-ink-2 underline decoration-line-strong underline-offset-2 transition-colors duration-150 ease-out hover:text-ink hover:decoration-current hover:duration-220 hover:ease-spring"
-                          >
-                            Undo
-                          </button>
-                        </span>
-                      ) : (
-                        <span className="ml-9 flex gap-1.5 sm:ml-0">
-                          <button
-                            type="button"
-                            onClick={() => setDecided((d) => ({ ...d, [item.id]: "returned" }))}
-                            className="btn btn-ghost app-corner rounded-[8px] px-2.5 py-1.5 text-[12.5px]"
-                          >
-                            Send back
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setDecided((d) => ({ ...d, [item.id]: "approved" }))}
-                            className="btn btn-accent app-corner rounded-[8px] px-2.5 py-1.5 text-[12.5px]"
-                          >
-                            Approve
-                          </button>
-                        </span>
-                      )}
-                    </li>
-                  )
-                })}
-              </ul>
+              <p className="text-[13px] text-ink-2">Its sessions</p>
+              {task ? (
+                <div className="mt-2 flex flex-wrap items-center gap-3 rounded-[12px] bg-page px-3 py-2.5 shadow-[inset_0_0_0_1px_var(--color-line)] sm:flex-nowrap">
+                  <div className="min-w-0 flex-1 basis-[12rem]">
+                    <p className="truncate text-[13.5px] text-ink">{task.title}</p>
+                    <p className="truncate text-[12px] text-ink-2">
+                      {task.ago} ago{task.asks && !answer ? ` · ${task.asks}` : ""}
+                    </p>
+                  </div>
+                  {task.asks ? (
+                    answer ? (
+                      <span className="text-[12.5px] text-ink-2">{answer === "allowed" ? "Allowed" : "Denied"}</span>
+                    ) : (
+                      <span className="flex gap-1.5">
+                        <button type="button" onClick={() => setAnswer("denied")} className="btn btn-ghost app-corner rounded-[8px] px-2.5 py-1.5 text-[12.5px]">
+                          Deny
+                        </button>
+                        <button type="button" onClick={() => setAnswer("allowed")} className="btn btn-accent app-corner rounded-[8px] px-2.5 py-1.5 text-[12.5px]">
+                          Allow
+                        </button>
+                      </span>
+                    )
+                  ) : null}
+                </div>
+              ) : (
+                <p className="mt-2 rounded-[12px] bg-page px-3 py-2.5 text-[13.5px] text-ink-2 shadow-[inset_0_0_0_1px_var(--color-line)]">
+                  It passes the work on, so the sessions are its teammates&rsquo;.
+                </p>
+              )}
             </div>
           </div>
         </FieldPanel>
 
         {/* Where the team's realms stand in the field. Without the field it holds nothing, and the
-            board beside it carries the whole of the section. */}
+            list beside it carries the whole of the section. */}
         <div data-field-anchor="s:teams" aria-hidden className={`relative hidden aspect-[3/2] min-w-0 lg:row-start-1 lg:block ${slotCols}`}>
           {/* Without the field: the Hive's still drawing of it, a calm plate of realms. */}
           <div
@@ -191,18 +130,18 @@ export function Team({ side }: { side: "left" | "right" }) {
         </div>
       </div>
 
-      {/* The Realmites at their doors, placed by the field. */}
+      {/* The teammates at their doors, placed by the field. */}
       <div aria-hidden className="pointer-events-none">
-        {ROLES.map((r) => (
+        {ROLES.map((t) => (
           <div
-            key={r.id}
-            data-realmite={r.id}
-            data-state={states[r.id]}
-            data-picked={picked === r.id ? "" : undefined}
+            key={t.id}
+            data-teammate={t.id}
+            data-state={stateOf(t)}
+            data-picked={picked === t.id ? "" : undefined}
             className="invisible fixed top-0 left-0 z-[1] origin-top-left opacity-0"
-            style={{ width: WORLD_REALMITE, height: WORLD_REALMITE }}
+            style={{ width: WORLD_ICON, height: WORLD_ICON }}
           >
-            <Realmite spec={specs[r.id]!} size={WORLD_REALMITE} state={states[r.id]} />
+            <TeammateIcon icon={t.icon} size={WORLD_ICON} lead={t.lead} />
           </div>
         ))}
       </div>
@@ -210,5 +149,5 @@ export function Team({ side }: { side: "left" | "right" }) {
   )
 }
 
-const stateLabel = (s: RealmiteState) => (s === "needs-you" ? "Needs you" : s === "working" ? "Working" : s === "sleeping" ? "Done for today" : "Idle")
-const stateTone = (s: RealmiteState) => (s === "needs-you" ? "text-orange" : s === "working" ? "text-green" : "text-ink-2")
+const stateLabel = (s: State) => (s === "needs-you" ? "Needs you" : s === "working" ? "Working" : "Idle")
+const stateTone = (s: State) => (s === "needs-you" ? "text-orange" : s === "working" ? "text-green" : "text-ink-2")

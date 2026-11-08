@@ -1,7 +1,7 @@
 /**
  * The flight's camera, as plain arithmetic: where it is, which way it faces, its lens, and where its
  * optical axis meets the page. Nothing here touches the DOM or the GPU, so the shader, the screens
- * positioned from it and the Realmites standing at their doors all read one camera.
+ * positioned from it and the teammates' icons standing at their doors all read one camera.
  *
  * The camera never rolls. Chapter views are level, like an architect's camera on a tripod, and look
  * down by shifting the lens rather than tilting it, so every realm's vertical edges stay vertical and

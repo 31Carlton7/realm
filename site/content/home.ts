@@ -39,9 +39,9 @@ export type Claim = {
 export const claims: Claim[] = [
   {
     id: "spaces",
-    title: "Every space in one sidebar.",
+    title: "Every space a click away.",
     body:
-      "Each space gets its own section, with a count of what's waiting and working. Needs you sits on top and collects every session waiting on you, from every space and every profile.",
+      "Each space is a tile on the rail, with a count of what's waiting on you, and the sidebar shows one space at a time. Needs you sits on top and collects every session waiting on you, from every space and every profile.",
     capture: "sidebar",
     part: "sidebar",
     caption: "Two questions waiting on you, above every space.",
@@ -161,7 +161,7 @@ export const facetsCoda: Facet = {
 
 /**
  * Delegation, beat by beat, beside its chapter's picture. Every sentence is the delegation code's own
- * behaviour (`agent_run` and `agent_start`, `MAX_DELEGATION_DEPTH`, the fenced final report), and
+ * behaviour (`agent_start`, `MAX_DELEGATION_DEPTH`, the fenced final report), and
  * `realm-agent` is on by default, so "an agent can" is true of a fresh install rather than of a setting.
  */
 export const delegation: Facet[] = [
@@ -174,8 +174,8 @@ export const delegation: Facet[] = [
     body: "Independent tasks run in parallel, and every sub-agent asks for permission like any other session.",
   },
   {
-    title: "Two levels deep, and that's it.",
-    body: "A sub-agent can hand work off once more. Past that, Realm says no.",
+    title: "One level deep, and that's it.",
+    body: "A sub-agent does its own work and can't start sub-agents of its own, so one agent stays in charge.",
   },
   {
     title: "Everything comes back.",

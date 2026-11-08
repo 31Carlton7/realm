@@ -53,7 +53,7 @@ const TAB_ICON: Record<PanelKind, IconName> = {
 }
 
 /**
- * A working sample of Realm, drawn in the page: the sidebar with every space and Needs you, a
+ * A working sample of Realm, drawn in the page: the rail with every space, the sidebar with Needs you, a
  * session, and the side panel where what an agent opens shows up as a tab.
  *
  * Clerk's move, read for Realm: their hero is a sign-in you can actually use, and ours is the
@@ -165,17 +165,22 @@ export function MiniRealm({ scene: driven, onSceneChange, sceneRow = true }: Min
         data-view={view}
         className="group/win relative flex min-h-0 flex-1 overflow-hidden bg-page text-left text-[13px] leading-[1.45] text-ink-2 select-none"
       >
-        <Rail />
+        <Rail
+          current={space.id}
+          waiting={(id) => waiting.filter((s) => s.space === id).length}
+          onPick={(id) => select(SESSIONS.find((s) => s.space === id)!.id, "sidebar")}
+        />
 
-        {/* The sidebar: Needs you over every space, the way the app has it since 2.0. */}
+        {/* The sidebar: one space at a time, under what waits on you from every space. */}
         <nav
-          aria-label="Spaces"
+          aria-label={`Sidebar: ${space.name}`}
           className="hidden w-full min-w-0 flex-col bg-canvas/60 group-data-[view=sidebar]/win:flex md:flex md:w-[248px] md:shrink-0 md:border-r md:border-line"
         >
           <div className="flex h-11 shrink-0 items-center gap-1.5 px-4 text-ink">
-            <span className="grid h-5 w-5 place-items-center rounded-full bg-raised text-[10px] font-[600] text-ink-2">C</span>
-            <span className="text-[13px] font-[560]">Personal</span>
-            <Icon name="chevronDown" className="h-3.5 w-3.5 text-ink-3" />
+            <span style={{ color: space.color }}>
+              <Icon name={space.icon} className="h-3.5 w-3.5" />
+            </span>
+            <span className="text-[13px] font-[560]">{space.name}</span>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 [scrollbar-width:none]">
             {waiting.length ? (
@@ -206,45 +211,23 @@ export function MiniRealm({ scene: driven, onSceneChange, sceneRow = true }: Min
               </>
             ) : null}
 
-            <p className="flex items-center justify-between px-2 pt-3 pb-1 text-[12px] text-ink-3">Spaces</p>
-            {SPACES.map((sp) => {
-              const inSpace = SESSIONS.filter((s) => s.space === sp.id)
-              const waits = inSpace.filter((s) => status[s.id] === "waiting").length
-              const works = inSpace.filter((s) => status[s.id] === "working").length
-              return (
-                <div key={sp.id} className="mb-1">
-                  <div className="flex h-8 items-center gap-2 px-2 text-ink">
-                    <Icon name="chevronDown" className="h-3 w-3 text-ink-3" />
-                    <span style={{ color: sp.color }}>
-                      <Icon name={sp.icon} className="h-3.5 w-3.5" />
-                    </span>
-                    <span className="flex-1 font-[520]">{sp.name}</span>
-                    {waits ? <Count n={waits} tone="orange" /> : null}
-                    {works ? <Count n={works} tone="green" /> : null}
-                  </div>
-                  <ul>
-                    {inSpace.map((s) => (
-                      <li key={s.id}>
-                        <button
-                          type="button"
-                          aria-current={selected === s.id ? "true" : undefined}
-                          onClick={() => select(s.id)}
-                          className="flex h-8 w-full min-w-0 items-center gap-2 rounded-[8px] pr-2 pl-[30px] text-left transition-colors duration-150 hover:bg-raised aria-[current=true]:bg-raised aria-[current=true]:text-ink"
-                        >
-                          {status[s.id] === "scheduled" ? <Icon name="clock" className="-ml-[18px] h-3 w-3 text-ink-3" /> : null}
-                          <span className="min-w-0 flex-1 truncate">{s.title}</span>
-                          <StatusDot status={status[s.id]!} />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )
-            })}
-          </div>
-          <div className="flex h-10 shrink-0 items-center gap-2 border-t border-line px-4 text-ink-3">
-            <Icon name="plus" className="h-3.5 w-3.5" />
-            New space
+            <p className="px-2 pt-3 pb-1 text-[12px] text-ink-3">Sessions</p>
+            <ul>
+              {SESSIONS.filter((s) => s.space === space.id).map((s) => (
+                <li key={s.id}>
+                  <button
+                    type="button"
+                    aria-current={selected === s.id ? "true" : undefined}
+                    onClick={() => select(s.id)}
+                    className="flex h-8 w-full min-w-0 items-center gap-2 rounded-[8px] px-2 text-left transition-colors duration-150 ease-out hover:bg-hover hover:text-ink hover:duration-220 hover:ease-spring aria-[current=true]:bg-raised aria-[current=true]:text-ink"
+                  >
+                    {status[s.id] === "scheduled" ? <Icon name="clock" className="h-3 w-3 shrink-0 text-ink-3" /> : <Icon name="chat" className="h-3.5 w-3.5 shrink-0 text-ink-3" />}
+                    <span className="min-w-0 flex-1 truncate">{s.title}</span>
+                    <StatusDot status={status[s.id]!} />
+                  </button>
+                </li>
+              ))}
+            </ul>
           </div>
         </nav>
 
@@ -403,15 +386,36 @@ export function MiniRealm({ scene: driven, onSceneChange, sceneRow = true }: Min
   )
 }
 
-function Rail() {
+function Rail({ current, waiting, onPick }: { current: string; waiting: (space: string) => number; onPick: (space: string) => void }) {
   const items: IconName[] = ["home", "book", "plug", "clock", "pr"]
   return (
-    <div aria-hidden className="hidden w-12 shrink-0 flex-col items-center gap-1 border-r border-line bg-page py-3 text-ink-3 lg:flex">
+    <div className="hidden w-12 shrink-0 flex-col items-center gap-1 border-r border-line bg-page py-3 text-ink-3 group-data-[view=sidebar]/win:flex md:flex">
       {items.map((name, i) => (
-        <span key={name} className={`grid h-8 w-8 place-items-center rounded-[8px] ${i === 0 ? "bg-raised text-ink" : ""}`}>
+        <span key={name} aria-hidden className={`grid h-8 w-8 place-items-center rounded-[8px] ${i === 0 ? "bg-raised text-ink" : ""}`}>
           <Icon name={name} className="h-4 w-4" />
         </span>
       ))}
+      <span aria-hidden className="my-1 h-px w-6 bg-line" />
+      {SPACES.map((sp) => {
+        const count = waiting(sp.id)
+        return (
+          <button
+            key={sp.id}
+            type="button"
+            aria-pressed={current === sp.id}
+            aria-label={count ? `${sp.name}, ${count} ${count === 1 ? "needs" : "need"} you` : sp.name}
+            onClick={() => onPick(sp.id)}
+            style={{ color: sp.color }}
+            className="relative grid h-8 w-8 place-items-center rounded-[8px] transition-colors duration-150 ease-out hover:bg-hover hover:duration-220 hover:ease-spring aria-pressed:bg-raised"
+          >
+            <Icon name={sp.icon} className="h-4 w-4" />
+            {count ? <span className="absolute -top-0.5 -right-0.5 grid h-3.5 min-w-3.5 place-items-center rounded-full bg-orange text-[10px] leading-none font-[600] text-page">{count}</span> : null}
+          </button>
+        )
+      })}
+      <span aria-hidden className="grid h-8 w-8 place-items-center rounded-[8px]">
+        <Icon name="plus" className="h-4 w-4" />
+      </span>
       <span className="mt-auto grid h-7 w-7 place-items-center rounded-full bg-raised text-[10px] font-[600] text-ink-2">C</span>
     </div>
   )

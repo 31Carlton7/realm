@@ -24,7 +24,7 @@ import {
   type SceneUniforms,
 } from "./shaders"
 import { takeOpened } from "./hands"
-import { ROLES, WORLD_REALMITE } from "./Team"
+import { ROLES, WORLD_ICON } from "./Team"
 import { between, clearOff, doorCorners, doorSill, facing, inWorld, MAX_REALMS, packRealms, populate, realmAt, type Pose, type Realm } from "./world"
 
 const DEG = Math.PI / 180
@@ -439,7 +439,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
   let spaceFrame = 0
   const root = document.documentElement
   const screens = new Map<string, Node>()
-  const realmites = new Map<string, Node>()
+  const figures = new Map<string, Node>()
   /** The keyboard's keys to the chapters' realms (RealmKey), by chapter. */
   const keys = new Map<string, Node>()
   /** The panes words sit on (FieldPanel), by their anchor: each one's corner as drawn right now. */
@@ -501,9 +501,9 @@ export const createRealms: StageFactory = async (gpu, output) => {
       const id = el.dataset.screen!
       if (screens.get(id)?.el !== el) screens.set(id, { el, last: "" })
     }
-    for (const el of document.querySelectorAll<HTMLElement>("[data-realmite]")) {
-      const id = el.dataset.realmite!
-      if (realmites.get(id)?.el !== el) realmites.set(id, { el, last: "" })
+    for (const el of document.querySelectorAll<HTMLElement>("[data-teammate]")) {
+      const id = el.dataset.teammate!
+      if (figures.get(id)?.el !== el) figures.set(id, { el, last: "" })
     }
     for (const el of document.querySelectorAll<HTMLElement>("[data-realm-key]")) {
       const id = el.dataset.realmKey!
@@ -770,7 +770,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
           stand.team.forEach((at, r) => {
             if (pageCount >= PAGE_REALMS) return
             const role = ROLES[r]
-            const node = role ? realmites.get(role.id) : undefined
+            const node = role ? figures.get(role.id) : undefined
             const state = node?.el.dataset.state
             const picked = node?.el.dataset.picked !== undefined
             const toEye = normalize(sub3(stand.key.view.eye, at))
@@ -867,9 +867,9 @@ export const createRealms: StageFactory = async (gpu, output) => {
         scene.page[k * 5] = [0, 0, 0, 0]
       }
 
-      // The Realmites, standing at their doors.
+      // The teammates' icons, standing at their doors.
       for (const [roleIndex, role] of ROLES.entries()) {
-        const node = realmites.get(role.id)
+        const node = figures.get(role.id)
         if (!node) continue
         const stand = list[teams]
         const slot = pageIndex.get(`team-${roleIndex}`)
@@ -881,13 +881,13 @@ export const createRealms: StageFactory = async (gpu, output) => {
         const here = mode === "still" ? (now.nearest === teams ? 1 : 0) : Math.max(0, 1 - Math.abs(teams - progress) * 1.6)
         const [x, y, z] = project(view, b, doorSill(pose))
         const px = (0.46 * view.focal) / Math.max(z, 1e-3)
-        const s = px / WORLD_REALMITE
+        const s = px / WORLD_ICON
         const shown = z > 0.8 && here > 0.01
         write(
           node,
           shown
-            ? `width:${WORLD_REALMITE}px;height:${WORLD_REALMITE}px;transform:translate3d(${(x - px / 2).toFixed(2)}px,${(y - px * 0.94).toFixed(2)}px,0) scale(${s.toFixed(4)});opacity:${smooth(here).toFixed(3)};visibility:visible`
-            : `width:${WORLD_REALMITE}px;height:${WORLD_REALMITE}px;opacity:0;visibility:hidden`,
+            ? `width:${WORLD_ICON}px;height:${WORLD_ICON}px;transform:translate3d(${(x - px / 2).toFixed(2)}px,${(y - px * 0.94).toFixed(2)}px,0) scale(${s.toFixed(4)});opacity:${smooth(here).toFixed(3)};visibility:visible`
+            : `width:${WORLD_ICON}px;height:${WORLD_ICON}px;opacity:0;visibility:hidden`,
         )
       }
 
@@ -1280,7 +1280,7 @@ export const createRealms: StageFactory = async (gpu, output) => {
       delete root.dataset.realmsFlight
       delete root.dataset.realmsWorld
       for (const node of screens.values()) node.el.style.cssText = ""
-      for (const node of realmites.values()) node.el.style.cssText = ""
+      for (const node of figures.values()) node.el.style.cssText = ""
     },
   }
 }

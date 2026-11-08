@@ -10,7 +10,7 @@ import { DOORWAY } from "@/components/realms/hive/cube"
  * faces +z, and its middle is its origin.
  *
  * The population is drawn from a fixed seed, so the page (picking a realm under the pointer, the
- * beams, the Realmites) and the shader (drawing it) agree on every realm without the shader handing
+ * beams, the teammates' icons) and the shader (drawing it) agree on every realm without the shader handing
  * anything back. Where a realm is and how it is turned at a moment is the same arithmetic in both:
  * `realmAt` here, `vs_realm` in shaders.ts.
  */
@@ -130,7 +130,7 @@ export function doorCorners(pose: Pose): [Vec3, Vec3, Vec3, Vec3] {
   return [inWorld(pose, [x0, -0.5, z0]), inWorld(pose, [x1, -0.5, z0]), inWorld(pose, [x1, -0.5, z1]), inWorld(pose, [x0, -0.5, z1])]
 }
 
-/** The point on a doorway's sill, just outside it: where a Realmite stands. */
+/** The point on a doorway's sill, just outside it: where a teammate's icon stands. */
 export const doorSill = (pose: Pose): Vec3 => inWorld(pose, [(DOOR_BOX.x0 + DOOR_BOX.x1) / 2, -0.62, DOOR_BOX.z0])
 
 const normalize = (v: Vec3): Vec3 => {
