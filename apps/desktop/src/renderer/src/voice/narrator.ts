@@ -65,11 +65,20 @@ export class Narrator {
     const said: string[] = [];
     for (let i = this.from; i < t.blocks.length; i++) said.push(...this.block(t.blocks[i]!, i, now, silent && said.length === 0));
     for (const p of t.pendingPermissions) {
-      if (this.readPermissions.has(p.requestId)) continue;
-      this.readPermissions.add(p.requestId);
-      said.push(permissionPrompt(p, this.agentName));
+      if (!this.readPermissions.has(p.requestId)) {
+        this.readPermissions.add(p.requestId);
+        said.push(permissionPrompt(p, this.agentName));
+      }
+      // One card at a time: a spoken yes answers the card just read, so the next waits its turn.
+      if (!p.ask) break;
     }
     return said;
+  }
+
+  /** The card a spoken yes or no would answer: the oldest one open, once it has been read out. */
+  cardBeingRead(t: Transcript): PendingPermission | null {
+    const card = t.pendingPermissions.find((p) => !p.ask);
+    return card && this.readPermissions.has(card.requestId) ? card : null;
   }
 
   private block(b: Block, i: number, now: number, silent: boolean): string[] {

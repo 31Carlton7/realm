@@ -1,4 +1,4 @@
-import type { Transcript } from "../panes/session/transcript-model";
+import type { PendingPermission, Transcript } from "../panes/session/transcript-model";
 import type { VoiceAudio } from "./audio-io";
 import { interpret, isEcho } from "./heard";
 import { Narrator } from "./narrator";
@@ -61,6 +61,9 @@ export class VoiceSession {
   private turn = 0;
   private listening = false;
   private bargePending = false;
+  /** The card that had been read when this turn began: words begun before a card was read are not
+   *  an answer to it. */
+  private cardAtTurnStart: string | null = null;
   private preroll: Int16Array[] = [];
   private prerollSize = 0;
   private outgoing: Int16Array[] = [];
@@ -213,6 +216,7 @@ export class VoiceSession {
       if (e.type === "start") {
         this.turn += 1;
         this.listening = true;
+        this.cardAtTurnStart = this.cardBeingRead()?.requestId ?? null;
         helper.command({ t: "listen", turn: this.turn });
         // The pre-roll already ends with this frame's samples, so it goes alone.
         for (const chunk of this.preroll) this.queueAudio(chunk);
@@ -268,13 +272,26 @@ export class VoiceSession {
       this.hush();
     }
     const { session } = this.deps;
-    const pending = session.transcript()?.pendingPermissions.find((p) => !p.ask);
-    const heard = interpret(text, { permissionPending: !!pending });
+    const read = this.cardBeingRead();
+    const card = read?.requestId === this.cardAtTurnStart ? read : null;
+    const heard = interpret(text, { permissionPending: !!card });
     this.update({ partial: "" });
     if (heard.kind === "nothing") return;
     if (heard.kind === "stop") { await this.interrupt(); this.update({ heard: text }); return; }
-    if (heard.kind === "answer" && pending) { this.update({ heard: text }); await session.decide(pending.requestId, heard.decision); return; }
+    if (heard.kind === "unclear") { this.say("Say yes or no."); this.update({ heard: text }); return; }
+    if (heard.kind === "answer" && card) {
+      this.say(heard.decision === "allow" ? "Allowed once." : "Denied.");
+      this.update({ heard: text });
+      await session.decide(card.requestId, heard.decision);
+      if (heard.rest) await session.send(heard.rest);
+      return;
+    }
     if (heard.kind === "message") { this.update({ heard: heard.text }); await session.send(heard.text); }
+  }
+
+  private cardBeingRead(): PendingPermission | null {
+    const t = this.deps.session.transcript();
+    return t && this.narrator ? this.narrator.cardBeingRead(t) : null;
   }
 
   /** Stop Realm's voice, drop what was queued, and skip the rest of what was being read. */

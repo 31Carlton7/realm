@@ -48,6 +48,29 @@ describe("Narrator", () => {
     expect(n.next(t([], [p]), 0, true)).toEqual([]);
   });
 
+  it("reads one card at a time, so a yes can only be to the card just read", () => {
+    const n = new Narrator(0, "Mina");
+    const first: PendingPermission = { requestId: "r1", toolName: "Bash", input: {}, title: "Run `pnpm build`" };
+    const second: PendingPermission = { requestId: "r2", toolName: "Bash", input: {}, title: "Run `rm -rf dist`" };
+    // THE MUTANT: read every open card — the person hears the last, and a yes answers the first.
+    expect(n.next(t([], [first, second]), 0, true)).toEqual(["Mina asks to run pnpm build. Say yes or no."]);
+    expect(n.cardBeingRead(t([], [first, second]))?.requestId).toBe("r1");
+    expect(n.next(t([], [first, second]), 0, true)).toEqual([]);
+    expect(n.next(t([], [second]), 0, true)).toEqual(["Mina asks to run rm -rf dist. Say yes or no."]);
+    expect(n.cardBeingRead(t([], [second]))?.requestId).toBe("r2");
+  });
+
+  it("has no card being read until it has read one, and never a question", () => {
+    const n = new Narrator(0, "Mina");
+    const card: PendingPermission = { requestId: "r1", toolName: "Bash", input: {}, title: "Run `pnpm build`" };
+    const question: PendingPermission = { requestId: "q", toolName: "AskUserQuestion", input: {}, title: "Which branch?", ask: { questions: [] } as never };
+    expect(n.cardBeingRead(t([], [card]))).toBeNull();
+    // A question ahead of it does not hold the card back.
+    expect(n.next(t([], [question, card]), 0, true)).toEqual(["Mina has a question for you in the chat.", "Mina asks to run pnpm build. Say yes or no."]);
+    expect(n.cardBeingRead(t([], [question, card]))?.requestId).toBe("r1");
+    expect(n.cardBeingRead(t([], [question]))).toBeNull();
+  });
+
   it("says a failure in a sentence", () => {
     const n = new Narrator(0, "Claude");
     expect(n.next(t([{ kind: "error", message: "Rate limited. Try again in a minute.", ts: 0 }]), 0, true)).toEqual(["That failed: Rate limited."]);
