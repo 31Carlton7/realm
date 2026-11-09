@@ -22,6 +22,7 @@ struct RootView: View {
                                 case .reviews: ReviewsView()
                                 case .review(let id): ReviewView(reviewId: id)
                                 case .scheduled: ScheduledView()
+                                case .scheduledTask(let id): ScheduledTaskView(taskId: id)
                                 case .usage: UsageView()
                                 case .saved: SavedView()
                                 case .team: TeamView()

@@ -13,6 +13,8 @@ final class WorkModel {
     private(set) var reviews: [ReviewSummary]?
     /// Every scheduled task, the next to run first; nil until the Mac has listed them.
     private(set) var schedules: [ScheduledTask]?
+    /// What the Scheduled page suggests; nil from a Mac too old to change a task from here.
+    private(set) var suggested: [SuggestedTask]?
     /// The plans' limits and this month's spend, as last read.
     private(set) var usage: Usage?
     /// The sub-agents of each session opened here, newest first.
@@ -52,7 +54,8 @@ final class WorkModel {
             guard ask > shown else { return }
             shown = ask
             self.reviews = ReviewOrder.newestFirst(open)
-            schedules = TaskOrder.nextFirst(scheduled)
+            schedules = TaskOrder.nextFirst(scheduled.tasks)
+            suggested = scheduled.suggested
         } catch {
             noteRefusal(error)
         }
@@ -214,10 +217,57 @@ final class WorkModel {
         return task
     }
 
+    /// The Mac's own answer to a change: the row as it now is, in its place in the order, and any list
+    /// asked for before the change is not shown over it.
+    private func show(_ task: ScheduledTask) {
+        shown = asks
+        schedules = TaskOrder.nextFirst((schedules ?? []).filter { $0.id != task.id } + [task])
+    }
+
+    /// A new task on the Mac.
+    @discardableResult
+    func createTask(_ new: NewTask) async throws -> ScheduledTask {
+        guard let api = api() else { throw ChannelError.notConnected }
+        let task = try await api.createTask(new)
+        show(task)
+        return task
+    }
+
+    /// A change to a task, as the Mac's Edit, Pause and Resume make it.
+    @discardableResult
+    func update(_ taskId: String, _ edit: TaskEdit) async throws -> ScheduledTask {
+        guard let api = api() else { throw ChannelError.notConnected }
+        let task = try await api.updateTask(id: taskId, edit)
+        show(task)
+        return task
+    }
+
+    /// Sets or changes a teammate's check-in, or with nil removes it.
+    @discardableResult
+    func setCheckIn(teammateId: String, _ edit: CheckInEdit?) async throws -> ScheduledTask? {
+        guard let api = api() else { throw ChannelError.notConnected }
+        let task = try await api.setCheckIn(teammateId: teammateId, edit)
+        if let task {
+            show(task)
+        } else {
+            shown = asks
+            schedules = schedules?.filter { $0.teammateId != teammateId }
+        }
+        return task
+    }
+
+    func deleteTask(_ taskId: String) async throws {
+        guard let api = api() else { throw ChannelError.notConnected }
+        try await api.deleteTask(id: taskId)
+        shown = asks
+        schedules = schedules?.filter { $0.id != taskId }
+    }
+
     /// Everything kept of a Mac, when this phone forgets it or pairs with another.
     func forget() {
         reviews = nil
         schedules = nil
+        suggested = nil
         usage = nil
         subagents = [:]
         subagentAsks = [:]

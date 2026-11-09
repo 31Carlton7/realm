@@ -988,10 +988,60 @@ public struct MobileAPI: Sendable {
         return try await connection.call("review.file", params: Params(id: id, path: path), as: FilePreview.self)
     }
 
-    /// Every space's scheduled tasks, next to run first.
-    public func schedules() async throws -> [ScheduledTask] {
-        struct Answer: Decodable, Sendable { let tasks: [ScheduledTask] }
-        return try await connection.call("schedules.list", as: Answer.self).tasks
+    /// Every space's scheduled tasks and teammates' check-ins, next to run first, and what the page suggests.
+    public func schedules() async throws -> ScheduledList {
+        try await connection.call("schedules.list", as: ScheduledList.self)
+    }
+
+    /// When an expression would next fire on the Mac's clock.
+    public func taskWhen(cron: String) async throws -> TaskWhen {
+        struct Params: Encodable, Sendable { let cron: String }
+        return try await connection.call("schedules.when", params: Params(cron: cron), as: TaskWhen.self)
+    }
+
+    public func createTask(_ task: NewTask) async throws -> ScheduledTask {
+        struct Answer: Decodable, Sendable { let task: ScheduledTask }
+        return try await connection.call("schedules.create", params: task, as: Answer.self).task
+    }
+
+    public func updateTask(id: String, _ edit: TaskEdit) async throws -> ScheduledTask {
+        struct Params: Encodable, Sendable {
+            let id: String
+            let edit: TaskEdit
+
+            func encode(to encoder: any Encoder) throws {
+                try edit.encode(to: encoder)
+                var named = encoder.container(keyedBy: IdKey.self)
+                try named.encode(id, forKey: .id)
+            }
+
+            enum IdKey: String, CodingKey { case id }
+        }
+        struct Answer: Decodable, Sendable { let task: ScheduledTask }
+        return try await connection.call("schedules.update", params: Params(id: id, edit: edit), as: Answer.self).task
+    }
+
+    public func deleteTask(id: String) async throws {
+        struct Answer: Decodable, Sendable { let deleted: Bool }
+        _ = try await connection.call("schedules.delete", params: SessionID(id: id), as: Answer.self)
+    }
+
+    /// Sets or changes a teammate's check-in, or with nil removes it; the row it now is.
+    public func setCheckIn(teammateId: String, _ edit: CheckInEdit?) async throws -> ScheduledTask? {
+        struct Params: Encodable, Sendable {
+            let id: String
+            let schedule: CheckInEdit?
+
+            func encode(to encoder: any Encoder) throws {
+                var keyed = encoder.container(keyedBy: CodingKeys.self)
+                try keyed.encode(id, forKey: .id)
+                try keyed.encode(schedule, forKey: .schedule)
+            }
+
+            enum CodingKeys: String, CodingKey { case id, schedule }
+        }
+        struct Answer: Decodable, Sendable { let task: ScheduledTask? }
+        return try await connection.call("teammate.checkIn", params: Params(id: teammateId, schedule: edit), as: Answer.self).task
     }
 
     /// Runs a scheduled task now.
