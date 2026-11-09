@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.8.4 - 2026-11-09
+
+- Realm Mobile: browse a space's folder and the Library on the phone, and search them. Files outside the folder, and files that hold a secret, stay off the phone.
+- Realm Mobile: read, search, edit, add and remove memories in the memory library.
+- Realm Mobile: two terminal tabs with the same name can now be told apart.
+
 ## v2.8.3 - 2026-11-07
 
 - Open a space in a new window, windows come back after a relaunch, and each window is named by its space.
