@@ -189,6 +189,37 @@ struct WorkFixtureTests {
         #expect((started?.lastRunAt ?? 0) > (tasks[0].lastRunAt ?? 0))
     }
 
+    /// What the sheet edits comes with each task, and what the page suggests with the list.
+    @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
+    func aTaskCarriesWhatItsSheetEdits() throws {
+        let list = try Self.decode(ScheduledList.self, "schedules.list")
+        let brief = list.tasks[0]
+        #expect(brief.goal == "Morning brief, as the task says." && brief.cron == "0 8 * * 1-5")
+        #expect(brief.cadence == TaskCadence(repeat: .weekdays, hour: 8, minute: 0))
+        #expect(brief.agentKind == "claude" && brief.model == nil && brief.effort == nil && brief.teammateId == nil)
+        #expect(brief.newSessionPerRun == true && brief.archiveSucceeded == false && brief.lastSkippedAt == nil)
+        #expect(list.tasks[2].lastRun?.error == "gh is not signed in")
+        #expect(list.suggested?.map(\.title) == ["Weekly review", "Morning brief", "Watch CI"])
+        #expect(list.suggested?.first?.cadence == TaskCadence(repeat: .weekly, hour: 16, minute: 0, weekday: 5))
+    }
+
+    /// The calls that change a task, and what the Mac reads an expression as.
+    @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
+    func theCallsThatChangeATaskDecode() throws {
+        let when = try Self.decode(TaskWhen.self, "schedules.when")
+        #expect(when.next == 1_790_060_000_000 && when.when == "Every day at 9:00 AM")
+        let never = try Self.decode(TaskWhen.self, "schedules.when:never")
+        #expect(never.next == nil && never.when == "99 9 * * *")
+        let made = try #require(try Self.decode([String: ScheduledTask].self, "schedules.create")["task"])
+        #expect(made.title == "Nightly sweep" && made.goal == "Look for flaky tests." && made.agentKind == "claude" && made.enabled)
+        #expect(try Self.decode([String: ScheduledTask].self, "schedules.update")["task"]?.enabled == false)
+        #expect(try Self.decode([String: Bool].self, "schedules.delete")["deleted"] == true)
+        struct CheckIn: Decodable { let task: ScheduledTask? }
+        let checkIn = try #require(try Self.decode(CheckIn.self, "teammate.checkIn").task)
+        #expect(checkIn.teammateId != nil && checkIn.agentKind == nil && checkIn.goal == "Check in." && checkIn.lastRun == nil)
+        #expect(try Self.decode(CheckIn.self, "teammate.checkIn:removed").task == nil)
+    }
+
     @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
     func theSubagentsAndWorkEventsDecode() throws {
         let subagents = try Self.event("session.subagents")
@@ -241,6 +272,10 @@ struct WorkCallTests {
         #expect(relay.methods.last == "schedules.list")
         _ = try? await api.runNow(schedule: "t1")
         #expect(relay.methods.last == "schedules.runNow" && relay.params.last == ["id": "t1"])
+        _ = try? await api.updateTask(id: "t1", TaskEdit(enabled: false))
+        #expect(relay.methods.last == "schedules.update")
+        _ = try? await api.deleteTask(id: "t1")
+        #expect(relay.methods.last == "schedules.delete" && relay.params.last == ["id": "t1"])
         await connection.stop()
     }
 

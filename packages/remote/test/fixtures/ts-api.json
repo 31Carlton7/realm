@@ -3765,8 +3765,23 @@
           "lastRun": {
             "state": "Finished",
             "sessionId": "01JBRIEF000000000000000000",
-            "unread": true
-          }
+            "unread": true,
+            "error": null
+          },
+          "goal": "Morning brief, as the task says.",
+          "cron": "0 8 * * 1-5",
+          "cadence": {
+            "repeat": "weekdays",
+            "hour": 8,
+            "minute": 0
+          },
+          "agentKind": "claude",
+          "model": null,
+          "effort": null,
+          "newSessionPerRun": true,
+          "archiveSucceeded": false,
+          "lastSkippedAt": null,
+          "teammateId": null
         },
         {
           "id": "01JSCHEDULE000000000000002",
@@ -3777,7 +3792,22 @@
           "enabled": true,
           "nextRunAt": 1790100000000,
           "lastRunAt": null,
-          "lastRun": null
+          "lastRun": null,
+          "goal": "Weekly review, as the task says.",
+          "cron": "0 16 * * 5",
+          "cadence": {
+            "repeat": "weekly",
+            "weekday": 5,
+            "hour": 16,
+            "minute": 0
+          },
+          "agentKind": "claude",
+          "model": null,
+          "effort": null,
+          "newSessionPerRun": true,
+          "archiveSucceeded": false,
+          "lastSkippedAt": null,
+          "teammateId": null
         },
         {
           "id": "01JSCHEDULE000000000000003",
@@ -3791,7 +3821,55 @@
           "lastRun": {
             "state": "Failed",
             "sessionId": null,
-            "unread": false
+            "unread": false,
+            "error": "gh is not signed in"
+          },
+          "goal": "Watch CI, as the task says.",
+          "cron": "30 9 * * *",
+          "cadence": {
+            "repeat": "daily",
+            "hour": 9,
+            "minute": 30
+          },
+          "agentKind": "claude",
+          "model": null,
+          "effort": null,
+          "newSessionPerRun": true,
+          "archiveSucceeded": false,
+          "lastSkippedAt": null,
+          "teammateId": null
+        }
+      ],
+      "suggested": [
+        {
+          "title": "Weekly review",
+          "blurb": "A short status update from the week's sessions and commits",
+          "goal": "Look back over this week in this space. List its sessions with agent_peers, read the week's commits on every branch with `git log --since='7 days ago' --all`, and note any branch that is still unmerged. Write a short status update in three parts: what shipped, what is in progress, and what is blocked.",
+          "cadence": {
+            "repeat": "weekly",
+            "weekday": 5,
+            "hour": 16,
+            "minute": 0
+          }
+        },
+        {
+          "title": "Morning brief",
+          "blurb": "What changed since yesterday, and what needs attention today",
+          "goal": "Give me a short start-of-day brief for this space's repository: what changed since yesterday (`git log --since=yesterday`), which branches have work that is not merged, and anything that looks broken or half-finished. Keep it under ten lines.",
+          "cadence": {
+            "repeat": "weekdays",
+            "hour": 8,
+            "minute": 0
+          }
+        },
+        {
+          "title": "Watch CI",
+          "blurb": "Check the latest CI runs, and explain any failure with its likely fix",
+          "goal": "Check the latest CI runs on this repository's default branch with `gh run list --limit 5`. If one failed, read its log with `gh run view --log-failed`, find the cause, and say what would fix it. If everything passed, say so in one line.",
+          "cadence": {
+            "repeat": "weekdays",
+            "hour": 9,
+            "minute": 0
           }
         }
       ]
@@ -3809,9 +3887,121 @@
         "lastRun": {
           "state": "Starting",
           "sessionId": null,
-          "unread": false
-        }
+          "unread": false,
+          "error": null
+        },
+        "goal": "Weekly review, as the task says.",
+        "cron": "0 16 * * 5",
+        "cadence": {
+          "repeat": "weekly",
+          "weekday": 5,
+          "hour": 16,
+          "minute": 0
+        },
+        "agentKind": "claude",
+        "model": null,
+        "effort": null,
+        "newSessionPerRun": true,
+        "archiveSucceeded": false,
+        "lastSkippedAt": null,
+        "teammateId": null
       }
+    },
+    "schedules.when": {
+      "next": 1790060000000,
+      "when": "Every day at 9:00 AM"
+    },
+    "schedules.when:never": {
+      "next": null,
+      "when": "99 9 * * *"
+    },
+    "schedules.create": {
+      "task": {
+        "id": "01JSCHEDULE000000000000005",
+        "spaceId": "sp1",
+        "spaceName": "Realm",
+        "title": "Nightly sweep",
+        "when": "Every day at 10:00 PM",
+        "enabled": true,
+        "nextRunAt": 1790200000000,
+        "lastRunAt": null,
+        "lastRun": null,
+        "goal": "Look for flaky tests.",
+        "cron": "0 22 * * *",
+        "cadence": {
+          "repeat": "daily",
+          "hour": 22,
+          "minute": 0
+        },
+        "agentKind": "claude",
+        "model": null,
+        "effort": null,
+        "newSessionPerRun": true,
+        "archiveSucceeded": false,
+        "lastSkippedAt": null,
+        "teammateId": null
+      }
+    },
+    "schedules.update": {
+      "task": {
+        "id": "01JSCHEDULE000000000000002",
+        "spaceId": "sp1",
+        "spaceName": "Realm",
+        "title": "Weekly review",
+        "when": "Fridays at 4:00 PM",
+        "enabled": false,
+        "nextRunAt": 1790100000000,
+        "lastRunAt": null,
+        "lastRun": null,
+        "goal": "Weekly review, as the task says.",
+        "cron": "0 16 * * 5",
+        "cadence": {
+          "repeat": "weekly",
+          "weekday": 5,
+          "hour": 16,
+          "minute": 0
+        },
+        "agentKind": "claude",
+        "model": null,
+        "effort": null,
+        "newSessionPerRun": true,
+        "archiveSucceeded": false,
+        "lastSkippedAt": null,
+        "teammateId": null
+      }
+    },
+    "schedules.delete": {
+      "deleted": true
+    },
+    "teammate.checkIn": {
+      "task": {
+        "id": "01JSCHEDULE000000000000006",
+        "spaceId": "sp1",
+        "spaceName": "Realm",
+        "title": "Designer",
+        "when": "Weekdays at 9:00 AM",
+        "enabled": true,
+        "nextRunAt": 1790060000000,
+        "lastRunAt": null,
+        "lastRun": null,
+        "goal": "Check in.",
+        "cron": "0 9 * * 1-5",
+        "cadence": {
+          "repeat": "weekdays",
+          "hour": 9,
+          "minute": 0
+        },
+        "agentKind": null,
+        "model": null,
+        "effort": null,
+        "newSessionPerRun": false,
+        "archiveSucceeded": false,
+        "lastSkippedAt": null,
+        "teammateId": "01JTEAMMATE000000000000002"
+      }
+    },
+    "teammate.checkIn:removed": {
+      "task": null
     },
     "session.composer": {
       "commands": [

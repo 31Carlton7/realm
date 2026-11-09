@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import {
   AGENT_META, AGENT_SKILL_SUPPORT, AgentKindSchema, DEFAULT_PERMISSION_MODE_KEY, defaultAccountId, documentKindFor, hasAccounts, isSecretPath, keepLiveRefs, LIBRARY_QUERY_MAX, MAC_SKILL_ID, mentionIds, mimeForPath, MID_TURN_MODE_KEY, MODEL_CATALOG_KEY, MODEL_EFFORTS_KEY, parseSpaceIcon, PERMISSION_MODES, readEffortSupport,
-  resolveMidTurnMode, runnableCommands, SEARCH_GROUP_LIMIT_MAX, SELECTABLE_AGENT_KINDS, TeammateIconSchema, withStreamed, type AgentKind, type DelegatedChild, type IconAsset, type Item, type Machine, type MethodResult, type ModelInfo,
+  nextFireOf, resolveMidTurnMode, runnableCommands, SEARCH_GROUP_LIMIT_MAX, SELECTABLE_AGENT_KINDS, TEAMMATE_CLOCK_PROMPT, TeammateIconSchema, withStreamed, type AgentKind, type DelegatedChild, type IconAsset, type Item, type Machine, type MethodParams, type MethodResult, type ModelInfo,
   type Goal, type PendingMove, type QueuedPrompt, type Schedule, type Session, type Skill, type Space, type StoredSessionEvent, type Teammate, type TeammateIcon, type TurnChanges,
 } from "@realm/contracts";
 import { givenAttachmentName, tempAttachmentDir } from "@realm/contracts/src/temp-attachments";
@@ -12,7 +12,7 @@ import {
   type ScheduledTask, type Screen, type ScreenFrame, type SearchHit, type SessionOptions, type SessionRow, type Subagent, type Teammate as PhoneTeammate,
 } from "@realm/remote";
 import {
-  agentsAtWork, FALLBACK_AGENT, isChild, isLive, LAST_AGENT_SETTING, LAST_MODELS_SETTING, needsYou, nestChildren, QUICK_CHAT_SETTING, quickChatIdOf, subagentState, upcomingOrder, type NeedsYouState,
+  agentsAtWork, cadenceSentence, FALLBACK_AGENT, isChild, isLive, LAST_AGENT_SETTING, LAST_MODELS_SETTING, needsYou, nestChildren, QUICK_CHAT_SETTING, quickChatIdOf, subagentState, upcomingOrder, type NeedsYouState,
 } from "@realm/view";
 import { resolveDefaultPermissionMode } from "../sessions/service";
 import { tildify } from "../skills/discovery";
@@ -27,7 +27,7 @@ import { RpcCallError, type RpcPort } from "./rpc-port";
 import { FRAME_MAX_BYTES, FRAME_QUALITY, frameSide, jpegSize, machineScreen, phoneMayWatch, SCREEN_DEADLINE_MS, screenFrame, screenOrder, simulatorScreen } from "./screens";
 import { checkUploads, saveUploads, UploadRefused, type Upload } from "./uploads";
 import { everyPlan, monthStart, spend } from "./usage";
-import { scheduledTask } from "./work";
+import { checkInOf, scheduledTask, suggestedTasks, taskConstraints } from "./work";
 
 /**
  * mobile.v1 on the Mac (PROTOCOL.md §8): each call validated against its schema, then answered by the
@@ -315,6 +315,14 @@ export class MobileApi {
           const fired = await rpc.call("schedules.runNow", { id: p.id as string });
           return { task: (await this.tasks(rpc, [fired]))[0]! };
         }
+        case "schedules.when": {
+          const cron = p.cron as string;
+          return { next: nextFireOf(cron, Date.now()), when: cadenceSentence(cron) };
+        }
+        case "schedules.create": return await this.createTask(rpc, p as MobileParams<"schedules.create">);
+        case "schedules.update": return await this.updateTask(rpc, p as MobileParams<"schedules.update">);
+        case "schedules.delete": return await rpc.call("schedules.delete", { id: p.id as string });
+        case "teammate.checkIn": return await this.checkIn(rpc, p as MobileParams<"teammate.checkIn">);
         case "session.send": {
           const tabs = p.tabs as MobileParams<"session.send">["tabs"];
           const files = await this.uploads(p.text as string, p.attachments as Upload[], tabs?.length ?? 0);
@@ -434,8 +442,8 @@ export class MobileApi {
         const code: MobileErrorCode = e.code === "NOT_FOUND" || e.code === "SESSION_NOT_LIVE" || e.code === "INVALID_PARAMS" ? e.code
           : e.code === "TREE_GONE" || e.code === "NOT_A_REPOSITORY" || e.code === "MEMORY_FILE_NOT_FOUND" ? "NOT_FOUND"
           : e.code.startsWith("MEMORY_") ? "FORBIDDEN"
-          : e.code === "TEAM_REVIEW_STATE" || e.code === "SCHEDULE_BUSY" || e.code === "TEAMMATE_ARCHIVED" ? "FORBIDDEN"
-          : e.code === "TEAM_REVIEW_INVALID" || e.code === "TEAMMATE_HANDLE_TAKEN" || e.code === "TEAMMATE_WRONG_SPACE" ? "INVALID_PARAMS" : "INTERNAL";
+          : e.code === "TEAM_REVIEW_STATE" || e.code === "SCHEDULE_BUSY" || e.code === "SCHEDULE_TEAMMATE" || e.code === "TEAMMATE_ARCHIVED" ? "FORBIDDEN"
+          : e.code === "TEAM_REVIEW_INVALID" || e.code === "TEAMMATE_HANDLE_TAKEN" || e.code === "TEAMMATE_WRONG_SPACE" || e.code === "SCHEDULE_CRON" || e.code === "INVALID_ARGUMENT" ? "INVALID_PARAMS" : "INTERNAL";
         throw new MobileError(code, e.message);
       }
       throw new MobileError("INTERNAL", (e as Error).message);
@@ -1043,11 +1051,62 @@ export class MobileApi {
     return { limits: everyPlan(limits, now), spend: spend(summary, titles) };
   }
 
-  /** Every space's scheduled tasks, in the Scheduled page's order: what runs next first. */
+  /** Every space's scheduled tasks and its teammates' check-ins, in the Scheduled page's order: what runs
+   *  next first. */
   private async schedules(rpc: RpcPort): Promise<MobileResult<"schedules.list">> {
     const spaces = await rpc.call("spaces.list", {});
+    const [each, teammates] = await Promise.all([
+      Promise.all(spaces.map((sp) => rpc.call("schedules.list", { spaceId: sp.id }))),
+      Promise.all(spaces.map((sp) => rpc.call("teammates.list", { spaceId: sp.id, archived: false }))),
+    ]);
+    const checkIns = teammates.flat().flatMap((t) => checkInOf(t) ?? []);
+    return { tasks: await this.tasks(rpc, upcomingOrder([...each.flat(), ...checkIns]), spaces), suggested: suggestedTasks() };
+  }
+
+  /** An agent's model and reasoning level as a task's runs will start on them: checked against what it
+   *  offers on this Mac, as a new session's are. */
+  private async taskChoices(rpc: RpcPort, agent: string, model: string | null | undefined, effort: string | null | undefined): Promise<{ kind: AgentKind; model: string | null; effort: string | null }> {
+    const parsed = AgentKindSchema.safeParse(agent);
+    if (!parsed.success) throw new MobileError("INVALID_PARAMS", `unknown agent ${agent}`);
+    const kind = parsed.data;
+    const [probe, shared] = await Promise.all([this.probeOf(rpc, kind), this.shared(rpc)]);
+    const resting = resolveDefaultPermissionMode(kind, shared.defaultPermission);
+    const chosen = changesFor(kind, { model: null, effort: null, permissionMode: resting }, { model, effort }, optionsInput(probe, null, shared), resting);
+    return { kind, model: chosen.model ?? null, effort: chosen.effort ?? null };
+  }
+
+  private async createTask(rpc: RpcPort, p: MobileParams<"schedules.create">): Promise<MobileResult<"schedules.create">> {
+    const { agent, model, effort, ...task } = p;
+    const chosen = await this.taskChoices(rpc, agent, model, effort);
+    const made = await rpc.call("schedules.create", { ...task, enabled: true, constraints: taskConstraints(null, chosen.kind, chosen.model, chosen.effort) });
+    return { task: (await this.tasks(rpc, [made]))[0]! };
+  }
+
+  private async updateTask(rpc: RpcPort, p: MobileParams<"schedules.update">): Promise<MobileResult<"schedules.update">> {
+    const { agent, model, effort, ...change } = p;
+    const edit: MethodParams<"schedules.update"> = change;
+    if (agent !== undefined) {
+      const before = await this.findTask(rpc, p.id);
+      const chosen = await this.taskChoices(rpc, agent, model, effort);
+      edit.constraints = taskConstraints(before.constraints, chosen.kind, chosen.model, chosen.effort);
+    }
+    return { task: (await this.tasks(rpc, [await rpc.call("schedules.update", edit)]))[0]! };
+  }
+
+  /** A task as the Mac holds it, wherever it is: the desktop has no call for one on its own. */
+  private async findTask(rpc: RpcPort, id: string): Promise<Schedule> {
+    const spaces = await rpc.call("spaces.list", {});
     const each = await Promise.all(spaces.map((sp) => rpc.call("schedules.list", { spaceId: sp.id })));
-    return { tasks: await this.tasks(rpc, upcomingOrder(each.flat()), spaces) };
+    const found = each.flat().find((s) => s.id === id);
+    if (!found) throw new MobileError("NOT_FOUND", "That task is no longer in Realm.");
+    return found;
+  }
+
+  /** A teammate's check-in set, changed or removed, and the row it now is. */
+  private async checkIn(rpc: RpcPort, p: MobileParams<"teammate.checkIn">): Promise<MobileResult<"teammate.checkIn">> {
+    const schedule = p.schedule && { ...p.schedule, ...(p.schedule.prompt !== undefined ? { prompt: p.schedule.prompt.trim() || TEAMMATE_CLOCK_PROMPT } : {}) };
+    const clock = checkInOf(await rpc.call("teammates.update", { id: p.id, schedule }));
+    return { task: clock && (await this.tasks(rpc, [clock]))[0]! };
   }
 
   /** Each task with its last run: the run its last firing made, and whether that run's session is read. */

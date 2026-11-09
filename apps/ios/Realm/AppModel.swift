@@ -15,6 +15,8 @@ enum Route: Hashable {
     case reviews
     case review(String)
     case scheduled
+    /// One scheduled task, open to read and change.
+    case scheduledTask(String)
     case usage
     /// The turns saved in the profile Home shows, as the desktop's Library ▸ Saved lists them.
     case saved

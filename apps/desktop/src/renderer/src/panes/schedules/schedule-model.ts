@@ -2,7 +2,7 @@ import {
   AGENT_FAST_MODE, AGENT_TAKES_EFFORT, cadenceOf, cronOf, isOnce, momentInputValue, nextFireOf, onceExpr, parseMoment, parseOnce,
   type AgentKind, type Cadence, type Repeat, type Run, type RunConstraints, type Schedule,
 } from "@realm/contracts";
-import { cadenceSentence } from "@realm/view";
+import { cadenceSentence, type SUGGESTIONS } from "@realm/view";
 
 /**
  * The Scheduled page's reading of schedules and their runs, as pure functions — what a row says, what
@@ -10,7 +10,7 @@ import { cadenceSentence } from "@realm/view";
  * Mobile says the same way — a task's cadence, the column's order, a run's word and its unread mark —
  * lives in `@realm/view`, and is read from here as the page always read it.
  */
-export { cadenceSentence, clockLabel, ordinal, runState, runUnread, upcomingOrder } from "@realm/view";
+export { SUGGESTIONS, cadenceSentence, clockLabel, ordinal, runState, runUnread, upcomingOrder } from "@realm/view";
 
 /* ────────────────────────────── when ────────────────────────────── */
 
@@ -248,33 +248,6 @@ export const minuteOptions = (current: number): number[] => {
 };
 
 /* ────────────────────────────── suggestions ────────────────────────────── */
-
-/**
- * The Suggested section: tasks that are worth having on a clock in a Realm space, each written as
- * standing instructions for an agent that has never seen a conversation about it — which is what a
- * scheduled run is. They name the tools a run in a space actually has (`agent_peers`, git, `gh`), not
- * an inbox or a news feed it cannot reach.
- */
-export const SUGGESTIONS: readonly { title: string; blurb: string; goal: string; every: Repeat; time: string; weekday?: number }[] = [
-  {
-    title: "Weekly review",
-    blurb: "A short status update from the week's sessions and commits",
-    goal: "Look back over this week in this space. List its sessions with agent_peers, read the week's commits on every branch with `git log --since='7 days ago' --all`, and note any branch that is still unmerged. Write a short status update in three parts: what shipped, what is in progress, and what is blocked.",
-    every: "weekly", time: "16:00", weekday: 5,
-  },
-  {
-    title: "Morning brief",
-    blurb: "What changed since yesterday, and what needs attention today",
-    goal: "Give me a short start-of-day brief for this space's repository: what changed since yesterday (`git log --since=yesterday`), which branches have work that is not merged, and anything that looks broken or half-finished. Keep it under ten lines.",
-    every: "weekdays", time: "08:00",
-  },
-  {
-    title: "Watch CI",
-    blurb: "Check the latest CI runs, and explain any failure with its likely fix",
-    goal: "Check the latest CI runs on this repository's default branch with `gh run list --limit 5`. If one failed, read its log with `gh run view --log-failed`, find the cause, and say what would fix it. If everything passed, say so in one line.",
-    every: "weekdays", time: "09:00",
-  },
-];
 
 /** A suggestion as a draft, ready for the modal to open on. */
 export function draftOfSuggestion(s: (typeof SUGGESTIONS)[number], spaceId: string, agentKind: AgentKind, now = Date.now()): Draft {

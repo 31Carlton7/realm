@@ -1635,11 +1635,14 @@ public struct ScheduledTask: Codable, Sendable, Hashable, Identifiable {
         /// The session it ran in.
         public let sessionId: String?
         public let unread: Bool
+        /// Why it failed, from a Mac that says.
+        public let error: String?
 
-        public init(state: String, sessionId: String?, unread: Bool) {
+        public init(state: String, sessionId: String?, unread: Bool, error: String? = nil) {
             self.state = state
             self.sessionId = sessionId
             self.unread = unread
+            self.error = error
         }
     }
 
@@ -1653,9 +1656,26 @@ public struct ScheduledTask: Codable, Sendable, Hashable, Identifiable {
     public let nextRunAt: Millis?
     public let lastRunAt: Millis?
     public let lastRun: LastRun?
+    /// What each run is told. This and everything under it are nil from a Mac too old to change a task
+    /// from here.
+    public let goal: String?
+    public let cron: String?
+    public let cadence: TaskCadence?
+    /// What its runs start on; a teammate's check-in has none, and runs in its chat.
+    public let agentKind: String?
+    public let model: String?
+    public let effort: String?
+    public let newSessionPerRun: Bool?
+    public let archiveSucceeded: Bool?
+    /// The last time an occurrence did not run.
+    public let lastSkippedAt: Millis?
+    /// The teammate whose check-in this is.
+    public let teammateId: String?
 
     public init(id: String, spaceId: String, spaceName: String, title: String, when: String, enabled: Bool, nextRunAt: Millis?,
-                lastRunAt: Millis?, lastRun: LastRun?) {
+                lastRunAt: Millis?, lastRun: LastRun?, goal: String? = nil, cron: String? = nil, cadence: TaskCadence? = nil,
+                agentKind: String? = nil, model: String? = nil, effort: String? = nil, newSessionPerRun: Bool? = nil,
+                archiveSucceeded: Bool? = nil, lastSkippedAt: Millis? = nil, teammateId: String? = nil) {
         self.id = id
         self.spaceId = spaceId
         self.spaceName = spaceName
@@ -1665,6 +1685,16 @@ public struct ScheduledTask: Codable, Sendable, Hashable, Identifiable {
         self.nextRunAt = nextRunAt
         self.lastRunAt = lastRunAt
         self.lastRun = lastRun
+        self.goal = goal
+        self.cron = cron
+        self.cadence = cadence
+        self.agentKind = agentKind
+        self.model = model
+        self.effort = effort
+        self.newSessionPerRun = newSessionPerRun
+        self.archiveSucceeded = archiveSucceeded
+        self.lastSkippedAt = lastSkippedAt
+        self.teammateId = teammateId
     }
 }
 

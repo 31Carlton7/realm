@@ -59,8 +59,8 @@ struct TeammateDraft: Equatable {
 
 /// A teammate's Edit sheet, as the Mac's: who it is and how it looks — the big preview, its eight
 /// shapes drawn in the colour chosen, then the twelve colours — what it does, what it runs on, how
-/// freely it acts, and whether it is the Lead. Save sends only what changed; the folder, its group and
-/// its clock stay the Mac's to change.
+/// freely it acts, and whether it is the Lead. Save sends only what changed; the folder and its group
+/// stay the Mac's to change, and its clock is under Scheduled.
 struct TeammateSheet: View {
     let teammateId: String
     @Environment(AppModel.self) private var model
@@ -80,7 +80,7 @@ struct TeammateSheet: View {
             Group {
                 if let teammate, let binding = Binding($draft) {
                     TeammateForm(draft: binding, agents: model.agentList?.agents ?? [], failure: failure,
-                                 note: "Its folder, group and check-in schedule are changed in Realm on your Mac.") {
+                                 note: "Its folder and group are changed in Realm on your Mac. Its check-in is under Scheduled.") {
                         LabeledContent("Handle") {
                             Text("@\(teammate.handle)").mono(.subheadline).foregroundStyle(Palette.ink2)
                         }
@@ -164,7 +164,7 @@ struct NewTeammateSheet: View {
     var body: some View {
         NavigationStack {
             TeammateForm(draft: $draft, agents: model.agentList?.agents ?? [], failure: failure,
-                         note: "It works in the space's folder. A check-in schedule is set in Realm on your Mac.") {
+                         note: "It works in the space's folder. A check-in is set under Scheduled.") {
                 HandleField(handle: handleText, derived: TeammateWords.handle(from: draft.name), problem: handleProblem)
             } place: {
                 if spaces.count > 1 {
