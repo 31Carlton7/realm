@@ -478,7 +478,7 @@ private struct TaskMenuItems: View {
 
 /// One task as a line of the list. What it runs on is the agent's mark or the teammate's icon, and its
 /// last run wears a word only where that run is more than the ordinary: amber for needs you or failed,
-/// the spinner while it works.
+/// the spinner while it works. Its title is bold until the last run is read.
 private struct TaskRow: View {
     let task: ScheduledTask
     let leadsSection: Bool
@@ -536,18 +536,10 @@ private struct TaskLine: View {
         let unread = task.lastRun?.unread ?? false
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             VStack(alignment: .leading, spacing: 3) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    if unread {
-                        Circle()
-                            .fill(Palette.accent)
-                            .frame(width: 9, height: 9)
-                            .accessibilityHidden(true)
-                    }
-                    Text(task.title)
-                        .font(.body)
-                        .foregroundStyle(task.enabled ? Palette.ink : Palette.ink2)
-                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 6 : 2)
-                }
+                Text(task.title)
+                    .font(.body.weight(unread ? .semibold : .regular))
+                    .foregroundStyle(task.enabled ? Palette.ink : Palette.ink2)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 6 : 2)
                 TimelineView(.periodic(from: .now, by: 60)) { context in
                     Text(ScheduleWords.line(task, now: context.date))
                         .font(.subheadline)
@@ -807,7 +799,7 @@ private struct LastRunLine: View {
                 if let error {
                     Text(error)
                         .font(.footnote)
-                        .foregroundStyle(Palette.orange)
+                        .foregroundStyle(Palette.ink2)
                         .lineLimit(4)
                 }
             }
