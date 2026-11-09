@@ -718,6 +718,51 @@ public struct MobileAPI: Sendable {
         return try await connection.call("library.files", params: params, as: LibraryPage.self)
     }
 
+    /// A profile's memory library as one page: each place's newest few, where a new memory can go, and
+    /// its "Learn from sessions" switch.
+    public func memoryOverview(profileId: String) async throws -> MemoryOverview {
+        struct Params: Encodable, Sendable { let profileId: String }
+        return try await connection.call("memory.overview", params: Params(profileId: profileId), as: MemoryOverview.self)
+    }
+
+    /// One page of a profile's memories, of one place or all, that match `query`.
+    public func memoryPage(profileId: String, place: String? = nil, query: String = "", offset: Int = 0) async throws -> MemoryPage {
+        struct Params: Encodable, Sendable { let profileId: String; let place: String?; let query: String; let offset: Int }
+        return try await connection.call("memory.list", params: Params(profileId: profileId, place: place, query: query, offset: offset), as: MemoryPage.self)
+    }
+
+    public func memoryFile(id: String, profileId: String) async throws -> MemoryFile {
+        struct Params: Encodable, Sendable { let id: String; let profileId: String }
+        return try await connection.call("memory.file", params: Params(id: id, profileId: profileId), as: MemoryFile.self)
+    }
+
+    /// Replace a memory's text. It is refused where the file changed after `baseUpdatedAt`, or is outside
+    /// Realm and `confirmExternal` is false.
+    public func writeMemory(id: String, profileId: String, text: String, confirmExternal: Bool, baseUpdatedAt: Millis) async throws -> MemoryFile {
+        struct Params: Encodable, Sendable { let id: String; let profileId: String; let text: String; let confirmExternal: Bool; let baseUpdatedAt: Millis }
+        let params = Params(id: id, profileId: profileId, text: text, confirmExternal: confirmExternal, baseUpdatedAt: baseUpdatedAt)
+        return try await connection.call("memory.write", params: params, as: MemoryFile.self)
+    }
+
+    public func createMemory(profileId: String, home: MemoryHome, name: String, description: String, type: String, body: String) async throws -> MemoryFile {
+        struct Params: Encodable, Sendable { let profileId: String; let sourceId: String; let spaceId: String?; let name: String; let description: String; let type: String; let body: String }
+        let params = Params(profileId: profileId, sourceId: home.sourceId, spaceId: home.spaceId, name: name, description: description, type: type, body: body)
+        return try await connection.call("memory.create", params: params, as: MemoryFile.self)
+    }
+
+    /// Delete a memory; true where a file outside Realm went to the Trash.
+    public func deleteMemory(id: String, confirmExternal: Bool) async throws -> Bool {
+        struct Params: Encodable, Sendable { let id: String; let confirmExternal: Bool }
+        struct Answer: Decodable, Sendable { let trashed: Bool }
+        return try await connection.call("memory.delete", params: Params(id: id, confirmExternal: confirmExternal), as: Answer.self).trashed
+    }
+
+    public func setMemoryLearning(profileId: String, on: Bool) async throws -> Bool {
+        struct Params: Encodable, Sendable { let profileId: String; let on: Bool }
+        struct Answer: Decodable, Sendable { let on: Bool }
+        return try await connection.call("memory.setLearning", params: Params(profileId: profileId, on: on), as: Answer.self).on
+    }
+
     /// A space's own picture, for a space whose icon is one.
     /// The simulators and machines open in the session's space, live ones first.
     public func screens(id: String) async throws -> [SessionScreen] {

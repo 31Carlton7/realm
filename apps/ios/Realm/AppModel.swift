@@ -28,6 +28,12 @@ enum Route: Hashable {
     case libraryFiles(LibraryShelf)
     /// One file, open to read.
     case document(DocumentRef)
+    /// What agents have learned: the profile Home shows, place by place.
+    case memory
+    /// Every memory of one place.
+    case memoryPlace(MemoryPlaceRef)
+    /// One memory, open to read.
+    case memoryFile(MemoryRef)
 }
 
 enum PairingStatus: Equatable {
@@ -71,6 +77,8 @@ final class AppModel {
     /// The working sessions on the Lock Screen and in the Dynamic Island.
     let activities = WorkActivities()
     var path: [Route] = []
+    /// Said after a memory is saved, made or deleted here, so the lists that show it read it again.
+    var memoryChanges = 0
     /// Settings, in its sheet over Home.
     var settingsShown = false
     var pairing: PairingStatus = .idle

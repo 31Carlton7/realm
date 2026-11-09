@@ -585,6 +585,43 @@ export const DOCUMENTS_PAGE_MAX = 200;
 export const LIBRARY_FILES_PAGE = 40;
 export const LIBRARY_FILES_PAGE_MAX = 100;
 
+/** A page of the memory library a phone asks for by default, and the most it may ask for. */
+export const MEMORY_PAGE = 100;
+export const MEMORY_PAGE_MAX = 200;
+/** How many of its newest memories a place shows on the page that lists every place. */
+export const MEMORY_PLACE_HEAD = 5;
+/** The most of a memory's title, description or matching line a row carries. */
+export const MEMORY_ROW_TEXT_MAX = 200;
+/** The most of a memory's text a phone is sent. A file past it is read in part and edited on the Mac. */
+export const MEMORY_TEXT_MAX = 100_000;
+
+/** A memory as a list shows it. `source` names where it is kept, as the desktop's rows do ("Memory repo",
+ *  "Claude · User memory"); `folder` is where in that source it sits. Its path stays on the Mac. */
+export const MemoryRowSchema = z.object({
+  id: z.string(), title: z.string(), description: z.string().nullable(), type: z.string().nullable(),
+  source: z.string(), folder: z.string().nullable(), index: z.boolean(), updatedAt: z.number(), match: z.string().nullable(),
+});
+
+/** Who a place's memories are for: every space of a profile, one space, or an agent's own files for all
+ *  of them. `entries` is its newest few of `count`. */
+export const MemoryPlaceSchema = z.object({
+  id: z.string(), profileId: z.string(), kind: z.enum(["every", "space", "agent"]), spaceId: z.string().nullable(),
+  title: z.string(), count: z.number().int(), entries: z.array(MemoryRowSchema),
+});
+
+/** Where a new memory can go: a Realm repo's root, or a space's folder of the profile's repo. */
+export const MemoryHomeSchema = z.object({ sourceId: z.string(), spaceId: z.string().nullable(), label: z.string() });
+
+/** One memory whole. `text` is the file, frontmatter included, and `body` what follows the frontmatter.
+ *  `writable` is false for a file too long to edit here, whose `text` is empty and whose `body` is cut. */
+export const MemoryFileSchema = MemoryRowSchema.extend({
+  displayPath: z.string(), text: z.string(), body: z.string(),
+  frontmatter: z.array(z.object({ key: z.string(), value: z.string() })),
+  links: z.array(z.object({ target: z.string(), id: z.string().nullable() })),
+  readBy: z.array(z.object({ who: z.string(), where: z.string(), how: z.string().nullable() })),
+  external: z.boolean(), writable: z.boolean(), deletable: z.boolean(), note: z.string().nullable(),
+});
+
 /** What a phone needs to know to open a file: the desktop's `documentKindFor`, and its mime type. */
 const FileTraits = { kind: z.string(), mime: z.string() };
 
@@ -1017,6 +1054,42 @@ export const MobileCalls = {
   "library.file": { params: z.object({ path: z.string().min(1).max(4096) }), result: FilePreviewSchema },
   /** The file itself, a piece at a time: the same files `library.file` previews, and only those. */
   "library.fileData": { params: z.object({ path: z.string().min(1).max(4096), from: z.number().int().min(0).default(0) }), result: FileDataSchema },
+  /** The memory library as one page: each place with its newest few memories, where a new memory can go,
+   *  and the profile's "Learn from sessions" switch. */
+  "memory.overview": {
+    params: z.object({ profileId: Id }),
+    result: z.object({ places: z.array(MemoryPlaceSchema), homes: z.array(MemoryHomeSchema), learning: z.boolean() }),
+  },
+  /** One page of a profile's memories, of one place or all: the newest first, or with `query` the best
+   *  match first, each with its best line. A file that holds a secret is not listed. */
+  "memory.list": {
+    params: z.object({
+      profileId: Id, place: z.string().max(200).optional(), query: z.string().trim().max(500).default(""),
+      offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(MEMORY_PAGE_MAX).default(MEMORY_PAGE),
+    }),
+    result: z.object({ entries: z.array(MemoryRowSchema), total: z.number().int(), next: z.number().int().nullable() }),
+  },
+  /** One memory whole, by a row's `id`, and no file its sources do not list. */
+  "memory.file": { params: z.object({ id: z.string().min(3).max(2000), profileId: Id }), result: MemoryFileSchema },
+  /** Replace a memory's text, as the desktop's editor does. `confirmExternal` carries the person's yes for a
+   *  file outside Realm. `baseUpdatedAt` is when the text being replaced was last changed: an agent's save
+   *  since then is refused, not overwritten. */
+  "memory.write": {
+    params: z.object({ id: z.string().min(3).max(2000), text: z.string().max(MEMORY_TEXT_MAX), confirmExternal: z.boolean().optional(), baseUpdatedAt: z.number().optional(), profileId: Id }),
+    result: MemoryFileSchema,
+  },
+  /** A new memory in a Realm repo, at one of `memory.overview`'s `homes`. */
+  "memory.create": {
+    params: z.object({
+      sourceId: z.string().min(1).max(200), spaceId: Id.optional(), name: z.string().min(1).max(200), description: z.string().min(1).max(500),
+      type: z.enum(["user", "feedback", "project", "reference"]), body: z.string().max(MEMORY_TEXT_MAX), profileId: Id,
+    }),
+    result: MemoryFileSchema,
+  },
+  /** Delete a memory: from a Realm repo in a commit, outside Realm to the Trash and only with `confirmExternal`. */
+  "memory.delete": { params: z.object({ id: z.string().min(3).max(2000), confirmExternal: z.boolean().optional() }), result: z.object({ trashed: z.boolean() }) },
+  /** The profile's "Learn from sessions" switch. */
+  "memory.setLearning": { params: z.object({ profileId: Id, on: z.boolean() }), result: z.object({ on: z.boolean() }) },
   /** A space's own picture, for an icon `home.get` calls a picture. */
   "space.icon": {
     params: z.object({ id: Id }),

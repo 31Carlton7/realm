@@ -18,6 +18,7 @@ import { resolveDefaultPermissionMode } from "../sessions/service";
 import { tildify } from "../skills/discovery";
 import { diffPage } from "./changes";
 import { checkSpacePath, documentRow, DOCUMENTS_SEARCH_LIMIT, SECRET_REFUSAL, withheldFile } from "./documents";
+import { memoryCreate, memoryFile, memoryList, memoryOverview, MemoryRefused, memorySetLearning, memoryWrite } from "./memory";
 import { agentOptions, changesFor, ChoiceRefused, probeList, sessionModelLabel, type InitFacts, type OptionsInput, type ProbeRow } from "./options";
 import { fileData, filePreview, PreviewRefused, sipsDownscale, type Downscale } from "./preview";
 import { BROWSER_FRAME_EVERY_MS, browserPane, openPanes, paneOrder, terminalOutput, terminalPane } from "./panes";
@@ -408,6 +409,13 @@ export class MobileApi {
           await this.inLibrary(rpc, p.path as string);
           return { ...await this.read(() => fileData(p.path as string, p.from as number)), name: givenAttachmentName(p.path as string, tempAttachmentDir(this.o.realmHome)) };
         }
+        case "memory.overview": return await memoryOverview(rpc, p.profileId as string);
+        case "memory.list": return await memoryList(rpc, p as MobileParams<"memory.list">);
+        case "memory.file": return await memoryFile(rpc, p.id as string, p.profileId as string);
+        case "memory.write": return await memoryWrite(rpc, p as MobileParams<"memory.write">);
+        case "memory.create": return await memoryCreate(rpc, p as MobileParams<"memory.create">);
+        case "memory.delete": return await rpc.call("memory.library.delete", { id: p.id as string, confirmExternal: p.confirmExternal as boolean | undefined });
+        case "memory.setLearning": return await memorySetLearning(rpc, p.profileId as string, p.on as boolean);
         case "debug.report": {
           if (!this.o.dev) throw new MobileError("FORBIDDEN", "debug.report is for development builds");
           mkdirSync(this.o.reportsDir, { recursive: true });
@@ -418,12 +426,14 @@ export class MobileApi {
     } catch (e) {
       if (e instanceof MobileError) throw e;
       if (e instanceof ChoiceRefused || e instanceof UploadRefused) throw new MobileError("INVALID_PARAMS", e.message);
+      if (e instanceof MemoryRefused) throw new MobileError("FORBIDDEN", e.message);
       if (e instanceof RpcCallError) {
         // A turn's trees gone from the repository, or a checkout that is no longer one, are things that
         // are not there any more, as far as a phone can do anything about them. A review already decided,
         // or a task whose last run is still going, refuses what was asked, and the Mac's words say why.
         const code: MobileErrorCode = e.code === "NOT_FOUND" || e.code === "SESSION_NOT_LIVE" || e.code === "INVALID_PARAMS" ? e.code
-          : e.code === "TREE_GONE" || e.code === "NOT_A_REPOSITORY" ? "NOT_FOUND"
+          : e.code === "TREE_GONE" || e.code === "NOT_A_REPOSITORY" || e.code === "MEMORY_FILE_NOT_FOUND" ? "NOT_FOUND"
+          : e.code.startsWith("MEMORY_") ? "FORBIDDEN"
           : e.code === "TEAM_REVIEW_STATE" || e.code === "SCHEDULE_BUSY" || e.code === "TEAMMATE_ARCHIVED" ? "FORBIDDEN"
           : e.code === "TEAM_REVIEW_INVALID" || e.code === "TEAMMATE_HANDLE_TAKEN" || e.code === "TEAMMATE_WRONG_SPACE" ? "INVALID_PARAMS" : "INTERNAL";
         throw new MobileError(code, e.message);

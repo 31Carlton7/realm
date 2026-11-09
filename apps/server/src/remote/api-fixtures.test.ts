@@ -152,6 +152,12 @@ async function generate(): Promise<Record<string, unknown>> {
   writeFileSync(join(dir, ".env"), "TOKEN=hidden");
   // What a phone sent with the first message, where the Mac wrote it.
   const home = tempDir("realm-api-fixture-home-");
+  const memoryEntry = { size: 80, match: null, index: false, folder: null, type: "project" };
+  const memoryEntries = {
+    repo: { ...memoryEntry, id: "realm-repo-profile-p1:ships-fridays.md", sourceId: "realm-repo-profile-p1", path: join(home, "repo/ships-fridays.md"), rel: "ships-fridays.md", title: "Ships Fridays", description: "When releases go out", updatedAt: 1_790_000_300_000 },
+    space: { ...memoryEntry, id: "realm-repo-profile-p1:spaces/realm/uses-pnpm.md", sourceId: "realm-repo-profile-p1", path: join(home, "repo/spaces/realm/uses-pnpm.md"), rel: "spaces/realm/uses-pnpm.md", title: "Uses pnpm", description: "The package manager", folder: "Realm", updatedAt: 1_790_000_200_000 },
+    claude: { ...memoryEntry, id: "claude-user:CLAUDE.md", sourceId: "claude-user", path: join(home, "CLAUDE.md"), rel: "CLAUDE.md", title: "House rules", description: null, type: null, updatedAt: 1_790_000_100_000 },
+  };
   const attachments = tempAttachmentDir(home);
   mkdirSync(attachments, { recursive: true });
   const sent = [{ name: "3f9a1c2b4d5e-IMG_0042.jpg", mime: "image/jpeg" }, { name: "8c1d2e3f4a5b-brief.pdf", mime: "application/pdf" }]
@@ -483,6 +489,22 @@ async function generate(): Promise<Record<string, unknown>> {
       { id: `${S}:7:${made[1]!.path}`, sessionId: S, spaceId: "sp1", kind: "output", path: made[1]!.path, name: "notes.md", ext: "md", ts: 1_790_000_200_000, sessionTitle: "Theme column", agentKind: "claude" },
       { id: `added:${sent[1]!.path}`, sessionId: null, spaceId: null, kind: "added", path: sent[1]!.path, name: "report.pdf", ext: "pdf", ts: 1_790_000_100_000, sessionTitle: null, agentKind: null },
     ] })) as never,
+    "memory.library.sources": (() => ({ sources: [
+      { id: "realm-repo-profile-p1", group: "realm", label: "Memory repo", path: join(home, "repo"), spaceId: null, external: false, creatable: true, count: 2, pointed: true, by: "Sessions start with its MEMORY.md." },
+      { id: "claude-user", group: "claude", label: "User memory", path: join(home, "CLAUDE.md"), spaceId: null, external: true, creatable: false, count: 1, pointed: true, by: "Claude Code loads it in every session." },
+    ] })) as never,
+    "memory.library.list": (() => ({ entries: [memoryEntries.repo, memoryEntries.space, memoryEntries.claude] })) as never,
+    "memory.library.read": (() => ({
+      ...memoryEntries.repo, displayPath: "~/Realm/memory/repos/profile-p1/ships-fridays.md",
+      text: "---\nname: Ships Fridays\ndescription: When releases go out\nmetadata:\n  type: project\n---\n\nReleases go out on Friday. See [[uses-pnpm]].\n",
+      body: "Releases go out on Friday. See [[uses-pnpm]].\n", frontmatter: [{ key: "name", value: "Ships Fridays" }, { key: "metadata.type", value: "project" }],
+      links: [{ target: "uses-pnpm", id: "realm-repo-profile-p1:spaces/realm/uses-pnpm.md" }], readBy: [{ who: "Every agent", where: "in Realm", how: "through Realm's memory tools" }],
+      external: false, writable: true, deletable: true, note: null,
+    })) as never,
+    "memory.library.write": (() => memoryEntries.repo) as never,
+    "memory.library.create": (() => memoryEntries.repo) as never,
+    "memory.library.delete": (() => ({ trashed: false })) as never,
+    "settings.set": (() => ({ ok: true })) as never,
     "library.saved": (() => ({ total: 1, entries: [{
       sessionId: S, seq: 2, savedAt: 1_790_000_300_000, ts: 1_790_000_000_000, text: "Add a theme column to the settings table", attachments: [], goal: null,
       reply: "Added the column and a migration for it.", sessionTitle: "Theme column", spaceId: "sp1",
@@ -584,6 +606,14 @@ async function generate(): Promise<Record<string, unknown>> {
       "library.files": await call("library.files", { profileId: "p1" }),
       "library.file": await call("library.file", { path: made[1]!.path }),
       "library.fileData": await call("library.fileData", { path: made[1]!.path, from: 0 }),
+      "memory.overview": await call("memory.overview", { profileId: "p1" }),
+      "memory.list": await call("memory.list", { profileId: "p1", place: "every:p1" }),
+      "memory.list:search": await call("memory.list", { profileId: "p1", query: "friday", limit: 1 }),
+      "memory.file": await call("memory.file", { id: memoryEntries.repo.id, profileId: "p1" }),
+      "memory.write": await call("memory.write", { id: memoryEntries.repo.id, profileId: "p1", text: "new words", baseUpdatedAt: memoryEntries.repo.updatedAt }),
+      "memory.create": await call("memory.create", { profileId: "p1", sourceId: "realm-repo-profile-p1", name: "Ships Fridays", description: "When releases go out", type: "project", body: "Friday." }),
+      "memory.delete": await call("memory.delete", { id: memoryEntries.repo.id }),
+      "memory.setLearning": await call("memory.setLearning", { profileId: "p1", on: false }),
       "session.accounts": await call("session.accounts", { id: S }),
       "session.setAccount": await call("session.setAccount", { id: S, accountId: "01JACCOUNT0000000000000000" }),
       "session.switchAgent": await call("session.switchAgent", { id: OLDER[4]!, agent: "codex", model: "gpt-6-astra" }),

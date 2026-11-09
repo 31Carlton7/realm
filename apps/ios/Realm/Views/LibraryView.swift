@@ -87,6 +87,11 @@ struct LibraryView: View {
         let found = searched?.answer(to: words)
         List {
             if words.isEmpty {
+                Button { model.path.append(.memory) } label: {
+                    FileLine(symbol: WorkPage.memory.symbol, name: WorkPage.memory.title, goesIn: true)
+                }
+                .fileRow()
+                .accessibilityIdentifier("library-memory")
                 if let saved, !saved.entries.isEmpty {
                     Section {
                         ForEach(saved.entries.prefix(Self.savedShown)) { turn in

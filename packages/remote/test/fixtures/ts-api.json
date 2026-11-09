@@ -4416,6 +4416,254 @@
       "data": "IyBEZWNrIG5vdGVzCgpUaHJlZSBzbGlkZXMuCg==",
       "next": null
     },
+    "memory.overview": {
+      "places": [
+        {
+          "id": "every:p1",
+          "profileId": "p1",
+          "kind": "every",
+          "spaceId": null,
+          "title": "Every space",
+          "count": 1,
+          "entries": [
+            {
+              "id": "realm-repo-profile-p1:ships-fridays.md",
+              "title": "Ships Fridays",
+              "description": "When releases go out",
+              "type": "project",
+              "source": "Memory repo",
+              "folder": null,
+              "index": false,
+              "updatedAt": 1790000300000,
+              "match": null
+            }
+          ]
+        },
+        {
+          "id": "space:sp1",
+          "profileId": "p1",
+          "kind": "space",
+          "spaceId": "sp1",
+          "title": "Realm",
+          "count": 1,
+          "entries": [
+            {
+              "id": "realm-repo-profile-p1:spaces/realm/uses-pnpm.md",
+              "title": "Uses pnpm",
+              "description": "The package manager",
+              "type": "project",
+              "source": "Memory repo",
+              "folder": "Realm",
+              "index": false,
+              "updatedAt": 1790000200000,
+              "match": null
+            }
+          ]
+        },
+        {
+          "id": "agent:claude",
+          "profileId": "p1",
+          "kind": "agent",
+          "spaceId": null,
+          "title": "Claude",
+          "count": 1,
+          "entries": [
+            {
+              "id": "claude-user:CLAUDE.md",
+              "title": "House rules",
+              "description": null,
+              "type": null,
+              "source": "Claude · User memory",
+              "folder": null,
+              "index": false,
+              "updatedAt": 1790000100000,
+              "match": null
+            }
+          ]
+        }
+      ],
+      "homes": [
+        {
+          "sourceId": "realm-repo-profile-p1",
+          "spaceId": null,
+          "label": "Memory repo · every space"
+        },
+        {
+          "sourceId": "realm-repo-profile-p1",
+          "spaceId": "sp1",
+          "label": "Memory repo · Realm"
+        },
+        {
+          "sourceId": "realm-repo-profile-p1",
+          "spaceId": "sp2",
+          "label": "Memory repo · Deck"
+        }
+      ],
+      "learning": true
+    },
+    "memory.list": {
+      "entries": [
+        {
+          "id": "realm-repo-profile-p1:ships-fridays.md",
+          "title": "Ships Fridays",
+          "description": "When releases go out",
+          "type": "project",
+          "source": "Memory repo",
+          "folder": null,
+          "index": false,
+          "updatedAt": 1790000300000,
+          "match": null
+        }
+      ],
+      "total": 1,
+      "next": null
+    },
+    "memory.list:search": {
+      "entries": [
+        {
+          "id": "realm-repo-profile-p1:ships-fridays.md",
+          "title": "Ships Fridays",
+          "description": "When releases go out",
+          "type": "project",
+          "source": "Memory repo",
+          "folder": null,
+          "index": false,
+          "updatedAt": 1790000300000,
+          "match": null
+        }
+      ],
+      "total": 3,
+      "next": 1
+    },
+    "memory.file": {
+      "id": "realm-repo-profile-p1:ships-fridays.md",
+      "title": "Ships Fridays",
+      "description": "When releases go out",
+      "type": "project",
+      "source": "Memory repo",
+      "folder": null,
+      "index": false,
+      "updatedAt": 1790000300000,
+      "match": null,
+      "displayPath": "~/Realm/memory/repos/profile-p1/ships-fridays.md",
+      "text": "---\nname: Ships Fridays\ndescription: When releases go out\nmetadata:\n  type: project\n---\n\nReleases go out on Friday. See [[uses-pnpm]].\n",
+      "body": "Releases go out on Friday. See [[uses-pnpm]].\n",
+      "frontmatter": [
+        {
+          "key": "name",
+          "value": "Ships Fridays"
+        },
+        {
+          "key": "metadata.type",
+          "value": "project"
+        }
+      ],
+      "links": [
+        {
+          "target": "uses-pnpm",
+          "id": "realm-repo-profile-p1:spaces/realm/uses-pnpm.md"
+        }
+      ],
+      "readBy": [
+        {
+          "who": "Every agent",
+          "where": "in Realm",
+          "how": "through Realm's memory tools"
+        }
+      ],
+      "external": false,
+      "writable": true,
+      "deletable": true,
+      "note": null
+    },
+    "memory.write": {
+      "id": "realm-repo-profile-p1:ships-fridays.md",
+      "title": "Ships Fridays",
+      "description": "When releases go out",
+      "type": "project",
+      "source": "Memory repo",
+      "folder": null,
+      "index": false,
+      "updatedAt": 1790000300000,
+      "match": null,
+      "displayPath": "~/Realm/memory/repos/profile-p1/ships-fridays.md",
+      "text": "---\nname: Ships Fridays\ndescription: When releases go out\nmetadata:\n  type: project\n---\n\nReleases go out on Friday. See [[uses-pnpm]].\n",
+      "body": "Releases go out on Friday. See [[uses-pnpm]].\n",
+      "frontmatter": [
+        {
+          "key": "name",
+          "value": "Ships Fridays"
+        },
+        {
+          "key": "metadata.type",
+          "value": "project"
+        }
+      ],
+      "links": [
+        {
+          "target": "uses-pnpm",
+          "id": "realm-repo-profile-p1:spaces/realm/uses-pnpm.md"
+        }
+      ],
+      "readBy": [
+        {
+          "who": "Every agent",
+          "where": "in Realm",
+          "how": "through Realm's memory tools"
+        }
+      ],
+      "external": false,
+      "writable": true,
+      "deletable": true,
+      "note": null
+    },
+    "memory.create": {
+      "id": "realm-repo-profile-p1:ships-fridays.md",
+      "title": "Ships Fridays",
+      "description": "When releases go out",
+      "type": "project",
+      "source": "Memory repo",
+      "folder": null,
+      "index": false,
+      "updatedAt": 1790000300000,
+      "match": null,
+      "displayPath": "~/Realm/memory/repos/profile-p1/ships-fridays.md",
+      "text": "---\nname: Ships Fridays\ndescription: When releases go out\nmetadata:\n  type: project\n---\n\nReleases go out on Friday. See [[uses-pnpm]].\n",
+      "body": "Releases go out on Friday. See [[uses-pnpm]].\n",
+      "frontmatter": [
+        {
+          "key": "name",
+          "value": "Ships Fridays"
+        },
+        {
+          "key": "metadata.type",
+          "value": "project"
+        }
+      ],
+      "links": [
+        {
+          "target": "uses-pnpm",
+          "id": "realm-repo-profile-p1:spaces/realm/uses-pnpm.md"
+        }
+      ],
+      "readBy": [
+        {
+          "who": "Every agent",
+          "where": "in Realm",
+          "how": "through Realm's memory tools"
+        }
+      ],
+      "external": false,
+      "writable": true,
+      "deletable": true,
+      "note": null
+    },
+    "memory.delete": {
+      "trashed": false
+    },
+    "memory.setLearning": {
+      "on": false
+    },
     "session.accounts": {
       "accounts": [
         {
