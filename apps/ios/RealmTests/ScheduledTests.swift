@@ -62,13 +62,10 @@ struct ScheduledTests {
         #expect(ScheduleWords.target(Self.task("Mira", teammate: "m"), agents: [claude], teammate: nil) == "Mira's chat")
     }
 
-    @Test func aTaskWithNoRunsSaysWhenTheFirstIsOrWhyThereIsNone() {
-        let words = { (task: ScheduledTask) in
-            ScheduleWords.noRuns(task, now: Self.now, calendar: Self.calendar, locale: Self.english).replacingOccurrences(of: "\u{202F}", with: " ")
-        }
-        #expect(words(Self.task("t", next: Self.at(days: 1, hour: 9))) == "No runs yet. The first one is tomorrow at 9:00 am.")
-        #expect(words(Self.task("t", enabled: false, next: 5)) == "No runs yet. This task is paused.")
-        #expect(words(Self.task("t")) == "No runs yet. It has nothing left to run.")
+    @Test func aTaskWithNoRunsSaysWhyThereAreNone() {
+        #expect(ScheduleWords.noRuns(Self.task("t", next: 5)) == "No runs yet.")
+        #expect(ScheduleWords.noRuns(Self.task("t", enabled: false, next: 5)) == "No runs yet. This task is paused.")
+        #expect(ScheduleWords.noRuns(Self.task("t")) == "No runs yet. It has nothing left to run.")
     }
 
     @Test func aFinishedOneShotHasNothingToPause() {

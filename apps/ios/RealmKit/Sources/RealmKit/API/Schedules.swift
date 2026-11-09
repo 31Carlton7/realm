@@ -84,6 +84,8 @@ public struct NewTask: Encodable, Sendable, Hashable {
 /// `schedules.update`: only what is set changes. A new `agent` takes `model` and `effort` with it, and
 /// leaving those out is the agent's own default.
 public struct TaskEdit: Encodable, Sendable, Hashable {
+    /// Set by `MobileAPI.updateTask`.
+    var id: String?
     public var spaceId: String?
     public var title: String?
     public var goal: String?

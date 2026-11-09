@@ -581,7 +581,7 @@ async function generate(): Promise<Record<string, unknown>> {
       "schedules.list": await call("schedules.list", {}),
       "schedules.runNow": await call("schedules.runNow", { id: WEEKLY }),
       // Its moment is what the clock says when this runs, so the fixture holds one that stays put.
-      "schedules.when": { ...await call("schedules.when", { cron: "0 9 * * *" }), next: 1_790_060_000_000 },
+      "schedules.when": { ...(await call("schedules.when", { cron: "0 9 * * *" }) as object), next: 1_790_060_000_000 },
       "schedules.when:never": await call("schedules.when", { cron: "99 9 * * *" }),
       "schedules.create": await call("schedules.create", { spaceId: "sp1", title: "Nightly sweep", goal: "Look for flaky tests.", cron: "0 22 * * *", agent: "claude", model: null, effort: null }),
       "schedules.update": await call("schedules.update", { id: WEEKLY, enabled: false }),

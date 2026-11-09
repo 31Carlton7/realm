@@ -1005,20 +1005,10 @@ public struct MobileAPI: Sendable {
     }
 
     public func updateTask(id: String, _ edit: TaskEdit) async throws -> ScheduledTask {
-        struct Params: Encodable, Sendable {
-            let id: String
-            let edit: TaskEdit
-
-            func encode(to encoder: any Encoder) throws {
-                try edit.encode(to: encoder)
-                var named = encoder.container(keyedBy: IdKey.self)
-                try named.encode(id, forKey: .id)
-            }
-
-            enum IdKey: String, CodingKey { case id }
-        }
         struct Answer: Decodable, Sendable { let task: ScheduledTask }
-        return try await connection.call("schedules.update", params: Params(id: id, edit: edit), as: Answer.self).task
+        var change = edit
+        change.id = id
+        return try await connection.call("schedules.update", params: change, as: Answer.self).task
     }
 
     public func deleteTask(id: String) async throws {
@@ -1032,6 +1022,7 @@ public struct MobileAPI: Sendable {
             let id: String
             let schedule: CheckInEdit?
 
+            // A nil `schedule` must go as null, which removes the check-in: left out, the Mac refuses the call.
             func encode(to encoder: any Encoder) throws {
                 var keyed = encoder.container(keyedBy: CodingKeys.self)
                 try keyed.encode(id, forKey: .id)

@@ -212,11 +212,10 @@ enum ScheduleWords {
         return "\(name) · \(agent?.models.first { $0.id == model }?.label ?? model)"
     }
 
-    /// A task with no run to show, in the Mac's words: when the first one is, or why there will be none.
-    static func noRuns(_ task: ScheduledTask, now: Date, calendar: Calendar = .current, locale: Locale = .current) -> String {
+    /// A task with no run to show, in the Mac's words. An armed one's next run is already on the page.
+    static func noRuns(_ task: ScheduledTask) -> String {
         if !task.enabled { return "No runs yet. This task is paused." }
-        guard let next = task.nextRunAt else { return "No runs yet. It has nothing left to run." }
-        return "No runs yet. The first one is \(phrase(next, now: now, calendar: calendar, locale: locale))."
+        return task.nextRunAt == nil ? "No runs yet. It has nothing left to run." : "No runs yet."
     }
 
     /// A one-shot that has run has nothing left to pause.
@@ -757,7 +756,7 @@ struct ScheduledTaskView: View {
             .accessibilityHint(run.sessionId != nil ? "Opens the session it ran in" : "")
             .accessibilityIdentifier("task-last-run")
         } else {
-            Text(ScheduleWords.noRuns(task, now: .now))
+            Text(ScheduleWords.noRuns(task))
                 .font(.subheadline)
                 .foregroundStyle(Palette.ink2)
         }

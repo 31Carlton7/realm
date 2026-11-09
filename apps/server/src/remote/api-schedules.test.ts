@@ -129,7 +129,7 @@ describe("a phone's scheduled tasks", () => {
     expect(moved).not.toHaveProperty("permissionMode");
   });
 
-  it("will not re-check a finished one-shot's moment for a rename, and refuses to resume it", async () => {
+  it("will not re-check a one-shot's passed moment for a rename, and refuses a new moment behind now", async () => {
     const { rpc, ask, refusal, realm } = await mac();
     const soon = Date.now() + 60 * 60_000;
     const { task } = await ask("schedules.create", brief(realm.id, { cron: onceExpr(soon) })) as Task;
@@ -139,7 +139,6 @@ describe("a phone's scheduled tasks", () => {
     try {
       expect((await ask("schedules.update", { id: task.id, title: "Renamed" }) as Task).task.title).toBe("Renamed");
     } finally { vi.restoreAllMocks(); }
-    // The real clock again, on the Mac's side too: a moment truly behind now is what it refuses.
     const gone = onceExpr(Date.now() - 1000);
     expect((await refusal("schedules.update", { id: task.id, cron: gone })).code).toBe("INVALID_PARAMS");
     expect((await rpc.call("schedules.list", { spaceId: realm.id }))[0]!.enabled).toBe(false);
@@ -187,14 +186,13 @@ describe("a teammate's check-in from a phone", () => {
     return { ...m, teammate };
   }
 
-  it("sets it through the teammate, lists it beside the tasks, and fires into its chat rather than a run", async () => {
+  it("sets it through the teammate, and lists it beside the tasks where the desktop's page does not", async () => {
     const { rpc, ask, teammate, realm } = await withTeammate();
     const { task } = await ask("teammate.checkIn", { id: teammate.id, schedule: { cron: "0 9 * * *", prompt: "How is it going?", enabled: true } }) as Task;
     expect(task).toMatchObject({ title: "Mira", goal: "How is it going?", when: "Every day at 9:00 AM", enabled: true, teammateId: teammate.id, agentKind: null, spaceId: realm.id });
     expect((await rpc.call("teammates.list", { spaceId: realm.id, archived: false }))[0]!.schedule).toMatchObject({ id: task.id, cron: "0 9 * * *", prompt: "How is it going?" });
     const { tasks } = await ask("schedules.list", {}) as { tasks: { id: string; teammateId: string | null }[] };
     expect(tasks).toMatchObject([{ id: task.id, teammateId: teammate.id }]);
-    // The desktop's Scheduled page keeps it off its own list.
     expect(await rpc.call("schedules.list", { spaceId: realm.id })).toEqual([]);
   });
 
