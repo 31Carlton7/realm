@@ -276,7 +276,7 @@ struct TaskSheet: View {
                         Button("Cancel", systemImage: "xmark") { dismiss() }
                     }
                     .sharedBackgroundVisibility(.hidden)
-                    ToolbarItem(placement: .confirmationAction) {
+                    ToolbarItem(placement: .topBarTrailing) {
                         if saving {
                             ProgressView()
                         } else {

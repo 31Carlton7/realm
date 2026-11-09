@@ -212,6 +212,13 @@ enum ScheduleWords {
         return "\(name) · \(agent?.models.first { $0.id == model }?.label ?? model)"
     }
 
+    /// A task with no run to show, in the Mac's words: when the first one is, or why there will be none.
+    static func noRuns(_ task: ScheduledTask, now: Date, calendar: Calendar = .current, locale: Locale = .current) -> String {
+        if !task.enabled { return "No runs yet. This task is paused." }
+        guard let next = task.nextRunAt else { return "No runs yet. It has nothing left to run." }
+        return "No runs yet. The first one is \(phrase(next, now: now, calendar: calendar, locale: locale))."
+    }
+
     /// A one-shot that has run has nothing left to pause.
     static func finished(_ task: ScheduledTask) -> Bool {
         task.enabled && task.nextRunAt == nil && task.cadence?.repeat == .once
@@ -640,23 +647,21 @@ struct ScheduledTaskView: View {
                         TaskMenuItems(task: task, actions: TaskActions(model: model), edit: { editing = .edit(task) }) { deleting = true }
                     }
                     .accessibilityIdentifier("task-more")
+                    .confirmationDialog(TaskActions.deleteTitle(task), isPresented: $deleting, titleVisibility: .visible) {
+                        Button(task.teammateId != nil ? "Delete check-in" : "Delete task", role: .destructive) {
+                            Task {
+                                if await TaskActions(model: model).delete(task) { dismiss() }
+                            }
+                        }
+                    } message: {
+                        Text(TaskActions.deleteMessage(task))
+                    }
                 }
                 .sharedBackgroundVisibility(.hidden)
             }
         }
         .sheet(item: $editing) { start in
             TaskSheet(start: start, spaces: spaces)
-        }
-        .confirmationDialog(task.map(TaskActions.deleteTitle) ?? "", isPresented: $deleting, titleVisibility: .visible) {
-            if let task {
-                Button(task.teammateId != nil ? "Delete check-in" : "Delete task", role: .destructive) {
-                    Task {
-                        if await TaskActions(model: model).delete(task) { dismiss() }
-                    }
-                }
-            }
-        } message: {
-            Text(task.map(TaskActions.deleteMessage) ?? "")
         }
         .task(id: model.channelGeneration) {
             async let team: Void = model.work.loadTeam()
@@ -698,23 +703,31 @@ struct ScheduledTaskView: View {
         VStack(alignment: .leading, spacing: 10) {
             if task.enabled, let next = task.nextRunAt {
                 TimelineView(.periodic(from: .now, by: 60)) { context in
-                    TaskFact(symbol: "clock", words: "Next run \(ScheduleWords.phrase(next, now: context.date))")
+                    TaskFact(words: "Next run \(ScheduleWords.phrase(next, now: context.date))") { Image(systemName: "clock") }
                 }
             }
             if let missed = ScheduleWords.missed(task, now: .now) {
-                TaskFact(symbol: "exclamationmark.triangle", words: missed, tone: Palette.orange)
+                TaskFact(words: missed, tone: Palette.orange) { Image(systemName: "exclamationmark.triangle") }
             }
-            TaskFact(symbol: task.teammateId != nil ? "bubble.left" : "cpu", words: ScheduleWords.target(task, agents: model.agentList?.agents ?? [], teammate: teammate))
+            let target = ScheduleWords.target(task, agents: model.agentList?.agents ?? [], teammate: teammate)
+            if task.teammateId != nil {
+                TaskFact(words: target) { TeammateMark(icon: teammate?.icon, size: 16) }
+            } else if let kind = task.agentKind {
+                TaskFact(words: target) { AgentMark(kind: kind) }
+            }
             if !task.spaceName.isEmpty {
-                TaskFact(symbol: "square.stack", words: task.spaceName)
+                let space = model.store.home?.spaces.first { $0.id == task.spaceId }
+                TaskFact(words: task.spaceName) {
+                    if let space { SpaceGlyph(space: space, size: 15, relativeTo: .subheadline) } else { Image(systemName: "square.stack") }
+                }
             }
             if task.teammateId == nil {
-                TaskFact(symbol: "lock.open", words: "Full access")
+                TaskFact(words: "Full access") { Image(systemName: "lock.open") }
                 if task.newSessionPerRun == false {
-                    TaskFact(symbol: "arrow.turn.down.right", words: "Each run continues the last run’s session")
+                    TaskFact(words: "Each run continues the last run’s session") { Image(systemName: "arrow.turn.down.right") }
                 }
                 if task.archiveSucceeded == true {
-                    TaskFact(symbol: "archivebox", words: "Archives successful runs")
+                    TaskFact(words: "Archives successful runs") { Image(systemName: "archivebox") }
                 }
             }
         }
@@ -743,26 +756,28 @@ struct ScheduledTaskView: View {
             .disabled(run.sessionId == nil)
             .accessibilityHint(run.sessionId != nil ? "Opens the session it ran in" : "")
             .accessibilityIdentifier("task-last-run")
-        } else if task.enabled, task.nextRunAt != nil {
-            Text("No runs yet.")
+        } else {
+            Text(ScheduleWords.noRuns(task, now: .now))
                 .font(.subheadline)
                 .foregroundStyle(Palette.ink2)
         }
     }
 }
 
-private struct TaskFact: View {
-    let symbol: String
+/// A line of what a task works with: its mark in a column of its own, so the words line up.
+private struct TaskFact<Mark: View>: View {
     let words: String
     var tone: Color = Palette.ink2
+    @ViewBuilder let mark: Mark
+    @ScaledMetric(relativeTo: .subheadline) private var markWidth: CGFloat = 20
 
     var body: some View {
-        Label {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            mark
+                .frame(width: markWidth)
+                .accessibilityHidden(true)
             Text(words)
-        } icon: {
-            Image(systemName: symbol)
         }
-        .labelStyle(.titleAndIcon)
         .font(.subheadline)
         .foregroundStyle(tone)
     }
