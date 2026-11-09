@@ -510,8 +510,13 @@ else keeps its own name, whatever it looks like.
 | `review.get` | `{id}` | `{review: ReviewSummary, items: [ReviewItem]}` |
 | `review.decide` | `{id, decision: "approve"\|"changes"\|"reject", note?}` | `{review: ReviewSummary}`, as it now is |
 | `review.file` | `{id, path}` | as `session.file`'s |
-| `schedules.list` | `{}` | `{tasks: [ScheduledTask]}` |
+| `schedules.list` | `{}` | `{tasks: [ScheduledTask], suggested: [SuggestedTask]}` |
 | `schedules.runNow` | `{id}` | `{task: ScheduledTask}`, with the run it started |
+| `schedules.when` | `{cron}` | `{next: ms\|null, when: string}` |
+| `schedules.create` | `{spaceId, title, goal, cron, agent, model?, effort?, newSessionPerRun?: bool = true, archiveSucceeded?: bool = false}` | `{task: ScheduledTask}` |
+| `schedules.update` | `{id, spaceId?, title?, goal?, cron?, enabled?, agent?, model?, effort?, newSessionPerRun?, archiveSucceeded?}` | `{task: ScheduledTask}` |
+| `schedules.delete` | `{id}` | `{deleted: bool}` |
+| `teammate.checkIn` | `{id, schedule: {cron?, prompt?, enabled?}\|null}` | `{task: ScheduledTask\|null}` |
 | `session.send` | `{id, text, delivery?: "auto"\|"queue"\|"steer", attachments?: [Upload], mentionRefs?: [MentionRef], tabs?: [TabRef]}` | `{ok: true}` |
 | `session.composer` | `{id}` | `{commands: [UserCommand], skills: [{id, name, description}]}` |
 | `session.mentionFiles` | `{id, query?: string = ""}` | `{files: [{path, rel}]}` |
@@ -935,9 +940,9 @@ ReviewItem {
   and sends nothing: each outward act is still pressed on the Mac. A decision the review's state
   refuses (approving one already approved) is `FORBIDDEN`, in the Mac's words.
 
-**Scheduled is the desktop's Scheduled page.** `schedules.list` lists every space's scheduled tasks
-in the page's order: what runs soonest first, then those paused or with nothing left to run, the
-newest of those first.
+**Scheduled is the desktop's Scheduled page.** `schedules.list` lists every space's scheduled tasks,
+and its teammates' check-ins, which the desktop keeps on each teammate's sheet, in the page's order: what
+runs soonest first, then those paused or with nothing left to run, the newest of those first.
 
 ```
 ScheduledTask {
@@ -945,8 +950,17 @@ ScheduledTask {
   when: string,              when it runs, as the page says it ("Weekdays at 9:00 AM", "Every hour at :15")
   enabled: bool,
   nextRunAt: ms|null, lastRunAt: ms|null,
-  lastRun: {state: string, sessionId: string|null, unread: bool} | null
+  lastRun: {state: string, sessionId: string|null, unread: bool, error: string|null} | null,
+  goal: string,              what each run is told, as written
+  cron: string,
+  cadence: {repeat: "once"|"hourly"|"daily"|"weekdays"|"weekly"|"monthly"|"custom", hour?, minute?, weekday?, day?, at?: ms},
+  agentKind: string|null, model: string|null, effort: string|null,
+  newSessionPerRun: bool, archiveSucceeded: bool,
+  lastSkippedAt: ms|null,
+  teammateId: string|null    the teammate whose check-in this is; its agent and model are then null
 }
+
+SuggestedTask { title, blurb, goal, cadence }
 ```
 
 - **`when`** is the page's sentence for the task's expression, on the Mac's clock; an expression the
@@ -955,8 +969,22 @@ ScheduledTask {
   gone. Its `state` is the page's word: `Starting`, `Running`, `Needs you`, `Failed`, `Expired` or
   `Stopped`, and `Finished` for a run that succeeded. It is `unread` until its session has been read
   to the end, a session nobody has opened included.
+- **`cadence`** is the expression read back into the sheet's Repeat rows, by the desktop's own reading:
+  `once` has its moment in `at`, and `custom` is an expression the rows cannot name, which stays in `cron`.
 - **`schedules.runNow`** is the page's Run now: one run, now, without moving the task's own clock. A
   task that continues one session refuses another run while its last is still going (`FORBIDDEN`).
+- **`schedules.when`** says when an expression would next fire on the Mac's clock, and its sentence, so
+  the sheet can read a task's time back before it is saved. `next` is null where it never would.
+- **`schedules.create`** and **`schedules.update`** are the desktop's Schedule a task and Edit task, by
+  its own calls and its own gate: an expression that will never fire, or a one-shot behind now, is
+  `INVALID_PARAMS` in the Mac's words, and a rename or a pause never re-checks it. `agent`, `model` and
+  `effort` are checked against what the agent offers on this Mac. Every run a task fires works in Full
+  access, wherever the task was made. `enabled` is Pause and Resume. Anything else a task's runs were
+  given stays through an edit.
+- **`schedules.delete`** deletes the task. The runs it made and their sessions stay.
+- **`teammate.checkIn`** is the teammate sheet's Check in on a schedule. A check-in is one row per
+  teammate that fires into its chat, and its title follows the teammate's name, so `schedules.update`
+  and `schedules.delete` refuse it (`NOT_FOUND`, `FORBIDDEN`) and this call changes it instead.
 
 **A session's screens are its space's.** `session.screens` lists every simulator and machine the
 session's space has open on the Mac: each a pane with a screen in it, whichever session opened it. A
@@ -1223,8 +1251,12 @@ phone read, and what bounds it:
   second and 1280 px; and a terminal's output as its pty wrote it, at most 64 KB an answer. A pane is
   shared by every session in its space, and shows whatever is in it. Nothing a phone sends reaches a
   pane. A pane of another space is not found.
-- **`schedules.list`** and **`schedules.runNow`**: every space's scheduled tasks, each with how its last
-  run went and that run's session, and Run now. A task's instructions are not sent.
+- **`schedules.list`**, **`schedules.runNow`**, **`schedules.when`**, **`schedules.create`**,
+  **`schedules.update`**, **`schedules.delete`** and **`teammate.checkIn`**: every space's scheduled tasks
+  and teammates' check-ins, each with how its last run went and that run's session, why it failed (at most
+  500 characters), and Run now. A task's instructions, at most 20,000 characters, are sent so the sheet can
+  edit them, as each run's session already shows them. A phone can make a task that runs in Full access,
+  as the desktop's sheet can; a task's other constraints are not sent and cannot be set from a phone.
 - **`session.moveOptions`** and **`session.move`**: the paths and branches of the session's space's
   checkouts, how many files are uncommitted in its own and the names of the secret-looking files a
   move leaves behind (never their contents). A move goes only to one of those checkouts or a new

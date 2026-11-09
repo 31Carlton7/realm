@@ -1479,6 +1479,7 @@ describe("Scheduled", () => {
     items: [],
   }, {
     "schedules.list": ((p: { spaceId: string }) => tasks[p.spaceId] ?? []) as never,
+    "teammates.list": (() => []) as never,
     "runs.get": ((p: { id: string }) => (runs[p.id] ? { run: runs[p.id], attempts: [] } : null)) as never,
     "schedules.runNow": ((p: { id: string }) => {
       if (p.id === "busy") throw new RpcCallError("SCHEDULE_BUSY", "this task continues one session, and its last run is still going");
@@ -1498,12 +1499,12 @@ describe("Scheduled", () => {
     // THE MUTANT: the sidebar's unread rule, which reads a session nobody ever opened as read — and a
     // run a clock started while nobody looked has no dot.
     expect(Object.fromEntries(listed.map((t) => [t.id, t.lastRun]))).toEqual({
-      sooner: { state: "Finished", sessionId: "run-2", unread: false },
-      asks: { state: "Needs you", sessionId: "run-3", unread: true },
-      later: { state: "Finished", sessionId: "run-1", unread: true },
+      sooner: { state: "Finished", sessionId: "run-2", unread: false, error: null },
+      asks: { state: "Needs you", sessionId: "run-3", unread: true, error: null },
+      later: { state: "Finished", sessionId: "run-1", unread: true, error: null },
       // A run deleted since is no run to say anything of.
       "deleted-run": null,
-      paused: { state: "Failed", sessionId: null, unread: false },
+      paused: { state: "Failed", sessionId: null, unread: false, error: null },
     });
     expect(listed.find((t) => t.id === "paused")).toMatchObject({ enabled: false, nextRunAt: 1_000, lastRunAt: 40 });
   });
@@ -1512,7 +1513,9 @@ describe("Scheduled", () => {
     const { rpc, asked } = rig();
     expect(await attempt(api(), rpc, "schedules.runNow", { id: "later" })).toEqual({ ok: true, result: { task: {
       id: "later", spaceId: "s1", spaceName: "Space s1", title: "later", when: "Fridays at 4:00 PM", enabled: true, nextRunAt: 3_000, lastRunAt: 100,
-      lastRun: { state: "Starting", sessionId: null, unread: false },
+      lastRun: { state: "Starting", sessionId: null, unread: false, error: null },
+      goal: "later", cron: "0 16 * * 5", cadence: { repeat: "weekly", weekday: 5, hour: 16, minute: 0 },
+      agentKind: "claude", model: null, effort: null, newSessionPerRun: true, archiveSucceeded: false, lastSkippedAt: null, teammateId: null,
     } } });
     expect(asked.filter(([m]) => m === "schedules.runNow")).toEqual([["schedules.runNow", { id: "later" }]]);
     // A task whose last run is still going says why it will not start another, in the Mac's words.

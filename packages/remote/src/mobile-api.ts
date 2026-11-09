@@ -479,6 +479,18 @@ const ReviewItemSchema = z.object({
 
 export const ReviewDetailSchema = z.object({ review: ReviewSummarySchema, items: z.array(ReviewItemSchema) });
 
+/** The most of why a run failed that a task's row carries. */
+export const TASK_ERROR_MAX = 500;
+
+/** An expression in the Repeat rows' terms. `once` has its moment in `at`; `custom` is an expression
+ *  the rows cannot name, kept as written. */
+export const TaskCadenceSchema = z.object({
+  repeat: z.enum(["once", "hourly", "daily", "weekdays", "weekly", "monthly", "custom"]),
+  hour: z.number().int().optional(), minute: z.number().int().optional(), weekday: z.number().int().optional(), day: z.number().int().optional(),
+  at: z.number().optional(),
+});
+export type TaskCadence = z.infer<typeof TaskCadenceSchema>;
+
 /** A scheduled task (the desktop's Scheduled page), with how its last run went. */
 export const ScheduledTaskSchema = z.object({
   id: Id,
@@ -490,10 +502,29 @@ export const ScheduledTaskSchema = z.object({
   enabled: z.boolean(),
   nextRunAt: z.number().nullable(),
   lastRunAt: z.number().nullable(),
-  /** The last run: its state in the desktop's words, the session it ran in, and whether it is unread. */
-  lastRun: z.object({ state: z.string(), sessionId: z.string().nullable(), unread: z.boolean() }).nullable(),
+  /** The last run: its state in the desktop's words, the session it ran in, whether it is unread, and why it failed. */
+  lastRun: z.object({ state: z.string(), sessionId: z.string().nullable(), unread: z.boolean(), error: z.string().nullable() }).nullable(),
+  /** What each run is told, as the task's Edit sheet holds it. */
+  goal: z.string(),
+  /** Its expression, and the same read back into the Repeat rows that write it. */
+  cron: z.string(),
+  cadence: TaskCadenceSchema,
+  /** What its runs start on. Null agent and model for a teammate's check-in, which runs in its chat. */
+  agentKind: z.string().nullable(),
+  model: z.string().nullable(),
+  effort: z.string().nullable(),
+  newSessionPerRun: z.boolean(),
+  archiveSucceeded: z.boolean(),
+  /** The last time an occurrence did not run. */
+  lastSkippedAt: z.number().nullable(),
+  /** The teammate whose check-in this is, or null for a task of the Scheduled page. */
+  teammateId: z.string().nullable(),
 });
 export type ScheduledTask = z.infer<typeof ScheduledTaskSchema>;
+
+/** A task the Scheduled page offers to start from. */
+export const SuggestedTaskSchema = z.object({ title: z.string(), blurb: z.string(), goal: z.string(), cadence: TaskCadenceSchema });
+export type SuggestedTask = z.infer<typeof SuggestedTaskSchema>;
 
 /** The most rows `session.open` answers with, `from` or not. */
 export const SESSION_OPEN_MAX = 1000;
@@ -800,6 +831,10 @@ const sessionChoices = {
   permission: z.string().max(40).optional(),
 };
 
+const TaskTitle = z.string().trim().min(1).max(200);
+/** Sent as typed, whitespace and all, as the desktop's sheet sends it: it is somebody's standing instructions. */
+const TaskGoal = z.string().max(20_000).refine((goal) => goal.trim() !== "", "A task needs instructions.");
+
 export const MobileCalls = {
   ping: { params: z.object({}), result: z.object({ at: z.number() }) },
   /** `profileId` scopes `recent` to one profile; everything else is every profile's. */
@@ -916,10 +951,42 @@ export const MobileCalls = {
   },
   /** A preview of a picture a review's item carries: only one its items list. */
   "review.file": { params: z.object({ id: Id, path: z.string().min(1).max(4096) }), result: FilePreviewSchema },
-  /** Every space's scheduled tasks, next to run first. */
-  "schedules.list": { params: z.object({}), result: z.object({ tasks: z.array(ScheduledTaskSchema) }) },
+  /** Every space's scheduled tasks and its teammates' check-ins, next to run first, and what the page suggests. */
+  "schedules.list": { params: z.object({}), result: z.object({ tasks: z.array(ScheduledTaskSchema), suggested: z.array(SuggestedTaskSchema) }) },
   /** Runs a scheduled task now, as the desktop's Run now does. */
   "schedules.runNow": { params: z.object({ id: Id }), result: z.object({ task: ScheduledTaskSchema }) },
+  /** When an expression would next fire on the Mac's clock, and its sentence, before anything is saved. Null where it never would. */
+  "schedules.when": { params: z.object({ cron: z.string().max(200) }), result: z.object({ next: z.number().nullable(), when: z.string() }) },
+  /** A new task, as the desktop's Schedule a task sheet makes one. */
+  "schedules.create": {
+    params: z.object({
+      spaceId: Id, title: TaskTitle, goal: TaskGoal, cron: z.string().min(1).max(200), agent: z.string().min(1), model: z.string().nullable().optional(), effort: z.string().nullable().optional(),
+      newSessionPerRun: z.boolean().default(true), archiveSucceeded: z.boolean().default(false),
+    }),
+    result: z.object({ task: ScheduledTaskSchema }),
+  },
+  /** A change to a task: only what is sent changes. `enabled` is the desktop's Pause and Resume, and
+   *  `spaceId` moves it. A new `agent` comes with its `model` and `effort`, and whatever else the task's
+   *  runs were given stays. */
+  "schedules.update": {
+    params: z.object({
+      id: Id, spaceId: Id.optional(), title: TaskTitle.optional(), goal: TaskGoal.optional(), cron: z.string().min(1).max(200).optional(), enabled: z.boolean().optional(),
+      agent: z.string().min(1).optional(), model: z.string().nullable().optional(), effort: z.string().nullable().optional(),
+      newSessionPerRun: z.boolean().optional(), archiveSucceeded: z.boolean().optional(),
+    }),
+    result: z.object({ task: ScheduledTaskSchema }),
+  },
+  /** Deletes a task. The runs it made and their sessions stay. */
+  "schedules.delete": { params: z.object({ id: Id }), result: z.object({ deleted: z.boolean() }) },
+  /** A teammate's check-in, as its sheet on the desktop sets it: only what is sent changes, and null removes
+   *  it. A blank `prompt` is the words a new check-in starts with. */
+  "teammate.checkIn": {
+    params: z.object({
+      id: Id,
+      schedule: z.object({ cron: z.string().min(1).max(200).optional(), prompt: z.string().max(20_000).optional(), enabled: z.boolean().optional() }).nullable(),
+    }),
+    result: z.object({ task: ScheduledTaskSchema.nullable() }),
+  },
   /** `text` may be empty when files or tabs go with it; a message must carry one of them. A phone offers
    *  files only to a Mac that answers `session.options`, since an older one would drop them. */
   "session.send": {

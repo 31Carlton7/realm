@@ -48,6 +48,8 @@ const PROFILER = "01JPROFILER000000000000000";
 /** Scheduled tasks: a brief whose run finished unread, a weekly review never run, and a paused one whose run failed. */
 const BRIEF = "01JSCHEDULE000000000000001";
 const WEEKLY = "01JSCHEDULE000000000000002";
+const MADE_TASK = "01JSCHEDULE000000000000005";
+const CHECK_IN = "01JSCHEDULE000000000000006";
 const CI = "01JSCHEDULE000000000000003";
 const BRIEF_RUN = "01JRUN00000000000000000001";
 const CI_RUN = "01JRUN00000000000000000002";
@@ -396,6 +398,9 @@ async function generate(): Promise<Record<string, unknown>> {
       : { id: p.id, spaceId: "sp1", path: dir, branch: "theme-column", kind: "worktree", portBlockStart: null, createdAt: 0, updatedAt: 0 })) as never,
     "schedules.list": ((p: { spaceId: string }) => tasks[p.spaceId] ?? []) as never,
     "schedules.runNow": ((p: { id: string }) => ({ ...tasks.sp1!.find((t) => t.id === p.id)!, lastRunAt: 1_790_000_400_000, lastRunId: NOW_RUN })) as never,
+    "schedules.create": ((p: Partial<Schedule> & { spaceId: string; title: string; cron: string }) => schedule(MADE_TASK, p.spaceId, p.title, p.cron, { ...p, nextRunAt: 1_790_200_000_000 })) as never,
+    "schedules.update": ((p: Partial<Schedule> & { id: string }) => ({ ...tasks.sp1!.find((t) => t.id === p.id)!, ...p })) as never,
+    "schedules.delete": (() => ({ deleted: true })) as never,
     "runs.get": ((p: { id: string }) => (runs[p.id] ? { run: runs[p.id], attempts: [] } : null)) as never,
     "simulators.list": ((p: { spaceId: string }) => (p.spaceId !== "sp1" ? { simulators: [], states: [] } : {
       simulators: [simulator(SIM, "sp1", "iPhone 17 Pro"), simulator(PHONE, "sp1", "Carlton's iPhone", { physical: true })],
@@ -419,7 +424,10 @@ async function generate(): Promise<Record<string, unknown>> {
     // The Realm space's Team: its Lead, and a designer whose chat is made the first time it is asked for.
     // The CTO is working in a task session it started; the designer is idle, its last task done.
     "teammates.list": ((p: { spaceId: string; archived: boolean }) => (p.spaceId !== "sp1" ? [] : p.archived ? [tutor] : [cto, designer])) as never,
-    "teammates.update": ((p: Partial<Teammate> & { id: string }) => ({ ...designer, ...p })) as never,
+    "teammates.update": ((p: Partial<Omit<Teammate, "schedule">> & { id: string; schedule?: { cron: string; prompt: string; enabled: boolean } | null }) => {
+      const { schedule: clock, ...edit } = p;
+      return { ...designer, ...edit, schedule: clock ? { id: CHECK_IN, ...clock, nextRunAt: 1_790_060_000_000, lastRunAt: null, lastSkippedAt: null } : null };
+    }) as never,
     // A researcher made from a phone, its handle made from its name and its chat made with it.
     "teammates.create": ((p: Partial<Teammate>) => teammate(RESEARCHER, "researcher", p.name!, p.brief!, { ...p, homeSessionId: RESEARCHER_CHAT })) as never,
     "teammates.archive": ((p: { id: string; archived: boolean }) => ({ ...designer, archived: p.archived })) as never,
@@ -572,6 +580,14 @@ async function generate(): Promise<Record<string, unknown>> {
       "reviews.list": await call("reviews.list", {}),
       "schedules.list": await call("schedules.list", {}),
       "schedules.runNow": await call("schedules.runNow", { id: WEEKLY }),
+      // Its moment is what the clock says when this runs, so the fixture holds one that stays put.
+      "schedules.when": { ...await call("schedules.when", { cron: "0 9 * * *" }), next: 1_790_060_000_000 },
+      "schedules.when:never": await call("schedules.when", { cron: "99 9 * * *" }),
+      "schedules.create": await call("schedules.create", { spaceId: "sp1", title: "Nightly sweep", goal: "Look for flaky tests.", cron: "0 22 * * *", agent: "claude", model: null, effort: null }),
+      "schedules.update": await call("schedules.update", { id: WEEKLY, enabled: false }),
+      "schedules.delete": await call("schedules.delete", { id: WEEKLY }),
+      "teammate.checkIn": await call("teammate.checkIn", { id: DESIGNER, schedule: { cron: "0 9 * * 1-5", prompt: "Check in.", enabled: true } }),
+      "teammate.checkIn:removed": await call("teammate.checkIn", { id: DESIGNER, schedule: null }),
       "session.composer": await call("session.composer", { id: S }),
       "session.mentionFiles": await call("session.mentionFiles", { id: S, query: "theme" }),
       "session.tabs": await call("session.tabs", { id: S }),
