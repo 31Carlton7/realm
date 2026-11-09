@@ -21,6 +21,24 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-8-4",
+    title: "Realm v2.8.4",
+    date: "2026-11-09",
+    version: "v2.8.4",
+    area: "Release",
+    summary:
+      "Your space's folder, the Library and the memory library, all on the phone.",
+    short: "Your folder, the Library and memory on the phone",
+    body: [
+      { kind: "h", text: "Realm Mobile" },
+      { kind: "ul", items: [
+        "**Browse a space's folder and the Library on the phone, and search them.** Files outside the folder, and files that hold a secret, stay off the phone.",
+        "**Read, search, edit, add and remove memories** in the memory library.",
+        "**Two terminal tabs with the same name can now be told apart.**",
+      ] },
+    ],
+  },
+  {
     slug: "v2-8-3",
     title: "Realm v2.8.3",
     date: "2026-11-07",
