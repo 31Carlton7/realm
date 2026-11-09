@@ -99,11 +99,12 @@ struct TeammateSheet: View {
                     Button("Cancel", systemImage: "xmark") { dismiss() }
                 }
                 .sharedBackgroundVisibility(.hidden)
-                ToolbarItem(placement: .confirmationAction) {
+                ToolbarItem(placement: .topBarTrailing) {
                     if saving {
                         ProgressView()
                     } else {
                         Button("Save", systemImage: "checkmark") { save() }
+                            .foregroundStyle(canSave ? Palette.ink : Palette.ink3)
                             .disabled(!canSave)
                             .accessibilityIdentifier("teammate-save")
                     }
@@ -184,11 +185,12 @@ struct NewTeammateSheet: View {
                     Button("Cancel", systemImage: "xmark") { dismiss() }
                 }
                 .sharedBackgroundVisibility(.hidden)
-                ToolbarItem(placement: .confirmationAction) {
+                ToolbarItem(placement: .topBarTrailing) {
                     if creating {
                         ProgressView()
                     } else {
                         Button("Create", systemImage: "checkmark") { create() }
+                            .foregroundStyle(canCreate ? Palette.ink : Palette.ink3)
                             .disabled(!canCreate)
                             .accessibilityIdentifier("teammate-create")
                     }
