@@ -528,6 +528,7 @@ function installMenu() {
     rules: menuRules,
     send: (command) => (BrowserWindow.getFocusedWindow() ?? windows.primary())?.webContents.send("app:command", command),
     openExternal: (url) => void shell.openExternal(url),
+    showAbout: () => app.showAboutPanel(),
     developer: !app.isPackaged,
     darwin: process.platform === "darwin",
   });

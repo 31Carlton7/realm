@@ -6,8 +6,9 @@ import { MENU_LAYOUT, acceleratorFor, appMenuTemplate, pageChords, shouldPageOwn
 const build = (over: Partial<Parameters<typeof appMenuTemplate>[0]> = {}) => {
   const send = vi.fn();
   const openExternal = vi.fn();
-  const template = appMenuTemplate({ appName: "Realm", version: "2.6.3", rules: DEFAULT_KEYBINDINGS, send, openExternal, developer: false, darwin: true, ...over });
-  return { template, send, openExternal };
+  const showAbout = vi.fn();
+  const template = appMenuTemplate({ appName: "Realm", version: "2.6.3", rules: DEFAULT_KEYBINDINGS, send, openExternal, showAbout, developer: false, darwin: true, ...over });
+  return { template, send, openExternal, showAbout };
 };
 /** Every item in the menu bar, depth first. */
 const all = (items: MenuItemConstructorOptions[]): MenuItemConstructorOptions[] =>
@@ -28,6 +29,20 @@ describe("the menu bar", () => {
     expect(appMenu.label).toBe("Realm");
     const settings = (appMenu.submenu as MenuItemConstructorOptions[]).find((i) => i.label === "Settings…");
     expect(settings?.accelerator).toBe("Command+,");
+  });
+
+  /* Measured against Electron 45's real NSMenu for this template: a ⌘ key-down with no characters
+     lands on About, flagged `triggeredByAccelerator`; a pick from the menu arrives with it false. */
+  it("opens the About panel when About Realm is picked, and not when a keystroke lands on it", () => {
+    const { template, showAbout } = build();
+    const about = (template[0]!.submenu as MenuItemConstructorOptions[])[0]!;
+    expect(about.label).toBe("About Realm");
+    expect(all(template).some((i) => i.role === "about")).toBe(false);
+    const click = about.click as (item: unknown, win: unknown, event: { triggeredByAccelerator?: boolean }) => void;
+    click({}, undefined, { triggeredByAccelerator: true });
+    expect(showAbout).not.toHaveBeenCalled();
+    click({}, undefined, { triggeredByAccelerator: false });
+    expect(showAbout).toHaveBeenCalledOnce();
   });
 
   /* THE mutant: a menu that hardcodes its shortcuts. A person who rebinds a command in Settings ▸ Keys
