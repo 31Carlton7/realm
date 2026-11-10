@@ -114,6 +114,7 @@ export type MenuDeps = {
   /** Run a catalog command in the focused window's renderer. */
   send: (command: string) => void;
   openExternal: (url: string) => void;
+  showAbout: () => void;
   /** Reload and Developer Tools, for a build someone is working on. */
   developer: boolean;
   darwin: boolean;
@@ -122,7 +123,7 @@ export type MenuDeps = {
 export const WEBSITE_URL = "https://realm.computer";
 export const CHANGELOG_URL = "https://realm.computer/changelog";
 
-export function appMenuTemplate({ appName, version, rules, send, openExternal, developer, darwin }: MenuDeps): MenuItemConstructorOptions[] {
+export function appMenuTemplate({ appName, version, rules, send, openExternal, showAbout, developer, darwin }: MenuDeps): MenuItemConstructorOptions[] {
   const sep: MenuItemConstructorOptions = { type: "separator" };
   const items = (rows: readonly (CommandRow | null)[]): MenuItemConstructorOptions[] => rows.map((r) => {
     if (r === null) return sep;
@@ -134,7 +135,11 @@ export function appMenuTemplate({ appName, version, rules, send, openExternal, d
     ...(darwin ? [{
       label: appName,
       submenu: [
-        { role: "about" }, sep,
+        // Not `role: "about"`. About has no shortcut, and AppKit matches a ⌘ key-down that carries no
+        // characters (a modifier sent as a key event, a key the layout maps to nothing) against the
+        // first menu row with an empty key equivalent: this one. With no Realm window key, that
+        // keystroke reaches the menu and the panel opened by itself (#321). Only a pick opens it.
+        { label: `About ${appName}`, click: (_item, _window, event) => { if (!event.triggeredByAccelerator) showAbout(); } }, sep,
         ...items(MENU_LAYOUT.app), sep,
         { role: "services" }, sep,
         { role: "hide" }, { role: "hideOthers" }, { role: "unhide" }, sep,
