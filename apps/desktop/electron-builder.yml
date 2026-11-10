@@ -14,6 +14,20 @@ files:
 npmRebuild: false
 nodeGypRebuild: false
 asar: true
+# Flipped in the packed binary before it is signed; dev runs use node_modules' Electron, untouched.
+# Cookie encryption keys the browser panes' cookie store with a Keychain item, so another process
+# reading Partitions/*/Cookies gets ciphertext. NODE_OPTIONS, --inspect and a loose app folder are
+# each a way to run code inside main, which holds the Keychain key and every TCC grant.
+# runAsNode stays on: realm-server is the app binary run as Node (server-process.ts), detached so it
+# outlives the app, and the `realm` CLI and the launchd/systemd service start it the same way.
+# utilityProcess cannot outlive the app, so turning it off needs a separate Node helper first.
+electronFuses:
+  runAsNode: true
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
 extraResources:
   # Everything the packaged app needs on real disk (asar cannot serve node-pty's native bits or a
   # spawnable server entry): server/ (dist + prod node_modules), skills/, scrollphase (when built).

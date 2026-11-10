@@ -303,6 +303,8 @@ export const CREDENTIAL_DIRS: readonly string[] = [
   "Library/Keychains",
   "Library/Application Support/com.apple.TCC",
   "Library/Group Containers/group.com.apple.notes",
+  "Library/Application Support/@realm", // Electron userData: the browser panes' cookies and storage
+  "Library/Application Support/Realm",
 ] as const;
 
 /** What Settings says, in design.md's register: name the thing, not the feeling. */
