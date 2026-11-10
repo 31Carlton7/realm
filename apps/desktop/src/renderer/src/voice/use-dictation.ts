@@ -15,7 +15,7 @@ export type DictationPort = {
 };
 
 /** Words being dictated: where they go, and what has been heard so far. */
-export type LiveDictation = { at: number; words: string; cleaning: boolean };
+type LiveDictation = { at: number; words: string; cleaning: boolean };
 
 export type DictationNote =
   | { kind: "cleaned" }
@@ -101,7 +101,7 @@ export function useDictation({ port, draft, onDraftChange, caret, select }: {
     return true;
   };
 
-  return { live, note, canUndo: cleaned !== null, start, stop, undo, dismiss };
+  return { live, note, start, stop, undo, dismiss };
 }
 
 /** Dictation through this Mac's own recogniser, where this build has it. */

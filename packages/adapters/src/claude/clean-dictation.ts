@@ -48,7 +48,7 @@ function words(text: string): string[] {
  * never much longer than what was said, and leans on almost no word the speaker never used. Plynn's
  * `addsContent`, with the same margins.
  */
-export function drifted(output: string, input: string): boolean {
+function drifted(output: string, input: string): boolean {
   const said = words(input), written = words(output);
   if (written.length > said.length + Math.max(3, Math.floor(said.length / 10))) return true;
   const known = new Set(said);
@@ -57,7 +57,7 @@ export function drifted(output: string, input: string): boolean {
 }
 
 /** The model's answer, or the raw words when it cannot be trusted to be the same words tidied. */
-export function judgeCleaned(output: string, input: string): CleanedDictation {
+function judgeCleaned(output: string, input: string): CleanedDictation {
   let out = output.trim();
   if (out.length > 2 && out.startsWith("\"") && out.endsWith("\"")) out = out.slice(1, -1).trim();
   if (!out) return { outcome: "kept", text: input, reason: "empty" };

@@ -4,7 +4,7 @@ import { DEFAULT_TURN, TurnTaker } from "./turn-taking";
 
 /** The silence after speech that ends dictation on its own: long enough to think mid-sentence. */
 export const DICTATION_PAUSE_MS = 2_500;
-/** Samples per message to the helper: a tenth of a second. */
+/** A tenth of a second of audio per message to the helper, as voice mode sends it. */
 const BATCH_SAMPLES = 1_600;
 /** Each dictation starts its own helper, so it is only ever the helper's first utterance. */
 const TURN = 1;
