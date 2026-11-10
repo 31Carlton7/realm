@@ -4575,8 +4575,15 @@ button.edit-file:hover { background: var(--rl-hover); }
    act ("Run", "Edit"), bounded; the object is what it was done to, set as what it is — a path in its
    three parts, a command in mono, a query or a description as prose — and is the one item of
    unbounded length, so it gives way first; the meta is reserved and says the state in a word. */
-.tool-card { border-radius: var(--r-ctl); corner-shape: squircle; font-size: 12px; }
-.tool-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 4px 8px 4px var(--tool-pad, 8px); border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; color: var(--ink); }
+/* Every row a run can hold — its head, a call, a sub-agent's line, a wait, a message to a teammate —
+   stands on ONE edge with ONE lead column, inside the group or out of it. Each row's fill starts
+   `--tool-gutter` in, which leaves the open run's rail room to stand left of every fill rather than
+   through one; the lead slot sits `--tool-inset` inside the fill, the same 8 the 32px row leaves above
+   and below a 16px slot, so a lit row holds its glyph evenly on all four sides; the head's words start
+   on that column. `styles.test.ts` keeps every row kind on these three numbers. */
+:root { --tool-gutter: 4px; --tool-inset: 8px; --tool-lead: 16px; }
+.tool-card { margin-left: var(--tool-gutter); border-radius: var(--r-ctl); corner-shape: squircle; font-size: 12px; }
+.tool-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 4px var(--tool-inset); border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; color: var(--ink); }
 .tool-row:hover { background: var(--rl-hover); }
 /* Open, the card is not a box: the row keeps its hover fill to say which call the body under it
    belongs to, and the body hangs under the verb column on the transcript's own ground. */
@@ -4624,7 +4631,7 @@ button.edit-file:hover { background: var(--rl-hover); }
    ink ("6 reads · 2 edits +31 −4"), or the call in flight while live, and any failures last, reserved
    so no width can cut them. The opened trace hangs off a solid 1px rail. */
 .tool-group { border-radius: var(--r-ctl); font-size: 12px; }
-.tool-group-row { display: flex; align-items: center; gap: 4px; width: fit-content; max-width: 100%; padding: 5px 8px; border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
+.tool-group-row { display: flex; align-items: center; gap: 4px; width: fit-content; max-width: calc(100% - var(--tool-gutter)); margin-left: var(--tool-gutter); padding: 5px var(--tool-inset); border-radius: var(--r-ctl); corner-shape: squircle; text-align: left; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
 .tool-group-row:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 .tool-group-summary { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* The work yields a PART at a time, from the right, never a character: an ellipsis on the whole run
@@ -4656,19 +4663,19 @@ button.edit-file:hover { background: var(--rl-hover); }
   background-image: linear-gradient(90deg, var(--ink-3) 35%, var(--ink) 50%, var(--ink-3) 65%);
   background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
   animation: shimmer-text 1.4s linear 3 forwards; }
-/* The rail sits 4px left of the steps' lead glyphs, and the glyphs on the same column as every other
-   row's: the rail is at 3, a step's row starts its glyph 4 past it, and 3 + 1 + 4 is a free row's 8. */
-.tool-group-steps { margin-left: 3px; padding-left: 0; border-left: var(--hairline-w) solid var(--line); display: flex; flex-direction: column; gap: 1px; }
-.tool-group-steps > .tool-card { --tool-pad: 4px; }
-/* A sub-agent's ledger hangs off the Task call that spawned it. 24px sets its label under the tool
+/* The rail stands in the gutter, a pixel in from the group's edge, so a lit step's fill starts just
+   clear of it and the step's glyph keeps the column a free row's does. */
+.tool-group-steps { position: relative; display: flex; flex-direction: column; gap: 1px; }
+.tool-group-steps::before { content: ""; position: absolute; inset: 0 auto 0 1px; width: var(--hairline-w); background: var(--line); }
+/* A sub-agent's ledger hangs off the Task call that spawned it, with its head's words under the tool
    NAME rather than under the status glyph, so the rail reads as belonging to that row. */
-.tool-group[data-subagent] { margin-left: 24px; }
+.tool-group[data-subagent] { margin-left: calc(var(--tool-inset) + var(--tool-lead) - var(--tool-gutter)); }
 /* The object as text: prose by default, mono only where it IS code (a command, a glob). No fill and no
    ring — a column of ringed chips down a ledger reads as outlines, not as a list. */
 .tool-summary { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--ink-2); }
 .tool-summary[data-form="code"] { font: 12px var(--font-mono); }
 .tool-where { color: var(--ink-3); }
-.tool-status { display: grid; place-items: center; width: 16px; height: 16px; color: var(--ink-3); flex: none; }
+.tool-status { display: grid; place-items: center; width: var(--tool-lead); height: var(--tool-lead); color: var(--ink-3); flex: none; }
 .tool-status > span { display: grid; place-items: center; }
 .tool-status::after { grid-area: 1 / 1; }
 .tool-card[data-state="error"] > .tool-row .tool-status { color: var(--rl-danger); }
@@ -4683,11 +4690,11 @@ button.edit-file:hover { background: var(--rl-hover); }
 .tool-meta[data-tone="warning"] { color: var(--rl-warning); }
 .tool-meta[data-tone="danger"] { color: var(--rl-danger); }
 /* Why a call failed, under its row and outside the expander, set from the verb column. */
-.tool-reason { padding: 0 8px 4px calc(var(--tool-pad, 8px) + 24px); font-size: 12px; line-height: 16px; color: var(--ink-2);
+.tool-reason { padding: 0 var(--tool-inset) 4px calc(var(--tool-inset) + var(--tool-lead) + 8px); font-size: 12px; line-height: 16px; color: var(--ink-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; animation: rl-fade-in var(--dur-fast) ease; }
-/* Under the verb column (row padding 8 + lead 16 + gap 8), with no rule and no fill of its own: the
-   panels inside are the surfaces. */
-.tool-body { padding: 6px 0 10px calc(var(--tool-pad, 8px) + 24px); display: flex; flex-direction: column; gap: 8px;
+/* Under the verb column (the row's inset, its lead and its gap), with no rule and no fill of its own:
+   the panels inside are the surfaces. */
+.tool-body { padding: 6px 0 10px calc(var(--tool-inset) + var(--tool-lead) + 8px); display: flex; flex-direction: column; gap: 8px;
   opacity: 0; transition: opacity var(--dur-press) ease; }
 /* One panel per call: the panel a fenced block is — the signature curve on the card rung, a fill and
    no ring, a head of what it shows and how to copy it, unruled from the body. */

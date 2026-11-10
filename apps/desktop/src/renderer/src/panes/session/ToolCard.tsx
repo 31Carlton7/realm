@@ -187,11 +187,15 @@ export const ToolCard = memo(function ToolCard(props: ToolCardProps) {
   return <ToolCardBody {...props} waiting={waiting} />;
 });
 
+/** How much of a call's object its tooltip says. The row clips it to what a line can hold; the tooltip
+ *  is where the rest of a long command is read, up to about a dozen of its lines. */
+const TITLE_CHARS = 400;
+
 /** The row's object: what the act was done TO. A path is the file's three parts; a command is code;
  *  a query or a description is prose, a query in quotes. An MCP call names its server first, the
  *  way a question names who is asking. None of it wears a chip: thirty rows each carrying a ringed
  *  field read as a column of outlines rather than as a ledger. */
-function ToolObject({ block, summary }: { block: ToolBlock; summary: string }) {
+function ToolObject({ block, summary, title }: { block: ToolBlock; summary: string; title: string }) {
   const edit = editTarget(block);
   if (edit) return <ToolFile path={edit.path} more={edit.more} />;
   const read = readTarget(block);
@@ -206,7 +210,7 @@ function ToolObject({ block, summary }: { block: ToolBlock; summary: string }) {
     <>
       {mcp && <span className="tool-server">{mcp.server}</span>}
       {text && (
-        <span className="tool-summary" data-form={code ? "code" : "prose"} title={summary}>
+        <span className="tool-summary" data-form={code ? "code" : "prose"} title={title}>
           {quoted ? `“${text}”` : text}
           {verb === "Search" && where && <span className="tool-where"> in {where}</span>}
         </span>
@@ -221,7 +225,8 @@ const ToolCardBody = memo(function ToolCardBody({ block, sessionStatus, enter = 
   everOpened.current ||= open;
   const live = sessionStatus === "running" || sessionStatus === "waiting_permission";
   const state: ToolState = block.result ? (block.result.isError ? "error" : "ok") : !live ? "none" : waiting ? "waiting" : "running";
-  const summary = clip(toolSummary(block.name, block.input));
+  const said = toolSummary(block.name, block.input);
+  const summary = clip(said);
   const verb = toolVerb(block.name, block.toolKind);
   /* An edit names its counts, from the call's own two sides where it carries them, or from the diff
      an ACP agent's result carries (map-acp.ts). */
@@ -267,7 +272,7 @@ const ToolCardBody = memo(function ToolCardBody({ block, sessionStatus, enter = 
           </span>
         </span>
         <span className="tool-name">{verb}</span>
-        <span className="tool-object"><ToolObject block={block} summary={summary} /></span>
+        <span className="tool-object"><ToolObject block={block} summary={summary} title={clip(said, TITLE_CHARS)} /></span>
         {stat && (
           /* A zero side is dropped rather than printed: "−0" on a pure addition is a count of
              nothing, and it reads as a deletion until the eye gets to the digit. The signs stay, so
