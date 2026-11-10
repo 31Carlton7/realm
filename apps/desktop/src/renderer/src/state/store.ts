@@ -58,7 +58,7 @@ import { allowlistKey, getBrowserBridges, parseAllowlist } from "../panes/browse
 import { SIDEBAR_WIDTH, clampSidebarWidth } from "../components/sidebar/sidebar-width";
 import type { SettingsTab } from "../panes/settings/settings-index";
 import { DEFAULT_VOICE_PREFS, VOICE_PREFS_KEY, readVoicePrefs, type VoicePrefs } from "../voice/voice-prefs";
-import type { AskAnswers } from "@realm/contracts";
+import type { AskAnswers, DictationCleanResult } from "@realm/contracts";
 import { NOTIFICATIONS_IPHONE_KEY, type PairRequest, type PairingWindow, type RemoteStatus } from "@realm/contracts";
 
 export type CreateSpaceInput = { name: string; icon: string; profileId: string; color?: string };
@@ -418,6 +418,8 @@ export type Api = TeammatesApi & {
   interruptSession(id: string): Promise<void>;
   /** `sessions.send` with `spoken` — a message said in voice mode. No draft and no chips go with it. */
   sendSpoken(id: string, text: string): Promise<void>;
+  /** `dictation.clean` — the words only. */
+  cleanDictation(text: string): Promise<DictationCleanResult>;
   /** `sessions.dequeue` — drop a queued message before its turn comes. */
   dequeuePrompt(id: string, queuedId: string): Promise<void>;
   /** `sessions.releaseQueued` — send one queued message now. Server-side by id, so the mentions and
@@ -2635,6 +2637,9 @@ export type AppState = TeammatesSlice & {
   setVoicePrefs(patch: Partial<VoicePrefs>): Promise<void>;
   /** A message heard in voice mode, sent to the session marked as spoken. */
   sendSpoken(id: string, text: string): Promise<void>;
+  /** Dictated words, cleaned when Settings ▸ Voice ▸ Clean up dictation is on. Off, they are handed
+   *  straight back and nothing is sent. */
+  cleanDictation(text: string): Promise<DictationCleanResult>;
   /** The next or previous sibling. Stops at the ends: the list is the one the eye just walked. */
   stepViewer(delta: 1 | -1): void;
   /** Files the viewer's exchange produced: added after the one on show, which `show` moves to — a
@@ -7476,6 +7481,11 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         const next = readVoicePrefs({ ...get().voicePrefs, ...patch });
         set({ voicePrefs: next });
         await api.setSetting(VOICE_PREFS_KEY, next);
+      },
+      async cleanDictation(text) {
+        await get().loadVoicePrefs();
+        if (!get().voicePrefs.cleanUp) return { outcome: "off", text };
+        return api.cleanDictation(text);
       },
       async sendSpoken(id, text) {
         const st = get().sessionStatus[id];

@@ -8,7 +8,8 @@ const EMPTY_COMMANDS: readonly UserCommand[] = Object.freeze([]);
 
 /** Stable empty array for `useSyncExternalStore`: a fresh `[]` per render reads as a change forever. */
 const NO_LINKS: LinkChip[] = [];
-import { spaceCheckoutPath, useApp, type DraftTab, type PickedAttachment } from "../../state/store";
+import { spaceCheckoutPath, useApp, useAppStore, type DraftTab, type PickedAttachment } from "../../state/store";
+import { desktopDictation } from "../../voice/use-dictation";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import type { PaneProps } from "../registry";
 import type { MenuItem } from "../../components/Menu";
@@ -243,6 +244,9 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const sendMessage = useApp((s) => s.sendMessage);
   const interruptSession = useApp((s) => s.interruptSession);
   const openVoice = useApp((s) => s.openVoice);
+  const cleanDictation = useApp((s) => s.cleanDictation);
+  const appStore = useAppStore();
+  const dictation = useMemo(() => (capabilities().voice ? desktopDictation({ clean: cleanDictation, microphone: () => appStore.getState().voicePrefs.microphone }) : null), [cleanDictation, appStore]);
   const queued = useApp((s) => s.sessionQueues[id]);
   const midTurnMode = useApp((s) => s.midTurnMode);
   // This session's own agent's row. A warning about the Claude account means nothing in a Cursor
@@ -773,6 +777,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             }}
             onSend={(text) => { setSends((n) => n + 1); run(() => sendMessage(id, text)); }}
             onStop={() => run(() => interruptSession(id))}
+            dictation={dictation}
             voice={capabilities().voice && window.realm?.voice ? { name: teammate?.name ?? AGENT_META[session.agentKind].label, onOpen: (held) => openVoice(id, held) } : undefined}
             onOptions={(o) => run(() => setSessionOptions(id, o))}
             onPickModel={(kind, modelId) => run(async () => {

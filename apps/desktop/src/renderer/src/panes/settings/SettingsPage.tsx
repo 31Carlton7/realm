@@ -1580,6 +1580,14 @@ function VoiceTab() {
           <input type="checkbox" role="switch" className="switch" aria-label="Listen hands-free" checked={prefs.handsFree}
             onChange={(e) => run(() => setVoicePrefs({ handsFree: e.target.checked }))} />
         </li>
+        <li className="settings-row" data-setting="voice-clean-up">
+          <div className="settings-row-main">
+            <span className="settings-row-name">Clean up dictation</span>
+            <span className="settings-row-desc">Takes out filler words and false starts, and fixes punctuation, before dictated words land in the prompter. Only the words go, to Claude Haiku on your Claude account; off, dictation stays on this Mac.</span>
+          </div>
+          <input type="checkbox" role="switch" className="switch" aria-label="Clean up dictation" checked={prefs.cleanUp}
+            onChange={(e) => run(() => setVoicePrefs({ cleanUp: e.target.checked }))} />
+        </li>
       </ul>
     </div>
   );

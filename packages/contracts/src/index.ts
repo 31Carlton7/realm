@@ -41,6 +41,7 @@ export * from "./risk-vendors";
 export * from "./browser-upload";
 export * from "./browser-load-error";
 export * from "./fence";
+export * from "./voice";
 export * from "./chips";
 export * from "./cli";
 export * from "./agent-marks";

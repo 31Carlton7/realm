@@ -180,6 +180,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "voice-rate", tab: "voice", label: "Speaking rate", terms: "speed fast slow" },
   { id: "voice-pause", tab: "voice", label: "Send after a pause of", terms: "end of turn silence wait delay" },
   { id: "voice-hands-free", tab: "voice", label: "Listen hands-free", terms: "push to talk microphone vad" },
+  { id: "voice-clean-up", tab: "voice", label: "Clean up dictation", terms: "dictate speech to text transcript filler punctuation tidy polish" },
 
   // Devices
   { id: "pair-iphone", tab: "devices", label: "Pair an iPhone", terms: "phone mobile qr code scan" },

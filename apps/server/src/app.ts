@@ -1,3 +1,4 @@
+import { DictationCleaner, type DictationCleanup } from "./dictation/clean";
 import { agentBin } from "./cli/bins";
 import { CliService } from "./cli/service";
 import { CliInstaller } from "./cli/install";
@@ -822,6 +823,10 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
    *  on purpose so tests and live-check scripts never make one; the real server process (`main.ts`)
    *  passes `generateSessionTitle`. */
   titleGenerator?: (text: string) => Promise<string>;
+  /** Tidies a dictated prompt when Settings ▸ Voice ▸ Clean up dictation is on (`dictation/clean.ts`).
+   *  A billed call, but one the person asks for by turning the switch on and talking, so `main.ts`
+   *  passes it even with the scripted agent on; a test passes a fake, or none. */
+  dictationCleanup?: DictationCleanup;
   /** One call answering BOTH of a settle's model-written fields — the summary and the prompter's
    *  hint. Omitted on any build that must not make a billed call: without it the panes show the
    *  derived line and the prompter keeps its deterministic ladder. */
@@ -1862,6 +1867,7 @@ export async function createApp(opts: { home: string; port: number; adapters?: A
     access: () => (access ? { url: access.url } : null),
     appViews: new AppViewService({ views: appViews, hub: mcpHub, mcp, servers: mcpServersStore, sessions: sessionsStore, server: appViewServer, gateway: mcpGateway, log: (line) => console.log(line) }),
     codeReview,
+    dictation: new DictationCleaner({ settings, cleanup: opts.dictationCleanup }),
     memoryLearning: memoryLearner,
     /* A drain was accepted: watch for quiescence and close once it holds. The watcher owns the clock
        and the close; `methods.ts` owns the refusals that make quiescence reachable at all. Unref'd —

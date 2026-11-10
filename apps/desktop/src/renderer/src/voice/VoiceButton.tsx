@@ -5,7 +5,7 @@ import { useRef } from "react";
 export const HOLD_MS = 350;
 
 /**
- * The prompter's mic. A click opens voice mode, listening hands-free; a press held past `HOLD_MS`
+ * The prompter's voice mode button, beside the mic that dictates. A click opens voice mode, listening hands-free; a press held past `HOLD_MS`
  * opens it already talking, and letting go sends what was said.
  */
 export function VoiceButton({ name, onVoice }: { name: string; onVoice: (held: boolean) => void }) {
@@ -27,7 +27,7 @@ export function VoiceButton({ name, onVoice }: { name: string; onVoice: (held: b
         if (heldOpen.current) { heldOpen.current = false; return; }
         onVoice(false);
       }}>
-      <Icon name="mic" size={16} />
+      <Icon name="voiceWave" size={16} />
     </button>
   );
 }

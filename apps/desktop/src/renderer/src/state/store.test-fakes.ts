@@ -1225,6 +1225,10 @@ export function fakeApi(overrides: FakeData = {}): FakeApi {
       calls.push(`sendSpoken:${id}=${text}`);
       sent.push({ id, text, attachments: [], spoken: true });
     },
+    cleanDictation: async (text) => {
+      calls.push(`cleanDictation:${text}`);
+      return { outcome: "cleaned", text };
+    },
     mentionFiles: async (sessionId, query, limit) => {
       calls.push(`mentionFiles:${sessionId}:${query}`);
       return { hits: rankPaths(data.workspaceFiles[sessionId] ?? [], query, limit ?? 8), truncated: false, source: "git" };
