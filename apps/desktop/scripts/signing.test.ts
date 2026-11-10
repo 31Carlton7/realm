@@ -171,3 +171,32 @@ describe("grantBindingProblems — refuse a build whose grants would not survive
     expect(grantBindingProblems({ ...signedApp, identifier: "com.github.Electron" }, {}).join("\n")).toMatch(/com\.github\.Electron/);
   });
 });
+
+/**
+ * The fuses electron-builder flips in the packaged binary (SEC-03, SEC-05). Each one closes a way for
+ * a same-user process to borrow Realm's signature and grants, or to read what Realm keeps on disk.
+ */
+describe("Electron fuses (packaged builds only)", () => {
+  const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+  const builder = read("../electron-builder.yml");
+  const block = builder.match(/^electronFuses:\n((?: {2}.*\n|\s*#.*\n)+)/m)?.[1] ?? "";
+  const fuses = Object.fromEntries([...block.matchAll(/^ {2}(\w+): (true|false)$/gm)].map((m) => [m[1], m[2] === "true"]));
+
+  it("encrypts the browser panes' cookies with a Keychain-held key", () => {
+    expect(fuses.enableCookieEncryption).toBe(true);
+  });
+
+  it("refuses NODE_OPTIONS and --inspect, so nothing can attach a debugger to main", () => {
+    expect(fuses.enableNodeOptionsEnvironmentVariable).toBe(false);
+    expect(fuses.enableNodeCliInspectArguments).toBe(false);
+  });
+
+  it("loads the app only from an app.asar whose hash matches the one baked in at build", () => {
+    expect(fuses.enableEmbeddedAsarIntegrityValidation).toBe(true);
+    expect(fuses.onlyLoadAppFromAsar).toBe(true);
+  });
+
+  it("keeps RunAsNode on: the server daemon, the realm CLI and the launchd service run the app binary as Node", () => {
+    expect(fuses.runAsNode).toBe(true);
+  });
+});

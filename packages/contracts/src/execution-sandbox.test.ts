@@ -112,6 +112,11 @@ describe("what the lists actually contain", () => {
     expect(CREDENTIAL_DIRS).not.toContain(".npmrc");
   });
 
+  it("protects Realm's own Electron data, where the browser panes keep their cookies", () => {
+    expect(CREDENTIAL_DIRS).toContain("Library/Application Support/@realm");
+    expect(CREDENTIAL_DIRS).toContain("Library/Application Support/Realm");
+  });
+
   it("makes the agents' own state directories writable, because otherwise they do not start", () => {
     for (const d of AGENT_STATE_DIRS) expect(d.startsWith("/")).toBe(false);
     for (const needle of [".claude", ".codex", ".cursor"]) expect(AGENT_STATE_DIRS).toContain(needle);
