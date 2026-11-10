@@ -32,7 +32,7 @@ const bareToolName = (name: string): string => {
   return at < 0 ? name : name.slice(at + 2);
 };
 
-const toSource = (url: string): Source | null => {
+export const toSource = (url: string): Source | null => {
   try {
     const u = new URL(url);
     // http(s) only. A `file:` or `data:` url is not a page anyone can be cited to.
