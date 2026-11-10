@@ -129,6 +129,19 @@ describe("dictating into the prompter", () => {
     expect(api.calls.filter((c) => c.startsWith("cleanDictation"))).toEqual(["cleanDictation:um fix it"]);
   });
 
+  it("says it is cleaning up while the model answers, and keeps the words drawn as not yet typed", async () => {
+    const { store } = await mount(true);
+    let answer: (r: DictationCleanResult) => void = () => {};
+    mic.clean = () => new Promise((res) => { answer = res; });
+    fireEvent.click(screen.getByRole("button", { name: "Dictate" }));
+    await finished("um fix it");
+    expect(screen.getByRole("status").textContent).toBe("Cleaning up…");
+    expect(dictating()).toBe("um fix it");
+    expect(store.getState().drafts["se1"] ?? "").toBe("");
+    await act(async () => { answer({ outcome: "cleaned", text: "Fix it." }); await new Promise((res) => setTimeout(res, 0)); });
+    expect(store.getState().drafts["se1"]).toBe("Fix it.");
+  });
+
   it("Undo puts back exactly what was heard", async () => {
     const { store } = await mount(true);
     mic.clean = async () => ({ outcome: "cleaned", text: "Fix the test." });

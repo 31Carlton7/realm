@@ -1397,6 +1397,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
             </button>
           )}
         </div>
+        {dictate.live?.cleaning && <p className="composer-attach-note composer-dictation-note" role="status">Cleaning up…</p>}
         {dictate.note && (
           <p className="composer-attach-note composer-dictation-note" data-kind={dictate.note.kind} role="status">
             {dictate.note.kind === "cleaned" ? (

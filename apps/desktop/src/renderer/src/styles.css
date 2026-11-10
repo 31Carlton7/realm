@@ -5728,7 +5728,7 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 /* After a clean-up, the one way back to exactly what was heard, on the note's own quiet line:
    "Cleaned · Undo", and a × to put it away. It goes the moment the draft is edited or sent. */
-.composer-dictation-note { align-items: center; gap: 4px; }
+.composer-dictation-note { align-items: center; gap: 4px; padding: 0 16px; }
 .composer-dictation-note .composer-dictation-undo { --btn-h: 20px; padding: 0 5px; font-size: 11px; }
 .composer-dictation-note .composer-dictation-dismiss { width: 16px; height: 16px; margin-left: 2px; }
 

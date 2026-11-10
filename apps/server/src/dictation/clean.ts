@@ -3,8 +3,9 @@ import type { CleanedDictation } from "@realm/adapters";
 
 export type DictationCleanup = (raw: string) => Promise<CleanedDictation>;
 
-/** The longest the prompter waits for the model before it keeps the raw words. */
-const TIMEOUT_MS = 8_000;
+/** The longest the prompter waits for the model before it keeps the raw words. Each call starts the
+ *  Claude CLI afresh, which is most of the wait: about 8 s on a loaded Mac, for a second of model. */
+const TIMEOUT_MS = 15_000;
 
 /**
  * `dictation.clean`: the switch is read here, on every call, rather than trusted from the renderer,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { cleanDictation, DICTATION_MODEL, dictationPrompt } from "./clean-dictation";
 
-type Options = { model?: string; maxTurns?: number; allowedTools?: string[]; persistSession?: boolean };
+type Options = { model?: string; maxTurns?: number; tools?: string[]; allowedTools?: string[]; settingSources?: string[]; thinking?: { type: string }; persistSession?: boolean };
 type Call = { prompt: string; options: Options };
 
 /** A model that does what its prompt lets it: text inside an untrusted fence is tidied as data, and
@@ -55,12 +55,12 @@ describe("cleanDictation", () => {
     expect(await cleanDictation(said, { query: answering("   ") })).toEqual({ outcome: "kept", text: said, reason: "empty" });
   });
 
-  it("asks Haiku 5.5 once, with no tools, and saves no session", async () => {
+  it("asks Haiku 5.5 once, with no tools, settings or thinking, and saves no session", async () => {
     const calls: Call[] = [];
     await cleanDictation("hello", { query: gullibleModel(calls) });
     expect(calls).toHaveLength(1);
     expect(DICTATION_MODEL).toBe("claude-haiku-5-5");
-    expect(calls[0]!.options).toMatchObject({ model: "claude-haiku-5-5", maxTurns: 1, allowedTools: [], persistSession: false });
+    expect(calls[0]!.options).toMatchObject({ model: "claude-haiku-5-5", maxTurns: 1, tools: [], allowedTools: [], settingSources: [], thinking: { type: "disabled" }, persistSession: false });
   });
 
   it("throws on a failed result, so the caller keeps the raw words", async () => {

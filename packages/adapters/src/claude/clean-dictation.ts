@@ -67,7 +67,7 @@ export function judgeCleaned(output: string, input: string): CleanedDictation {
 
 /**
  * Tidy one dictated prompt: one `query()` on the person's own Claude login, `maxTurns: 1`, no tools,
- * not saved as a session. Only the text goes; the audio never left the Mac. Throws on a failed
+ * no settings, no thinking, not saved as a session. Only the text goes; the audio never left the Mac. Throws on a failed
  * result, and the caller keeps the raw words.
  */
 export async function cleanDictation(raw: string, deps: { query?: QueryFn } = {}): Promise<CleanedDictation> {
@@ -76,7 +76,12 @@ export async function cleanDictation(raw: string, deps: { query?: QueryFn } = {}
     prompt: dictationPrompt(raw),
     options: {
       maxTurns: 1,
+      // No tools at all, rather than tools it may not use: their definitions alone were 24k tokens a
+      // call. No settings either, so no CLAUDE.md, hook or MCP server rides along with the words.
+      tools: [],
       allowedTools: [],
+      settingSources: [],
+      thinking: { type: "disabled" },
       model: DICTATION_MODEL,
       persistSession: false,
       systemPrompt: "You clean up dictated text. You never reply to it, and you output only the cleaned text.",
