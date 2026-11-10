@@ -3898,6 +3898,21 @@ a.msg-chip:hover { background: color-mix(in oklab, var(--accent-tint), var(--rl-
 .msg-source-host { font-weight: var(--fw-medium); color: var(--rl-text-bright); }
 /* The path is the least of the three and the longest: it gives up its width first and truncates. */
 .msg-source-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-faint); }
+/* The folded card's first sites, one circle each, then a count of the rest. Every mark is the same
+   16px circle on a neutral fill, whether it holds an icon or a letter, so a site with no icon never
+   changes the row's shape. The ring is drawn over the picture, so a white icon on the light face
+   still has an edge. Each mark is cut where the next one overlaps it, a gap that holds on any ground
+   the toggle stands on, hovered or not; the count's rounded end is the same circle the cut is made for. */
+.msg-sources-stack { display: inline-flex; align-items: center; }
+.msg-sources-stack > * + * { margin-left: -3px; }
+.msg-sources-stack > :not(:last-child) { mask: radial-gradient(circle at 21px 50%, transparent 9.5px, #000 10px); }
+.msg-source-mark { position: relative; display: inline-grid; place-items: center; flex: none; width: 16px; height: 16px;
+  overflow: hidden; border-radius: var(--r-pill); background: var(--rl-active); font-size: 11px; line-height: 1;
+  font-weight: var(--fw-medium); color: var(--rl-text-dim); }
+.msg-source-mark img { width: 100%; height: 100%; object-fit: cover; }
+.msg-sources-more { width: auto; padding: 0 5px; font-weight: inherit; font-variant-numeric: tabular-nums; }
+.msg-source-mark::after { content: ""; position: absolute; inset: 0; border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--rl-line-strong); pointer-events: none; }
 /* An inline marker on a link the agent actually fetched. It sits on the same numbering as the list
    above, so [2] in a sentence and 2 in the disclosure are one page. */
 .md-cite { margin-left: 1px; padding: 0 3px; border-radius: var(--r-chip); vertical-align: super;
