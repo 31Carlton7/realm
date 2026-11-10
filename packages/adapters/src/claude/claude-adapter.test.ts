@@ -14,6 +14,8 @@ type FakeOpts = {
   abortPermission?: boolean;
   /** the tool input canUseTool is asked about (default `{ file_path }`) */
   permissionInput?: unknown;
+  /** the CLI's own `suggestions` for what "always" should remember */
+  permissionSuggestions?: unknown[];
   /** record what each canUseTool call resolved with — what the agent itself was handed */
   permissionResults?: unknown[];
   /** a `rate_limit_info` to stream as a `rate_limit_event` just before the turn's result */
@@ -62,7 +64,7 @@ function fakeQuery(opts: FakeOpts, calls: string[] = []) {
           asked = true;
           const cut = options.canUseTool as (n: string, i: unknown, o: unknown) => Promise<{ behavior: string }>;
           const ac = new AbortController();
-          const asks = Array.from({ length: opts.concurrentPermissions ?? 1 }, (_, i) => cut(opts.permissionOnTool!, opts.permissionInput ?? { file_path: `a${i}` }, { signal: ac.signal, title: `Read a${i}?` }));
+          const asks = Array.from({ length: opts.concurrentPermissions ?? 1 }, (_, i) => cut(opts.permissionOnTool!, opts.permissionInput ?? { file_path: `a${i}` }, { signal: ac.signal, title: `Read a${i}?`, suggestions: opts.permissionSuggestions }));
           if (opts.abortPermission) setTimeout(() => ac.abort(), 5);
           const rs = await Promise.all(asks); const r = rs[0]!;
           opts.permissionResults?.push(...rs);
@@ -304,6 +306,33 @@ describe("ClaudeAdapter", () => {
     expect(statuses(got)).toEqual(["running", "waiting_permission", "running", "idle"]);
     const resp = got.find((e) => e.type === "permission_response");
     expect(resp?.type === "permission_response" && resp.payload.decision).toBe("deny");
+  });
+  it("Allow always remembers for this session only, and never a rule that allows a whole tool", async () => {
+    // THE MUTANT: hand the CLI its own suggestions back. It writes `userSettings` into the user's real
+    // ~/.claude/settings.json and the project destinations into <cwd>/.claude — rules that outlive Realm.
+    const handed: unknown[] = [];
+    const suggestions = [
+      { type: "addRules", rules: [{ toolName: "Bash", ruleContent: "npm test:*" }], behavior: "allow", destination: "userSettings" },
+      { type: "addRules", rules: [{ toolName: "Bash" }, { toolName: "Bash", ruleContent: "git status" }], behavior: "allow", destination: "projectSettings" },
+      { type: "addRules", rules: [{ toolName: "Bash", ruleContent: "*" }], behavior: "allow", destination: "localSettings" },
+      { type: "setMode", mode: "acceptEdits", destination: "userSettings" },
+      { type: "setMode", mode: "bypassPermissions", destination: "session" },
+      { type: "addDirectories", directories: ["/tmp/x"], destination: "localSettings" },
+    ];
+    const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "Bash", permissionInput: { command: "npm test" }, permissionSuggestions: suggestions, permissionResults: handed }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [] });
+    const c = collectUntil(h.events, (e, all) => e.type === "status" && e.payload.status === "idle" && types(all).includes("permission_response"),
+      (e) => { if (e.type === "permission_request") h.respondPermission(e.payload.requestId, "allow_always"); });
+    await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
+    expect(handed[0]).toEqual({ behavior: "allow", updatedPermissions: [
+      { type: "addRules", rules: [{ toolName: "Bash", ruleContent: "npm test:*" }], behavior: "allow", destination: "session" },
+      { type: "addRules", rules: [{ toolName: "Bash", ruleContent: "git status" }], behavior: "allow", destination: "session" },
+      { type: "setMode", mode: "acceptEdits", destination: "session" },
+      { type: "addDirectories", directories: ["/tmp/x"], destination: "session" },
+    ] });
+    // The card shows what "always" would remember, so it shows the same rewritten list.
+    const req = got.find((e) => e.type === "permission_request");
+    expect(req?.type === "permission_request" && req.payload.suggestions).toEqual((handed[0] as { updatedPermissions: unknown[] }).updatedPermissions);
   });
   it("a masked answer reaches the agent and never Realm's log", async () => {
     const handed: unknown[] = [];
