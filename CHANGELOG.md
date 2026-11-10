@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.8.5 - 2026-11-09
+
+- The About window no longer opens by itself. It now opens only when you pick About Realm from the menu.
+- Realm Mobile: make, change, pause and delete scheduled tasks and teammates' check-ins from the phone.
+- Realm Mobile: a scheduled task with no runs yet says what it is waiting for, an unread run shows as a bold title, and a failed run's reason reads in quiet ink.
+
 ## v2.8.4 - 2026-11-09
 
 - Realm Mobile: browse a space's folder and the Library on the phone, and search them. Files outside the folder, and files that hold a secret, stay off the phone.
