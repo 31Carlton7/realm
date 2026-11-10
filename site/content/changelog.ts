@@ -21,6 +21,27 @@ import splits from "@/public/product/splits-4320.webp"
  */
 export const entries: Entry[] = [
   {
+    slug: "v2-8-5",
+    title: "Realm v2.8.5",
+    date: "2026-11-09",
+    version: "v2.8.5",
+    area: "Release",
+    summary:
+      "The About window stays shut until you ask for it, and you can make and manage scheduled tasks from the phone.",
+    short: "About stays shut, and Schedules on the phone",
+    body: [
+      { kind: "h", text: "Fixes" },
+      { kind: "ul", items: [
+        "**The About window no longer opens by itself.** It now opens only when you pick About Realm from the menu.",
+      ] },
+      { kind: "h", text: "Realm Mobile" },
+      { kind: "ul", items: [
+        "**Make, change, pause and delete scheduled tasks** and teammates' check-ins from the phone.",
+        "**A scheduled task with no runs yet says what it is waiting for,** an unread run shows as a bold title, and a failed run's reason reads in quiet ink.",
+      ] },
+    ],
+  },
+  {
     slug: "v2-8-4",
     title: "Realm v2.8.4",
     date: "2026-11-09",
