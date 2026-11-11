@@ -2848,6 +2848,14 @@ describe("the side panel's surfaces", () => {
     expect(bodiesFor(".panel[data-focused] .pane-tab[data-active] .pane-tab-label").join(" ")).toContain("color: var(--rl-text-bright)");
   });
 
+  it("rings the browser's fields with the app's focus ring, not a recoloured border", () => {
+    // THE MUTANT: `outline: none` back on the field, which takes the global :focus-visible ring away.
+    for (const field of [".browser-address input", ".browser-find-input"]) {
+      expect(bodiesFor(field).join(" "), field).not.toContain("outline: none");
+      expect(RULES.some((r) => r.selectors.some((x) => x.startsWith(field) && x.includes(":focus"))), field).toBe(false);
+    }
+  });
+
   it("sets a summary fact in mono only where its value is an identifier", () => {
     // SessionSummary marks the folder, the branch and the model `data-code`; a mode or a word is not.
     expect(RULES.some((r) => r.selectors.includes(".summary-fact .summary-row-name"))).toBe(false);

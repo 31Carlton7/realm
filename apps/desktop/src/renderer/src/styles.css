@@ -2782,10 +2782,11 @@ button.panel-title:hover { background: var(--rl-hover); }
    the strongest tonal step in the window. */
 .browser-chrome { flex: none; display: flex; align-items: center; gap: 2px; height: 40px; padding: 0 8px; }
 .browser-address { flex: 1; min-width: 0; display: flex; margin-left: 6px; }
+/* Focused, the field wears the app's accent ring (the global `:focus-visible`), not a recoloured
+   border: a 1px accent edge was one more way of drawing focus, and the only one in the window's chrome. */
 .browser-address input { flex: 1; min-width: 0; height: 28px; padding: 0 10px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
-  background: var(--field); color: var(--rl-text-bright); outline: none; font-size: 13px; font-variant-numeric: tabular-nums; }
+  background: var(--field); color: var(--rl-text-bright); font-size: 13px; font-variant-numeric: tabular-nums; }
 .browser-address input::placeholder { color: var(--rl-text-faint); }
-.browser-address input:focus { border-color: var(--rl-accent); }
 /* W4 action ticker: an inline strip in the chrome (never a dropdown — no-overlay rule). The text is
    the permission card's wording; failures dim to danger. Capped so a long label never squeezes the
    address bar out. */
@@ -2806,9 +2807,8 @@ button.panel-title:hover { background: var(--rl-hover); }
    Field, count and steps sit together, as in every find bar, rather than spread across the pane. */
 .browser-find { gap: 6px; padding: 4px 8px; }
 .browser-find-input { flex: 1; min-width: 0; max-width: 320px; height: 24px; padding: 0 8px; border-radius: var(--r-ctl);
-  border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); outline: none; font-size: 13px; }
+  border: var(--hairline-w) solid var(--rl-line); background: var(--field); color: var(--rl-text-bright); font-size: 13px; }
 .browser-find-input::placeholder { color: var(--rl-text-faint); }
-.browser-find-input:focus { border-color: var(--rl-accent); }
 .browser-find-count { flex: none; min-width: 64px; font-size: 12px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
 /* Plan 26 W7c's suggestions: a strip under the address field and ABOVE the view, never a dropdown over
    the page (W2.3) — the view gives up its height while the field is being typed in. Its rows hang from
