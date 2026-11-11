@@ -99,9 +99,12 @@ export type ModelRow = {
  *
  * `model === null` means the user has pinned nothing and the adapter is running its own default. The
  * row marked is the one `sessionModelId` names, the same model the chip does: what the session's
- * handshake reported (`ran`), else the catalog's marked default, else the explicit default row. Before
- * any of them has said, no row is marked, and the effort and fast-mode answers fall back to what the
- * harness says of its default.
+ * handshake reported (`ran`), else the catalog's marked default, else the explicit default row. Where
+ * none of those is a row — nothing has said yet, or the handshake named a model the list does not
+ * carry — the in-force row is still marked: the session's own default row, or its harness's only
+ * model, or else a "Default" row added to a curated list, because what runs is the CLI's default and
+ * the list says so. The effort
+ * and fast-mode answers fall back to what the harness says of its default.
  */
 export function modelRows({ kind, model, agentProbe, canSwitchAgent, handoff = false, favorites = [], also = [], ran = null }: {
   kind: AgentKind; model: string | null; agentProbe: AgentProbe[]; canSwitchAgent: boolean;
@@ -195,6 +198,20 @@ export function modelRows({ kind, model, agentProbe, canSwitchAgent, handoff = f
       // cannot hand over, `sessions.setAgent` refuses, and a route that would refuse is a click whose
       // only outcome is a rejection.
       row.alternates = switchable ? row.harnesses.filter((h) => h !== harness) : [];
+    }
+  }
+  if (model === null && !rows.some((r) => r.selected)) {
+    const key = `default:${kind}`;
+    const mine = rows.filter((r) => r.ids[kind] !== undefined);
+    const own = byKey.get(key) ?? (mine.length === 1 ? mine[0] : undefined);
+    if (own) own.selected = true;
+    else {
+      const note = noteOf.get(kind) ?? null;
+      rows.unshift({
+        key, id: key, kind, harnesses: [kind], ids: { [kind]: null }, modelId: null, label: "Default",
+        agentLabel: AGENT_META[kind].label, icon: AGENT_META[kind].icon, note, notes: { [kind]: note }, alternates: [],
+        blockedReason: null, selected: true, favorite: favorite.has(key),
+      });
     }
   }
   return rows;

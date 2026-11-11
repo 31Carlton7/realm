@@ -1442,8 +1442,8 @@ describe("prompter model picker", () => {
     expect(rowNames()).toEqual(["Fake", "Fable 5.1", "Fable 5", "Opus 5.5", "Opus 5", "Sonnet 5.5", "Sonnet 5", "Haiku 5.5", "Haiku 4.5",
       "DeepSeek V4 Pro", "DeepSeek V4 Flash",
       "Codex", "Cursor", "Gemini", "OpenCode", "GitHub Copilot", "goose", "Qwen Code", "Grok", "fx", "OpenHands", "Hermes"]);
-    // Pinned to nothing, and nothing has said what that runs, so nothing is ticked.
-    expect(screen.getByRole("option", { name: "Fake" })).toHaveAttribute("aria-selected", "false");
+    // Pinned to nothing: what runs is the agent's own default, and its row says so.
+    expect(screen.getByRole("option", { name: "Fake" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("marks an unavailable CLI but keeps it pickable — the install card is where picking it leads", async () => {
@@ -1862,11 +1862,11 @@ describe("the picker for a session that pinned no model", () => {
     return { api, store };
   }
 
-  it("ticks nothing before anything has answered, and the effort track offers Claude Code's levels at its default", async () => {
+  it("ticks Default before anything has answered, and the effort track offers Claude Code's levels at its default", async () => {
     await mountUnpinned([]);
     expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("DefaultHigh");
     openPicker();
-    expect(ticked()).toEqual([]);
+    expect(ticked()).toEqual(["Default"]);
     const track = screen.getByRole("slider", { name: "Effort" });
     expect(track).toHaveAttribute("aria-valuetext", "High");
     expect(track).toHaveAttribute("aria-valuemax", "4"); // low, medium, high, xhigh, max
