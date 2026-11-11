@@ -890,3 +890,40 @@ describe("a media call in flight draws the generating canvas for its kind", () =
     expect(container.querySelector(".tool-status")).toHaveAttribute("data-on");
   });
 });
+
+/** Every row kind a run is drawn with — a call, a sub-agent's line, a wait, a message to a teammate,
+ *  the harness's own sub-agent — leads with the one slot the stylesheet puts on the shared column
+ *  (styles.test.ts holds its geometry). A kind that drew its glyph anywhere else would leave it. */
+describe("one lead column", () => {
+  it("every row in and around a run leads with the shared slot, and the run's head stands on the same edge", () => {
+    const ok = { content: "ok", isError: false };
+    const blocks = [
+      { kind: "tool", toolUseId: "r1", name: "Bash", input: { command: "pnpm test" }, result: ok, ts: 0 },
+      { kind: "tool", toolUseId: "r2", name: "Read", input: { file_path: "/repo/a.ts" }, result: ok, ts: 1 },
+      { kind: "tool", toolUseId: "r3", name: "mcp__linear__get_issue", input: { id: "LIN-1" }, result: ok, ts: 2 },
+      { kind: "tool", toolUseId: "d1", name: "mcp__realm__realm-agent__agent_start", input: { goal: "Write the tests" }, result: ok, ts: 3 },
+      { kind: "tool", toolUseId: "d2", name: "mcp__realm__realm-agent__agent_wait", input: {}, result: ok, ts: 4 },
+      { kind: "tool", toolUseId: "d3", name: "Task", input: { description: "Audit", prompt: "Audit it" }, result: ok, ts: 5 },
+      { kind: "tool", toolUseId: "d4", name: "mcp__realm__realm-team__team_message", input: { to: "ops", message: "Ship it" }, result: ok, ts: 6 },
+    ] as Block[];
+    const transcript: TranscriptModel = { blocks, pendingPermissions: [], usage: { costUsd: 0, inputTokens: 0, outputTokens: 0, numTurns: 0 },
+      init: null, run: null, feedback: {}, summary: null, promptHint: null };
+    render(<StoreContext.Provider value={createAppStore(fakeApi())}><Transcript transcript={transcript} sessionStatus="idle" onDecide={() => {}} /></StoreContext.Provider>);
+    fireEvent.click(document.querySelector<HTMLElement>(".tool-group-row")!);
+    const cards = [...document.querySelectorAll<HTMLElement>(".tool-card")];
+    expect(cards.map((c) => c.dataset.toolUseId)).toEqual(["r1", "r2", "r3", "d1", "d2", "d3", "d4"]);
+    for (const card of cards) {
+      const row = card.firstElementChild!;
+      expect(row.className, card.dataset.toolUseId).toBe("tool-row");
+      expect(row.firstElementChild?.classList.contains("tool-status"), card.dataset.toolUseId).toBe(true);
+    }
+    // The head is a row of the run, not a card inside some other box: it takes the gutter itself.
+    expect(document.querySelector(".tool-group > .tool-group-row")).not.toBeNull();
+  });
+
+  it("a long command's tooltip says the whole command, not the line the row clipped it to", () => {
+    const command = `cd /Users/me/work/realm || exit 1; gh issue list -R me/realm --state open --limit 50 --json number,title,labels,assignees`;
+    render(<ToolCard sessionStatus="idle" block={tool("c1", "Bash", { command })} />);
+    expect(document.querySelector(".tool-summary")).toHaveAttribute("title", command);
+  });
+});

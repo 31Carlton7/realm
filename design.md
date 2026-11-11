@@ -546,6 +546,9 @@ acronym that is uppercase anyway (a file extension on a tile).
   which is a sweep across a toolbar that tells you nothing. Write the title as a plain sentence and end
   it with the chord in brackets — "Search (⌘K)" — and the chord reads as a key. While a menu or
   popover is up, only what is inside it shows a tooltip: a control never names itself over its own menu.
+  A tooltip never covers what it describes. A title on part of a control — the full command on a tool
+  row's clipped one — clears the whole control, not only its line of text: placed under the text, it
+  sat over the row it was explaining.
 - A control that names a setting can be the value's mark and its name, with no chevron and no fill
   at rest — the prompter's permission control, as Codex draws its own. Each rung of a ladder takes
   its own mark from one family (a shield that asks, one that has said yes, one that warns), the
@@ -1041,6 +1044,13 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   its time — and is never folded into the ledger. A fan-out is two starts and a wait in a row, which
   is a run, and a settled run collapses to "Worked for 8s": the one thing a reader of a delegation
   came for, hidden behind the one line that says nothing about it.
+- Every row a run holds — its head, a call, a sub-agent's line, a wait, a message to a teammate —
+  stands on one edge with one lead column, inside the run or out of it. A lit row holds its glyph as
+  far from the fill's side as from its top and foot, and the open run's rail stands left of every
+  fill, never between a fill and its glyph: a step whose fill started past the rail held its terminal
+  mark 4px from the fill's edge and 8 from its top, and read as clipped (the owner, 11-10). A new row
+  kind leads with the shared slot and the row's three numbers, and `styles.test.ts` fails one that
+  does not.
 - The lead's Agents tab is where its sub-agents are run from, not only watched: a card each, saying
   where it stands, what it runs on, in which checkout and mode, and how much of its budget of working
   time is spent. A card waiting on a request is open with the request in it, answered there through

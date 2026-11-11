@@ -196,6 +196,21 @@ describe("the tooltip layer", () => {
     expect($("#b").getAttribute("title")).toBe("Reload");
   });
 
+  it("clears the whole row a title inside it describes, never the row or the one after it", () => {
+    // A tool row: 32 tall at y 100, and the long command in it, its own line 8 down the row.
+    setup('<button id="row"><span id="cmd" title="cd /Users/me/work/realm || exit 1; gh issue list">cd /Users/me…</span></button><button id="next">Next</button>');
+    const rect = (x: number, y: number, width: number, height: number) => () => ({ x, y, width, height, left: x, top: y, right: x + width, bottom: y + height, toJSON: () => ({}) }) as DOMRect;
+    $("#row").getBoundingClientRect = rect(40, 100, 700, 32);
+    $("#cmd").getBoundingClientRect = rect(100, 108, 500, 16);
+    tip().getBoundingClientRect = rect(0, 0, 260, 40);
+    fire($("#cmd"), "pointerover", { clientX: 300, clientY: 116 });
+    vi.advanceTimersByTime(TIP_DELAY_MS);
+    expect(open()).toBe(true);
+    expect(tip().dataset.side).toBe("below");
+    expect(parseFloat(tip().style.top)).toBeGreaterThanOrEqual(132); // under the row, not under the pointer
+    expect(parseFloat(tip().style.left)).toBe(300 - 130); // where the pointer is along it
+  });
+
   it("leaves the page as it found it when uninstalled", () => {
     setup('<button id="b" title="Reload"></button>');
     hover($("#b"));

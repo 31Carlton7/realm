@@ -21,19 +21,22 @@ import { placeTooltip, type Rect, type TooltipSide } from "./state/no-overlay";
  * quiets only the element it landed on, and a tile that comes under the pointer after it (the same
  * right-click put away the sheet over it) said its name on top of its own menu.
  *
- * Where it goes is `placeTooltip`'s: under the element, over it where the window's foot or a browser
- * view is in the way below, beside it where both are. A native view composites over anything in its
- * rectangle, so where no side is clear the element is handed BACK to the system's tooltip — which macOS
- * draws above every view — rather than shown somewhere nobody can see it.
+ * Where it goes is `placeTooltip`'s: under the element — under the whole control, when it is part of
+ * one — over it where the window's foot or a browser view is in the way below, beside it where both
+ * are. A native view composites over anything in its rectangle, so where no side is clear the element
+ * is handed BACK to the system's tooltip — which macOS draws above every view — rather than shown
+ * somewhere nobody can see it.
  *
  * A title ending in a chord in brackets — "Search (⌘K)" — shows the chord as a key; `data-shortcut`
  * states one outright.
  */
 export const TIP_DELAY_MS = 200;
 export const TIP_WARM_MS = 500;
-/** An element wider or taller than this is a row or a region, and its tooltip goes under the pointer
- *  rather than under the middle of something three hundred pixels wide. */
+/** An element taller than this is a region, and its tooltip goes under the pointer. One only wider is
+ *  a row: its tooltip goes where the pointer is along it, and under the whole row. */
 const LARGE = { width: 320, height: 64 };
+/** What a person presses: a title inside one of these describes it. */
+const CONTROL = "button, a[href], [role='button'], [role='menuitem'], [role='option'], [role='tab']";
 /** The arrow's height under its hotspot: a tooltip at the pointer clears the cursor, as the system's does. */
 const CURSOR_H = 18;
 const GAP = 6;
@@ -162,9 +165,14 @@ export function installTooltips(doc: Document, opts: { avoid?: () => readonly Re
     key.hidden = !chord;
     const size = tip.getBoundingClientRect();
     const r = el.getBoundingClientRect();
-    const anchor = via === "pointer" && (r.width > LARGE.width || r.height > LARGE.height)
+    // Under its own line of text, a tool row's command sat over the row it described.
+    const control = el.parentElement?.closest(CONTROL)?.getBoundingClientRect();
+    const band = control && control.height <= LARGE.height ? control : r;
+    const anchor = via === "pointer" && r.height > LARGE.height
       ? { x: pointer.x - 1, y: pointer.y, width: 2, height: CURSOR_H }
-      : { x: r.x, y: r.y, width: r.width, height: r.height };
+      : via === "pointer" && r.width > LARGE.width
+        ? { x: pointer.x - 1, y: band.y, width: 2, height: band.height }
+        : { x: r.x, y: band.y, width: r.width, height: band.height };
     return placeTooltip({ anchor, size: { width: size.width, height: size.height }, win: { width: win.innerWidth, height: win.innerHeight },
       gap: GAP, margin: MARGIN, avoid: opts.avoid?.() ?? [] });
   };

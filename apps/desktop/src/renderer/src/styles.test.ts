@@ -1668,7 +1668,7 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
     expect(shimmer).toContain("animation: shimmer-text 1.4s linear 3 forwards");
     expect(shimmer).toContain("background-clip: text");
     // BUI's trace rail is a solid hairline; the old dashed connector is gone.
-    expect(bodiesFor(".tool-group-steps").join(" ")).toContain("border-left: var(--hairline-w) solid var(--line)");
+    expect(bodiesFor(".tool-group-steps::before").join(" ")).toMatch(/width: var\(--hairline-w\); background: var\(--line\)/);
     // The lead slot rests in quiet ink — it says what kind of act the call was, and colour stays for
     // the states that need it: failed in danger ink, waiting in warning ink.
     expect(bodiesFor(".tool-status").join(" ")).toContain("color: var(--ink-3)");
@@ -1695,6 +1695,27 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
     // Measured edit counts are the semantic green/red.
     expect(bodiesFor(".tool-stat-add").join(" ")).toContain("var(--green)");
     expect(bodiesFor(".tool-stat-del").join(" ")).toContain("var(--red)");
+  });
+
+  it("every row a run holds stands on one edge, with its lead in one column evenly inside its fill", () => {
+    const tokens = Object.fromEntries([...bodiesFor(":root").join(" ").matchAll(/(--tool-(?:gutter|inset|lead)):\s*(\d+)px/g)].map((m) => [m[1], Number(m[2])]));
+    expect(tokens).toEqual({ "--tool-gutter": 4, "--tool-inset": 8, "--tool-lead": 16 });
+    // A row's fill starts in the gutter, the head's as well as a call's, so the rail stands left of
+    // every fill and never through one.
+    expect(bodiesFor(".tool-card").join(" ")).toContain("margin-left: var(--tool-gutter)");
+    expect(bodiesFor(".tool-group-row").join(" ")).toContain("margin-left: var(--tool-gutter)");
+    expect(bodiesFor(".tool-group-row").join(" ")).toContain("padding: 5px var(--tool-inset)");
+    // The lead sits the same 8 from the fill's side as from its top and foot: (32 − 16) / 2.
+    expect(bodiesFor(".tool-row").join(" ")).toContain("padding: 4px var(--tool-inset)");
+    expect((32 - tokens["--tool-lead"]!) / 2).toBe(tokens["--tool-inset"]);
+    expect(bodiesFor(".tool-status").join(" ")).toContain("width: var(--tool-lead); height: var(--tool-lead)");
+    // Nothing nested in the run moves its rows off the column: the steps add no indent of their own,
+    // and no row kind writes a padding or a margin on its row past the shared one.
+    expect(bodiesFor(".tool-group-steps").join(" ")).not.toMatch(/margin|padding|border/);
+    const ROW_KINDS = [".delegation-line", ".teammate-call", ".tool-group-steps", ".tool-group-steps > .tool-card"];
+    const drifts = RULES.filter((r) => partsOf(r).some((sel) => ROW_KINDS.some((k) => sel.startsWith(k)) && /\.tool-(?:row|card|status)\b|^\.(?:delegation-line|teammate-call)$/.test(sel)))
+      .filter((r) => /(?:^|; )(?:margin|padding)(?:-left)?:/.test(r.body)).map((r) => partsOf(r).join(", "));
+    expect(drifts).toEqual([]);
   });
 
   it("Show raw stands on the panel's content column, not on its edge", () => {
@@ -1728,15 +1749,10 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
     // The head is one sentence: each "·" sits a word space from its neighbours, never a wider gap
     // between the duration and the work than inside the work.
     expect(bodiesFor(".tool-group-row").join(" ")).toContain("gap: 4px");
-    // A free row's glyph is at its 8px padding. A step's rail is at 3, 1 wide, and its row pads 4:
-    // 3 + 1 + 4 = 8, the same column — and the rail 4px left of the glyphs.
-    const px = (body: string, prop: string) => Number(new RegExp(`${prop}: (\\d+)px`).exec(body)?.[1]);
-    const steps = bodiesFor(".tool-group-steps").join(" ");
-    expect(px(steps, "margin-left") + 1 + px(bodiesFor(".tool-group-steps > .tool-card").join(" "), "--tool-pad")).toBe(8);
-    expect(bodiesFor(".tool-row").join(" ")).toContain("padding: 4px 8px 4px var(--tool-pad, 8px)");
-    // The body and the reason line hang under the verb column wherever the row's glyph is.
-    expect(bodiesFor(".tool-body").join(" ")).toContain("calc(var(--tool-pad, 8px) + 24px)");
-    expect(bodiesFor(".tool-reason").join(" ")).toContain("calc(var(--tool-pad, 8px) + 24px)");
+    // The body and the reason line hang under the verb column: the row's inset, its lead and its gap.
+    expect(bodiesFor(".tool-row").join(" ")).toContain("gap: 8px");
+    expect(bodiesFor(".tool-body").join(" ")).toContain("calc(var(--tool-inset) + var(--tool-lead) + 8px)");
+    expect(bodiesFor(".tool-reason").join(" ")).toContain("calc(var(--tool-inset) + var(--tool-lead) + 8px)");
   });
 
   it("an open card is no box: the row keeps its fill and the body hangs under the verb column on the ground", () => {
@@ -1744,7 +1760,7 @@ describe("Plan 9 W2 — BUI transcript primitives", () => {
     expect(RULES.filter((r) => partsOf(r).includes(".tool-card[data-open]"))).toEqual([]);
     expect(bodiesFor(".tool-card[data-open] > .tool-row").join(" ")).toContain("background: var(--rl-hover)");
     const body = bodiesFor(".tool-body").join(" ");
-    expect(body).toContain("padding: 6px 0 10px calc(var(--tool-pad, 8px) + 24px)"); // row padding 8 + lead 16 + gap 8
+    expect(body).toContain("padding: 6px 0 10px calc(var(--tool-inset) + var(--tool-lead) + 8px)");
     expect(body).not.toContain("border-top");
     // A call's panel is a fenced block's: the card-rung curve, a fill, no ring — and painted.
     const panel = bodiesFor(".tool-panel").join(" ");
