@@ -2,7 +2,7 @@ import { statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import {
   TEAMMATE_CLOCK_TURN_MS, TEAMMATE_PERMISSION_MODES, TEAM_MESSAGE_WAIT_MS, TeamMessageArgsSchema, fenceAgentOutput, normalizeHandle, sessionLink, teammateHandle, teammateIconFromSeed,
-  type CreateTeammateInput, type MentionRef, type ReorderTeammatesInput, type Schedule, type Session, type SessionEvent, type SessionStatus, type Teammate,
+  type CreateTeammateInput, type MentionRef, type ReorderTeammatesInput, type Schedule, type Session, type SessionEvent, type SessionStatus, type TeamAccess, type TeamAccessMode, type Teammate,
   type TeammatePermissionMode, type TeammateSchedule, type TeammateState, type TeammateTaskSession, type UpdateTeammateInput,
 } from "@realm/contracts";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -205,7 +205,8 @@ export class TeammatesService {
       spaceId: input.spaceId, handle, name: input.name, brief: input.brief,
       icon: input.icon ?? teammateIconFromSeed(`${input.spaceId}:${handle}`),
       agentKind, model: input.model ?? null, effort: input.effort ?? null,
-      permissionMode: input.permissionMode ?? (this.d.defaultMode(agentKind) as Teammate["permissionMode"]),
+      // The space's Team access over the sheet's mode: the sheet sends one whether or not it was touched.
+      permissionMode: this.d.store.access(input.spaceId) ?? input.permissionMode ?? (this.d.defaultMode(agentKind) as Teammate["permissionMode"]),
       folder: this.checkFolder(input.folder ?? null), lead: false, group: input.group ?? null,
     });
     if (input.schedule) {
@@ -259,6 +260,34 @@ export class TeammatesService {
       await this.carryMode(cur.id);
     }
     return this.get(cur.id);
+  }
+
+  /** The space's Team access, and the mode each teammate in it is on. */
+  access(spaceId: string): TeamAccess {
+    if (!this.d.spaces.get(spaceId)) throw new NotFoundError("space", spaceId);
+    const mode = this.d.store.access(spaceId);
+    const teammates = this.d.store.list(spaceId).map((r) => ({ handle: r.handle, mode: r.permissionMode }));
+    const modes = new Set(teammates.map((t) => t.mode));
+    if (mode && teammates.length > 0) modes.add(mode);
+    return { mode, mixed: modes.size > 1, teammates };
+  }
+
+  /**
+   * Puts every teammate in the space on `mode`, archived ones too so one brought back is not left
+   * behind, each through `setPermissionMode`, and keeps it for the teammates made here later
+   * (`create`). Null clears the setting and changes no teammate. Written before the teammates are
+   * moved, so one made meanwhile starts on it. Only the person sets it (rpc/methods.ts).
+   */
+  async setAccess(spaceId: string, mode: TeamAccessMode | null): Promise<TeamAccess> {
+    if (!this.d.spaces.get(spaceId)) throw new NotFoundError("space", spaceId);
+    this.d.store.setAccess(spaceId, mode);
+    if (mode) {
+      for (const row of [...this.d.store.list(spaceId), ...this.d.store.list(spaceId, true)]) await this.setPermissionMode(row.id, mode);
+    }
+    const now = this.access(spaceId);
+    this.d.rpc.broadcast("teams.access.changed", { spaceId, mode: now.mode, teammates: now.teammates });
+    this.changed(spaceId);
+    return now;
   }
 
   /** Archived teammates leave the list and the tools; their sessions stay where they are. */

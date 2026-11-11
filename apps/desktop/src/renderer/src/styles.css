@@ -679,7 +679,7 @@ input.sb-space-name { flex: 1; }
    the switch is the one thing in it that answers the pointer. */
 .sb-lens { display: flex; align-items: center; min-height: 28px; padding-left: 8px; margin-top: 8px; }
 .sb-lens:first-child { margin-top: 0; }
-.sb-lens-title { flex: 1; min-width: 0; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-faint); }
+.sb-lens-title { flex: 1; min-width: 0; font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-dim); }
 /* What needs you: rows in the column's own anatomy, and under a waiting row the session's own request
    card, at the column's full width — a card squeezed under an indent wraps every option. */
 .sb-needs, .sb-pinned, .sb-sessions { display: flex; flex-direction: column; }
@@ -935,8 +935,9 @@ input.sb-space-name { flex: 1; }
    between neighbours' targets, so a press near the gap still lands on the nearer button. */
 .rail-btn::after { content: ""; position: absolute; inset: calc((var(--rail-btn) - var(--hit-min)) / 2); }
 
-/* Plan 9 W3 — SidebarNav's section label: sentence case, 12.5/500, ink-3. */
-.group-label { font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-faint); padding: 12px 8px 4px; }
+/* SidebarNav's section label, sentence case. A section's name is read, so it takes the reading tier,
+   not the hint tier. */
+.group-label { font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-dim); padding: 12px 8px 4px; }
 
 
 .item-list { display: flex; flex-direction: column; gap: 1px; }
@@ -1337,7 +1338,7 @@ input.sb-space-name { flex: 1; }
 .summary-row:hover { background: var(--hover); color: var(--rl-text-bright); }
 .summary-row-glyph { flex: none; color: var(--rl-text-faint); }
 .summary-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
-.summary-row-meta { flex: none; font-size: 11px; color: var(--rl-text-faint); }
+.summary-row-meta { flex: none; font-size: 11px; color: var(--rl-text-dim); }
 /* The path is machine state, so it reads in mono and wraps at any character — a long path must not
    push the sheet wider than the column it was centered over. */
 .summary-file-path { margin: 0 0 4px; font-family: var(--font-mono); font-size: 12px; line-height: 1.5;
@@ -4468,11 +4469,10 @@ button.subagent-brief-chip:focus-visible { outline: none; box-shadow: var(--rl-o
 /* The settled twin of .msg-working: the same verb in the past tense, with the wait it cost. Quieter
    than the live label — it is scrollback now, not the thing to watch — and tabular so a column of
    these down a long session does not jitter as the digits change. */
-.msg-run { display: flex; align-items: baseline; gap: 8px; font-size: 12px; color: var(--rl-text-faint); font-variant-numeric: tabular-nums; }
+.msg-run { display: flex; align-items: baseline; gap: 8px; font-size: 12px; color: var(--rl-text-dim); font-variant-numeric: tabular-nums; }
 /* The same ink as the duration beside it, not a step under it: "when did it end" is half of what the
-   line is for, and the faint tier is the quietest one that still clears AA — a timestamp mixed below
-   it was a timestamp a reader had to squint at. */
-.msg-run-at { color: var(--rl-text-faint); }
+   line is for, and a timestamp mixed below it was a timestamp a reader had to squint at. */
+.msg-run-at { color: var(--rl-text-dim); }
 .move-progress { align-items: center; animation: rl-fade-in var(--dur-enter) var(--ease-out-strong); }
 .move-progress .spinner { flex: none; color: var(--rl-text-dim); }
 .move-progress .btn-quiet { flex: none; margin-left: auto; }
@@ -4515,7 +4515,7 @@ button.edit-file:hover { background: var(--rl-hover); }
 .edit-add { color: var(--rl-success); }
 .edit-del { color: var(--rl-danger); }
 .edit-summary-more { align-self: flex-start; margin: 2px 4px 0; }
-/* The closing line of a settled session. Quieter than the run label above it and italic, because it
+/* The closing line of a settled session. Italic, in the run label's ink, because it
    is the one line in the transcript that is Realm talking about the session rather than anything
    that happened in it — a register the reader should be able to tell apart without reading the
    words, and one that matters more now it is on screen by default rather than after five minutes. */
@@ -4525,7 +4525,7 @@ button.edit-file:hover { background: var(--rl-hover); }
    element on its own text, so a summary that CHANGES (a new turn, or the written one landing after
    the derived one) fades the new words in rather than swapping them under the reader. */
 .msg-transcript-summary { margin: 6px 0 0; font-size: 12px; font-style: italic; line-height: 1.5;
-  color: var(--rl-text-faint); font-variant-numeric: tabular-nums;
+  color: var(--rl-text-dim); font-variant-numeric: tabular-nums;
   animation: rl-fade-in var(--dur-slow) var(--ease-fade); }
 .new-msgs-pill { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; font-size: 12px;
   background: var(--rl-accent-fill); color: var(--rl-accent-contrast); box-shadow: var(--rl-shadow); }
@@ -6452,6 +6452,11 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
   --sq-radius-top: var(--r-squircle-msg);
   --sq-radius-bottom: var(--r-squircle-msg);
 }
+/* In light the raised fill is white, and so is the default palette's canvas (Codex), so the bubble
+   read 1.01:1 against it. It takes the translucent step quick chat's bubble takes: a rung down from
+   whatever ground it is laid on. Dark's raised fill already steps off its canvas and keeps it. */
+:root[data-mode="light"]:not([data-squircle]) .msg-user { background: var(--rl-hover); }
+:root[data-mode="light"][data-squircle] .msg-user { --sq-fill: var(--rl-hover); }
 /* A message another SESSION delivered keeps its accent ring — traced on the painted curve now,
    rather than as a box-shadow around a rounded rect the fill has already bulged past. */
 :root[data-squircle] .msg-user-row[data-from] .msg-user {
@@ -10966,6 +10971,11 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
    A space's teammates head the column under the pinned row: the Lead and the rest, their icons in the
    gutter so every name stands on the titles' column, then the groups the person made. */
 .sb-team { display: flex; flex-direction: column; }
+/* Team access heads the list as a lone settings card, its chip at the far end and the line under Full
+   access across the card's whole width. */
+.settings-row.sb-team-access { flex-wrap: wrap; gap: 4px 8px; padding: 8px 8px 8px 12px; margin-bottom: 6px; }
+.sb-team-access > .settings-row-name { flex: 1; min-width: 0; }
+.sb-team-access > .settings-row-desc { padding: 0 4px 4px 0; }
 /* A group the person made is a caption over its teammates, the column's one nesting. Its caret comes
    up under the pointer, after the name, and stays while the group is folded so a folded group says so. */
 .sb-team-group { min-height: 28px; }

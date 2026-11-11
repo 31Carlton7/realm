@@ -78,7 +78,8 @@ describe("a model's name picks the harness that runs it", () => {
 describe("a family name means its newest member", () => {
   it("Fable is the newest Fable, on Claude's own CLI rather than through Cursor", () => {
     // Two mutants: newest-first reversed (→ Fable 5), and harness order lost (→ Cursor's route).
-    expect(choice("Fable")).toEqual({ kind: "claude", model: "claude-fable-5-1", label: "Claude Fable 5.1" });
+    expect(choice("Fable")).toEqual({ kind: "claude", model: "claude-fable-5-2", label: "Claude Fable 5.2" });
+    expect(choice("Fable 5.1")).toEqual({ kind: "claude", model: "claude-fable-5-1", label: "Claude Fable 5.1" });
   });
 
   it("Opus is Opus 5.5; Opus 5 is exactly Opus 5", () => {
@@ -178,10 +179,10 @@ describe("a route word picks the route", () => {
 });
 
 describe("readiness", () => {
-  it("prefers a route that is ready: with Claude signed out, Fable goes through Cursor", () => {
+  it("prefers a route that is ready: with Claude signed out, Fable 5.1 goes through Cursor", () => {
     // Mutant: `pickRoute` takes routes[0] — a child on a signed-out CLI fails on its first message.
     const rows = probes({ claude: { loggedIn: false, reason: "run claude login" } });
-    expect(choice("Fable", { probes: rows })).toMatchObject({ kind: "acp:cursor", model: "claude-fable-5-1" });
+    expect(choice("Fable 5.1", { probes: rows })).toMatchObject({ kind: "acp:cursor", model: "claude-fable-5-1" });
   });
 
   it("refuses a model whose only harness cannot run, in the probe's own words", () => {
@@ -200,7 +201,7 @@ describe("an unknown name is refused with the names that would work", () => {
   it("lists every harness's models, ready ones first", () => {
     const m = refusal("GPT-7");
     expect(m).toContain('no model called "GPT-7"');
-    expect(m).toContain("- Claude: Claude Fable 5.1, Claude Fable 5, Claude Opus 5.5");
+    expect(m).toContain("- Claude: Claude Fable 5.2, Claude Fable 5.1, Claude Fable 5, Claude Opus 5.5");
     expect(m).toContain("- Codex: GPT-6 Luna, GPT-6 Astra");
     expect(m).toContain("- Cursor: gpt-5.3-codex, Composer, Composer 2, grok-4.6");
   });

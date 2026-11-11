@@ -337,8 +337,8 @@ function TaskCard({ schedule, run, onEdit, onRunNow, onGone }: {
     // Two steps, where the app asks for them: a task is an object with a history, and the second row
     // says which one is going — its runs and their sessions stay.
     confirming
-      ? { label: `Really delete ${schedule.title}?`, danger: true, onSelect: remove }
-      : { label: "Delete task…", danger: true, keepOpen: confirmDelete, onSelect: () => (confirmDelete ? setConfirming(true) : remove()) },
+      ? { label: `Really delete ${schedule.title}?`, icon: <Icon name="trash" size={14} />, danger: true, onSelect: remove }
+      : { label: "Delete task…", icon: <Icon name="trash" size={14} />, danger: true, keepOpen: confirmDelete, onSelect: () => (confirmDelete ? setConfirming(true) : remove()) },
   ];
 
   return (

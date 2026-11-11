@@ -2149,6 +2149,33 @@
         "note": null,
         "models": [
           {
+            "id": "claude-fable-5-2",
+            "label": "Fable 5.2",
+            "efforts": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "XHigh"
+              },
+              {
+                "id": "max",
+                "label": "Max"
+              }
+            ],
+            "defaultEffort": "high"
+          },
+          {
             "id": "claude-fable-5-1",
             "label": "Fable 5.1",
             "efforts": [
@@ -2551,6 +2578,33 @@
         "note": null,
         "models": [
           {
+            "id": "claude-fable-5-2",
+            "label": "Fable 5.2",
+            "efforts": [
+              {
+                "id": "low",
+                "label": "Low"
+              },
+              {
+                "id": "medium",
+                "label": "Medium"
+              },
+              {
+                "id": "high",
+                "label": "High"
+              },
+              {
+                "id": "xhigh",
+                "label": "XHigh"
+              },
+              {
+                "id": "max",
+                "label": "Max"
+              }
+            ],
+            "defaultEffort": "high"
+          },
+          {
             "id": "claude-fable-5-1",
             "label": "Fable 5.1",
             "efforts": [
@@ -2910,6 +2964,33 @@
             {
               "id": null,
               "label": "Default",
+              "efforts": [
+                {
+                  "id": "low",
+                  "label": "Low"
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium"
+                },
+                {
+                  "id": "high",
+                  "label": "High"
+                },
+                {
+                  "id": "xhigh",
+                  "label": "XHigh"
+                },
+                {
+                  "id": "max",
+                  "label": "Max"
+                }
+              ],
+              "defaultEffort": "high"
+            },
+            {
+              "id": "claude-fable-5-2",
+              "label": "Fable 5.2",
               "efforts": [
                 {
                   "id": "low",

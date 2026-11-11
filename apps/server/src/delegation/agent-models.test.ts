@@ -24,7 +24,7 @@ let app: App;
 afterEach(async () => { vi.useRealTimers(); const closing = app; app = null!; await closing?.close(); });
 
 const CODEX: AgentModel[] = [{ id: "gpt-6-luna", label: "GPT-6 Luna" }, { id: "gpt-6-astra", label: "GPT-6 Astra" }];
-const CURSOR: AgentModel[] = [{ id: "claude-fable-5-1", label: "claude-fable-5-1" }, { id: "composer-2", label: "Composer 2" }];
+const CURSOR: AgentModel[] = [{ id: "claude-fable-5-2", label: "claude-fable-5-2" }, { id: "claude-fable-5-1", label: "claude-fable-5-1" }, { id: "composer-2", label: "Composer 2" }];
 
 const CHILD: FakeScript = [{ on: "You are a delegated agent.", emit: [{ kind: "text", text: "FINAL: done as asked" }] }];
 
@@ -82,7 +82,7 @@ describe("agent_start with a model by name", () => {
     const { ctx, seen } = await boot();
     await app.sessions.probe();
     await app.agentRuns.start(ctx, { goal: "Build the toggle", constraints: { model: "Fable" } });
-    expect(children(ctx)[0]).toMatchObject({ agentKind: "claude", model: "claude-fable-5-1" });
+    expect(children(ctx)[0]).toMatchObject({ agentKind: "claude", model: "claude-fable-5-2" });
     await waitFor(() => seen.claude.length === 1);
     expect(seen.cursor).toHaveLength(0);
   });
@@ -308,7 +308,7 @@ describe("the lead's list of its sub-agents", () => {
     await app.agentRuns.start(ctx, { goal: "Write the migration", constraints: { model: "Fable" } });
     const before = (await c.call<{ children: Child[] }>("delegation.children", { sessionId: ctx.sessionId })).children;
     expect(before.map((x) => [x.goal, x.session.agentKind, x.session.model])).toEqual([
-      ["Write the tests", "codex", "gpt-6-luna"], ["Write the migration", "claude", "claude-fable-5-1"]]);
+      ["Write the tests", "codex", "gpt-6-luna"], ["Write the migration", "claude", "claude-fable-5-2"]]);
     expect(await app.agentRuns.wait(ctx, {})).toMatchObject({ isError: false });
     // Collected: the engine has let both runs go. The list still says how each one ended.
     await waitFor(async () => (await c.call<{ children: Child[] }>("delegation.children", { sessionId: ctx.sessionId })).children.every((x) => x.outcome === "done"));

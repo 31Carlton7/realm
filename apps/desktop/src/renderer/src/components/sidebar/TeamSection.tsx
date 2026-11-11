@@ -8,6 +8,7 @@ import { groupTeammates } from "../../panes/teammate/teammate-model";
 import { useTeammateMenu } from "../../panes/teammate/TeammateHead";
 import { Menu, type MenuItem } from "../Menu";
 import { SignalTrail } from "./SessionRows";
+import { TeamAccessRow } from "./TeamAccess";
 import { useNow } from "./use-sidebar-model";
 
 const TEAMMATE_DRAG_TYPE = "application/x-realm-teammate";
@@ -47,6 +48,7 @@ export function TeamSection({ spaceId, pinned }: { spaceId: string; pinned: Read
   const drag = { dragging, start: setDragging, drop };
   return (
     <div className="sb-team" role="group" aria-label="Team">
+      <TeamAccessRow spaceId={spaceId} />
       {top.map((t) => <TeammateRow key={t.id} teammate={t} drag={drag} />)}
       {groups.map(([name, members]) => <TeamGroup key={name} spaceId={spaceId} name={name} members={members} drag={drag} />)}
     </div>

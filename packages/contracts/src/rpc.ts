@@ -37,7 +37,7 @@ import { UsageBucketSchema, UsageBudgetSchema, UsageDaySchema, UsageRecordsSchem
 import { PlanLimitsSchema } from "./plan-limits";
 import { AccountSchema } from "./accounts";
 import { CreateScheduleSchema, ScheduleSchema, UpdateScheduleSchema } from "./schedules";
-import { CreateTeammateSchema, ReorderTeammatesSchema, TeammateSchema, TeammateTaskSessionSchema, UpdateTeammateSchema } from "./teammates";
+import { CreateTeammateSchema, ReorderTeammatesSchema, TeamAccessModeSchema, TeamAccessSchema, TeammateSchema, TeammateTaskSessionSchema, UpdateTeammateSchema } from "./teammates";
 import { GuestSpecSchema, MachineSchema, MachineSourceSchema, MachineStateSchema, VncEndpointSchema } from "./machine";
 import { MAX_SESSION_REFS, SessionRefSchema } from "./session-refs";
 import { MAX_MENTION_REFS, MENTION_FILES_LIMIT, MentionRefSchema } from "./mention-refs";
@@ -1752,6 +1752,12 @@ export const Methods = {
   "teammates.message": { params: z.object({ id: IdSchema, text: z.string().trim().min(1).max(20_000) }), result: z.object({ sessionId: IdSchema }) },
   /** Every session it started, and the ones handed on from them, newest first — its page's list. */
   "teammates.sessions": { params: z.object({ id: IdSchema }), result: z.array(TeammateTaskSessionSchema) },
+  /** A space's Team access (`TeamAccessSchema`): its setting, and each teammate's mode. */
+  "teams.access.get": { params: z.object({ spaceId: IdSchema }), result: TeamAccessSchema },
+  /** Puts every teammate in the space on `mode`, and every one made there later; null clears the
+   *  setting and leaves each teammate's mode as it is. Answers once their sessions are in it. The
+   *  person's alone: no agent tool reaches it, and a phone is refused. */
+  "teams.access.set": { params: z.object({ spaceId: IdSchema, mode: TeamAccessModeSchema.nullable() }), result: TeamAccessSchema },
   /** `scheduleId` narrows to the runs one schedule fired — its history on the Scheduled page. */
   "runs.list": {
     params: z.object({ spaceId: IdSchema, scheduleId: IdSchema.nullable().default(null), states: z.array(RunStateSchema).default([]), cursor: z.string().nullable().default(null), limit: z.number().int().min(1).max(200).default(100) }),
@@ -2486,6 +2492,9 @@ export const Events = {
   "schedules.changed": z.object({ spaceId: IdSchema }),
   /** A teammate in the space was made, edited, archived or reordered, or its state moved. */
   "teammates.changed": z.object({ spaceId: IdSchema }),
+  /** A space's Team access was set or cleared, with each teammate's mode once it is in it. A teammate
+   *  edited on its own says `teammates.changed` alone, and a window holding the access reads it again. */
+  "teams.access.changed": TeamAccessSchema.omit({ mixed: true }).extend({ spaceId: IdSchema }),
   /** An environment's persisted review verdict changed (Plan 13 W3): a review settled (`review` is
    *  the fresh result), or was dismissed / cleared by a ship (`review` is null). Diff panes holding
    *  this environment apply the payload directly — no refetch race. */

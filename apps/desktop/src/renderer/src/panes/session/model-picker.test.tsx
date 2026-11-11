@@ -231,11 +231,11 @@ describe("picking", () => {
   it("walks a page at a time, and stops at the ends", () => {
     mount();
     fireEvent.keyDown(search(), { key: "PageUp" });
-    expect(active()).toHaveAttribute("aria-label", "Claude Fable 5.1");
+    expect(active()).toHaveAttribute("aria-label", "Claude Fable 5.2");
     fireEvent.keyDown(search(), { key: "ArrowUp" });
-    expect(active()).toHaveAttribute("aria-label", "Claude Fable 5.1");
+    expect(active()).toHaveAttribute("aria-label", "Claude Fable 5.2");
     fireEvent.keyDown(search(), { key: "PageDown" });
-    expect(active()?.getAttribute("aria-label")).not.toBe("Claude Fable 5.1");
+    expect(active()?.getAttribute("aria-label")).not.toBe("Claude Fable 5.2");
   });
 
   it("narrows as you type, and the first match is what Enter takes", () => {

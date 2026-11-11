@@ -4,6 +4,7 @@ import { parseOnce, sessionEvent, type Run, type Schedule, type StoredSessionEve
 import { createAppStore, StoreContext, type AgentProbe } from "../../state/store";
 import { fakeApi, item, runRow, session, type FakeData } from "../../state/store.test-fakes";
 import { exited } from "../../components/popover-exit.test-fakes";
+import { drawnGlyph, glyphOf } from "../../components/icon-glyph.test-fakes";
 import { SchedulesPage } from "./SchedulesPage";
 /* The overlay draws its page through the registry, which the panes fill by side effect. */
 import "../index";
@@ -321,6 +322,14 @@ describe("the task's card", () => {
     await waitFor(() => expect(api.calls).toContain("updateSchedule:sch1"));
     // Its own moment goes back to the second, not as the minute the date fields can hold.
     await waitFor(() => expect(store.getState().schedules.s1![0]).toMatchObject({ title: "Shipped", cron }));
+  });
+
+  it("draws the trash beside Delete task", async () => {
+    await mount({ schedules: [schedule()] });
+    fireEvent.click(task("Morning triage"));
+    fireEvent.click(await screen.findByRole("button", { name: "More for Morning triage" }));
+    // THE MUTANT: the row with no icon, alone in a menu where every other row has one.
+    expect(drawnGlyph(await screen.findByRole("menuitem", { name: /Delete task/ }))).toEqual(glyphOf("trash"));
   });
 
   it("runs the task now through the method that leaves its clock alone, and opens the run it made", async () => {

@@ -10,6 +10,7 @@ import { setBrowserBridgesForTests } from "../panes/browser/browser-client";
 import { fakeBrowserBridges } from "../panes/browser/browser-bridges.test-fakes";
 import { reduceAll } from "../panes/session/transcript-model";
 import { exited } from "./popover-exit.test-fakes";
+import { drawnGlyph, glyphOf } from "./icon-glyph.test-fakes";
 
 // Item "A" below is a browser item, and BrowserPane (registered since Plan 11 W1) needs its bridges
 // and a ResizeObserver on mount. These tests are about the HOST — inert fakes are enough.
@@ -106,16 +107,17 @@ describe("PaneHost", () => {
   });
 
   /* An empty leaf gets the placeholder and a bar of its own — a title-less strip whose only control
-     is the trash. It used to have no bar at all, which left ⌘W as the one way to be rid of the pane
+     is the ×. It used to have no bar at all, which left ⌘W as the one way to be rid of the pane
      and nothing on screen to say so. It is NOT a full PanelBar: there is no item to name, rename,
      split from or navigate. */
-  it("renders the placeholder and a trash-only bar for an empty leaf", () => {
+  it("renders the placeholder and a close-only bar for an empty leaf", () => {
     renderHost({ layout: { type: "leaf", id: "L", itemId: null }, items: [], focusedLeafId: "L" });
     expect(screen.getByRole("button", { name: "New session" })).toBeInTheDocument();
     expect(screen.getByText("or drag something here from the sidebar")).toBeInTheDocument();
     const bar = document.querySelector(".panel-bar");
     expect(bar).toHaveClass("panel-bar-empty");
-    expect(within(bar as HTMLElement).getByRole("button", { name: "Close this empty pane" })).toBeInTheDocument();
+    // The ×, not the trash: closing an empty pane deletes nothing.
+    expect(drawnGlyph(within(bar as HTMLElement).getByRole("button", { name: "Close this empty pane" }))).toEqual(glyphOf("close"));
     // Nothing an empty pane cannot answer for: no title, no split, no pane menu.
     expect(bar!.querySelector(".panel-title")).toBeNull();
     expect(within(bar as HTMLElement).queryByRole("button", { name: /Split/ })).toBeNull();
@@ -133,7 +135,7 @@ describe("PaneHost", () => {
     expect(props.onNewSessionHere).toHaveBeenCalledWith("L9");
   });
 
-  it("the trash drops THIS leaf, by id", () => {
+  it("the × drops THIS leaf, by id", () => {
     const withEmpty: Layout = { type: "split", id: "root", dir: "row", sizes: [50, 50], children: [
       { type: "leaf", id: "L1", itemId: "A" },
       { type: "leaf", id: "L9", itemId: null },
@@ -227,6 +229,22 @@ describe("PaneHost", () => {
       expect(row.querySelector(".menu-kbd")?.textContent).toBe("⌘W");
       fireEvent.click(row);
       expect(onUnsplit).toHaveBeenCalledOnce();
+      await exited();
+      unmount();
+    });
+
+    it.each([true, false])("draws Remove from split as the × and Delete as the trash, in one menu (confirm %s)", async (confirmDelete) => {
+      const { store, unmount } = renderBar("session", "Chat", { onUnsplit: vi.fn(), onSplit: undefined });
+      act(() => store.setState({ confirmDelete }));
+      fireEvent.click(screen.getByRole("button", { name: "Pane menu for Chat" }));
+      // THE MUTANT: any of these rows drawn with the other's glyph, which made the two look alike.
+      expect(drawnGlyph(screen.getByRole("menuitem", { name: /Remove from split/ }))).toEqual(glyphOf("close"));
+      const remove = screen.getByRole("menuitem", { name: /^Delete/ });
+      expect(drawnGlyph(remove)).toEqual(glyphOf("trash"));
+      if (confirmDelete) {
+        fireEvent.click(remove);
+        expect(drawnGlyph(await screen.findByRole("menuitem", { name: /Really delete/ }))).toEqual(glyphOf("trash"));
+      }
       await exited();
       unmount();
     });
@@ -446,7 +464,7 @@ describe("PaneHost's Remove from split", () => {
     unmount();
   });
 
-  it("is not offered to a session alone, nor beside an empty pane — whose own trash is the way out", async () => {
+  it("is not offered to a session alone, nor beside an empty pane, whose own × is the way out", async () => {
     // THE MUTANT: offer it whenever there are two leaves. Beside an empty box it would take the
     // session out and leave the box, which the store then fills with a session nobody asked for.
     const alone = renderSessions({ type: "leaf", id: "L1", itemId: "SA" });
