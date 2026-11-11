@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MAX_ELEMENT_CHIPS, PICK_HTML_MAX, PICK_TEXT_MAX, type BrowserCredential, type BrowserLoadError, type BrowserSnapshotResult } from "@realm/contracts";
 import { BrowserAgentHost, type CdpBinding } from "./browser-agent-host";
 import { createBridgeCore } from "./browser-agent-bridge";
+import { SNAPSHOT_STYLES } from "./browser-agent";
 
 const SECRET = "correct horse battery staple";
 /** What the fake store "generates". A distinct string so a test can tell the two values apart in the
@@ -1297,10 +1298,13 @@ describe("BrowserAgentHost — annotate", () => {
 describe("BrowserAgentHost — fillCode", () => {
   const CODE = "482913";
   /** A page whose ref 7 is a code field of `boxes` inputs (0 = not a code field). */
-  function codePage(opts: { enabled?: boolean; code?: string | null; boxes?: number; page?: string } = {}) {
+  function codePage(opts: { enabled?: boolean; code?: string | null; boxes?: number; page?: string; respond?: (method: string, params?: Record<string, unknown>) => unknown; coverShot?: (jpeg: string, fields: { vw: number; vh: number; rects: number[][] }) => string | null } = {}) {
     const reads: string[] = [];
     const typed: string[] = [];
+    let emit: ((method: string, params: unknown) => void) | null = null;
     const respond = (method: string, params?: Record<string, unknown>) => {
+      const answer = opts.respond?.(method, params);
+      if (answer !== undefined) return answer;
       if (method === "Runtime.callFunctionOn" && String(params?.functionDeclaration).includes("codeGroupOf")) {
         const i = (params?.arguments as { value: number }[])[0]!.value;
         const boxes = opts.boxes ?? 1;
@@ -1314,7 +1318,7 @@ describe("BrowserAgentHost — fillCode", () => {
     };
     const calls: { method: string; params?: Record<string, unknown> }[] = [];
     const host = new BrowserAgentHost({
-      attach: () => ({ send: async (method, params) => { calls.push({ method, params }); return respond(method, params) ?? {}; }, onEvent: () => {} }),
+      attach: () => ({ send: async (method, params) => { calls.push({ method, params }); return respond(method, params) ?? {}; }, onEvent: (cb) => { emit = cb; } }),
       hasView: () => true, touch: () => {}, navigate: () => null,
       pageState: () => ({ url: opts.page ?? "https://example.com/verify", title: "Verify" }),
       typed: (id) => typed.push(id),
@@ -1322,9 +1326,10 @@ describe("BrowserAgentHost — fillCode", () => {
         enabled: () => opts.enabled ?? true,
         latest: async (origin) => { reads.push(origin); return opts.code === null ? null : { code: opts.code ?? CODE, source: "Messages" }; },
       },
+      ...(opts.coverShot ? { coverShot: opts.coverShot } : {}),
     });
     const keys = () => calls.filter((c) => c.method === "Input.dispatchKeyEvent" && c.params?.type === "keyDown").map((c) => c.params?.text).join("");
-    return { host, calls, reads, typed, keys };
+    return { host, calls, reads, typed, keys, emit: (method: string, params: unknown) => emit?.(method, params) };
   }
   const fill = (host: BrowserAgentHost) => host.handleOp("fillCode", { browserId: "b1", ref: 7, origin: "https://example.com" }) as Promise<{ ok: boolean; detail?: string; error?: string; refused?: string }>;
 
@@ -1383,6 +1388,92 @@ describe("BrowserAgentHost — fillCode", () => {
     const p = codePage({ boxes: 4 });
     expect((await fill(p.host)).ok).toBe(false);
     expect(p.keys()).toBe("");
+  });
+
+  /** A one-node DOMSnapshot: a search box holding `value`, on a page at `url`. */
+  function searchBoxPage(url: string, value: string) {
+    const strings = [url, "Verify", "INPUT", "", "type", "search", value];
+    return {
+      documents: [{
+        documentURL: 0, title: 1, scrollOffsetX: 0, scrollOffsetY: 0,
+        nodes: { parentIndex: [-1], nodeType: [1], nodeName: [2], nodeValue: [3], backendNodeId: [50], attributes: [[4, 5]], inputValue: { index: [0], value: [6] }, inputChecked: { index: [] }, isClickable: { index: [] } },
+        layout: { nodeIndex: [0], styles: [SNAPSHOT_STYLES.map(() => 3)], bounds: [[0, 0, 200, 30]], paintOrders: [1] },
+      }],
+      strings,
+    };
+  }
+
+  it("keeps the code out of everything the agent reads back after it filled a row of boxes", async () => {
+    // THE MUTANT: only the boxes' own values are hidden. The page draws the code in its own text,
+    // puts it in the URL it submits to, logs it, and the agent can copy a box and paste it into a
+    // search field: every one of those reached the agent.
+    const spaced = CODE.split("").join("\n");
+    const p = codePage({
+      boxes: 6,
+      respond: (method, params) => {
+        if (method === "DOMSnapshot.captureSnapshot") return searchBoxPage(`https://example.com/verify?code=${CODE}`, CODE);
+        if (method === "Runtime.evaluate" && String(params?.expression).includes("innerText")) return { result: { value: `Enter the code\n${spaced}\nVerify` } };
+        return undefined;
+      },
+    });
+    expect((await fill(p.host)).ok).toBe(true);
+    p.emit("Runtime.consoleAPICalled", { type: "log", args: [{ value: `otp ${CODE}` }] });
+    p.emit("Network.requestWillBeSent", { requestId: "r1", type: "Document", request: { method: "GET", url: `https://example.com/check?code=${CODE}` } });
+    const snapshot = await p.host.handleOp("snapshot", { browserId: "b1" });
+    const text = await p.host.handleOp("read", { browserId: "b1", kind: "text" });
+    const console = await p.host.handleOp("read", { browserId: "b1", kind: "console" });
+    const network = await p.host.handleOp("read", { browserId: "b1", kind: "network" });
+    for (const said of [snapshot, text, console, network]) {
+      expect(JSON.stringify(said)).not.toMatch(/4\D{0,4}8\D{0,4}2\D{0,4}9\D{0,4}1\D{0,4}3/);
+    }
+    expect((text as { text: string }).text).toContain("Enter the code");
+    expect((network as { text: string }).text).toContain("https://example.com/check?code=");
+  });
+
+  it("keeps a code the person picked from the menu out of the agent's reads too", async () => {
+    const p = codePage({ respond: (method, params) => (method === "Runtime.evaluate" && String(params?.expression).includes("innerText") ? { result: { value: `Code ${CODE} sent` } } : undefined) });
+    p.host.codeFilled("b1", [100], CODE);
+    expect(await p.host.handleOp("read", { browserId: "b1", kind: "text" })).toEqual({ text: "Code (security code hidden by Realm) sent" });
+    // A pane closed is forgotten with its codes.
+    p.host.release("b1");
+    expect(await p.host.handleOp("read", { browserId: "b1", kind: "text" })).toEqual({ text: `Code ${CODE} sent` });
+  });
+
+  it("leaves a page's numbers alone in a pane no code went into", async () => {
+    const p = codePage({ respond: (method, params) => (method === "Runtime.evaluate" && String(params?.expression).includes("innerText") ? { result: { value: `Order ${CODE}` } } : undefined) });
+    expect(await p.host.handleOp("read", { browserId: "b1", kind: "text" })).toEqual({ text: `Order ${CODE}` });
+  });
+
+  it("covers the code fields in an agent's screenshot", async () => {
+    // THE MUTANT: the capture handed over as the page drew it, the code's digits in its boxes.
+    const covered: { jpeg: string; rects: number[][] }[] = [];
+    const rects = { vw: 800, vh: 600, rects: [[10, 20, 40, 40]] };
+    const p = codePage({
+      boxes: 6,
+      respond: (method, params) => {
+        if (method === "Page.captureScreenshot") return { data: "c2NyZWVu" };
+        if (method === "Runtime.callFunctionOn" && String(params?.functionDeclaration).includes("getBoundingClientRect")) return { result: { value: rects } };
+        return undefined;
+      },
+      coverShot: (jpeg, fields) => { covered.push({ jpeg, rects: fields.rects }); return "Y292ZXJlZA=="; },
+    });
+    expect((await fill(p.host)).ok).toBe(true);
+    expect(await p.host.handleOp("screenshot", { browserId: "b1" })).toEqual({ data: "Y292ZXJlZA==", mimeType: "image/jpeg" });
+    expect(covered).toEqual([{ jpeg: "c2NyZWVu", rects: [[10, 20, 40, 40], [10, 20, 40, 40]] }]);
+  });
+
+  it("takes no screenshot of a code field it cannot cover", async () => {
+    const p = codePage({
+      boxes: 6,
+      respond: (method, params) => {
+        if (method === "Page.captureScreenshot") return { data: "c2NyZWVu" };
+        if (method === "Runtime.callFunctionOn" && String(params?.functionDeclaration).includes("getBoundingClientRect")) return { result: { value: "a page that answers for itself" } };
+        return undefined;
+      },
+      coverShot: () => "Y292ZXJlZA==",
+    });
+    expect((await fill(p.host)).ok).toBe(true);
+    await expect(p.host.handleOp("screenshot", { browserId: "b1" })).rejects.toThrow(/could not cover/);
   });
 
   it("keeps the filled fields' value out of the next snapshot", async () => {

@@ -258,13 +258,14 @@ describe("security codes", () => {
   function codeHarness(over: Partial<AutofillDeps> & { choice?: string | null } = {}) {
     const asked: string[] = [];
     const filled: number[][] = [];
+    const codes: string[] = [];
     const h = harness({
       choice: FILL_CODE_ID,
       codeFor: async (_p, origin) => { asked.push(origin); return { code: CODE, source: "Messages" }; },
-      codeFilled: (_p, ids) => { filled.push(ids); },
+      codeFilled: (_p, ids, typed) => { filled.push(ids); codes.push(typed); },
       ...over,
     });
-    return { ...h, asked, filled };
+    return { ...h, asked, filled, codes };
   }
 
   it("offers the code under a code field, and one pick types it", async () => {
@@ -277,6 +278,8 @@ describe("security codes", () => {
     expect(h.calls.menus).toEqual([[{ id: FILL_CODE_ID, label: "482 913 — from Messages", toolTip: expect.any(String) }]]);
     expect(h.typed()).toBe(CODE);
     expect(h.filled).toHaveLength(1);
+    // The code goes with the nodes, so the agent host can take it out of what the agent reads.
+    expect(h.codes).toEqual([CODE]);
     // A code is not a saved password: nothing is unlocked and no audit line is written.
     expect(h.calls.values).toEqual([]);
     expect(h.calls.audit).toEqual([]);

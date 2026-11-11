@@ -132,6 +132,7 @@ export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | nul
     send("DOM.getDocument", { depth: -1, pierce: true }).catch(() => null),
   ]);
   const snap = snapRaw as CaptureSnapshot;
+  const codes = await codeFieldNodes(send);
   const ax = (axRaw as { nodes?: AxNode[] }).nodes ?? [];
   const metrics = metricsRaw as LayoutMetrics;
 
@@ -149,7 +150,7 @@ export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | nul
   const landmarks: Landmark[] = [];
   const layoutByDoc: LayoutInfo[] = [];
   for (const [docIndex, doc] of (snap.documents ?? []).entries()) {
-    const collected = collectDoc(snap.strings, doc, docIndex, axByBackendId, viewport, filled);
+    const collected = collectDoc(snap.strings, doc, docIndex, axByBackendId, viewport, filled, codes);
     all.push(...collected.candidates);
     landmarks.push(...collected.landmarks);
     layoutByDoc.push(collected.layoutInfo);
@@ -336,7 +337,7 @@ async function fillFileInputValues(send: CdpSend, candidates: Candidate[]): Prom
  *  for the ancestor exemption, and the two styles that decide whether a box actually hides things. */
 type LayoutInfo = { rects: Rect[]; paint: number[]; nodeIndexes: number[]; parentIndex: number[]; nodeType: number[]; backendIds: number[]; bg: string[]; boxOpacity: string[] };
 
-function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByBackendId: Map<number, AxNode>, viewport: { w: number; h: number }, filled: ReadonlySet<number>) {
+function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByBackendId: Map<number, AxNode>, viewport: { w: number; h: number }, filled: ReadonlySet<number>, codes: ReadonlySet<number>) {
   const nodes = doc.nodes;
   const layout = doc.layout;
   const nodeType = nodes.nodeType ?? [];
@@ -399,7 +400,7 @@ function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByB
     const password = filled.has(backendNodeId)
       || tag === "INPUT" && (attrs.type ?? "").toLowerCase() === "password"
       || axNode?.properties?.some((p) => p.name === "protected" && p.value?.value === true) === true;
-    const secret = password || (tag === "INPUT" || tag === "TEXTAREA") && isSecretField(attrs);
+    const secret = password || codes.has(backendNodeId) || (tag === "INPUT" || tag === "TEXTAREA") && isSecretField(attrs);
     const axName = String(axNode?.name?.value ?? "").trim();
 
     const landmarkRole = LANDMARK_ROLES.has(axRole) ? axRole : LANDMARK_ROLES.has(ariaRole) ? ariaRole : LANDMARK_TAGS[tag];
@@ -787,6 +788,61 @@ const codeGroupOf = (() => {
   return (el) => boxes(el) || (single(el) ? [el] : null);
 })();
 `;
+
+/** Every input of the page's top document that `CODE_FIELD_JS` puts in a code field. */
+export const CODE_FIELDS = `(() => { ${CODE_FIELD_JS}; return [...document.querySelectorAll("input")].filter((el) => codeGroupOf(el)); })()`;
+
+/**
+ * The nodes of the page's code fields, whoever typed into them. A box past the first in a row of them
+ * says nothing about itself that `isSecretField` would read, so a snapshot asks the page which inputs
+ * `CODE_FIELD_JS` counts. Empty when the page will not say.
+ */
+async function codeFieldNodes(send: CdpSend): Promise<Set<number>> {
+  const ids = new Set<number>();
+  try {
+    const found = (await send("Runtime.evaluate", { expression: CODE_FIELDS, silent: true })) as { result?: { objectId?: string } };
+    const listId = found.result?.objectId;
+    if (!listId) return ids;
+    const props = (await send("Runtime.getProperties", { objectId: listId, ownProperties: true })) as { result?: { name: string; value?: { objectId?: string } }[] };
+    await Promise.all((props.result ?? []).map(async ({ name, value }) => {
+      if (!/^\d+$/.test(name) || !value?.objectId) return;
+      const node = (await send("DOM.describeNode", { objectId: value.objectId }).catch(() => null)) as { node?: { backendNodeId?: number } } | null;
+      if (typeof node?.node?.backendNodeId === "number") ids.add(node.node.backendNodeId);
+    }));
+    void send("Runtime.releaseObject", { objectId: listId }).catch(() => {});
+  } catch {
+    // A page that refuses the evaluate keeps the attribute rule alone.
+  }
+  return ids;
+}
+
+/** What stands in for a security code Realm typed, wherever it shows up in what an agent reads. */
+export const CODE_HIDDEN = "(security code hidden by Realm)";
+
+/**
+ * `value` with every appearance of one of `codes` replaced by `CODE_HIDDEN`: in a string, and in the
+ * strings of an array or object, all the way down. A code is matched with any whitespace between its
+ * characters (a page that draws one digit per box reads as "4\n8\n2…") and never as part of a longer
+ * run of letters and digits. So is each start of it at least half its length and three long: a code
+ * goes in a key at a time, and a page that logs every input logs "4829" and "48291" on the way.
+ */
+export function hideCodes<T>(value: T, codes: readonly string[]): T {
+  if (codes.length === 0) return value;
+  const starts = codes.flatMap((code) => {
+    const chars = [...code];
+    const shortest = Math.min(chars.length, Math.max(3, Math.ceil(chars.length / 2)));
+    return Array.from({ length: chars.length - shortest + 1 }, (_, i) => chars.slice(0, chars.length - i));
+  });
+  const alternatives = starts.map((chars) => chars.map((ch) => ch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("\\s*"));
+  const pattern = new RegExp(`(?<![\\p{L}\\p{N}])(?:${alternatives.join("|")})(?![\\p{L}\\p{N}])`, "gu");
+  const walk = (v: unknown): unknown => {
+    if (typeof v === "string") return v.replace(pattern, CODE_HIDDEN);
+    if (Array.isArray(v)) return v.map(walk);
+    if (v !== null && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)]));
+    return v;
+  };
+  return walk(value) as T;
+}
 
 /**
  * Type a one-time code into the inputs `CODE_FIELD_JS` found — the field, or one character into each
@@ -1304,7 +1360,7 @@ function bytesToBase64(bytes: Uint8Array): string {
 }
 
 /** A backendNodeId as a Runtime object, or null. Every caller releases what it gets. */
-async function resolveObject(send: CdpSend, backendNodeId: number): Promise<string | null> {
+export async function resolveObject(send: CdpSend, backendNodeId: number): Promise<string | null> {
   try {
     const resolved = (await send("DOM.resolveNode", { backendNodeId })) as { object?: { objectId?: string } };
     return resolved.object?.objectId ?? null;
@@ -1354,12 +1410,14 @@ const PAGE_FIELD_VALUE_MAX = 300;
 
 /**
  * Every filled-in field of the page's top frame (open shadow roots too), labelled as a person reads
- * it, in the page's own world. A field `isSecretField` would name is reported as `hidden` and its
+ * it, in the page's own world. A field `isSecretField` would name, or a code field by
+ * `CODE_FIELD_JS`, is reported as `hidden` and its
  * value is never read into the answer: the rule runs inside the page, so a password leaves it as a
  * word saying it was there and nothing more. Kept in step with `isSecretField` by being built from
  * the same two constants.
  */
 const PAGE_FIELDS_FN = `(filled) => {
+  ${CODE_FIELD_JS}
   const words = ${SECRET_FIELD_WORDS.toString()};
   const plain = ${JSON.stringify(PLAIN_INPUT_TYPES)};
   const out = [];
@@ -1377,7 +1435,7 @@ const PAGE_FIELDS_FN = `(filled) => {
       const type = tag === "INPUT" ? (el.getAttribute("type") || "text").toLowerCase() : tag.toLowerCase();
       if (plain.includes(type)) continue;
       const said = [type, el.getAttribute("name"), el.id, el.getAttribute("autocomplete")].filter(Boolean).join(" ");
-      if (filled.includes(el) || type === "password" || words.test(said)) { out.push({ label: labelOf(el), value: null, hidden: true }); continue; }
+      if (filled.includes(el) || type === "password" || words.test(said) || codeGroupOf(el)) { out.push({ label: labelOf(el), value: null, hidden: true }); continue; }
       const value = tag === "SELECT" ? (el.selectedOptions?.[0]?.text ?? "") : String(el.value ?? "");
       if (value.trim() === "") continue;
       out.push({ label: labelOf(el), value: value.slice(0, ${PAGE_FIELD_VALUE_MAX}), hidden: false });

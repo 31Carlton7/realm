@@ -8,9 +8,10 @@
 import { DOWNLOAD_GRANT_TTL_MS, GENERATED_PASSWORD_LENGTH, MAX_ELEMENT_CHIPS, UPLOAD_ARM_WINDOW_MS, normalizeOrigin, paneNotOpenError, paneNotPaintingError, type BrowserAction, type BrowserLoadError, type BrowserActResult, type BrowserCredential, type BrowserFillCredentialResult, type BrowserPageActivity, type BrowserSnapshotResult, type BrowserReadResult, type BrowserScreenshotResult, type BrowserDescribeResult, type BrowserDismissDialogResult, type BrowserDownloadResult, type BrowserUploadFile, type BrowserUploadResult, PICK_DEVICE_ID_MAX, PICK_NAME_MAX, PICK_TEXT_MAX, PICK_TITLE_MAX, PICK_URL_MAX, type BrowserPickedElement, type BrowserReadKind, type SiteCredential } from "@realm/contracts";
 import { isAbsolute } from "node:path";
 import type { LatestCode } from "./security-codes";
-import { ANNOTATE_BINDING, CODE_FIELD_JS, DEFAULT_AGENT_ACCENT, PICK_BINDING, armAnnotate, armElementPick, buildSnapshot, cancelFileChooser, captureAnnotated, describeElement, describePick, disarmAnnotate, disarmElementPick, markAct, performAct, performCodeFill, performFillCredential, performUpload, readPageFields, readPageText, resolveAnnotatedNode, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex, type CredentialFill } from "./browser-agent";
+import { ANNOTATE_BINDING, CODE_FIELD_JS, DEFAULT_AGENT_ACCENT, PICK_BINDING, armAnnotate, armElementPick, buildSnapshot, cancelFileChooser, captureAnnotated, describeElement, describePick, disarmAnnotate, disarmElementPick, hideCodes, markAct, performAct, performCodeFill, performFillCredential, performUpload, readPageFields, readPageText, resolveAnnotatedNode, resolvePickedNode, setFileChooserInterception, type CdpSend, type InterceptedChooser, type SnapshotIndex, type CredentialFill } from "./browser-agent";
 import type { CredentialAuditEntry } from "./secret-store";
 import { credentialSiteMatch } from "./password-match";
+import { bothReads, readSecretRects, type SecretFields } from "./phone-frame";
 import { axElementAt, readAxSnapshot } from "./device-ax";
 
 /**
@@ -180,6 +181,11 @@ export type BrowserAgentHostDeps = {
    * the same answer as the switch being off: nothing is read and nothing is filled.
    */
   codes?: { enabled(): boolean; latest(origin: string): Promise<LatestCode | null> };
+  /**
+   * Paint `fields` over in a JPEG screenshot (base64), as the phone's picture is covered; null when it
+   * cannot. Absent is the same answer: a screenshot with a secret field in it is then not taken.
+   */
+  coverShot?(jpeg: string, fields: SecretFields): string | null;
 };
 
 /** Who a fill was for, as realm-server named it: the asking session's space. */
@@ -278,6 +284,10 @@ export class BrowserAgentHost {
   /** Per view, the refs a password was typed into, by the agent's fill or the person's menu. Kept
    *  off `Attached`, which is dropped and re-made while the page (and its node ids) lives on. */
   private readonly filledSecrets = new Map<string, Set<number>>();
+  /** Per view, the security codes Realm typed into it. Every snapshot and read of the view has them
+   *  taken out (`hideCodes`): the page may draw the code as text, submit it in a URL or log it, and an
+   *  agent may copy it into a field of its own. */
+  private readonly filledCodes = new Map<string, Set<string>>();
 
   /**
    * The theme accent every mark this host draws inside a page is painted in — the action ring, the
@@ -315,10 +325,25 @@ export class BrowserAgentHost {
     refs.add(ref);
   }
 
+  /** A security code went into these nodes: they are kept as `secretFilled` keeps a password's, and
+   *  the code itself out of everything an agent reads of the view. */
+  codeFilled(browserId: string, refs: readonly number[], code: string): void {
+    for (const ref of refs) this.secretFilled(browserId, ref);
+    let codes = this.filledCodes.get(browserId);
+    if (!codes) this.filledCodes.set(browserId, codes = new Set());
+    codes.add(code);
+  }
+
+  /** `value` with this view's filled codes taken out. */
+  private hideFilledCodes<T>(browserId: string, value: T): T {
+    return hideCodes(value, [...this.filledCodes.get(browserId) ?? []]);
+  }
+
   /** The pane's view is gone — drop its attachment and buffers. Snapshot indexes die with the view:
    *  a fresh view is a fresh page, and stale [new] markers would lie about it. */
   release(browserId: string): void {
     this.filledSecrets.delete(browserId);
+    this.filledCodes.delete(browserId);
     // A pick armed on a view that just died resolves EMPTY rather than hanging: the renderer awaits
     // this promise to un-arm its button, and a pane closed mid-pick would otherwise leave the button
     // lit for a view that no longer exists.
@@ -565,21 +590,10 @@ export class BrowserAgentHost {
         if (popups.length > 0) {
           wire.text = `${wire.text}\n(this page has a popup window open over it, on ${popups.join(" and ")} — a sign-in, usually. Browser tools reach this page, not the popup, so what happens in it is for the person to do; when it is done it closes itself and this page carries on.)`;
         }
-        return wire;
+        return this.hideFilledCodes(browserId, wire);
       }
-      case "read": {
-        const kind = String(params.kind ?? "text") as BrowserReadKind;
-        const entry = this.ensure(browserId);
-        if (kind === "console") return { text: entry.consoleLines.join("\n") };
-        if (kind === "network") return { text: this.formatNetwork(entry) };
-        // The snapshot's reason: the page's text is the error document's, which is nothing.
-        const failed = this.d.pageState(browserId)?.error ?? null;
-        if (failed) return { text: "", loadError: failed } satisfies BrowserReadResult;
-        const text = await readPageText(entry.binding.send);
-        // A pane handed over from the prompter also says what its form holds, its secrets hidden.
-        if (params.fields === true) return { text, fields: await readPageFields(entry.binding.send, [...this.filledSecrets.get(browserId) ?? []]) } satisfies BrowserReadResult;
-        return { text };
-      }
+      case "read":
+        return this.hideFilledCodes(browserId, await this.read(browserId, params));
       case "act": {
         const entry = this.ensure(browserId);
         // The action was schema-validated server-side; this cast is the two processes' contract.
@@ -670,7 +684,8 @@ export class BrowserAgentHost {
        *
        * `ref` must be a code field by `CODE_FIELD_JS`, the same test the person's menu uses: filling
        * a code into some other field — a search box, a comment — is how an agent would read it back.
-       * The fields it went into are then kept out of this pane's snapshots.
+       * The fields it went into, and the code itself, are then kept out of everything an agent reads
+       * of this pane, and the fields are covered in its screenshots.
        */
       case "fillCode": {
         const ref = Number(params.ref);
@@ -686,7 +701,7 @@ export class BrowserAgentHost {
         if (!found) return { ok: false, error: "no security code arrived by Messages or Mail in the last 5 minutes, so nothing was filled" } satisfies BrowserActResult;
         const result = await performCodeFill(send, targets.objectIds, { origin, code: found.code });
         if (result.ok) {
-          for (const id of targets.backendNodeIds) this.secretFilled(browserId, id);
+          this.codeFilled(browserId, targets.backendNodeIds, found.code);
           this.d.typed?.(browserId);
         }
         return result;
@@ -883,23 +898,56 @@ export class BrowserAgentHost {
           },
         );
       }
-      case "screenshot": {
-        const entry = this.ensure(browserId);
-        // A view that is not on screen never paints, and the capture waits for a frame that never
-        // comes; give up while the agent can still do something else (`paneNotPaintingError`).
-        let timer: NodeJS.Timeout | undefined;
-        const unpainted = new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error(paneNotPaintingError(browserId))), this.d.screenshotTimeoutMs ?? SCREENSHOT_TIMEOUT_MS);
-        });
-        const shot = (await Promise.race([entry.binding.send("Page.captureScreenshot", { format: "jpeg", quality: 70 }), unpainted])
-          .finally(() => clearTimeout(timer))) as { data?: string };
-        if (!shot.data) throw new Error("screenshot produced no data");
-        const failed = this.d.pageState(browserId)?.error ?? null;
-        return { data: shot.data, mimeType: "image/jpeg", ...(failed ? { loadError: failed } : {}) } satisfies BrowserScreenshotResult;
-      }
+      case "screenshot":
+        return this.screenshot(browserId);
       default:
         throw new Error(`unknown browser host op "${op}"`);
     }
+  }
+
+  private async read(browserId: string, params: Record<string, unknown>): Promise<BrowserReadResult> {
+    const kind = String(params.kind ?? "text") as BrowserReadKind;
+    const entry = this.ensure(browserId);
+    if (kind === "console") return { text: entry.consoleLines.join("\n") };
+    if (kind === "network") return { text: this.formatNetwork(entry) };
+    // The snapshot's reason: the page's text is the error document's, which is nothing.
+    const failed = this.d.pageState(browserId)?.error ?? null;
+    if (failed) return { text: "", loadError: failed };
+    const text = await readPageText(entry.binding.send);
+    // A pane handed over from the prompter also says what its form holds, its secrets hidden.
+    if (params.fields === true) return { text, fields: await readPageFields(entry.binding.send, [...this.filledSecrets.get(browserId) ?? []]) };
+    return { text };
+  }
+
+  /**
+   * An agent's screenshot, with every secret field of the page's top frame and every field Realm
+   * filled a password or code into painted over (`coverShot`), read where they were just before and
+   * just after the capture. A page with such a field that cannot be covered — the page would not say
+   * where its fields are while Realm had filled one, or the picture would not repaint — is not
+   * pictured. A secret field inside another site's frame is not found, and not covered.
+   */
+  private async screenshot(browserId: string): Promise<BrowserScreenshotResult> {
+    const entry = this.ensure(browserId);
+    const send = entry.binding.send;
+    const filled = [...this.filledSecrets.get(browserId) ?? []];
+    const before = await readSecretRects(send, filled);
+    // A view that is not on screen never paints, and the capture waits for a frame that never
+    // comes; give up while the agent can still do something else (`paneNotPaintingError`).
+    let timer: NodeJS.Timeout | undefined;
+    const unpainted = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(paneNotPaintingError(browserId))), this.d.screenshotTimeoutMs ?? SCREENSHOT_TIMEOUT_MS);
+    });
+    const shot = (await Promise.race([send("Page.captureScreenshot", { format: "jpeg", quality: 70 }), unpainted])
+      .finally(() => clearTimeout(timer))) as { data?: string };
+    if (!shot.data) throw new Error("screenshot produced no data");
+    const fields = bothReads(before, await readSecretRects(send, filled));
+    let data: string | null = shot.data;
+    if (fields === null ? filled.length > 0 : fields.rects.length > 0) {
+      data = fields && this.d.coverShot ? this.d.coverShot(shot.data, fields) : null;
+      if (!data) throw new Error("Realm could not cover the password or security code fields on this page, so it took no screenshot — use browser_snapshot to see the page");
+    }
+    const failed = this.d.pageState(browserId)?.error ?? null;
+    return { data, mimeType: "image/jpeg", ...(failed ? { loadError: failed } : {}) };
   }
 
   /* ------------------------------ file choosers ------------------------------ */

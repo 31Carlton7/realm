@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { UPLOAD_DROP_MAX_BYTES, type BrowserAction, type BrowserRefusal } from "@realm/contracts";
-import { buildSnapshot, MAX_ELEMENTS, performAct, performFillCredential, performUpload, SNAPSHOT_STYLES, isOpaqueColor, cursorTargetFor, DEFAULT_AGENT_ACCENT, HIGHLIGHT_ATTR, highlightTargetRef, markAct, MARK_CURSOR, MARK_FRAME, MARK_RING, viewportCentre, type CdpSend, type UploadSeams } from "./browser-agent";
+import { buildSnapshot, CODE_HIDDEN, hideCodes, MAX_ELEMENTS, performAct, performFillCredential, performUpload, SNAPSHOT_STYLES, isOpaqueColor, cursorTargetFor, DEFAULT_AGENT_ACCENT, HIGHLIGHT_ATTR, highlightTargetRef, markAct, MARK_CURSOR, MARK_FRAME, MARK_RING, viewportCentre, type CdpSend, type UploadSeams } from "./browser-agent";
 import { AGENT_CURSOR, AGENT_CURSOR_FORMS, AGENT_MOTION, CURSOR_FORM_FOR_CSS } from "./agent-cursor";
 import { tickStylesFor } from "./browser-agent";
 
@@ -259,6 +259,38 @@ describe("buildSnapshot", () => {
     expect(snap.text).not.toContain("shown-secret");
     expect(snap.text).not.toContain("123456");
     expect(snap.text).toContain('value="carlton"');
+  });
+
+  it("hides every box of a code row the person typed into, though only the first says what it is", async () => {
+    // THE MUTANT: secret by a field's own attributes alone. Boxes two to six of a split code field
+    // say nothing but maxlength=1, so the code reached the snapshot one digit per box.
+    const doc = makeSnapshotDoc();
+    const digits = [..."482913"];
+    digits.forEach((d, i) => doc.addLayout(doc.addNode({ tag: "INPUT", attrs: i === 0 ? { autocomplete: "one-time-code", maxlength: "1" } : { maxlength: "1" }, backendId: 20 + i, value: d }), [i * 50, 0, 40, 40]));
+    doc.addLayout(doc.addNode({ tag: "INPUT", attrs: { type: "search" }, backendId: 30, value: "shoes" }), [0, 60, 200, 30]);
+    const base = fakeSend({ snapshot: doc.payload() });
+    const send: CdpSend = async (method, params = {}) => {
+      if (method === "Runtime.evaluate" && String(params.expression).includes("codeGroupOf")) return { result: { objectId: "code-fields" } };
+      if (method === "Runtime.getProperties" && params.objectId === "code-fields") {
+        return { result: [...digits.map((_, i) => ({ name: String(i), value: { objectId: `obj-${20 + i}` } })), { name: "length", value: {} }] };
+      }
+      return base.send(method, params);
+    };
+    const snap = await buildSnapshot(send, null);
+    expect(snap.elements?.filter((e) => e.ref >= 20 && e.ref < 26).map((e) => e.value)).toEqual([null, null, null, null, null, null]);
+    expect(snap.text).toContain('value="shoes"');
+  });
+
+  it("hides a filled code wherever it appears, spaced or not, and leaves longer numbers alone", () => {
+    const said = hideCodes({ url: "https://a.example/v?code=482913", text: "Your code\n4\n8\n2\n9\n1\n3\nOrder 14829130", rows: [{ value: "4 8 2 9 1 3" }], n: 3 }, ["482913"]);
+    expect(said).toEqual({ url: `https://a.example/v?code=${CODE_HIDDEN}`, text: `Your code\n${CODE_HIDDEN}\nOrder 14829130`, rows: [{ value: CODE_HIDDEN }], n: 3 });
+    expect(hideCodes("a.b+c", ["a.b"])).toBe(`${CODE_HIDDEN}+c`);
+    // A page that logs each key logs the code's starts too; the short ones say nothing and stay.
+    expect(hideCodes("entered 4\nentered 48\nentered 482\nentered 48291\nentered 482913", ["482913"]))
+      .toBe(`entered 4\nentered 48\nentered ${CODE_HIDDEN}\nentered ${CODE_HIDDEN}\nentered ${CODE_HIDDEN}`);
+    expect(hideCodes("1234 and 12345678", ["12345678"])).toBe(`${CODE_HIDDEN} and ${CODE_HIDDEN}`);
+    expect(hideCodes("123", ["12345678"])).toBe("123");
+    expect(hideCodes("482913", [])).toBe("482913");
   });
 
   it("drops an element covered by a later-painted opaque box (mutant: occlusion filter removed)", async () => {

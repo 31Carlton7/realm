@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { isSecretField } from "@realm/contracts";
 import { afterEach, describe, expect, it } from "vitest";
-import { bothReads, COVER_MARGIN, coverFields, fitWithin, isSecretFields, pageFields, SECRET_FIELDS, type SecretFields } from "./phone-frame";
+import type { CdpSend } from "./browser-agent";
+import { bothReads, COVER_MARGIN, coverFields, fitWithin, isSecretFields, pageFields, readSecretRects, SECRET_FIELDS, type SecretFields } from "./phone-frame";
 
 /**
  * What a phone is never shown of a page. What must die: a password field's dots, or its text after a
@@ -39,6 +40,13 @@ describe("the fields a phone is not shown", () => {
       .toEqual(["pw", "shown", "otp", "card", "cvc"]);
   });
 
+  it("finds each box of a code row and a field named for a code", () => {
+    // THE MUTANT: `isSecretField`'s words alone — the boxes past the first say nothing but maxlength=1.
+    document.body.innerHTML = `<div>${Array.from({ length: 6 }, (_, i) => `<input maxlength="1"${i === 0 ? ' autocomplete="one-time-code"' : ""}>`).join("")}</div><input name="verificationCode"><input name="promo_code">`;
+    document.querySelectorAll("input").forEach((el, i) => { el.getBoundingClientRect = () => ({ left: i * 50, top: 0, width: 40, height: 40, right: i * 50 + 40, bottom: 40, x: i * 50, y: 0, toJSON: () => ({}) }) as DOMRect; });
+    expect(found().rects.map(([x]) => x / 50)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+  });
+
   it("finds one inside an open shadow root", () => {
     document.body.innerHTML = `<sign-in></sign-in>`;
     const shadow = document.querySelector("sign-in")!.attachShadow({ mode: "open" });
@@ -52,6 +60,27 @@ describe("the fields a phone is not shown", () => {
     place("#a", { left: 0, top: 0, width: 0, height: 0 });
     place("#b", { left: 0, top: innerHeight + 50, width: 100, height: 20 });
     expect(found().rects).toEqual([]);
+  });
+
+  it("places a field Realm filled, whatever it now says about itself, for an agent's screenshot", async () => {
+    // THE MUTANT: the filled refs not passed to the page script — a code field that names itself
+    // nothing a code field does is left in the picture.
+    document.body.innerHTML = `<input id="box" value="482913"><input id="user" name="email">`;
+    place("#box", { left: 10, top: 20, width: 120, height: 40 });
+    place("#user", { left: 10, top: 80, width: 120, height: 40 });
+    const nodes: Record<string, Element> = { "obj-7": document.getElementById("box")! };
+    const send = (async (method: string, params: Record<string, unknown> = {}) => {
+      if (method === "DOM.resolveNode") return { object: { objectId: `obj-${params.backendNodeId}` } };
+      if (method === "Runtime.callFunctionOn") {
+        const fn = (0, eval)(`(${String(params.functionDeclaration)})`) as (...a: unknown[]) => unknown;
+        return { result: { value: fn.apply(nodes[String(params.objectId)], (params.arguments as { objectId: string }[]).map((a) => nodes[a.objectId])) } };
+      }
+      if (method === "Runtime.evaluate") return { result: { value: (0, eval)(String(params.expression)) } };
+      return {};
+    }) as unknown as CdpSend;
+    expect((await readSecretRects(send, [7]))?.rects).toEqual([[10, 20, 120, 40]]);
+    expect((await readSecretRects(send, []))?.rects).toEqual([]);
+    expect(await readSecretRects((async () => ({ result: { value: "not mine" } })) as unknown as CdpSend, [])).toBeNull();
   });
 
   it("takes only an answer of its own shape: a page that replaced the globals gets no picture", () => {

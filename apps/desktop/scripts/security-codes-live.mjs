@@ -15,6 +15,10 @@
  *       "filled" without the code; its next snapshot does not carry the code; a declined card fills
  *       nothing and answers "declined";
  *   C5  no code is in realm.db or any log;
+ *   C7  after an approved agent fill — a field whose page draws the digits beside it, logs them and
+ *       sends them in a URL, and the six boxes — the agent's snapshot, page text, console and network
+ *       reads carry no code, and its screenshot has the fields painted grey (saved as 09-*.jpg); the
+ *       boxes a person typed a code into keep it out of the agent's snapshot too;
  *   C6  with LIVE_FRONT=1, every surface in dark and light, captured from the screen
  *       (`screencapture`), because the menu and the pane are native views no CDP capture can see.
  *       That run is seen (scripts/README.md): the window comes to the front for each menu. Without
@@ -25,7 +29,8 @@
  * asked, then picks the row the harness names.
  *
  * Ports: LIVE_SERVER_PORT / LIVE_CDP_PORT (8801 / 9241) and LIVE_SITE_PORT (18801), refused if taken
- * and reaped by port. Screenshots go to LIVE_OUT.
+ * and reaped by port. Screenshots go to LIVE_OUT. LIVE_MASK_ONLY=1 skips the menus and cards of C3–C4
+ * and runs C7 alone.
  */
 import { execFileSync } from "node:child_process";
 import { connect } from "node:net";
@@ -154,11 +159,23 @@ const SPLIT = page("Verify — Fixture", `<h1>Enter the code</h1><p>We emailed y
   <div class="boxes" id="boxes">${[0, 1, 2, 3, 4, 5].map((i) => `<input id="d${i}" maxlength="1" inputmode="numeric" aria-label="Digit ${i + 1}">`).join("")}</div>
   <button>Continue</button>
   <script>const b=[...document.querySelectorAll('#boxes input')];b.forEach((el,i)=>el.addEventListener('input',()=>{if(el.value&&b[i+1])b[i+1].focus();}));</script>`);
+/** A code field drawn the way input-otp draws one: a clear input over six slots that show its digits.
+ *  The page also logs what was typed and checks it with a GET that carries it. */
+const MASK = page("Verify — Fixture", `<h1>Two-step sign-in</h1><p>Enter the code we texted you.</p>
+  <div style="position:relative;width:332px;height:52px">
+    <div id="slots" class="boxes" aria-hidden="true">${[0, 1, 2, 3, 4, 5].map(() => `<div style="width:44px;height:52px;border:1px solid #c7c7cc;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:24px"></div>`).join("")}</div>
+    <input id="otp" name="otp" autocomplete="one-time-code" inputmode="numeric" maxlength="6" aria-label="Security code"
+      style="position:absolute;inset:0;width:100%;height:100%;opacity:0.01;color:transparent;caret-color:transparent;border:0;background:transparent">
+  </div>
+  <p id="status" style="margin-top:16px"></p>
+  <script>const i=document.querySelector('#otp');const s=[...document.querySelectorAll('#slots div')];
+  i.addEventListener('input',()=>{s.forEach((d,k)=>d.textContent=i.value[k]||'');console.log('entered '+i.value);
+  if(i.value.length===6){fetch('/check?code='+i.value).then(()=>{document.querySelector('#status').textContent='Checked';});}});</script>`);
 function startSite() {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       const url = new URL(req.url ?? "/", SITE);
-      const body = { "/verify": VERIFY, "/split": SPLIT }[url.pathname];
+      const body = { "/verify": VERIFY, "/split": SPLIT, "/mask": MASK, "/check": page("ok", "ok") }[url.pathname];
       res.writeHead(body ? 200 : 404, { "content-type": "text/html" });
       res.end(body ?? page("Not found", "<h1>Not found</h1>"));
     });
@@ -362,7 +379,7 @@ async function main() {
   await go("/verify");
   clearInbox();
 
-  for (const mode of ["dark", "light"]) {
+  for (const mode of process.env.LIVE_MASK_ONLY === "1" ? [] : ["dark", "light"]) {
     if (mode === "light") {
       await api.call("settings.set", { key: "ui.theme", value: "light" });
       await c.send("Page.reload", {});
@@ -449,6 +466,64 @@ async function main() {
     check(`C3 [${mode}] a code older than five minutes is not offered`, lines(menuLog).length === m2 && (await otpValue()) === "", lines(menuLog).slice(m2));
     clearInbox();
   }
+
+  /* ── C7: nothing the agent reads back carries the code ─────────────────────────────────────── */
+  const approvedFill = async (code, refPattern) => {
+    clearInbox();
+    receive("Messages", code, "{code} is your Fixture code. It expires in 5 minutes.", 2_000);
+    const ref = Number(refPattern.exec(text(await call("browser_snapshot", { browserId })))?.[1]);
+    const cards0 = cards.length;
+    const pending = call("browser_fill_code", { browserId, ref });
+    const card = await until(() => cards.slice(cards0).find((k) => k.tool === "browser_fill_code"), 15_000, "code card");
+    await api.call("sessions.respondPermission", { id: sessionId, requestId: card.requestId, decision: "allow" });
+    return text(await pending);
+  };
+  /** Everything an agent can read of the pane, saved, and whether any of it carries `code`. */
+  const readBack = async (tag, code) => {
+    const said = {
+      snapshot: text(await call("browser_snapshot", { browserId })),
+      text: text(await call("browser_read", { browserId, kind: "text" })),
+      console: text(await call("browser_read", { browserId, kind: "console" })),
+      network: text(await call("browser_read", { browserId, kind: "network" })),
+    };
+    for (const [kind, body] of Object.entries(said)) fs.writeFileSync(path.join(OUT_DIR, `09-${tag}-${kind}.txt`), body);
+    const shot = await call("browser_screenshot", { browserId });
+    const image = (shot.content ?? []).find((c) => c.type === "image");
+    if (image) fs.writeFileSync(path.join(OUT_DIR, `09-${tag}-screenshot.jpg`), Buffer.from(image.data, "base64"));
+    console.log(`SCREENSHOT ${tag} ${path.join(OUT_DIR, `09-${tag}-screenshot.jpg`)}`);
+    // The code, or any start of it three long or more, its digits spaced or not.
+    const spaced = new RegExp(`(?<![0-9])${code.slice(0, 3).split("").join("\\s*")}`);
+    return { leaked: Object.entries(said).filter(([, body]) => spaced.test(body)).map(([kind]) => kind), said, image: !!image, shotText: text(shot) };
+  };
+
+  await go("/mask");
+  const drawn = "615247";
+  const drawnFill = await approvedFill(drawn, /\[ref=(\d+)\] textbox "Security code"/);
+  await until(() => evalIn(pane, `document.querySelector('#status').textContent === 'Checked'`), 10_000, "page checked the code");
+  const page1 = { value: await otpValue(), slots: await evalIn(pane, `document.querySelector('#slots').innerText.replace(/\\s/g, '')`) };
+  const mask = await readBack("drawn-field", drawn);
+  check("C7 the agent fills a field whose page draws, logs and sends its digits", drawnFill === "filled" && page1.value === drawn && page1.slots === drawn, { drawnFill, page1 });
+  check("C7 …and none of its snapshot, page text, console or network read carries the code", mask.leaked.length === 0, { leaked: mask.leaked });
+  check("C7 …each read still says what the page did, with the code taken out", /entered \(security code hidden by Realm\)/.test(mask.said.console) && /\/check\?code=\(security code hidden by Realm\)/.test(mask.said.network), { console: mask.said.console.slice(-200), network: mask.said.network.slice(-300) });
+  check("C7 …and its screenshot comes back (the field painted over)", mask.image, mask.shotText);
+
+  await go("/split");
+  const boxes = "731904";
+  const boxFill = await approvedFill(boxes, /\[ref=(\d+)\] textbox "Digit 1"/);
+  const split = await readBack("split-boxes", boxes);
+  check("C7 the agent fills the six boxes, and nothing it reads back carries the code", boxFill === "filled" && (await boxValues()) === boxes && split.leaked.length === 0 && split.image, { boxFill, leaked: split.leaked });
+
+  clearInbox();
+  await go("/split");
+  const typed = "280467";
+  await click(await centre("#d0"));
+  for (const d of typed) { await pane.send("Input.insertText", { text: d }); await sleep(60); }
+  const typedSnap = text(await call("browser_snapshot", { browserId }));
+  fs.writeFileSync(path.join(OUT_DIR, "09-person-typed-boxes-snapshot.txt"), typedSnap);
+  const personShot = (await call("browser_screenshot", { browserId })).content?.find((x) => x.type === "image");
+  if (personShot) fs.writeFileSync(path.join(OUT_DIR, "09-person-typed-boxes-screenshot.jpg"), Buffer.from(personShot.data, "base64"));
+  check("C7 boxes a person typed a code into keep it out of the agent's snapshot", (await boxValues()) === typed && !/value="\d"/.test(typedSnap), typedSnap.split("\n").filter((l) => /Digit/.test(l)));
+  clearInbox();
 
   /* ── C5: nowhere it should not be ───────────────────────────────────────────────────────────── */
   const db = path.join(home, "realm.db");

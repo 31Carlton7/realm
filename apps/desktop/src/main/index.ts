@@ -25,7 +25,7 @@ import { startScrollPhaseStream } from "./scroll-phase";
 import { readTextFile } from "./read-text";
 import { compressIconIfNeeded, describeFiles, existingPath, fileThumbnail, openablePath, saveTempAttachment, statFile, sweepTempAttachments, tempAttachmentDir, type PickedFile } from "./attachments";
 import { shareImage } from "./share-images";
-import { clearBrowserPartition, createBrowserPane, governBrowserDownloads, shareSiteCookies, type BrowserPane, type DownloadPolicy } from "./browser-pane";
+import { clearBrowserPartition, coverJpeg, createBrowserPane, governBrowserDownloads, shareSiteCookies, type BrowserPane, type DownloadPolicy } from "./browser-pane";
 import { labelAppProcesses, type AppProcessLabel } from "./app-metrics";
 import { refuseCapture } from "./capture-guard";
 import { viewNavigationAllowed } from "./app-views";
@@ -762,7 +762,7 @@ const autofill = new PasswordAutofill({
   audit: (entry) => secrets()?.audit(entry),
   passwordFilled: (paneId, ref) => agentHost.secretFilled(paneId, ref),
   codeFor: async (_paneId, origin) => (await codes()?.latest(origin)) ?? null,
-  codeFilled: (paneId, ids) => { for (const id of ids) agentHost.secretFilled(paneId, id); },
+  codeFilled: (paneId, ids, code) => agentHost.codeFilled(paneId, ids, code),
   now: () => Date.now(),
   newId,
 });
@@ -813,6 +813,7 @@ const agentHost = new BrowserAgentHost({
     enabled: () => codes()?.enabled() ?? false,
     latest: async (origin) => (await codes()?.latest(origin)) ?? null,
   },
+  coverShot: coverJpeg,
 });
 
 /** The browser a download came from, in whichever window holds its view. */
