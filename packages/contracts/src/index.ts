@@ -68,6 +68,7 @@ export * from "./daemon";
 export * from "./editor";
 export * from "./caret";
 export * from "./motion";
+export * from "./backgrounds";
 export * from "./power";
 export * from "./security-codes";
 export * from "./editors";

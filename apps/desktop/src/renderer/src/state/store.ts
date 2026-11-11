@@ -4,6 +4,8 @@ import { destinationTarget } from "./page-item";
 import { MAC_SKILL_ID, MAX_TAB_REFS, keepLiveRefs, mentionRefLabel, type AppViewRef, type InstalledApp, type MentionRef, type TabCard, type TabEntry, type TabRef, type UnlabelledRef } from "@realm/contracts";
 import type { SavedTurn } from "@realm/contracts";
 import { memoryLearningKey, memoryLearningOn } from "@realm/contracts";
+import { BACKGROUND_MOTION_SETTING, BACKGROUND_SETTING, DEFAULT_BACKGROUND, LEGACY_BACKGROUND_KEY, backgroundPref, migratedBackground } from "@realm/contracts";
+import { GALLERY } from "../panes/session/backdrop-gallery";
 import { attachmentDisposition } from "@realm/contracts";
 import { withStreamed, type StreamedMessage } from "@realm/contracts";
 import { VIEWER_SLOT, ownerOf, type Marking, type OpenViewerInput, type ViewerFile, type ViewerState } from "./viewer";
@@ -1099,6 +1101,11 @@ export type AppState = TeammatesSlice & {
    * not have to find out it was taken away.
    */
   lowPower: boolean;
+  /** Which background a new session shows (`ui.background`): `off`, `shuffle`, a gallery id or
+   *  `mine:<id>`. Unset is the default look, so a home that never chose gets it. */
+  background: string;
+  /** Whether a background that can move does (`ui.backgroundMotion`). Off by default. */
+  backgroundMotion: boolean;
   /**
    * Whether the window has the user's attention right now.
    *
@@ -1921,6 +1928,8 @@ export type AppState = TeammatesSlice & {
   setPaneAlpha(pct: number): Promise<void>;
   setReduceMotion(pref: ReducedMotionPref): Promise<void>;
   setLowPower(v: boolean): Promise<void>;
+  setBackground(v: string): Promise<void>;
+  setBackgroundMotion(v: boolean): Promise<void>;
   setSidebarActivityOrder(v: boolean): Promise<void>;
   setConfirmDelete(v: boolean): Promise<void>;
   /** The window gained or lost focus. Called by App's own listeners; nothing else writes it. */
@@ -4603,7 +4612,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
 
     return {
       booted: false,
-      sessionQueues: {}, pendingMoves: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], installedFonts: [], localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, confirmDelete: true, items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
+      sessionQueues: {}, pendingMoves: {}, planLimits: [], profiles: [], activeProfileId: null, spaces: [], activeSpaceId: null, themePref: "system", themeNames: DEFAULT_SELECTION, themeOverrides: {}, customThemes: [], installedFonts: [], localFonts: [], fontCatalog: null, contrast: CONTRAST_RANGE.default, fonts: DEFAULT_FONTS, groundAlpha: DEFAULT_GROUND_ALPHA, paneAlpha: DEFAULT_PANE_ALPHA, reduceMotion: REDUCED_MOTION_DEFAULT, lowPower: false, background: DEFAULT_BACKGROUND, backgroundMotion: false, windowActive: true, easterEggs: false, konamiUnlocked: false, eggPacks: [], submitKey: "enter", midTurnMode: "queue", closeFinishedAgentPanes: true, sidebarCollapsed: false, sidebarWidth: SIDEBAR_WIDTH.default, filesView: "list", libraryView: "grid", sidebarActivityOrder: false, confirmDelete: true, items: [], view: null, layout: null, offscreenBrowsers: [], focusedLeafId: null, newSinceSeq: {}, projects: [], environments: {}, sidebarToggles: 0, sidePanesHidden: false, viewRoom: null, toasts: [], toastReserve: null,
       ...teammatesSlice(api, get, set),
       allItems: [], archivedSessions: null, lastAgentKind: null, lastModels: {}, renamingItemId: null,
       connectionState: "connected",
@@ -4630,7 +4639,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       activeIndex() { const id = get().activeSpaceId; return id ? get().spaces.findIndex((s) => s.id === id) : -1; },
 
       async boot() {
-        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, quick, filesView, libraryView, system, avatarPath, sidePanesHidden, lastModels] = await Promise.all([
+        const [profiles, spaces, saved, savedProfile, theme, light, dark, legacyName, overrides, contrast, fonts, groundAlpha, paneAlpha, motion, lowPower, submitKey, sidebarCollapsed, sidebarWidth, activityOrder, askDelete, lastAgent, eggs, konami, quick, filesView, libraryView, system, avatarPath, sidePanesHidden, lastModels, background, backgroundMotion] = await Promise.all([
           api.listProfiles(), api.listSpaces(), api.getSetting(SETTING_ACTIVE_SPACE), api.getSetting(SETTING_ACTIVE_PROFILE), api.getSetting(SETTING_THEME),
           api.getSetting(SETTING_THEME_NAME.light), api.getSetting(SETTING_THEME_NAME.dark), api.getSetting(SETTING_THEME_NAME_LEGACY), api.getSetting(SETTING_THEME_OVERRIDES), api.getSetting(SETTING_CONTRAST), api.getSetting(SETTING_FONTS), api.getSetting(SETTING_GROUND_ALPHA), api.getSetting(SETTING_PANE_ALPHA), api.getSetting(REDUCED_MOTION_KEY), api.getSetting(SETTING_LOW_POWER), api.getSetting(SETTING_SUBMIT_KEY), api.getSetting(SETTING_SIDEBAR_COLLAPSED), api.getSetting(SETTING_SIDEBAR_WIDTH), api.getSetting(SETTING_SIDEBAR_ACTIVITY_ORDER), api.getSetting(SETTING_CONFIRM_DELETE), api.getSetting(SETTING_LAST_AGENT),
           api.getSetting(SETTING_EASTER_EGGS), api.getSetting(SETTING_KONAMI_UNLOCKED),
@@ -4644,7 +4653,15 @@ export function createAppStore(api: Api): StoreApi<AppState> {
           api.getAvatar().catch(() => null),
           api.getSetting(SETTING_SIDE_PANES_HIDDEN),
           api.getSetting(SETTING_LAST_MODELS),
+          api.getSetting(BACKGROUND_SETTING),
+          api.getSetting(BACKGROUND_MOTION_SETTING),
         ]);
+        /* Phase 1 kept the look in this window's localStorage. Carried into the setting once, if the
+           setting is unset, and then forgotten; a window that never chose one writes nothing. */
+        const legacyBackground = window.localStorage?.getItem(LEGACY_BACKGROUND_KEY) ?? null;
+        const carriedBackground = migratedBackground(background, legacyBackground, (id) => GALLERY.some((g) => g.id === id));
+        if (carriedBackground) void api.setSetting(BACKGROUND_SETTING, carriedBackground).catch(() => {});
+        if (legacyBackground !== null) window.localStorage?.removeItem(LEGACY_BACKGROUND_KEY);
         const agent = AgentKindSchema.safeParse(lastAgent);
         /* The panes' own value, or — in a home saved while one control moved both — the value that
            control had them at, written back once so the two are independent from here on. Writing
@@ -4665,6 +4682,7 @@ export function createAppStore(api: Api): StoreApi<AppState> {
         set({ profiles, themePref: isThemePref(theme) ? theme : "system", themeNames: { light: storedPalette(light, legacyName, "light"), dark: storedPalette(dark, legacyName, "dark") },
           themeOverrides: parseThemeOverrides(overrides), contrast: typeof contrast === "number" ? clampContrast(contrast) : CONTRAST_RANGE.default, fonts: parseFontPref(fonts),
           groundAlpha: typeof groundAlpha === "number" ? clampGroundAlpha(groundAlpha) : DEFAULT_GROUND_ALPHA, lowPower: lowPower === true,
+          background: backgroundPref(carriedBackground ?? background), backgroundMotion: backgroundMotion === true,
           paneAlpha: carriedPane, reduceMotion: isReducedMotionPref(motion) ? motion : REDUCED_MOTION_DEFAULT,
           submitKey: isSubmitKey(submitKey) ? submitKey : "enter", sidebarCollapsed: sidebarCollapsed === true,
           sidePanesHidden: sidePanesHidden === true,
@@ -5183,6 +5201,14 @@ export function createAppStore(api: Api): StoreApi<AppState> {
       async setLowPower(v) {
         set({ lowPower: v });
         await api.setSetting(SETTING_LOW_POWER, v);
+      },
+      async setBackground(v) {
+        set({ background: v });
+        await api.setSetting(BACKGROUND_SETTING, v);
+      },
+      async setBackgroundMotion(v) {
+        set({ backgroundMotion: v });
+        await api.setSetting(BACKGROUND_MOTION_SETTING, v);
       },
       setWindowActive(v) {
         // Guarded: focus and blur both fire more than once for one switch (the window, then the

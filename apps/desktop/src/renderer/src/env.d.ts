@@ -145,6 +145,15 @@ interface Window {
       claim(): Promise<boolean>;
       seen(): Promise<void>;
     };
+    /** The person's own backgrounds (main/backgrounds.ts). Optional: jsdom has no bridge. */
+    backgrounds?: {
+      list(): Promise<import("@realm/contracts").BackgroundImage[]>;
+      pick(): Promise<import("@realm/contracts").BackgroundsAdded>;
+      add(paths: string[]): Promise<import("@realm/contracts").BackgroundsAdded>;
+      update(id: string, patch: Partial<Pick<import("@realm/contracts").BackgroundImage, "name" | "effect" | "asIs">>): Promise<import("@realm/contracts").BackgroundImage | null>;
+      remove(id: string): Promise<boolean>;
+      image(id: string, size: "thumb" | "full"): Promise<string | null>;
+    };
     /** The Dock icon (main/app-icon.ts). Optional: only the desktop app has a Dock to change. */
     appIcon?: {
       get(): Promise<string>;

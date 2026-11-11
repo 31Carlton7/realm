@@ -24,6 +24,7 @@ import { latestTodos } from "./session-todos";
 import { SessionSummaryHost, useSummaryLive } from "./SessionSummary";
 import { SessionFilesHost } from "./SessionFiles";
 import { GoalStrip } from "./GoalStrip";
+import { SessionBackdrop } from "./HeroBackdrop";
 import { useSessionSubagents } from "./session-subagents";
 import { orchestratorOrder } from "../agents-tab/subagent-state";
 import { useAsSubagent } from "../agents-tab/SubagentViewer";
@@ -710,6 +711,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
     <div ref={setPane} className="session-pane" data-visible={visible || undefined} data-focused={focused || undefined} data-composer={hero ? "hero" : "docked"}
       data-peek={peek || undefined}
       data-dropping={fileDrop.dropping || undefined} {...(peek ? {} : fileDrop.handlers)}>
+      {hero && !peek && <SessionBackdrop sessionId={id} />}
       <Transcript transcript={transcript} sessionStatus={status} visible={visible} focused={focused} cwd={session.cwd} track teammates={spaceTeammates}
         saved={savedSeqs} onSave={onSaveTurn} reveal={promptFor} onRevealed={promptTaken} onEarlier={onEarlier}
         onExpandPlan={(planId) => openSheet({ kind: "session-plan", sessionId: id, planId })}

@@ -1,6 +1,7 @@
 import { PageScroll, useDissolve } from "../../components/ScrollFades";
 import { plainCode, withCode } from "../../components/with-code";
 import { AppIconPicker, canChooseAppIcon } from "../../components/settings/AppIconPicker";
+import { BackgroundPicker } from "../../components/settings/BackgroundPicker";
 import { CaretSettings } from "../../components/settings/CaretSettings";
 import { TERMINAL_COLOR_SCHEMES, TERMINALS_COLORS_COPY, AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
   CREDENTIAL_2FA_NOTE, CREDENTIAL_PRESENCE_TTLS, CREDENTIAL_STORAGE_NOTE, GENERATED_CREDENTIAL_NOTE, PASSWORDS_IMPORT_NOTE, NOTIFICATION_CATEGORIES, PASSKEY_STORAGE_NOTE,
@@ -1149,6 +1150,11 @@ function AppearanceTab() {
             <AppIconPicker />
           </div>
         )}
+      </div>
+
+      <h3 className="settings-head">Background</h3>
+      <div className="settings-group">
+        <BackgroundPicker mode={mode} />
       </div>
 
       <h3 className="settings-head">Text</h3>
