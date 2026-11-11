@@ -1,9 +1,15 @@
-import type { AskAnswers } from "@realm/contracts";
+import { AGENT_META, type AskAnswers, type Asker, type Session, type Teammate } from "@realm/contracts";
 import type { PermissionDecision } from "../../state/store";
 import { PermissionCard } from "./PermissionCard";
 import { PlanDecision, isPlanDecision } from "./PlanCard";
 import { QuestionCard, askCardFor } from "./QuestionCard";
 import type { PendingPermission } from "./transcript-model";
+
+/** Who a session's permission request comes from: the teammate whose session it is, else its agent. */
+export function sessionAsker(session: Pick<Session, "agentKind" | "teammateId">, teammates: readonly Teammate[] = []): Asker {
+  const teammate = session.teammateId ? teammates.find((t) => t.id === session.teammateId) : undefined;
+  return { kind: "agent", name: teammate?.name ?? AGENT_META[session.agentKind].label, agent: session.agentKind };
+}
 
 /**
  * One request an agent is blocked on, drawn as what it is.
@@ -19,8 +25,10 @@ import type { PendingPermission } from "./transcript-model";
  * name alone or by the shape of its arguments: those are the agent's, and a permission that could be
  * made to look like a question would be one whose "answer" is an Allow.
  */
-export function PendingRequest({ permission, onDecide, autoFocus = false, enter = false, ownsEscape = true }: {
+export function PendingRequest({ permission, asker, onDecide, autoFocus = false, enter = false, ownsEscape = true }: {
   permission: PendingPermission;
+  /** Who is asking a permission — the session's agent, or its teammate. A question carries its own. */
+  asker?: Asker;
   /** `answers` only from a question: question id → what was chosen or typed. */
   onDecide: (d: PermissionDecision, answers?: AskAnswers) => void;
   autoFocus?: boolean;
@@ -36,5 +44,5 @@ export function PendingRequest({ permission, onDecide, autoFocus = false, enter 
   // A plan is not a permission. The plan itself is a block in the transcript already (mapped off the
   // same tool call), so this is only the answer to it.
   if (isPlanDecision(permission)) return <PlanDecision autoFocus={autoFocus} enter={enter} ownsEscape={ownsEscape} onDecide={(d) => onDecide(d)} />;
-  return <PermissionCard permission={permission} autoFocus={autoFocus} enter={enter} ownsEscape={ownsEscape} onDecide={(d) => onDecide(d)} />;
+  return <PermissionCard permission={permission} asker={asker} autoFocus={autoFocus} enter={enter} ownsEscape={ownsEscape} onDecide={(d) => onDecide(d)} />;
 }

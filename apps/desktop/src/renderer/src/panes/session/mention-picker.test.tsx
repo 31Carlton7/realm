@@ -286,13 +286,31 @@ describe("the @ and / popovers dissolve their rows, never their surface", () => 
       // Hovering a row in the band highlights it where it stands — scrolling it clear would move the
       // row out from under the pointer, and the next pixel of movement would light a different one.
       const before = scrolled.length;
-      fireEvent.mouseEnter(screen.getByRole("option", { name: /skill-03/ }));
+      const three = screen.getByRole("option", { name: /skill-03/ });
+      fireEvent.mouseMove(three, { screenX: 10, screenY: 10 });
+      fireEvent.mouseMove(three, { screenX: 12, screenY: 10 });
       expect(picker()!.querySelector("[data-active] .mention-row-name")!.textContent).toBe("skill-03");
       expect(scrolled.length).toBe(before);
       // …and the next arrow press is the keyboard again, so it does scroll.
       fireEvent.keyDown(box(), { key: "ArrowDown" });
       expect(scrolled.at(-1)).toBe("mention-skill:skill-04");
     } finally { delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView; }
+  });
+
+  it("leaves the first row lit when the list opens under a pointer that has not moved", async () => {
+    // A bare "@" opened with its last row lit, half under the dissolve: the pointer was resting
+    // where the list appeared, and Chromium sends a resting pointer mouse events as rows land under it.
+    await mount("claude", LONG);
+    await type("@");
+    const first = picker()!.querySelector("[data-active] .mention-row-name")!.textContent;
+    const last = screen.getAllByRole("option").at(-1)!;
+    fireEvent.mouseOver(last, { screenX: 300, screenY: 500 });
+    fireEvent.mouseMove(last, { screenX: 300, screenY: 500 });
+    fireEvent.mouseMove(last, { screenX: 300, screenY: 500 });
+    expect(picker()!.querySelector("[data-active] .mention-row-name")!.textContent).toBe(first);
+    // A real move is a person pointing, and the row under it lights.
+    fireEvent.mouseMove(last, { screenX: 304, screenY: 501 });
+    expect(last).toHaveAttribute("data-active");
   });
 });
 

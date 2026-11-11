@@ -872,6 +872,55 @@ describe("Ara refresh §3/§4 geometry", () => {
     expect(RULES.filter((r) => r.selectors.some((s) => s.includes(".slash-picker")) && /(^|[;\s])width:/.test(r.body))).toEqual([]);
   });
 
+  it("the prompter's four pickers take one width and one row height, from one pair of tokens", () => {
+    // "+" was 364px with 30px rows, the model list 372, `@` 420 and `/` 320 — four widths and two row
+    // heights for one kind of list opened from one row of controls.
+    expect(tokensCss).toMatch(/--picker-w: min\(420px,/);
+    expect(tokensCss).toMatch(/--picker-row-h: 32px;/);
+    const surfaces = [".mention-picker", ".model-picker", ".plus-menu"];
+    for (const sel of surfaces) {
+      const widths = RULES.filter((r) => r.selectors.includes(sel)).flatMap((r) => r.body.match(/(?:^|[;\s])(?:min-|max-)?width: [^;]+/g) ?? []);
+      expect(widths.map((w) => w.trim()), sel).toEqual(["width: var(--picker-w)"]);
+    }
+    // The slash list has no width of its own (it is a `.mention-picker`), checked above.
+    const rowHeight = (sel: string) => bodiesFor(sel).join(" ").match(/(?:^|[;\s])(min-height|height): ([^;]+)/)?.[2]?.trim();
+    expect(rowHeight(".mention-row")).toBe("var(--picker-row-h)");
+    expect(rowHeight(".mp-row")).toBe("var(--picker-row-h)");
+    expect(rowHeight('.plus-menu [role^="menuitem"]')).toBe("var(--picker-row-h)");
+    // A row with vertical padding on top of the token would be taller than it, so none has any.
+    expect(bodiesFor(".mention-row").join(" ")).toMatch(/padding: 0 8px/);
+    expect(bodiesFor('.plus-menu [role^="menuitem"]').join(" ")).toMatch(/padding-block: 0/);
+  });
+
+  it("a key is drawn one way: a card's chords and footer keys wear the menus' key chip", () => {
+    // The permission card's ⏎ / ⇧⏎ / ⌘⌫ were bare 11px glyphs at 2.5–3.4:1 while every menu drew a
+    // filled chip in secondary ink.
+    const skin = RULES.find((r) => r.selectors.includes(".menu-kbd") && /background:/.test(r.body))!;
+    expect(skin.body).toContain("background: var(--hover-2)");
+    expect(skin.body).toContain("color: var(--rl-text-dim)");
+    for (const sel of [".permission-num", ".permission-option-kbd", ".permission-hints kbd", ".question-hints kbd"]) {
+      expect(skin.selectors, sel).toContain(sel);
+      // …and nothing later paints that chip in the hint tier or draws a ring round it instead.
+      for (const body of bodiesFor(sel)) expect(body, sel).not.toMatch(/--rl-text-faint|--ink-3|border:|box-shadow:/);
+    }
+    for (const sel of [".permission-hints", ".question-hints"]) expect(bodiesFor(sel).join(" "), sel).toContain("color: var(--rl-text-dim)");
+  });
+
+  it("the text under the prompter and the closing line are read, so they are not in the hint tier", () => {
+    // The machine · space chips measured 2.97:1 light and 3.53:1 dark; the closing line 3.38:1.
+    expect(bodiesFor(".composer-understrip .ghost-chip").join(" ")).toContain("color: var(--rl-text-dim)");
+    expect(bodiesFor(".msg-transcript-summary").join(" ")).toContain("color: var(--rl-text-dim)");
+  });
+
+  it("a tool row's server name ends in an ellipsis, never in half a glyph", () => {
+    // "Reali" in a 280px pane: `flex: none` inside an `overflow: hidden` row with no ellipsis.
+    const server = bodiesFor(".tool-server").join(" ");
+    expect(server).toContain("text-overflow: ellipsis");
+    expect(server).toContain("overflow: hidden");
+    expect(server).toContain("min-width: 0");
+    expect(server).not.toMatch(/flex: none/);
+  });
+
   it("an app-level page is the BOTTOM of the overlay stack, not the top", () => {
     /* THE BUG this pins, which was four bugs wearing one number: the page overlay sat at z-index 200,
        above every floating surface in the app. Quick chat opened behind Settings, ⌘K opened behind
@@ -2940,12 +2989,13 @@ describe("dividers", () => {
   it("the seams INSIDE one surface, between a head or a field and the rows below it, are kept", () => {
     // A card's head over its body, and a popover's search field over its list. These separate two
     // different KINDS of thing sharing one surface, which is what a hairline is for.
-    for (const sel of [".diff-head", ".fd-head", ".mp-search", ".spaces-search"])
+    for (const sel of [".diff-head", ".fd-head", ".spaces-search"])
       expect(bodiesFor(sel).join(" "), sel).toMatch(/border-bottom: var\(--hairline-w\) solid/);
-    /* `.palette-input` left that list. The rule is for a seam between two different KINDS of thing
-       sharing a surface; a search field over its own results is a search and its results, and the
-       line between them was the divider this app spent a pass removing everywhere else. */
-    expect(bodiesFor(".palette-input").join(" ")).not.toMatch(/border-bottom/);
+    /* `.palette-input` left that list, and the model picker's `.mp-search` after it. The rule is for
+       a seam between two different KINDS of thing sharing a surface; a search field over its own
+       results is a search and its results, and the line between them was the divider this app spent
+       a pass removing everywhere else. */
+    for (const sel of [".palette-input", ".mp-search"]) expect(bodiesFor(sel).join(" "), sel).not.toMatch(/border-bottom/);
     // `.md-code-head` is deliberately NOT in that list any more. The rule above is for a seam
     // between two different KINDS of thing sharing a surface; a code block's head holds the
     // language label and the copy control, which are chrome FOR the code rather than a section

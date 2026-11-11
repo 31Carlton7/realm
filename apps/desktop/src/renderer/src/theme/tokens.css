@@ -728,6 +728,15 @@ a {
   --chart-surface: var(--surface);
 }
 
+/* The prompter's four pickers — "+", the model list, `@` and `/` — are one kind of surface opened from
+ * one row of controls, so they share one width and one row. They had grown four widths (320–420) and
+ * two row heights, and at 320px the `/` list cut five of its nine hints. 420 is the width at which the
+ * longest built-in hint and a model's name beside its effort levels both read whole. */
+:root {
+  --picker-w: min(420px, calc(100vw - 24px));
+  --picker-row-h: 32px;
+}
+
 /* ══ THE ADJUSTABLE GROUND ═════════════════════════════════════════════════════
  * macOS paints a material behind the window and the sidebar is the one surface thin enough to show
  * it (main/index.ts asks for `vibrancy: "sidebar"`; every pane paints opaque so text never renders

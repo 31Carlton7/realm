@@ -1,3 +1,4 @@
+import type { SessionMode } from "@realm/contracts";
 import type { IconName } from "@realm/ui";
 
 /**
@@ -15,6 +16,8 @@ export type SlashCommand = {
   /** What running it does, in the imperative. Shown beside the name, so it earns its width. */
   hint: string;
   icon: IconName;
+  /** The mode this command switches to, so its mark wears the tone the "+" menu gives that mode. */
+  mode?: SessionMode;
   /**
    * Run it, with whatever the user had typed after the command.
    *

@@ -1,6 +1,6 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { EGG_RUN_LABELS, PLAN_RUN_LABEL, RUN_LABELS, runLabelFor } from "./run-label";
+import { EGG_RUN_LABELS, PLAN_RUN_LABEL, RUN_LABEL, runLabelFor } from "./run-label";
 import { stampLabel } from "./timestamps";
 import { Transcript } from "./Transcript";
 import type { Block, Transcript as TranscriptModel } from "./transcript-model";
@@ -8,39 +8,17 @@ import type { Block, Transcript as TranscriptModel } from "./transcript-model";
 afterEach(cleanup);
 
 describe("the word a run wears", () => {
-  it("is the same word every time it is asked for the same run", () => {
-    // The whole point of seeding on the start time: the live label re-renders on every streaming
-    // delta, and the settled line is rebuilt from the event log on every reload. A Math.random()
-    // here would pass a snapshot test and still show the reader three different verbs per run.
-    const seed = 1_756_900_000_123;
-    const first = runLabelFor(seed);
-    for (let i = 0; i < 50; i++) expect(runLabelFor(seed)).toEqual(first);
-  });
-
-  it("spreads across the list for starts a few milliseconds apart", () => {
-    // Runs start whenever the user hits send, so consecutive seeds differ only in their low bits.
-    // `seed % length` would walk the list in lockstep and every prompt of a session would step to
-    // the next verb in order — recognisably a counter, not a surprise.
-    const words = new Set(Array.from({ length: 40 }, (_, i) => runLabelFor(1_756_900_000_000 + i).present));
-    expect(words.size).toBeGreaterThan(8);
-  });
-
-  it("does not walk the list in a fixed stride as prompts go by", () => {
-    // The bar `seed % RUN_LABELS.length` clears the test above and still fails the user: prompts a
-    // constant interval apart step a constant distance down the list, so a session's verbs arrive in
-    // a visible marching order. Hashing first is what makes the sequence read as a shuffle.
-    const at = (i: number) => RUN_LABELS.indexOf(runLabelFor(1_756_900_000_000 + i * 1_000));
-    const deltas = Array.from({ length: 30 }, (_, i) => (at(i + 1) - at(i) + RUN_LABELS.length) % RUN_LABELS.length);
-    expect(new Set(deltas).size).toBeGreaterThan(1);
+  it("is one plain verb for every run with the switch off: Working, then Worked", () => {
+    // The house pool read "Noodled for 13s", "Simmered for <1s" and "Made magic happen" under turns
+    // that did ordinary work. THE mutant is any second entry coming back.
+    for (let i = 0; i < 2_000; i++) expect(runLabelFor(1_756_900_000_000 + i * 37)).toBe(RUN_LABEL);
+    expect(RUN_LABEL).toEqual({ present: "Working", past: "Worked" });
   });
 
   it("pairs a present tense with the past tense of the SAME phrase", () => {
-    // "Cooking…" must settle into "Cooked for 2m", not into some unrelated verb: the line is only
-    // legible as the resolution of the shimmer the reader was already watching.
-    expect(RUN_LABELS.length).toBeGreaterThan(0);
-    for (const l of RUN_LABELS) {
+    // The settled line is only legible as the resolution of the shimmer the reader was watching.
+    for (const l of [RUN_LABEL, PLAN_RUN_LABEL]) {
       expect(l.present).not.toBe(l.past);
-      // Multi-word labels ("Making things shake" → "Made things shake") keep their tail intact.
       expect(l.present.split(" ").slice(1)).toEqual(l.past.split(" ").slice(1));
     }
   });
@@ -81,7 +59,7 @@ describe("what an unlocked friend pack takes over", () => {
     for (let i = 0; i < 400; i++) {
       const label = runLabelFor(1_756_900_000_000 + i * 7, undefined, false, PACK);
       expect(PACK).not.toContain(label);
-      expect(RUN_LABELS).toContain(label);
+      expect(label).toBe(RUN_LABEL);
     }
   });
 
@@ -102,7 +80,7 @@ describe("what an unlocked friend pack takes over", () => {
     /* Realm is open source; somebody's friends' nicknames are not Realm's to publish. THE mutant is
        a name typed back into this list "just as a default" — which would put it in the repository,
        in the app, and in every screenshot anyone takes. */
-    for (const l of [...EGG_RUN_LABELS, ...RUN_LABELS]) {
+    for (const l of [...EGG_RUN_LABELS, RUN_LABEL]) {
       // The leading verb is capitalised on every label; a NAME shows up after it, which is where
       // "Summoning Mustafa" put one before the packs existed.
       const tail = l.present.split(" ").slice(1);
@@ -116,7 +94,7 @@ describe("what a settled line may claim", () => {
     /* The settled line is read as a record of the turn. THE mutant is "Got a second opinion", which
        read as a second model having reviewed the work, beside a run that consulted nobody. */
     const party = /\b(second opinion|review|consult|ask(ed|ing)? (a|an|the|someone)|group chat|team|colleague|friend|expert|human)/i;
-    for (const l of [...RUN_LABELS, ...EGG_RUN_LABELS, PLAN_RUN_LABEL]) {
+    for (const l of [RUN_LABEL, ...EGG_RUN_LABELS, PLAN_RUN_LABEL]) {
       expect(l.present, l.present).not.toMatch(party);
       expect(l.past, l.past).not.toMatch(party);
     }
@@ -129,7 +107,7 @@ const NAMED_SEED = 1_756_900_000_000;
 describe("the friends the switch lets in", () => {
 
   it("leaves the verb of every run it does NOT rename exactly where it was", () => {
-    // THE longer-pool mutant: append the friends to RUN_LABELS instead of rolling a second time.
+    // THE longer-pool mutant: append the friends to the house verb's pool instead of rolling apart.
     // Every seed lands on a different entry the moment the pool grows — and the settled line is
     // recomputed from the event log rather than stored, so the whole transcript would take new
     // verbs as the switch moved, retelling turns that happened weeks ago.
@@ -194,8 +172,7 @@ describe("what the transcript says about the run", () => {
   it("says what it always said with the switch off", () => {
     render(<Transcript sessionStatus="idle" onDecide={() => {}}
       transcript={model([{ kind: "run", ms: 4_000, startedAt: NAMED_SEED, ts: NAMED_SEED + 4_000 }])} />);
-    expect(screen.getByText(`${runLabelFor(NAMED_SEED).past} for 4s`)).toBeTruthy();
-    expect(RUN_LABELS).toContain(runLabelFor(NAMED_SEED));
+    expect(screen.getByText("Worked for 4s")).toBeTruthy();
   });
 
   it("a thinking block says Thinking… only while it is the live end of a running turn, and Thought after", () => {
@@ -212,6 +189,19 @@ describe("what the transcript says about the run", () => {
     rerender(<Transcript sessionStatus="running" onDecide={() => {}}
       transcript={model([think(b)], { startedAt: b, waitedMs: 0, waitingSince: null })} />);
     expect([...document.querySelectorAll(".thinking-toggle")].map((el) => el.textContent)).toEqual(["Thinking…"]);
+  });
+
+  it("settles every finished turn on the one allowed verb, however many there are", () => {
+    // The mechanical check behind the rule: a transcript of many turns, switch off, and no line under
+    // any of them may open with a verb other than Worked.
+    const runs: Block[] = Array.from({ length: 40 }, (_, i) => {
+      const at = 1_756_900_000_000 + i * 61_237;
+      return { kind: "run" as const, ms: 1_000 + i * 997, startedAt: at, ts: at + 1_000 + i * 997 };
+    });
+    render(<Transcript sessionStatus="idle" onDecide={() => {}} transcript={model(runs)} />);
+    const lines = [...document.querySelectorAll(".msg-run > span:first-child")].map((el) => el.textContent ?? "");
+    expect(lines).toHaveLength(40);
+    for (const line of lines) expect(line).toMatch(/^Worked for /);
   });
 
   it("keeps every run's line, so a scrolled-back turn still says what it cost", () => {

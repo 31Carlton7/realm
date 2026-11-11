@@ -1,49 +1,19 @@
 /**
  * What a run is called while it works, and what it says once it is done.
  *
- * "Working…" was the same three syllables for every prompt of every session, which made the one
- * moving thing on screen the least interesting thing on it. Two rules keep the replacement from
- * being noise:
- *
- *  - one word per RUN, held for that run's whole life. A label that changed every few seconds would
- *    read as progress the session is not making;
- *  - the settled line reuses the SAME word in the past tense, so the reader watches "Cooking…"
- *    become "Cooked for 2m 14s" instead of meeting a stranger at the end of the wait.
+ * One plain verb: "Working…", settling into "Worked for 2m 14s". The settled line is read as a record
+ * of the turn, and a house pool of whimsy ("Noodled for 13s", "Made magic happen for 4s") was theatre
+ * about the agent on a surface design.md keeps quietly technical. Play lives behind the easter-egg
+ * switch, below, where design.md fences it.
  */
 export type RunLabel = { present: string; past: string };
 
-export const RUN_LABELS: readonly RunLabel[] = [
-  { present: "Cooking", past: "Cooked" },
-  { present: "Constructing", past: "Constructed" },
-  { present: "Making things shake", past: "Made things shake" },
-  { present: "Making magic happen", past: "Made magic happen" },
-  { present: "Conjuring", past: "Conjured" },
-  { present: "Tinkering", past: "Tinkered" },
-  { present: "Noodling", past: "Noodled" },
-  { present: "Percolating", past: "Percolated" },
-  { present: "Wrangling", past: "Wrangled" },
-  { present: "Brewing", past: "Brewed" },
-  { present: "Assembling", past: "Assembled" },
-  { present: "Spelunking", past: "Spelunked" },
-  { present: "Finagling", past: "Finagled" },
-  { present: "Whittling", past: "Whittled" },
-  { present: "Untangling", past: "Untangled" },
-  { present: "Sculpting", past: "Sculpted" },
-  { present: "Summoning", past: "Summoned" },
-  { present: "Herding cats", past: "Herded cats" },
-  { present: "Riffing", past: "Riffed" },
-  { present: "Marinating", past: "Marinated" },
-  { present: "Plotting", past: "Plotted" },
-  { present: "Simmering", past: "Simmered" },
-];
+export const RUN_LABEL: RunLabel = { present: "Working", past: "Worked" };
 
 /**
- * What the easter-egg switch gives someone who has not unlocked a friend pack.
- *
- * A separate list rather than more entries in `RUN_LABELS`, because the two are picked differently:
- * lengthening the pool above would renumber it, and the settled line is recomputed from the event
- * log rather than stored, so every past run in the transcript would take a new verb the moment the
- * switch moved. These are drawn on a second roll that leaves the first one's answer alone.
+ * What the easter-egg switch gives someone who has not unlocked a friend pack, about one run in four.
+ * The settled line is recomputed from the event log rather than stored, so which runs get one is a
+ * hash of the start time: the same turn keeps the same line on every reload.
  *
  * NO NAMES HERE, and that is the rule rather than an accident. The lines that name real people live
  * in the sealed packs (`egg-pack.ts`) and arrive at runtime from a group that typed its own word —
@@ -68,39 +38,33 @@ export const EGG_RUN_LABELS: readonly RunLabel[] = [
  * Plan mode looked exactly like every other run: a playful verb, then prose arriving in the
  * transcript. Nothing on the screen said the agent was working out what it would do rather than
  * doing it — which is the whole distinction the mode exists to draw, and the reason a plan lands as
- * a proposal to approve rather than as work already done. One fixed word, not one of the sixteen:
- * the labels above are colour, and this one is information.
+ * a proposal to approve rather than as work already done.
  */
 export const PLAN_RUN_LABEL: RunLabel = { present: "Planning", past: "Planned" };
 
 /**
  * The label for a run, keyed on the millisecond it started.
  *
- * Deterministic, not random. A `Math.random()` here would re-roll on every re-render — and a
- * streaming run re-renders a dozen times a second — and the settled line, which is rebuilt from the
- * persisted event log on every reload, would name a different verb than the one the user actually
- * watched. Hashing the start time gives both for free: stable within a run, spread across runs.
+ * Deterministic, not random, for the switch's sake. A `Math.random()` here would re-roll on every
+ * re-render — and a streaming run re-renders a dozen times a second — and the settled line, which is
+ * rebuilt from the persisted event log on every reload, would name a different verb than the one the
+ * user actually watched.
  */
 export function runLabelFor(startedAt: number, mode?: string, eggs = false, packLabels: readonly RunLabel[] = []): RunLabel {
   if (mode === "plan") return PLAN_RUN_LABEL;
+  if (!eggs) return RUN_LABEL;
   // xorshift-multiply (splittable-hash shape): ms timestamps one prompt apart differ only in their
   // low bits, and taking those modulo the list length directly would walk the list in order.
   let h = Math.trunc(startedAt) >>> 0;
   h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0;
   h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0;
   const spread = (h ^ (h >>> 16)) >>> 0;
-  /* An unlocked pack takes the whole vocabulary, rather than a share of it. The names were the
-     reason to unlock anything, and a group that typed its word and then watched three runs in four
-     say "Percolating" got the generic app with a rare surprise in it instead of their app. The
-     house verbs are what the pack replaces, so they step aside until the pack is forgotten —
-     including the nameless egg lines, which were the switch's stand-in for names nobody had. */
-  if (eggs && packLabels.length) return packLabels[spread % packLabels.length]!;
-  // A third round rather than a slice of the second: the bits `spread` already spent on choosing the
-  // verb are not independent of it, and reusing them would tie which runs get an egg to which
-  // verb they would otherwise have had.
-  const egg = Math.imul(spread ^ (spread >>> 16), 0x45d9f3b) >>> 0;
+  /* An unlocked pack takes the whole vocabulary: the names were the reason to unlock anything, and a
+     group that typed its word and then watched three runs in four say "Working" got the plain app
+     with a rare surprise in it instead of their app. */
+  if (packLabels.length) return packLabels[spread % packLabels.length]!;
   /* With no pack unlocked there is nothing to name, so these stay one run in four: a joke that
      arrives every single time is the way the app talks, not an egg. */
-  if (eggs && egg % 4 === 0) return EGG_RUN_LABELS[(egg >>> 2) % EGG_RUN_LABELS.length]!;
-  return RUN_LABELS[spread % RUN_LABELS.length]!;
+  const egg = Math.imul(spread ^ (spread >>> 16), 0x45d9f3b) >>> 0;
+  return egg % 4 === 0 ? EGG_RUN_LABELS[(egg >>> 2) % EGG_RUN_LABELS.length]! : RUN_LABEL;
 }

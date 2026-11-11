@@ -113,6 +113,15 @@ describe("attachmentSummary", () => {
     expect(row!.files).toEqual(["release-shot.png"]);
   });
 
+  it("leads the row in with a short line that counts the files, so the sentence and the names share one line", () => {
+    // "Fake agent ignores attachments and will never see them:" wrapped into half the row while the
+    // names took the other half.
+    const [one] = attachmentSummary("fake", [a("/x/a.png", "image/png")]);
+    expect(one!.note).toBe("Fake agent won't see this attachment:");
+    const [many] = attachmentSummary("fake", ["a", "b", "c", "d", "e"].map((n) => a(`/x/${n}.png`, "image/png")));
+    expect(many!.note).toBe("Fake agent won't see these 5 attachments:");
+  });
+
   it("hands the note to the row as a lead-in, so the filenames finish the sentence", () => {
     // The reported bug read as one run-on string — "…will never see them.example.pdf" — because the
     // sentence stopped dead in front of the list it was introducing. The chip tooltip still gets the

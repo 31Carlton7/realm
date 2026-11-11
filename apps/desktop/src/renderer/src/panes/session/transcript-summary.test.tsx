@@ -72,6 +72,18 @@ describe("summaryText", () => {
       .toBe("You asked: “Cut the release from the merged PRs.” The agent read 1 file.");
   });
 
+  it("never doubles a stop, whatever the ask ends in and whatever follows it", () => {
+    // The join rule, swept: every ending an ask can have, against every sentence that can follow it.
+    const endings = ["", ".", "!", "?", "…", "...", ":"];
+    const tails: Block[][] = [[read("/r/a.md", 2)], [wrote("/r/a.md", 2), ran("ls", 3, true)], [wrote("/r/a.md", 2), said("see https://x.test/y", 3)]];
+    for (const end of endings) for (const tail of tails) {
+      const text = summaryText([asked(`Cut the release${end}`, 1), ...tail])!;
+      // A stop after a quote that already ended its sentence, two stops at a join, or a stray space.
+      expect(text, text).not.toMatch(/[.!?…]”\.|[.!?]\.\s|\s\./u);
+      expect(text.endsWith(".") || text.endsWith("”"), text).toBe(true);
+    }
+  });
+
   it("names two edited files that share a name by the folder that tells them apart", () => {
     // "edited 2 files (package.json, package.json)" read as one file listed twice.
     expect(summaryText([asked("bump", 1), wrote("/repo/package.json", 2), wrote("/repo/apps/desktop/package.json", 3)]))

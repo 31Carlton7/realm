@@ -200,23 +200,24 @@ const NOTICE_ORDER: AttachmentDisposition[] = ["ignored"];
  * times. In practice that is one row or none: only a file the agent will silently DROP is worth a line
  * before send, because it is the one outcome the user would not otherwise learn about.
  *
- * The note is re-punctuated for the row: the filenames that follow it are part of the same sentence
- * ("… will never see them: report.pdf"), and a full stop in front of them read as prose that had run
- * into a filename. `attachmentNote` keeps the standalone period for the chip tooltip, where nothing
- * follows it.
+ * The row's lead-in is short and counts the files, because it shares one line with their names:
+ * "Fake agent won't see these 3 attachments: a.png, b.md, c.pdf". The whole sentence
+ * ("… ignores attachments and will never see them.") wrapped into half the row while the names took
+ * the other half; it stays on the chip tooltip (`attachmentNote`), where nothing follows it.
  */
 export function attachmentSummary(kind: AgentKind, attachments: readonly (Attachment & { name?: string })[]): { disposition: AttachmentDisposition; note: string; files: string[] }[] {
   const groups = new Map<AttachmentDisposition, { disposition: AttachmentDisposition; note: string; files: string[] }>();
   for (const a of attachments) {
     const disposition = attachmentDisposition(kind, a.mime);
-    const g = groups.get(disposition) ?? { disposition, note: leadIn(attachmentNote(kind, a.mime)), files: [] };
+    const g = groups.get(disposition) ?? { disposition, note: "", files: [] };
     // The name the person picked, not the stored copy's, whose basename carries a content hash.
     g.files.push(a.name ?? basenameOf(a.path));
     groups.set(disposition, g);
   }
-  return NOTICE_ORDER.filter((d) => groups.has(d)).map((d) => groups.get(d)!);
+  const label = AGENT_META[kind].label;
+  return NOTICE_ORDER.filter((d) => groups.has(d)).map((d) => {
+    const g = groups.get(d)!;
+    const n = g.files.length;
+    return { ...g, note: `${label} won't see ${n === 1 ? "this attachment" : `these ${n} attachments`}:` };
+  });
 }
-
-/** A sentence turned into the lead-in for a list. Only a trailing period is exchanged, so a note
- *  that already ends in a colon (or in anything else) is left exactly as its author wrote it. */
-const leadIn = (note: string): string => (note.endsWith(".") ? `${note.slice(0, -1)}:` : note);
