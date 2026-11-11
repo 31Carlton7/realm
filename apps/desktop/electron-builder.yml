@@ -21,7 +21,10 @@ asar: true
 # runAsNode stays on: realm-server is the app binary run as Node (server-process.ts), detached so it
 # outlives the app, and the `realm` CLI and the launchd/systemd service start it the same way.
 # utilityProcess cannot outlive the app, so turning it off needs a separate Node helper first.
+# Flipping a fuse rewrites Electron Framework and voids its ad-hoc signature, which Apple Silicon kills
+# at launch; an unsigned build (CI's, a local one) is re-signed ad hoc, and a signed one is re-signed anyway.
 electronFuses:
+  resetAdHocDarwinSignature: true
   runAsNode: true
   enableCookieEncryption: true
   enableNodeOptionsEnvironmentVariable: false

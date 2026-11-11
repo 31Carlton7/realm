@@ -196,6 +196,10 @@ describe("Electron fuses (packaged builds only)", () => {
     expect(fuses.onlyLoadAppFromAsar).toBe(true);
   });
 
+  it("re-signs an unsigned build ad hoc, or Apple Silicon kills it at launch for an invalid signature", () => {
+    expect(fuses.resetAdHocDarwinSignature).toBe(true);
+  });
+
   it("keeps RunAsNode on: the server daemon, the realm CLI and the launchd service run the app binary as Node", () => {
     expect(fuses.runAsNode).toBe(true);
   });
