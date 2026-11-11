@@ -2019,7 +2019,8 @@ describe("the CLI-missing install card (W4)", () => {
     await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
     expect(prompter()).toBeNull(); // replaced, not merely disabled
     expect(screen.getByRole("group", { name: /isn’t installed/ })).toBeInTheDocument();
-    expect(screen.getByText("spawn claude ENOENT")).toBeInTheDocument();
+    expect(screen.getByText("Realm found no claude command on this Mac.")).toBeInTheDocument();
+    expect(screen.queryByText(/ENOENT/)).toBeNull();
     expect(screen.getByText(AGENT_CLI_COMMANDS.claude.install)).toBeInTheDocument();
     expect(screen.queryByText(AGENT_CLI_COMMANDS.claude.login)).toBeNull();
   });
