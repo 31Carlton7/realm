@@ -2087,12 +2087,12 @@ input.sb-space-name { flex: 1; }
    point of drawing a logo rather than writing the word twice. Apple's mark declares no colour and
    so still takes the label's, which is correct: black on this ground would be nothing. */
 .sim-group-label svg { flex: none; }
-.sim-devices { display: flex; flex-direction: column; gap: 4px; }
+.sim-devices { display: flex; flex-direction: column; gap: 6px; }
 .sim-device { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0;
-  padding: 8px 10px; border-radius: var(--r-ctl); corner-shape: squircle; border: var(--hairline-w) solid var(--rl-line);
-  background: var(--rl-panel); color: var(--rl-text-dim); text-align: left; }
-.sim-device:hover { background: var(--rl-hover); }
-.sim-device[data-on] { border-color: var(--rl-accent); color: var(--rl-text-bright); }
+  padding: 10px 14px; border-radius: var(--r-squircle-card); corner-shape: squircle; border: 0;
+  background: var(--rl-card); box-shadow: var(--card-lift); color: var(--rl-text-dim); text-align: left; }
+.sim-device:hover { background: var(--rl-card-hover); }
+.sim-device[data-on] { box-shadow: inset 0 0 0 1.5px var(--rl-accent), var(--card-lift); color: var(--rl-text-bright); }
 .sim-device:disabled { opacity: .55; }
 .sim-device-name { font-size: 13px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
 .sim-device-facts { font-size: 12px; color: var(--rl-text-faint); }
@@ -2230,7 +2230,7 @@ button.panel-title:hover { background: var(--rl-hover); }
 .pane-tab { display: flex; align-items: center; flex: 0 1 auto; width: 180px; min-width: 88px; height: 28px; border-radius: var(--r-chip);
   transition: background-color var(--dur-hover) var(--ease-out-strong); }
 .pane-tab:hover { background: var(--rl-hover); }
-.pane-tab[data-active] { background: var(--rl-hover); }
+.pane-tab[data-active] { background: var(--hover-2); }
 /* Where a dragged tab will land: before this one, or — the pointer on its far half — after it. */
 .pane-tab[data-over] { box-shadow: inset 2px 0 0 var(--rl-accent); }
 .pane-tab[data-over="after"] { box-shadow: inset -2px 0 0 var(--rl-accent); }
@@ -2283,6 +2283,12 @@ button.panel-title:hover { background: var(--rl-hover); }
    label and a back arrow kept their full width. So the per-kind meta goes first (the model and cost
    are on the composer's own chips anyway), and the actions cluster keeps its place at the right. */
 @container (max-width: 380px) { .panel-meta { display: none; } }
+/* Beside the side panel's tabs, the meta gives way first: the tabs are the data of unbounded length,
+   and four of them sat at their 88px floor ("Do…", "Ag…") while "● not connected" kept 93px. It
+   yields to its words' ellipsis, then to the dot. */
+.pane-strip ~ .panel-meta { flex: 0 1000 auto; min-width: 0; overflow: hidden; }
+.pane-strip ~ .panel-meta > * { min-width: 0; overflow: hidden; }
+.pane-strip ~ .panel-meta :is(span, time):not(.status-dot) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* The rung after those two, and the reason it is not a third `@container`: the actions do not
    disappear, they MOVE — into the ⋯ menu that is already there — and CSS can hide a button but
    cannot tell the menu which one it hid. So the budget is measured in JS instead
@@ -2712,12 +2718,12 @@ button.panel-title:hover { background: var(--rl-hover); }
      stand-in. design.md gives the curve to "an install card", which is exactly what one of these is:
      a surface you read and choose from, not a row you count past. */
   padding: 12px 14px 13px; text-align: left; border-radius: var(--r-squircle-card); corner-shape: squircle;
-  border: var(--hairline-w) solid var(--rl-line); background: transparent;
-  transition: background-color var(--dur-hover) ease, border-color var(--dur-hover) ease; }
-.machine-route:hover { background: var(--rl-hover); }
-/* The same selected treatment the image cards below it wear — one screen, one way of saying "this
-   one", or a reader learns two. */
-.machine-route[data-on] { border-color: var(--rl-accent); background: color-mix(in srgb, var(--rl-accent) 10%, transparent); }
+  border: 0; background: var(--rl-card); box-shadow: var(--card-lift);
+  transition: background-color var(--dur-hover) ease; }
+.machine-route:hover { background: var(--rl-card-hover); }
+/* Chosen, it wears the accent on its edge and keeps its fill: a wash under the card is the accent used
+   as a background, which it is not. */
+.machine-route[data-on] { box-shadow: inset 0 0 0 1.5px var(--rl-accent), var(--card-lift); }
 /* The marks, top-left and above the name. A fixed row height so a card with one mark and a card with
    three start their titles on the same line — otherwise the grid's rows shift against each other. */
 .machine-route-marks { display: flex; align-items: center; gap: 6px; height: 18px; margin-bottom: 4px; }
@@ -2725,8 +2731,7 @@ button.panel-title:hover { background: var(--rl-hover); }
    says the list is open, which is a different claim from "this vendor is supported". */
 .machine-route-more { color: var(--rl-text-faint); }
 .machine-route-label { font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-bright); overflow-wrap: anywhere; }
-.machine-route-what { font-size: 12px; line-height: 1.45; color: var(--rl-text-faint); text-wrap: pretty; }
-.machine-route[data-on] .machine-route-what { color: var(--rl-text-dim); }
+.machine-route-what { font-size: 12px; line-height: 1.45; color: var(--rl-text-dim); text-wrap: pretty; }
 .machine-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--rl-text-dim); }
 .machine-field input { height: 32px; padding: 0 10px; border-radius: var(--r-ctl); border: var(--hairline-w) solid var(--rl-line);
   background: var(--field); color: var(--rl-text-bright); outline: none; font-size: 13px; }
@@ -6300,24 +6305,11 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   --sq-radius-top: calc(var(--btn-h) / 2);
   --sq-radius-bottom: calc(var(--btn-h) / 2);
 }
-/* The route cards. The fill moves to `--sq-fill` — `background` is spent on `paint()` — and each
-   state below mirrors one `background` declaration above, in the same order, so the cascade that
-   picks a fill up there picks it down here too. The BORDER goes to the painter's ring for the same
-   reason a `.btn`'s does: a border is drawn on the square border box `border-radius: 0` leaves
-   behind, so left alone it would trace a rectangle around a curved card. */
-:root[data-squircle] .machine-route {
-  border-radius: 0; border-color: transparent;
-  background: paint(rl-squircle);
-  --sq-fill: transparent;
-  --sq-ring: var(--rl-line); --sq-ring-w: var(--hairline-w);
-  --sq-radius-top: var(--r-squircle-card);
-  --sq-radius-bottom: var(--r-squircle-card);
-}
-:root[data-squircle] .machine-route:hover { --sq-fill: var(--rl-hover); }
-:root[data-squircle] .machine-route[data-on] {
-  --sq-fill: color-mix(in srgb, var(--rl-accent) 10%, transparent);
-  --sq-ring: var(--rl-accent);
-}
+/* The route cards and the simulator's devices are cards ("One card", below). Each state here mirrors
+   one `background` declaration above, so the cascade that picks a fill up there picks it down here
+   too. A chosen one's edge goes to the painter's ring, on the curve, as a chosen agent card's does. */
+:root[data-squircle] :is(.machine-route, .sim-device):hover { --sq-fill: var(--rl-card-hover); }
+:root[data-squircle] :is(.machine-route, .sim-device)[data-on] { --sq-ring: var(--rl-accent); --sq-ring-w: 1.5px; box-shadow: var(--card-lift); }
 /* The Connect button. A flatter superellipse than the surfaces wear (--sq-n-ctl): its radius is
    already 96% of what a 34px control can take, so the squareness left to answer is the curve's. */
 :root[data-squircle] .machine-primary {
@@ -6586,6 +6578,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 :root[data-squircle] .usage-card,
 :root[data-squircle] .usage-figures,
 :root[data-squircle] .plan-account,
+:root[data-squircle] .machine-route,
+:root[data-squircle] .sim-device,
 :root[data-squircle] .market-card {
   border-radius: calc(var(--r-squircle-card) / 2);
   background: paint(rl-squircle);
