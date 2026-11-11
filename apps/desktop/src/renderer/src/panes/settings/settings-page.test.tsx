@@ -1478,6 +1478,21 @@ describe("Permissions tab — Apps on this Mac (the grantable half)", () => {
     expect(mail.textContent).toContain("which opens Mail");
   });
 
+  it("sets a row's command as code on the page and drops the backticks from its tooltip", async () => {
+    // The doctor's sentences mark commands with backticks, which printed raw on the row and its tooltip.
+    const denied = { ...macRow("reminders", "Reminders", "data", "denied"), detail: "Run any `mac reminders` command, then allow it in System Settings." };
+    await openPermissions({ macAccess: {
+      cli: { present: true, path: "/opt/homebrew/bin/mac", version: "0.6.0" },
+      host: { name: "Realm", bundlePath: "/Applications/Realm.app", packaged: true },
+      rows: [denied],
+    } });
+    const row = await screen.findByRole("listitem", { name: "Reminders: Refused" });
+    expect(row).toHaveAttribute("title", "Run any mac reminders command, then allow it in System Settings.");
+    const desc = row.querySelector(".settings-row-desc")!;
+    expect(desc.querySelector("code")).toHaveTextContent("mac reminders");
+    expect(desc.textContent).not.toContain("`");
+  });
+
   it("“Ask for all” walks ONLY the promptable rows, one dialog at a time, and each answer lands", async () => {
     const { api } = await openPermissions({ macAccess: {
       cli: { present: true, path: "/opt/homebrew/bin/mac", version: "0.6.0" },

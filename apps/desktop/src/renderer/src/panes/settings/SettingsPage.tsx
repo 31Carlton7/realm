@@ -1,5 +1,5 @@
 import { PageScroll, useDissolve } from "../../components/ScrollFades";
-import { withCode } from "../../components/with-code";
+import { plainCode, withCode } from "../../components/with-code";
 import { AppIconPicker, canChooseAppIcon } from "../../components/settings/AppIconPicker";
 import { CaretSettings } from "../../components/settings/CaretSettings";
 import { TERMINAL_COLOR_SCHEMES, TERMINALS_COLORS_COPY, AGENT_CLI_COMMANDS, AGENT_LOGIN_HINTS, AGENT_META, AGENT_SUPPORTS_PERMISSION_MODES,
@@ -2488,7 +2488,7 @@ function ComputerAccessRowView({ row: r, hostName, requesting, awaiting }: {
     </button>
   );
   return (
-    <li className="settings-row tcc-row" aria-label={`${r.label}: ${chip}`} title={r.detail}>
+    <li className="settings-row tcc-row" aria-label={`${r.label}: ${chip}`} title={plainCode(r.detail)}>
       <AppIcon id={r.id} />
       <div className="settings-row-main">
         <span className="settings-row-name">{r.label}</span>
@@ -2499,7 +2499,7 @@ function ComputerAccessRowView({ row: r, hostName, requesting, awaiting }: {
         {/* What a grant BUYS is worth a sentence while you are deciding, and worth nothing once you
             have decided: a granted row's chip already says the only thing left to know. The sentence
             stays on the row's title either way. */}
-        {!granted && <span className="settings-row-desc" aria-live="polite">{desc}</span>}
+        {!granted && <span className="settings-row-desc" aria-live="polite">{withCode(desc)}</span>}
       </div>
       {!granted && (
         <div className="mac-row-actions">
@@ -2636,7 +2636,7 @@ function MacAccessRowView({ row }: { row: MacAccessRow }) {
   const mine = granting === row.id;
   const says = row.state !== "granted" && !(row.canPrompt && row.grantCommand);
   return (
-    <li className="settings-row tcc-row" aria-label={`${row.label}: ${MAC_STATE_LABEL[row.state]}`} title={row.detail}>
+    <li className="settings-row tcc-row" aria-label={`${row.label}: ${MAC_STATE_LABEL[row.state]}`} title={plainCode(row.detail)}>
       <AppIcon id={row.id} />
       <div className="settings-row-main">
         <span className="settings-row-name">{row.label}</span>
@@ -2650,7 +2650,7 @@ function MacAccessRowView({ row }: { row: MacAccessRow }) {
             calendar` command") — fourteen rows of that is what made this page a wall. Where asking
             cannot work, it is the instruction that matters and it stays. The row's title keeps all
             of them. */}
-        {says && <span className="settings-row-desc">{row.detail}</span>}
+        {says && <span className="settings-row-desc">{withCode(row.detail)}</span>}
         {/* The command is shown BEFORE it runs, not described after — the user can read exactly what
             Realm is about to execute on their machine, and every one of them only lists. */}
         {row.canPrompt && row.grantCommand && (
@@ -2694,7 +2694,7 @@ function RealmAccessSection() {
       {rows === null ? <p className="env-empty">Checking…</p> : (
         <ul className="settings-list">
           {rows.map((r) => (
-            <li key={r.id} className="settings-row tcc-row" aria-label={`${r.label}: ${TCC_STATE_LABEL[r.state]}`} title={r.detail}>
+            <li key={r.id} className="settings-row tcc-row" aria-label={`${r.label}: ${TCC_STATE_LABEL[r.state]}`} title={plainCode(r.detail)}>
               <AppIcon id={r.id} />
               <div className="settings-row-main">
                 <span className="settings-row-name">{r.label}</span>
@@ -2702,7 +2702,7 @@ function RealmAccessSection() {
                   {r.state === "granted" && <Icon name="check" size={12} />}
                   {TCC_STATE_LABEL[r.state]}
                 </span>
-                {r.state !== "granted" && <span className="settings-row-desc">{r.detail}</span>}
+                {r.state !== "granted" && <span className="settings-row-desc">{withCode(r.detail)}</span>}
               </div>
               {/* Accessibility and Screen Recording are asked for, repaired and watched under Computer
                   use; a second button here that only deep-linked would be a weaker copy of that one. */}

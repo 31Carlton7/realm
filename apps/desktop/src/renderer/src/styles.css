@@ -36,7 +36,7 @@
 .files-crumbs, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
 .mcp-tool-name, .md code, .md-code-lang, .media-name, .memory-path, .media-time, .video-btn, .video-time, .video-scrub-hover, .mention-row-id, .mp-about code,
 .msg-error pre, .space-folder-made, .empty-state-path, .empty-state-note code, .permission-details pre, .permission-tool code, .req-target,
-.sched-cron, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-hint code, .settings-note code, .install-reason code,
+.sched-cron, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-hint code, .settings-note code, .settings-row-desc code, .install-reason code,
 .font-installed-size, .sheet-cell-input, .sheet-cellref, .sheet-rawvalue, .ship-report code, .skill-file-name code, .skill-picker-row-id,
 .summary-diff, .summary-fact .summary-row-name[data-code], .summary-file-path, .term-exit, .term-out, .terminal-hint-path,
 .theme-import textarea, .tool-body pre, .tool-stat, .tool-group-work .tool-stat-add, .tool-group-work .tool-stat-del, .tool-summary[data-form="code"], .tool-well, .tool-panel-cwd, .tool-panel-exit, .tool-panel-path, .tool-panel-text, .tool-body .code-body, .tool-arg dd[data-form="code"], .tool-arg dd[data-form="json"], .wt-path, button.md-path, kbd,
@@ -7861,7 +7861,7 @@ select { appearance: none; padding-right: 22px;
 .memory-resolve-row .install-cmd { min-width: 0; max-width: 100%; margin-top: 8px; }
 /* A heading inside the folded diagnostic is a sub-heading, not a peer of the rows around it. */
 .memory-sub { font-size: 13px; color: var(--rl-text-dim); }
-.settings-note code, .settings-hint code { font: 12px var(--font-mono); }
+.settings-note code, .settings-hint code, .settings-row-desc code { font: 12px var(--font-mono); }
 /* The foot note: separated by air and a rule above it rather than by a tinted box, which at the
    bottom of a page reads as a banner nobody put there on purpose. */
 .settings-note-foot { margin-top: 20px; padding-top: 14px; border-top: var(--hairline-w) solid var(--rl-hairline); }
