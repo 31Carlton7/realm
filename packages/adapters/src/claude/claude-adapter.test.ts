@@ -221,11 +221,12 @@ describe("Full access mid-session", () => {
     const h = a.start({ cwd: "/tmp", mcpServers: [], permissionMode: "ask" });
     await h.setOptions({ permissionMode: "bypassPermissions" });
     expect(modeSwitches).toEqual(["bypassPermissions"]);
-    // Out of Ask: an edit is a call the CLI decides again, not one Realm refuses before it runs.
-    const c = collectUntil(h.events, (e, all) => e.type === "status" && e.payload.status === "idle" && types(all).includes("permission_response"),
-      (e) => { if (e.type === "permission_request") h.respondPermission(e.payload.requestId, "allow"); });
+    // Out of Ask and into Full access: an edit the CLI asks about is neither refused nor put to anyone.
+    const c = collectUntil(h.events, (e, all) => e.type === "status" && e.payload.status === "idle" && types(all).includes("permission_response"));
     await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
-    expect(types(got)).toContain("permission_request");
+    expect(types(got)).not.toContain("permission_request");
+    const resp = got.find((e) => e.type === "permission_response");
+    expect(resp?.type === "permission_response" && resp.payload).toMatchObject({ decision: "allow", fullAccess: { toolName: "Edit" } });
   });
 
   it("asks for a fresh start when the CLI takes Full access only from launch", async () => {
@@ -306,6 +307,31 @@ describe("ClaudeAdapter", () => {
     expect(statuses(got)).toEqual(["running", "waiting_permission", "running", "idle"]);
     const resp = got.find((e) => e.type === "permission_response");
     expect(resp?.type === "permission_response" && resp.payload.decision).toBe("deny");
+  });
+  it.each([["`$$(` inside a quoted argument", `node cdp.mjs eval '(()=>$$(".menu").length)()'`], ["a command in a folder outside its own", "cd /Users/someone/elsewhere || exit 1; node build.mjs > out.txt"]])(
+    "Full access: %s runs with no card and no wait, and the Allow is on the record", async (_shape, command) => {
+      // THE MUTANT: the CLI asked, so a card is drawn. Claude Code 2.1.322 asks about this Bash command in every mode.
+      const handed: unknown[] = [];
+      const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: "Bash", permissionInput: { command }, permissionResults: handed }) as never });
+      const h = a.start({ cwd: "/tmp", mcpServers: [], permissionMode: "bypassPermissions" });
+      const c = collectUntil(h.events, (e) => e.type === "status" && e.payload.status === "idle");
+      await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
+      expect(handed).toEqual([{ behavior: "allow", updatedInput: { command } }]);
+      expect(types(got)).not.toContain("permission_request");
+      expect(statuses(got)).toEqual(["running", "idle"]);
+      const resp = got.find((e) => e.type === "permission_response");
+      expect(resp?.type === "permission_response" && resp.payload).toMatchObject({ decision: "allow", fullAccess: { toolName: "Bash" } });
+    });
+  it.each(["AskUserQuestion", "ExitPlanMode"])("Full access still puts %s to the person", async (tool) => {
+    const input = tool === "AskUserQuestion" ? { questions: [{ question: "Which?", header: "Pick", multiSelect: false, options: [{ label: "A", description: "a" }, { label: "B", description: "b" }] }] } : { plan: "1. do it" };
+    const a = new ClaudeAdapter({ query: fakeQuery({ permissionOnTool: tool, permissionInput: input }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [], permissionMode: "bypassPermissions" });
+    const c = collectUntil(h.events, (e, all) => e.type === "status" && e.payload.status === "idle" && types(all).includes("permission_response"),
+      (e) => { if (e.type === "permission_request") h.respondPermission(e.payload.requestId, "deny"); });
+    await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
+    const req = got.find((e) => e.type === "permission_request");
+    expect(req?.type === "permission_request" && req.payload.toolName).toBe(tool);
+    expect(statuses(got)).toContain("waiting_permission");
   });
   it("Allow always remembers for this session only, and never a rule that allows a whole tool", async () => {
     // THE MUTANT: hand the CLI its own suggestions back. It writes `userSettings` into the user's real

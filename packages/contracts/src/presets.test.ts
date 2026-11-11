@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, parseSpaceIcon, acpBuildMode, acpPlanMode, acpSessionConfig, acpWellKnownMode, parseAcpConfigOptions, AGENT_CLI_COMMANDS, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, ASK_PERMISSION_MODE, acpAskMode, isReadOnlyMode, sessionModeOf, modeWireValue, DEFAULT_MODEL_LABEL, PERMISSION_MODES, PLAN_PERMISSION_MODE, SELECTABLE_AGENT_KINDS, SESSION_MODES, AGENT_MIDTURN_DELIVERY, AGENT_SESSION_RESUME, MID_TURN_MODES, resolveMidTurnMode, steerNote, type AcpSessionMode } from "./presets";
+import { SPACE_COLORS, SPACE_ICONS, pickSpaceColor, parseSpaceIcon, acpBuildMode, acpPlanMode, acpSessionConfig, acpWellKnownMode, parseAcpConfigOptions, AGENT_CLI_COMMANDS, AGENT_META, AGENT_MODELS, AGENT_LOGIN_HINTS, AGENT_SUPPORTS_ASK_MODE, AGENT_SUPPORTS_PERMISSION_MODES, AGENT_SUPPORTS_PLAN_MODE, ASK_PERMISSION_MODE, ASKS_IN_FULL_ACCESS, fullAccessAllows, acpAskMode, isReadOnlyMode, sessionModeOf, modeWireValue, DEFAULT_MODEL_LABEL, PERMISSION_MODES, PLAN_PERMISSION_MODE, SELECTABLE_AGENT_KINDS, SESSION_MODES, AGENT_MIDTURN_DELIVERY, AGENT_SESSION_RESUME, MID_TURN_MODES, resolveMidTurnMode, steerNote, type AcpSessionMode } from "./presets";
 import { AgentKindSchema } from "./entities";
 describe("presets", () => {
   it("has no duplicate icon names", () => { expect(new Set(SPACE_ICONS).size).toBe(SPACE_ICONS.length); });
@@ -454,5 +454,17 @@ describe("mid-turn prompts", () => {
       expect(note, kind).toContain("aborts the tool call in flight");
       expect(note, kind).toContain("denies any permission prompt waiting");
     }
+  });
+});
+
+describe("fullAccessAllows", () => {
+  it("answers a tool request only in Full access", () => {
+    expect(fullAccessAllows("bypassPermissions", { toolName: "Bash" })).toBe(true);
+    for (const mode of ["default", "acceptEdits", "plan", "ask", null, undefined]) expect(fullAccessAllows(mode, { toolName: "Bash" })).toBe(false);
+  });
+  it("leaves a question and a plan to the person", () => {
+    expect([...ASKS_IN_FULL_ACCESS]).toEqual(["AskUserQuestion", "ExitPlanMode"]);
+    for (const toolName of ASKS_IN_FULL_ACCESS) expect(fullAccessAllows("bypassPermissions", { toolName })).toBe(false);
+    expect(fullAccessAllows("bypassPermissions", { toolName: "ui_ask", ask: { questions: [] } })).toBe(false);
   });
 });

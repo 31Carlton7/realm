@@ -551,3 +551,25 @@ describe("BrowserPermissionBroker.ask — a question, on the same card and the s
     expect(await asked).toEqual({ outcome: "cancelled" });
   });
 });
+
+/**
+ * The cards Realm raises on purpose, each with the options its tool passes. Full access skips none of
+ * them. THE MUTANT: the bypass line in `gate` moved above either flag.
+ */
+describe("the cards Full access does not skip", () => {
+  it.each([
+    ["computer use, per application", "computer_act:com.apple.TextEdit", "computer_act", { promptUnderBypass: true }],
+    ["a saved password filled into a page", "browser_fill_credential:cred_1@https://example.com", "browser_fill_credential", { promptUnderBypass: true }],
+    ["a saved password filled on any other page", "browser_fill_credential", "browser_fill_credential", { alwaysPrompt: true }],
+    ["a security code filled into a page", "browser_fill_code", "browser_fill_code", { alwaysPrompt: true }],
+    ["a terminal the session did not open", "terminal_write:t1", "terminal_write", { promptUnderBypass: true }],
+  ] as const)("%s", async (_what, toolKey, toolName, opts) => {
+    const { broker, events } = setup("bypassPermissions");
+    const gate = broker.gate("s1", toolKey, "Allow?", {}, toolName, opts);
+    const cards = events.filter((e) => e.ev.type === "permission_request");
+    expect(cards).toHaveLength(1);
+    expect(broker.skippedUnderBypass(requestIdOf(events))).toBe(false);
+    broker.resolve(requestIdOf(events), "deny");
+    expect((await gate).allowed).toBe(false);
+  });
+});

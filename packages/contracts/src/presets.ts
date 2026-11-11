@@ -351,6 +351,15 @@ export const PLAN_PERMISSION_MODE = "plan";
  */
 export const ASK_PERMISSION_MODE = "ask";
 
+/** What an agent's harness sends down the permission channel that is the person's to answer in every
+ *  mode, Full access included: a question, and a plan to approve. */
+export const ASKS_IN_FULL_ACCESS: ReadonlySet<string> = new Set(["AskUserQuestion", "ExitPlanMode"]);
+
+/** Whether Full access answers a tool permission request by itself, with no card. */
+export function fullAccessAllows(mode: string | null | undefined, request: { toolName: string; ask?: unknown }): boolean {
+  return mode === "bypassPermissions" && !request.ask && !ASKS_IN_FULL_ACCESS.has(request.toolName);
+}
+
 /** Build/Plan/Ask, the mode axis. Build is the absence of the other two, not a value Realm transmits. */
 export const SESSION_MODES = [{ id: "build", label: "Build" }, { id: "plan", label: "Plan" }, { id: "ask", label: "Ask" }] as const;
 export type SessionMode = (typeof SESSION_MODES)[number]["id"];

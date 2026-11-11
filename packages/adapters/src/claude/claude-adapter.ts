@@ -2,7 +2,7 @@ import { readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { spawn as nodeSpawn } from "node:child_process";
 import { query as sdkQuery, type EffortLevel, type Options, type PermissionResult, type PermissionUpdate, type SDKUserMessage, type Settings, type SpawnOptions, type SpawnedProcess, type Query } from "@anthropic-ai/claude-agent-sdk";
-import { type AgentModel, ASK_PERMISSION_MODE, REALM_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, askCardFromAskUserQuestion, claudeAnswers, loggableAnswers, mergeWindows, newId, normalizeAnswers, planWindowLabel, sessionEvent, type AskAnswers, type AskCard, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
+import { type AgentModel, ASK_PERMISSION_MODE, REALM_READ_ONLY_TOOLS, MAX_ATTACHMENT_BYTES, askCardFromAskUserQuestion, claudeAnswers, fullAccessAllows, loggableAnswers, mergeWindows, newId, normalizeAnswers, planWindowLabel, sessionEvent, type AskAnswers, type AskCard, type PlanAlert, type PlanWindow, type SessionEvent, type SessionEventPayload } from "@realm/contracts";
 import { AsyncQueue } from "../event-queue";
 import { createSdkMapper, type ChainCursor } from "./map-sdk-message";
 import { probeClaudeBinary } from "./probe";
@@ -421,6 +421,12 @@ export class ClaudeAdapter implements AgentAdapter {
       // drawn now could never be cleared.
       if (o.signal.aborted) return { behavior: "deny", message: "aborted" };
       const requestId = newId();
+      // Claude Code asks about some Bash commands in every mode (`$$(` inside a quoted argument reads
+      // to it as a command the shell may parse differently). Full access means nobody is asked.
+      if (fullAccessAllows(permissionMode, { toolName })) {
+        events.push(sessionEvent("permission_response", { requestId, decision: "allow", fullAccess: { toolName, title: o.title ?? `Allow ${toolName}?` } }));
+        return { behavior: "allow", updatedInput: toolInput };
+      }
       const suggestions = sessionOnly(o.suggestions ?? []);
       // A question travels on this channel too, and is marked as one HERE — from the SDK's own tool
       // name, never from anything in its arguments — so the card that draws it is the question card.
