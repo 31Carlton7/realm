@@ -21,7 +21,7 @@ import { usePinTeammate } from "./TeamSection";
  * were Arc's icon tiles, and a session has no picture to be told apart by: twelve identical chat
  * bubbles over titles cut to six letters, saying nothing about which of them had finished.
  *
- * `spaceName` names each pin's space in its accessible name and tooltip; `onChanged` is told after a
+ * `spaceName` names each pin's space in its accessible name; `onChanged` is told after a
  * write from a pin, so a list drawn from every space can read its items again.
  */
 export function PinnedList({ items, state, spaceName, onOpen, onChanged }: {
@@ -56,9 +56,9 @@ function PinnedItemRow({ item, where, onOpen, onChanged }: { item: Item; where?:
       onContextMenu={onContextMenu(item)}>
       {renaming ? <RenameInput item={item} onDone={() => { setRenaming(false); onChanged(); }} /> : (
         <>
-          <button type="button" className="item-row" aria-label={said} title={said} onClick={() => onOpen(item)}>
+          <button type="button" className="item-row" aria-label={said} data-tip="clipped" onClick={() => onOpen(item)}>
             <ItemIcon item={item} size={16} />
-            <span className="item-title">{item.title}</span>
+            <span className="item-title" data-tip-text>{item.title}</span>
             <span className="item-trail">{layout && <ItemGlyph layout={layout} itemId={item.id} />}</span>
           </button>
           <span className="item-actions"><UnpinButton item={item} onChanged={onChanged} /></span>
@@ -72,7 +72,7 @@ function PinnedItemRow({ item, where, onOpen, onChanged }: { item: Item; where?:
 /**
  * A pinned teammate: its icon on a tile with its name under it, as Grok lays its bots out. Its state
  * rides the tile's corner — the amber dot while it needs you, a spinner while it works — and its name
- * goes bold while it has something unread; the tooltip says all of it in words. A click opens its chat
+ * goes bold while it has something unread; its accessible name says all of it in words. A click opens its chat
  * and a right-click is its row's menu, Unpin first.
  */
 export function PinnedTeammate({ teammate: t }: { teammate: Teammate }) {
@@ -85,7 +85,7 @@ export function PinnedTeammate({ teammate: t }: { teammate: Teammate }) {
   const said = [`${t.name}${t.lead ? ", the Lead" : ""}`, signal.words].filter(Boolean).join(" — ");
   return (
     <>
-      <button type="button" className="sb-mate" aria-label={said} title={said} data-unread={signal.unread || undefined}
+      <button type="button" className="sb-mate" aria-label={said} data-tip="clipped" data-unread={signal.unread || undefined}
         onClick={() => run(() => openTeammate(t.id))}
         onContextMenu={(e: MouseEvent) => { e.preventDefault(); setMenuAt({ x: e.clientX, y: e.clientY }); }}>
         <span className="sb-mate-tile">
@@ -94,7 +94,7 @@ export function PinnedTeammate({ teammate: t }: { teammate: Teammate }) {
             ? <span className="status-dot sb-mate-state" data-status="waiting_permission" />
             : signal.working && <Spinner size={12} className="sb-mate-state" />}
         </span>
-        <span className="sb-mate-name">{t.name}</span>
+        <span className="sb-mate-name" data-tip-text>{t.name}</span>
       </button>
       {menuAt && <Menu at={menuAt} label={t.name} onClose={() => setMenuAt(null)} items={pin ? [pin, { kind: "separator" }, ...menu] : menu} />}
     </>

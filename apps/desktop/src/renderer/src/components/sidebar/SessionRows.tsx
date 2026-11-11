@@ -49,7 +49,7 @@ export const ListRowView = memo(function ListRowView({ row, where, onChanged }: 
 }, (a, b) => a.where === b.where && a.onChanged === b.onChanged && sameRow(a.row, b.row));
 
 /** What a session row says about itself: its signal, its sub-agents' request in words, and the whole
- *  of it as the row's accessible name and tooltip — one sentence whichever shape the row is drawn in. */
+ *  of it as the row's accessible name — one sentence whichever shape the row is drawn in. */
 export function sessionWords(row: SessionRow, where?: string): { signal: RowSignal; agents: string; said: string } {
   const signal = sessionSignal(row.status, row.unread);
   const agents = row.agentsWaiting > 0 ? `${row.agentsWaiting} sub-agent${row.agentsWaiting === 1 ? " needs" : "s need"} you` : "";
@@ -71,7 +71,7 @@ export function useOpenSessionRow(row: SessionRow): () => Promise<void> {
 /**
  * A session, in the sidebar row's anatomy (ItemList): the title takes the width, bold while unread,
  * the state or the age sits at the far end (`SignalTrail`), and the row's action — the shelf — takes
- * that slot under the pointer or the keyboard. Its tooltip says its state in words.
+ * that slot under the pointer or the keyboard. Its accessible name says its state in words.
  *
  * A click opens the session wherever it is (`revealSession`, the one path every list of sessions
  * takes); ⌘-click opens it BESIDE the one in focus — the window's one split. The row of the session
@@ -80,7 +80,7 @@ export function useOpenSessionRow(row: SessionRow): () => Promise<void> {
  *
  * `pinned` is the same row under Pinned: its lead is its space's icon, in the space's colour as its
  * tile wears it, rather than the chat glyph — pins come from every space, and which one is the
- * thing to tell at a glance. Its space's name goes to the name and the tooltip rather than the line
+ * thing to tell at a glance. Its space's name goes to the accessible name rather than the line
  * (the title is what tells pins apart), and the one action under the pointer is Unpin — what a
  * person does to a pin.
  */
@@ -108,11 +108,11 @@ export function SessionRowView({ row, where, pinned = false, onChanged }: {
       onDragEnd={() => setDragging(false)} onContextMenu={onContextMenu(row.item)}>
       {renaming ? <RenameInput item={row.item} onDone={() => { setRenaming(false); onChanged(); }} /> : (
         <>
-          <button type="button" className="item-row" aria-label={said} title={said}
+          <button type="button" className="item-row" aria-label={said} data-tip="clipped"
             onClick={(e) => run(() => (e.metaKey ? openItemBeside(row.item.id) : open()))}>
             {pinned ? <span className="sb-space-icon" style={tint ? { color: tint } : undefined}><SpaceIcon icon={space?.icon || "folder"} size={16} /></span>
               : <Icon name={row.scheduled ? "clock" : "session"} size={16} />}
-            <span className="item-title">{row.title}</span>
+            <span className="item-title" data-tip-text>{row.title}</span>
             {where && !pinned && <span className="item-where">{where}</span>}
             <span className="item-trail">
               {row.agentsWaiting > 0 && (
@@ -163,9 +163,9 @@ export function FanOutRowView({ row, where, onChanged }: { row: FanOutRow; where
   return (
     <>
       <div className="item sb-row" data-actions="0">
-        <button type="button" className="item-row" aria-expanded={open} aria-label={said} title={said} onClick={() => setOpen((v) => !v)}>
+        <button type="button" className="item-row" aria-expanded={open} aria-label={said} data-tip="clipped" onClick={() => setOpen((v) => !v)}>
           <span className="sb-lead"><span className="sb-caret" data-open={open || undefined}><Icon name="chevronRight" size={12} /></span></span>
-          <span className="item-title">{name}</span>
+          <span className="item-title" data-tip-text>{name}</span>
           {where && <span className="item-where">{where}</span>}
           <span className="item-trail"><TallyMarks tally={row.tally} /></span>
         </button>

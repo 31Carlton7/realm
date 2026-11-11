@@ -76,10 +76,14 @@ describe("the space's team", () => {
     expect([...sessions.querySelectorAll(".item-title")].map((t) => t.textContent)).toEqual(["Alpha"]);
   });
 
-  it("says each teammate's state in words, on its name and its tooltip", async () => {
+  it("says each teammate's state in words on its accessible name, and never in a tooltip", async () => {
+    // THE mutant: the sentence back as the row's title, so hovering a name already on screen covers
+    // the row under it with "cto — working".
     await mount();
     const cto = await screen.findByRole("button", { name: "cto — working — on cto - sqlite search" });
-    expect(cto).toHaveAttribute("title", "cto — working — on cto - sqlite search");
+    expect(cto).not.toHaveAttribute("title");
+    expect(cto).toHaveAttribute("data-tip", "clipped");
+    expect(cto.querySelector("[data-tip-text]")!.textContent).toBe("cto");
     expect(screen.getByRole("button", { name: "research — needs you" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Lead, the Lead" })).toBeInTheDocument();
   });
@@ -176,6 +180,10 @@ describe("pinned teammates", () => {
     // Its state rides the tile, said in words.
     const cto = within(pinned).getByRole("button", { name: "cto — working" });
     expect(cto.querySelector(".spinner")).not.toBeNull();
+    // …and not in a tooltip, which the tile has only while its name is cut short.
+    expect(cto).not.toHaveAttribute("title");
+    expect(cto).toHaveAttribute("data-tip", "clipped");
+    expect(cto.querySelector("[data-tip-text]")!.textContent).toBe("cto");
   });
 
   it("pins and unpins from a teammate's own menu", async () => {

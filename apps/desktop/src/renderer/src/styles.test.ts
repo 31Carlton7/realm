@@ -5251,3 +5251,17 @@ describe("a move's rows in the transcript", () => {
     expect(bodiesFor(".move-failed-reason").join(" ")).toContain("-webkit-line-clamp: 2");
   });
 });
+
+describe("the transcript with the column collapsed", () => {
+  it("takes the freed width as even margins, and only the bar makes room for the window's lead", () => {
+    /* THE mutants: a collapsed-column rule that pads or shifts the transcript, leaving a strip down
+       one side of the reading; the column pinned left instead of centred. Measured live (1440 wide):
+       the column's left edge 526.5 open and 386.5 collapsed, 193.5 and 333.5 either side. */
+    expect(bodiesFor(".transcript-col").join(" ")).toMatch(/margin-inline: auto/);
+    const collapsed = RULES.filter((r) => partsOf(r).some((s) => s.includes("data-sidebar-collapsed")));
+    expect(collapsed.length).toBeGreaterThan(0);
+    for (const r of collapsed) {
+      for (const s of partsOf(r)) expect(s, `${s} { ${r.body} }`).not.toMatch(/\.transcript|\.composer|\.panel-body/);
+    }
+  });
+});

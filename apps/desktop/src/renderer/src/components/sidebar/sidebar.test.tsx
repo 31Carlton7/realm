@@ -289,14 +289,17 @@ describe("a session's row", () => {
     // Idle and read: the age, plain, and nothing else.
     await waitFor(() => expect(trail().textContent).toBe("2h"));
     expect(row()).toHaveAccessibleName("Alpha");
-    expect(row()).toHaveAttribute("title", "Alpha");
+    // Its name is on screen, so it has no tooltip; one appears only while the column cuts it short.
+    expect(row()).not.toHaveAttribute("title");
+    expect(row()).toHaveAttribute("data-tip", "clipped");
+    expect(row().querySelector("[data-tip-text]")!.textContent).toBe("Alpha");
     expect(lifted()).toBe(false);
     // Working: a spinner in the age's slot, and the words.
     act(() => store.getState().applySessionStatus("a", "running"));
     expect(trail().querySelector(".spinner")).not.toBeNull();
     expect(trail().querySelector(".status-dot")).toBeNull();
     expect(trail().textContent).toBe("");
-    expect(row()).toHaveAttribute("title", "Alpha — working");
+    expect(row()).toHaveAccessibleName("Alpha — working");
     // Needs you: the amber dot, the only dot there is.
     act(() => store.getState().applySessionStatus("a", "waiting_permission"));
     expect(trail().querySelector(".status-dot")).toHaveAttribute("data-status", "waiting_permission");
@@ -316,6 +319,9 @@ describe("a session's row", () => {
     expect(lifted()).toBe(true);
     expect(row()).toHaveAccessibleName("Alpha — unread");
     expect(row().querySelector(".status-dot")).toBeNull();
+    // The state is said to a screen reader, never in a tooltip: bold and the trail already show it.
+    for (const el of document.querySelectorAll(".sidebar [title]")) expect(el.getAttribute("title")).not.toMatch(/unread|working|needs you|failed/);
+    expect(row().querySelector("[data-tip-text]")!.textContent).toBe("Alpha");
     // Nowhere in the column is there a green or a blue dot.
     expect(document.querySelector('.sidebar .status-dot[data-status="running"], .sidebar .status-dot[data-status="unseen"]')).toBeNull();
   });

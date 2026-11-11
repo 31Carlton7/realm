@@ -546,6 +546,10 @@ acronym that is uppercase anyway (a file extension on a tile).
   which is a sweep across a toolbar that tells you nothing. Write the title as a plain sentence and end
   it with the chord in brackets — "Search (⌘K)" — and the chord reads as a key. While a menu or
   popover is up, only what is inside it shows a tooltip: a control never names itself over its own menu.
+  A row that shows its name has no tooltip. It gets one only when the column cuts the name short, and
+  then the tooltip is the name alone, set beside the row (`data-tip="clipped"`). "TAC 368 TA — unread"
+  under a row whose name was whole covered the heading below it to say what the bold already said
+  (the owner, 11-10). The state stays in the row's accessible name.
   A tooltip never covers what it describes. A title on part of a control — the full command on a tool
   row's clipped one — clears the whole control, not only its line of text: placed under the text, it
   sat over the row it was explaining.

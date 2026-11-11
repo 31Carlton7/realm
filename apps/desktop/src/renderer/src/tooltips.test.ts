@@ -211,6 +211,47 @@ describe("the tooltip layer", () => {
     expect(parseFloat(tip().style.left)).toBe(300 - 130); // where the pointer is along it
   });
 
+  describe("a row that shows its own name", () => {
+    const rect = (x: number, y: number, width: number, height: number) => () => ({ x, y, width, height, left: x, top: y, right: x + width, bottom: y + height, toJSON: () => ({}) }) as DOMRect;
+    /** A sidebar row at y 92, widened past the 320 at which other rows anchor to the pointer, whose
+     *  name is `full` wide in a 181px slot. */
+    const row = (full: number) => {
+      setup('<button id="row" aria-label="TAC 368 TA — unread" data-tip="clipped"><span id="name" data-tip-text>TAC 368 TA</span><span>7h</span></button>');
+      Object.defineProperty($("#name"), "scrollWidth", { configurable: true, get: () => full });
+      Object.defineProperty($("#name"), "clientWidth", { configurable: true, get: () => 181 });
+      $("#row").getBoundingClientRect = rect(68, 92, 360, 30);
+      tip().getBoundingClientRect = rect(0, 0, 140, 24);
+    };
+
+    it("has no tooltip while the whole name is on screen", () => {
+      // THE mutant: the row's sentence as a tooltip again, over the row under it.
+      row(181);
+      hover($("#name"));
+      vi.advanceTimersByTime(TIP_DELAY_MS * 5);
+      expect(open()).toBe(false);
+      expect($("#row").hasAttribute("title")).toBe(false);
+    });
+
+    it("shows only the name the column cut short, beside the row, and leaves its accessible name alone", () => {
+      /* THE mutants: the state words back in the tooltip; the tooltip under the row, where it covered the
+         heading below; the accessible name traded for the tooltip's words. */
+      row(250);
+      hover($("#name"));
+      vi.advanceTimersByTime(TIP_DELAY_MS);
+      expect(open()).toBe(true);
+      expect($(".tooltip-label").textContent).toBe("TAC 368 TA");
+      expect(tip().dataset.side).toBe("right");
+      expect(parseFloat(tip().style.left)).toBe(68 + 360 + 6); // beside the row, not beside the pointer
+      expect(parseFloat(tip().style.top)).toBe(92 + (30 - 24) / 2);
+      expect($("#row").getAttribute("aria-label")).toBe("TAC 368 TA — unread");
+      expect($("#row").hasAttribute("aria-description")).toBe(false);
+      expect($("#row").hasAttribute("title")).toBe(false);
+      hover(document.body);
+      expect(open()).toBe(false);
+      expect($("#row").getAttribute("aria-label")).toBe("TAC 368 TA — unread");
+    });
+  });
+
   it("leaves the page as it found it when uninstalled", () => {
     setup('<button id="b" title="Reload"></button>');
     hover($("#b"));

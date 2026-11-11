@@ -234,22 +234,27 @@ export type TooltipSide = "below" | "above" | "right" | "left";
  * is a browser toolbar's button with the page under it and the window's top edge over it. Null where
  * no side is: a tooltip is only worth anything next to the thing it names, so there is no further
  * place to go, and the caller hands the element back to the system's own tooltip, which macOS draws
- * above every view.
+ * above every view. `sides` changes the order the sides are tried in.
  */
-export function placeTooltip(i: { anchor: Rect; size: Size; win: Size; gap: number; margin: number; avoid: readonly Rect[] }): { left: number; top: number; side: TooltipSide } | null {
+export function placeTooltip(i: {
+  anchor: Rect; size: Size; win: Size; gap: number; margin: number; avoid: readonly Rect[]; sides?: readonly TooltipSide[];
+}): { left: number; top: number; side: TooltipSide } | null {
   const { anchor: a, size, win, gap, margin } = i;
   const clear = (left: number, top: number) => left >= margin && left + size.width <= win.width - margin
     && top >= margin && top + size.height <= win.height - margin
     && !i.avoid.some((b) => b.width > 0 && b.height > 0 && intersects({ x: left, y: top, width: size.width, height: size.height }, b));
   const across = Math.max(margin, Math.min(a.x + (a.width - size.width) / 2, win.width - size.width - margin));
   const level = Math.max(margin, Math.min(a.y + (a.height - size.height) / 2, win.height - size.height - margin));
-  const spots: [TooltipSide, number, number][] = [
-    ["below", across, a.y + a.height + gap],
-    ["above", across, a.y - gap - size.height],
-    ["right", a.x + a.width + gap, level],
-    ["left", a.x - gap - size.width, level],
-  ];
-  for (const [side, left, top] of spots) if (clear(left, top)) return { left, top, side };
+  const spots: Record<TooltipSide, [number, number]> = {
+    below: [across, a.y + a.height + gap],
+    above: [across, a.y - gap - size.height],
+    right: [a.x + a.width + gap, level],
+    left: [a.x - gap - size.width, level],
+  };
+  for (const side of i.sides ?? ["below", "above", "right", "left"] as const) {
+    const [left, top] = spots[side];
+    if (clear(left, top)) return { left, top, side };
+  }
   return null;
 }
 
