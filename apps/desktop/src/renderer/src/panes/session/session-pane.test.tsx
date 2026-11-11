@@ -637,13 +637,16 @@ describe("permission keyboard (U-H4)", () => {
     const rows = within(card).getAllByRole("button").filter((b) => b.classList.contains("permission-option"));
     expect(rows.map((r) => r.getAttribute("aria-label"))).toEqual(["Allow", "Allow always", "Deny"]);
     expect(rows.map((r) => r.querySelector(".permission-num")!.textContent)).toEqual(["1", "2", "3"]);
-    expect(rows.map((r) => r.querySelector(".permission-option-kbd")!.textContent)).toEqual(["⏎", "⇧⏎", "⌘⌫"]);
+    // One Return glyph across the card: it drew ⏎ on the rows, ↵ in the legend and ↩ on Submit.
+    expect(rows.map((r) => r.querySelector(".permission-option-kbd")!.textContent)).toEqual(["↵", "⇧↵", "⌘⌫"]);
     expect([...card.querySelectorAll(".permission-hints > span")].map((s) => s.textContent))
       .toEqual(["↑↓ Navigate", "↵ Select", "esc Deny"]);
-    expect(within(card).getByRole("button", { name: "Submit" })).toHaveTextContent("↩");
-    // Amber is a dot and a pill now, not a wash over the whole head (§5).
+    expect(within(card).getByRole("button", { name: "Submit" })).toHaveTextContent("↵");
+    // Amber is a dot beside who is asking, not a wash over the head, and not a Waiting pill beside
+    // the tool row's own "Waiting for you" (§5).
     expect(card.querySelector(".permission-dot")).not.toBeNull();
-    expect(card.querySelector('.status-pill[data-tone="warning"]')).toHaveTextContent("Waiting");
+    expect(card.querySelector(".permission-from")).toHaveTextContent(/asks$/);
+    expect(card.querySelector(".status-pill")).toBeNull();
   });
 
   it("the number keys decide outright — 1 allows, 2 allows always, 3 denies", async () => {
