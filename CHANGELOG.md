@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.9.4 - 2026-11-11
+
+- A session in Full access no longer stops on an "Allow Bash?" card when Claude Code simply could not parse a command, such as a JavaScript snippet passed inline. Realm runs it and notes it in the log. A flagged command that names rm still asks, and so does one that asks to leave Claude Code's sandbox.
+- Changing a teammate's access now reaches the task sessions it already has running. Raising it to Full access answers the cards those sessions were waiting on, except questions, plan approvals and the browser's own checks. Lowering it holds their next step to the new level.
+- Show all unfolds the space's own sessions in place, and a Needs you row no longer repeats the space you are in.
+- The rail's icons are drawn at one size, and each button has a 40 by 40 press area.
+- The Engines page says Ready and Not installed as plain words, with amber only for Signed out or Couldn't check. Where a raw error showed, it gives a plain sentence.
+
 ## v2.9.3 - 2026-11-10
 
 - A permission card says who is asking first ("Claude asks", or the teammate's name), then shows the command once. Its keys are drawn as the menus' key chips, with one Return glyph.
