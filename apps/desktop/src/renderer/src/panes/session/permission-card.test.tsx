@@ -55,7 +55,7 @@ describe("PermissionCard options", () => {
   it("leaves the numbering and shortcuts alone, so the row order is unchanged", () => {
     const { options } = card({ toolName: "computer_act", title: "Click in TextEdit" });
     expect(options.map((o) => o.querySelector(".permission-num")!.textContent)).toEqual(["1", "2", "3"]);
-    expect(options.map((o) => o.querySelector(".permission-option-kbd")!.textContent)).toEqual(["⏎", "⇧⏎", "⌘⌫"]);
+    expect(options.map((o) => o.querySelector(".permission-option-kbd")!.textContent)).toEqual(["↵", "⇧↵", "⌘⌫"]);
   });
 
   it("offers no always on a security-code fill, by click, digit or chord", () => {

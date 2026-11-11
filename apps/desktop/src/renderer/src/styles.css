@@ -1105,9 +1105,13 @@ input.sb-space-name { flex: 1; }
    to `--rl-text-faint`: a fill one rung up from the menu darkens what the glyphs are read against,
    and faint on it measures 2.5:1 dark / 2.2:1 light in the built app — under AA both ways, where the
    same ink clears it against the bare surface. A chip is a quieter SHAPE, not quieter text; the
-   moment it costs legibility it has stopped being the cleaner thing to do. */
-.menu-kbd { flex: none; margin-left: auto; padding: 1px 5px; border-radius: var(--r-chip);
+   moment it costs legibility it has stopped being the cleaner thing to do.
+   It is the app's one drawing of a key: the permission and question cards' chords and footer keys
+   wear the same chip, because a key is the same kind of thing in a card as in a menu. */
+.menu-kbd, .permission-num, .permission-option-kbd, .permission-hints kbd, .question-hints kbd {
+  padding: 1px 5px; border-radius: var(--r-chip);
   background: var(--hover-2); color: var(--rl-text-dim); font: 11px var(--font-ui); letter-spacing: .02em; }
+.menu-kbd { flex: none; margin-left: auto; }
 /* A danger row tints its label, and a shortcut is not part of the warning — hold the chip neutral. */
 .menu [role="menuitem"].danger .menu-kbd { color: var(--rl-text-dim); }
 /* What a row does, after its name — Codex's grammar for a menu whose rows need explaining. The name
@@ -5045,24 +5049,20 @@ button.edit-file:hover { background: var(--rl-hover); }
 .permission-option[data-selected]:hover { background: var(--hover-2); }
 .permission-option[data-decision="deny"][data-selected] { color: var(--rl-danger); }
 .permission-option-label { flex: 1; min-width: 0; }
-/* kbd number chips: BUI's inset fill + hairline ring. */
-.permission-num { display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: var(--r-chip);
-  background: var(--inset); box-shadow: var(--shadow-hairline); color: var(--ink-3); font-size: 11px; flex: none; }
+/* The number and the chord are key chips (the `.menu-kbd` skin). The number holds a square-ish box so
+   1, 2 and 3 sit on one column; the chord ends the row, after the label takes the slack, so the three
+   chips share a right edge. On the selected row the chip steps back to the card's own surface: the
+   row's fill is the chip's, and a chip the colour of the ground under it is no chip. */
+.permission-num { flex: none; min-width: 18px; text-align: center; }
+.permission-option-kbd { flex: none; font-variant-numeric: tabular-nums; }
+.permission-option[data-selected] :is(.permission-num, .permission-option-kbd) { background: var(--surface); }
 .permission-option[data-selected] .permission-num { color: var(--ink); }
-/* The shortcut hints line up as a COLUMN, not as three ragged right edges.
-   `⏎`, `⇧⏎` and `⌘⏎` are one, two and two glyphs of different widths, so right-aligning each on its
-   own made the three rows disagree about where the hint starts — a jitter you read as sloppiness
-   before you work out what it is. A fixed box, right-aligned inside it, is one edge for all three. */
-.permission-option-kbd {
-  flex: none; width: 40px; text-align: right;
-  color: var(--rl-text-faint); font-size: 11px; font-variant-numeric: tabular-nums;
-}
 
 /* Footer (ApprovalCard's primitive-card-footer): hairline-topped, bleeding to the card edge —
    navigation hints left, accent Submit pill right. */
 .permission-footer { display: flex; align-items: center; gap: 10px; margin: 4px -14px -14px; padding: 8px 14px; border-top: var(--hairline-w) solid var(--line); }
 .permission-hints { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--rl-text-faint); }
-.permission-hints kbd { margin-right: 3px; padding: 0 4px; border: var(--hairline-w) solid var(--rl-line-strong); border-radius: var(--r-chip); font-size: 11px; }
+.permission-hints kbd { margin-right: 3px; }
 .permission-submit { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-weight: var(--fw-label); }
 .permission-submit kbd { opacity: .7; }
 
@@ -5108,7 +5108,7 @@ button.edit-file:hover { background: var(--rl-hover); }
    whole instead of breaking every hint into a stacked column of keys over words. */
 .question-hints { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; min-width: 0; font-size: 11px; color: var(--rl-text-faint); }
 .question-hints > span { white-space: nowrap; }
-.question-hints kbd { margin-right: 3px; padding: 0 4px; border: var(--hairline-w) solid var(--rl-line-strong); border-radius: var(--r-chip); font-size: 11px; }
+.question-hints kbd { margin-right: 3px; }
 .question-continue { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-weight: var(--fw-label); }
 .question-continue kbd { opacity: .7; }
 

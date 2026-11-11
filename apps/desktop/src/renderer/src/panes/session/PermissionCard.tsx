@@ -14,8 +14,8 @@ import { askerIcon, askerLine } from "./QuestionCard";
  *  the accent Submit pill on the right. Order is deliberate — Allow is first, so it is what the
  *  default selection and a bare Enter mean. */
 const OPTIONS: { decision: PermissionDecision; label: string; kbd: string }[] = [
-  { decision: "allow", label: "Allow", kbd: "⏎" },
-  { decision: "allow_always", label: "Allow always", kbd: "⇧⏎" },
+  { decision: "allow", label: "Allow", kbd: "↵" },
+  { decision: "allow_always", label: "Allow always", kbd: "⇧↵" },
   { decision: "deny", label: "Deny", kbd: "⌘⌫" },
 ];
 
@@ -150,7 +150,7 @@ export function PermissionCard({ permission, asker, onDecide, autoFocus = false,
           <span><kbd>↑↓</kbd> Navigate</span><span><kbd>↵</kbd> Select</span>{ownsEscape && <span><kbd>esc</kbd> Deny</span>}
         </div>
         <button className="btn primary permission-submit" aria-label="Submit" onClick={() => onDecide(options[selected]!.decision)}>
-          Submit <kbd>↩</kbd>
+          Submit <kbd>↵</kbd>
         </button>
       </div>
     </div>

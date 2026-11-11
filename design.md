@@ -635,6 +635,10 @@ acronym that is uppercase anyway (a file extension on a tile).
   saturated hue. Link ink and code colour stay. The signal is the WINDOW's key state from main, not
   the page's focus: a click into a browser pane blurs the page while the window keeps the keyboard;
   and a window that opened behind another app asks for the state rather than waiting to be told.
+- A key is drawn one way: the menus' filled chip in secondary ink. A card's chords, its number keys
+  and its footer legend are the same kind of thing as a menu's shortcut, and the permission card's
+  bare 11px glyphs at 2.5–3.4:1 read as decoration beside a menu that drew them as keys. One glyph
+  per key across a surface, too — that card drew Return as ⏎, ↵ and ↩.
 - Menus are the system's. `Menu` hands its rows to an OS menu — material, type-to-select, and the
   only surface that can open over a browser pane's native view — and draws its own only where there
   is no bridge (tests, and live scripts that set `REALM_HTML_MENUS`). A two-step confirm reopens the

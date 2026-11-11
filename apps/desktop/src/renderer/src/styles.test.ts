@@ -872,6 +872,19 @@ describe("Ara refresh §3/§4 geometry", () => {
     expect(RULES.filter((r) => r.selectors.some((s) => s.includes(".slash-picker")) && /(^|[;\s])width:/.test(r.body))).toEqual([]);
   });
 
+  it("a key is drawn one way: a card's chords and footer keys wear the menus' key chip", () => {
+    // The permission card's ⏎ / ⇧⏎ / ⌘⌫ were bare 11px glyphs at 2.5–3.4:1 while every menu drew a
+    // filled chip in secondary ink.
+    const skin = RULES.find((r) => r.selectors.includes(".menu-kbd") && /background:/.test(r.body))!;
+    expect(skin.body).toContain("background: var(--hover-2)");
+    expect(skin.body).toContain("color: var(--rl-text-dim)");
+    for (const sel of [".permission-num", ".permission-option-kbd", ".permission-hints kbd", ".question-hints kbd"]) {
+      expect(skin.selectors, sel).toContain(sel);
+      // …and nothing later paints that chip in the hint tier or draws a ring round it instead.
+      for (const body of bodiesFor(sel)) expect(body, sel).not.toMatch(/--rl-text-faint|--ink-3|border:|box-shadow:/);
+    }
+  });
+
   it("an app-level page is the BOTTOM of the overlay stack, not the top", () => {
     /* THE BUG this pins, which was four bugs wearing one number: the page overlay sat at z-index 200,
        above every floating surface in the app. Quick chat opened behind Settings, ⌘K opened behind
