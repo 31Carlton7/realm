@@ -41,6 +41,15 @@ describe("the sidebar's head row", () => {
     expect(screen.queryByRole("button", { name: "Switch space" })).toBeNull();
   });
 
+  it("folded, keeps its controls out of the keyboard's reach under the traffic lights (TN-02)", async () => {
+    const api = fakeApi({});
+    const store = createAppStore(api);
+    await store.getState().boot();
+    const { container } = render(<StoreContext.Provider value={store}><Sidebar collapsed /></StoreContext.Provider>);
+    for (const name of ["Search", "New session"])
+      expect(within(header(container)).getByRole("button", { name, hidden: true }).closest("[inert]")).not.toBeNull();
+  });
+
   it("opens the palette from search, printing the person's own chord", async () => {
     const { store, container } = await mount();
     const search = within(header(container)).getByRole("button", { name: "Search" });

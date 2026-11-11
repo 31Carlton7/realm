@@ -323,6 +323,14 @@ describe("§6 motion table", () => {
     for (const control of ["button", '[role="button"]', '[role^="menuitem"]', ".item-row"]) expect(sel).toContain(control);
   });
 
+  it("draws nothing of a folded sidebar once its slide has run (TN-02)", () => {
+    // THE MUTANT: Search and New session left standing under the traffic lights at x −16 and 14.
+    const folded = bodiesFor(".sidebar[data-collapsed] .sidebar-slide").join(" ");
+    expect(folded).toContain("visibility: hidden");
+    expect(folded).toContain("transition: visibility 0s linear var(--dur-move)");
+    expect(bodiesFor(".sidebar").join(" ")).toContain("transition: --sidebar-open var(--dur-move)");
+  });
+
   it("rings the queued message's edit field as every other field is rung (MN-05)", () => {
     // THE MUTANT: the hairline in the accent it had, a ring no other field wears.
     const ring = (sel: string) => RULES.filter((r) => r.selectors.includes(sel)).map((r) => r.body.match(/box-shadow:[^;]*/)?.[0]).filter(Boolean);
