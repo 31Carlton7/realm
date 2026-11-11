@@ -71,26 +71,32 @@ describe("safeOpacity", () => {
 });
 
 describe("pictureAlpha", () => {
-  const look = { feather: 64, fade: [0.2, 0.6] as [number, number] };
-  const calm = { x: 200, y: 150, w: 600, h: 300 };
+  const look = { feather: 32, fade: [0, 0.2] as [number, number] };
+  const card = { x: 200, y: 300, w: 600, h: 120 };
 
-  it("shows nothing inside the calm box, up to its edge", () => {
-    expect(pictureAlpha(500, 300, 900, calm, look)).toBe(0);
-    expect(pictureAlpha(201, 151 + 30, 900, calm, look)).toBe(0);
-    expect(pictureAlpha(500, 449, 900, calm, look)).toBe(0);
+  it("runs the whole picture above the card, where the greeting sits", () => {
+    expect(pictureAlpha(500, 200, 900, card, look)).toBe(1);
+    expect(pictureAlpha(500, 300 - 32, 900, card, look)).toBeCloseTo(1, 5);
   });
 
-  it("feathers back to the whole picture a feather's width out", () => {
-    const near = pictureAlpha(200 - 16, 160, 900, calm, look), far = pictureAlpha(200 - 64, 160, 900, calm, look);
+  it("shows nothing on the card, and feathers back within a feather's width of it", () => {
+    expect(pictureAlpha(500, 360, 900, card, look)).toBe(0);
+    const near = pictureAlpha(200 - 12, 360, 900, card, look), far = pictureAlpha(200 - 32, 360, 900, card, look);
     expect(near).toBeGreaterThan(0);
     expect(near).toBeLessThan(far);
     expect(far).toBeCloseTo(1, 5);
   });
 
-  it("fades down the pane to the ground", () => {
-    const none = { x: 0, y: 0, w: 0, h: 0 };
-    expect(pictureAlpha(10, 100, 900, none, look)).toBe(1);
-    expect(pictureAlpha(10, 360, 900, none, look)).toBeCloseTo(0.5, 5);
-    expect(pictureAlpha(10, 600, 900, none, look)).toBe(0);
+  it("starts to fade at the card's foot and is gone a fifth of the pane below it", () => {
+    expect(pictureAlpha(50, 420, 900, card, look)).toBe(1);
+    expect(pictureAlpha(50, 420 + 90, 900, card, look)).toBeCloseTo(0.5, 5);
+    expect(pictureAlpha(50, 420 + 180, 900, card, look)).toBe(0);
+  });
+
+  it("lowers the picture under a hush to its level, and only near it", () => {
+    const hush = { rect: { x: 300, y: 100, w: 400, h: 40 }, level: 0.3, reach: 40 };
+    expect(pictureAlpha(500, 120, 900, card, look, [hush])).toBeCloseTo(0.3, 5);
+    expect(pictureAlpha(500, 100 - 40, 900, card, look, [hush])).toBeCloseTo(1, 5);
+    expect(pictureAlpha(50, 120, 900, card, look, [hush])).toBe(1);
   });
 });
