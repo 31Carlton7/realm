@@ -35,7 +35,7 @@
 .documents-rich-surface code, .documents-source, .env-branch, .env-path, .failover-pos, .fd-line, .fd-path, .fd-stat,
 .files-crumbs, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
 .mcp-tool-name, .md code, .md-code-lang, .media-name, .memory-path, .media-time, .video-btn, .video-time, .video-scrub-hover, .mention-row-id, .mp-about code,
-.msg-error pre, .empty-state-path, .empty-state-note code, .permission-details pre, .permission-tool code, .req-target,
+.msg-error pre, .space-folder-made, .empty-state-path, .empty-state-note code, .permission-details pre, .permission-tool code, .req-target,
 .sched-cron, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-note code,
 .font-installed-size, .sheet-cell-input, .sheet-cellref, .sheet-rawvalue, .ship-report code, .skill-file-name code, .skill-picker-row-id,
 .summary-diff, .summary-fact .summary-row-name, .summary-file-path, .term-exit, .term-out, .terminal-hint-path,
@@ -6826,7 +6826,9 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 .onboarding-more:hover { color: var(--rl-text-bright); background: var(--rl-hover); }
 .onboarding-more svg { transition: rotate var(--dur-hover) ease; }
 .onboarding-more[aria-expanded="true"] svg { rotate: 180deg; }
-.onboarding-others { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(190px, 100%), 1fr)); gap: 2px 8px; margin: -4px 0 0 34px; }
+/* Two columns at most, so an agent's name keeps its width beside its state: in three of 190px,
+   "GitHub …" and "DeepS…" were cut while "Not installed" was drawn whole. */
+.onboarding-others { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: 2px 8px; margin: -4px 0 0 34px; }
 .onboarding-other { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 8px; border-radius: var(--r-ctl); corner-shape: squircle;
   font-size: 13px; color: var(--rl-text-dim); }
 .onboarding-other:hover { background: var(--rl-hover); }
@@ -6874,8 +6876,9 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 .space-folder-path, .space-folder-made { min-width: 0; contain: inline-size; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
 .space-folder-path::before, .space-folder-made::before { content: "\200e"; }
 .space-folder-path { flex: 1; font-size: 13px; color: var(--rl-text-bright); }
-.space-folder-default { display: flex; gap: 4px; min-width: 0; margin: 0; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); white-space: nowrap; }
-.space-folder-made { flex: 1; color: var(--rl-text-bright); }
+.space-folder-default { display: flex; align-items: center; gap: 6px; min-width: 0; margin: 0; line-height: 18px; color: var(--rl-text-dim); white-space: nowrap; }
+.space-folder-default > svg { flex: none; }
+.space-folder-made { flex: 1; font: 12px var(--font-mono); color: var(--rl-text-dim); }
 /* ── New space (NewSpaceSheet.tsx): the identity, then one card of the rest in Settings' grammar ── */
 .new-space { gap: 16px; }
 /* Each row is its label and its control on one line; whatever the row has to add runs under both. */
@@ -8409,7 +8412,7 @@ select { appearance: none; padding-right: 22px;
 .sched-suggestion { width: 100%; display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; text-align: left;
   border-radius: var(--r-ctl); corner-shape: squircle; }
 .sched-suggestion-name { font-size: 14px; line-height: 20px; font-weight: var(--fw-medium); color: var(--rl-text-bright); }
-.sched-suggestion-blurb { font-size: 12px; line-height: 16px; color: var(--rl-text-faint);
+.sched-suggestion-blurb { font-size: 12px; line-height: 16px; color: var(--rl-text-dim);
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
 .sched-main { flex: 1; min-width: 0; min-height: 0; display: flex; container: sched-main / inline-size; }
