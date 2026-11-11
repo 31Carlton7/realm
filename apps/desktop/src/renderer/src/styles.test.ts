@@ -867,6 +867,11 @@ describe("Ara refresh §3/§4 geometry", () => {
     expect(surface).not.toMatch(/overflow-y: auto/);
   });
 
+  it("the `/` picker is the `@` picker's surface at the `@` picker's width", () => {
+    // At 320px against the mention picker's 420, five of the nine command hints ended in "…".
+    expect(RULES.filter((r) => r.selectors.some((s) => s.includes(".slash-picker")) && /(^|[;\s])width:/.test(r.body))).toEqual([]);
+  });
+
   it("an app-level page is the BOTTOM of the overlay stack, not the top", () => {
     /* THE BUG this pins, which was four bugs wearing one number: the page overlay sat at z-index 200,
        above every floating surface in the app. Quick chat opened behind Settings, ⌘K opened behind

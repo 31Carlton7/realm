@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isEmptySummary, linksIn, mediaKindOf, summarize, writtenPath } from "./session-summary";
+import { distinctNames, isEmptySummary, linksIn, mediaKindOf, summarize, writtenPath } from "./session-summary";
 import type { Block } from "./transcript-model";
 
 const ok = { content: "done", isError: false };
@@ -137,5 +137,16 @@ describe("summarize", () => {
       tool("Write", { file_path: "/a/new.ts" }, 2),
     ]);
     expect(s.outputs.map((o) => o.kind === "file" && o.name)).toEqual(["new.ts", "old.ts"]);
+  });
+});
+
+describe("distinctNames", () => {
+  it("keeps a unique name bare and gives colliding names the folder that tells them apart", () => {
+    expect(distinctNames(["/repo/package.json", "/repo/apps/desktop/package.json", "/repo/src/a.ts"]))
+      .toEqual(["repo/package.json", "desktop/package.json", "a.ts"]);
+  });
+
+  it("goes as deep as it has to", () => {
+    expect(distinctNames(["/a/x/index.ts", "/b/x/index.ts"])).toEqual(["a/x/index.ts", "b/x/index.ts"]);
   });
 });

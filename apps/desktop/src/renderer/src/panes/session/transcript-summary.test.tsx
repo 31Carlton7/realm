@@ -66,6 +66,18 @@ describe("summaryText", () => {
       .toContain("edited 4 files (a.ts, b.ts, c.ts, +1)");
   });
 
+  it("leaves an ask's own full stop inside the quote, with nothing after it", () => {
+    // It printed `merged PRs.”. Over 4 turns`: the ask's stop, the quote, then a second stop.
+    expect(summaryText([asked("Cut the release from the merged PRs.", 1), read("/r/a.md", 2)]))
+      .toBe("You asked: “Cut the release from the merged PRs.” The agent read 1 file.");
+  });
+
+  it("names two edited files that share a name by the folder that tells them apart", () => {
+    // "edited 2 files (package.json, package.json)" read as one file listed twice.
+    expect(summaryText([asked("bump", 1), wrote("/repo/package.json", 2), wrote("/repo/apps/desktop/package.json", 3)]))
+      .toContain("edited 2 files (repo/package.json, desktop/package.json)");
+  });
+
   it("counts a failed edit as an error, not as an edited file", () => {
     const failed: Block = { kind: "tool", toolUseId: "f", name: "Edit", input: { file_path: "/r/x.ts" }, result: { content: "no match", isError: true }, ts: 2 };
     expect(summaryText([asked("edit x", 1), failed, ran("ls", 3)])).toBe("You asked: “edit x”. The agent ran 1 command, with 1 error along the way.");
@@ -90,7 +102,7 @@ describe("summaryText", () => {
     const brief = "You are a delegated agent. Accomplish this goal:\n\nFold the report card.";
     expect(summaryText([asked(brief, 1), read("/r/viewer.tsx", 2)], brief)).toBe("The agent read 1 file.");
     expect(summaryText([asked(brief, 1), read("/r/viewer.tsx", 2), asked("and the tests?", 3)], brief))
-      .toBe("You asked: “and the tests?”. Over 2 turns the agent read 1 file.");
+      .toBe("You asked: “and the tests?” Over 2 turns the agent read 1 file.");
   });
 });
 
