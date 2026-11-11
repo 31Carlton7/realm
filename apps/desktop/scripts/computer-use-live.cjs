@@ -137,6 +137,7 @@ const bundled = path.join(scratch, "computer-use.cjs");
 esbuild().buildSync({ entryPoints: [entry], bundle: true, platform: "node", format: "cjs", external: ["electron"], outfile: bundled });
 
 const { app } = require("electron");
+require("./lib/quiet-electron.cjs");
 const { ComputerUseHelper, ComputerUseHost } = require(bundled);
 app.setPath("userData", path.join(scratch, "userData"));
 

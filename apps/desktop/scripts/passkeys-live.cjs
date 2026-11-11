@@ -48,6 +48,7 @@ const { createBrowserPane } = build("apps/desktop/src/main/browser-pane.ts", "br
 const { PasskeyBroker } = build("apps/desktop/src/main/passkeys.ts", "passkeys.cjs");
 
 const { app, BrowserWindow } = require("electron");
+const { QUIET_WINDOW_OPTIONS } = require("./lib/quiet-electron.cjs");
 app.setPath("userData", path.join(scratch, "userData")); // never a real profile
 
 const PORT = 7393;
@@ -77,10 +78,12 @@ app.whenReady().then(async () => {
   try {
     await new Promise((r) => server.listen(PORT, "127.0.0.1", r));
     const win = new BrowserWindow({
-      width: 800, height: 560, x: 60, y: 60, show: true,
+      width: 800, height: 560, x: 60, y: 60,
       title: "Realm passkeys live check (auto-closes)",
       ...(process.platform === "darwin" ? { vibrancy: "sidebar", backgroundColor: "#00000000" } : {}),
+      ...QUIET_WINDOW_OPTIONS,
     });
+    win.show();
     await win.loadURL("data:text/html," + encodeURIComponent(
       `<body style="margin:0;background:#17181a;color:#eee;font:13px sans-serif;padding:10px">Realm passkeys live check</body>`));
 

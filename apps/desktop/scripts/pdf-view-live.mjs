@@ -17,13 +17,14 @@
  * Ports: LIVE_CDP_PORT (9239) and LIVE_SERVER_PORT (8799); refuses to run if either is taken. Touches
  * only its scratch dir, never the real ~/Realm, and no agent is ever sent anything.
  */
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { connect } from "node:net";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { corruptPdf, cjkPdf, jpxPdf, passwordPdf, slidesPdf, textPdf } from "./pdf-fixtures.mjs";
+import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9239), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8799);
@@ -146,9 +147,8 @@ async function main() {
   for (const p of [CDP_PORT, SERVER_PORT]) if (!(await portFree(p))) throw new Error(`port ${p} is in use — refusing to run`);
   const wrapper = path.join(scratch, "wrapper.mjs");
   fs.writeFileSync(wrapper, ['import { app } from "electron";', 'app.setPath("userData", process.env.LIVE_USER_DATA);', "await import(process.env.LIVE_MAIN);"].join("\n"));
-  const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
   const home = path.join(scratch, "home");
-  electron = spawn(electronBin, [...UNTHROTTLED, wrapper], {
+  electron = spawnLiveElectron([...UNTHROTTLED, wrapper], {
     env: {
       ...process.env,
       REALM_HOME: home, REALM_HTML_MENUS: "1", REALM_ENABLE_FAKE_AGENT: "1",

@@ -14,6 +14,9 @@ export function revealInFinder(abs: string, platform: NodeJS.Platform = process.
   return run("xdg-open", [dirname(abs)]);
 }
 
+/** A live check's server (REALM_QUIET_WINDOWS, set only by an unpackaged app) puts no Finder window
+ *  in front of the person at the Mac. */
 const execOnce = (bin: string, args: string[]): Promise<void> => new Promise((resolve, reject) => {
+  if (process.env.REALM_QUIET_WINDOWS === "1") return resolve();
   execFile(bin, args, { timeout: 10_000 }, (err) => (err ? reject(err) : resolve()));
 });

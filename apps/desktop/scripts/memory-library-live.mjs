@@ -15,13 +15,14 @@
  * nothing is sent. Ports: LIVE_SERVER_PORT / LIVE_CDP_PORT (8793 / 9233). Scratch under LIVE_SCRATCH,
  * screenshots under LIVE_SHOTS. Kills only what holds its own two ports, and only if it is this run's.
  */
-import { execFileSync, execSync, spawn } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { connect } from "node:net";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
+import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8793);
@@ -181,8 +182,7 @@ async function launch() {
   const serverWrapper = path.join(scratch, "server.mjs");
   fs.writeFileSync(serverWrapper, ["process.env.HOME = process.env.LIVE_SERVER_HOME;", "await import(process.env.LIVE_SERVER_MAIN);"].join("\n"));
   // LIVE_ELECTRON: a checkout whose Electron was never downloaded can run one already on the Mac.
-  const electronBin = process.env.LIVE_ELECTRON ?? path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
-  electron = spawn(electronBin, [wrapper, ...UNTHROTTLED], {
+  electron = spawnLiveElectron([wrapper, ...UNTHROTTLED], {
     env: {
       ...process.env,
       CLAUDE_CONFIG_DIR: path.join(user, ".claude"),

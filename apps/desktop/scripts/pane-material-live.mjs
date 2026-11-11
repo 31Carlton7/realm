@@ -23,12 +23,13 @@
  * It needs Screen Recording permission for the terminal it runs in, and it touches no user setting —
  * no wallpaper is changed, and the backdrop window is this script's own process.
  */
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { connect } from "node:net";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9412), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8982);
@@ -36,7 +37,6 @@ const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "realm-material-"));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let electron = null, backdrop = null;
 
-const ELECTRON_BIN = path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
 
 async function portFree(port) {
   return new Promise((resolve) => {
@@ -100,7 +100,7 @@ app.whenReady().then(() => {
   w.loadURL("about:blank");
 });
 `);
-  return spawn(ELECTRON_BIN, [entry], { stdio: "ignore" });
+  return spawnLiveElectron([entry], { stdio: "ignore", visible: MATERIAL_ON_SCREEN });
 }
 
 /** WCAG relative luminance of one 0–255 sRGB triple. */
@@ -120,6 +120,10 @@ px = list(im.getdata())
 n = len(px)
 print(",".join(str(sum(c[i] for c in px) / n) for i in range(3)))
 `, png], { encoding: "utf8" });
+
+/** Why this check is seen: the material is the window server compositing what is behind the window,
+ *  and only a screen capture of a window drawn on the screen has it. */
+const MATERIAL_ON_SCREEN = "the sidebar material is composited by the window server, and only screencapture sees it";
   return out.trim().split(",").map(Number);
 }
 
@@ -143,7 +147,8 @@ async function main() {
     backdrop = startBackdrop(colour);
     await sleep(2500);
 
-    electron = spawn(ELECTRON_BIN, [wrapper], {
+    electron = spawnLiveElectron([wrapper], {
+      visible: MATERIAL_ON_SCREEN,
       env: {
         ...process.env,
         REALM_HOME: path.join(scratch, `home-${tag}`),

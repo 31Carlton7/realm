@@ -20,12 +20,12 @@
  * beside the stream's other notes. Stops the daemon with `daemon.stop`, then SIGKILLs whatever is left
  * on its own scratch home.
  */
-import { spawn } from "node:child_process";
 import { connect } from "node:net";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonState, daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
+import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8791);
@@ -98,14 +98,6 @@ function rpc(port, token) {
   };
 }
 
-/** Electron's own binary, which runs the server bundle in node mode as the app does. */
-function electronBin() {
-  const pnpmDir = path.join(repoRoot, "node_modules/.pnpm");
-  const dir = fs.readdirSync(pnpmDir).find((d) => /^electron@\d/.test(d));
-  if (!dir) throw new Error("no electron in node_modules/.pnpm — run pnpm install");
-  return path.join(pnpmDir, dir, "node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
-}
-
 async function main() {
   if (!(await portFree(SERVER_PORT))) throw new Error(`port ${SERVER_PORT} is in use — refusing to run`);
   const entry = path.join(repoRoot, "apps/server/dist/main.js");
@@ -113,7 +105,8 @@ async function main() {
   const scriptFile = path.join(scratch, "fake-script.json");
   fs.writeFileSync(scriptFile, JSON.stringify(SCRIPT));
   fs.mkdirSync(home, { recursive: true });
-  server = spawn(electronBin(), [entry], {
+  // Electron's own binary runs the server bundle in node mode, as the app does.
+  server = spawnLiveElectron([entry], {
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: "1",

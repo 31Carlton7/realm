@@ -22,13 +22,14 @@
  * SCROLL_PERF_EVAL   an expression run in the page before measuring, for trying a change in place
  * Ports: REALM_DEVTOOLS_PORT (9278), REALM_PORT (8838). Reaps only what holds its own two ports.
  */
-import { execFileSync, execSync, spawn } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { connect } from "node:net";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
+import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.REALM_DEVTOOLS_PORT ?? 9278), SERVER_PORT = Number(process.env.REALM_PORT ?? 8838);
@@ -97,11 +98,10 @@ function seed() {
 async function boot() {
   const wrapper = path.join(SCRATCH, "wrapper.mjs");
   fs.writeFileSync(wrapper, ['import { app } from "electron";', 'app.setPath("userData", process.env.LIVE_USER_DATA);', "await import(process.env.LIVE_MAIN);"].join("\n"));
-  const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
   const args = [wrapper, "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"];
   // NSArgumentDomain: the process alone sees this scroll bar style, the Mac's own setting is untouched.
   if (BARS) args.push("-AppleShowScrollBars", BARS);
-  electron = spawn(electronBin, args, {
+  electron = spawnLiveElectron(args, {
     env: {
       ...process.env, REALM_HOME: HOME, REALM_ENABLE_FAKE_AGENT: "1",
       REALM_PORT: String(SERVER_PORT), REALM_DEVTOOLS_PORT: String(CDP_PORT),

@@ -15,13 +15,14 @@
  * and is never typed into. Ports: env-overridable. Touches only a scratch dir; stops only what it
  * started. Screenshots of both faces go to LIVE_SHOTS (default: the OS temp dir).
  */
-import { execSync, spawn } from "node:child_process";
+import { execSync } from "node:child_process";
 import { connect } from "node:net";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
+import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9365), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8965);
@@ -166,10 +167,7 @@ async function main() {
     'app.setPath("userData", process.env.LIVE_USER_DATA);',
     "await import(process.env.LIVE_MAIN);",
   ].join("\n"));
-  const electronBin = process.platform === "darwin"
-    ? path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron")
-    : path.join(repoRoot, "apps/desktop/node_modules/.bin/electron");
-  electron = spawn(electronBin, [wrapper, ...UNTHROTTLED], {
+  electron = spawnLiveElectron([wrapper, ...UNTHROTTLED], {
     env: {
       ...process.env,
       REALM_HOME: home,

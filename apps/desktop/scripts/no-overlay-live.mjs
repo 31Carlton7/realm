@@ -18,13 +18,13 @@
  * Ports: 9223 (CDP), 8788 (realm-server), 8799 (local test page). Refuses to run if any is taken.
  * Touches only a scratch dir (REALM_HOME + userData); kills only the processes it started.
  */
-import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { connect } from "node:net";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = 9223, SERVER_PORT = 8788, PAGE_PORT = 8799;
@@ -134,10 +134,7 @@ async function main() {
   ].join("\n"));
   // The REAL Electron binary, not the .bin shim: killing the shim orphans the app, and teardown
   // must only ever kill what this script started.
-  const electronBin = process.platform === "darwin"
-    ? path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron")
-    : path.join(repoRoot, "apps/desktop/node_modules/.bin/electron");
-  electron = spawn(electronBin, [wrapper], {
+  electron = spawnLiveElectron([wrapper], {
     env: {
       ...process.env,
       REALM_HOME: path.join(scratch, "home"),

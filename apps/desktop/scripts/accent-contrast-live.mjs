@@ -13,13 +13,14 @@
  * REBUILD FIRST (`pnpm build`). Ports: LIVE_CDP_PORT (9282), LIVE_SERVER_PORT (8842).
  * Screenshots: LIVE_OUT_DIR (os.tmpdir()). Touches only a scratch dir; reaps only what it started.
  */
-import { execSync, spawn } from "node:child_process";
+import { execSync } from "node:child_process";
 import { connect } from "node:net";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, tokenProtocols } from "./lib/daemon-token.mjs";
+import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9282), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8842);
@@ -272,8 +273,7 @@ async function main() {
     '  w.on("page-title-updated", (e) => e.preventDefault()); });',
     "await import(process.env.LIVE_MAIN);",
   ].join("\n"));
-  const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
-  electron = spawn(electronBin, [wrapper,
+  electron = spawnLiveElectron([wrapper,
     "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"], {
     env: {
       ...process.env,

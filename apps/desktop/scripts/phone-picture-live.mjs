@@ -23,6 +23,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { electronBinary, quietEnv } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const { daemonState, stopDaemons, tokenProtocols } = await import(pathToFileURL(path.join(repoRoot, "apps/desktop/scripts/lib/daemon-token.mjs")).href);
@@ -126,8 +127,8 @@ async function main() {
     REALM_SERVER_ENTRY: path.join(repoRoot, "apps/server/dist/main.js"), REALM_PHONESCREEN_BIN: helper,
     LIVE_USER_DATA: path.join(scratch, "userData"), LIVE_MAIN: mainEntry,
   };
-  const app = path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app");
-  execFileSync("open", ["-n", ...Object.entries(env).flatMap(([k, v]) => ["--env", `${k}=${v}`]), app, "--args", wrapper,
+  const app = path.resolve(electronBinary(), "../../..");
+  execFileSync("open", ["-n", "-g", ...Object.entries(quietEnv(env)).flatMap(([k, v]) => ["--env", `${k}=${v}`]), app, "--args", wrapper,
     "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"]);
   // `open` returns at once; the app is found by the wrapper only it was given.
   const pid = await until(() => { try { return Number(execFileSync("pgrep", ["-f", wrapper], { encoding: "utf8" }).split("\n")[0]) || null; } catch { return null; } }, 30_000, "electron");

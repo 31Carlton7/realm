@@ -18,13 +18,14 @@
  * in the page first, for trying a stylesheet change in place).
  * Ports: REALM_DEVTOOLS_PORT (9278), REALM_PORT (8838). Reaps only what holds its own two ports.
  */
-import { execFileSync, execSync, spawn } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { connect } from "node:net";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { stopDaemons } from "./lib/daemon-token.mjs";
+import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.REALM_DEVTOOLS_PORT ?? 9278), SERVER_PORT = Number(process.env.REALM_PORT ?? 8838);
@@ -91,8 +92,7 @@ function seed() {
 async function boot(bars) {
   const wrapper = path.join(SCRATCH, "wrapper.mjs");
   fs.writeFileSync(wrapper, ['import { app } from "electron";', 'app.setPath("userData", process.env.LIVE_USER_DATA);', "await import(process.env.LIVE_MAIN);"].join("\n"));
-  const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
-  electron = spawn(electronBin, [wrapper, "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling",
+  electron = spawnLiveElectron([wrapper, "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling",
     "-AppleShowScrollBars", bars], {
     env: {
       ...process.env, REALM_HOME: HOME, REALM_ENABLE_FAKE_AGENT: "1",

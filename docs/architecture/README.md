@@ -284,7 +284,7 @@ The map is only worth anything while it matches the code. Two scripts keep it ho
 - `node docs/architecture/check-citations.mjs` fails on any cited file or symbol that no longer
   exists, in these pages and in the poster's boxes. The mobile section's paths are read from
   `origin/feat/mobile`, so fetch that branch first.
-- `apps/desktop/node_modules/.bin/electron docs/architecture/render.mjs` draws every Mermaid block
+- `node apps/desktop/scripts/lib/live-app.mjs docs/architecture/render.mjs` draws every Mermaid block
   with the Mermaid the app ships, fails on one that does not parse, and redraws the poster's PNG.
   Add `--blocks <folder>` to get each drawing as a PNG to look at.
 

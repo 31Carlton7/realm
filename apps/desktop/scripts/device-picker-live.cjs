@@ -57,6 +57,7 @@ const bundled = path.join(scratch, "device-picker.cjs");
 esbuild().buildSync({ entryPoints: [entry], bundle: true, platform: "node", format: "cjs", external: ["electron"], outfile: bundled });
 
 const { app, BrowserWindow } = require("electron");
+const { QUIET_WINDOW_OPTIONS } = require("./lib/quiet-electron.cjs");
 const { createBrowserPane, BrowserAgentHost, readAxSnapshot, axElementAt } = require(bundled);
 app.setPath("userData", path.join(scratch, "userData"));
 app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
@@ -95,7 +96,8 @@ async function main() {
   const target = labelled.reduce((a, b) => (a.frame.width * a.frame.height <= b.frame.width * b.frame.height ? a : b));
   log(`target: ${target.role} ${JSON.stringify(target.label)} at ${JSON.stringify(target.frame)}`);
 
-  const win = new BrowserWindow({ width: 900, height: 800, show: true });
+  const win = new BrowserWindow({ width: 900, height: 800, ...QUIET_WINDOW_OPTIONS });
+  win.show();
   await win.loadURL("data:text/html,<title>host</title>");
   const pane = createBrowserPane(win);
   const host = new BrowserAgentHost({

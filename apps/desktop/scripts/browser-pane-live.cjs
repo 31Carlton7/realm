@@ -13,6 +13,9 @@
  *      paint its own opaque pixels over the DOM decoy painted underneath it.
  *
  * Opens a small clearly-titled window for ~8s, uses only a scratch userData dir, touches no ports.
+ *
+ * live-app: visible — check 6 is a screencapture of the real screen, where the native view has to
+ * composite above the window's DOM; nothing but a window drawn on the screen shows that layering.
  */
 const path = require("node:path");
 const fs = require("node:fs");

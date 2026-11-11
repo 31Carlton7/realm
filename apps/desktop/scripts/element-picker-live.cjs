@@ -58,6 +58,7 @@ const bundled = path.join(scratch, "picker.cjs");
 esbuild().buildSync({ entryPoints: [entry], bundle: true, platform: "node", format: "cjs", external: ["electron"], outfile: bundled });
 
 const { app, BrowserWindow } = require("electron");
+const { QUIET_WINDOW_OPTIONS } = require("./lib/quiet-electron.cjs");
 const { createBrowserPane, BrowserAgentHost, armElementPick, disarmElementPick } = require(bundled);
 app.setPath("userData", path.join(scratch, "userData"));
 // Same switch main/index.ts carries: an occluded window's WebContentsView drops synthetic input, and
@@ -94,7 +95,8 @@ const pageHits = (wc) => wc.executeJavaScript("window.__hits || 0");
 const pageHash = (wc) => wc.executeJavaScript("location.hash");
 
 async function main() {
-  const win = new BrowserWindow({ width: 900, height: 700, show: true });
+  const win = new BrowserWindow({ width: 900, height: 700, ...QUIET_WINDOW_OPTIONS });
+  win.show();
   await win.loadURL("data:text/html,<title>host</title>");
   const pane = createBrowserPane(win);
   const host = new BrowserAgentHost({

@@ -17,13 +17,14 @@
  * Ports: LIVE_SERVER_PORT (8796), LIVE_CDP_PORT (9236). Screenshots go to LIVE_SHOT_DIR, the scratch
  * home under LIVE_HOME (a temp dir otherwise). Fake agent only; no message is sent to any session.
  */
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { connect } from "node:net";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
+import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const UNTHROTTLED = ["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"];
@@ -180,8 +181,8 @@ async function boot() {
   // Run as an app folder whose package.json carries the desktop app's version, so `app.getVersion()` —
   // which both the menu and the updater's status read — is this build's, not Electron's own.
   fs.writeFileSync(path.join(scratch, "package.json"), JSON.stringify({ name: "realm-about-links-live", version, type: "module", main: "wrapper.mjs" }));
-  const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
-  electron = spawn(electronBin, [scratch, ...UNTHROTTLED], {
+  electron = spawnLiveElectron([scratch, ...UNTHROTTLED], {
+    visible: "the About panel is a native NSPanel, captured on screen with screencapture -l",
     env: {
       ...process.env,
       REALM_HOME: home,

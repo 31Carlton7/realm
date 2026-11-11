@@ -24,13 +24,14 @@
  * cache holding convaiinnovations/laya@55cf4c4, default /tmp/laya-spike/hf). Ports: 8796 (server) and
  * 9236 (DevTools), env-overridable. Touches only a scratch dir; kills only what it started.
  */
-import { execSync, spawn } from "node:child_process";
+import { execSync } from "node:child_process";
 import { connect } from "node:net";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonState, daemonToken, tokenProtocols } from "./lib/daemon-token.mjs";
+import { spawnLiveElectron } from "./lib/live-app.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CDP_PORT = Number(process.env.LIVE_CDP_PORT ?? 9236), SERVER_PORT = Number(process.env.LIVE_SERVER_PORT ?? 8796);
@@ -178,10 +179,9 @@ async function main() {
 
   const wrapper = path.join(scratch, "wrapper.mjs");
   fs.writeFileSync(wrapper, ['import { app } from "electron";', 'app.setPath("userData", process.env.LIVE_USER_DATA);', "await import(process.env.LIVE_MAIN);"].join("\n"));
-  const electronBin = path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
   const agent = path.join(repoRoot, "apps/desktop/scripts/lib/laya-live-agent.mjs");
   fs.chmodSync(agent, 0o755);
-  electron = spawn(electronBin, [wrapper], {
+  electron = spawnLiveElectron([wrapper], {
     env: {
       ...process.env,
       REALM_HOME: home,
