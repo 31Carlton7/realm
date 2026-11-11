@@ -438,9 +438,9 @@ kbd { font: 11px var(--font-mono); }
 .sidebar[data-collapsed] { --sidebar-open: 0; }
 .sidebar-slide { flex: none; width: var(--sidebar-w); min-height: 0; display: flex; flex-direction: column;
   translate: calc(var(--sidebar-w) * (var(--sidebar-open) - 1)) 0; }
-/* Folded, the column's head row still stood at x −16 and 14, under the traffic lights: inert, so no
-   key could reach it, but drawn and hit-tested there. Once the slide has run it is not drawn at all,
-   and it is back the moment the column opens (TN-02). */
+/* Folded, the column's head row sits at x −16 and 14, under the traffic lights: inert, so no key
+   reaches it, but still drawn and hit-tested. Once the slide has run, nothing of it is drawn; it comes
+   back the moment the column opens. */
 .sidebar[data-collapsed] .sidebar-slide { visibility: hidden; transition: visibility 0s linear var(--dur-move); }
 .sidebar button, .sidebar input, .sb-resize { -webkit-app-region: no-drag; }
 /* Folded away, the column is a box with no width, but what it holds is still laid out — slid off to

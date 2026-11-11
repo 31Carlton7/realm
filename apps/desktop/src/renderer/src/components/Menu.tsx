@@ -29,9 +29,9 @@ export type MenuItem =
 
 type MenuRow = Extract<MenuItem, { onSelect: () => void }>;
 /** What the last menu was opened with. A menu a press opened lights no row until the pointer moves or
- *  a key is pressed: its first row is focused for the arrows, and lit as well it was a second
- *  highlight beside the row under a pointer that had not moved (MN-04). One the keyboard opened lights
- *  its first row at once. */
+ *  a key is pressed: its first row still takes the focus for the arrows, but lit, it was a second
+ *  highlight beside the row under a pointer that had not moved. One the keyboard opened lights its
+ *  first row at once. */
 let openedBy: "pointer" | "key" = "key";
 if (typeof document !== "undefined") {
   document.addEventListener("pointerdown", () => { openedBy = "pointer"; }, true);

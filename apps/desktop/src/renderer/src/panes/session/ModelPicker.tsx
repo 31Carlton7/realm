@@ -52,7 +52,6 @@ export type AccountControl = {
   onOpen: () => void;
 };
 
-
 /** The levels Realm's light answers to — the track's field, the knob's shine, the chip's pass. Below
  *  these it stays out of the way entirely: a treatment every level wore would say nothing about the
  *  one that was picked. */

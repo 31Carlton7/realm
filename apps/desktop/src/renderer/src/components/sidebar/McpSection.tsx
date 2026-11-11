@@ -215,7 +215,6 @@ function McpServerRow({ spaceId, server }: { spaceId: string; server: McpServer 
         <span className="env-name">{server.name}</span>
         <span className="env-kind">{server.transport}</span>
         {hasViews && <span className="env-kind" title="Its tools draw their results in views of their own, shown under the call and openable as a tab.">Views</span>}
-        {/* The state is its word; only a failure adds the amber dot. */}
         <span className="mcp-state" data-state={server.status}>{STATUS_LABEL[server.status]}</span>
         {/* The hub status only says whether calls currently succeed — it says nothing about auth,
             so a server needing reauth otherwise looks completely normal until Edit is opened. */}

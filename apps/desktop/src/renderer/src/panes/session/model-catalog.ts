@@ -103,8 +103,7 @@ export type ModelRow = {
  * none of those is a row — nothing has said yet, or the handshake named a model the list does not
  * carry — the in-force row is still marked: the session's own default row, or its harness's only
  * model, or else a "Default" row added to a curated list, because what runs is the CLI's default and
- * the list says so. The effort
- * and fast-mode answers fall back to what the harness says of its default.
+ * the list says so. The effort and fast-mode answers fall back to what the harness says of its default.
  */
 export function modelRows({ kind, model, agentProbe, canSwitchAgent, handoff = false, favorites = [], also = [], ran = null }: {
   kind: AgentKind; model: string | null; agentProbe: AgentProbe[]; canSwitchAgent: boolean;

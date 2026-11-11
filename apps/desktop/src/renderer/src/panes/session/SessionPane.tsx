@@ -53,7 +53,7 @@ export function SessionMeta({ item }: { item: Item }) {
   const id = item.refId;
   const status = useApp((s) => s.sessionStatus[id] ?? s.sessions[id]?.status ?? "idle");
   // A new session's prompter, before its first send, is not a session that is idle: there is nothing
-  // yet to have a state, so the bar draws none (TN-01).
+  // yet to have a state, so the bar draws none.
   const unstarted = useApp((s) => (s.sessions[id]?.lastEventSeq ?? 0) === 0 && (s.transcripts[id]?.lastSeq ?? 0) === 0);
   if (unstarted && status === "idle") return null;
   return (

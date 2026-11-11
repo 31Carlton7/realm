@@ -629,7 +629,7 @@ a {
   --card-ring: #0307120a; /* the same tint at the line's rung, for the dark face's reason */
   /* A white card on a near-white ground: the close layer is what draws its edge, so it is heavier
      than the dark face's in proportion. It falls DOWN as dark's does: with no offset it reached the
-     top edge too, and a soft line all the way round is the ring a card does not wear (LT-04). */
+     top edge too, and a soft line all the way round is the ring a card does not wear. */
   --card-lift: 0 1px 2px #0307121a, 0 2px 8px -2px #03071214;
   /* The same lift as a filter, for a card made of several boxes (a run of settings rows), which casts
      it from the run as one shape. A drop-shadow's blur is a standard deviation where a box-shadow's
