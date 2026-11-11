@@ -5936,6 +5936,7 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 .ghost-chip:hover:not([data-static]) { --fill: var(--rl-hover); color: var(--rl-text-bright); }
 /* Nothing to pick: rendered as a <span> (see ChipMenu) — a label, never a dimmed control. */
 .ghost-chip[data-static] { cursor: default; }
+.ghost-chip[data-pending] { visibility: hidden; }
 /* Red, not orange, and the reason is the chip GROUP it now sits in. Orange is already Plan's tone
    on the segment immediately to its right, so a session in Plan with Full access parked drew two
    orange halves and read as one undifferentiated block — the two states it is meant to tell apart

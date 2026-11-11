@@ -8,7 +8,7 @@ const EMPTY_COMMANDS: readonly UserCommand[] = Object.freeze([]);
 
 /** Stable empty array for `useSyncExternalStore`: a fresh `[]` per render reads as a change forever. */
 const NO_LINKS: LinkChip[] = [];
-import { spaceIsPlainFolder, useApp, type DraftTab, type PickedAttachment } from "../../state/store";
+import { spaceCheckoutPath, useApp, type DraftTab, type PickedAttachment } from "../../state/store";
 import { agentAvailability, isBlocked } from "../../state/agent-availability";
 import type { PaneProps } from "../registry";
 import type { MenuItem } from "../../components/Menu";
@@ -364,7 +364,12 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
   const setSessionEnvironment = useApp((s) => s.setSessionEnvironment);
   const moveSessionToNewWorktree = useApp((s) => s.moveSessionToNewWorktree);
   // A plain folder has no worktrees, so its prompter offers none (store.ts, `spaceIsPlainFolder`).
-  const plainFolder = useApp((s) => (session ? spaceIsPlainFolder(s, session.spaceId) : false));
+  // Until git has answered for the space's checkout the prompter offers none either, and holds the
+  // workspace chip rather than drawing a caret the answer may take back.
+  const checkoutPath = useApp((s) => (session ? spaceCheckoutPath(s, session.spaceId) : null));
+  const checkoutGit = useApp((s) => (checkoutPath === null ? "none" : !(checkoutPath in s.gitInfo) ? "unknown" : s.gitInfo[checkoutPath] === null ? "plain" : "repo"));
+  const refreshGitInfo = useApp((s) => s.refreshGitInfo);
+  useEffect(() => { if (checkoutPath !== null && checkoutGit === "unknown") run(() => refreshGitInfo(checkoutPath)); }, [checkoutPath, checkoutGit, refreshGitInfo, run]);
   const connectors = useApp((s) => { const sess = s.sessions[id]; return (sess && s.connectors[sess.spaceId]) ?? null; });
   const refreshConnectors = useApp((s) => s.refreshConnectors);
   const attachFoldersFromPicker = useApp((s) => s.attachFoldersFromPicker);
@@ -798,7 +803,8 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
             onManageSkills={() => openSpacePage(session.spaceId, "skills")}
             machineName={machineName} userName={userName} environments={spaceEnvironments}
             onSelectEnvironment={(envId) => run(() => setSessionEnvironment(id, envId))}
-            onNewWorktree={plainFolder ? undefined : () => run(() => moveSessionToNewWorktree(id))}
+            onNewWorktree={checkoutGit === "repo" ? () => run(() => moveSessionToNewWorktree(id)) : undefined}
+            workspacePending={checkoutGit === "unknown"}
             onMoveSession={teammate ? undefined : (to) => openSheet({ kind: "move-session", sessionId: id, to })}
             pendingMove={pendingMoveTo === null ? null : { to: pendingMoveTo, onCancel: () => run(() => cancelSessionMove(id)) }}
             otherSpaces={otherSpaces} onMoveToSpace={(spaceId) => run(() => moveSessionToSpace(id, spaceId))}

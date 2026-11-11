@@ -47,7 +47,7 @@ const listNames = (names: readonly string[]): string =>
 /** Borderless ghost chip that opens a Menu, upward unless placed down (§4 control row). With nothing to pick it is not a
  *  control at all but a label — an agent whose CLI owns model choice still deserves its model named,
  *  and a disabled button would leave the tab order and be announced as unavailable. */
-export function ChipMenu({ ariaLabel, title, label, icon, iconSize = 12, tint, items, warning, caret = true, placement = "up" }: { ariaLabel: string; title?: string; label: ReactNode;
+export function ChipMenu({ ariaLabel, title, label, icon, iconSize = 12, tint, items, warning, caret = true, placement = "up", pending = false }: { ariaLabel: string; title?: string; label: ReactNode;
   /** A glyph's name, or a mark drawn by the caller — the space chip wears the space's own icon. */
   icon?: string | ReactNode;
   /** The glyph's rung: 12 beside the under-strip's 11px labels, 14 on the control row, where it sits
@@ -57,7 +57,10 @@ export function ChipMenu({ ariaLabel, title, label, icon, iconSize = 12, tint, i
   tint?: string; items: MenuItem[]; warning?: boolean;
   /** The chevron. Off for a control whose mark already says what it opens onto — see the permission
    *  control, which is a glyph and a word the way Codex's is. */
-  caret?: boolean; placement?: "up" | "down" }) {
+  caret?: boolean; placement?: "up" | "down";
+  /** No items YET, with an answer on its way that may bring some: the label keeps its place unseen,
+   *  so the chip never draws one shape and then the other. */
+  pending?: boolean }) {
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   // A sibling of chip-label, never inside it: chip-label truncates with an ellipsis, which needs a
@@ -67,7 +70,7 @@ export function ChipMenu({ ariaLabel, title, label, icon, iconSize = 12, tint, i
     ? <span className="chip-brand chip-tint" style={{ color: tint }}>{mark}</span>
     : typeof icon === "string" ? <Icon name={icon} size={iconSize} className="chip-brand" /> : <span className="chip-brand">{mark}</span>) : null;
   if (items.length === 0) {
-    return <span className="ghost-chip" data-static title={title ?? ariaLabel} data-warning={warning || undefined}>{glyph}<span className="chip-label">{label}</span></span>;
+    return <span className="ghost-chip" data-static data-pending={pending || undefined} title={title ?? ariaLabel} data-warning={warning || undefined}>{glyph}<span className="chip-label">{label}</span></span>;
   }
   return (
     <>
@@ -406,7 +409,7 @@ function modeMeaning(mode: Exclude<SessionMode, "build">, kind: AgentKind, acpMo
   return "Plan means the agent researches and proposes, but does not edit";
 }
 
-export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onSwitchAgent, account, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, onMoveSession, pendingMove = null, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, tabs = NO_TABS, onRemoveTab, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
+export function Composer({ session, status, gitInfo, changes = null, onOpenDiff, draft, onDraftChange, attachments, onAttachPick, onAttachFiles, onRemoveAttachment, sessionRefs = NO_SESSION_REFS, onRemoveSessionRef, onDropItem, onSend, onStop, onOptions, queued = [], queueActions, midTurnMode = "queue", planLimits = null, onParkPermission, onPickModel, onSwitchAgent, account, onMode, planReturn, canSwitchAgent, agentProbe, modelFavorites, modelInfo, onToggleModelFavorite, hero, spaceName, spaceIcon, spaceTint, place, userName = "", mentionSkills = [], allSkills = [], onToggleSkill, onManageSkills, staleMentions = [], machineName = "", environments = [], onSelectEnvironment, onNewWorktree, workspacePending = false, onMoveSession, pendingMove = null, otherSpaces = NO_SPACES, onMoveToSpace, connectors = null, onConnectorsOpened, onAddFolder, onManageConnections, acpModes = null, submitKey = "enter", eggs = false, promptHint = null, todos = [], usage = EMPTY_USAGE, slashCommands = NO_COMMANDS, goal = null, packGreetings = NO_GREETINGS, sessionInit = null, fastSupport = NO_FAST_SUPPORT, effortSupport = NO_EFFORT_SUPPORT, links, onLinkPaste, mentions, refs = NO_REFS, tabs = NO_TABS, onRemoveTab, selectInRealm, quote = null, compact = false, placeholder = "Ask anything" }: {
   session: Session; status: SessionStatus; gitInfo: GitInfo | null;
   /** The checkout's changed files (`workspace.diff`), for the pill over the card. */
   changes?: DiffSummary | null;
@@ -519,8 +522,12 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
   /** Selecting an existing environment / "New worktree…". Only reachable while the selector is a menu
    *  (no events yet — the same guard as the agent switch; the server enforces it regardless). */
   onSelectEnvironment?: (environmentId: string) => void;
-  /** Absent where the space is a plain folder: it has no worktrees, so the menu offers none. */
+  /** Absent where the space is a plain folder: it has no worktrees, so the menu offers none. Absent
+   *  too while git has not answered (`workspacePending`). */
   onNewWorktree?: () => void;
+  /** Git has not yet said whether the space's checkout is a repository, so whether New worktree
+   *  belongs on the menu is not known. */
+  workspacePending?: boolean;
   /** A started session's selector: picking another checkout, or New worktree, asks to move it there
    *  (the Move sheet) rather than switching. Absent, a started session's chip is a label. */
   onMoveSession?: (to: MoveTarget) => void;
@@ -1467,7 +1474,7 @@ export function Composer({ session, status, gitInfo, changes = null, onOpenDiff,
             <span className="chip-label">{machineName}</span>
           </span>
         )}
-        <ChipMenu ariaLabel="Workspace" icon={envIcon} tint={spaceTint} label={envLabel} items={envItems}
+        <ChipMenu ariaLabel="Workspace" icon={envIcon} tint={spaceTint} label={envLabel} items={envItems} pending={workspacePending}
           title={`Workspace: ${envLabel}${gitInfo && currentEnv?.kind !== "worktree" ? ` on ${gitInfo.branch}` : ""}${canSwitchAgent || movable ? "" : " — a session's checkout can only change before its first message"}`} />
         {/* The branch group is NOT here any more — it has the over-strip above the card (see there
             for why). What is left is standing context: the machine, the workspace, and the meter.
