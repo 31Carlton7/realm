@@ -482,7 +482,7 @@ describe("BrowserAgentHost — fillCredential", () => {
     const { host } = setup({ credentials: [cred], responses: { "DOMSnapshot.captureSnapshot": snapshot, "Accessibility.getFullAXTree": { nodes: [] } } });
     expect(await host.handleOp("fillCredential", { browserId: "b1", ref: 7, credentialId: "cred-1", profileId: "pWork" })).toMatchObject({ ok: true });
     const snap = await host.handleOp("snapshot", { browserId: "b1" }) as BrowserSnapshotResult;
-    expect(snap.elements.map((e) => e.ref)).toEqual([7]);
+    expect(snap.elements?.map((e) => e.ref)).toEqual([7]);
     expect(JSON.stringify(snap)).not.toContain(SECRET);
   });
 

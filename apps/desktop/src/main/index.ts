@@ -751,6 +751,7 @@ const autofill = new PasswordAutofill({
   withdraw: (browserId, offerId) => sendPasswordEvent(browserId, { kind: "withdraw", browserId, offerId }),
   openSettings: (browserId) => sendPasswordEvent(browserId, { kind: "manage", browserId }),
   audit: (entry) => secrets()?.audit(entry),
+  passwordFilled: (paneId, ref) => agentHost.secretFilled(paneId, ref),
   now: () => Date.now(),
   newId,
 });

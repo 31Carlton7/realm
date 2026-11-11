@@ -241,10 +241,10 @@ describe("buildSnapshot", () => {
     const ax = [{ backendDOMNodeId: 7, role: "textField", name: "Sign-in", value: "hunter2-ax" }];
     const filled = await buildSnapshot(fakeSend({ snapshot: doc.payload(), ax }).send, null, {}, new Set([7]));
     expect(filled.text).not.toContain("hunter2");
-    expect(filled.elements[0]).toMatchObject({ ref: 7, value: null, password: true });
+    expect(filled.elements?.[0]).toMatchObject({ ref: 7, value: null, password: true });
     // The same field, never filled by Realm, is an ordinary text field.
     const plain = await buildSnapshot(fakeSend({ snapshot: doc.payload(), ax }).send, null);
-    expect(plain.elements[0]).toMatchObject({ ref: 7, value: "hunter2-dom", password: false });
+    expect(plain.elements?.[0]).toMatchObject({ ref: 7, value: "hunter2-dom", password: false });
   });
 
   it("hides the value of a field that says it holds a secret, whatever its type", async () => {

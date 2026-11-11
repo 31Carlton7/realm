@@ -6,7 +6,7 @@
  * reaches it over the browserHost bridge.
  */
 import {
-  acceptsUpload, AGENT_FRAME, PLAIN_INPUT_TYPES, SECRET_FIELD_WORDS, type PageField, AGENT_MARK_ATTR, AGENT_MARK_FRAME, chordKeyEvents, mimeForPath, NAMED_KEYS, normalizeOrigin, resolveKeyChord,
+  acceptsUpload, AGENT_FRAME, isSecretField, PLAIN_INPUT_TYPES, SECRET_FIELD_WORDS, type PageField, AGENT_MARK_ATTR, AGENT_MARK_FRAME, chordKeyEvents, mimeForPath, NAMED_KEYS, normalizeOrigin, resolveKeyChord,
   PICK_HTML_MAX, PICK_NAME_MAX, PICK_SELECTOR_MAX, PICK_TEXT_MAX,
   UPLOAD_CHOOSER_TIMEOUT_MS, UPLOAD_DROP_MAX_BYTES, UPLOAD_MAX_FILES,
   type BrowserAction, type BrowserActResult, type BrowserPickedElement, type BrowserRefusal,
@@ -111,9 +111,11 @@ const clip = (t: string, n: number): string => (t.length > n ? `${t.slice(0, n -
  * The fused pass: `DOMSnapshot.captureSnapshot` + `DOM.getDocument({pierce:true})` +
  * `Accessibility.getFullAXTree` + `Page.getLayoutMetrics`, fired in PARALLEL (the plan's shape), then
  * one bounded `getEventListeners` sweep for div-soup candidates. Returns the formatted element list
- * plus the fingerprint index the next snapshot diffs against.
+ * plus the fingerprint index the next snapshot diffs against. `filled` is the refs Realm typed a
+ * password into: a page can make such a field `type=text` ("Show password"), and then only this says
+ * what it holds.
  */
-export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | null, scope: BrowserSnapshotScope = {}): Promise<BrowserSnapshotResult & { index: SnapshotIndex }> {
+export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | null, scope: BrowserSnapshotScope = {}, filled: ReadonlySet<number> = new Set()): Promise<BrowserSnapshotResult & { index: SnapshotIndex }> {
   // Any lingering action RING is removed BEFORE the capture (belt to the filter's braces): the ring
   // is the watcher's, and an agent that sees it — even as a phantom layout box — is an agent chasing
   // its own tail. Rings only, deliberately: the cursor and the frame last the whole drive, and a
@@ -147,7 +149,7 @@ export async function buildSnapshot(send: CdpSend, previous: SnapshotIndex | nul
   const landmarks: Landmark[] = [];
   const layoutByDoc: LayoutInfo[] = [];
   for (const [docIndex, doc] of (snap.documents ?? []).entries()) {
-    const collected = collectDoc(snap.strings, doc, docIndex, axByBackendId, viewport);
+    const collected = collectDoc(snap.strings, doc, docIndex, axByBackendId, viewport, filled);
     all.push(...collected.candidates);
     landmarks.push(...collected.landmarks);
     layoutByDoc.push(collected.layoutInfo);
@@ -334,7 +336,7 @@ async function fillFileInputValues(send: CdpSend, candidates: Candidate[]): Prom
  *  for the ancestor exemption, and the two styles that decide whether a box actually hides things. */
 type LayoutInfo = { rects: Rect[]; paint: number[]; nodeIndexes: number[]; parentIndex: number[]; nodeType: number[]; backendIds: number[]; bg: string[]; boxOpacity: string[] };
 
-function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByBackendId: Map<number, AxNode>, viewport: { w: number; h: number }) {
+function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByBackendId: Map<number, AxNode>, viewport: { w: number; h: number }, filled: ReadonlySet<number>) {
   const nodes = doc.nodes;
   const layout = doc.layout;
   const nodeType = nodes.nodeType ?? [];
@@ -394,8 +396,10 @@ function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByB
     const axNode = axByBackendId.get(backendNodeId);
     const axRole = String(axNode?.role?.value ?? "").toLowerCase();
     const ariaRole = (attrs.role ?? "").toLowerCase();
-    const password = tag === "INPUT" && (attrs.type ?? "").toLowerCase() === "password"
+    const password = filled.has(backendNodeId)
+      || tag === "INPUT" && (attrs.type ?? "").toLowerCase() === "password"
       || axNode?.properties?.some((p) => p.name === "protected" && p.value?.value === true) === true;
+    const secret = password || (tag === "INPUT" || tag === "TEXTAREA") && isSecretField(attrs);
     const axName = String(axNode?.name?.value ?? "").trim();
 
     const landmarkRole = LANDMARK_ROLES.has(axRole) ? axRole : LANDMARK_ROLES.has(ariaRole) ? ariaRole : LANDMARK_TAGS[tag];
@@ -414,7 +418,7 @@ function collectDoc(strings: string[], doc: SnapshotDoc, docIndex: number, axByB
 
     const name = clip(axName || attrs["aria-label"] || attrs.placeholder || attrs.alt || attrs.title || textOf(ni) || attrs.name || "", NAME_MAX);
     // The password hard line: a password field's value NEVER enters a snapshot, from any source.
-    const rawValue = password ? null : inputValues.get(ni) ?? (axNode?.value?.value !== undefined && axNode.value.value !== null ? String(axNode.value.value) : null);
+    const rawValue = secret ? null : inputValues.get(ni) ?? (axNode?.value?.value !== undefined && axNode.value.value !== null ? String(axNode.value.value) : null);
     const offscreen = rect.x + rect.w < scrollX || rect.y + rect.h < scrollY || rect.x > scrollX + viewport.w || rect.y > scrollY + viewport.h;
 
     candidates.push({
@@ -1281,7 +1285,7 @@ const PAGE_FIELD_VALUE_MAX = 300;
  * word saying it was there and nothing more. Kept in step with `isSecretField` by being built from
  * the same two constants.
  */
-export const PAGE_FIELDS = `(() => {
+const PAGE_FIELDS_FN = `(filled) => {
   const words = ${SECRET_FIELD_WORDS.toString()};
   const plain = ${JSON.stringify(PLAIN_INPUT_TYPES)};
   const out = [];
@@ -1299,7 +1303,7 @@ export const PAGE_FIELDS = `(() => {
       const type = tag === "INPUT" ? (el.getAttribute("type") || "text").toLowerCase() : tag.toLowerCase();
       if (plain.includes(type)) continue;
       const said = [type, el.getAttribute("name"), el.id, el.getAttribute("autocomplete")].filter(Boolean).join(" ");
-      if (type === "password" || words.test(said)) { out.push({ label: labelOf(el), value: null, hidden: true }); continue; }
+      if (filled.includes(el) || type === "password" || words.test(said)) { out.push({ label: labelOf(el), value: null, hidden: true }); continue; }
       const value = tag === "SELECT" ? (el.selectedOptions?.[0]?.text ?? "") : String(el.value ?? "");
       if (value.trim() === "") continue;
       out.push({ label: labelOf(el), value: value.slice(0, ${PAGE_FIELD_VALUE_MAX}), hidden: false });
@@ -1307,7 +1311,8 @@ export const PAGE_FIELDS = `(() => {
   };
   visit(document);
   return out;
-})()`;
+}`;
+export const PAGE_FIELDS = `(${PAGE_FIELDS_FN})([])`;
 
 /** Whether `PAGE_FIELDS`' answer is one, rather than whatever a page that replaced its globals said.
  *  A field claiming a value AND hidden is not one: the page script never says both. */
@@ -1316,10 +1321,19 @@ function isPageFields(v: unknown): v is PageField[] {
     && (f.hidden ? f.value === null : typeof f.value === "string"));
 }
 
-/** The page's filled-in fields, secret ones hidden (`PAGE_FIELDS`). Empty for a page that answered
- *  anything else. */
-export async function readPageFields(send: CdpSend): Promise<PageField[]> {
-  const result = (await send("Runtime.evaluate", { expression: PAGE_FIELDS, returnByValue: true })) as { result?: { value?: unknown } };
+/** The page's filled-in fields, secret ones hidden (`PAGE_FIELDS`), and with them every one of
+ *  `filled` (refs Realm typed a password into) whatever it now says about itself. Empty for a page
+ *  that answered anything else. */
+export async function readPageFields(send: CdpSend, filled: readonly number[] = []): Promise<PageField[]> {
+  const objectIds = (await Promise.all(filled.map((ref) => resolveObject(send, ref)))).filter((id): id is string => id !== null);
+  const result = (objectIds.length === 0
+    ? await send("Runtime.evaluate", { expression: PAGE_FIELDS, returnByValue: true })
+    : await send("Runtime.callFunctionOn", {
+      objectId: objectIds[0], returnByValue: true,
+      functionDeclaration: `function (...filled) { return (${PAGE_FIELDS_FN})(filled); }`,
+      arguments: objectIds.map((objectId) => ({ objectId })),
+    })) as { result?: { value?: unknown } };
+  for (const objectId of objectIds) void send("Runtime.releaseObject", { objectId }).catch(() => {});
   return isPageFields(result.result?.value) ? result.result.value : [];
 }
 

@@ -89,6 +89,8 @@ export type AutofillDeps = {
   withdraw(browserId: string, offerId: string): void;
   openSettings(paneId: string): void;
   audit(entry: CredentialAuditEntry): void;
+  /** A password is about to be typed into this node, so the agent's snapshots must never show its value. */
+  passwordFilled(paneId: string, backendNodeId: number): void;
   now(): number;
   newId(): string;
 };
@@ -348,6 +350,11 @@ export class PasswordAutofill {
     };
     const user = field.hasUser && credential.username ? await target("user") : null;
     const pass = field.hasPass ? await target("pass") : null;
+    if (pass) {
+      const described = (await pane.cdp.send("DOM.describeNode", { objectId: pass }).catch(() => null)) as { node?: { backendNodeId?: number } } | null;
+      const ref = described?.node?.backendNodeId;
+      if (typeof ref === "number") this.d.passwordFilled(paneId, ref);
+    }
     const send: CdpSend = (method, params) => pane.cdp.send(method, params);
     const result = await performAutofill(send, { user, pass }, {
       origin: credential.origin,
