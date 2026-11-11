@@ -2839,6 +2839,16 @@ describe("a side pane's tab strip", () => {
   });
 });
 
+describe("the side panel's surfaces", () => {
+  it("marks the panel's focus on the tab showing with its ink, never an accent glyph", () => {
+    /* An accent glyph on the tab showing read as an agent's colour, which is the only colour a strip
+       of tabs carries. THE MUTANT: any rule that paints a tab's label or glyph in the accent. */
+    const accentOnTab = RULES.filter((r) => r.selectors.some((x) => x.includes(".pane-tab-label")) && /(^|[ ;])color: var\(--rl-accent\)/.test(r.body));
+    expect(accentOnTab.map((r) => r.selectors.join(", "))).toEqual([]);
+    expect(bodiesFor(".panel[data-focused] .pane-tab[data-active] .pane-tab-label").join(" ")).toContain("color: var(--rl-text-bright)");
+  });
+});
+
 describe("dividers", () => {
   /** The table-list idiom: a rule drawn between every pair of adjacent rows. */
   const ADJACENT = /^(\.[a-z-]+) \+ \1$/;

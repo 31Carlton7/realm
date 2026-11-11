@@ -2242,14 +2242,15 @@ button.panel-title:hover { background: var(--rl-hover); }
 .pane-tab-run { flex: none; align-self: center; width: var(--hairline-w); height: 16px; margin: 0 4px; background: var(--rl-line-strong); }
 .pane-tab-label { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; height: 100%; padding: 0 2px 0 8px;
   font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-dim); text-align: left; }
-.pane-tab[data-active] .pane-tab-label { color: var(--rl-text-bright); }
+/* Selection is the fill; focus is the ink, as a single pane's title brightens when its pane has the
+   keyboard. The glyph follows the words: colour in a strip of tabs is an agent's, on its tile, and an
+   accent glyph on the tab showing read as one more of them. */
+.panel[data-focused] .pane-tab[data-active] .pane-tab-label { color: var(--rl-text-bright); }
 /* The glyph is a column of its own, never a share of the shortfall. Left to the flex default it shrank
    with the title — an SVG's automatic minimum width is zero, since the UA clips its overflow — so every
    tab whose title ran to an ellipsis drew a smaller mark, the longer the title the smaller: a
    documents tab's at 5px wide beside a session's 14. A page's own icon is held the same way (`.page-icon`). */
 .pane-tab-label > svg, .pane-tab-label > .program-mark { flex: none; }
-/* Not a program's tile, whose glyph is the vendor's white on the vendor's colour (ProgramMark). */
-.panel[data-focused] .pane-tab[data-active] .pane-tab-label svg:not(.program-tile *) { color: var(--rl-accent); }
 .pane-tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 /* A peek (W11b): the one tab that goes when the space does. */
 .pane-tab[data-peek] .pane-tab-title { font-style: italic; }
