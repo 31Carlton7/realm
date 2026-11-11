@@ -3406,26 +3406,9 @@ describe("light mode", () => {
     [".browser-view-host[data-page]:not([data-device]):not([data-yielded])", "the browser view's own ground"],
     // The stop square on the rail's recording light: white on the red fill, one value for both modes.
     [".rail-recording-stop", "ink on a filled control"],
-    // The base half of a pair: the rule immediately below it flips the outline for light mode.
-    [".md img", "paired with a light override"],
-    // The base half of a pair, like `.md img` above it: a Quick Look render is a picture on the
-    // pane's own ground, and the rule below flips its outline for light mode.
-    [".ql-page", "paired with a light override"],
-    // The picture on the page about you: a photo on the page's ground, paired the same way.
-    ["img.avatar", "paired with a light override"],
-    // The picture in the media viewer, on the viewer's own ground — paired the same way.
-    [".media-viewer-img", "paired with a light override"],
-    // The pairing QR code in Settings ▸ Devices: a picture on the sheet, paired the same way.
-    [".pairing-code", "paired with a light override"],
-    // A page of a PDF, on the pane's own ground — its outline paired the same way…
-    [".pdf-page", "paired with a light override"],
     // …and the paper itself, white in both modes: the file is the file, never inverted for dark.
     [".pdf-page[data-painted]", "a page of the file is white paper on both faces"],
-    // The same page small, in the page strip.
-    [".pdf-thumb-page", "paired with a light override"],
     [".pdf-thumb-page[data-painted]", "a page of the file is white paper on both faces"],
-    // A changed picture in the diff pane's review, on the well's ground — paired the same way.
-    [".diff-thumb", "paired with a light override"],
   ]);
 
   it("no rule paints a raw black or white that the mode cannot reach", () => {
@@ -3439,15 +3422,17 @@ describe("light mode", () => {
     expect(offenders.sort()).toEqual([]);
   });
 
-  it("every literal that is half a pair really does have its other half", () => {
-    for (const sel of [".md img", ".ql-page", "img.avatar", ".media-viewer-img", ".pdf-thumb-page", ".diff-thumb"]) {
-      expect(bodiesFor(sel).join(" "), sel).toContain("outline: 1px solid rgba(255, 255, 255, 0.1)");
-      expect(bodiesFor(`:root[data-mode="light"] ${sel}`).join(" "), sel).toContain("outline-color: rgba(0, 0, 0, 0.1)");
+  it("every picture takes its edge from one token that flips with the mode", () => {
+    // It was eight copies of `outline: 1px solid rgba(255,255,255,.1)`, each with a light override
+    // beside it: a pair every new picture had to know to write twice.
+    const PICTURE = "outline: 1px solid var(--picture-outline); outline-offset: -1px";
+    for (const sel of [".md img", ".ql-page", "img.avatar", ".media-viewer-img", ".pairing-code", ".pdf-page", ".pdf-thumb-page", ".diff-thumb"]) {
+      expect(bodiesFor(sel).join(" "), sel).toContain(PICTURE);
     }
+    expect(RULES.filter((r) => /outline(-color)?:[^;]*rgba?\(/.test(r.body)).flatMap((r) => r.selectors)).toEqual([]);
     // A PDF page is a full-pane white sheet, and on the light face 10% left it without an edge
-    // (measured by pdf-view-live.mjs): its light half is a step heavier.
-    expect(bodiesFor(".pdf-page").join(" ")).toContain("outline: 1px solid rgba(255, 255, 255, 0.1)");
-    expect(bodiesFor(`:root[data-mode="light"] .pdf-page`).join(" ")).toContain("outline-color: rgba(0, 0, 0, 0.14)");
+    // (measured by pdf-view-live.mjs): its light value is a step heavier.
+    expect(bodiesFor(`:root[data-mode="light"] .pdf-page`).join(" ")).toContain("--picture-outline: oklch(0 0 0 / 0.14)");
   });
 
   it("the scrims are the one colour that has to differ per mode", () => {

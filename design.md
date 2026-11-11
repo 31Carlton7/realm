@@ -351,7 +351,9 @@ Rules:
   alike on both faces. Share the component; let the ground choose the step.
 - Green, orange, and red communicate state. Never use them as decorative brand colors.
 - Images and screenshots get a one-device-pixel inset outline: pure white at low opacity on dark
-  surfaces, pure black at low opacity on light surfaces.
+  surfaces, pure black at low opacity on light surfaces. Its colour is one token
+  (`--picture-outline`) that flips with the mode, so a new picture takes its edge rather than
+  writing a pair of literals.
 - Never let a backdrop blur reach a translucent window surface. A filter over the window's own
   transparency composites toward the material, so the band reads as a smudge. The edge blur keeps
   its backdrop inside the scroller's parent for exactly this reason, and the fade itself is the
@@ -908,7 +910,8 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   ONE side panel, never as a column of its own beside whatever had focus. A fan-out of six agents
   each opening a browser once filled a window with eight columns a fifth of it wide, every title an
   ellipsis and every page unreadable. In the panel's bar the tabs are the data of unbounded length,
-  so they keep the width and the shown item's own actions go to its menu. The agents still working
+  so they keep the width and the shown item's own actions go to its menu; its status gives way
+  before any tab does (four tabs once read "Do…" and "Ag…" beside a "● not connected" at full width). The agents still working
   are chips over the session's prompter, and a click on one previews it; a tab dragged to an edge is
   how something becomes part of the user's own layout.
 - A split holds as many panes as the person makes, split right or down and nested as they were made
