@@ -1,7 +1,7 @@
 import { useEffect, type KeyboardEvent } from "react";
 import type { Session } from "@realm/contracts";
 import { useApp } from "../../state/store";
-import { PendingRequest } from "./PendingRequest";
+import { PendingRequest, sessionAsker } from "./PendingRequest";
 import { emptyTranscript } from "./transcript-model";
 
 const NO_REQUESTS = emptyTranscript().pendingPermissions;
@@ -27,6 +27,7 @@ export function AnswerHere({ id, session, asker, onLeave }: {
   const openSession = useApp((s) => s.openSession);
   const respondPermission = useApp((s) => s.respondPermission);
   const run = useApp((s) => s.run);
+  const teammates = useApp((s) => s.teammates[session.spaceId]);
   useEffect(() => { if (!loaded) run(() => openSession(session.id)); }, [loaded, session.id, openSession, run]);
   const onKeyDownCapture = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== "Escape" || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
@@ -37,7 +38,7 @@ export function AnswerHere({ id, session, asker, onLeave }: {
   return (
     <div className="sb-need-answer" id={id} role="group" aria-label={`Waiting in ${asker ?? session.title}`} onKeyDownCapture={onKeyDownCapture}>
       {pending.map((p) => (
-        <PendingRequest key={p.requestId} permission={p} ownsEscape={false}
+        <PendingRequest key={p.requestId} permission={p} asker={sessionAsker(session, teammates)} ownsEscape={false}
           onDecide={(...decision) => run(() => respondPermission(session.id, p.requestId, ...decision))} />
       ))}
     </div>

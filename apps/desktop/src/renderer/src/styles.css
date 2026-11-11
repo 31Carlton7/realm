@@ -30,7 +30,7 @@
    The UI face is untouched: the bundled Inter has no `liga` at all (its GSUB carries calt/dlig only),
    so there is no standard ligature to win there, and buying calt would cost the app its tracking. */
 .activity-call, .activity-duration, .activity-time, .agent-hint-text code, .cli-job-output,
-.cmd-cwd, .cmd-line, .code-body, .code-gutter, .code-preview, .composer-attach-note .attach-note-files,
+.cmd-cwd, .cmd-line, .code-body, .code-gutter, .code-preview,
 .diff-counts, .diff-hunk-head, .diff-line, .diff-meta-branch, .diff-status, .documents-picker-head, .documents-raw,
 .documents-rich-surface code, .documents-source, .env-branch, .env-path, .failover-pos, .fd-line, .fd-path, .fd-stat,
 .files-crumbs, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
@@ -1105,9 +1105,13 @@ input.sb-space-name { flex: 1; }
    to `--rl-text-faint`: a fill one rung up from the menu darkens what the glyphs are read against,
    and faint on it measures 2.5:1 dark / 2.2:1 light in the built app — under AA both ways, where the
    same ink clears it against the bare surface. A chip is a quieter SHAPE, not quieter text; the
-   moment it costs legibility it has stopped being the cleaner thing to do. */
-.menu-kbd { flex: none; margin-left: auto; padding: 1px 5px; border-radius: var(--r-chip);
+   moment it costs legibility it has stopped being the cleaner thing to do.
+   It is the app's one drawing of a key: the permission and question cards' chords and footer keys
+   wear the same chip, because a key is the same kind of thing in a card as in a menu. */
+.menu-kbd, .permission-num, .permission-option-kbd, .permission-hints kbd, .question-hints kbd {
+  padding: 1px 5px; border-radius: var(--r-chip);
   background: var(--hover-2); color: var(--rl-text-dim); font: 11px var(--font-ui); letter-spacing: .02em; }
+.menu-kbd { flex: none; margin-left: auto; }
 /* A danger row tints its label, and a shortcut is not part of the warning — hold the chip neutral. */
 .menu [role="menuitem"].danger .menu-kbd { color: var(--rl-text-dim); }
 /* What a row does, after its name — Codex's grammar for a menu whose rows need explaining. The name
@@ -1122,13 +1126,13 @@ input.sb-space-name { flex: 1; }
 /* ── Mention picker (prompter, W4): @-completion over the space's enabled skills ── */
 /* Same raised-surface language as .menu; rows echo .mp-row but focus never enters — the highlight is
    driven from the textarea's own keyboard, so there is no :focus styling to define. */
-.mention-picker { z-index: 100; width: min(420px, 86vw); display: flex; flex-direction: column; overflow: hidden;
+.mention-picker { z-index: 100; width: var(--picker-w); display: flex; flex-direction: column; overflow: hidden;
   background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); }
 /* The rows scroll INSIDE the surface, so the dissolve at their ends fades rows and never the card
    (`usePickerScroller`). The skill picker's depth, for the reason it has the model picker's. */
 .mention-list { flex: 1; min-height: 0; max-height: min(40vh, 280px); overflow-y: auto; padding: 6px;
   --fade-h: 28px; --fade-top-h: 28px; scroll-padding-block: 28px; }
-.mention-row { display: flex; align-items: baseline; gap: 8px; padding: 6px 8px; border-radius: var(--r-ctl); corner-shape: squircle;
+.mention-row { display: flex; align-items: center; gap: 8px; min-height: var(--picker-row-h); padding: 0 8px; line-height: 16px; border-radius: var(--r-ctl); corner-shape: squircle;
   transition: background-color var(--dur-hover) ease; }
 .mention-row[data-active] { background: var(--hover); }
 /* The `@` list's rows (mention-sources.ts): a mark — an app's own icon, a file's type, a skill's
@@ -1328,9 +1332,9 @@ input.sb-space-name { flex: 1; }
    two mechanisms. It differs by exactly one thing: a leading glyph, because a command is an ACTION
    and its verb is worth a mark where a skill's name is not. The same width as well: at 320px five of
    the nine built-in hints ended in an ellipsis. */
-.slash-row { align-items: center; }
-.slash-row-glyph { flex: none; color: var(--rl-text-faint); }
-.slash-row[data-active] .slash-row-glyph { color: var(--rl-text-dim); }
+/* The mark sits in the `@` row's 16px box at 14px, the size a glyph takes beside the row's text. */
+.slash-row .mention-row-mark { color: var(--rl-text-faint); }
+.slash-row[data-active] .mention-row-mark { color: var(--rl-text-dim); }
 
 /* ── Skill picker ("+" → Skills): search over every skill on the machine ──
    Same popover shell as the model picker (surface, radius, raised shadow, hairline-under-search): the
@@ -1494,12 +1498,13 @@ input.sb-space-name { flex: 1; }
 .skill-file-body { min-width: 0; }
 
 /* ── Model picker (prompter): search, one list, the highlighted model's line, and how it runs ── */
-/* One column, Codex-compact. Wide enough that a model's name, a second harness's mark beside it and
-   the five effort levels each fit on one line, and no wider: the old 620px two-column surface went
-   with the detail pane it held. */
-.model-picker { z-index: 100; width: min(372px, calc(100vw - 24px)); display: flex; flex-direction: column; overflow: hidden;
+/* One column, Codex-compact, at the prompter pickers' shared width (tokens.css): a model's name, a
+   second harness's mark beside it and the five effort levels each fit on one line. */
+.model-picker { z-index: 100; width: var(--picker-w); display: flex; flex-direction: column; overflow: hidden;
   background: var(--surface); color: var(--rl-text-bright); border-radius: var(--r-panel); box-shadow: var(--shadow-raised); }
-.mp-search { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: var(--hairline-w) solid var(--rl-hairline); color: var(--rl-text-faint); }
+/* No rule under the search: the list below is a flex sibling that clips at its own edge and dissolves
+   there, so nothing ever passes under this bar. */
+.mp-search { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 12px; color: var(--rl-text-faint); }
 .mp-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font: inherit; font-size: 13px; color: var(--rl-text-bright); }
 .mp-search input::placeholder { color: var(--rl-text-faint); }
 /* The list scrolls on its own and dissolves at both ends; it pads its foot by the band's depth, so
@@ -1518,7 +1523,7 @@ input.sb-space-name { flex: 1; }
 .mp-group-label { padding: 8px 8px 4px; font-size: 12px; font-weight: var(--fw-label); color: var(--rl-text-faint); }
 /* One line per model. The name is the row's one unbounded item and takes the slack; everything at
    the end is fixed and drawn only when it has something to say. */
-.mp-row { display: flex; align-items: center; gap: 9px; height: 32px; padding: 0 6px 0 8px; --btn-h: 32px; border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
+.mp-row { display: flex; align-items: center; gap: 9px; height: var(--picker-row-h); padding: 0 6px 0 8px; --btn-h: var(--picker-row-h); border-radius: calc(var(--btn-h) * var(--sq-ratio-ctl)); corner-shape: squircle;
   transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
 .mp-row[data-active] { background: var(--hover); }
 .mp-row-mark { flex: none; }
@@ -4113,6 +4118,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .md.thinking-body { margin-top: 4px; padding: 8px 10px; border-left: 2px solid var(--rl-line); color: var(--rl-text-dim); }
 .msg-error { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border-radius: var(--r-ctl); color: var(--rl-danger); background: color-mix(in srgb, var(--rl-danger) 8%, var(--rl-panel)); }
 .msg-error pre { margin: 0; white-space: pre-wrap; font: 12px var(--font-mono); max-height: 240px; overflow: auto; --fade-h: 24px; --fade-top-h: 16px; }
+.msg-error-text { margin: 0; font-size: 13px; line-height: 20px; }
 /* The message and, when Realm knows one, the command that fixes it — stacked in one column beside
    the glyph so the command aligns with the sentence it answers rather than with the icon. */
 .msg-error-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; flex: 1; }
@@ -4594,8 +4600,10 @@ button.edit-file:hover { background: var(--rl-hover); }
    never take the object's width the way the raw `mcp__…` name used to. */
 .tool-row > .tool-name { min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
 .tool-object { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 6px; overflow: hidden; white-space: nowrap; }
-/* Who answered an MCP call, before what it was asked — the server reads as a name, not a chip. */
-.tool-server { flex: none; font-size: 13px; color: var(--ink-3); }
+/* Who answered an MCP call, before what it was asked — the server reads as a name, not a chip. What
+   it was asked is the unbounded part and gives way first; the server keeps its width until that is
+   gone, then ends in an ellipsis rather than a glyph cut in half ("Reali" in a 280px pane). */
+.tool-server { flex: 0 0.001 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 13px; color: var(--ink-3); }
 .tool-server::after { content: " ·"; }
 /* A read's or an edit's object (ToolCard's `ToolFile`): the directory dimmed and the name bright —
    the edit card's own row, so the call and the turn's summary name a file one way. The directory
@@ -5017,11 +5025,11 @@ button.edit-file:hover { background: var(--rl-hover); }
    the old floating overlay shadow is gone), 12px card pad, and a hairline-topped footer — drawn as
    every card is, with no edge round it and on the painted curve ("One card", further down). The behaviour underneath is Realm's, verbatim: numbered options with kbd
    chips, ↑↓/bare-digit keys, the Enter-on-Deny guard, Esc→deny. The amber wash stays gone; colour
-   survives as the 6px dot and the "Waiting" pill. */
+   survives as the 6px dot beside who is asking (the question card's from-line). */
 .permission-card { border-radius: var(--r-squircle-card); corner-shape: squircle; padding: 14px; background: var(--surface); box-shadow: var(--card-lift); display: flex; flex-direction: column; gap: 8px; }
+.permission-from { flex: none; }
 .permission-head { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: var(--fw-label); color: var(--ink); }
 .permission-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--rl-warning); flex: none; animation: rl-pulse 0.9s ease-in-out infinite; }
-.permission-head .status-pill { margin-left: auto; font-weight: 400; }
 .permission-tool { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .permission-tool code { font: 12px var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-dim); }
 .permission-details summary { font-size: 11px; color: var(--rl-text-dim); }
@@ -5045,24 +5053,20 @@ button.edit-file:hover { background: var(--rl-hover); }
 .permission-option[data-selected]:hover { background: var(--hover-2); }
 .permission-option[data-decision="deny"][data-selected] { color: var(--rl-danger); }
 .permission-option-label { flex: 1; min-width: 0; }
-/* kbd number chips: BUI's inset fill + hairline ring. */
-.permission-num { display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: var(--r-chip);
-  background: var(--inset); box-shadow: var(--shadow-hairline); color: var(--ink-3); font-size: 11px; flex: none; }
+/* The number and the chord are key chips (the `.menu-kbd` skin). The number holds a square-ish box so
+   1, 2 and 3 sit on one column; the chord ends the row, after the label takes the slack, so the three
+   chips share a right edge. On the selected row the chip steps back to the card's own surface: the
+   row's fill is the chip's, and a chip the colour of the ground under it is no chip. */
+.permission-num { flex: none; min-width: 18px; text-align: center; }
+.permission-option-kbd { flex: none; font-variant-numeric: tabular-nums; }
+.permission-option[data-selected] :is(.permission-num, .permission-option-kbd) { background: var(--surface); }
 .permission-option[data-selected] .permission-num { color: var(--ink); }
-/* The shortcut hints line up as a COLUMN, not as three ragged right edges.
-   `⏎`, `⇧⏎` and `⌘⏎` are one, two and two glyphs of different widths, so right-aligning each on its
-   own made the three rows disagree about where the hint starts — a jitter you read as sloppiness
-   before you work out what it is. A fixed box, right-aligned inside it, is one edge for all three. */
-.permission-option-kbd {
-  flex: none; width: 40px; text-align: right;
-  color: var(--rl-text-faint); font-size: 11px; font-variant-numeric: tabular-nums;
-}
 
 /* Footer (ApprovalCard's primitive-card-footer): hairline-topped, bleeding to the card edge —
    navigation hints left, accent Submit pill right. */
 .permission-footer { display: flex; align-items: center; gap: 10px; margin: 4px -14px -14px; padding: 8px 14px; border-top: var(--hairline-w) solid var(--line); }
 .permission-hints { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--rl-text-faint); }
-.permission-hints kbd { margin-right: 3px; padding: 0 4px; border: var(--hairline-w) solid var(--rl-line-strong); border-radius: var(--r-chip); font-size: 11px; }
+.permission-hints kbd { margin-right: 3px; }
 .permission-submit { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-weight: var(--fw-label); }
 .permission-submit kbd { opacity: .7; }
 
@@ -5108,7 +5112,7 @@ button.edit-file:hover { background: var(--rl-hover); }
    whole instead of breaking every hint into a stacked column of keys over words. */
 .question-hints { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; min-width: 0; font-size: 11px; color: var(--rl-text-faint); }
 .question-hints > span { white-space: nowrap; }
-.question-hints kbd { margin-right: 3px; padding: 0 4px; border: var(--hairline-w) solid var(--rl-line-strong); border-radius: var(--r-chip); font-size: 11px; }
+.question-hints kbd { margin-right: 3px; }
 .question-continue { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-weight: var(--fw-label); }
 .question-continue kbd { opacity: .7; }
 
@@ -5664,7 +5668,9 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 /* The one click that fixes what the note reports — Allow (or Repair) for Accessibility. It keeps the
    note's line: a quiet button whose label is the next step, after the sentence that says why. */
 .composer-attach-note .composer-mention-allow { flex: none; align-self: center; margin-left: 8px; white-space: nowrap; }
-.composer-attach-note .attach-note-files { color: var(--rl-text-faint); font-family: var(--font-mono); font-size: 11px;
+/* The names a person picked, in the interface face: a file's name here is what they called it, not a
+   path to type, and mono beside the sentence read as two kinds of text on one line. */
+.composer-attach-note .attach-note-files { color: var(--rl-text-faint); font-size: 11px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 
 /* Row 2 — input: 15px/1.55 (Ara refresh §1: placeholder and prose read at 15), 16px inline padding
@@ -6167,9 +6173,10 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 .session-usage-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
 .session-usage-label { color: var(--rl-text-faint); }
 .session-usage-value { color: var(--rl-text-bright); font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: 11px; }
-/* The "+" menu: wide enough that each row's line reads whole beside its name, and never wider than
-   the window can hold. */
-.plus-menu { min-width: 300px; max-width: min(400px, calc(100vw - 24px)); }
+/* The "+" menu is one of the prompter's pickers, so it takes their width and their row (tokens.css)
+   rather than a menu's: the four open from one row of controls and read as one kind of list. */
+.plus-menu { width: var(--picker-w); }
+.plus-menu [role^="menuitem"] { min-height: var(--picker-row-h); padding-block: 0; }
 /* The two read-only modes keep the tones they wore as a chip: the card behind the prompter already
    tints for Plan and Ask, and a mark that stayed grey here would be the one place the mode was named
    without being coloured. Build is the neutral default and takes no tone. */

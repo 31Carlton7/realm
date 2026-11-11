@@ -528,7 +528,10 @@ Using the same families across the app and site is a brand decision.
 - Headings balance; descriptions wrap prettily; reading copy stays near 60–75 characters.
 - Use tabular numerals for cost, usage, time, progress, and aligned comparisons.
 - Use mono only for code, commands, paths, identifiers, branches, models, timestamps, and machine
-  state. Mono is not a substitute for a visual hierarchy.
+  state. Mono is not a substitute for a visual hierarchy. An error is two things that look alike: a
+  sentence Realm wrote ("The agent's CLI exited before it answered.") is prose and takes the
+  interface face, and captured output — stderr, a stack — keeps the mono box. Red mono on a sentence
+  reads as a log line nobody wrote for you. A file NAME a person picked is not a path either.
 - Set `font-synthesis: none` and use WOFF2 assets or the existing font loader.
 
 Write copy in natural sentence case. Do not type labels in uppercase and then depend on the source
@@ -635,6 +638,16 @@ acronym that is uppercase anyway (a file extension on a tile).
   saturated hue. Link ink and code colour stay. The signal is the WINDOW's key state from main, not
   the page's focus: a click into a browser pane blurs the page while the window keeps the keyboard;
   and a window that opened behind another app asks for the state rather than waiting to be told.
+- A key is drawn one way: the menus' filled chip in secondary ink. A card's chords, its number keys
+  and its footer legend are the same kind of thing as a menu's shortcut, and the permission card's
+  bare 11px glyphs at 2.5–3.4:1 read as decoration beside a menu that drew them as keys. One glyph
+  per key across a surface, too — that card drew Return as ⏎, ↵ and ↩.
+- The prompter's pickers — "+", the model list, `@` and `/` — are one surface opened from one row of
+  controls, so they share one width and one row height (`--picker-w`, `--picker-row-h`). They had
+  grown four widths, and the narrowest cut five of the `/` list's nine hints.
+- A list typed into takes its highlight from the keyboard. The pointer only takes it once it MOVES,
+  because a list that opens under a resting pointer is otherwise lit wherever the pointer happened
+  to be.
 - Menus are the system's. `Menu` hands its rows to an OS menu — material, type-to-select, and the
   only surface that can open over a browser pane's native view — and draws its own only where there
   is no bridge (tests, and live scripts that set `REALM_HTML_MENUS`). A two-step confirm reopens the
@@ -1091,7 +1104,9 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   only facts the app holds — a "Branch —" for a folder nobody has asked git about is a claim.
 - A note under the composer is for an outcome the user could not otherwise learn, such as a file
   the agent will silently drop. Do not narrate a handoff the agent completes itself; that belongs
-  on the chip's tooltip.
+  on the chip's tooltip. The note is one line: a short lead that counts the files ("Fake agent won't
+  see these 3 attachments:") and then their names as the person picked them — never the stored
+  copies' hashed names — with the names giving way first. The full sentence goes on the tooltip.
 - An `@` names a thing, and naming it is consent to USE it — never a way round how it is used. A
   mentioned app gets computer use for that session and that app alone: its first action still asks,
   the session's mode still holds, and nothing outlives the session or becomes a space setting. A
@@ -1112,6 +1127,11 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   and ⌥↓ step between saved turns. What is kept is the prompt's event, never a quote of it, and the
   Library lists every saved turn of the profile, because the Library holds what a person kept and the
   activity view is a log of what went by.
+- A request a person must answer says who is asking before it says anything else — "Codex asks",
+  or the teammate's name when the session is a teammate's, because in Needs you the card is read
+  away from the transcript that would have said it. Then the question, then the thing asked about,
+  ONCE: the permission card printed its command three times and said Waiting three times, and a
+  card that repeats itself is one that has to be read twice to find the decision.
 - Never invent human-like agent presence, mood, or certainty.
 - On the phone, nothing floats over the reading while the Mac is there. A turn's state is the live
   line at the transcript's foot — "Working · 2m 14s" where its next words will come, as ChatGPT says

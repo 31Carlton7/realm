@@ -637,13 +637,16 @@ describe("permission keyboard (U-H4)", () => {
     const rows = within(card).getAllByRole("button").filter((b) => b.classList.contains("permission-option"));
     expect(rows.map((r) => r.getAttribute("aria-label"))).toEqual(["Allow", "Allow always", "Deny"]);
     expect(rows.map((r) => r.querySelector(".permission-num")!.textContent)).toEqual(["1", "2", "3"]);
-    expect(rows.map((r) => r.querySelector(".permission-option-kbd")!.textContent)).toEqual(["⏎", "⇧⏎", "⌘⌫"]);
+    // One Return glyph across the card: it drew ⏎ on the rows, ↵ in the legend and ↩ on Submit.
+    expect(rows.map((r) => r.querySelector(".permission-option-kbd")!.textContent)).toEqual(["↵", "⇧↵", "⌘⌫"]);
     expect([...card.querySelectorAll(".permission-hints > span")].map((s) => s.textContent))
       .toEqual(["↑↓ Navigate", "↵ Select", "esc Deny"]);
-    expect(within(card).getByRole("button", { name: "Submit" })).toHaveTextContent("↩");
-    // Amber is a dot and a pill now, not a wash over the whole head (§5).
+    expect(within(card).getByRole("button", { name: "Submit" })).toHaveTextContent("↵");
+    // Amber is a dot beside who is asking, not a wash over the head, and not a Waiting pill beside
+    // the tool row's own "Waiting for you" (§5).
     expect(card.querySelector(".permission-dot")).not.toBeNull();
-    expect(card.querySelector('.status-pill[data-tone="warning"]')).toHaveTextContent("Waiting");
+    expect(card.querySelector(".permission-from")).toHaveTextContent(/asks$/);
+    expect(card.querySelector(".status-pill")).toBeNull();
   });
 
   it("the number keys decide outright — 1 allows, 2 allows always, 3 denies", async () => {
@@ -754,6 +757,15 @@ describe("the prompter's / commands", () => {
     expect(document.querySelector(".slash-picker")).not.toBeNull();
     type("look in src/renderer");
     expect(document.querySelector(".slash-picker")).toBeNull();
+  });
+
+  it("draws a command's mark at 14px in the @ row's mark box", async () => {
+    // The glyphs were 12px beside 14px text, in a class of their own, so `/` rows sat off the `@` rows' grid.
+    await mountFresh();
+    type("/");
+    const marks = [...document.querySelectorAll(".slash-row > .mention-row-mark > svg")];
+    expect(marks).toHaveLength(rows().length);
+    expect(new Set(marks.map((m) => m.getAttribute("height")))).toEqual(new Set(["14"]));
   });
 
   it("runs on Enter and takes its own token out of the draft", async () => {
@@ -2225,12 +2237,10 @@ describe("prompter attachments", () => {
     await mountFor("fake", [picked("/x/report.pdf", "application/pdf"), picked("/x/shot.png", "image/png")]);
     attach();
     await waitFor(() => expect(chips()).toHaveLength(2));
-    const warn = notes().find((t) => /ignores/.test(t))!;
-    expect(warn).toContain("Fake agent");
+    const warn = notes().find((t) => /won't see/.test(t))!;
     // The reported bug: the sentence stopped dead in front of the list it was introducing, so the row
     // read "…will never see them.report.pdf". A colon is what makes the names finish the sentence.
-    expect(warn).toContain("will never see them: report.pdf");
-    expect(warn).not.toMatch(/them\.report/);
+    expect(warn).toBe("Fake agent won't see these 2 attachments: report.pdf, shot.png");
   });
 
   it("says NOTHING under the chips for Codex — the same PDF is a path it will open, which is not a warning", async () => {

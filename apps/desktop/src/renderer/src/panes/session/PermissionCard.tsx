@@ -1,3 +1,4 @@
+import type { Asker } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { PermissionDecision } from "../../state/store";
@@ -6,14 +7,15 @@ import { clip, prettyJson, toolIcon, toolSummary } from "./tool-summary";
 import { ToolInputBody } from "./rich/ToolViews";
 import { useDissolve } from "../../components/ScrollFades";
 import { toolInputView } from "./rich/tool-view";
+import { askerIcon, askerLine } from "./QuestionCard";
 
 /** §5's numbered-list pattern (`HJz3KMT`): the options are a list with kbd number chips, the
  *  selected row is an --rl-active pill, and the footer carries the navigation hints on the left and
  *  the accent Submit pill on the right. Order is deliberate — Allow is first, so it is what the
  *  default selection and a bare Enter mean. */
 const OPTIONS: { decision: PermissionDecision; label: string; kbd: string }[] = [
-  { decision: "allow", label: "Allow", kbd: "⏎" },
-  { decision: "allow_always", label: "Allow always", kbd: "⇧⏎" },
+  { decision: "allow", label: "Allow", kbd: "↵" },
+  { decision: "allow_always", label: "Allow always", kbd: "⇧↵" },
   { decision: "deny", label: "Deny", kbd: "⌘⌫" },
 ];
 
@@ -52,8 +54,11 @@ const optionsFor = (toolName: string, input?: unknown): typeof OPTIONS => {
  *  Enter = the selected option, ⇧Enter = Allow always, ⌘⌫ = Deny, 1/2/3 pick an option outright,
  *  ↑/↓ move the selection, Esc denies. Buttons keep exact accessible names ("Allow", not "Allow 1")
  *  via aria-label; the number chips and footer hints are visual only. */
-export function PermissionCard({ permission, onDecide, autoFocus = false, enter = false, ownsEscape = true }: {
+export function PermissionCard({ permission, asker, onDecide, autoFocus = false, enter = false, ownsEscape = true }: {
   permission: PendingPermission; onDecide: (d: PermissionDecision) => void; autoFocus?: boolean; enter?: boolean;
+  /** Who is asking — the session's agent, or the teammate whose session it is — said first, as a
+   *  question card says it. Absent where the surface cannot name one. */
+  asker?: Asker;
   /** False where the surface around the card owns Escape (the need-you list), so Escape leaves it
    *  instead: the card then neither answers on Escape nor offers it as a key. */
   ownsEscape?: boolean;
@@ -111,14 +116,23 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
        lives HERE, on the component that grants things, rather than as a label match in main, so
        whoever next changes this card sees it. `app-drive.ts` carries the reasoning. */
     <div className="permission-card" role="group" aria-label="Permission request" data-no-agent="permission request" data-enter={enter || undefined} onKeyDown={onKeyDown}>
-      {/* §5: the amber wash is gone — colour survives as a 6px dot and a "Waiting" pill. */}
+      {/* Who is asking, then the question, then the thing asked about, each once. The tool row above
+          the card already says "Waiting for you"; the dot is the card's only other mark of it. A
+          drawn preview IS the command, so the one-line summary is only for a tool with no drawing. */}
+      {asker && (
+        <div className="question-from permission-from">
+          <span className="permission-dot" />
+          <Icon name={askerIcon(asker)} size={14} colored />
+          <span className="question-from-name">{askerLine(asker)}</span>
+        </div>
+      )}
       <div className="permission-head">
-        <span className="permission-dot" />
+        {!asker && <span className="permission-dot" />}
         <span>{permission.title}</span>
-        <span className="status-pill" data-tone="warning">Waiting</span>
       </div>
-      <div className="permission-tool"><Icon name={toolIcon(permission.toolName)} size={16} /><span className="tool-name">{permission.toolName}</span>{summary && <code>{summary}</code>}</div>
-      {preview && <div className="permission-preview"><ToolInputBody view={preview} /></div>}
+      {preview
+        ? <div className="permission-preview"><ToolInputBody view={preview} /></div>
+        : <div className="permission-tool"><Icon name={toolIcon(permission.toolName)} size={16} /><span className="tool-name">{permission.toolName}</span>{summary && <code>{summary}</code>}</div>}
       <details className="permission-details"><summary>{preview ? "Raw input" : "Input"}</summary><pre ref={raw}>{prettyJson(permission.input)}</pre></details>
       <div className="permission-options">
         {options.map((o, i) => (
@@ -136,7 +150,7 @@ export function PermissionCard({ permission, onDecide, autoFocus = false, enter 
           <span><kbd>↑↓</kbd> Navigate</span><span><kbd>↵</kbd> Select</span>{ownsEscape && <span><kbd>esc</kbd> Deny</span>}
         </div>
         <button className="btn primary permission-submit" aria-label="Submit" onClick={() => onDecide(options[selected]!.decision)}>
-          Submit <kbd>↩</kbd>
+          Submit <kbd>↵</kbd>
         </button>
       </div>
     </div>

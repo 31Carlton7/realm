@@ -1,6 +1,6 @@
 import { AGENT_META } from "@realm/contracts";
 import { Icon, TeammateIcon } from "@realm/ui";
-import { Fragment, useEffect, useRef } from "react";
+import { Fragment, useEffect, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import type { RefObject } from "react";
 import { useDissolve } from "../../components/ScrollFades";
@@ -17,17 +17,31 @@ import { fileMark, type MentionRow } from "./mention-sources";
  * what dissolves. The highlight is moved by the textarea's arrows, so it is brought into view here,
  * clear of the band; a change the pointer made is left where it is, or hovering a row in the band
  * would scroll the list out from under the pointer.
+ *
+ * The pointer takes the highlight only once it MOVES. The list opens between keystrokes, often right
+ * under a pointer resting over the prompter, and Chromium sends that resting pointer mouse events as
+ * the rows appear under it: a bare "@" opened with its seventh row lit, half under the dissolve,
+ * while the first row was the one Enter would have taken.
  */
-export function usePickerScroller(active: number) {
+export function usePickerScroller(active: number, onHover: (index: number) => void) {
   const list = useRef<HTMLDivElement>(null);
   const hovered = useRef<number | null>(null);
+  const restingAt = useRef<{ x: number; y: number } | null>(null);
   useAutoHideScrollbar(list);
   useDissolve(list);
   useEffect(() => {
     if (active === hovered.current) return;
     list.current?.querySelector<HTMLElement>("[data-active]")?.scrollIntoView?.({ block: "nearest" });
   }, [active]);
-  return { list, hovered };
+  const hoverRow = (i: number) => (e: ReactMouseEvent) => {
+    const at = restingAt.current;
+    if (at === null) { restingAt.current = { x: e.screenX, y: e.screenY }; return; }
+    if (at.x === e.screenX && at.y === e.screenY) return;
+    if (i === active) return;
+    hovered.current = i;
+    onHover(i);
+  };
+  return { list, hovered, hoverRow };
 }
 
 /** What the QUERY after an `@` may contain: an id's characters, and a path's `/` — a file is found
@@ -103,7 +117,7 @@ export function MentionPicker({ rows, activeIndex, anchorRef, appIcons, onPick, 
   // ghost of it trailing the caret while the sentence carries on is noise rather than motion.
   const { pos } = useAnchoredPopover({ ref, anchorRef, placement: "up", onClose });
   const active = Math.min(activeIndex, rows.length - 1);
-  const { list, hovered } = usePickerScroller(active);
+  const { list, hoverRow } = usePickerScroller(active, onHover);
   return createPortal(
     <div ref={ref} id="mention-list" className="mention-picker" role="listbox" aria-label="Mentions"
       style={{ position: "fixed", left: pos?.left ?? -9999, top: pos?.top ?? -9999,
@@ -118,7 +132,7 @@ export function MentionPicker({ rows, activeIndex, anchorRef, appIcons, onPick, 
             <div id={mentionOptionId(r.key)} role="option" tabIndex={-1}
               className="mention-row" data-kind={r.kind} aria-selected={i === active} data-active={i === active || undefined}
               data-no-agent={r.kind === "app" ? "computer use grant" : undefined}
-              onMouseEnter={() => { hovered.current = i; onHover(i); }}
+              onMouseMove={hoverRow(i)}
               onMouseDown={(e) => e.preventDefault() /* the textarea keeps focus; the caret must not move */}
               onClick={() => onPick(r)}>
               <RowMark row={r} appIcons={appIcons} />

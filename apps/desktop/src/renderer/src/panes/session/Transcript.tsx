@@ -1,6 +1,6 @@
 import { Icon, TeammateIcon } from "@realm/ui";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { LINK_SERVICE_META, MAC_SKILL_ID, chipRuns, moveFailedSentence, movedSentence, mediaCandidatesIn, teammateWords, type MentionRef, type SessionMode, type Teammate, type SessionStatus, type AskAnswers, type Checkpoint, type TurnChanges } from "@realm/contracts";
+import { LINK_SERVICE_META, MAC_SKILL_ID, chipRuns, moveFailedSentence, movedSentence, mediaCandidatesIn, teammateWords, type MentionRef, type SessionMode, type Teammate, type SessionStatus, type AskAnswers, type Asker, type Checkpoint, type TurnChanges } from "@realm/contracts";
 import { AttachmentTile } from "./AttachmentTile";
 import { UserTabs } from "./TabCards";
 import { fileMark } from "./mention-sources";
@@ -110,10 +110,18 @@ const NO_PROMPTS: readonly TrackPrompt[] = [];
 const NO_SAVED: readonly number[] = [];
 const NO_WAITING: ReadonlySet<string> = new Set();
 
-/** An error's own words, capped, in a box that dissolves at an end once there is more of them. */
+/** An error that is a sentence — "The agent's CLI exited before it answered." — rather than captured
+ *  output: one line, opening on a capital and closing on a stop, with nothing in it shaped like a
+ *  stack frame or a `Error:` prefix. Exported for the test. */
+export const isProseError = (text: string): boolean =>
+  !text.includes("\n") && /^[A-Z][a-z']/.test(text) && /[.!?]$/.test(text) && !/^\w*(Error|Exception)\b|\bat \S+:\d+/.test(text);
+
+/** An error's own words, capped, in a box that dissolves at an end once there is more of them. A
+ *  sentence is set as the sentence it is; only real output — stderr, a stack — keeps the mono box. */
 function ErrorText({ text }: { text: string }) {
   const box = useRef<HTMLPreElement>(null);
   useDissolve(box);
+  if (isProseError(text)) return <p className="msg-error-text">{text}</p>;
   return <pre ref={box}>{text}</pre>;
 }
 
@@ -279,12 +287,14 @@ function TeammateSender({ from, teammates }: { from: { title: string; teammateId
 /** Scrolling message list. Follows the bottom while the reader is near it; otherwise offers a "new messages" pill.
  *  Content lives in a centered 680px `.transcript-col` so messages share rails with the prompter (§4);
  *  the scrollbar stays at the pane edge because `.transcript` itself is the scroller. */
-export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null, track = false, saved = NO_SAVED, onSave, reveal = null, onRevealed, onEarlier, requestsOwnEscape = true, brief = null, report = null, teammates = NO_TEAMMATES, onContinueOn, agentLabel = "the agent", onCancelMove }: {
+export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRate, onPath, visible = true, focused = false, cwd = null, sends = 0, mentionIds = NO_MENTIONS, appIcons = NO_APP_ICONS, onExpandPlan, onImplementWith, mode, eggs = false, packLabels = NO_PACK_LABELS, scrollKey = null, sessionId = null, onQuote, checkout = null, turnEditing = null, track = false, saved = NO_SAVED, onSave, reveal = null, onRevealed, onEarlier, requestsOwnEscape = true, brief = null, report = null, teammates = NO_TEAMMATES, onContinueOn, agentLabel = "the agent", asker, onCancelMove }: {
   transcript: TranscriptModel; sessionStatus: SessionStatus; onDecide: (requestId: string, d: PermissionDecision, answers?: AskAnswers) => void; visible?: boolean;
   /** Take the turn a usage limit stopped onto another of the agent's accounts. Absent draws no offer. */
   onContinueOn?: (accountId: string) => void;
   /** The session's agent by name, for the move's progress row ("Starting Claude"). */
   agentLabel?: string;
+  /** Who a permission card says is asking (`sessionAsker`). */
+  asker?: Asker;
   /** Stop a move under way (`sessions.cancelMove`). Absent draws no Cancel on the progress row. */
   onCancelMove?: () => void;
   /** A message drawn as something other than its bubble: a sub-agent's first message, which carries
@@ -878,7 +888,7 @@ export function Transcript({ transcript, sessionStatus, onDecide, onRetry, onRat
         {/* Only what really is a permission keeps the Allow / Allow always / Deny gate — a question
             and a plan get cards of their own (`PendingRequest`). */}
         {permissions.map((p, i) => (
-          <PendingRequest key={p.requestId} permission={p} autoFocus={focused && i === 0}
+          <PendingRequest key={p.requestId} permission={p} asker={asker} autoFocus={focused && i === 0}
             enter={isEntering(permKey(p.requestId))} ownsEscape={requestsOwnEscape} onDecide={(...decision) => onDecide(p.requestId, ...decision)} />
         ))}
         {/* Plan 9 W2: BUI LoadingState's shimmer label — shown by the session's real status, never a clock.
