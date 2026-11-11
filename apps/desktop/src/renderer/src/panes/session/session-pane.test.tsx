@@ -2540,7 +2540,7 @@ describe("under-strip (Plan 12 W1)", () => {
     envA: env("envA", { kind: "primary", path: "/tmp" }),
     envB: env("envB", { kind: "worktree", branch: "realm/fix-tests", path: "/tmp/wt" }),
   });
-  async function mountStrip(extra: { lastEventSeq?: number; lastSeq?: number; spaces?: ReturnType<typeof space>[]; plainFolder?: boolean; onlyPrimary?: boolean } = {}) {
+  async function mountStrip(extra: { lastEventSeq?: number; lastSeq?: number; spaces?: ReturnType<typeof space>[]; plainFolder?: boolean; onlyPrimary?: boolean; gitDelayMs?: number } = {}) {
     const { envA, envB } = twoEnvs();
     const api = fakeApi({
       sessions: [session("se1", "s1", { status: "idle", environmentId: "envA", cwd: "/tmp", lastEventSeq: extra.lastEventSeq ?? 0 })],
@@ -2549,6 +2549,7 @@ describe("under-strip (Plan 12 W1)", () => {
       // The space's folder is a repository unless the test says it is a plain one.
       ...(extra.plainFolder ? {} : { gitInfo: { "/tmp": { branch: "main", additions: 0, deletions: 0, dirty: 0, ahead: 0, behind: 0 } } }),
     });
+    if (extra.gitDelayMs) api.delays["gitInfo:/tmp"] = extra.gitDelayMs;
     const store = createAppStore(api); await store.getState().boot();
     store.setState({ sessionStatus: { se1: "idle" }, transcripts: { se1: { lastSeq: extra.lastSeq ?? 0, t: reduceAll([]) } } });
     const r = render(<StoreContext.Provider value={store}><SessionPane item={item("i9", "s1", { kind: "session", refId: "se1", title: "s" })} visible /></StoreContext.Provider>);
@@ -2614,6 +2615,7 @@ describe("under-strip (Plan 12 W1)", () => {
   it("'New worktree…' creates AND selects — the session lands in the worktree it just made", async () => {
     const { api, store } = await mountStrip();
     store.getState().setDraft("se1", "polish the under strip");
+    await waitFor(() => expect(store.getState().gitInfo["/tmp"]).toBeTruthy()); // the row waits on git's answer
     fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "New worktree…" }));
     await waitFor(() => expect(api.calls).toContain("createWorktree:s1"));
@@ -2640,6 +2642,42 @@ describe("under-strip (Plan 12 W1)", () => {
     await mountStrip({ plainFolder: true, onlyPrimary: true, spaces: [space("s1", "p1", "Versed")] });
     await waitFor(() => expect(screen.queryByRole("button", { name: "Workspace" })).toBeNull());
     expect(document.querySelector(".composer-understrip .ghost-chip[data-static][title^='Workspace']")).toHaveTextContent("Versed");
+  });
+
+  /* Git answers after the first paint. THE MUTANTS: read "not asked yet" as a repository (the chip drew
+     a caret, then lost it a moment later, or kept it in a capture taken before git answered), or show
+     the caret-less label while waiting (a repository's chip then grows one). Every shape the chip
+     takes on screen is recorded, so a caret that came and went fails here. */
+  const watchChip = () => {
+    const seen: string[] = [];
+    const look = () => {
+      const chip = document.querySelector<HTMLElement>(".composer-understrip [aria-label='Workspace'], .composer-understrip .ghost-chip[title^='Workspace']");
+      const shape = !chip ? "absent" : chip.hasAttribute("data-pending") ? "held" : chip.querySelector(".chip-caret") ? "caret" : "label";
+      if (seen.at(-1) !== shape) seen.push(shape);
+    };
+    look();
+    const mo = new MutationObserver(look);
+    mo.observe(document.body, { subtree: true, childList: true, attributes: true });
+    return { seen, stop: () => mo.disconnect() };
+  };
+
+  it("a plain folder's chip is held until git answers, then a label: never a caret it takes back", async () => {
+    const watch = watchChip();
+    const { api } = await mountStrip({ plainFolder: true, onlyPrimary: true, spaces: [space("s1", "p1", "Versed")], gitDelayMs: 50 });
+    expect(api.calls).toContain("gitInfo:/tmp");
+    await waitFor(() => expect(watch.seen.at(-1)).toBe("label"));
+    watch.stop();
+    expect(watch.seen.filter((x) => x !== "absent")).toEqual(["held", "label"]);
+  });
+
+  it("a repository's chip is held until git answers, then a caret: never a label that grows one", async () => {
+    const watch = watchChip();
+    await mountStrip({ onlyPrimary: true, spaces: [space("s1", "p1", "Versed")], gitDelayMs: 50 });
+    await waitFor(() => expect(watch.seen.at(-1)).toBe("caret"));
+    watch.stop();
+    expect(watch.seen.filter((x) => x !== "absent")).toEqual(["held", "caret"]);
+    fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
+    expect(within(screen.getByRole("menu", { name: "Workspace" })).getByRole("menuitem", { name: "New worktree…" })).toBeInTheDocument();
   });
 
   it("moves a session that has not started to another space of its profile, from the same chip (Plan 27)", async () => {
