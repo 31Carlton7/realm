@@ -2,7 +2,7 @@ import { realpathSync, statSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { ENGINE_IDLE_MINUTES_DEFAULT, ENGINE_IDLE_MINUTES_KEY, AGENT_MEMORY_CHANNEL, AGENT_SESSION_RESUME, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, handoffContextKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, moveFailedSentence, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type MoveOptions, type MoveTarget, type MoveWhen, type PendingMove, type SessionRef, type TabRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type StreamedMessage, type AskAnswers, type AskCard } from "@realm/contracts";
-import { CODEX_SANDBOX_REFUSAL, RestartRequiredError, type AdapterRegistry, type AgentAdapter, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
+import { CODEX_SANDBOX_REFUSAL, RestartRequiredError, runsInFullAccess, type AdapterRegistry, type AgentAdapter, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
 import { ASKS_IN_FULL_ACCESS, fullAccessAllows, fullAccessLogLine } from "@realm/contracts";
 import type { RpcServer } from "../rpc/server";
@@ -1039,14 +1039,17 @@ export class SessionService {
    * Answer Allow on every card the session is waiting on that Full access would not have asked. For a
    * session just moved into `bypassPermissions`: the person has said to stop asking, and the cards
    * already up are asking. A question, a plan to approve, and a gate Realm asks
-   * even in Full access (`alwaysPrompt`, `promptUnderBypass`) still wait for the person. One-shot
+   * even in Full access (`alwaysPrompt`, `promptUnderBypass`) still wait for the person, and so does a
+   * Bash card Claude's adapter would still raise in Full access (`runsInFullAccess`). One-shot
    * `allow`, never `allow_always`, so nothing is written to the agent's own settings.
    */
   allowOpenPermissions(id: string): void {
-    if (this.get(id).permissionMode !== "bypassPermissions") return;
+    const session = this.get(id);
+    if (session.permissionMode !== "bypassPermissions") return;
     const broker = this.d.browserPermissions;
     for (const card of this.d.events.openPermissionRequests(id)) {
       if (card.ask || ASKS_IN_FULL_ACCESS.has(card.toolName)) continue;
+      if (session.agentKind === "claude" && card.toolName === "Bash" && !runsInFullAccess(card.toolName, card.input)) continue;
       if (broker?.owns(card.requestId) ? !broker.skippedUnderBypass(card.requestId) : !this.live.has(id)) continue;
       this.respondPermission(id, card.requestId, "allow");
     }
