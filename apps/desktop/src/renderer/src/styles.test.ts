@@ -2848,6 +2848,17 @@ describe("the side panel's surfaces", () => {
     expect(bodiesFor(".panel[data-focused] .pane-tab[data-active] .pane-tab-label").join(" ")).toContain("color: var(--rl-text-bright)");
   });
 
+  it("stands every row of a teammate's computer on one edge, in a card or on the ground", () => {
+    /* Now's titles started 8px right of Done's beside the same icon: the card's inset was 14 and the
+       list's 8, with gaps of 10 and 8. THE MUTANT: either number written into one rule again. */
+    const computer = bodiesFor(".tm-computer").join(" ");
+    expect(computer).toMatch(/--tm-row-in: \d+px/);
+    expect(computer).toMatch(/--tm-row-gap: \d+px/);
+    expect(bodiesFor(".tm-card").join(" ")).toContain("padding: 4px var(--tm-row-in)");
+    expect(bodiesFor(".tm-session").join(" ")).toContain("padding: 7px 8px 7px calc(var(--tm-row-in) + var(--tm-depth) * 20px)");
+    for (const row of [".tm-now-row", ".tm-session", ".tm-resource"]) expect(bodiesFor(row).join(" "), row).toContain("gap: var(--tm-row-gap)");
+  });
+
   it("rings the browser's fields with the app's focus ring, not a recoloured border", () => {
     // THE MUTANT: `outline: none` back on the field, which takes the global :focus-visible ring away.
     for (const field of [".browser-address input", ".browser-find-input"]) {

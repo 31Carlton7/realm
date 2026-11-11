@@ -10940,7 +10940,11 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
    (panels the eye rests in) and Done as quiet rows on the panel's ground. Wide, Done stands in a
    column of its own beside the other two. */
 /* The slot is a flex row: without flex the column shrinks to its longest title and the rows stop short. */
-.tm-computer { flex: 1; min-width: 0; height: 100%; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 16px 16px 24px; }
+/* Every row stands on one edge, in a card or on the ground: its icon `--tm-row-in` from the column's
+   edge, its title `--tm-row-gap` past the icon. Now's titles started 8px right of Done's beside the
+   same icon, because the card's inset and the list's were written twice. */
+.tm-computer { --tm-row-in: 14px; --tm-row-gap: 10px;
+  flex: 1; min-width: 0; height: 100%; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 16px 16px 24px; }
 .tm-report-head { display: flex; flex-direction: column; gap: 2px; padding: 0 8px 6px; }
 .tm-report-top { display: flex; align-items: center; gap: 8px; min-height: 32px; }
 .tm-report-where { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; color: var(--rl-text-dim); }
@@ -10955,11 +10959,11 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .tm-section { display: flex; flex-direction: column; min-width: 0; }
 .tm-caption { margin: 14px 0 6px; padding: 0 8px; font-size: 13px; line-height: 18px; font-weight: var(--fw-label); color: var(--rl-text-dim); }
 /* Now and On this Mac: one card each, its rows ruled apart by a hairline. */
-.tm-card { margin: 0; padding: 4px 14px; list-style: none; display: flex; flex-direction: column; min-width: 0;
+.tm-card { margin: 0; padding: 4px var(--tm-row-in); list-style: none; display: flex; flex-direction: column; min-width: 0;
   border-radius: var(--r-squircle-card); corner-shape: squircle; background: var(--rl-card); box-shadow: var(--card-lift); }
 .tm-card > li + li { border-top: var(--hairline-w) solid var(--rl-line); }
 .tm-row-icon { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 20px; color: var(--rl-text-dim); }
-.tm-now-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; }
+.tm-now-row { display: flex; align-items: flex-start; gap: var(--tm-row-gap); padding: 10px 0; }
 .tm-now-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: left; font-size: 14px; line-height: 20px; color: var(--rl-text-bright); }
 .tm-now-row[data-unread] .tm-session-title { font-weight: var(--fw-title); }
 .tm-step { font-size: 13px; line-height: 18px; color: var(--rl-text-dim); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
@@ -10973,7 +10977,8 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
 .tm-sessions > li { --tm-depth: 0; }
 /* A session's line: its title takes the slack and gives it back first; the outcome and the age keep
    their own slots, so every row's age stands in one column. */
-.tm-session { width: 100%; display: flex; align-items: flex-start; gap: 8px; min-height: 34px; padding: 7px 8px 7px calc(8px + var(--tm-depth) * 20px);
+.tm-session { width: 100%; display: flex; align-items: flex-start; gap: var(--tm-row-gap); min-height: 34px;
+  padding: 7px 8px 7px calc(var(--tm-row-in) + var(--tm-depth) * 20px);
   border-radius: var(--r-ctl); text-align: left; font-size: 14px; line-height: 20px; color: var(--rl-text-dim); }
 .tm-session:hover { background: var(--rl-hover); }
 .tm-session[data-unread] .tm-session-title { color: var(--rl-text-bright); font-weight: var(--fw-title); }
@@ -10996,7 +11001,7 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
   border-radius: var(--r-ctl); font-size: 13px; color: var(--rl-text-dim); }
 .tm-more:hover { background: var(--rl-hover); color: var(--rl-text-bright); }
 /* On this Mac: what it is, its state, and its two actions in fixed slots. */
-.tm-resource { display: flex; align-items: center; gap: 10px; min-height: 44px; color: var(--rl-text-dim); }
+.tm-resource { display: flex; align-items: center; gap: var(--tm-row-gap); min-height: 44px; color: var(--rl-text-dim); }
 .tm-resource-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--rl-text-bright); }
 .tm-resource-state { flex: none; font-size: 13px; color: var(--rl-text-dim); white-space: nowrap; }
 .tm-resource-actions { flex: none; display: flex; align-items: center; gap: 2px; min-width: 104px; }
