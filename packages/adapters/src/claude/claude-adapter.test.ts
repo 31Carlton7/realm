@@ -283,6 +283,77 @@ describe("Full access mid-session", () => {
   });
 });
 
+/**
+ * The one check the CLI keeps in Full access: a Bash command its parser cannot vouch for comes to
+ * `canUseTool` whatever the mode (2.1.322: "Dangerous rm operation not ruled out — the shell may read
+ * this command differently than it was parsed"). A JavaScript snippet with `$$(` in it is the usual
+ * cause, and the card it raised stopped a session nobody was watching.
+ */
+describe("Full access and the Bash check the CLI keeps", () => {
+  const SNIPPET = `node cdp.mjs eval '(()=>$$(".a"))()'`;
+  const run = async (start: Partial<StartOptions>, fake: FakeOpts, before?: (h: ReturnType<ClaudeAdapter["start"]>) => Promise<void>) => {
+    const permissionResults: unknown[] = []; const logged: string[] = [];
+    const a = new ClaudeAdapter({ query: fakeQuery({ permissionResults, ...fake }) as never });
+    const h = a.start({ cwd: "/tmp", mcpServers: [], onLog: (l) => logged.push(l), ...start });
+    await before?.(h);
+    const c = collectUntil(h.events, (e) => e.type === "status" && e.payload.status === "idle",
+      (e) => { if (e.type === "permission_request") h.respondPermission(e.payload.requestId, "allow"); });
+    await h.send({ text: "hi", attachments: [] }); const got = await c; await h.dispose();
+    return { got, permissionResults, logged };
+  };
+
+  it("runs a command the CLI only failed to parse, and draws no card", async () => {
+    const input = { command: SNIPPET };
+    const { got, permissionResults, logged } = await run({ permissionMode: "bypassPermissions" }, { permissionOnTool: "Bash", permissionInput: input });
+    expect(types(got)).not.toContain("permission_request");
+    expect(statuses(got)).not.toContain("waiting_permission");
+    expect(permissionResults).toEqual([{ behavior: "allow" }]);
+    // Not silent: the daemon log says what ran without a question.
+    expect(logged.some((l) => l.includes("Full access") && l.includes(SNIPPET))).toBe(true);
+  });
+
+  it("still asks before a command that names rm", async () => {
+    for (const command of ["rm -rf build", "cd /tmp && rm -rf $$(ls)", "find . -name x -exec rm {} +", "docker run --rm img"]) {
+      const { got } = await run({ permissionMode: "bypassPermissions" }, { permissionOnTool: "Bash", permissionInput: { command } });
+      expect(types(got), command).toContain("permission_request");
+    }
+  });
+
+  it("does not read rm inside a longer word", async () => {
+    const { got } = await run({ permissionMode: "bypassPermissions" }, { permissionOnTool: "Bash", permissionInput: { command: `node x.mjs '$$(".form .term")'` } });
+    expect(types(got)).not.toContain("permission_request");
+  });
+
+  it("asks in every other mode", async () => {
+    for (const permissionMode of ["default", "acceptEdits", "plan"]) {
+      const { got } = await run({ permissionMode }, { permissionOnTool: "Bash", permissionInput: { command: SNIPPET } });
+      expect(types(got), permissionMode).toContain("permission_request");
+    }
+  });
+
+  it("follows the session into Full access and out of it", async () => {
+    const into = await run({ permissionMode: "default" }, { permissionOnTool: "Bash", permissionInput: { command: SNIPPET } },
+      (h) => h.setOptions({ permissionMode: "bypassPermissions" }));
+    expect(types(into.got)).not.toContain("permission_request");
+    const out = await run({ permissionMode: "bypassPermissions" }, { permissionOnTool: "Bash", permissionInput: { command: SNIPPET } },
+      (h) => h.setOptions({ permissionMode: "default" }));
+    expect(types(out.got)).toContain("permission_request");
+  });
+
+  it("leaves every other tool's question to the person", async () => {
+    // Each carries a `command` too, so it is the tool's name that keeps the question, not a missing field.
+    for (const tool of ["Edit", "Write", "ExitPlanMode", "mcp__realm__realm-computer__computer_act"]) {
+      const { got } = await run({ permissionMode: "bypassPermissions" }, { permissionOnTool: tool, permissionInput: { command: SNIPPET } });
+      expect(types(got), tool).toContain("permission_request");
+    }
+  });
+
+  it("does not answer a Bash call that carries no command to read", async () => {
+    const { got } = await run({ permissionMode: "bypassPermissions" }, { permissionOnTool: "Bash", permissionInput: { cmd: SNIPPET } });
+    expect(types(got)).toContain("permission_request");
+  });
+});
+
 describe("ClaudeAdapter", () => {
   it("streams normalized events for a turn and marks idle at result", async () => {
     const a = new ClaudeAdapter({ query: fakeQuery({}) as never });
