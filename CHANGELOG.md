@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.10.1 - 2026-11-11
+
+- Giving a whole team Full access asks first. Choosing Full access on the Team access row shows the same red "Allow everything? Confirm" as the prompter and Settings, and nothing changes until you press it. Ask each time and Accept edits still apply at once.
+- The New teammate sheet follows Team access. While a space's Team access is set, the sheet's permissions are locked to it.
+- The transcript says what Full access ran on its own. A command the agent's CLI asked about, and Full access allowed without a card, reads "Ran without asking" on its row.
+
 ## v2.10.0 - 2026-11-11
 
 - Team access: one setting at the head of the sidebar's Team list puts every teammate in a space on one access level (Ask each time, Accept edits or Full access), now and for teammates made there later. It reads Mixed when they differ. A teammate changed on its own afterwards keeps its level and makes the space Mixed.
