@@ -5017,11 +5017,11 @@ button.edit-file:hover { background: var(--rl-hover); }
    the old floating overlay shadow is gone), 12px card pad, and a hairline-topped footer — drawn as
    every card is, with no edge round it and on the painted curve ("One card", further down). The behaviour underneath is Realm's, verbatim: numbered options with kbd
    chips, ↑↓/bare-digit keys, the Enter-on-Deny guard, Esc→deny. The amber wash stays gone; colour
-   survives as the 6px dot and the "Waiting" pill. */
+   survives as the 6px dot beside who is asking (the question card's from-line). */
 .permission-card { border-radius: var(--r-squircle-card); corner-shape: squircle; padding: 14px; background: var(--surface); box-shadow: var(--card-lift); display: flex; flex-direction: column; gap: 8px; }
+.permission-from { flex: none; }
 .permission-head { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: var(--fw-label); color: var(--ink); }
 .permission-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--rl-warning); flex: none; animation: rl-pulse 0.9s ease-in-out infinite; }
-.permission-head .status-pill { margin-left: auto; font-weight: 400; }
 .permission-tool { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .permission-tool code { font: 12px var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--rl-text-dim); }
 .permission-details summary { font-size: 11px; color: var(--rl-text-dim); }

@@ -643,7 +643,8 @@ describe("permission keyboard (U-H4)", () => {
     expect(within(card).getByRole("button", { name: "Submit" })).toHaveTextContent("↩");
     // Amber is a dot and a pill now, not a wash over the whole head (§5).
     expect(card.querySelector(".permission-dot")).not.toBeNull();
-    expect(card.querySelector('.status-pill[data-tone="warning"]')).toHaveTextContent("Waiting");
+    expect(card.querySelector(".permission-from")).toHaveTextContent(/asks$/);
+    expect(card.querySelector(".status-pill")).toBeNull();
   });
 
   it("the number keys decide outright — 1 allows, 2 allows always, 3 denies", async () => {

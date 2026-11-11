@@ -1112,6 +1112,11 @@ Motion preserves continuity and confirms state. It does not decorate idle work.
   and ⌥↓ step between saved turns. What is kept is the prompt's event, never a quote of it, and the
   Library lists every saved turn of the profile, because the Library holds what a person kept and the
   activity view is a log of what went by.
+- A request a person must answer says who is asking before it says anything else — "Codex asks",
+  or the teammate's name when the session is a teammate's, because in Needs you the card is read
+  away from the transcript that would have said it. Then the question, then the thing asked about,
+  ONCE: the permission card printed its command three times and said Waiting three times, and a
+  card that repeats itself is one that has to be read twice to find the decision.
 - Never invent human-like agent presence, mood, or certainty.
 - On the phone, nothing floats over the reading while the Mac is there. A turn's state is the live
   line at the transcript's foot — "Working · 2m 14s" where its next words will come, as ChatGPT says

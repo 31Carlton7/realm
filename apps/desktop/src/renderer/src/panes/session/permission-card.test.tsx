@@ -86,3 +86,31 @@ describe("the simulator input card", () => {
     expect(within(root).getByText("simulator_tap")).toBeTruthy();
   });
 });
+
+describe("what the card says, and how many times", () => {
+  const bash: PendingPermission = { requestId: "r1", toolName: "Bash", input: { command: "pnpm --filter @realm/desktop dist" }, title: "Allow Bash?" };
+
+  it("says who is asking first, by the teammate's name when the session is a teammate's", () => {
+    // The head read "Allow Bash?" and nothing else, so a card in Needs you never said whose it was.
+    render(<PermissionCard permission={bash} asker={{ kind: "agent", name: "Release Captain", agent: "claude" }} onDecide={() => {}} />);
+    expect(document.querySelector(".permission-from")!.textContent).toBe("Release Captain asks");
+  });
+
+  it("shows the command once and never says Waiting in words", () => {
+    // It printed the command three times — the tool row, a "Bash pnpm …" line, the `$ pnpm …` well —
+    // and wore a Waiting pill beside the tool row's own "Waiting for you".
+    const { container } = render(<PermissionCard permission={bash} asker={{ kind: "agent", name: "Claude", agent: "claude" }} onDecide={() => {}} />);
+    // The raw payload under the closed "Raw input" fold is the checking copy, not a second showing.
+    const shown = container.cloneNode(true) as HTMLElement;
+    shown.querySelector(".permission-details")!.remove();
+    const text = shown.textContent ?? "";
+    expect(text.split("pnpm --filter @realm/desktop dist").length - 1).toBe(1);
+    expect(container.querySelector(".permission-tool")).toBeNull();
+    expect(text).not.toMatch(/Waiting/);
+  });
+
+  it("keeps the one-line summary for a tool the card has no drawing for", () => {
+    render(<PermissionCard permission={{ requestId: "r2", toolName: "mcp__x__thing", input: { q: "a" }, title: "Allow thing?" }} onDecide={() => {}} />);
+    expect(document.querySelector(".permission-tool")).not.toBeNull();
+  });
+});

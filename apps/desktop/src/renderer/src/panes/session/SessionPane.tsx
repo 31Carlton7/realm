@@ -32,6 +32,7 @@ import { PathMenu, asRef } from "./PathMenu";
 import { moveTargetLabel } from "./move-place";
 import { useSpaceTint } from "../../components/sidebar/use-sidebar-model";
 import type { SlashCommand } from "./slash-commands";
+import { sessionAsker } from "./PendingRequest";
 import { MediaSessionContext } from "../../components/viewer/open";
 
 /** Stable empty array: a fresh `[]` from the selector on every render makes useSyncExternalStore
@@ -724,7 +725,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
         onRetry={() => { setSends((n) => n + 1); run(() => retryLastTurn(id)); }}
         onContinueOn={(accountId) => { setSends((n) => n + 1); run(async () => { await setSessionAccount(id, accountId); await retryLastTurn(id); }); }}
         onRate={(messageId, rating) => run(() => rateMessage(id, messageId, rating))}
-        agentLabel={AGENT_META[session.agentKind].label}
+        agentLabel={AGENT_META[session.agentKind].label} asker={sessionAsker(session, spaceTeammates)}
         onCancelMove={peek ? undefined : () => run(() => cancelSessionMove(id))} />
       {peek
         ? <PeekBar spaceName={space?.name ?? "another space"} elsewhere={session.spaceId !== activeSpaceId} onOpen={() => run(() => openPeek())} />
