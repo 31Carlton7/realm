@@ -181,7 +181,7 @@ async function launch() {
   const serverWrapper = path.join(scratch, "server.mjs");
   fs.writeFileSync(serverWrapper, ["process.env.HOME = process.env.LIVE_SERVER_HOME;", "await import(process.env.LIVE_SERVER_MAIN);"].join("\n"));
   // LIVE_ELECTRON: a checkout whose Electron was never downloaded can run one already on the Mac.
-  const electronBin = process.env.LIVE_ELECTRON ?? path.join(repoRoot, "node_modules/.pnpm/electron@45.0.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
+  const electronBin = process.env.LIVE_ELECTRON ?? path.join(repoRoot, "node_modules/.pnpm/electron@45.3.0/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron");
   electron = spawn(electronBin, [wrapper, ...UNTHROTTLED], {
     env: {
       ...process.env,
