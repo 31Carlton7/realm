@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, open, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
-import type { BackgroundEffect, BackgroundImage, BackgroundsAdded } from "@realm/contracts";
+import { BACKGROUND_EFFECTS as EFFECTS, type BackgroundEffect, type BackgroundImage, type BackgroundsAdded } from "@realm/contracts";
 
 /**
  * The person's own backgrounds: pictures they chose, kept under the Realm home as
@@ -32,8 +32,6 @@ const KINDS: { ext: string[]; sniff: (b: Buffer) => boolean }[] = [
 /** Decodes a picture and writes it back as a JPEG at most `maxEdge` on its long side; null for bytes
  *  that do not decode. Main passes Electron's `nativeImage`; tests pass a stand-in. */
 export type Reencode = (bytes: Buffer, maxEdge: number) => { jpeg: Buffer; width: number; height: number } | null;
-
-const EFFECTS: readonly BackgroundEffect[] = ["dither", "dither-color", "halftone"];
 
 const dir = (home: string) => join(home, "backgrounds");
 const indexPath = (home: string) => join(dir(home), "index.json");

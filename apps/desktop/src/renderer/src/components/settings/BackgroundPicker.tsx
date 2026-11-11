@@ -112,7 +112,7 @@ export function BackgroundPicker({ mode }: { mode: Mode }) {
           onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropping(false); }}
           onDrop={onDrop}>
           {mine.length === 0 ? (
-            <EmptyState icon="image" heading="h2" title="No images yet"
+            <EmptyState icon="image" title="No images yet"
               actions={<button type="button" className="btn" onClick={choose}>Add image…</button>}>
               Drop pictures here. Each is drawn in your theme's colours unless you show it as it is.
             </EmptyState>
@@ -144,7 +144,6 @@ export function BackgroundPicker({ mode }: { mode: Mode }) {
   );
 }
 
-/** The picked picture's own rows: its name, how it is printed, and Remove. */
 function YourImageRows({ image, onRemoved }: { image: BackgroundImage; onRemoved: () => void }) {
   const run = useApp((s) => s.run);
   const [name, setName] = useState(image.name);

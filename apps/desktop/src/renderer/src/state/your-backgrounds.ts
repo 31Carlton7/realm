@@ -14,7 +14,7 @@ const urls = new Map<string, Promise<string | null>>();
 const bridge = () => window.realm?.backgrounds;
 const publish = (next: BackgroundImage[]) => { images = next; listeners.forEach((l) => l()); };
 
-export function refreshYourBackgrounds(): Promise<void> {
+function refreshYourBackgrounds(): Promise<void> {
   const b = bridge();
   loading = (b ? b.list().catch(() => []) : Promise.resolve([])).then(publish);
   return loading;

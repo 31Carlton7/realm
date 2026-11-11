@@ -6,6 +6,7 @@
 /** How a picture is printed: a two-tone Bayer dither in the theme's tones, the same dither keeping
  *  the picture's own colours, or round halftone dots. */
 export type BackgroundEffect = "dither" | "dither-color" | "halftone";
+export const BACKGROUND_EFFECTS: readonly BackgroundEffect[] = ["dither", "dither-color", "halftone"];
 
 /** One of the person's own pictures, as main keeps it under `<REALM_HOME>/backgrounds/`. */
 export type BackgroundImage = {

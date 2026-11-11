@@ -1,10 +1,8 @@
-import { DEFAULT_BACKGROUND, MINE_PREFIX, shufflePick, type BackgroundEffect, type BackgroundImage } from "@realm/contracts";
+import { BACKGROUND_EFFECTS as EFFECTS, DEFAULT_BACKGROUND, MINE_PREFIX, shufflePick, type BackgroundEffect, type BackgroundImage } from "@realm/contracts";
 import galleryJson from "../../assets/hero-backdrops/gallery.json";
 
 /** A look Realm ships: `light` and `dark` are the pictures for each face, as URLs. */
 export type GalleryLook = { id: string; name: string; mood: string; light: string; dark: string; effect: BackgroundEffect; motion: boolean };
-
-const EFFECTS: readonly BackgroundEffect[] = ["dither", "dither-color", "halftone"];
 
 /**
  * The gallery as `gallery.json` lists it, keeping only entries that can be drawn: an id of lowercase
