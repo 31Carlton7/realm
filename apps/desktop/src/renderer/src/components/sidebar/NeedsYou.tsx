@@ -9,8 +9,8 @@ import { useSidebarState } from "./use-sidebar-model";
  * Needs you: the one list of what waits on an answer (Plan 27).
  *
  * Sessions waiting on a permission or a question, the longest-waiting first, then the ones that
- * failed — from every space and every profile, each naming its space (and its profile, when that is
- * not the one on screen). A sub-agent's request is not a row here: it is a count on its lead's row,
+ * failed — from every space and every profile, each naming its space and its profile when that is
+ * not the one on screen. A sub-agent's request is not a row here: it is a count on its lead's row,
  * answered in the lead's Agents tab (`needsYou`). Drawn only when something is in it. It replaces the
  * head band's "N need you" pill and the Active section; working and unread are not here, they show in
  * their spaces and under Recent.
@@ -37,15 +37,18 @@ function NeedsYouItem({ row }: { row: NeedsYouRow }) {
   const spaces = useApp((s) => s.spaces);
   const profiles = useApp((s) => s.profiles);
   const activeProfileId = useApp((s) => s.activeProfileId);
+  const activeSpaceId = useApp((s) => s.activeSpaceId);
   const revealSession = useApp((s) => s.revealSession);
   const run = useApp((s) => s.run);
   const [answering, setAnswering] = useState(false);
   const disclose = useRef<HTMLButtonElement>(null);
   const space = spaces.find((sp) => sp.id === row.spaceId);
   const profile = space && space.profileId !== activeProfileId ? profiles.find((p) => p.id === space.profileId) : undefined;
-  // The space, and the profile only when it is not the one on screen — a short name kept whole while
-  // the title gives way (design.md, the yielding order).
+  // The accessible name says where the session is. The row shows the space and the profile only when
+  // each is not the one on screen: the column's head already names those, and the title is what
+  // needs the width (design.md, the yielding order).
   const where = [space?.name, profile?.name].filter(Boolean).join(" · ");
+  const shownWhere = [space?.id === activeSpaceId ? undefined : space?.name, profile?.name].filter(Boolean).join(" · ");
   const waiting = row.status === "waiting_permission";
   const said = NEEDS_YOU_LABEL[row.status];
   const answerId = `needs-you-answer-${row.session.id}`;
@@ -56,7 +59,7 @@ function NeedsYouItem({ row }: { row: NeedsYouRow }) {
           data-tip="clipped" onClick={() => run(() => revealSession(row.session.id, row.spaceId))}>
           <Icon name={row.scheduled ? "clock" : "session"} size={16} />
           <span className="item-title" data-tip-text>{row.title}</span>
-          {where && <span className="item-where">{where}</span>}
+          {shownWhere && <span className="item-where">{shownWhere}</span>}
           {/* Amber for a failure too: the column's one dot means "needs you", and the words say which. */}
           <span className="item-trail"><span className="status-dot item-status" data-status="waiting_permission" title={said} /></span>
         </button>

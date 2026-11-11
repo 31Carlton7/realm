@@ -240,21 +240,28 @@ describe("the column's title", () => {
 });
 
 describe("the space's sessions", () => {
-  it("lists the five newest under a Sessions caption, then Show all N opens every session by time", async () => {
-    // THE MUTANTS: six rows; a count of the hidden ones only; Show all landing on the space's page.
+  it("lists the five newest under a Sessions caption, then Show all N lists the rest of this space in place", async () => {
+    // THE MUTANTS: six rows; a count of the hidden ones only; Show all opening the cross-space Activity
+    // lens (SB-02) or the space's page; another space's session joining the list.
     const many = Array.from({ length: 7 }, (_, i) => session(`m${i}`, "s1", { title: `Task ${i}`, activityAt: 1000 + i }));
+    const elsewhere = session("o1", "s2", { title: "Other space", activityAt: 2000 });
     const { store } = await mount(home({
-      items: { s1: many.map((m) => sessionItem(m.id, "s1", m.title)), s2: [] },
-      sessions: many,
+      items: { s1: many.map((m) => sessionItem(m.id, "s1", m.title)), s2: [sessionItem("o1", "s2", "Other space")] },
+      sessions: [...many, elsewhere],
     }));
     const list = () => screen.getByRole("group", { name: "Sessions" });
-    await waitFor(() => expect([...list().querySelectorAll(".item-title")].map((t) => t.textContent)).toEqual(["Task 6", "Task 5", "Task 4", "Task 3", "Task 2"]));
+    const titles = () => [...list().querySelectorAll(".item-title")].map((t) => t.textContent);
+    await waitFor(() => expect(titles()).toEqual(["Task 6", "Task 5", "Task 4", "Task 3", "Task 2"]));
     expect(within(list()).getByText("Sessions")).toBeInTheDocument();
-    const all = within(list()).getByRole("button", { name: "Show all 7" });
-    fireEvent.click(all);
-    await waitFor(() => expect(store.getState().sidebarLens).toBe("recent"));
+    const lens = store.getState().sidebarLens;
+    fireEvent.click(within(list()).getByRole("button", { name: "Show all 7" }));
+    await waitFor(() => expect(titles()).toEqual(["Task 6", "Task 5", "Task 4", "Task 3", "Task 2", "Task 1", "Task 0"]));
+    expect(store.getState().sidebarLens).toBe(lens);
     expect(store.getState().pageOverlay).toBeNull();
-    await waitFor(() => expect(document.querySelector(".sb-recent")).toHaveTextContent("Task 0"));
+    const fewer = within(list()).getByRole("button", { name: "Show fewer" });
+    expect(fewer).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(fewer);
+    await waitFor(() => expect(titles()).toHaveLength(5));
   });
 
   it("draws no Show all for a space with five sessions or fewer", async () => {

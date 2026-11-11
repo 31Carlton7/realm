@@ -1,5 +1,5 @@
 import { Icon } from "@realm/ui";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { Space } from "@realm/contracts";
 import { useApp, useProfileSpaces } from "../../state/store";
 import { teammateOfHome } from "../../state/teammates-slice";
@@ -33,17 +33,18 @@ export function SpaceSections({ state, rows, onChanged }: { state: SidebarState;
 
 /**
  * The space's own sessions — the ones no teammate started — under a "Sessions" caption: the five that
- * moved last, then "Show all N", which opens every session by time (the Activity view). An empty
+ * moved last, then "Show all N", which lists the rest of this space's in place. Activity, which spans
+ * every space, stays on its own toggle: a count that names this space opens this space. An empty
  * space offers the shortest honest ways into it instead: a session, or — while it has none — a
  * teammate.
  */
 function SpaceSessions({ space, rows, onChanged }: { space: Space; rows: SessionRow[]; onChanged: () => void }) {
   const newSessionIn = useNewSessionIn();
   const openSheet = useApp((s) => s.openSheet);
-  const setSidebarLens = useApp((s) => s.setSidebarLens);
-  const run = useApp((s) => s.run);
   const hasTeam = useApp((s) => (s.teammates[space.id]?.length ?? 0) > 0);
-  const shown = useMemo(() => newestRows(rows), [rows]);
+  const [expanded, setExpanded] = useState(false);
+  const all = useMemo(() => newestRows(rows, Infinity), [rows]);
+  const shown = expanded ? all : all.slice(0, SECTION_ROWS);
   if (rows.length === 0) {
     return (
       <div className="item-list">
@@ -68,9 +69,9 @@ function SpaceSessions({ space, rows, onChanged }: { space: Space; rows: Session
       <div className="item-list">
         {shown.map((r) => <ListRowView key={r.id} row={r} onChanged={onChanged} />)}
       </div>
-      {rows.length > SECTION_ROWS && (
-        <button type="button" className="agents-more sb-more" title="Every session, by when it last moved"
-          onClick={() => run(() => setSidebarLens("recent"))}>Show all {rows.length}</button>
+      {all.length > SECTION_ROWS && (
+        <button type="button" className="agents-more sb-more" aria-expanded={expanded}
+          onClick={() => setExpanded((v) => !v)}>{expanded ? "Show fewer" : `Show all ${all.length}`}</button>
       )}
     </div>
   );
