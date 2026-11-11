@@ -539,3 +539,27 @@ describe("a move under way", () => {
     expect(reduceAll([failed("old"), moving("m", "boot"), moved("old")]).move).toEqual({ moveId: "m", step: "boot" });
   });
 });
+
+/** Full access answered the CLI's question itself (`permission_response.fullAccess`): the call it was
+ *  about says so, whichever of the two events lands first. */
+describe("a call Full access ran without asking", () => {
+  const call = (toolUseId: string, ts: number) => sessionEvent("tool_call", { toolUseId, name: "Bash", input: { command: "x" }, parentToolUseId: null }, ts);
+  const allowed = (toolUseId: string | undefined, ts: number) =>
+    sessionEvent("permission_response", { requestId: `r-${ts}`, decision: "allow", fullAccess: { toolName: "Bash", title: "Allow Bash?", ...(toolUseId ? { toolUseId } : {}) } }, ts);
+  const marked = (t: ReturnType<typeof emptyTranscript>) => t.blocks.flatMap((b) => (b.kind === "tool" && b.ranUnasked ? [b.toolUseId] : []));
+
+  it("marks the call when the Allow lands after it", () => {
+    // THE MUTANT: `permission_response` read only for a question's answer and a pending card.
+    expect(marked(reduceAll([call("t1", 1), call("t2", 2), allowed("t2", 3)]))).toEqual(["t2"]);
+  });
+
+  it("marks the call when the Allow lands before it", () => {
+    // The Claude CLI asks before the call's own message reaches the stream.
+    expect(marked(reduceAll([allowed("t1", 1), call("t1", 2), call("t2", 3)]))).toEqual(["t1"]);
+  });
+
+  it("marks nothing for an Allow somebody clicked, or one that names no call", () => {
+    const clicked = sessionEvent("permission_response", { requestId: "r1", decision: "allow" }, 2);
+    expect(marked(reduceAll([call("t1", 1), clicked, allowed(undefined, 3)]))).toEqual([]);
+  });
+});

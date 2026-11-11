@@ -428,7 +428,7 @@ export class ClaudeAdapter implements AgentAdapter {
       if (o.signal.aborted) return { behavior: "deny", message: "aborted" };
       if (fullAccessAllows(permissionMode, { toolName, input: toolInput })) {
         opts.onLog?.(fullAccessLogLine(toolInput, o.decisionReason ?? "the CLI asked"));
-        events.push(sessionEvent("permission_response", { requestId: newId(), decision: "allow", fullAccess: { toolName, title: o.title ?? `Allow ${toolName}?` } }));
+        events.push(sessionEvent("permission_response", { requestId: newId(), decision: "allow", fullAccess: { toolName, title: o.title ?? `Allow ${toolName}?`, ...(o.toolUseID ? { toolUseId: o.toolUseID } : {}) } }));
         return { behavior: "allow" };
       }
       const requestId = newId();

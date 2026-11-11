@@ -927,3 +927,17 @@ describe("one lead column", () => {
     expect(document.querySelector(".tool-summary")).toHaveAttribute("title", command);
   });
 });
+
+describe("a call Full access ran without asking", () => {
+  it("says so on its row, in words", () => {
+    // THE MUTANT: the row drawn as any other settled call, so nothing on screen says the CLI asked.
+    render(<ToolCard block={{ ...block("ran"), ranUnasked: true }} sessionStatus="idle" />);
+    const word = screen.getByText("Ran without asking");
+    expect(word.getAttribute("title")).toMatch(/Full access/);
+  });
+
+  it("says nothing on an ordinary call", () => {
+    render(<ToolCard block={block("ran")} sessionStatus="idle" />);
+    expect(screen.queryByText("Ran without asking")).toBeNull();
+  });
+});

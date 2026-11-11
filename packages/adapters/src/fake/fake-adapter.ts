@@ -193,7 +193,7 @@ export class FakeAdapter implements AgentAdapter {
             const ask = st.name === "AskUserQuestion" ? askCardFromAskUserQuestion(st.input, FAKE_ASKER) : null;
             if (ask) asks.set(requestId, ask);
             q.push(sessionEvent("status", { status: "waiting_permission" }));
-            q.push(sessionEvent("permission_request", { requestId, toolName: st.name, input: st.input, title: `Allow ${st.name}?`, suggestions: [], ...(ask ? { ask } : {}) }));
+            q.push(sessionEvent("permission_request", { requestId, toolName: st.name, input: st.input, title: `Allow ${st.name}?`, suggestions: [], toolUseId, ...(ask ? { ask } : {}) }));
             const decision = await new Promise<PermissionDecision>((res) => pending.set(requestId, res));
             if (disposed) return;
             if (interrupted) break;
