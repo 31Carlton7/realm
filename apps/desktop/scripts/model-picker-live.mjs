@@ -406,21 +406,22 @@ async function owner() {
       if (mode === "light") await setTheme(c, api, "light");
       const chip = await chipOf(c);
       check(`${mode}: the chip names the model and the level it runs at, and the harness in its tooltip`,
-        chip.text.includes("Fable 5.1") && chip.effort === "High" && chip.title === "Claude Fable 5.1 through Claude · High effort", chip);
+        chip.text === "Default" && chip.effort === "High" && chip.title === "Default through Claude · High effort", chip);
       await openPicker(c);
       const l = await layout(c);
-      check(`${mode}: one compact column, no detail pane`, !l.detailPane && l.picker.w >= 360 && l.picker.w <= 380, { w: l.picker.w });
+      check(`${mode}: one compact column, no detail pane`, !l.detailPane && l.picker.w === 420, { w: l.picker.w });
       check(`${mode}: inside the window`, l.picker.x >= 0 && l.picker.y >= 0 && l.picker.x + l.picker.w <= l.win.w && l.picker.y + l.picker.h <= l.win.h, l.picker);
       check(`${mode}: every row is one line and nothing in a row overflows it`, l.rowHeights.length === 1 && l.rowHeights[0] === 32 && l.overflowingRows.length === 0, { heights: l.rowHeights, overflowing: l.overflowingRows });
-      check(`${mode}: the current model is ticked and in view`, l.current === "Claude Fable 5.1" && l.currentInView, { current: l.current });
+      // Pinned to nothing, and the stub's probe names no default: the CLI's own default is what runs.
+      check(`${mode}: the current model is ticked and in view`, l.current === "Default" && l.currentInView, { current: l.current });
       const card = await runCard(c);
       check(`${mode}: the foot is the effort card — a dot per level on one line, evenly spaced, the knob on the level in force`, cardIsDrawn(card), card);
       check(`${mode}: it names the level over the model, in the accent, with no reset while nothing has moved`,
-        card?.level === "High" && card.model === "Fable 5.1" && card.levelInAccent && card.reset === null && card.track?.chosen === null, card && { level: card.level, model: card.model, reset: card.reset });
+        card?.level === "High" && card.model === "the default model" && card.levelInAccent && card.reset === null && card.track?.chosen === null, card && { level: card.level, model: card.model, reset: card.reset });
       check(`${mode}: the bolt sits beside it, unpressed, with nothing under it until it is pressed`,
         card?.bolt?.pressed === "false" && card.bolt.disabled === null && !card.note, card?.bolt);
       check(`${mode}: the bolt's tooltip says what fast mode buys, and that the first turn checks this model`,
-        /^Fast mode: .+\. The first turn checks whether Fable 5\.1 can run it\.$/.test(card?.bolt?.title ?? ""), card?.bolt?.title);
+        /^Fast mode: .+\. The first turn checks whether the default model can run it\.$/.test(card?.bolt?.title ?? ""), card?.bolt?.title);
       await shootPicker(c, `after-${mode}-claude-picker`);
       await shoot(c, `after-${mode}-full`);
 
@@ -451,7 +452,7 @@ async function owner() {
     card = await runCard(c);
     check("…the knob and the name follow, the picker stays open, and the reset appears", card?.level === "Medium" && card.track.now === atDefault - 1
       && card.track.chosen === "medium" && card.track.focused && !!card.reset && await evalIn(c, `!!document.querySelector('.model-picker')`), card);
-    check("the reset's tooltip names the default it goes back to", card?.reset?.title === "Back to Fable 5.1’s default, High", card?.reset);
+    check("the reset's tooltip names the default it goes back to", card?.reset?.title === "Back to the default model’s default, High", card?.reset);
     check("the chip wears the level chosen", (await chipOf(c)).effort === "Medium");
     await shootPicker(c, "after-light-claude-chosen");
     await key(c, "ArrowRight"); await key(c, "ArrowRight");
@@ -494,7 +495,7 @@ async function owner() {
       await openPicker(c);
       const no = await runCard(c);
       check(`${mode}: on a model Claude said cannot, the bolt is there but cannot be pressed, and its tooltip names the ones that can`,
-        no?.bolt?.disabled === "true" && no.bolt.pressed === "false" && no.bolt.title === "Fast mode isn’t offered on Fable 5.1 — Opus 5.5 and Sonnet 5 offer it." && !no.note, no?.bolt);
+        no?.bolt?.disabled === "true" && no.bolt.pressed === "false" && no.bolt.title === "Fast mode isn’t offered on the default model — Opus 5.5 and Sonnet 5 offer it." && !no.note, no?.bolt);
       if (mode === "dark") {
         await clickAt(c, no.bolt.box.cx, no.bolt.box.cy);
         await sleep(400);

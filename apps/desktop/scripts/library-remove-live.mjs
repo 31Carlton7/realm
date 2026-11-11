@@ -503,8 +503,8 @@ async function main() {
       await backspace(c);
       await until(async () => (await evalIn(c, `document.querySelectorAll('.library-file').length`)) < left, 5_000, "a file out");
     }
-    const empty = await until(() => evalIn(c, `document.querySelector('.empty-state')?.textContent ?? null`), 5_000, "the empty state");
-    check(`${face}: with the last file out, the page's empty state is back`, empty.startsWith("Nothing here yet."), empty);
+    const empty = await until(() => evalIn(c, `document.querySelector('.library-files .empty-state')?.textContent ?? null`), 5_000, "the empty state");
+    check(`${face}: with the last file out, the page's empty state is back`, empty.startsWith("No files yet") && empty.includes("every file you add"), empty);
     const left = fs.readdirSync(libraryDir).filter((n) => !n.startsWith("."));
     check(`${face}: …and the profile's folder holds no copy, the Desktop every original`,
       left.length === 0 && ORDER.every((n) => sha(path.join(desk, n)) === originals[n]), left);

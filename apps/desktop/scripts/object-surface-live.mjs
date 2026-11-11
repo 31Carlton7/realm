@@ -27,6 +27,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonToken, stopDaemons, tokenProtocols } from "./lib/daemon-token.mjs";
 import { spawnLiveElectron } from "./lib/live-app.mjs";
+import { openSideTool } from "./lib/side-tools.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const UNTHROTTLED = ["--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding", "--disable-background-timer-throttling"];
@@ -320,8 +321,11 @@ async function main() {
     const sent = await boxOf(c, ".msg-user-files", 12);
     if (sent) await shot(c, `${label}-3-sent-files-close`, sent, 2);
 
-    // The session's Files dock — its cards are the Library's.
-    await press(c, `button[aria-label=${JSON.stringify(`Files for ${TITLE}`)}]`);
+    // The session's Files dock — its cards are the Library's. One bar control opens the summary and
+    // the files, and the dock's head says which it is showing.
+    await press(c, `button[aria-label=${JSON.stringify(`Summary and files for ${TITLE}`)}]`);
+    await until(() => evalIn(c, `!!document.querySelector('.session-files, .session-summary')`), 10_000, "the session's dock");
+    await evalIn(c, `(() => { const files = [...document.querySelectorAll('.dock-views .seg-opt')].find((l) => l.textContent.trim() === 'Files'); files?.querySelector('input').click(); return true; })()`);
     await until(() => evalIn(c, `!!document.querySelector('.session-files')`), 10_000, "the Files dock");
     if (await evalIn(c, `document.querySelector('.session-files button[aria-label="Show as a grid"]')?.getAttribute('aria-pressed') !== 'true'`)) {
       await press(c, `.session-files button[aria-label="Show as a grid"]`);
@@ -331,11 +335,11 @@ async function main() {
     await sleep(400);
     const dock = await boxOf(c, ".session-files", 12);
     if (dock) await shot(c, `${label}-3b-files-dock`, dock, 2);
-    await press(c, `button[aria-label=${JSON.stringify(`Files for ${TITLE}`)}]`);
+    await press(c, `button[aria-label=${JSON.stringify(`Summary and files for ${TITLE}`)}]`);
     await sleep(300);
 
-    // The documents pane's home, beside the session.
-    await press(c, `button[aria-label=${JSON.stringify(`Open documents for ${TITLE}`)}]`);
+    // The documents pane's home, beside the session: a row of its side panel's "+".
+    await openSideTool(c, null, "Documents");
     await until(() => evalIn(c, `!!document.querySelector('.docs-home section[aria-label="Library"] .docs-home-row')`), 15_000, "the documents home");
     await park(c);
     await sleep(500);

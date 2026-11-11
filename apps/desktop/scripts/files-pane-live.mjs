@@ -244,7 +244,7 @@ async function main() {
   const ryezRoot = (await api.call("environments.list", { spaceId: ryez.id })).find((e) => e.kind === "primary").path;
   const downloads = path.join(scratch, "Downloads");
   fs.mkdirSync(downloads, { recursive: true });
-  fs.copyFileSync(path.join(repoRoot, "site/public/product/spaces.png"), path.join(downloads, "competitor-pricing.png"));
+  fs.copyFileSync(path.join(repoRoot, "docs/images/sidebar.png"), path.join(downloads, "competitor-pricing.png"));
   writeOut(root, {
     "research/pricing-tiers.md": "# Pricing tiers\n\nThree tiers, one of them free.\n",
     "data/q3-revenue.csv": "month,revenue\nJuly,41200\nAugust,44950\nSeptember,47310\n",
@@ -252,7 +252,7 @@ async function main() {
     // On disk and in no record: only the checkout's own search can find it.
     "notes/planning.md": "# Planning\n",
   });
-  fs.copyFileSync(path.join(repoRoot, "site/public/product/session.png"), path.join(root, "research/hero-shot.png"));
+  fs.copyFileSync(path.join(repoRoot, "docs/images/workspace.png"), path.join(root, "research/hero-shot.png"));
   writeOut(ryezRoot, { "copy/welcome-email.md": "# Welcome\n\nThanks for signing up.\n" });
   const now = Date.now();
   const rows = [
@@ -271,7 +271,7 @@ async function main() {
   execFileSync("sqlite3", [path.join(home, "realm.db")], { input: sql });
 
   // The session's own: a picture attached to the message, and the files its turn writes and edits.
-  fs.copyFileSync(path.join(repoRoot, "site/public/product/palette.png"), path.join(downloads, "pricing-sketch.png"));
+  fs.copyFileSync(path.join(repoRoot, "docs/images/models.png"), path.join(downloads, "pricing-sketch.png"));
   await api.call("sessions.send", { id: lead, text: "Draft the launch notes and a greeting script, from this sketch.", attachments: [{ path: path.join(downloads, "pricing-sketch.png"), mime: "image/png" }], mentions: [] });
   const evs = await until(async () => {
     const e = await api.call("sessions.events", { id: lead, afterSeq: 0, limit: 500 });
