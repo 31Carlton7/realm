@@ -1,6 +1,16 @@
 [
-  { "id": "haze", "name": "Haze", "mood": "A soft long-exposure sky over hazy hills", "light": "haze.jpg", "dark": "haze.jpg", "effect": "dither", "motion": true },
-  { "id": "silk", "name": "Silk", "mood": "Satin folds in a print's halftone", "light": "silk.jpg", "dark": "silk.jpg", "effect": "halftone", "motion": true },
-  { "id": "sky", "name": "Sky", "mood": "Clouds in their own colours, by day and at dusk", "light": "sky-day.jpg", "dark": "sky-dusk.jpg", "effect": "dither-color", "motion": false },
-  { "id": "dunes", "name": "Dunes", "mood": "Long wind-laid ridges", "light": "dunes.jpg", "dark": "dunes.jpg", "effect": "dither", "motion": false }
+  {"id": "haze", "name": "Haze", "mood": "A soft long-exposure sky over hazy hills", "light": "haze.jpg", "dark": "haze.jpg", "effect": "dither", "motion": true},
+  {"id": "dunes", "name": "Dunes", "mood": "Long wind-laid ridges", "light": "dunes.jpg", "dark": "dunes.jpg", "effect": "dither", "motion": false},
+  {"id": "silk", "name": "Silk", "mood": "Satin folds in a print's halftone", "light": "silk.jpg", "dark": "silk.jpg", "effect": "halftone", "motion": true},
+  {"id": "sky", "name": "Sky", "mood": "Clouds in their own colours, by day and at dusk", "light": "sky-day.jpg", "dark": "sky-dusk.jpg", "effect": "dither-color", "motion": false},
+  {"id": "nebula", "name": "Nebula", "mood": "Red gas and dark dust across a field of stars", "light": "nebula.jpg", "dark": "nebula.jpg", "effect": "dither-color", "motion": false},
+  {"id": "aurora", "name": "Aurora", "mood": "Green curtains over a dark treeline", "light": "aurora.jpg", "dark": "aurora.jpg", "effect": "dither-color", "motion": false},
+  {"id": "ocean", "name": "Ocean", "mood": "A still sea to a hazy horizon; the moon's path on it at night", "light": "ocean-day.jpg", "dark": "ocean-night.jpg", "effect": "dither-color", "motion": false},
+  {"id": "ridges", "name": "Ridges", "mood": "Ranges of hills fading into morning haze; the same at dusk", "light": "ridges-day.jpg", "dark": "ridges-night.jpg", "effect": "dither-color", "motion": false},
+  {"id": "forest", "name": "Forest", "mood": "Rows of pines going back into fog", "light": "forest-day.jpg", "dark": "forest-night.jpg", "effect": "dither", "motion": false},
+  {"id": "floodlights", "name": "Floodlights", "mood": "Beams crossing through hazy night air", "light": "floodlights.jpg", "dark": "floodlights.jpg", "effect": "dither", "motion": false},
+  {"id": "arcade", "name": "Arcade", "mood": "A striped sun setting over a neon grid", "light": "arcade.jpg", "dark": "arcade.jpg", "effect": "dither-color", "motion": false},
+  {"id": "pixel", "name": "Pixel", "mood": "A pixel-art lake at sunset; the same under the moon", "light": "pixel-day.jpg", "dark": "pixel-night.jpg", "effect": "dither-color", "motion": false},
+  {"id": "ink", "name": "Ink", "mood": "Mountains in wet ink washes on paper", "light": "ink.jpg", "dark": "ink.jpg", "effect": "dither", "motion": false},
+  {"id": "rain", "name": "Rain", "mood": "Raindrops on a window, city lights behind", "light": "rain.jpg", "dark": "rain.jpg", "effect": "dither-color", "motion": false}
 ]
