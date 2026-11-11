@@ -17,6 +17,8 @@ const PROMPT_TIMEOUT_MS = 15 * 60 * 1000;
  *  asker may need told apart from the user's own "no". */
 type Settle = (r: { decision: PermissionDecision; answers?: AskAnswers; cancelled?: boolean }) => void;
 type PendingPrompt = { sessionId: string; toolKey: string; settle: Settle; timer: NodeJS.Timeout; alwaysPrompt: boolean; perSession: boolean; onAlwaysAllow?: () => void;
+  /** Full access would not have asked it: neither `alwaysPrompt` nor `promptUnderBypass`. */
+  bypassable?: boolean;
   /** Set for a QUESTION (`ask`): what its answers are held to, and how the log keeps them. */
   card?: AskCard };
 
@@ -120,6 +122,12 @@ export class BrowserPermissionBroker {
 
   owns(requestId: string): boolean {
     return requestId.startsWith(REQUEST_PREFIX);
+  }
+
+  /** A card still waiting that `bypassPermissions` would not have raised — what a session moved into
+   *  Full access may answer Allow on. A question, and a gate that asks even in Full access, are not. */
+  skippedUnderBypass(requestId: string): boolean {
+    return this.pending.get(requestId)?.bypassable === true;
   }
 
   /** The user's answer, routed here by `SessionService.respondPermission`. Unknown ids are ignored
@@ -256,7 +264,8 @@ export class BrowserPermissionBroker {
         this.settled(sessionId);
         resolve("deny");
       }, PROMPT_TIMEOUT_MS);
-      this.pending.set(requestId, { sessionId, toolKey, settle: (r) => resolve(r.decision), timer, alwaysPrompt: opts.alwaysPrompt === true, perSession: opts.perSession === true, onAlwaysAllow: opts.onAlwaysAllow });
+      this.pending.set(requestId, { sessionId, toolKey, settle: (r) => resolve(r.decision), timer, alwaysPrompt: opts.alwaysPrompt === true, perSession: opts.perSession === true, onAlwaysAllow: opts.onAlwaysAllow,
+        bypassable: !opts.alwaysPrompt && !opts.promptUnderBypass });
       // Emitted AFTER the pending entry exists: a same-tick respondPermission must find it.
       // `toolName` is what the card SHOWS; `toolKey` is what `allow_always` remembers. They differ when
       // the grant must be narrower than the tool — Plan 20's ask keys on `agent_ask:<targetId>` so

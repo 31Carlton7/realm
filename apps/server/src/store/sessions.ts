@@ -1,5 +1,5 @@
 import type { Db } from "../db/database";
-import { newId, SessionEventSchema, type AgentKind, type DispatchedBy, type DispatchKind, type Session, type SessionEvent, type SessionStatus, type StoredSessionEvent } from "@realm/contracts";
+import { newId, SessionEventSchema, type AgentKind, type DispatchedBy, type DispatchKind, type Session, type SessionEvent, type SessionEventPayload, type SessionStatus, type StoredSessionEvent } from "@realm/contracts";
 import { NotFoundError, RpcError, now } from "./rows";
 import { encodePayload, parsePayload, type StoredPayload } from "./event-payload";
 
@@ -342,14 +342,19 @@ export class SessionEventsStore {
   }
   /** requestIds of every permission_request without a permission_response, oldest first. */
   findDanglingPermissions(sessionId: string): string[] {
+    return this.openPermissionRequests(sessionId).map((r) => r.requestId);
+  }
+  /** Every permission_request without a permission_response, oldest first. */
+  openPermissionRequests(sessionId: string): SessionEventPayload<"permission_request">[] {
     const rows = this.db.prepare("SELECT type, payload_json FROM session_events WHERE session_id = ? AND type IN ('permission_request', 'permission_response') ORDER BY seq").all(sessionId) as Pick<EventRow, "type" | "payload_json">[];
-    const open = new Set<string>();
+    const open = new Map<string, SessionEventPayload<"permission_request">>();
     for (const r of rows) {
-      const requestId = (parsePayload(r.payload_json) as { requestId?: unknown } | undefined)?.requestId;
-      if (typeof requestId !== "string") continue;
-      if (r.type === "permission_request") open.add(requestId); else open.delete(requestId);
+      const payload = parsePayload(r.payload_json) as { requestId?: unknown } | undefined;
+      if (typeof payload?.requestId !== "string") continue;
+      if (r.type === "permission_request") open.set(payload.requestId, payload as SessionEventPayload<"permission_request">);
+      else open.delete(payload.requestId);
     }
-    return [...open];
+    return [...open.values()];
   }
   /** The newest persisted event's timestamp, or null when the session has none. The last moment the
    *  log has evidence for — which is where a run interrupted by a crash is dated. */

@@ -121,6 +121,10 @@ export function resolveDefaultPermissionMode(kind: AgentKind, raw: unknown): str
  *  is a command that does not exist there. */
 /** How long a steer waits for the interrupted turn to settle before sending anyway. */
 const INTERRUPT_SETTLE_TIMEOUT_MS = 10_000;
+
+/** Cards that are the person's to answer in every mode: a question, and a plan to approve. */
+const ASKS_IN_FULL_ACCESS: ReadonlySet<string> = new Set(["AskUserQuestion", "ExitPlanMode"]);
+
 /** How long a queued message stays held for an edit with nobody saving or letting go — a window
  *  closed mid-edit, a client that dropped. Long enough for anyone actually typing. */
 export const QUEUE_HOLD_TTL_MS = 10 * 60_000;
@@ -298,7 +302,7 @@ export class SessionService {
     /** Plan 11 W3: routes broker-owned permission requestIds (`bperm_…`) and cleans a deleted
      *  session's pending prompts + allow-always grants. Optional — a harness without browser tools
      *  behaves exactly as before. */
-    browserPermissions?: { owns(requestId: string): boolean; resolve(requestId: string, decision: PermissionDecision, answers?: AskAnswers, sessionId?: string): void; release(sessionId: string): void };
+    browserPermissions?: { owns(requestId: string): boolean; skippedUnderBypass(requestId: string): boolean; resolve(requestId: string, decision: PermissionDecision, answers?: AskAnswers, sessionId?: string): void; release(sessionId: string): void };
     /** Computer use granted by a mention, per session (`computer/session-grants.ts`): what an
      *  `@Messages` in a delivered message writes, and what a deleted session takes with it. Optional —
      *  a harness without it treats an app mention as text and grants nothing. */
@@ -1029,6 +1033,23 @@ export class SessionService {
     const l = this.live.get(id);
     if (!l) throw new RpcError("SESSION_NOT_LIVE", "the agent is not running; the request is stale (send a message to resume)");
     l.handle.respondPermission(requestId, decision, answers);
+  }
+
+  /**
+   * Answer Allow on every card the session is waiting on that Full access would not have asked. For a
+   * session just moved into `bypassPermissions`: the person has said to stop asking, and the cards
+   * already up are asking. A question, a plan to approve, and a gate Realm asks
+   * even in Full access (`alwaysPrompt`, `promptUnderBypass`) still wait for the person. One-shot
+   * `allow`, never `allow_always`, so nothing is written to the agent's own settings.
+   */
+  allowOpenPermissions(id: string): void {
+    if (this.get(id).permissionMode !== "bypassPermissions") return;
+    const broker = this.d.browserPermissions;
+    for (const card of this.d.events.openPermissionRequests(id)) {
+      if (card.ask || ASKS_IN_FULL_ACCESS.has(card.toolName)) continue;
+      if (broker?.owns(card.requestId) ? !broker.skippedUnderBypass(card.requestId) : !this.live.has(id)) continue;
+      this.respondPermission(id, card.requestId, "allow");
+    }
   }
 
   /** `text` with every masked answer this session was given replaced by the mark — what the gateway
