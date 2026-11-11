@@ -1064,6 +1064,19 @@ describe("SessionMeta", () => {
     expect(screen.queryByText("$0.50")).toBeNull();
   });
 
+  it("draws no status for a session that has not started", () => {
+    // TN-01. THE MUTANT: "Status: Idle" on the bar of a prompter nothing has been sent from.
+    const store = createAppStore(fakeApi());
+    store.setState({ sessions: { se1: session("se1", "s1", { lastEventSeq: 0 }) }, sessionStatus: { se1: "idle" } });
+    const view = () => <StoreContext.Provider value={store}><SessionMeta item={item("i9", "s1", { kind: "session", refId: "se1", title: "New session" })} /></StoreContext.Provider>;
+    const { rerender } = render(view());
+    expect(document.querySelector(".status-dot")).toBeNull();
+    // Its first send is a state worth drawing, before the event that says so lands.
+    act(() => store.setState({ sessionStatus: { se1: "running" } }));
+    rerender(view());
+    expect(screen.getByLabelText("Status: Running")).toBeInTheDocument();
+  });
+
 });
 
 describe("markdown + summaries", () => {
