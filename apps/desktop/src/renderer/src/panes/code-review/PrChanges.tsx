@@ -4,6 +4,7 @@ import {
   AGENT_META, PR_PATCHES_PER_CALL, prKey, type AgentKind, type FileDiff, type Finding, type PrDetail, type PrFile, type PrFiles, type PrReview, type ReviewSide,
 } from "@realm/contracts";
 import { Menu, type MenuItem } from "../../components/Menu";
+import { EmptyState } from "../../components/EmptyState";
 import { useDissolve } from "../../components/ScrollFades";
 import { FALLBACK_AGENT, useApp } from "../../state/store";
 import { Markdown } from "../session/Markdown";
@@ -118,15 +119,15 @@ export function PrChanges({ detail, review, draft, setDraft, split, tree, jump }
   const { label: reviewerLabel, level: reviewerLevel } = useReviewerName(review?.agentKind ?? FALLBACK_AGENT, review?.model ?? null, review?.effort ?? null);
   const reviewer = useMemo<Reviewer | null>(() => (review ? { kind: review.agentKind, label: reviewerLabel, level: reviewerLevel } : null), [review, reviewerLabel, reviewerLevel]);
 
-  if (error) return <div className="cr-empty"><h2 className="cr-empty-title">The changes could not be read</h2><p className="cr-empty-line">{error}</p></div>;
-  if (!files) return <div className="cr-empty"><p className="cr-empty-line">Reading the changed files…</p></div>;
+  if (error) return <EmptyState icon="alert" title="The changes could not be read">{error}</EmptyState>;
+  if (!files) return <EmptyState role="status">Reading the changed files…</EmptyState>;
 
   const toggleHidden = (path: string) => setHidden((h) => { const n = new Set(h); if (!n.delete(path)) n.add(path); return n; });
   return (
     <div className="cr-changes" data-tree={tree || undefined}>
       <div ref={scroller} className="cr-diffs">
         {files.truncated && <p className="diff-note">GitHub lists the first {files.files.length} of {detail.changedFiles} changed files; the rest are on GitHub.</p>}
-        {shown.length === 0 && <p className="cr-empty-line cr-diffs-none">{filter ? "No changed file matches that." : "This pull request changes no files."}</p>}
+        {shown.length === 0 && <EmptyState>{filter ? "No changed file matches that." : "This pull request changes no files."}</EmptyState>}
         <div style={{ height: win.top, overflowAnchor: "none" }} aria-hidden="true" />
         {win.drawn.map((f) => (
           <FileDiffBlock key={f.path} file={f} detail={detail} headSha={headSha} split={split} hidden={hidden.has(f.path)}

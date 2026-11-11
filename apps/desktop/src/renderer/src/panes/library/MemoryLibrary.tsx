@@ -6,6 +6,7 @@ import {
 } from "@realm/contracts";
 import { useApp } from "../../state/store";
 import { PageRail } from "../../components/page-nav";
+import { EmptyState } from "../../components/EmptyState";
 import { useDissolve } from "../../components/ScrollFades";
 import { SpaceIcon } from "../../components/SpaceIcon";
 import { age, ago } from "../code-review/code-review-model";
@@ -184,12 +185,9 @@ export function MemoryLibrary({ spaceId, rail, source: sourceId, onSource }: {
             : <MemoryReader file={file} source={byId.get(file.sourceId)} onOpen={open} onEdit={() => setMode({ kind: "edit", draft: file.text })}
                 onDeleted={() => { setPicked(null); setFile(null); }} />
         ) : entries && entries.length === 0 ? (
-          <div className="memory-lib-empty">
-            <p className="memory-lib-empty-title">{query.trim() ? "Nothing matches" : "No memory here yet"}</p>
-            <p className="memory-lib-empty-line">
-              {query.trim() ? "Search reads every memory's name, description and text — try fewer words." : "Agents save what they learn here as they work, or write one yourself."}
-            </p>
-          </div>
+          <EmptyState icon={query.trim() ? "search" : "context"} title={query.trim() ? "Nothing matches" : "No memory here yet"}>
+            {query.trim() ? "Search reads every memory's name, description and text — try fewer words." : "Agents save what they learn here as they work, or write one yourself."}
+          </EmptyState>
         ) : null}
       </section>
     </div>
@@ -498,11 +496,9 @@ function NewMemory({ sources, spaceId, preferred, onCancel, onMade }: {
   };
   if (places.length === 0) {
     return (
-      <div className="memory-lib-empty">
-        <p className="memory-lib-empty-title">No memory repo to write in</p>
-        <p className="memory-lib-empty-line">New memories go in a Realm memory repo. Make one in Profile settings ▸ Memory.</p>
-        <button type="button" className="btn" onClick={onCancel}>Back</button>
-      </div>
+      <EmptyState icon="context" title="No memory repo to write in" actions={<button type="button" className="btn" onClick={onCancel}>Back</button>}>
+        New memories go in a Realm memory repo. Make one in Profile settings ▸ Memory.
+      </EmptyState>
     );
   }
   return (

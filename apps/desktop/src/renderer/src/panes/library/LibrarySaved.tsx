@@ -1,4 +1,5 @@
 import { Icon } from "@realm/ui";
+import { EmptyState } from "../../components/EmptyState";
 import { useEffect, useMemo, useState } from "react";
 import type { SavedTurn } from "@realm/contracts";
 import { useApp } from "../../state/store";
@@ -38,13 +39,13 @@ export function LibrarySaved({ spaceId }: { spaceId: string }) {
   }, [profileId, rev, listSavedTurns, run]);
   const spaceName = useMemo(() => new Map(spaces.map((x) => [x.id, x.name])), [spaces]);
 
-  if (!list) return <p className="env-empty library-empty">Loading…</p>;
+  if (!list) return <EmptyState role="status">Loading…</EmptyState>;
   if (list.entries.length === 0) {
     return (
-      <p className="env-empty library-empty">
-        Nothing saved yet. Point at a tick on the track down a session's left edge and press the bookmark on
-        its card — or press S while the track has the keyboard.
-      </p>
+      <EmptyState icon="saved" title="Nothing saved yet">
+        Point at a tick on the track down a session's left edge and press the bookmark on its card, or press
+        S while the track has the keyboard.
+      </EmptyState>
     );
   }
   return (

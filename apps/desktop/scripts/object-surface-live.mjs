@@ -376,7 +376,7 @@ async function main() {
     await press(c, `.library-view label[title="Tiles"]`);
     const saved = await evalIn(c, `(() => { const t = [...document.querySelectorAll('.sb-page-nav .settings-tab, .page-rail .settings-tab')].find((x) => x.textContent.trim() === 'Saved'); if (!t) return false; t.click(); return true; })()`);
     if (saved) {
-      await until(() => evalIn(c, `!!document.querySelector('.saved-turn-open') || !!document.querySelector('.library-empty')`), 10_000, "Saved");
+      await until(() => evalIn(c, `!!document.querySelector('.saved-turn-open') || !!document.querySelector('.empty-state')`), 10_000, "Saved");
       await park(c);
       await shot(c, `${label}-10-library-saved`);
       const savedSurface = await evalIn(c, `(() => { const el = document.querySelector('.saved-turn-open'); return el ? getComputedStyle(el).boxShadow : null; })()`);

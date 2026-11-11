@@ -2,6 +2,7 @@ import { Icon } from "@realm/ui";
 import { useEffect, useMemo, useState } from "react";
 import { prKey, prName, sameRepo, type PrDetail, type PrPlace, type PrRef, type PrReview } from "@realm/contracts";
 import { useApp } from "../../state/store";
+import { EmptyState } from "../../components/EmptyState";
 import { codeReview } from "./code-review-api";
 import { heldDetails, pageHeld, useReviewDraft } from "./held";
 import { AskPrompter } from "./AskPrompter";
@@ -111,9 +112,9 @@ export function PrView({ pr, login, profileId, vantage, places, pinned, onPin }:
         <SubmitReview pr={pr} detail={detail} login={login} draft={draft} setDraft={setDraft} />
       </div>
       {error ? (
-        <div className="cr-empty"><h2 className="cr-empty-title">This pull request could not be read</h2><p className="cr-empty-line">{error}</p></div>
+        <EmptyState icon="alert" title="This pull request could not be read">{error}</EmptyState>
       ) : !detail ? (
-        <div className="cr-empty"><p className="cr-empty-line">Reading {prName(pr)}…</p></div>
+        <EmptyState role="status">Reading {prName(pr)}…</EmptyState>
       ) : tab === "summary" ? (
         <PrSummary detail={detail} review={review} draft={draft} setDraft={setDraft} onShow={showInChanges} />
       ) : (

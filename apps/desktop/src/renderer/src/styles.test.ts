@@ -1071,40 +1071,13 @@ describe("Plan 9 W1 — the BUI bridge", () => {
       ".summary-step-mark",
       // A display numeral: the one figure on the usage page that is the page's subject.
       ".stat-value-hero",
-      // Plan 26's readable-type redesign of Settings, the Library, Memory, Usage and first run set
-      // these by name (Settings in Codex's grammar: notes at 12.5, rail tabs at 13.5, a first-run step
-      // head at 17). They are the owner's sizes, kept as stated — named here one by one, so a NEW
-      // half step anywhere else still fails.
-      ".agent-card-by",
-      ".agent-card-note",
-      ".agent-card-tail",
-      ".budget-input",
-      ".budget-line",
+      // design.md's ONE named exception: a settings page's notes at 12.5, asked for by name when
+      // Settings moved to Codex's grammar. Notes only — a chip, a link, a row's own line or a table
+      // head beside them is on a rung, so a NEW half step anywhere else still fails.
       ".budget-note",
-      ".budget-threshold",
-      ".budget-thresholds legend",
       ".failover-note",
-      ".filter-chip",
-      ".library-more",
-      ".library-row-name",
-      ".library-row-time",
-      ".memory-doc-status",
-      ".onboarding-note",
-      ".onboarding-step-head",
-      ".onboarding-step-sub",
-      ".page-empty p",
-      ".page-rail .settings-tab",
-      ".sb-page-nav .page-rail-head",
-      ".scope-move",
       ".settings-hint",
-      ".settings-result-place",
-      ".settings-row-problem",
-      ".stat-delta",
-      ".stat-label",
-      ".tcc-state",
-      ".usage-card-head .usage-card-sub",
-      ".usage-caveats p",
-      ".usage-table thead th"]);
+      ".usage-caveats p"]);
     const off = RULES
       .flatMap((r) => [...r.body.matchAll(/(?:font-size:|\bfont:)\s*(?:var\([^)]*\)\s+)?([\d.]+)px/g)]
         .filter((m) => !LADDER.has(Number(m[1])))

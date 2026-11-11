@@ -88,6 +88,7 @@ describe("the Library's Saved section", () => {
     await waitFor(() => expect(cards()).toHaveLength(3));
     api.data.savedTurns = {};
     act(() => store.getState().applySavedTurns("se-org", []));
-    expect(await screen.findByText(/Nothing saved yet\. Point at a tick on the track/)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Nothing saved yet" })).toBeInTheDocument();
+    expect(screen.getByText(/Point at a tick on the track/)).toBeInTheDocument();
   });
 });

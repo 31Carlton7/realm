@@ -5,6 +5,7 @@ import { useApp, type FilesView } from "../../state/store";
 import { folderOffer, folderOfferText, nameList, offerCount } from "../../state/library-add";
 import { FileCard, FileRow } from "../../components/FileCard";
 import { Menu, type MenuItem } from "../../components/Menu";
+import { EmptyState } from "../../components/EmptyState";
 import { fileMenuItems, isMenuKey, removeOnDelete } from "../../components/file-menu";
 import { PageScroll } from "../../components/ScrollFades";
 
@@ -357,11 +358,12 @@ export function LibraryFiles({ spaceId, head, ref }: { spaceId: string;
         {/* Two different emptinesses, and they need different words. "Nothing here yet" over a home
             with four hundred files, because the search matched none of them, is a lie about the app. */}
         {entries.length === 0 && !loading && (
-          <p className="env-empty library-empty">
-            {total === 0
-              ? "Nothing here yet. Every file a session writes, every file you attach to a message, and every file you add shows up here."
-              : "No file here matches that."}
-          </p>
+          total === 0 ? (
+            <EmptyState icon="artifact" title="No files yet"
+              actions={<button type="button" className="btn primary" onClick={addFromPicker} disabled={adding} aria-busy={adding || undefined}>Add files</button>}>
+              Every file a session writes, every file you attach to a message, and every file you add shows up here.
+            </EmptyState>
+          ) : <EmptyState icon="search" title="Nothing matches">No file here matches that.</EmptyState>
         )}
 
         {groups.map((g) => (

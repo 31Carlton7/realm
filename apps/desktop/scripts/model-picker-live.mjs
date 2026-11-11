@@ -1445,7 +1445,7 @@ async function schedulePhase() {
         await sleep(300);
         await shoot(c, "schedule-dark-modal-set", await sheetClip());
         await evalIn(c, `(() => { [...document.querySelector(${JSON.stringify(SHEET)}).querySelectorAll('button')].find((b) => b.textContent.trim() === 'Create').click(); return true; })()`);
-        await until(() => evalIn(c, `!document.querySelector(${JSON.stringify(SHEET)}) && document.querySelector('.sched-empty-title')?.textContent === 'No runs yet'`), 15000, "the task made");
+        await until(() => evalIn(c, `!document.querySelector(${JSON.stringify(SHEET)}) && document.querySelector('.empty-state-title')?.textContent === 'No runs yet'`), 15000, "the task made");
         const space = (await api.call("spaces.list", {}))[0];
         const made = (await api.call("schedules.list", { spaceId: space.id })).find((t) => t.title === "Release notes");
         check("schedule: the task holds what the picker set", JSON.stringify(made?.constraints) === JSON.stringify({ agentKind: "claude", model: "claude-opus-5-5", effort: "xhigh", fastMode: true, permissionMode: "acceptEdits" }), made?.constraints);

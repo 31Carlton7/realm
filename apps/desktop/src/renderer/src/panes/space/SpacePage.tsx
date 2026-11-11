@@ -12,6 +12,7 @@ import { SkillsPanel } from "../../components/settings/SkillsPanel";
 import { MemoryPanel } from "../../components/settings/MemoryPanel";
 import type { PaneProps } from "../registry";
 import { PageRail } from "../../components/page-nav";
+import { EmptyState } from "../../components/EmptyState";
 import { PageScroll, useDissolve } from "../../components/ScrollFades";
 import { SessionsList } from "./SessionsList";
 
@@ -196,10 +197,10 @@ function MemoryTab({ spaceId }: { spaceId: string }) {
     <div className="form">
       <p className="page-lede">Every session in this space reads this before it starts. What you write here is yours — no model touches it.</p>
       {empty && (
-        <div className="page-empty">
-          <p>Nothing here yet. A standing instruction — a convention, a warning, a preference — travels into every new session in this space.</p>
-          <button type="button" className="btn primary" onClick={() => editorRef.current?.focus()}>Write a standing instruction</button>
-        </div>
+        <EmptyState icon="context" title="No standing instructions"
+          actions={<button type="button" className="btn primary" onClick={() => editorRef.current?.focus()}>Write a standing instruction</button>}>
+          A convention, a warning, a preference: it travels into every new session in this space.
+        </EmptyState>
       )}
       <MemoryPanel spaceId={spaceId} editorRef={editorRef} />
     </div>

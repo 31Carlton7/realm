@@ -191,7 +191,7 @@ describe("the documents home", () => {
     await mount({ artifacts: [art("a1", "lead", gone, 100)] });
     await screen.findByRole("region", { name: "This session" });
     fireEvent.click(rowFor("NOTES.md"));
-    const note = await waitFor(() => { const n = document.querySelector(".documents-unshown"); if (!n) throw new Error("no note"); return n; });
+    const note = await waitFor(() => { const n = document.querySelector(".empty-state[role=status]"); if (!n) throw new Error("no note"); return n; });
     expect(note.textContent).toContain("NOTES.md could not be read");
     expect(within(note as HTMLElement).getByRole("button", { name: "Show in Finder" })).toBeTruthy();
     expect(within(note as HTMLElement).getByRole("button", { name: "Open with the default app" })).toBeTruthy();

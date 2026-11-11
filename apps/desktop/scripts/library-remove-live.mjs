@@ -308,7 +308,7 @@ async function main() {
     await press(c, `.app-rail .rail-btn[aria-label^="Library"]`);
     await until(() => evalIn(c, `!!document.querySelector('.library-add')`), 10_000, "the Library's Add");
     // Its first answer in: files, or the page saying there are none — never the moment before either.
-    await until(() => evalIn(c, `!!document.querySelector('.library-file, .library-empty')`), 10_000, "the Library's files");
+    await until(() => evalIn(c, `!!document.querySelector('.library-file, .empty-state')`), 10_000, "the Library's files");
   };
   const addAll = async () => {
     const mime = { png: "image/png", jpg: "image/jpeg", pdf: "application/pdf", md: "text/markdown", csv: "text/csv" };
@@ -503,13 +503,13 @@ async function main() {
       await backspace(c);
       await until(async () => (await evalIn(c, `document.querySelectorAll('.library-file').length`)) < left, 5_000, "a file out");
     }
-    const empty = await until(() => evalIn(c, `document.querySelector('.library-empty')?.textContent ?? null`), 5_000, "the empty state");
+    const empty = await until(() => evalIn(c, `document.querySelector('.empty-state')?.textContent ?? null`), 5_000, "the empty state");
     check(`${face}: with the last file out, the page's empty state is back`, empty.startsWith("Nothing here yet."), empty);
     const left = fs.readdirSync(libraryDir).filter((n) => !n.startsWith("."));
     check(`${face}: …and the profile's folder holds no copy, the Desktop every original`,
       left.length === 0 && ORDER.every((n) => sha(path.join(desk, n)) === originals[n]), left);
     await clearToasts(c);
-    await hover(c, `document.querySelector('.library-empty')`, "the empty state");
+    await hover(c, `document.querySelector('.empty-state')`, "the empty state");
     await shot(c, `10-library-empty-${face}`);
   }
 

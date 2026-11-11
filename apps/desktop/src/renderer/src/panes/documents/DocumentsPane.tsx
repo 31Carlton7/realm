@@ -7,6 +7,7 @@ import {
 import { rpc } from "../../rpc/client";
 import { useApp } from "../../state/store";
 import { useDissolve } from "../../components/ScrollFades";
+import { EmptyState } from "../../components/EmptyState";
 import type { PaneProps } from "../registry";
 import { useScrollMemory } from "../scroll-memory";
 import { capabilities } from "../../platform";
@@ -666,17 +667,12 @@ function OutsideNote({ path }: { path: string }) {
  *  asked for, with the ways out the Finder still has. */
 function Unshown({ path, reason }: { path: string; reason: { says: string; gone: boolean } }) {
   return (
-    <div className="pane-empty documents-unshown" role="status">
-      {/* off-ladder: an empty state's mark, drawn at the 28 the pane's other empty states use. */}
-      <div className="pane-empty-tile" aria-hidden="true"><Icon name="documents" size={28} /></div>
-      <p className="pane-empty-line">{reason.says}</p>
-      {!reason.gone && (
-        <div className="docs-home-empty-actions">
-          <button type="button" className="btn" onClick={() => revealPath(path)}>{showInLabel()}</button>
-          <button type="button" className="btn" onClick={() => { void window.realm?.openAttachment?.(path); }}>Open with the default app</button>
-        </div>
-      )}
-    </div>
+    <EmptyState icon="documents" role="status" actions={!reason.gone && <>
+      <button type="button" className="btn" onClick={() => revealPath(path)}>{showInLabel()}</button>
+      <button type="button" className="btn" onClick={() => { void window.realm?.openAttachment?.(path); }}>Open with the default app</button>
+    </>}>
+      {reason.says}
+    </EmptyState>
   );
 }
 

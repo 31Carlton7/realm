@@ -482,7 +482,7 @@ describe("adding files to the Library", () => {
     const { api } = await mount({
       addFolders: { "/Users/me/shots": { files: ["/Users/me/shots/a.png", "/Users/me/shots/b.png"], bytes: 2048, subfolders: 1 } },
     });
-    await screen.findByText(/Nothing here yet/);
+    await screen.findByText("No files yet");
     dropOn(document.querySelector(".library-files")!, [dropped("/Users/me/shots")]);
     const offer = await screen.findByRole("group", { name: "Add the files in a folder" });
     expect(offer.textContent).toContain("“shots” is a folder of 2 files (2.0 KB). Add them to the Library? The folders inside it are left out.");
@@ -497,7 +497,7 @@ describe("adding files to the Library", () => {
 
   it("leaves a folder where it is on Not now", async () => {
     const { api } = await mount({ addFolders: { "/Users/me/shots": { files: ["/Users/me/shots/a.png"], bytes: 10, subfolders: 0 } } });
-    await screen.findByText(/Nothing here yet/);
+    await screen.findByText("No files yet");
     dropOn(document.querySelector(".library-files")!, [dropped("/Users/me/shots")]);
     const offer = await screen.findByRole("group", { name: "Add the files in a folder" });
     expect(offer.textContent).toContain("“shots” is a folder of 1 file (10 B). Add it to the Library?");
@@ -630,7 +630,7 @@ describe("taking a file back out of the Library", () => {
     await mountWithToasts([added("only.md", 1)]);
     await screen.findByText("only.md");
     await removeFromMenu("only.md");
-    expect(await screen.findByText(/^Nothing here yet\./)).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "No files yet" })).toBeTruthy();
   });
 
   it("takes the file off a prompter that has it as a chip, and puts the chip back where it was with the undo", async () => {

@@ -235,7 +235,7 @@ async function main() {
   await sleep(300);
 
   check("the empty state says what the page is for rather than showing a bare list",
-    await evalIn(c, `document.querySelector('.schedules-page .sched-empty-title')?.textContent === 'Schedule a task'`), undefined);
+    await evalIn(c, `document.querySelector('.schedules-page .empty-state-title')?.textContent === 'Schedule a task'`), undefined);
 
   // Make one, through the real modal — the line under the schedule is the thing worth seeing before saving.
   await evalIn(c, `(() => { document.querySelector('.sched-new').click(); return true; })()`);

@@ -1,5 +1,6 @@
 import { basenameOf } from "@realm/contracts";
 import { VideoPlayer } from "../../components/video/VideoPlayer";
+import { EmptyState } from "../../components/EmptyState";
 import { useMediaFile } from "../session/media/use-media";
 
 /**
@@ -16,7 +17,7 @@ export function VideoView({ path, version }: { path: string; version: string | n
   if (file === null) {
     return (
       <div className="documents-video">
-        <p className="pane-empty-line">{basenameOf(path)} is no longer on disk, or Realm cannot read it.</p>
+        <EmptyState icon="alert">{basenameOf(path)} is no longer on disk, or Realm cannot read it.</EmptyState>
       </div>
     );
   }
