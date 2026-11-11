@@ -1,6 +1,8 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { findSidePane } from "@realm/contracts";
-import { AGENT_PANE_EVENTS, subscribeAgentPanes, subscribeSpaceLists } from "./App";
+import { AGENT_PANE_EVENTS, subscribeAgentPanes, subscribeSpaceLists, subscribeTeamAccess } from "./App";
 import { createAppStore } from "./state/store";
 import { fakeApi, item, session, space } from "./state/store.test-fakes";
 
@@ -85,5 +87,32 @@ describe("a space's lists changing", () => {
     expect(api.calls).toEqual([]);
     off();
     expect(handlers.size).toBe(0);
+  });
+});
+
+describe("a space's Team access changing", () => {
+  it("reads the held access again when teams.access.changed names its space", async () => {
+    // THE MUTANT: the handler that never calls teamAccessChanged, so another window's pick stays unseen.
+    const api = fakeApi({ spaces: [space("s1", "p1", "Versed")] });
+    const store = createAppStore(api);
+    await store.getState().boot();
+    await store.getState().loadTeamAccess("s1");
+    const handlers = new Map<string, (p: unknown) => void>();
+    const off = subscribeTeamAccess(store, (event, fn) => {
+      handlers.set(event, fn as (p: unknown) => void);
+      return () => { handlers.delete(event); };
+    });
+    api.calls.length = 0;
+    handlers.get("teams.access.changed")!({ spaceId: "s1" });
+    await vi.waitFor(() => expect(api.calls).toContain("teamAccess:s1"));
+    off();
+    expect(handlers.size).toBe(0);
+  });
+
+  it("is subscribed by the window", () => {
+    // THE MUTANT: App never calling subscribeTeamAccess. App cannot mount here, so its source is read.
+    const app = readFileSync(join(dirname(new URL(import.meta.url).pathname), "App.tsx"), "utf8");
+    expect(app).toMatch(/= subscribeTeamAccess\(store, \(event, fn\) => rpc\(\)\.on\(event, fn\)\);/);
+    expect(app).toMatch(/offTeamAccess\(\);/);
   });
 });

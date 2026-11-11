@@ -18,6 +18,7 @@ import { useEffect, useId, useReducer, useRef, useState, type CSSProperties, typ
 import { Sheet } from "../../components/Sheet";
 import { relativeTime } from "../../components/CheckpointsSheet";
 import { Spinner } from "../../components/Spinner";
+import { useBypassConfirm } from "../session/Composer";
 import { CommandCopy } from "../../components/CommandCopy";
 import { agentAvailability, isBlocked, probeReasonSentence } from "../../state/agent-availability";
 import { useApp, type CliJob, type SubmitKey } from "../../state/store";
@@ -1258,15 +1259,9 @@ function GeneralTab() {
   const setEasterEggs = useApp((s) => s.setEasterEggs);
   const run = useApp((s) => s.run);
   useEffect(() => { void run(() => refreshSettingsPrefs()); }, [run, refreshSettingsPrefs]);
-  // bypassPermissions must never be a one-click slip, HERE least of all — this is every future
-  // session at once. Same two-step as the composer chip (U-M7): arm for 5s, apply only on the
-  // explicit confirm; the control meanwhile stays on the current mode.
-  const [confirmBypass, setConfirmBypass] = useState(false);
-  useEffect(() => {
-    if (!confirmBypass) return;
-    const t = setTimeout(() => setConfirmBypass(false), 5000);
-    return () => clearTimeout(t);
-  }, [confirmBypass]);
+  // bypassPermissions must never be a one-click slip, HERE least of all: this is every future
+  // session at once. Same two-step as the composer chip.
+  const [confirmBypass, setConfirmBypass] = useBypassConfirm();
 
   const supported = SELECTABLE_AGENT_KINDS.filter((k) => AGENT_SUPPORTS_PERMISSION_MODES[k]);
   const unsupported = SELECTABLE_AGENT_KINDS.filter((k) => !AGENT_SUPPORTS_PERMISSION_MODES[k]);

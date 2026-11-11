@@ -2,7 +2,7 @@ import { PERMISSION_MODES, type TeamAccess } from "@realm/contracts";
 import { Icon } from "@realm/ui";
 import { useEffect } from "react";
 import { useApp } from "../../state/store";
-import { ChipMenu, permissionMark } from "../../panes/session/Composer";
+import { ChipMenu, permissionMark, useBypassConfirm } from "../../panes/session/Composer";
 import type { MenuItem } from "../Menu";
 
 /** Named as `app_act`'s refusal names it: only the person sets a whole team's access. */
@@ -25,6 +25,7 @@ export function TeamAccessRow({ spaceId }: { spaceId: string }) {
   const loadTeamAccess = useApp((s) => s.loadTeamAccess);
   const setTeamAccess = useApp((s) => s.setTeamAccess);
   const run = useApp((s) => s.run);
+  const [confirmBypass, setConfirmBypass] = useBypassConfirm();
   useEffect(() => { run(() => loadTeamAccess(spaceId)); }, [run, loadTeamAccess, spaceId]);
   if (!access) return null;
   const shown = teamAccessShown(access);
@@ -32,7 +33,11 @@ export function TeamAccessRow({ spaceId }: { spaceId: string }) {
   const differ = access.mode ? access.teammates.filter((t) => t.mode !== access.mode).length : 0;
   const items: MenuItem[] = PERMISSION_MODES.map((m) => ({
     label: m.label, checked: (access.mode ?? shown) === m.id, icon: <Icon name={permissionMark(m.id).icon} size={14} />, noAgent: NO_AGENT,
-    onSelect: () => run(() => setTeamAccess(spaceId, m.id)),
+    onSelect: () => {
+      if (m.id === "bypassPermissions" && shown !== "bypassPermissions") { setConfirmBypass(true); return; }
+      setConfirmBypass(false);
+      run(() => setTeamAccess(spaceId, m.id));
+    },
   }));
   const title = mark ? `Team access: ${mark.label}`
     : access.mode ? `Team access: ${permissionMark(access.mode).label}, ${differ} teammate${differ === 1 ? "" : "s"} set on ${differ === 1 ? "its" : "their"} own`
@@ -42,6 +47,12 @@ export function TeamAccessRow({ spaceId }: { spaceId: string }) {
       <span className="settings-row-name">Team access</span>
       <ChipMenu ariaLabel="Team access" title={title} warning={shown === "bypassPermissions"} icon={mark?.icon} iconSize={14} caret={false}
         placement="down" label={mark?.label ?? "Mixed"} items={items} />
+      {confirmBypass && (
+        <button type="button" className="composer-chip bypass-confirm"
+          onClick={() => { setConfirmBypass(false); run(() => setTeamAccess(spaceId, "bypassPermissions")); }}>
+          Allow everything? Confirm
+        </button>
+      )}
       {shown === "bypassPermissions" && (
         <span className="settings-row-desc">
           Teammates run commands and edit files without asking. They still ask before deleting with rm, signing in, or using another app.
