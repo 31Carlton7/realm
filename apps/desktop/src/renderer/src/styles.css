@@ -4117,6 +4117,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .md.thinking-body { margin-top: 4px; padding: 8px 10px; border-left: 2px solid var(--rl-line); color: var(--rl-text-dim); }
 .msg-error { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border-radius: var(--r-ctl); color: var(--rl-danger); background: color-mix(in srgb, var(--rl-danger) 8%, var(--rl-panel)); }
 .msg-error pre { margin: 0; white-space: pre-wrap; font: 12px var(--font-mono); max-height: 240px; overflow: auto; --fade-h: 24px; --fade-top-h: 16px; }
+.msg-error-text { margin: 0; font-size: 13px; line-height: 20px; }
 /* The message and, when Realm knows one, the command that fixes it — stacked in one column beside
    the glyph so the command aligns with the sentence it answers rather than with the icon. */
 .msg-error-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; flex: 1; }

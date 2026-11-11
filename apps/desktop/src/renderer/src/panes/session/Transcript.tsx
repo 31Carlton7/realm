@@ -110,10 +110,18 @@ const NO_PROMPTS: readonly TrackPrompt[] = [];
 const NO_SAVED: readonly number[] = [];
 const NO_WAITING: ReadonlySet<string> = new Set();
 
-/** An error's own words, capped, in a box that dissolves at an end once there is more of them. */
+/** An error that is a sentence — "The agent's CLI exited before it answered." — rather than captured
+ *  output: one line, opening on a capital and closing on a stop, with nothing in it shaped like a
+ *  stack frame or a `Error:` prefix. Exported for the test. */
+export const isProseError = (text: string): boolean =>
+  !text.includes("\n") && /^[A-Z][a-z']/.test(text) && /[.!?]$/.test(text) && !/^\w*(Error|Exception)\b|\bat \S+:\d+/.test(text);
+
+/** An error's own words, capped, in a box that dissolves at an end once there is more of them. A
+ *  sentence is set as the sentence it is; only real output — stderr, a stack — keeps the mono box. */
 function ErrorText({ text }: { text: string }) {
   const box = useRef<HTMLPreElement>(null);
   useDissolve(box);
+  if (isProseError(text)) return <p className="msg-error-text">{text}</p>;
   return <pre ref={box}>{text}</pre>;
 }
 

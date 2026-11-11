@@ -528,7 +528,10 @@ Using the same families across the app and site is a brand decision.
 - Headings balance; descriptions wrap prettily; reading copy stays near 60–75 characters.
 - Use tabular numerals for cost, usage, time, progress, and aligned comparisons.
 - Use mono only for code, commands, paths, identifiers, branches, models, timestamps, and machine
-  state. Mono is not a substitute for a visual hierarchy.
+  state. Mono is not a substitute for a visual hierarchy. An error is two things that look alike: a
+  sentence Realm wrote ("The agent's CLI exited before it answered.") is prose and takes the
+  interface face, and captured output — stderr, a stack — keeps the mono box. Red mono on a sentence
+  reads as a log line nobody wrote for you. A file NAME a person picked is not a path either.
 - Set `font-synthesis: none` and use WOFF2 assets or the existing font loader.
 
 Write copy in natural sentence case. Do not type labels in uppercase and then depend on the source
