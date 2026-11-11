@@ -86,9 +86,9 @@ function TeamGroup({ spaceId, name, members, drag }: { spaceId: string; name: st
         {renaming
           ? <GroupNameInput name={name} onDone={rename} />
           : (
-            <button type="button" className="item-row sb-caption" aria-expanded={!folded} aria-label={said} title={said}
+            <button type="button" className="item-row sb-caption" aria-expanded={!folded} aria-label={said} data-tip="clipped"
               onClick={() => run(() => setTeamGroupFolded(spaceId, name, !folded))}>
-              <span className="item-title">{name}</span>
+              <span className="item-title" data-tip-text>{name}</span>
               <span className="sb-caret" data-open={!folded || undefined}><Icon name="chevronRight" size={12} /></span>
               {folded && waiting > 0 && <span className="item-trail"><span className="status-dot item-status" data-status="waiting_permission" /></span>}
             </button>
@@ -158,9 +158,9 @@ function TeammateRow({ teammate: t, drag }: { teammate: Teammate; drag: Drag }) 
       onDragOver={(e) => { if (drag.dragging && drag.dragging !== t.id) { e.preventDefault(); setOver(true); } }}
       onDragLeave={() => setOver(false)} onDrop={(e) => { e.preventDefault(); setOver(false); drag.drop({ before: t.id }); }}
       onContextMenu={onContextMenu}>
-      <button type="button" className="item-row" aria-label={said} title={said} onClick={() => run(() => openTeammate(t.id))}>
+      <button type="button" className="item-row" aria-label={said} data-tip="clipped" onClick={() => run(() => openTeammate(t.id))}>
         <span className="sb-gutter"><TeammateIcon icon={t.icon} size={16} lead={t.lead} /></span>
-        <span className="item-title">{t.name}</span>
+        <span className="item-title" data-tip-text>{t.name}</span>
         <span className="item-trail"><SignalTrail signal={signal} at={lastMoved} now={now} /></span>
       </button>
       {menuAt && <Menu at={menuAt} label={t.name} onClose={() => setMenuAt(null)} items={pin ? [pin, { kind: "separator" }, ...menu] : menu} />}

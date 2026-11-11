@@ -70,7 +70,7 @@ export function ActivityCard({ row, space, usual, now, onChanged }: {
       onDragEnd={() => setDragging(false)} onContextMenu={onContextMenu(row.item)}>
       {renaming ? <RenameInput item={row.item} onDone={() => { setRenaming(false); onChanged(); }} /> : (
         <>
-          <button type="button" className="item-row" aria-label={said} title={said}
+          <button type="button" className="item-row" aria-label={said} data-tip="clipped"
             onClick={(e) => run(() => (e.metaKey ? openItemBeside(row.item.id) : open()))}>
             <span className="sb-card-line sb-card-head">
               <CardSpace space={space} tint={tint} />
@@ -82,7 +82,7 @@ export function ActivityCard({ row, space, usual, now, onChanged }: {
               </span>
             </span>
             <span className="sb-card-line">
-              <span className="item-title">{row.title}</span>
+              <span className="item-title" data-tip-text>{row.title}</span>
               <span className="item-trail">
                 {row.agentsWaiting > 0 && (
                   <span className="item-tally" title={agents}><span className="item-count">{row.agentsWaiting}</span><span className="status-dot item-status" data-status="waiting_permission" /></span>
@@ -120,14 +120,14 @@ function FanOutCard({ row, space, now, onChanged }: { row: FanOutRow; space: Spa
   return (
     <>
       <div className="item sb-row sb-card" data-actions="0">
-        <button type="button" className="item-row" aria-expanded={open} aria-label={said} title={said} onClick={() => setOpen((v) => !v)}>
+        <button type="button" className="item-row" aria-expanded={open} aria-label={said} data-tip="clipped" onClick={() => setOpen((v) => !v)}>
           <span className="sb-card-line sb-card-head">
             <CardSpace space={space} tint={tint} />
             <span className="sb-card-marks"><CardWhen at={row.at} now={now} /></span>
           </span>
           <span className="sb-card-line">
             <span className="sb-caret" data-open={open || undefined}><Icon name="chevronRight" size={12} /></span>
-            <span className="item-title">{name}</span>
+            <span className="item-title" data-tip-text>{name}</span>
             <span className="item-trail"><TallyMarks tally={row.tally} /></span>
           </span>
         </button>

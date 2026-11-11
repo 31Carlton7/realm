@@ -329,6 +329,14 @@ describe("placeTooltip — beside its anchor, or nowhere", () => {
     // …and to its left where the right is the window's edge.
     expect(placeTooltip({ anchor: r(1400, 46, 28, 28), size: two, win: WIN, gap: 6, margin: 6, avoid: [view] })!.side).toBe("left");
   });
+  it("tries the sides in the order it is given — a sidebar row's beside the column first", () => {
+    const sides = ["right", "left", "below", "above"] as const;
+    expect(placeTooltip({ anchor: r(68, 92, 248, 30), size: tip, win: WIN, gap: 6, margin: 6, avoid: [], sides }))
+      .toEqual({ left: 68 + 248 + 6, top: 92 + 3, side: "right" });
+    // A browser view beside the column sends it to the next side that is clear.
+    const view = r(332, 40, 1108, 860);
+    expect(placeTooltip({ anchor: r(68, 92, 248, 30), size: tip, win: WIN, gap: 6, margin: 6, avoid: [view], sides })!.side).toBe("below");
+  });
   it("held inside the window at its edges", () => {
     expect(placeTooltip({ anchor: r(1430, 8, 10, 28), size: tip, win: WIN, gap: 6, margin: 6, avoid: [] })!.left).toBe(1440 - 6 - 120);
     expect(placeTooltip({ anchor: r(0, 8, 10, 28), size: tip, win: WIN, gap: 6, margin: 6, avoid: [] })!.left).toBe(6);

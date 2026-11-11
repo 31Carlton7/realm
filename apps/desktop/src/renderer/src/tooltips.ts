@@ -29,6 +29,10 @@ import { placeTooltip, type Rect, type TooltipSide } from "./state/no-overlay";
  *
  * A title ending in a chord in brackets — "Search (⌘K)" — shows the chord as a key; `data-shortcut`
  * states one outright.
+ *
+ * A row that already shows its name carries no title. `data-tip="clipped"` gives it the words of its
+ * `[data-tip-text]` child instead, and only while the column has cut them short, beside the row rather
+ * than under it: under it, the tooltip covered the row below.
  */
 export const TIP_DELAY_MS = 200;
 export const TIP_WARM_MS = 500;
@@ -41,6 +45,8 @@ const CONTROL = "button, a[href], [role='button'], [role='menuitem'], [role='opt
 const CURSOR_H = 18;
 const GAP = 6;
 const MARGIN = 6;
+/** Where a clipped row's tooltip looks first: beside the column, clear of the rows above and below. */
+const BESIDE: readonly TooltipSide[] = ["right", "left", "below", "above"];
 
 /** A trailing chord in brackets: one or more modifiers, then a key — a glyph, a character, a short name —
  *  or the spelled-out form Linux and Windows print ("Ctrl+Shift+F"). */
@@ -52,6 +58,14 @@ export function splitShortcut(title: string): { label: string; shortcut: string 
   const m = CHORD.exec(text);
   return m ? { label: m[1]!, shortcut: m[2]! } : { label: text, shortcut: null };
 }
+
+const clips = (el: Element): boolean => el.getAttribute("data-tip") === "clipped";
+/** A clipped row's words: its name's, while the name is cut short, and none while it is whole. */
+const clippedName = (el: Element): string => {
+  const name = el.querySelector("[data-tip-text]");
+  return name && name.scrollWidth > name.clientWidth ? name.textContent ?? "" : "";
+};
+const wordsOf = (el: Element): string => (clips(el) ? clippedName(el) : el.getAttribute("title") ?? "");
 
 type Hold = {
   el: HTMLElement;
@@ -96,6 +110,7 @@ export function installTooltips(doc: Document, opts: { avoid?: () => readonly Re
     if (!(target instanceof win.Element) || tip.contains(target)) return null;
     for (let el: Element | null = target; el; el = el.parentElement) {
       if (el === hold?.el) return hold.el;
+      if (clips(el)) return clippedName(el).trim() && el instanceof win.HTMLElement ? el : null;
       const title = el.getAttribute("title");
       if (title === null) continue;
       return title.trim() && el instanceof win.HTMLElement && !(el instanceof win.HTMLIFrameElement) ? el : null;
@@ -132,6 +147,8 @@ export function installTooltips(doc: Document, opts: { avoid?: () => readonly Re
   });
 
   const take = (el: HTMLElement, via: Hold["via"]) => {
+    // A clipped row has no title to hold, and its name is on screen for a screen reader already.
+    if (clips(el)) { hold = { el, title: clippedName(el), via, carries: null }; return; }
     const title = el.getAttribute("title") ?? "";
     hold = { el, title, via, carries: carrierFor(el) };
     el.setAttribute("title", "");
@@ -168,13 +185,14 @@ export function installTooltips(doc: Document, opts: { avoid?: () => readonly Re
     // Under its own line of text, a tool row's command sat over the row it described.
     const control = el.parentElement?.closest(CONTROL)?.getBoundingClientRect();
     const band = control && control.height <= LARGE.height ? control : r;
-    const anchor = via === "pointer" && r.height > LARGE.height
-      ? { x: pointer.x - 1, y: pointer.y, width: 2, height: CURSOR_H }
-      : via === "pointer" && r.width > LARGE.width
-        ? { x: pointer.x - 1, y: band.y, width: 2, height: band.height }
-        : { x: r.x, y: band.y, width: r.width, height: band.height };
+    const anchor = clips(el) ? r
+      : via === "pointer" && r.height > LARGE.height
+        ? { x: pointer.x - 1, y: pointer.y, width: 2, height: CURSOR_H }
+        : via === "pointer" && r.width > LARGE.width
+          ? { x: pointer.x - 1, y: band.y, width: 2, height: band.height }
+          : { x: r.x, y: band.y, width: r.width, height: band.height };
     return placeTooltip({ anchor, size: { width: size.width, height: size.height }, win: { width: win.innerWidth, height: win.innerHeight },
-      gap: GAP, margin: MARGIN, avoid: opts.avoid?.() ?? [] });
+      gap: GAP, margin: MARGIN, avoid: opts.avoid?.() ?? [], sides: clips(el) ? BESIDE : undefined });
   };
   /** Nowhere beside it can be seen: the system's tooltip can, so it keeps its title until the pointer
    *  leaves. */
@@ -203,7 +221,7 @@ export function installTooltips(doc: Document, opts: { avoid?: () => readonly Re
   const enter = (el: HTMLElement, via: Hold["via"]) => {
     // Asked before the title is taken, so an element that will go to the system's tooltip never has
     // its title held at all and the system's own wait starts at once.
-    if (!place(el, el.getAttribute("title") ?? "", via)) { handedBack = el; return; }
+    if (!place(el, wordsOf(el), via)) { handedBack = el; return; }
     take(el, via);
     if (Date.now() < warmUntil) { show(true); return; }
     timer = setTimeout(() => { timer = null; show(false); }, TIP_DELAY_MS);
@@ -237,7 +255,7 @@ export function installTooltips(doc: Document, opts: { avoid?: () => readonly Re
   const visibleFocus = (el: Element): boolean => { try { return el.matches(":focus-visible"); } catch { return false; } };
   const focusIn = (e: FocusEvent) => {
     const el = e.target instanceof win.HTMLElement ? e.target : null;
-    if (!el || el === hold?.el || !visibleFocus(el) || !el.getAttribute("title")?.trim()) return;
+    if (!el || el === hold?.el || !visibleFocus(el) || !wordsOf(el).trim()) return;
     leave();
     enter(el, "focus");
   };

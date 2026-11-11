@@ -125,7 +125,7 @@ describe("Needs you", () => {
     expect(rowOf("Build in Versed — waiting on you")).toHaveAttribute("data-actions", "1");
     // Amber for both: the column's one dot means "needs you", and the words say a failure apart.
     expect(rowOf("Notes in Lectures · School — error")!.querySelector(".status-dot")).toHaveAttribute("data-status", "waiting_permission");
-    expect(rowOf("Notes in Lectures · School — error")!.querySelector("button")).toHaveAttribute("title", "Notes in Lectures · School — error");
+    expect(rowOf("Notes in Lectures · School — error")!.querySelector("button")).not.toHaveAttribute("title");
     const notes = store.getState().allSessions.notes!;
     act(() => store.setState({ allSessions: { ...store.getState().allSessions, notes: { ...notes, seenSeq: notes.lastEventSeq } } }));
     await waitFor(() => expect(rowNames()).toEqual(["Schema in Homework — waiting on you", "Build in Versed — waiting on you"]));
