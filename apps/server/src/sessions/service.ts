@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { ENGINE_IDLE_MINUTES_DEFAULT, ENGINE_IDLE_MINUTES_KEY, AGENT_MEMORY_CHANNEL, AGENT_SESSION_RESUME, AGENT_META, AGENT_SKILL_SUPPORT, AGENT_SUPPORTS_PERMISSION_MODES, DEFAULT_PERMISSION_MODE_KEY, DIRECTORY_MIME, MAC_SKILL_ID, MAX_ATTACHMENT_BYTES, MID_TURN_MODE_KEY, MODEL_EFFORTS_KEY, MODEL_FAST_SUPPORT_KEY, PERMISSION_MODES, PERSISTED_EVENT_TYPES, TURN_MEDIA_MAX, artifactsFromEvent, SkillIdSchema, elementChipToken, elementContext, fastSupportKey, handoffContextKey, isImageMime, isSecretPath, macSkillContext, mentionRefContext, moveFailedSentence, mimeForPath, newId, readEffortSupport, readFastSupport, sessionRefContext, keepLiveChips, keepLiveRefs, resolveMidTurnMode, scanMentions, sessionEvent, steerInterrupts, stripMentionAts, type AgentKind, type Attachment, type ElementChip, type Environment, type MentionRef, type MoveOptions, type MoveTarget, type MoveWhen, type PendingMove, type SessionRef, type TabRef, type QueuedPrompt, type Session, type SessionEvent, type SessionEventPayload, type StoredSessionEvent, type StreamedMessage, type AskAnswers, type AskCard } from "@realm/contracts";
 import { CODEX_SANDBOX_REFUSAL, RestartRequiredError, type AdapterRegistry, type AgentAdapter, type AgentHandle, type PermissionDecision, type ProbeResult, type SkillMention, type UserMessage } from "@realm/adapters";
 import type { Db } from "../db/database";
+import { ASKS_IN_FULL_ACCESS, fullAccessAllows, fullAccessLogLine } from "@realm/contracts";
 import type { RpcServer } from "../rpc/server";
 import type { ItemsStore } from "../store/items";
 import type { ProjectsStore } from "../store/projects";
@@ -121,9 +122,6 @@ export function resolveDefaultPermissionMode(kind: AgentKind, raw: unknown): str
  *  is a command that does not exist there. */
 /** How long a steer waits for the interrupted turn to settle before sending anyway. */
 const INTERRUPT_SETTLE_TIMEOUT_MS = 10_000;
-
-/** Cards that are the person's to answer in every mode: a question, and a plan to approve. */
-const ASKS_IN_FULL_ACCESS: ReadonlySet<string> = new Set(["AskUserQuestion", "ExitPlanMode"]);
 
 /** How long a queued message stays held for an edit with nobody saving or letting go — a window
  *  closed mid-edit, a client that dropped. Long enough for anyone actually typing. */
@@ -249,6 +247,8 @@ export class SessionService {
   /** The questions open right now, by requestId, from whichever feed raised them — what an answer is
    *  read against to learn which of it is masked. */
   private asked = new Map<string, { sessionId: string; card: AskCard }>();
+  /** Requests `allowInFullAccess` answered, until the adapter's own response to each comes through. */
+  private allowedInFullAccess = new Set<string>();
   /** Masked answers, kept out of every event and call record (see `secret-answers.ts`). */
   private secrets = new SecretAnswers();
   /** Set while the daemon is going quiet for a handoff. See `ensureLive` for the rule that matters. */
@@ -1050,6 +1050,23 @@ export class SessionService {
       if (broker?.owns(card.requestId) ? !broker.skippedUnderBypass(card.requestId) : !this.live.has(id)) continue;
       this.respondPermission(id, card.requestId, "allow");
     }
+  }
+
+  /**
+   * A tool permission request from the agent's own harness that Full access answers (`fullAccessAllows`):
+   * allowed here and never drawn. The `permission_response` kept in its place carries `fullAccess`, so
+   * the transcript still records that the call was asked about, and the adapter's own response to the
+   * same id is dropped by the pump. The mode is read per request, so a session that has left Full
+   * access is asked again. Requests Realm raises itself do not come this way: the broker emits those
+   * through `emitExternal`, and decides for itself what Full access skips.
+   */
+  private allowInFullAccess(id: string, handle: AgentHandle, request: SessionEventPayload<"permission_request">): boolean {
+    if (!fullAccessAllows(this.d.sessions.get(id)?.permissionMode, request)) return false;
+    console.error(`[session ${id.slice(-6)}] ${fullAccessLogLine(request.input, "the agent asked")}`);
+    this.allowedInFullAccess.add(request.requestId);
+    this.onEvent(id, sessionEvent("permission_response", { requestId: request.requestId, decision: "allow", fullAccess: { toolName: request.toolName, title: request.title } }));
+    handle.respondPermission(request.requestId, "allow");
+    return true;
   }
 
   /** `text` with every masked answer this session was given replaced by the mark — what the gateway
@@ -2274,6 +2291,8 @@ export class SessionService {
         for await (const ev of handle.events) {
           if (this.reapedHandles.has(handle)) continue;
           this.lastActive.set(id, Date.now());
+          if (ev.type === "permission_request" && this.allowInFullAccess(id, handle, ev.payload)) continue;
+          if (ev.type === "permission_response" && this.allowedInFullAccess.delete(ev.payload.requestId)) continue;
           this.onEvent(id, ev);
         }
       }
