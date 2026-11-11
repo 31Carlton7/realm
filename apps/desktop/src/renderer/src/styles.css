@@ -10971,6 +10971,11 @@ button.files-crumb:hover { color: var(--rl-text-bright); background: var(--rl-ho
    A space's teammates head the column under the pinned row: the Lead and the rest, their icons in the
    gutter so every name stands on the titles' column, then the groups the person made. */
 .sb-team { display: flex; flex-direction: column; }
+/* Team access heads the list as a lone settings card, its chip at the far end and the line under Full
+   access across the card's whole width. */
+.settings-row.sb-team-access { flex-wrap: wrap; gap: 4px 8px; padding: 8px 8px 8px 12px; margin-bottom: 6px; }
+.sb-team-access > .settings-row-name { flex: 1; min-width: 0; }
+.sb-team-access > .settings-row-desc { padding: 0 4px 4px 0; }
 /* A group the person made is a caption over its teammates, the column's one nesting. Its caret comes
    up under the pointer, after the name, and stays while the group is folded so a folded group says so. */
 .sb-team-group { min-height: 28px; }

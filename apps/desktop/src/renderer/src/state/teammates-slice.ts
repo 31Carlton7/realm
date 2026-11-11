@@ -42,6 +42,8 @@ export type TeammatesSlice = {
   hydrateTeamGroupFolds(): Promise<void>;
   setTeamGroupFolded(spaceId: string, group: string, folded: boolean): Promise<void>;
   loadTeamAccess(spaceId: string): Promise<void>;
+  /** `teams.access.changed`: read again where held. */
+  teamAccessChanged(spaceId: string): Promise<void>;
   /** For the person's Team access control alone, which must carry `data-no-agent`. */
   setTeamAccess(spaceId: string, mode: TeamAccessMode | null): Promise<void>;
 };
@@ -93,6 +95,9 @@ export function teammatesSlice<S extends Host>(
     },
     async loadTeamAccess(spaceId) {
       set({ teamAccess: { ...get().teamAccess, [spaceId]: await api.teamAccess(spaceId) } });
+    },
+    async teamAccessChanged(spaceId) {
+      if (get().teamAccess[spaceId]) await get().loadTeamAccess(spaceId);
     },
     async setTeamAccess(spaceId, mode) {
       set({ teamAccess: { ...get().teamAccess, [spaceId]: await api.setTeamAccess(spaceId, mode) } });

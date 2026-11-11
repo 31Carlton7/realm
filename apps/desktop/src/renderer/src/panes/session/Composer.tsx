@@ -47,7 +47,7 @@ const listNames = (names: readonly string[]): string =>
 /** Borderless ghost chip that opens an upward Menu (§4 control row). With nothing to pick it is not a
  *  control at all but a label — an agent whose CLI owns model choice still deserves its model named,
  *  and a disabled button would leave the tab order and be announced as unavailable. */
-function ChipMenu({ ariaLabel, title, label, icon, iconSize = 12, tint, items, warning, caret = true }: { ariaLabel: string; title?: string; label: ReactNode;
+export function ChipMenu({ ariaLabel, title, label, icon, iconSize = 12, tint, items, warning, caret = true, placement = "up" }: { ariaLabel: string; title?: string; label: ReactNode;
   /** A glyph's name, or a mark drawn by the caller — the space chip wears the space's own icon. */
   icon?: string | ReactNode;
   /** The glyph's rung: 12 beside the under-strip's 11px labels, 14 on the control row, where it sits
@@ -57,7 +57,7 @@ function ChipMenu({ ariaLabel, title, label, icon, iconSize = 12, tint, items, w
   tint?: string; items: MenuItem[]; warning?: boolean;
   /** The chevron. Off for a control whose mark already says what it opens onto — see the permission
    *  control, which is a glyph and a word the way Codex's is. */
-  caret?: boolean }) {
+  caret?: boolean; placement?: "up" | "down" }) {
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   // A sibling of chip-label, never inside it: chip-label truncates with an ellipsis, which needs a
@@ -79,7 +79,7 @@ function ChipMenu({ ariaLabel, title, label, icon, iconSize = 12, tint, items, w
         <span className="chip-label">{label}</span>
         {caret && <Icon name="chevronDown" size={12} className="chip-caret" />}
       </button>
-      {open && <Menu items={items} onClose={() => setOpen(false)} anchorRef={btn} placement="up" label={ariaLabel} />}
+      {open && <Menu items={items} onClose={() => setOpen(false)} anchorRef={btn} placement={placement} label={ariaLabel} />}
     </>
   );
 }
