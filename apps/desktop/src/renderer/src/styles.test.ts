@@ -2867,6 +2867,13 @@ describe("the side panel's surfaces", () => {
     }
   });
 
+  it("sets the summary's section heads at the caption rung, in ink that is read", () => {
+    // They were 11px in the hint tier, about 3:1. THE MUTANT: either value put back.
+    const head = bodiesFor(".summary-head").join(" ");
+    expect(head).toContain("font-size: 12px");
+    expect(head).toContain("color: var(--rl-text-dim)");
+  });
+
   it("sets a summary fact in mono only where its value is an identifier", () => {
     // SessionSummary marks the folder, the branch and the model `data-code`; a mode or a word is not.
     expect(RULES.some((r) => r.selectors.includes(".summary-fact .summary-row-name"))).toBe(false);
