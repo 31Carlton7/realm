@@ -145,6 +145,10 @@
      ground; these land on every surface incl. the translucent sidebar). Light overrides below. */
   --rl-hover: oklch(1 0 0 / 0.06);
   --rl-active: oklch(1 0 0 / 0.09);
+  /* The edge on a picture — an image in prose, a page, a thumbnail, an avatar: white on dark and
+     black on light, inside the picture, so a screenshot on a ground of its own tone still has an
+     edge. */
+  --picture-outline: oklch(1 0 0 / 0.1);
   /* ink ramp */
   --rl-text-bright: var(--ink);                  /* BUI --ink */
   --rl-text-dim: var(--ink-2);                   /* BUI --ink-2 */
@@ -258,6 +262,7 @@
 :root[data-mode="light"] {
   --rl-hover: oklch(0 0 0 / 0.05);
   --rl-active: oklch(0 0 0 / 0.07);
+  --picture-outline: oklch(0 0 0 / 0.1);
   /* A card set into the raised surface. On this face --surface is white and --page one rung under
      it, which measured 1.04:1 — a card with no edge — so the value is set by measurement rather
      than by rung: 1.16:1 on white against dark's 1.15, with the --inset field inside the card and
@@ -4082,11 +4087,7 @@ button.md-path { font: 12px var(--font-mono); padding: 1px 4px; border-radius: v
 .md blockquote { margin: 0 0 8px; padding: 2px 10px; border-left: 3px solid var(--rl-line); color: var(--rl-text-dim); }
 /* A 1px low-alpha outline keeps an image's edge legible on any surface it lands on. Pure white in
    dark mode / pure black in light — a tinted neutral would pick up the ground and read as dirt. */
-.md img { max-width: 100%; border-radius: var(--r-chip); outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
-:root[data-mode="light"] .md img { outline-color: rgba(0, 0, 0, 0.1); }
-/* The Quick Look render's half of the same pair (see `.ql-page`). It is a picture on the pane's own
-   ground, so it flips exactly as every other picture in the app does. */
-:root[data-mode="light"] .ql-page { outline-color: rgba(0, 0, 0, 0.1); }
+.md img { max-width: 100%; border-radius: var(--r-chip); outline: 1px solid var(--picture-outline); outline-offset: -1px; }
 /* The handover seam. A rule across the whole column with the sentence set into it, because that is
    what it reports: everything above is one agent's voice, everything below is another's. Centred,
    so it reads as a division of the transcript rather than as something either side said. */
@@ -7385,8 +7386,7 @@ select { appearance: none; padding-right: 22px;
    the comparison is the point — on the well's ground, under the outline every picture wears. */
 .diff-thumbs { flex: none; display: flex; align-items: center; gap: 4px; padding: 2px 0; }
 .diff-thumb { display: block; width: 44px; height: 44px; object-fit: contain; border-radius: var(--r-chip); background: var(--inset);
-  outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
-:root[data-mode="light"] .diff-thumb { outline-color: rgba(0, 0, 0, 0.1); }
+  outline: 1px solid var(--picture-outline); outline-offset: -1px; }
 .diff-thumb-arrow { flex: none; color: var(--rl-text-faint); }
 /* The lines of a document or a picture drawn as text, one click past opening it. */
 .diff-disclose { flex: none; width: 22px; --btn-h: 22px; }
@@ -9316,8 +9316,7 @@ button.cr-finding-where:hover { text-decoration: underline; }
    stays white on both faces. */
 .pair-scan { display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 4px; text-align: center; }
 .pairing-code { display: block; margin-bottom: 6px; border-radius: var(--r-chip);
-  outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
-:root[data-mode="light"] .pairing-code { outline-color: rgba(0, 0, 0, 0.1); }
+  outline: 1px solid var(--picture-outline); outline-offset: -1px; }
 /* The code's place once it has run out. `--field`, not `--inset`: on the light face the inset tone is a
    step off white nobody can see, and the box has to read as the code's place on both. */
 .pair-code-gone { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
@@ -9764,9 +9763,9 @@ span.documents-name:hover { background: none; }
    (white at low alpha on dark, black on light) drawn over its edge, so a white page on the light
    ground still has one. Pages are never inverted for dark mode: the file is the file. */
 .pdf-page { position: absolute; overflow: hidden; border-radius: var(--r-sm); background: var(--rl-frame);
-  outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
+  outline: 1px solid var(--picture-outline); outline-offset: -1px; }
 .pdf-page[data-painted] { background: #fff; box-shadow: var(--rl-object-shadow); }
-:root[data-mode="light"] .pdf-page { outline-color: rgba(0, 0, 0, 0.14); }
+:root[data-mode="light"] .pdf-page { --picture-outline: oklch(0 0 0 / 0.14); }
 /* On the light face the pane's canvas is near-white too, and white paper on it had no edge at all
    (255 on 249, the outline the only line). Light PDFs stand on the frame — the ground a step under
    the canvas that wells and the sidebar use — so the sheet reads by its fill before its outline. The
@@ -9807,9 +9806,8 @@ span.documents-name:hover { background: none; }
 .pdf-strip[data-floating] { position: absolute; z-index: 3; inset: 0 auto 0 0; background: var(--surface); box-shadow: var(--shadow-overlay); }
 .pdf-thumb { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 0; border: none; background: none; }
 .pdf-thumb-page { position: relative; display: block; overflow: hidden; border-radius: var(--r-sm); background: var(--rl-frame);
-  outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
+  outline: 1px solid var(--picture-outline); outline-offset: -1px; }
 .pdf-thumb-page[data-painted] { background: #fff; box-shadow: var(--rl-object-shadow); }
-:root[data-mode="light"] .pdf-thumb-page { outline-color: rgba(0, 0, 0, 0.1); }
 /* The page being read is the selection, and selection is the accent: a ring outside the sheet,
    changing at once as the reader moves. */
 .pdf-thumb[aria-current="page"] .pdf-thumb-page { box-shadow: 0 0 0 2px var(--rl-accent); }
@@ -9856,9 +9854,9 @@ span.documents-name:hover { background: none; }
 
    The render is OPAQUE edge to edge — `qlmanage -t` letterboxes into a square and fills it — so the
    element's box really is the page's box, and the app's standard image outline is what gives it an
-   edge against a ground of the same tone. Paired for light mode below, like `.md img`. */
+   edge against a ground of the same tone. */
 .ql-page { max-width: min(100%, 900px); height: auto; border-radius: var(--r-sm);
-  outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
+  outline: 1px solid var(--picture-outline); outline-offset: -1px; }
 .ql-note { margin: 0; max-width: 62ch; text-align: center; font-size: 12px; line-height: 1.5;
   color: var(--rl-text-faint); }
 .sheet-lede { margin: 0; font-size: 13px; color: var(--rl-text-dim); line-height: 1.5; }
@@ -10110,8 +10108,7 @@ span.media-viewer-from { align-self: center; }
 /* The edge every picture in the app gets (`.md img`): white at low alpha on dark, black on light —
    drawn inside it, so a screenshot of a page on a ground of the same tone still has one. */
 .media-viewer-img { display: block; max-width: 100%; max-height: 100%; user-select: none; -webkit-user-select: none;
-  outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
-:root[data-mode="light"] .media-viewer-img { outline-color: rgba(0, 0, 0, 0.1); }
+  outline: 1px solid var(--picture-outline); outline-offset: -1px; }
 /* The zoom, a small pill under the picture — Codex's tool strip, holding the one tool a viewer owes
    every picture. The readout is the way between fit and actual size. It rests on the ground beside
    the file rather than floating over it, so it takes the card's edge and lift: the overlay's long
@@ -10755,8 +10752,7 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
    chrome and in a menu alike. */
 .avatar-placeholder { background: color-mix(in srgb, var(--rl-text-dim) 26%, transparent); color: var(--rl-text-bright); user-select: none; }
 /* The edge every picture in the app gets (`.md img`): white at low alpha on dark, black on light. */
-img.avatar { outline: 1px solid rgba(255, 255, 255, 0.1); outline-offset: -1px; }
-:root[data-mode="light"] img.avatar { outline-color: rgba(0, 0, 0, 0.1); }
+img.avatar { outline: 1px solid var(--picture-outline); outline-offset: -1px; }
 /* Centred rather than on the title's baseline: the face is a picture, and a picture sat on a text
    baseline hangs below the line it is beside. */
 .you-page .page-head { align-items: center; }
