@@ -15,10 +15,7 @@
   {"id": "aurora", "name": "Aurora", "mood": "Green curtains over a dark treeline", "light": "aurora.jpg", "dark": "aurora.jpg", "effect": "dither-color", "motion": false, "credit": "Made for Realm, from seeded noise."},
   {"id": "ocean", "name": "Ocean", "mood": "A still sea to a hazy horizon; the moon's path on it at night", "light": "ocean-day.jpg", "dark": "ocean-night.jpg", "effect": "dither-color", "motion": false, "credit": "Made for Realm, from seeded noise."},
   {"id": "ridges", "name": "Ridges", "mood": "Ranges of hills fading into morning haze; the same at dusk", "light": "ridges-day.jpg", "dark": "ridges-night.jpg", "effect": "dither-color", "motion": false, "credit": "Made for Realm, from seeded noise."},
-  {"id": "forest", "name": "Forest", "mood": "Rows of pines going back into fog", "light": "forest-day.jpg", "dark": "forest-night.jpg", "effect": "dither", "motion": false, "credit": "Made for Realm, from seeded noise."},
-  {"id": "floodlights", "name": "Floodlights", "mood": "Beams crossing through hazy night air", "light": "floodlights.jpg", "dark": "floodlights.jpg", "effect": "dither", "motion": false, "credit": "Made for Realm, from seeded noise."},
-  {"id": "arcade", "name": "Arcade", "mood": "A striped sun setting over a neon grid", "light": "arcade.jpg", "dark": "arcade.jpg", "effect": "dither-color", "motion": false, "credit": "Made for Realm, from seeded noise."},
-  {"id": "pixel", "name": "Pixel", "mood": "A pixel-art lake at sunset; the same under the moon", "light": "pixel-day.jpg", "dark": "pixel-night.jpg", "effect": "dither-color", "motion": false, "credit": "Made for Realm, from seeded noise."},
   {"id": "ink", "name": "Ink", "mood": "Mountains in wet ink washes on paper", "light": "ink.jpg", "dark": "ink.jpg", "effect": "dither", "motion": false, "credit": "Made for Realm, from seeded noise."},
-  {"id": "rain", "name": "Rain", "mood": "Raindrops on a window, city lights behind", "light": "rain.jpg", "dark": "rain.jpg", "effect": "dither-color", "motion": false, "credit": "Made for Realm, from seeded noise."}
+  {"id": "arcade", "name": "Arcade", "mood": "A striped sun setting over a neon grid", "light": "arcade.jpg", "dark": "arcade.jpg", "effect": "dither-color", "motion": false, "credit": "Made for Realm, from seeded noise."},
+  {"id": "pixel", "name": "Pixel", "mood": "A pixel-art lake at sunset; the same under the moon", "light": "pixel-day.jpg", "dark": "pixel-night.jpg", "effect": "dither-color", "motion": false, "credit": "Made for Realm, from seeded noise."}
 ]
