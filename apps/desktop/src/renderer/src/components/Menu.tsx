@@ -28,6 +28,16 @@ export type MenuItem =
   | { kind: "header"; label: string };
 
 type MenuRow = Extract<MenuItem, { onSelect: () => void }>;
+/** What the last menu was opened with. A menu a press opened lights no row until the pointer moves or
+ *  a key is pressed: its first row still takes the focus for the arrows, but lit, it was a second
+ *  highlight beside the row under a pointer that had not moved. One the keyboard opened lights its
+ *  first row at once. */
+let openedBy: "pointer" | "key" = "key";
+if (typeof document !== "undefined") {
+  document.addEventListener("pointerdown", () => { openedBy = "pointer"; }, true);
+  document.addEventListener("keydown", () => { openedBy = "key"; }, true);
+}
+
 const isRow = (it: MenuItem | undefined): it is MenuRow => it !== undefined && it.kind !== "separator" && it.kind !== "header";
 
 /** Small popup menu, rendered in a portal with fixed positioning so no ancestor overflow can clip
@@ -162,6 +172,7 @@ function HtmlMenu({ items, onClose, at, anchorRef, returnFocusRef, align = "left
   // went nowhere (jsdom, which focuses anything, never noticed). The hook already captured the
   // restore target at mount, so the roving focus this moves in never becomes what focus returns to.
   const focusedIn = useRef(false);
+  const [resting, setResting] = useState(() => openedBy === "pointer");
   useLayoutEffect(() => {
     if (!pos || focusedIn.current) return;
     focusedIn.current = true;
@@ -178,6 +189,7 @@ function HtmlMenu({ items, onClose, at, anchorRef, returnFocusRef, align = "left
     bs[((i % bs.length) + bs.length) % bs.length]?.focus();
   };
   const onKeyDown = (e: ReactKeyboardEvent) => {
+    setResting(false);
     const bs = buttons(); if (bs.length === 0) return;
     const cur = bs.indexOf(document.activeElement as HTMLButtonElement);
     if (e.key === "ArrowDown") { e.preventDefault(); focusItem(cur + 1); }
@@ -223,6 +235,7 @@ function HtmlMenu({ items, onClose, at, anchorRef, returnFocusRef, align = "left
   });
   return createPortal(
     <div ref={ref} role="menu" aria-label={label} className={`menu${className ? ` ${className}` : ""}`} style={style} onKeyDown={onKeyDown}
+      data-resting={resting || undefined} onPointerMove={resting ? () => setResting(false) : undefined}
       data-closing={closing || undefined} inert={closing}>
       <div ref={list} className="menu-list" role="presentation">
         {sections.map((sec, si) => sec.head === null

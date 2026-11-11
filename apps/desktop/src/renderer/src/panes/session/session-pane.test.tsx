@@ -759,6 +759,17 @@ describe("the prompter's / commands", () => {
     expect(document.querySelector(".slash-picker")).toBeNull();
   });
 
+  it("keeps every built-in's name and hint within the longest that fits the picker's width", async () => {
+    // At --picker-w, "/plan Work out an approach without changing anything" is the longest row that
+    // still ends in its last word; /share's "…that opens in any browser" ended in an ellipsis.
+    await mountFresh();
+    type("/");
+    const widths = [...document.querySelectorAll(".slash-row")].map((r) =>
+      [r.querySelector(".mention-row-id")!.textContent!, (r.querySelector(".mention-row-id")!.textContent! + r.querySelector(".mention-row-desc")!.textContent!).length] as const);
+    const plan = widths.find(([id]) => id === "/plan")![1];
+    expect(widths.filter(([, n]) => n > plan)).toEqual([]);
+  });
+
   it("draws a command's mark at 14px in the @ row's mark box", async () => {
     // The glyphs were 12px beside 14px text, in a class of their own, so `/` rows sat off the `@` rows' grid.
     await mountFresh();
@@ -1051,6 +1062,19 @@ describe("SessionMeta", () => {
     expect(screen.queryByText(/claude-fable/)).toBeNull();
     expect(screen.queryByText(/turn/)).toBeNull();
     expect(screen.queryByText("$0.50")).toBeNull();
+  });
+
+  it("draws no status for a session that has not started", () => {
+    // TN-01. THE MUTANT: "Status: Idle" on the bar of a prompter nothing has been sent from.
+    const store = createAppStore(fakeApi());
+    store.setState({ sessions: { se1: session("se1", "s1", { lastEventSeq: 0 }) }, sessionStatus: { se1: "idle" } });
+    const view = () => <StoreContext.Provider value={store}><SessionMeta item={item("i9", "s1", { kind: "session", refId: "se1", title: "New session" })} /></StoreContext.Provider>;
+    const { rerender } = render(view());
+    expect(document.querySelector(".status-dot")).toBeNull();
+    // Its first send is a state worth drawing, before the event that says so lands.
+    act(() => store.setState({ sessionStatus: { se1: "running" } }));
+    rerender(view());
+    expect(screen.getByLabelText("Status: Running")).toBeInTheDocument();
   });
 
 });
@@ -1442,8 +1466,8 @@ describe("prompter model picker", () => {
     expect(rowNames()).toEqual(["Fake", "Fable 5.1", "Fable 5", "Opus 5.5", "Opus 5", "Sonnet 5.5", "Sonnet 5", "Haiku 5.5", "Haiku 4.5",
       "DeepSeek V4 Pro", "DeepSeek V4 Flash",
       "Codex", "Cursor", "Gemini", "OpenCode", "GitHub Copilot", "goose", "Qwen Code", "Grok", "fx", "OpenHands", "Hermes"]);
-    // Pinned to nothing, and nothing has said what that runs, so nothing is ticked.
-    expect(screen.getByRole("option", { name: "Fake" })).toHaveAttribute("aria-selected", "false");
+    // Pinned to nothing: what runs is the agent's own default, and its row says so.
+    expect(screen.getByRole("option", { name: "Fake" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("marks an unavailable CLI but keeps it pickable — the install card is where picking it leads", async () => {
@@ -1862,11 +1886,11 @@ describe("the picker for a session that pinned no model", () => {
     return { api, store };
   }
 
-  it("ticks nothing before anything has answered, and the effort track offers Claude Code's levels at its default", async () => {
+  it("ticks Default before anything has answered, and the effort track offers Claude Code's levels at its default", async () => {
     await mountUnpinned([]);
     expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("DefaultHigh");
     openPicker();
-    expect(ticked()).toEqual([]);
+    expect(ticked()).toEqual(["Default"]);
     const track = screen.getByRole("slider", { name: "Effort" });
     expect(track).toHaveAttribute("aria-valuetext", "High");
     expect(track).toHaveAttribute("aria-valuemax", "4"); // low, medium, high, xhigh, max
@@ -2008,7 +2032,8 @@ describe("the CLI-missing install card (W4)", () => {
     await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
     expect(prompter()).toBeNull(); // replaced, not merely disabled
     expect(screen.getByRole("group", { name: /isn’t installed/ })).toBeInTheDocument();
-    expect(screen.getByText("spawn claude ENOENT")).toBeInTheDocument();
+    expect(screen.getByText("Realm found no claude command on this Mac.")).toBeInTheDocument();
+    expect(screen.queryByText(/ENOENT/)).toBeNull();
     expect(screen.getByText(AGENT_CLI_COMMANDS.claude.install)).toBeInTheDocument();
     expect(screen.queryByText(AGENT_CLI_COMMANDS.claude.login)).toBeNull();
   });
@@ -2017,7 +2042,8 @@ describe("the CLI-missing install card (W4)", () => {
     await mountAgent([signedOut]);
     await waitFor(() => expect(document.querySelector(".install-card")).not.toBeNull());
     expect(screen.getByRole("group", { name: /isn’t signed in/ })).toBeInTheDocument();
-    expect(screen.getByText(AGENT_CLI_COMMANDS.claude.login)).toBeInTheDocument();
+    expect(screen.getByText(AGENT_CLI_COMMANDS.claude.login, { selector: ".install-cmd code" })).toBeInTheDocument();
+    expect(document.querySelector(".install-reason")!.textContent).not.toContain("`");
     expect(screen.queryByText(AGENT_CLI_COMMANDS.claude.install)).toBeNull();
   });
 
@@ -2120,7 +2146,7 @@ describe("the CLI-missing install card (W4)", () => {
     await mountAgent([signedOut], "idle", offersInstall);
     await waitFor(() => expect(screen.getByRole("group", { name: /isn’t signed in/ })).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
-    expect(screen.getByText(AGENT_CLI_COMMANDS.claude.login)).toBeInTheDocument();
+    expect(screen.getByText(AGENT_CLI_COMMANDS.claude.login, { selector: ".install-cmd code" })).toBeInTheDocument();
   });
 
   it("'Check again' re-probes past the cache and the prompter comes back — no restart", async () => {

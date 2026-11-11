@@ -80,9 +80,9 @@ describe("the reviewer", () => {
     // GPT-6 Luna runs through Codex and through Cursor; a reviewer is offered Codex alone, so the
     // picker's row draws no Cursor route beside it. THE MUTANT: routes left as modelRows gave them.
     expect(rows.find((r) => r.label === "GPT-6 Luna")).toMatchObject({ kind: "codex", harnesses: ["codex"], alternates: [] });
-    // A pick of no model ticks nothing until something names the default; a pinned one is the one row
-    // ticked, and the scripted agent's, added after, never is.
-    expect(rows.filter((r) => r.selected)).toEqual([]);
+    // A pick of no model runs the CLI's default, so its Default row is the one ticked; a pinned one is
+    // the one row ticked, and the scripted agent's, added after, never is.
+    expect(rows.filter((r) => r.selected).map((r) => r.label)).toEqual(["Default"]);
     const pinned = reviewerRows({ kind: "claude", model: "claude-opus-5-5", agentProbe: probe, favorites: [] });
     expect(pinned.filter((r) => r.selected).map((r) => r.label)).toEqual(["Claude Opus 5.5"]);
   });

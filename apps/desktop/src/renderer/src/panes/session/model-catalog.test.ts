@@ -63,7 +63,8 @@ describe("modelRows with a probe catalog", () => {
     for (const models of [null, undefined, []] as const) {
       const rows = modelRows({ kind: "claude", model: null, agentProbe: [probe("claude", models as AgentProbe["models"])], canSwitchAgent: true });
       const claude = rows.filter((r) => r.kind === "claude");
-      expect(claude.map((r) => r.modelId)).toEqual(["claude-fable-5-1", "claude-fable-5", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5", "claude-sonnet-5", "claude-haiku-5-5", "claude-haiku-4-5"]);
+      // Led by the un-pinned session's own Default row: nothing has said which of these is the default.
+      expect(claude.map((r) => r.modelId)).toEqual([null, "claude-fable-5-1", "claude-fable-5", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5", "claude-sonnet-5", "claude-haiku-5-5", "claude-haiku-4-5"]);
     }
   });
 
@@ -98,9 +99,12 @@ describe("the row a session that pinned no model ticks", () => {
     return { rows, ticked, levels: levels.levels.map((l) => l.id), defaultId: levels.defaultId, label: chipLabel("claude", model, rows, agentProbe, ran) };
   };
 
-  it("ticks no row before anything has answered, and its effort and fast mode read nothing of Fable 5.1's", () => {
+  it("ticks the CLI default's own row before anything has answered, and its effort and fast mode read nothing of Fable 5.1's", () => {
+    // PR-05. THE MUTANT: no row ticked, a list with nothing in force while the CLI's default runs.
     const { rows, ticked, levels, defaultId, label } = unpinned([]);
-    expect(ticked).toEqual([]);
+    expect(ticked).toEqual([null]);
+    expect(rows.find((r) => r.selected)?.label).toBe("Default");
+    expect(rows.filter((r) => r.key === "default:claude")).toHaveLength(1);
     expect(label).toBe("Default");
     // Every level Claude Code takes, and its documented default, rather than Fable 5.1's two.
     expect(levels).toEqual(["low", "medium", "high", "xhigh", "max"]);
@@ -116,6 +120,22 @@ describe("the row a session that pinned no model ticks", () => {
     // What ran beats what the probe marks, as it does on the chip.
     const marked = [probe("claude", [{ id: "claude-opus-5-5", label: "Claude Opus 5.5" }, { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", isDefault: true }])];
     expect(unpinned(marked, "claude-opus-5-5").ticked).toEqual(["claude-opus-5-5"]);
+  });
+
+  it("ticks a harness's only model before anything has answered", () => {
+    const rows = modelRows({ kind: "fake", model: null, agentProbe: [], canSwitchAgent: false });
+    expect(rows.filter((r) => r.selected).map((r) => r.label)).toEqual(["Fake"]);
+    expect(rows.some((r) => r.label === "Default" && r.kind === "fake")).toBe(false);
+  });
+
+  it("ticks the session's own default row when its handshake names a model the list does not carry", () => {
+    const rows = modelRows({ kind: "acp:cursor", model: null, agentProbe: [], canSwitchAgent: false, ran: "composer-2" });
+    expect(rows.filter((r) => r.selected).map((r) => r.key)).toEqual(["default:acp:cursor"]);
+  });
+
+  it("adds no Default row once a row is in force, or for a pinned model", () => {
+    expect(unpinned([], "claude-opus-5-5").rows.some((r) => r.key === "default:claude")).toBe(false);
+    expect(modelRows({ kind: "claude", model: "claude-retired-1", agentProbe: [], canSwitchAgent: true }).some((r) => r.selected || r.key === "default:claude")).toBe(false);
   });
 
   it("ticks the probe's marked default while nothing has run", () => {

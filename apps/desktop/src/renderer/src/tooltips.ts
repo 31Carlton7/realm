@@ -32,7 +32,11 @@ import { placeTooltip, type Rect, type TooltipSide } from "./state/no-overlay";
  *
  * A row that already shows its name carries no title. `data-tip="clipped"` gives it the words of its
  * `[data-tip-text]` child instead, and only while the column has cut them short, beside the row rather
- * than under it: under it, the tooltip covered the row below.
+ * than under it: under it, the tooltip covered the row below. A tab is the exception: its neighbours
+ * are beside it, so its name goes under the strip.
+ *
+ * A wide row with a line under its label (a settings row) takes its own title beside it, or over it:
+ * under it, the tooltip sat on the next row for as long as it was up.
  */
 export const TIP_DELAY_MS = 200;
 export const TIP_WARM_MS = 500;
@@ -49,6 +53,12 @@ const GAP = 6;
 const MARGIN = 6;
 /** Where a clipped row's tooltip looks first: beside the column, clear of the rows above and below. */
 const BESIDE: readonly TooltipSide[] = ["right", "left", "below", "above"];
+/** A clipped tab's neighbours are the tabs either side of it, so its tooltip goes under the strip. */
+const UNDER_STRIP: readonly TooltipSide[] = ["below", "above"];
+/** A wide row this tall has a line under its label. Under it, its tooltip covered the next row, so it
+ *  goes beside the row, then over it, and under it only where neither is clear. */
+const ONE_LINE_ROW_H = 48;
+const BESIDE_ROW: readonly TooltipSide[] = ["right", "above", "below"];
 
 /** A trailing chord in brackets: one or more modifiers, then a key — a glyph, a character, a short name —
  *  or the spelled-out form Linux and Windows print ("Ctrl+Shift+F"). */
@@ -187,14 +197,15 @@ export function installTooltips(doc: Document, opts: { avoid?: () => readonly Re
     // Under its own line of text, a tool row's command sat over the row it described.
     const control = el.parentElement?.closest(CONTROL)?.getBoundingClientRect();
     const band = control && control.height <= LARGE.height ? control : r;
-    const anchor = clips(el) ? r
+    const twoLineRow = via === "pointer" && band === r && r.width > LARGE.width && r.height > ONE_LINE_ROW_H && r.height <= LARGE.height;
+    const anchor = clips(el) || twoLineRow ? r
       : via === "pointer" && r.height > LARGE.height
         ? { x: pointer.x - 1, y: pointer.y, width: 2, height: CURSOR_H }
         : via === "pointer" && r.width > LARGE.width
           ? { x: pointer.x - 1, y: band.y, width: 2, height: band.height }
           : { x: r.x, y: band.y, width: r.width, height: band.height };
     return placeTooltip({ anchor, size: { width: size.width, height: size.height }, win: { width: win.innerWidth, height: win.innerHeight },
-      gap: GAP, margin: MARGIN, avoid: opts.avoid?.() ?? [], sides: clips(el) ? BESIDE : undefined });
+      gap: GAP, margin: MARGIN, avoid: opts.avoid?.() ?? [], sides: clips(el) ? (el.getAttribute("role") === "tab" ? UNDER_STRIP : BESIDE) : twoLineRow ? BESIDE_ROW : undefined });
   };
   /** Nowhere beside it can be seen: the system's tooltip can, so it keeps its title until the pointer
    *  leaves. */

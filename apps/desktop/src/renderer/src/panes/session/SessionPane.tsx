@@ -52,6 +52,10 @@ const STATUS_LABEL = { idle: "Idle", running: "Running", waiting_permission: "Ne
 export function SessionMeta({ item }: { item: Item }) {
   const id = item.refId;
   const status = useApp((s) => s.sessionStatus[id] ?? s.sessions[id]?.status ?? "idle");
+  // A new session's prompter, before its first send, is not a session that is idle: there is nothing
+  // yet to have a state, so the bar draws none.
+  const unstarted = useApp((s) => (s.sessions[id]?.lastEventSeq ?? 0) === 0 && (s.transcripts[id]?.lastSeq ?? 0) === 0);
+  if (unstarted && status === "idle") return null;
   return (
     <>
       {/* The status dot, alone. The cost used to sit here; it now rides the summary button, which is
@@ -669,7 +673,7 @@ export function SessionPane({ item, visible, focused = false }: PaneProps) {
       run: () => run(() => exportSession(id)),
     },
     {
-      id: "share", label: "Share as web page", hint: "Save this session as one page that opens in any browser", icon: "browser",
+      id: "share", label: "Share as web page", hint: "Save this session as one web page", icon: "browser",
       run: () => shareSession(id),
     },
     // Each of the rest is gated on the thing it would act on actually existing: a command that could

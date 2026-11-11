@@ -36,7 +36,7 @@
 .files-crumbs, .gen-res, .hex, .install-cmd code, .mac-grant-cmd code, .match-path, .match-row, .math-raw,
 .mcp-tool-name, .md code, .md-code-lang, .media-name, .memory-path, .media-time, .video-btn, .video-time, .video-scrub-hover, .mention-row-id, .mp-about code,
 .msg-error pre, .space-folder-made, .empty-state-path, .empty-state-note code, .permission-details pre, .permission-tool code, .req-target,
-.sched-cron, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-note code,
+.sched-cron, .session-usage-value, .settings-agent-note code, .settings-chip, .settings-hint code, .settings-note code, .settings-row-desc code, .install-reason code,
 .font-installed-size, .sheet-cell-input, .sheet-cellref, .sheet-rawvalue, .ship-report code, .skill-file-name code, .skill-picker-row-id,
 .summary-diff, .summary-fact .summary-row-name[data-code], .summary-file-path, .term-exit, .term-out, .terminal-hint-path,
 .theme-import textarea, .tool-body pre, .tool-stat, .tool-group-work .tool-stat-add, .tool-group-work .tool-stat-del, .tool-summary[data-form="code"], .tool-well, .tool-panel-cwd, .tool-panel-exit, .tool-panel-path, .tool-panel-text, .tool-body .code-body, .tool-arg dd[data-form="code"], .tool-arg dd[data-form="json"], .wt-path, button.md-path, kbd,
@@ -438,6 +438,10 @@ kbd { font: 11px var(--font-mono); }
 .sidebar[data-collapsed] { --sidebar-open: 0; }
 .sidebar-slide { flex: none; width: var(--sidebar-w); min-height: 0; display: flex; flex-direction: column;
   translate: calc(var(--sidebar-w) * (var(--sidebar-open) - 1)) 0; }
+/* Folded, the column's head row sits at x −16 and 14, under the traffic lights: inert, so no key
+   reaches it, but still drawn and hit-tested. Once the slide has run, nothing of it is drawn; it comes
+   back the moment the column opens. */
+.sidebar[data-collapsed] .sidebar-slide { visibility: hidden; transition: visibility 0s linear var(--dur-move); }
 .sidebar button, .sidebar input, .sb-resize { -webkit-app-region: no-drag; }
 /* Folded away, the column is a box with no width, but what it holds is still laid out — slid off to
    the left, across the rail — and Electron lays the window's drag regions down in document order, not
@@ -1124,9 +1128,12 @@ input.sb-space-name { flex: 1; }
    chip. The padding is untouched; the row is 30px because the line box is 16. */
 .menu [role="menuitem"], .menu [role="menuitemcheckbox"] { flex: none; text-align: left; padding: 7px 11px; border-radius: var(--r-chip); display: flex; align-items: center; gap: 8px;
   font-size: 13px; line-height: 16px; }
-.menu [role="menuitem"]:hover:not(:disabled), .menu [role="menuitemcheckbox"]:hover:not(:disabled) { background: var(--hover); }
-/* Roving focus moves programmatically, which browsers don't always mark :focus-visible — use :focus. */
-.menu [role="menuitem"]:focus, .menu [role="menuitemcheckbox"]:focus { background: var(--hover); outline: none; }
+/* ONE highlight: the focused row. The pointer moves the focus (Menu.tsx), so a hover fill of its own
+   was a second lit row wherever the arrows had left the focus. Roving focus moves programmatically,
+   which browsers don't always mark :focus-visible — use :focus. A menu a press opened is `resting`
+   until the pointer moves or a key goes down, and lights nothing until then. */
+.menu [role="menuitem"]:focus, .menu [role="menuitemcheckbox"]:focus { outline: none; }
+.menu:not([data-resting]) :is([role="menuitem"], [role="menuitemcheckbox"]):focus { background: var(--hover); }
 .menu .menu-check { margin-left: auto; color: var(--rl-accent); flex: none; }
 .menu [role="menuitem"].danger { color: var(--rl-danger); }
 /* A row, not a bare span. A label carrying an icon and a word — "New spreadsheet", "Open a file…" —
@@ -1881,7 +1888,6 @@ input.sb-space-name { flex: 1; }
 :root[data-quiet] .shimmer-text,
 :root[data-quiet] .tool-group[data-working] .tool-group-summary,
 :root[data-quiet] .composer-thinking span,
-:root[data-quiet] .status-dot[data-status="circuit_open"],
 :root[data-quiet] .permission-dot,
 :root[data-quiet] .gen-spin,
 :root[data-quiet] .drive-frame-glow,
@@ -3560,11 +3566,6 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
    difference has to be a shape. design.md, "readable without color alone". */
 .status-dot[data-status="machine-off"] { background: var(--rl-text-faint); }
 .status-dot[data-status="machine-suspended"] { background: transparent; box-shadow: inset 0 0 0 1.5px var(--rl-text-dim); }
-/* MCP server status (W6) shares the same dot — "connected"/"circuit_open" are this domain's own words
-   for "running"/"waiting on the user", so they get the same success/danger treatment. Connected is
-   RESTING, though — the server is up, nothing is in flight — so it stays a plain dot. */
-.status-dot[data-status="connected"] { background: var(--rl-success); }
-.status-dot[data-status="circuit_open"] { background: var(--rl-danger); animation: rl-pulse 0.9s ease-in-out infinite; }
 @keyframes rl-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
 
 /* The three states that mean "something is in flight" — a session running, a session waiting on the
@@ -5553,7 +5554,8 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
   font: inherit; font-size: 13px; line-height: 18px; color: var(--rl-text-bright);
   background: var(--surface); border: 0; border-radius: calc(var(--r-chip) - 4px); /* concentric with the row's 4px inset */
   box-shadow: 0 0 0 var(--hairline-w) var(--rl-line); outline: none; }
-.composer-queue-item .queue-edit:focus-visible { box-shadow: 0 0 0 var(--hairline-w) var(--rl-accent); }
+/* Focused, it is a field like the others: their 2px accent ring, not a hairline in the accent. */
+.composer-queue-item .queue-edit:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
 
 /* Row 1 — pending attachments (Ara refresh §3: the context chips left this row for the control row;
    attachments stay ABOVE the textarea inside the card), wrapping, because a chip row that clips is a
@@ -5865,11 +5867,10 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .market-name { font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
 .market-blurb { font-size: 12px; line-height: 1.45; color: var(--rl-text-dim); }
 .market-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.market-state { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--rl-success); }
+.market-state { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--rl-text-dim); }
 .market-docs { font-size: 12px; color: var(--rl-text-dim); text-decoration: none; }
 .market-docs:hover { color: var(--rl-text-bright); text-decoration: underline; text-underline-offset: 2px; }
 .market-steps { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); }
-.market-card[data-state="connected"] .market-mark { box-shadow: 0 0 0 1px color-mix(in srgb, var(--rl-success) 45%, transparent); }
 /* The sign-in sheet (McpSignInSheet.tsx): a block per way in, parted by space rather than rules, and
    the code a device sign-in shows set large in mono so it can be read across to another window. */
 .signin-routes { gap: 18px; }
@@ -6242,6 +6243,7 @@ details[open] > summary > .disclosure-mark { rotate: 90deg; }
 .install-card[data-state="logged_out"] .install-glyph { color: var(--rl-warning); }
 .install-card[data-state="missing"] .install-glyph { color: var(--rl-text-faint); }
 .install-reason { margin: 0; font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); }
+.install-reason code { font: 12px var(--font-mono); }
 /* The command itself: a frame-fill well (§5 tool-well treatment), selectable, with a copy button. */
 .install-cmd { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--r-chip); background: var(--rl-frame); }
 .install-cmd code { display: block; flex: 1; min-width: 0; font: 12px var(--font-mono); color: var(--rl-text-bright); overflow-x: auto; white-space: pre; user-select: text; }
@@ -7659,6 +7661,11 @@ select { appearance: none; padding-right: 22px;
 .mcp-provider-state { max-width: 10em; text-align: right; font-size: 12px; line-height: 1.35; color: var(--rl-text-dim); }
 /* §3 status pills: tinted fill + full-strength colored text — the one thing the hub status dot alone
    can't say (auth is a different axis from connectivity; see McpServerRow). */
+/* An MCP server's state is its word, as an engine's is. Connected is an ordinary state; a failed one
+   (an error, a tripped breaker) adds the one amber dot. */
+.mcp-state { flex: none; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 12px; color: var(--rl-text-dim); }
+.mcp-state:is([data-state="error"], [data-state="circuit_open"])::before { content: ""; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--rl-warning); }
 .mcp-reauth-badge { font-size: 11px; padding: 1px 6px; border-radius: var(--r-chip); line-height: 1.5;
   background: color-mix(in srgb, var(--rl-warning) 14%, transparent); color: var(--rl-warning); }
 .mcp-form { padding: 10px 0 2px; margin-top: 8px; gap: 10px; }
@@ -7854,7 +7861,7 @@ select { appearance: none; padding-right: 22px;
 .memory-resolve-row .install-cmd { min-width: 0; max-width: 100%; margin-top: 8px; }
 /* A heading inside the folded diagnostic is a sub-heading, not a peer of the rows around it. */
 .memory-sub { font-size: 13px; color: var(--rl-text-dim); }
-.settings-note code { font: 12px var(--font-mono); }
+.settings-note code, .settings-hint code, .settings-row-desc code { font: 12px var(--font-mono); }
 /* The foot note: separated by air and a rule above it rather than by a tinted box, which at the
    bottom of a page reads as a banner nobody put there on purpose. */
 .settings-note-foot { margin-top: 20px; padding-top: 14px; border-top: var(--hairline-w) solid var(--rl-hairline); }

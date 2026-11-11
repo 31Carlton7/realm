@@ -211,10 +211,11 @@ describe("the tooltip layer", () => {
     expect(parseFloat(tip().style.left)).toBe(300 - 130); // where the pointer is along it
   });
 
-  it("puts a two-line settings row's tooltip under the row, never on the chip the pointer is over", () => {
+  it("puts a two-line settings row's tooltip beside the row: never on the chip, never on the next row", () => {
     // ST-05: Reminders' row, 72 tall, its "Granted" chip 30 down it. Read as a region, the tooltip
-    // went under the pointer and covered the chip. THE MUTANT: the region cut back at 64.
-    setup('<ul><li id="row" title="macOS reports the grant."><span id="chip">Granted</span></li></ul>');
+    // went under the pointer and covered the chip; set under the row, it covered the row below.
+    // THE MUTANTS: the region cut back at 64; the row's sides back to below-first.
+    setup('<ul><li id="row" title="macOS reports the grant."><span id="chip">Granted</span></li><li id="next">Calendar</li></ul>');
     const rect = (x: number, y: number, width: number, height: number) => () => ({ x, y, width, height, left: x, top: y, right: x + width, bottom: y + height, toJSON: () => ({}) }) as DOMRect;
     $("#row").getBoundingClientRect = rect(40, 440, 640, 72);
     $("#chip").getBoundingClientRect = rect(100, 470, 70, 20);
@@ -222,7 +223,31 @@ describe("the tooltip layer", () => {
     fire($("#chip"), "pointerover", { clientX: 120, clientY: 478 });
     vi.advanceTimersByTime(TIP_DELAY_MS);
     expect(open()).toBe(true);
-    expect(parseFloat(tip().style.top)).toBeGreaterThanOrEqual(512);
+    expect(tip().dataset.side).toBe("right");
+    expect(parseFloat(tip().style.left)).toBe(40 + 640 + 6);
+    expect(parseFloat(tip().style.top) + 24).toBeLessThanOrEqual(512); // the next row starts at 512
+  });
+
+  it("goes over a two-line row where there is no room beside it", () => {
+    setup('<ul><li id="row" title="macOS reports the grant."><span id="chip">Granted</span></li></ul>');
+    const rect = (x: number, y: number, width: number, height: number) => () => ({ x, y, width, height, left: x, top: y, right: x + width, bottom: y + height, toJSON: () => ({}) }) as DOMRect;
+    $("#row").getBoundingClientRect = rect(40, 440, window.innerWidth - 80, 72);
+    tip().getBoundingClientRect = rect(0, 0, 180, 24);
+    fire($("#chip"), "pointerover", { clientX: 120, clientY: 478 });
+    vi.advanceTimersByTime(TIP_DELAY_MS);
+    expect(tip().dataset.side).toBe("above");
+    expect(parseFloat(tip().style.top)).toBe(440 - 6 - 24);
+  });
+
+  it("keeps a one-line row's tooltip where the pointer is along it", () => {
+    setup('<ul><li id="row" title="Opens on login"><span id="name">Launch at login</span></li></ul>');
+    const rect = (x: number, y: number, width: number, height: number) => () => ({ x, y, width, height, left: x, top: y, right: x + width, bottom: y + height, toJSON: () => ({}) }) as DOMRect;
+    $("#row").getBoundingClientRect = rect(40, 440, 640, 48);
+    tip().getBoundingClientRect = rect(0, 0, 180, 24);
+    fire($("#name"), "pointerover", { clientX: 300, clientY: 460 });
+    vi.advanceTimersByTime(TIP_DELAY_MS);
+    expect(tip().dataset.side).toBe("below");
+    expect(parseFloat(tip().style.left)).toBe(300 - 90);
   });
 
   describe("a row that shows its own name", () => {
@@ -264,6 +289,22 @@ describe("the tooltip layer", () => {
       expect(open()).toBe(false);
       expect($("#row").getAttribute("aria-label")).toBe("TAC 368 TA — unread");
     });
+  });
+
+  it("puts a clipped tab's name under the strip, not over the tab beside it", () => {
+    // RP-12. THE MUTANT: a tab read as a sidebar row, its name laid over the next tab.
+    setup('<div role="tablist"><button id="tab" role="tab" data-tip="clipped"><span id="name" data-tip-text>Documents · realm</span></button><button role="tab">Next</button></div>');
+    const rect = (x: number, y: number, width: number, height: number) => () => ({ x, y, width, height, left: x, top: y, right: x + width, bottom: y + height, toJSON: () => ({}) }) as DOMRect;
+    Object.defineProperty($("#name"), "scrollWidth", { configurable: true, get: () => 160 });
+    Object.defineProperty($("#name"), "clientWidth", { configurable: true, get: () => 90 });
+    $("#tab").getBoundingClientRect = rect(500, 8, 120, 28);
+    tip().getBoundingClientRect = rect(0, 0, 140, 24);
+    hover($("#name"));
+    vi.advanceTimersByTime(TIP_DELAY_MS);
+    expect(open()).toBe(true);
+    expect($(".tooltip-label").textContent).toBe("Documents · realm");
+    expect(tip().dataset.side).toBe("below");
+    expect(parseFloat(tip().style.top)).toBe(8 + 28 + 6);
   });
 
   it("leaves the page as it found it when uninstalled", () => {

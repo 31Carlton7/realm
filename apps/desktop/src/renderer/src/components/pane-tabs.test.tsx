@@ -163,7 +163,12 @@ describe("several sessions' tabs in one strip", () => {
   it("wears none of it while one session's tabs are the strip", async () => {
     await mount();
     expect(document.querySelectorAll(".pane-tab-run")).toHaveLength(0);
-    expect(strip().getByRole("tab", { name: "Delta careers" })).toHaveAttribute("title", "Delta careers");
+    // One session's tab says nothing its label does not: its tooltip is its name, and only while the
+    // strip has cut the name short (RP-12).
+    const tab = strip().getByRole("tab", { name: "Delta careers" });
+    expect(tab).not.toHaveAttribute("title");
+    expect(tab).toHaveAttribute("data-tip", "clipped");
+    expect(tab.querySelector("[data-tip-text]")?.textContent).toBe("Delta careers");
   });
 
   it("a tab dropped on another session's tab joins that session's run, and leaves with it", async () => {

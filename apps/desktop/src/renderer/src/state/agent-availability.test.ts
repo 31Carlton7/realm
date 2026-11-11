@@ -14,10 +14,11 @@ describe("agentAvailability", () => {
     expect(availabilityNote(a)).toBeNull();
   });
 
-  it("an unavailable agent blocks, carrying the probe's OWN reason and the INSTALL command", () => {
+  it("an unavailable agent blocks, carrying the probe's OWN reason as a sentence, and the INSTALL command", () => {
+    // THE MUTANT: the raw errno on the install card, "spawn claude ENOENT".
     const a = agentAvailability("claude", [probe({ kind: "claude", available: false, reason: "spawn claude ENOENT" })]);
     expect(isBlocked(a)).toBe(true);
-    expect(a).toMatchObject({ state: "missing", reason: "spawn claude ENOENT", command: AGENT_CLI_COMMANDS.claude.install });
+    expect(a).toMatchObject({ state: "missing", reason: "Realm found no claude command on this Mac.", command: AGENT_CLI_COMMANDS.claude.install });
     expect(availabilityNote(a)).toBe("not installed");
   });
 

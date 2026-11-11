@@ -61,8 +61,8 @@ describe("the current choice", () => {
 });
 
 describe("no current choice", () => {
-  // No pin, no init event, no probe default: nothing is ticked.
-  const unticked = () => mount({ rows: rowsFor({ model: null, agentProbe: [] }), model: null });
+  // Pinned to a model the list no longer carries: nothing is ticked.
+  const unticked = () => mount({ rows: rowsFor({ model: "claude-retired-1", agentProbe: [] }), model: "claude-retired-1" });
 
   it("opens with the keyboard in the search, no row highlighted and no strip", () => {
     const { picked } = unticked();

@@ -135,7 +135,11 @@ describe("Engines tab", () => {
     // Codex: installed and explicitly signed out — with the LOGIN command, not the install one.
     const codex = screen.getByRole("listitem", { name: /Codex: Signed out/ });
     expect(within(codex).getByText("v0.48.0")).toBeInTheDocument();
-    expect(within(codex).getByText(AGENT_CLI_COMMANDS.codex.login!)).toBeInTheDocument();
+    expect(within(codex).getByText(AGENT_CLI_COMMANDS.codex.login!, { selector: ".install-cmd code" })).toBeInTheDocument();
+    // The help text's command is set as code, never printed between literal backticks.
+    const hint = [...codex.querySelectorAll(".settings-hint")].find((p) => p.textContent?.includes("codex login"))!;
+    expect([...hint.querySelectorAll("code")].map((c) => c.textContent)).toContain("codex login");
+    expect(hint.textContent).not.toContain("`");
     expect(within(codex).queryByText(AGENT_CLI_COMMANDS.codex.install!)).toBeNull();
     // Cursor: missing — with the exact install command.
     const cursor = screen.getByRole("listitem", { name: /Cursor: Not installed/ });
@@ -1472,6 +1476,21 @@ describe("Permissions tab — Apps on this Mac (the grantable half)", () => {
     const mail = await screen.findByRole("listitem", { name: "Mail: Not asked yet" });
     expect(mail.textContent).toContain("mac mail list --json");
     expect(mail.textContent).toContain("which opens Mail");
+  });
+
+  it("sets a row's command as code on the page and drops the backticks from its tooltip", async () => {
+    // The doctor's sentences mark commands with backticks, which printed raw on the row and its tooltip.
+    const denied = { ...macRow("reminders", "Reminders", "data", "denied"), detail: "Run any `mac reminders` command, then allow it in System Settings." };
+    await openPermissions({ macAccess: {
+      cli: { present: true, path: "/opt/homebrew/bin/mac", version: "0.6.0" },
+      host: { name: "Realm", bundlePath: "/Applications/Realm.app", packaged: true },
+      rows: [denied],
+    } });
+    const row = await screen.findByRole("listitem", { name: "Reminders: Refused" });
+    expect(row).toHaveAttribute("title", "Run any mac reminders command, then allow it in System Settings.");
+    const desc = row.querySelector(".settings-row-desc")!;
+    expect(desc.querySelector("code")).toHaveTextContent("mac reminders");
+    expect(desc.textContent).not.toContain("`");
   });
 
   it("“Ask for all” walks ONLY the promptable rows, one dialog at a time, and each answer lands", async () => {

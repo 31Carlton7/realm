@@ -23,7 +23,8 @@ export function agentAvailability(kind: AgentKind, probe: AgentProbe[]): AgentAv
     return {
       state: "missing",
       title: `${label} isn’t installed`,
-      reason: p.reason ?? `Realm could not run the ${label} CLI.`,
+      // The install card prints this: Node's "spawn claude ENOENT" is not a sentence for anyone.
+      reason: p.reason ? probeReasonSentence(p.reason) : `Realm could not run the ${label} CLI.`,
       command: AGENT_CLI_COMMANDS[kind].install,
     };
   }
@@ -31,7 +32,7 @@ export function agentAvailability(kind: AgentKind, probe: AgentProbe[]): AgentAv
     return {
       state: "logged_out",
       title: `${label} isn’t signed in`,
-      reason: p.reason ?? AGENT_LOGIN_HINTS[kind],
+      reason: p.reason ? probeReasonSentence(p.reason) : AGENT_LOGIN_HINTS[kind],
       command: AGENT_CLI_COMMANDS[kind].login,
     };
   }

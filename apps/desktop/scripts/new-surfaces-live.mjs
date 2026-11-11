@@ -231,7 +231,8 @@ async function main() {
 
   /* ── 2. Scheduled tasks ─────────────────────────────────────────────────── */
   await evalIn(c, `__live.dest("Scheduled tasks")`);
-  await until(() => evalIn(c, `!!document.querySelector('.schedules-page .sched-col')`), 15000, "schedules page");
+  // The page's column stands in the sidebar's while the page is up (components/page-nav.tsx).
+  await until(() => evalIn(c, `!!document.querySelector('.schedules-page') && !!document.querySelector('.sched-col')`), 15000, "schedules page");
   await sleep(300);
 
   check("the empty state says what the page is for rather than showing a bare list",
@@ -323,11 +324,11 @@ async function main() {
   await openSideTool(c, null, "Documents");
   await until(() => evalIn(c, `!!document.querySelector('.documents-pane')`), 20000, "documents pane");
   await sleep(400);
-  // "Open a file…" is a Menu item behind the pane's own new-document button, so the menu opens first.
-  await evalIn(c, `(() => { document.querySelector('.pane-placeholder .btn').click(); return true; })()`);
+  // "A file in this folder…" is a Menu item behind the documents home's New, so the menu opens first.
+  await evalIn(c, `(() => { document.querySelector('.docs-home-new').click(); return true; })()`);
   await until(() => evalIn(c, `!!document.querySelector('[role="menuitem"]')`), 15000, "the new menu");
   await evalIn(c, `(() => {
-    [...document.querySelectorAll('[role="menuitem"]')].find((x) => /Open a file/i.test(x.textContent || '')).click();
+    [...document.querySelectorAll('[role="menuitem"]')].find((x) => /A file in this folder/i.test(x.textContent || '')).click();
     return true; })()`);
   await until(() => evalIn(c, `!!document.querySelector('.documents-picker')`), 15000, "the file picker");
   const row = await until(() => evalIn(c, `(() => {

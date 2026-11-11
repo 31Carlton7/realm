@@ -6,6 +6,7 @@ import { ScrollFades } from "../../components/ScrollFades";
 import { AccountSignInSteps, signInLive } from "../../components/AccountSignIn";
 import { useAnchoredPopover } from "../../components/use-anchored-popover";
 import { useAutoHideScrollbar } from "../../components/use-auto-hide-scrollbar";
+import { plainCode, withCode } from "../../components/with-code";
 import {
   agentRowHint, billingLead, chipLabel, chipTitle, effortCurrent, fastModeHint, fastModeShown, fastModeTitle, fastModeUntried, filterRows, flatten,
   formatEffort, groupRows, holdRows, isHarnessDefault, modelAbout, modelIdOn, modelLabel, type EffortControl, type FastMode, type ModelRow,
@@ -50,11 +51,6 @@ export type AccountControl = {
   /** Ask the CLIs again who each account is, when the list is opened. */
   onOpen: () => void;
 };
-
-/** A sentence with its commands set as code: `AGENT_NOTES` marks them with backticks, which read as
- *  stray punctuation printed raw. The plain form is for a tooltip, which has no code face. */
-const withCode = (text: string) => text.split(/`([^`]+)`/).map((part, i) => (i % 2 ? <code key={i}>{part}</code> : part));
-const plain = (text: string) => text.replace(/`/g, "");
 
 /** The levels Realm's light answers to — the track's field, the knob's shine, the chip's pass. Below
  *  these it stays out of the way entirely: a treatment every level wore would say nothing about the
@@ -515,12 +511,12 @@ function About({ row, route, info }: { row: ModelRow; route: AgentKind; info: Re
   const name = isHarnessDefault(row) ? AGENT_META[route].label : modelLabel({ ...row, kind: route });
   return (
     <div className="mp-about">
-      <p className="mp-about-note" data-tone={warning ? "warning" : undefined} title={plain(warning ?? note)}>
+      <p className="mp-about-note" data-tone={warning ? "warning" : undefined} title={plainCode(warning ?? note)}>
         {warning
           ? <><Icon name="alert" size={12} />{withCode(warning)}</>
           : <><span className="mp-about-name">{name}</span>{withCode(note)}</>}
       </p>
-      <p className="mp-about-specs" title={plain(billing)}>{withCode(specs ?? billingLead(billing))}</p>
+      <p className="mp-about-specs" title={plainCode(billing)}>{withCode(specs ?? billingLead(billing))}</p>
     </div>
   );
 }

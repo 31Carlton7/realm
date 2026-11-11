@@ -283,6 +283,35 @@ describe("popover exit (§6)", () => {
   });
 });
 
+describe("one lit row (MN-04)", () => {
+  it("a menu a press opened lights no row until the pointer moves; the arrows still start at the first", () => {
+    // THE MUTANT: no resting state — the first row lit beside the row under a pointer that never moved.
+    fireEvent.pointerDown(document.body);
+    mount([plain("Rename"), plain("Archive"), plain("Delete")]);
+    const menu = screen.getByRole("menu");
+    expect(menu).toHaveAttribute("data-resting");
+    expect(screen.getByRole("menuitem", { name: "Rename" })).toHaveFocus();
+    fireEvent.pointerMove(screen.getByRole("menuitem", { name: "Delete" }));
+    expect(menu).not.toHaveAttribute("data-resting");
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toHaveFocus();
+  });
+
+  it("a key wakes a resting menu", () => {
+    fireEvent.pointerDown(document.body);
+    mount([plain("Rename"), plain("Delete")]);
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "ArrowDown" });
+    expect(screen.getByRole("menu")).not.toHaveAttribute("data-resting");
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toHaveFocus();
+  });
+
+  it("a menu the keyboard opened lights its first row at once", () => {
+    fireEvent.keyDown(document.body, { key: "Enter" });
+    mount([plain("Rename"), plain("Delete")]);
+    expect(screen.getByRole("menu")).not.toHaveAttribute("data-resting");
+    expect(screen.getByRole("menuitem", { name: "Rename" })).toHaveFocus();
+  });
+});
+
 describe("Menu keyboard (U-M10/A-H3)", () => {
   it("focuses the first enabled item on open; ArrowDown/Up cycle with wrap, skipping disabled items", () => {
     mount([

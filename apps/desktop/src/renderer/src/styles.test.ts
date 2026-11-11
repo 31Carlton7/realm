@@ -323,6 +323,31 @@ describe("§6 motion table", () => {
     for (const control of ["button", '[role="button"]', '[role^="menuitem"]', ".item-row"]) expect(sel).toContain(control);
   });
 
+  it("draws nothing of a folded sidebar once its slide has run (TN-02)", () => {
+    // THE MUTANT: Search and New session left standing under the traffic lights at x −16 and 14.
+    const folded = bodiesFor(".sidebar[data-collapsed] .sidebar-slide").join(" ");
+    expect(folded).toContain("visibility: hidden");
+    expect(folded).toContain("transition: visibility 0s linear var(--dur-move)");
+    expect(bodiesFor(".sidebar").join(" ")).toContain("transition: --sidebar-open var(--dur-move)");
+  });
+
+  it("rings the queued message's edit field as every other field is rung (MN-05)", () => {
+    // THE MUTANT: the hairline in the accent it had, a ring no other field wears.
+    const ring = (sel: string) => RULES.filter((r) => r.selectors.includes(sel)).map((r) => r.body.match(/box-shadow:[^;]*/)?.[0]).filter(Boolean);
+    const field = ring(".field textarea:focus");
+    expect(field).toEqual(["box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent)"]);
+    expect(ring(".composer-queue-item .queue-edit:focus-visible")).toEqual(field);
+  });
+
+  it("lights one menu row: the focused one, and none while a press-opened menu rests (MN-04)", () => {
+    // THE MUTANTS: a hover fill of its own, a second lit row beside the focus; the focus fill
+    // ungated, the first row lit under a pointer that has not moved.
+    const fills = RULES.filter((r) => r.selectors.some((sel) => sel.startsWith(".menu") && /menuitem/.test(sel)) && /background:/.test(r.body));
+    expect(fills.flatMap((r) => r.selectors).filter((sel) => sel.includes(":hover"))).toEqual([]);
+    expect(fills.flatMap((r) => r.selectors).filter((sel) => sel.includes(":focus") && !sel.includes(":not([data-resting])"))).toEqual([]);
+    expect(fills.some((r) => r.selectors.some((sel) => sel.includes(":not([data-resting])") && sel.includes(":focus")))).toBe(true);
+  });
+
   /* A choice is never half-made: the rows a person picks from change instantly in BOTH directions,
      so the zero sits on their base rule, not only on their hovered state. */
   it("rows chosen from a list highlight and unhighlight instantly", () => {
@@ -2703,11 +2728,15 @@ describe("the sidebar and Settings carry one signal", () => {
   it("draw no green state: Ready, Granted and a lit row are words, and amber is the one dot", () => {
     /* design.md: amber is only for needs you and failed, with no green or blue dots. Engines' Ready
        wore a green dot and Permissions' Granted green ink (SB / ST-04 audit). THE mutant: either back. */
-    const SURFACES = /^(\.sb-|\.rail-|\.item-|\.group-label|\.engine|\.tcc-|\.settings-)/;
+    const SURFACES = /^(\.sb-|\.rail-|\.item-|\.group-label|\.engine|\.tcc-|\.settings-|\.mcp-|\.market-|\.env-)/;
     const GREEN = /var\(--(rl-success|green|green-tint|color-green)\)/;
     const green = RULES.filter((r) => r.selectors.some((sel) => SURFACES.test(sel)) && GREEN.test(r.body))
       .map((r) => r.selectors.join(", "));
     expect(green).toEqual([]);
+    // Connections and a space's servers: Connected is a word, and the status dot has no green of its
+    // own for it (THE mutant: `.status-dot[data-status="connected"]` back on --rl-success).
+    expect(RULES.filter((r) => r.selectors.some((sel) => sel.includes('data-status="connected"')))).toEqual([]);
+    expect(bodiesFor('.mcp-state:is([data-state="error"], [data-state="circuit_open"])::before').join(" ")).toContain("var(--rl-warning)");
   });
 
   it("gives a not-installed engine a plain surface, with no warning stripe down its edge", () => {
@@ -3419,7 +3448,12 @@ describe("one card", () => {
       expect(layer, "no layer is inset").not.toContain("inset");
       // Every layer is blurred — a layer with no blur is a ring, whatever its offsets say.
       expect(Number.parseFloat(layer.trim().split(/\s+/)[2]!), layer).toBeGreaterThan(0);
+      // …and falls: a close layer with no offset is a soft line round all four edges (LT-04: light's
+      // cards wore one that dark's did not).
+      expect(Number.parseFloat(layer.trim().split(/\s+/)[1]!), layer).toBeGreaterThan(0);
     }
+    for (const filter of [...tokensCss.matchAll(/--card-lift-filter: ([^;]+);/g)].map((m) => m[1]!))
+      for (const drop of filter.matchAll(/drop-shadow\(([^)]+)\)/g)) expect(Number.parseFloat(drop[1]!.trim().split(/\s+/)[1]!), drop[0]).toBeGreaterThan(0);
   });
 
   /* A card's fill is what makes it a card, so a new rule that paints one is held to the family. The
