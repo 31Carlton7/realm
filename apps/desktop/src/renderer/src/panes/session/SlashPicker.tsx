@@ -41,7 +41,7 @@ export function SlashPicker({ commands, activeIndex, anchorRef, onPick, onHover,
             onMouseMove={hoverRow(i)}
             onMouseDown={(e) => e.preventDefault() /* the textarea keeps focus; the caret must not move */}
             onClick={() => onPick(c)}>
-            <Icon name={c.icon} size={12} className="slash-row-glyph" />
+            <span className="mention-row-mark"><Icon name={c.icon} size={14} /></span>
             <span className="mention-row-id">/{c.id}</span>
             <span className="mention-row-desc">{c.hint}</span>
           </div>

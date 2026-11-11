@@ -1332,9 +1332,9 @@ input.sb-space-name { flex: 1; }
    two mechanisms. It differs by exactly one thing: a leading glyph, because a command is an ACTION
    and its verb is worth a mark where a skill's name is not. The same width as well: at 320px five of
    the nine built-in hints ended in an ellipsis. */
-.slash-row { align-items: center; }
-.slash-row-glyph { flex: none; color: var(--rl-text-faint); }
-.slash-row[data-active] .slash-row-glyph { color: var(--rl-text-dim); }
+/* The mark sits in the `@` row's 16px box at 14px, the size a glyph takes beside the row's text. */
+.slash-row .mention-row-mark { color: var(--rl-text-faint); }
+.slash-row[data-active] .mention-row-mark { color: var(--rl-text-dim); }
 
 /* ── Skill picker ("+" → Skills): search over every skill on the machine ──
    Same popover shell as the model picker (surface, radius, raised shadow, hairline-under-search): the

@@ -759,6 +759,15 @@ describe("the prompter's / commands", () => {
     expect(document.querySelector(".slash-picker")).toBeNull();
   });
 
+  it("draws a command's mark at 14px in the @ row's mark box", async () => {
+    // The glyphs were 12px beside 14px text, in a class of their own, so `/` rows sat off the `@` rows' grid.
+    await mountFresh();
+    type("/");
+    const marks = [...document.querySelectorAll(".slash-row > .mention-row-mark > svg")];
+    expect(marks).toHaveLength(rows().length);
+    expect(new Set(marks.map((m) => m.getAttribute("height")))).toEqual(new Set(["14"]));
+  });
+
   it("runs on Enter and takes its own token out of the draft", async () => {
     // The command RUNS; nothing about it is transmitted. That is the whole difference between this
     // picker and the @-mention beside it, so a send must not follow.
