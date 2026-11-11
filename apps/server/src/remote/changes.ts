@@ -23,7 +23,7 @@ export type DiffPage = MobileResult<"session.diff">;
 const cutLine = (line: string): string => (line.length <= DIFF_LINE_CHARS ? line : `${line.slice(0, DIFF_LINE_CHARS)}… (cut at ${DIFF_LINE_CHARS} characters)`);
 
 /** The patch as a unified diff: the two file headers, then each hunk's header and its lines. */
-export function unifiedLines(file: TurnFile, diff: FileDiff): string[] {
+export function unifiedLines(file: Pick<TurnFile, "path" | "oldPath"> & { status: string }, diff: FileDiff): string[] {
   if (diff.binary) return [];
   const before = file.status === "added" ? "/dev/null" : `a/${file.oldPath ?? file.path}`;
   const after = file.status === "deleted" ? "/dev/null" : `b/${file.path}`;
@@ -36,7 +36,7 @@ export function unifiedLines(file: TurnFile, diff: FileDiff): string[] {
 }
 
 /** The page of `lines` that starts at `from`: as many lines as fit both caps, and at least one. */
-export function diffPage(file: TurnFile, diff: FileDiff, from: number): DiffPage {
+export function diffPage<F extends Pick<TurnFile, "path" | "oldPath"> & { status: string }>(file: F, diff: FileDiff, from: number): Omit<DiffPage, "status"> & { status: F["status"] } {
   const all = unifiedLines(file, diff);
   const start = Math.min(from, all.length);
   const lines: string[] = [];

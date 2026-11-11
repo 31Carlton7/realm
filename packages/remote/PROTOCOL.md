@@ -475,6 +475,45 @@ A **goal's own turn** is a notice, never a user row. When a session's goal sends
 notice, so the prompt never reads as words the person typed. The objective itself is the person's
 own message, and stays a user row.
 
+**A session's checkout is the desktop's diff pane.** `session.checkout` lists it as the pane does
+(`workspace.diff`), in the checkout of the session's environment as it is now:
+
+```
+WorkingTree {
+  branch: string|null,         null when HEAD is detached
+  ahead: int, behind: int,     commits to push and to pull, as the pane's line under its title says
+  files: [CheckoutFile],       at most 1,000 of
+  totalFiles: int, truncated: bool
+}
+
+CheckoutFile {
+  path, oldPath: string|null,
+  status: "added"|"modified"|"deleted"|"renamed"|"copied"|"type-changed"|"untracked"|"conflicted",
+  staged: bool, unstaged: bool,   both for a file staged and then edited again: a patch on each side
+  binary: bool,
+  additions: int, deletions: int  staged and unstaged together; zero for an untracked file
+}
+```
+
+- **Staging is per file**, as the desktop stages: `session.stage` is `git add` and `session.unstage`
+  takes the files back out of the index and leaves them on disk. There is no hunk staging, on the
+  desktop or here.
+- **`session.ship`** is the pane's Commit only (`push: false`) and Commit, push & PR (`push: true,
+  openPr: true`), and its retries with `commit: false`: Push, Open pull request, and Push and set
+  upstream (`setUpstream: true`), which is offered only after a push said `no-upstream`. A commit with
+  no message is `INVALID_PARAMS` ("A commit needs a message."), before git is asked. `ShipResult` is
+  `workspace.ship`'s: `{commit: {state, sha, subject, reason}, push: {state, remote, branch, reason},
+  pr: {state, url, reason}}`, each state one the desktop's pane words. The ship is logged against the
+  session's environment, as the pane logs its own.
+- **`session.pr`** is the Code Review page's request for the branch the checkout is on, found by the
+  `gh pr view` the ship's PR leg makes: `PullRequest` is its detail (`owner, repo, number, title, url,
+  state, draft, author, createdAt, body, base, head, headOwner, additions, deletions, changedFiles,
+  mergeable, mergeState, decision, reviewers, comments: {total, recent}, checks`), then the files it
+  changes, `files: [{path, oldPath, status, additions, deletions}]`, and `filesTruncated` past
+  GitHub's 3,000. With none, `reason` says why where there is a why: `gh` not installed or not signed
+  in, GitHub not answering, or a request this account cannot see. Null with no reason is a branch with
+  no pull request. The page offers no merge, and nor does a phone.
+
 A **user row** carries `attachments` when files were sent with the message: each by its path on the
 Mac, its name and its type, as the message's `user_message` recorded them. `session.file` previews
 each. `name` is the name the person gave the file: one a phone sent, or a paste, is written into the
@@ -534,6 +573,12 @@ else keeps its own name, whatever it looks like.
 | `agents.list` | `{}` | `{agents: [AgentOptions], defaultAgent: string\|null, midTurn: "queue"\|"steer", attachments: Limits, lastModels?: {[agent]: string\|null}, teammatePermission?}` |
 | `session.changes` | `{id, checkpointId}` | `{checkpointId, files: [{path, oldPath, status, additions, deletions}], totalFiles}` |
 | `session.diff` | `{id, checkpointId, path, from?: int = 0}` | `{path, oldPath, status, binary, additions, deletions, lines: [string], from, next: int\|null, total, truncated, truncatedReason}` |
+| `session.checkout` | `{id}` | `{checkout: WorkingTree\|null}`: null where the session's folder is not a git repository |
+| `session.checkoutDiff` | `{id, path, staged?: bool = false, from?: int = 0}` | as `session.diff`'s, with `status` as `CheckoutFile`'s and `staged` |
+| `session.stage` | `{id, paths: [string]}` | `{checkout: WorkingTree\|null}`, as it is after |
+| `session.unstage` | `{id, paths: [string]}` | `{checkout: WorkingTree\|null}`, as it is after |
+| `session.ship` | `{id, commit?: bool = true, message?: string = "", push?: bool = true, setUpstream?: bool = false, openPr?: bool = false}` | `ShipResult` |
+| `session.pr` | `{id}` | `{pr: PullRequest\|null, reason: string\|null}` |
 | `session.file` | `{id, path}` | `{path, name, size, mime, preview: {kind: "image", mime, data} \| {kind: "text", text, truncated} \| {kind: "none", reason}}` |
 | `session.fileData` | `{id, path, from?: int = 0}` | `{path, name, size, mime, from, data, next: int\|null, modifiedAt?: int}`: `data` is up to 512 KB of the file from `from`, base64; `modifiedAt` is when the file last changed, and a phone from before it does not ask. A `from` past the end answers with no bytes, which is how a phone asks whether a copy it kept is still the file. |
 | `space.icon` | `{id}` | `{mime, data}`: base64 |
@@ -1183,6 +1228,16 @@ phone read, and what bounds it:
   path must be one the turn's changes list, or the call is refused (`FORBIDDEN`) without git being
   asked; the phone names no tree. The Mac caps a patch at 512 KB and 4,000 lines, and a page at
   2,000 lines and 256 KB of JSON; a line longer than 4,000 characters is cut, and says so.
+- **`session.checkout`**, **`session.checkoutDiff`**, **`session.stage`** and **`session.unstage`**:
+  the session's own checkout, by its environment; the phone names no folder. A path must be one the
+  checkout lists, or the call is refused (`FORBIDDEN`) without git being asked to read or stage it. A
+  patch is capped as the desktop's is (512 KB and 4,000 lines, `truncatedReason` saying which) and
+  paged as `session.diff`'s.
+- **`session.ship`**: a commit of what is staged, a push of the checked-out branch to its remote
+  (`origin` where there is one), and a pull request opened by the Mac's `gh`: exactly the desktop's
+  `workspace.ship`, with no force-push, so a rejected push stays rejected.
+- **`session.pr`**: what `gh` on the Mac can read of the branch's pull request, as the Code Review page
+  reads it. Nothing is posted.
 - **`session.file`**: a preview of one file that session's `files_made` listed, that one of its
   `user_message`s was sent with, or that a message waiting in its queue carries, by the exact path
   listed, or a refusal (`FORBIDDEN`). A path that is now a link, or not a file, is refused, and so is

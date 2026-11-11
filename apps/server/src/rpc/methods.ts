@@ -226,6 +226,7 @@ export function registerMethods(d: Deps): void {
     if (result.commit.state === "committed") d.reviews.shipped(p.cwd);
     return result;
   });
+  reg("workspace.pullRequest", async (p) => ({ url: await d.gitWrite.pullRequestUrl(p.cwd) }));
   // The durable ship log (Plan 14 W1). Space-checked like every per-space listing: a typo'd id should
   // say so, not answer an empty page for a space that is not there.
   reg("ships.list", (p) => {

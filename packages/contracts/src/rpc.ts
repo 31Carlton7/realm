@@ -1702,6 +1702,10 @@ export const Methods = {
     }),
     result: ShipResultSchema,
   },
+  /** The pull request `gh` finds for the branch checked out at `cwd`, by the same `gh pr view` the
+   *  ship's PR leg asks before it opens one. Null when HEAD is detached, `gh` has none for the branch,
+   *  or `gh` could not be asked. */
+  "workspace.pullRequest": { params: z.object({ cwd: z.string() }), result: z.object({ url: z.string().nullable() }) },
   /** The durable ship log (Plan 14 W1), newest first, one space at a time — the space page's History
    *  tab interleaves these with checkpoints. Cursor pagination exactly as `notifications.list`:
    *  `cursor` is the previous page's `nextCursor`, opaque to clients. */

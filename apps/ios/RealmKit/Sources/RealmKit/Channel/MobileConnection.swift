@@ -661,6 +661,41 @@ public struct MobileAPI: Sendable {
         return try await connection.call("session.diff", params: Params(id: id, checkpointId: checkpointId, path: path, from: from), as: DiffPage.self)
     }
 
+    /// The session's checkout as the desktop's diff pane lists it; nil where it is not a git repository.
+    public func checkout(id: String) async throws -> WorkingTree? {
+        struct Params: Encodable, Sendable { let id: String }
+        struct Answer: Decodable, Sendable { let checkout: WorkingTree? }
+        return try await connection.call("session.checkout", params: Params(id: id), as: Answer.self).checkout
+    }
+
+    /// One page of a checkout file's diff, on the staged side or the unstaged one, from line `from`.
+    public func checkoutDiff(id: String, path: String, staged: Bool, from: Int = 0) async throws -> DiffPage {
+        struct Params: Encodable, Sendable { let id: String; let path: String; let staged: Bool; let from: Int }
+        return try await connection.call("session.checkoutDiff", params: Params(id: id, path: path, staged: staged, from: from), as: DiffPage.self)
+    }
+
+    /// Stages these files, or takes them back out of the index, and answers the checkout as it is after.
+    public func stage(id: String, paths: [String], staged: Bool) async throws -> WorkingTree? {
+        struct Params: Encodable, Sendable { let id: String; let paths: [String] }
+        struct Answer: Decodable, Sendable { let checkout: WorkingTree? }
+        return try await connection.call(staged ? "session.stage" : "session.unstage", params: Params(id: id, paths: paths), as: Answer.self).checkout
+    }
+
+    /// Commits what is staged, then pushes and opens a pull request where asked, as the desktop's diff
+    /// pane does. `commit: false` pushes what was committed before.
+    public func ship(id: String, commit: Bool, message: String, push: Bool, setUpstream: Bool = false, openPr: Bool) async throws -> ShipResult {
+        struct Params: Encodable, Sendable { let id: String; let commit: Bool; let message: String; let push: Bool; let setUpstream: Bool; let openPr: Bool }
+        // A commit runs its hooks, and a push and a pull request wait on the network: the Mac allows each two minutes.
+        return try await connection.call("session.ship", params: Params(id: id, commit: commit, message: message, push: push, setUpstream: setUpstream, openPr: openPr),
+                                         as: ShipResult.self, timeout: .seconds(360))
+    }
+
+    /// The pull request for the branch the session's checkout is on.
+    public func pullRequest(id: String) async throws -> PullRequestLookup {
+        struct Params: Encodable, Sendable { let id: String }
+        return try await connection.call("session.pr", params: Params(id: id), as: PullRequestLookup.self, timeout: .seconds(60))
+    }
+
     /// A preview of a file the session's turns made, by the path its row names.
     public func file(id: String, path: String) async throws -> FilePreview {
         struct Params: Encodable, Sendable { let id: String; let path: String }

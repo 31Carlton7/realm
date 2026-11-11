@@ -500,3 +500,20 @@ exit 1`);
     } finally { rmSync(repo, { recursive: true, force: true }); }
   });
 });
+
+describe("pullRequestUrl", () => {
+  it("asks gh for the checked-out branch's request, and answers null where there is none to ask about", async () => {
+    const repo = makeRepo();
+    try {
+      git(repo, "checkout", "-qb", "feat/x");
+      // gh is handed the branch by name; the stub echoes its argv back inside the url to prove it.
+      const gh = stubGh(`echo "{\\"url\\":\\"https://github.com/acme/widgets/pull/7?args=$*\\"}"`);
+      expect(await svc(gh).pullRequestUrl(repo)).toBe("https://github.com/acme/widgets/pull/7?args=pr view feat/x --json url");
+      // THE MUTANT: read stdout even when gh failed — then gh's error text could pass for a request.
+      expect(await svc(stubGh(`echo '{"url":"https://github.com/acme/widgets/pull/9"}'; exit 1`)).pullRequestUrl(repo)).toBeNull();
+      expect(await svc().pullRequestUrl(repo)).toBeNull();
+      git(repo, "checkout", "-q", "--detach");
+      expect(await svc(gh).pullRequestUrl(repo)).toBeNull();
+    } finally { rmSync(repo, { recursive: true, force: true }); }
+  });
+});

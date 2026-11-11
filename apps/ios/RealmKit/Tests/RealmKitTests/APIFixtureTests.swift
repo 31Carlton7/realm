@@ -110,6 +110,47 @@ struct APIFixtureTests {
     }
 
     @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
+    func theCheckoutItsDiffsAndAShipDecode() throws {
+        struct Listed: Decodable { let checkout: WorkingTree? }
+        let tree = try #require(try Self.decode(Listed.self, "calls", "session.checkout").checkout)
+        #expect(tree.branch == "theme-column")
+        #expect(tree.ahead == 1)
+        #expect(tree.files.map(\.status) == ["modified", "untracked", "added", "modified"])
+        #expect(tree.files[0].staged && tree.files[0].unstaged)
+        #expect(tree.files[2].binary)
+        let staged = try Self.decode(DiffPage.self, "calls", "session.checkoutDiff")
+        #expect(staged.lines.map(DiffPage.kind(of:)).first == .fileHeader)
+        let untracked = try Self.decode(DiffPage.self, "calls", "session.checkoutDiff:untracked")
+        #expect(untracked.status == "untracked")
+        #expect(untracked.lines.first == "--- /dev/null")
+        let cut = try Self.decode(DiffPage.self, "calls", "session.checkoutDiff:cut")
+        #expect(cut.truncated && cut.truncatedReason == "over 4000 lines")
+        #expect(try Self.decode(Listed.self, "calls", "session.stage").checkout != nil)
+        #expect(try Self.decode(Listed.self, "calls", "session.unstage").checkout != nil)
+        let ship = try Self.decode(ShipResult.self, "calls", "session.ship")
+        #expect(ship.commit.state == "committed")
+        #expect(ship.push.state == "no-upstream")
+        #expect(ship.push.reason?.contains("never been pushed") == true)
+        let retry = try Self.decode(ShipResult.self, "calls", "session.ship:retry")
+        #expect(retry.pr.state == "created")
+        #expect(retry.pr.url == "https://github.com/acme/realm/pull/42")
+    }
+
+    @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
+    func theSessionsPullRequestDecodes() throws {
+        let lookup = try Self.decode(PullRequestLookup.self, "calls", "session.pr")
+        let pr = try #require(lookup.pr)
+        #expect(lookup.reason == nil)
+        #expect(pr.number == 42)
+        #expect(pr.state == "open")
+        #expect(pr.checks.map(\.state) == ["success", "failure", "pending"])
+        #expect(pr.reviewers.last?.team == true)
+        #expect(pr.comments.total == 3)
+        #expect(pr.comments.recent.count == 2)
+        #expect(pr.files.map(\.path) == ["src/theme.ts", "assets/column.png"])
+    }
+
+    @Test(.enabled(if: available, "ts-api.json is not written yet (the server's suite writes it)"))
     func eachPreviewOfAMadeFileDecodes() throws {
         let image = try Self.decode(FilePreview.self, "calls", "session.file:image")
         #expect(image.preview == .image(mime: "image/jpeg", data: Data("jpeg".utf8)))

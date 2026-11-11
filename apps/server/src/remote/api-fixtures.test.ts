@@ -360,6 +360,40 @@ async function generate(): Promise<Record<string, unknown>> {
       };
     }) as never,
     "checkpoints.turnDiff": (() => patch) as never,
+    // The theme column's checkout, as the diff pane reads it: a file staged and edited again, a new one,
+    // a picture, and a lockfile past the desktop's ceiling.
+    "workspace.diff": (() => ({ root: dir, branch: "theme-column", totalFiles: 4, truncated: false, files: [
+      { path: "src/theme.ts", oldPath: null, status: "modified", staged: true, unstaged: true, binary: false, additions: 2, deletions: 1 },
+      { path: "src/column.ts", oldPath: null, status: "untracked", staged: false, unstaged: true, binary: false, additions: 0, deletions: 0 },
+      { path: "assets/column.png", oldPath: null, status: "added", staged: true, unstaged: false, binary: true, additions: 0, deletions: 0 },
+      { path: "pnpm-lock.yaml", oldPath: null, status: "modified", staged: false, unstaged: true, binary: false, additions: 6_120, deletions: 4_210 },
+    ] })) as never,
+    "workspace.gitInfo": (() => ({ branch: "theme-column", additions: 6_122, deletions: 4_211, dirty: 4, ahead: 1, behind: 0 })) as never,
+    "workspace.fileDiff": ((p: { path: string; staged: boolean }) => (p.path === "pnpm-lock.yaml"
+      ? { ...patch, path: p.path, staged: false, truncated: true, truncatedReason: "over 4000 lines", additions: 6_120, deletions: 4_210 }
+      : { ...patch, staged: p.staged })) as never,
+    "workspace.stage": (() => ({ ok: true })) as never,
+    "workspace.unstage": (() => ({ ok: true })) as never,
+    "workspace.ship": ((p: { commit: boolean; setUpstream: boolean }) => (p.commit
+      ? { commit: { state: "committed", sha: "4f1c2a9e0b7d6c5a4f3e2d1c0b9a8f7e6d5c4b3a", subject: "Add the theme column", reason: null },
+          push: { state: "no-upstream", remote: "origin", branch: "theme-column", reason: "theme-column has never been pushed; origin does not know about it yet" },
+          pr: { state: "skipped", url: null, reason: "the branch is not on the remote yet" } }
+      : { commit: { state: "skipped", sha: null, subject: null, reason: null }, push: { state: "pushed", remote: "origin", branch: "theme-column", reason: null },
+          pr: { state: "created", url: "https://github.com/acme/realm/pull/42", reason: null } })) as never,
+    "workspace.pullRequest": (() => ({ url: "https://github.com/acme/realm/pull/42" })) as never,
+    "codeReview.status": (() => ({ state: "ready", login: "me", reason: null })) as never,
+    "codeReview.detail": (() => ({
+      ref: { owner: "acme", repo: "realm", number: 42 }, title: "Add the theme column", url: "https://github.com/acme/realm/pull/42", state: "open", draft: false,
+      author: "me", createdAt: 1_789_990_000_000, updatedAt: 1_789_999_000_000, body: "Adds a column for the theme.\n\n- reads the mode once", base: "main", head: "theme-column", headOwner: null,
+      headSha: "4f1c2a9e0b7d6c5a4f3e2d1c0b9a8f7e6d5c4b3a", additions: 2, deletions: 1, changedFiles: 2, mergeable: "mergeable", mergeState: "unstable", decision: "review_required",
+      reviewers: [{ name: "abdul", team: false, state: "commented" }, { name: "acme/design", team: true, state: "pending" }],
+      comments: { total: 3, recent: [{ author: "abdul", body: "Does the column survive a restart?", createdAt: 1_789_995_000_000, url: null }, { author: "me", body: "It does, it is read from settings.", createdAt: 1_789_996_000_000, url: null }] },
+      checks: [{ name: "server", state: "success", url: null }, { name: "ios", state: "failure", url: "https://github.com/acme/realm/actions/runs/1" }, { name: "site", state: "pending", url: null }],
+    })) as never,
+    "codeReview.files": (() => ({ headSha: "4f1c2a9e0b7d6c5a4f3e2d1c0b9a8f7e6d5c4b3a", total: 2, truncated: false, files: [
+      { path: "src/theme.ts", oldPath: null, status: "modified", additions: 2, deletions: 1, patch: "text" },
+      { path: "assets/column.png", oldPath: null, status: "added", additions: 0, deletions: 0, patch: "none" },
+    ] })) as never,
     "iconAssets.list": (() => [{ id: "01JASSET", profileId: "p2", kind: "upload", mime: "image/png", dataText: `data:image/png;base64,${Buffer.from("a picture").toString("base64")}`, prompt: null, createdAt: 0 }]) as never,
     "agents.probe": (() => [
       { kind: "claude", available: true, version: "2.1.300", loggedIn: null, reason: null, models: null },
@@ -549,6 +583,15 @@ async function generate(): Promise<Record<string, unknown>> {
       "search.query:profile": await call("search.query", { query: "theme", profileId: "p1" }),
       "session.changes": await call("session.changes", { id: S, checkpointId: "01JCHECKPOINT0000000000000" }),
       "session.diff": await call("session.diff", { id: S, checkpointId: "01JCHECKPOINT0000000000000", path: "src/theme.ts" }),
+      "session.checkout": await call("session.checkout", { id: S }),
+      "session.checkoutDiff": await call("session.checkoutDiff", { id: S, path: "src/theme.ts", staged: true }),
+      "session.checkoutDiff:untracked": await call("session.checkoutDiff", { id: S, path: "src/column.ts" }),
+      "session.checkoutDiff:cut": await call("session.checkoutDiff", { id: S, path: "pnpm-lock.yaml" }),
+      "session.stage": await call("session.stage", { id: S, paths: ["src/column.ts"] }),
+      "session.unstage": await call("session.unstage", { id: S, paths: ["assets/column.png"] }),
+      "session.ship": await call("session.ship", { id: S, message: "Add the theme column", push: true, openPr: true }),
+      "session.ship:retry": await call("session.ship", { id: S, commit: false, push: true, setUpstream: true, openPr: true }),
+      "session.pr": await call("session.pr", { id: S }),
       "session.file:image": await call("session.file", { id: S, path: made[0]!.path }),
       "session.file:text": await call("session.file", { id: S, path: made[1]!.path }),
       "session.file:none": await call("session.file", { id: S, path: made[2]!.path }),
