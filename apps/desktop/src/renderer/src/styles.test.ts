@@ -5233,3 +5233,27 @@ describe("the transcript with the column collapsed", () => {
     }
   });
 });
+
+describe("one segmented control", () => {
+  const prop = (sel: string, name: string) => {
+    const hit = bodiesFor(sel).map((b) => new RegExp(`(?:^|;)\\s*${name}:\\s*([^;]+)`).exec(b)?.[1]?.trim()).filter(Boolean);
+    return hit[hit.length - 1];
+  };
+
+  it("draws Usage's segments and Settings' on one track with one lit segment", () => {
+    /* ST-01: Settings' track was a fill with no edge, Usage's a hairline ring on the frame's fill
+       with a raised, shadowed segment — two skins for one control on one page. THE MUTANT: either
+       track or either lit segment given its own fill again. */
+    expect(prop(".seg", "background")).toBe(prop(".settings-tabs", "background"));
+    expect(prop(".seg", "border")).toBe("none");
+    expect(prop(".seg-opt[data-selected]", "background")).toBe(prop(".settings-tab[data-selected]", "background"));
+    expect(prop(".seg-opt[data-selected]", "box-shadow")).toBeUndefined();
+  });
+
+  it("stands a segmented control at its own width, beside its label or under it", () => {
+    // A max-width on the page's tracks drew the stacked ones at 340px with equal segments.
+    const capped = RULES.filter((r) => r.selectors.some((s) => /\.settings-tabs$/.test(s)) && /max-width/.test(r.body)).flatMap((r) => r.selectors);
+    expect(capped).toEqual([]);
+    expect(prop(".settings-row[data-stack] > .settings-tabs", "align-self")).toBe("flex-start");
+  });
+});

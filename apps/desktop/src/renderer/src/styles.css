@@ -7929,6 +7929,9 @@ select { appearance: none; padding-right: 22px;
 .settings-row > .settings-text::placeholder { color: var(--rl-text-faint); }
 .settings-row > .settings-text:focus { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--rl-accent) 35%, transparent); }
 .settings-row > .settings-tabs { flex: none; margin: 0; }
+/* A segmented control too wide to stand beside its label goes under it at its own width, never
+   stretched: a capped 340px with equal segments drew one control two ways on one page. */
+.settings-row[data-stack] > .settings-tabs { align-self: flex-start; }
 .settings-row-main { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
 .settings-row-name { font-size: 14px; line-height: 20px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
 /* 13/18 — reading copy, not a caption, in the ink that stays legible at that size: on the Library
@@ -9306,7 +9309,6 @@ button.cr-finding-where:hover { text-decoration: underline; }
 .pair-device { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
 .pair-device > svg { flex: none; }
 .device-consequence { margin: 0; font-size: 14px; line-height: 20px; color: var(--rl-text-bright); text-wrap: balance; }
-.settings-page-pane .settings-tabs { max-width: 340px; }
 /* Every Settings tab is a stack of titled groups now, and `.form`'s 12px gap already separates
    them — so the heads drop the top margin they carry where they punctuate free-standing controls. */
 /* Codex's rhythm: a group's heading stands well clear of the card above it and close over its own,
@@ -10432,9 +10434,11 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
    keeps `padding-right` off the shorthand so the shared chevron still has its gutter. */
 .usage-scope select { height: 28px; padding-left: 8px; font-size: 13px; }
 
-/* A segmented control: one row of radios wearing a shared track. */
-.seg { display: inline-flex; gap: 2px; margin: 0; padding: 2px; border: var(--hairline-w) solid var(--rl-line);
-  border-radius: var(--r-ctl); corner-shape: squircle; background: var(--rl-frame); }
+/* A segmented control: one row of radios wearing a shared track — the same track and the same lit
+   segment as Settings' `.settings-tabs`, so a control is drawn one way wherever it stands. Usage once
+   ringed its own in a hairline on the frame's fill, a third skin on the page that has two. */
+.seg { display: inline-flex; gap: 2px; margin: 0; padding: 2px; border: none;
+  border-radius: var(--r-ctl); corner-shape: squircle; background: var(--rl-hover); }
 /* No transition: a segment is a choice, and a choice changes instantly both ways (design.md). This
    rule comes after the instant list, so a `transition` here handed the fade back to every segment. */
 .seg-opt {
@@ -10443,8 +10447,8 @@ body[data-media-viewer] .app .media-el { visibility: hidden; }
 }
 .seg-opt input { position: absolute; opacity: 0; pointer-events: none; }
 .seg-opt:hover { color: var(--rl-text-bright); }
-.seg-opt[data-selected] { background: var(--rl-raised); color: var(--rl-text-bright); box-shadow: var(--shadow-btn); }
-.seg-opt:has(input:focus-visible) { outline: 2px solid var(--rl-accent); outline-offset: 1px; }
+.seg-opt[data-selected] { background: var(--rl-active); color: var(--rl-text-bright); }
+.seg-opt:has(input:focus-visible) { outline: 1.5px solid var(--rl-accent); outline-offset: -1.5px; }
 /* On a page a segment is read beside 14px labels, so it takes the page's scale. */
 .page .seg-opt { padding: 4px 10px; font-size: 13px; line-height: 18px; }
 

@@ -1270,28 +1270,32 @@ function GeneralTab() {
             ))}
           </fieldset>
         </div>
-        <div className="settings-row" data-stack data-setting="mid-turn">
-          <div className="settings-row-main"><span className="settings-row-name">A message typed while a turn is running</span></div>
-          <>
-              <fieldset className="settings-tabs" aria-label="Mid-turn prompts">
-                {MID_TURN_CHOICES.map((c) => (
-                  <label key={c.mode} className="settings-tab" data-selected={midTurnMode === c.mode || undefined}>
-                    <input type="radio" name="settings-mid-turn" value={c.mode} checked={midTurnMode === c.mode}
-                      onChange={() => run(() => setMidTurnMode(c.mode))} />
-                    {c.label}
-                  </label>
-                ))}
-              </fieldset>
-              <p className="settings-hint">
-                Codex takes a steered message into the turn it is already running. Every other agent
-                has its turn stopped to take it, which aborts the tool call in flight and denies any
-                permission prompt waiting. A queued message goes out when the turn ends — or now, from
-                its row above the prompter.
-              </p>
-          </>
+        {/* One line under the label; the whole of what each choice does is the row's tooltip. */}
+        <div className="settings-row" data-setting="mid-turn"
+          title="Codex takes a steered message into the turn it is already running. Every other agent has its turn stopped to take it, which aborts the tool call in flight and denies any permission prompt waiting. A queued message goes out when the turn ends, or now, from its row above the prompter.">
+          <div className="settings-row-main">
+            <span className="settings-row-name">A message typed while a turn is running</span>
+            <span className="settings-row-detail">Sending now stops the turn, except in Codex</span>
+          </div>
+          <fieldset className="settings-tabs" aria-label="Mid-turn prompts">
+            {MID_TURN_CHOICES.map((c) => (
+              <label key={c.mode} className="settings-tab" data-selected={midTurnMode === c.mode || undefined}>
+                <input type="radio" name="settings-mid-turn" value={c.mode} checked={midTurnMode === c.mode}
+                  onChange={() => run(() => setMidTurnMode(c.mode))} />
+                {c.label}
+              </label>
+            ))}
+          </fieldset>
         </div>
-        <div className="settings-row" data-stack data-setting="default-permission">
-          <div className="settings-row-main"><span className="settings-row-name">New sessions start in</span></div>
+        {/* Which agents obey this is not decoration: it is the difference between a default and a
+            wish, and there is no other place the app says so. It is the row's tooltip, and the line
+            under the label says the exception. */}
+        <div className="settings-row" data-stack={confirmBypass || undefined} data-setting="default-permission"
+          title={`Applies to new ${labels(supported)} sessions; each session's chip can still change it.${unsupported.length > 0 ? ` ${labels(unsupported)} sessions ignore it and start on the agent's own default.` : ""}`}>
+          <div className="settings-row-main">
+            <span className="settings-row-name">New sessions start in</span>
+            {unsupported.length > 0 && <span className="settings-row-detail">Not every agent takes it</span>}
+          </div>
           {prefs === null ? <p className="env-empty">Loading preferences…</p> : (
             <>
               <fieldset className="settings-tabs" aria-label="Default permission mode"
@@ -1314,12 +1318,6 @@ function GeneralTab() {
                   Every new session will run tools and edit files without asking first. Confirm Full access as the default
                 </button>
               )}
-              {/* Which agents obey this is not decoration: it is the difference between a default and
-                  a wish, and there is no other place the app says so. */}
-              <p className="settings-hint">
-                Applies to new {labels(supported)} sessions; each session's chip can still change it.
-                {unsupported.length > 0 && ` ${labels(unsupported)} sessions ignore it and start on the agent's own default.`}
-              </p>
             </>
           )}
         </div>
