@@ -168,7 +168,7 @@ describe("Background", () => {
 
   it("shows the default painting chosen, saves a pick, and offers Motion only for a look that moves", async () => {
     const { api, store } = await appearance();
-    expect(grid().getByRole("radio", { name: "Northern Cuba" })).toBeChecked();
+    expect(grid().getByRole("radio", { name: "Sky and Cliffs" })).toBeChecked();
     expect(grid().getAllByRole("radio").map((r) => (r as HTMLInputElement).value).slice(0, 2)).toEqual(["off", "shuffle"]);
     expect(screen.getByRole("switch", { name: "Background motion" })).toBeDisabled();
     fireEvent.click(grid().getByRole("radio", { name: "Haze" }));

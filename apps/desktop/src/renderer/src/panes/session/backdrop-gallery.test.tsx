@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
-import { BACKGROUND_MOTION_SETTING, BACKGROUND_SETTING, type BackgroundImage } from "@realm/contracts";
+import { BACKGROUND_MOTION_SETTING, BACKGROUND_SETTING, DEFAULT_BACKGROUND, type BackgroundImage } from "@realm/contracts";
 import { GALLERY, loopMayRun, parseGallery, prefCanMove, resolveBackdrop } from "./backdrop-gallery";
 import { SessionBackdrop } from "./HeroBackdrop";
 import { StoreContext, createAppStore } from "../../state/store";
@@ -44,8 +44,15 @@ describe("which backdrop a session shows", () => {
     expect(resolveBackdrop("haze", "s1", true, [])?.moves).toBe(true);
     expect(resolveBackdrop("dunes", "s1", true, [])?.moves).toBe(false);
     // A choice naming nothing that exists falls back to the default.
-    expect(resolveBackdrop("from-a-newer-build", "s1", false, [])?.key).toBe("brownell");
-    expect(resolveBackdrop("mine:gone", "s1", false, [])?.key).toBe("brownell");
+    expect(resolveBackdrop("from-a-newer-build", "s1", false, [])?.key).toBe("sky-and-cliffs");
+    expect(resolveBackdrop("mine:gone", "s1", false, [])?.key).toBe("sky-and-cliffs");
+  });
+
+  it("is Sky in light and Webb's Cosmic Cliffs in dark by default", () => {
+    const pair = GALLERY.find((g) => g.id === DEFAULT_BACKGROUND)!;
+    expect(pair.light).toBe(GALLERY.find((g) => g.id === "sky")!.light);
+    expect(pair.dark).toBe(GALLERY.find((g) => g.id === "webb")!.dark);
+    expect(pair.credit).toMatch(/NASA, ESA, CSA, STScI/);
   });
 
   it("is nothing when Off", () => {
@@ -113,7 +120,7 @@ describe("SessionBackdrop", () => {
 
   it("draws the default painting for a home that never chose", async () => {
     const { container } = await mount({});
-    expect(container.querySelector("canvas.hero-backdrop")?.getAttribute("data-look")).toBe("brownell");
+    expect(container.querySelector("canvas.hero-backdrop")?.getAttribute("data-look")).toBe("sky-and-cliffs");
   });
 
   it("draws nothing at all when Off", async () => {

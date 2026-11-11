@@ -15,7 +15,7 @@ describe("the background setting", () => {
 
   it("is the default painting with motion off for a home that never chose, and writes nothing to say so", async () => {
     const { api, store } = await boot();
-    expect(store.getState().background).toBe("brownell");
+    expect(store.getState().background).toBe("sky-and-cliffs");
     expect(store.getState().backgroundMotion).toBe(false);
     expect(api.calls.filter((c) => c.startsWith(`setSetting:${BACKGROUND_SETTING}`))).toEqual([]);
   });
