@@ -82,11 +82,10 @@ export function TeammateSheet({ spaceId, id }: { spaceId: string; id?: string })
   useEffect(() => { nameRef.current?.focus(); }, []);
   useEffect(() => { run(() => refreshSettingsPrefs()); }, [run, refreshSettingsPrefs]);
   useEffect(() => { if (!id) run(() => loadTeamAccess(spaceId)); }, [run, loadTeamAccess, spaceId, id]);
-  // The space's Team access, else the permission new sessions start in, once it is known, unless the
-  // person has chosen already.
-  const startMode = spaceMode ?? defaultMode;
-  const shownMode: TeammatePermissionMode = modeTouched || !startMode ? f.permissionMode
-    : (MODES as readonly string[]).includes(startMode) ? startMode as TeammatePermissionMode : "default";
+  // The space's Team access, which the picker cannot leave; else the permission new sessions start in,
+  // once it is known, unless the person has chosen already.
+  const shownMode: TeammatePermissionMode = spaceMode ?? (modeTouched || !defaultMode ? f.permissionMode
+    : (MODES as readonly string[]).includes(defaultMode) ? defaultMode as TeammatePermissionMode : "default");
 
   const quickStart = (q: QuickStart) => setF((v) => ({
     ...v, brief: q.brief, icon: q.icon, lead: !!q.lead,
@@ -151,7 +150,7 @@ export function TeammateSheet({ spaceId, id }: { spaceId: string; id?: string })
             <FolderRow folder={f.folder} spaceFolder={space?.folderPath ?? ""} onFolder={(folder) => put({ folder })} />
             <div className="settings-row new-space-row">
               <span className="settings-row-name" id={`${ids}-mode`}>Permissions</span>
-              <fieldset className="seg tm-modes" aria-labelledby={`${ids}-mode`}>
+              <fieldset className="seg tm-modes" aria-labelledby={`${ids}-mode`} disabled={!!spaceMode}>
                 {MODES.map((m) => {
                   const mark = permissionMark(m);
                   return (
@@ -163,6 +162,7 @@ export function TeammateSheet({ spaceId, id }: { spaceId: string; id?: string })
                   );
                 })}
               </fieldset>
+              {spaceMode && <span className="settings-row-desc tm-modes-note">Set for the whole team in Team access.</span>}
             </div>
             <div className="settings-row new-space-row">
               <label className="settings-row-name" htmlFor={`${ids}-group`}>Group</label>
