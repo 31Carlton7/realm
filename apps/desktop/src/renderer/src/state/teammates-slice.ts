@@ -42,7 +42,7 @@ export type TeammatesSlice = {
   hydrateTeamGroupFolds(): Promise<void>;
   setTeamGroupFolded(spaceId: string, group: string, folded: boolean): Promise<void>;
   loadTeamAccess(spaceId: string): Promise<void>;
-  /** The person's Team access control (`teams.access.set`), which carries `data-no-agent`. */
+  /** For the person's Team access control alone, which must carry `data-no-agent`. */
   setTeamAccess(spaceId: string, mode: TeamAccessMode | null): Promise<void>;
 };
 

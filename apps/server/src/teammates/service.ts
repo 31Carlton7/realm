@@ -267,7 +267,7 @@ export class TeammatesService {
     if (!this.d.spaces.get(spaceId)) throw new NotFoundError("space", spaceId);
     const mode = this.d.store.access(spaceId);
     const teammates = this.d.store.list(spaceId).map((r) => ({ handle: r.handle, mode: r.permissionMode }));
-    const modes = new Set<string>(teammates.map((t) => t.mode));
+    const modes = new Set(teammates.map((t) => t.mode));
     if (mode && teammates.length > 0) modes.add(mode);
     return { mode, mixed: modes.size > 1, teammates };
   }

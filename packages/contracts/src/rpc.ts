@@ -1754,10 +1754,9 @@ export const Methods = {
   "teammates.sessions": { params: z.object({ id: IdSchema }), result: z.array(TeammateTaskSessionSchema) },
   /** A space's Team access (`TeamAccessSchema`): its setting, and each teammate's mode. */
   "teams.access.get": { params: z.object({ spaceId: IdSchema }), result: TeamAccessSchema },
-  /** Puts every teammate in the space on `mode`, through each one's `setPermissionMode`, and every
-   *  teammate made in the space after it; null clears the setting and leaves each teammate's mode as it
-   *  is. The person's alone: no agent tool reaches it, and a phone is refused. Answers once each
-   *  teammate's sessions are in the mode, and broadcasts `teams.access.changed`. */
+  /** Puts every teammate in the space on `mode`, and every one made there later; null clears the
+   *  setting and leaves each teammate's mode as it is. Answers once their sessions are in it. The
+   *  person's alone: no agent tool reaches it, and a phone is refused. */
   "teams.access.set": { params: z.object({ spaceId: IdSchema, mode: TeamAccessModeSchema.nullable() }), result: TeamAccessSchema },
   /** `scheduleId` narrows to the runs one schedule fired — its history on the Scheduled page. */
   "runs.list": {
