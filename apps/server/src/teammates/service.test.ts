@@ -38,6 +38,10 @@ const SCRIPT: FakeScript = [
   { on: "Run the migration check", emit: [{ kind: "tool", name: "Bash", input: { command: "pnpm db:check" }, needsPermission: true, result: "reversible" }] },
   { on: "Ask which colour ships", emit: [{ kind: "tool", name: "AskUserQuestion", needsPermission: true, result: "violet",
     input: { questions: [{ question: "Which colour ships?", header: "Colour", multiSelect: false, options: [{ label: "Violet", description: "" }, { label: "Teal", description: "" }] }] } }] },
+  { on: "clean the build", emit: [{ kind: "tool", name: "Bash", input: { command: "rm -rf build" }, needsPermission: true, result: "cleaned" }] },
+  { on: "read the page", emit: [{ kind: "tool", name: "Bash", input: { command: `node x.mjs '$$(".a")'` }, needsPermission: true, result: "read" }] },
+  { on: "leave the sandbox", emit: [{ kind: "tool", name: "Bash", input: { command: "pnpm test", dangerouslyDisableSandbox: true }, needsPermission: true, result: "tested" }] },
+  { on: "edit the readme", emit: [{ kind: "tool", name: "Edit", input: { file_path: "README.md", old_string: "a", new_string: "b" }, needsPermission: true, result: "edited" }] },
   { on: "start the release", emit: [{ kind: "call", tool: "realm-agent__agent_start", input: { goal: "Ship the release", title: "release" } }] },
   { on: "Ship the release", emit: [{ kind: "tool", name: "Bash", input: { command: "pnpm build" }, needsPermission: true, result: "built" },
     { kind: "text", text: "one two three four five six seven eight", paceMs: 150 },
@@ -363,6 +367,32 @@ describe("a teammate's access, changed", () => {
     expect(openCards(opsMigration.id)).toEqual(["Bash"]);
     expect(openCards(ops.homeSessionId!)).toEqual(["Bash"]);
     expect(app.team.get(cto.id).permissionMode).toBe("bypassPermissions");
+  }, 20_000);
+
+  it("leaves a Claude card Full access would still ask waiting when raised, and allows the rest", async () => {
+    const { make } = await boot();
+    const asked = async (name: string, message: string, agentKind = "claude") => {
+      const t = make(name, { agentKind });
+      await app.team.message(t.id, message);
+      return t;
+    };
+    const rm = await asked("Cleaner", "clean the build");
+    const snippet = await asked("Reader", "read the page");
+    const sandbox = await asked("Tester", "leave the sandbox");
+    const edit = await asked("Writer", "edit the readme");
+    const otherAgent = await asked("Other", "clean the build", "fake");
+    const all = [rm, snippet, sandbox, edit, otherAgent];
+    await waitFor(() => all.every((t) => openCards(t.homeSessionId!).length === 1), { timeout: 10_000 });
+
+    for (const t of all) app.team.update({ id: t.id, permissionMode: "bypassPermissions" });
+    await waitFor(() => [snippet, edit, otherAgent].every((t) => answers(t.homeSessionId!).length === 1));
+    expect(answers(snippet.homeSessionId!)).toEqual(["allow"]);
+    expect(answers(edit.homeSessionId!)).toEqual(["allow"]);
+    // The line is the Claude adapter's: another agent's card is answered as before.
+    expect(answers(otherAgent.homeSessionId!)).toEqual(["allow"]);
+    expect(openCards(rm.homeSessionId!)).toEqual(["Bash"]);
+    expect(openCards(sandbox.homeSessionId!)).toEqual(["Bash"]);
+    expect(app.sessions.get(rm.homeSessionId!).permissionMode).toBe("bypassPermissions");
   }, 20_000);
 
   it("holds the calls its tasks make after it is lowered, and leaves what they already did", async () => {
