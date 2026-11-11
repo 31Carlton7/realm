@@ -241,7 +241,9 @@ function ColorBackdrop({ backdrop, look: lookId }: { backdrop: Backdrop; look: k
       const done = await paintColorBackdrop(canvas, look, pic, card, dpr, pal.ground, () => textRuns(pane));
       if (done && profile) renders.push(done);
     };
-    const refresh = () => void draw();
+    // A picture that will not decode (a broken file of the person's own, or no decoder at all) leaves
+    // the plain ground rather than an unhandled rejection; the next real change tries again.
+    const refresh = () => void draw().catch(() => { drawn = ""; });
     const unwatch = watchLayout(pane, refresh);
     const watch = new MutationObserver(refresh);
     watch.observe(root, { attributes: true, attributeFilter: ["data-mode", "data-theme", "style"] });

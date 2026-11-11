@@ -1102,7 +1102,7 @@ export type AppState = TeammatesSlice & {
    */
   lowPower: boolean;
   /** Which background a new session shows (`ui.background`): `off`, `shuffle`, a gallery id or
-   *  `mine:<id>`. Unset is Sky, so a home that never chose gets the default. */
+   *  `mine:<id>`. Unset is the default look, so a home that never chose gets it. */
   background: string;
   /** Whether a background that can move does (`ui.backgroundMotion`). Off by default. */
   backgroundMotion: boolean;

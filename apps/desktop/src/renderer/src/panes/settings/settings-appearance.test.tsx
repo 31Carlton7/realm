@@ -166,9 +166,9 @@ describe("Cursor", () => {
 describe("Background", () => {
   const grid = () => within(screen.getByRole("group", { name: "Background" }));
 
-  it("shows Sky chosen by default, saves a pick, and offers Motion only for a look that moves", async () => {
+  it("shows the default painting chosen, saves a pick, and offers Motion only for a look that moves", async () => {
     const { api, store } = await appearance();
-    expect(grid().getByRole("radio", { name: "Sky" })).toBeChecked();
+    expect(grid().getByRole("radio", { name: "Northern Cuba" })).toBeChecked();
     expect(grid().getAllByRole("radio").map((r) => (r as HTMLInputElement).value).slice(0, 2)).toEqual(["off", "shuffle"]);
     expect(screen.getByRole("switch", { name: "Background motion" })).toBeDisabled();
     fireEvent.click(grid().getByRole("radio", { name: "Haze" }));

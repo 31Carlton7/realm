@@ -30,7 +30,7 @@ export const BACKGROUND_MOTION_SETTING = "ui.backgroundMotion";
 /** Where phase 1 kept the choice, read once and then cleared. */
 export const LEGACY_BACKGROUND_KEY = "realm.heroBackdrop";
 
-export const DEFAULT_BACKGROUND = "sky";
+export const DEFAULT_BACKGROUND = "brownell";
 export const MINE_PREFIX = "mine:";
 
 /** The stored choice as one the app acts on: a string it can resolve, or the default. */

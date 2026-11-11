@@ -44,8 +44,8 @@ describe("which backdrop a session shows", () => {
     expect(resolveBackdrop("haze", "s1", true, [])?.moves).toBe(true);
     expect(resolveBackdrop("dunes", "s1", true, [])?.moves).toBe(false);
     // A choice naming nothing that exists falls back to the default.
-    expect(resolveBackdrop("from-a-newer-build", "s1", false, [])?.key).toBe("sky");
-    expect(resolveBackdrop("mine:gone", "s1", false, [])?.key).toBe("sky");
+    expect(resolveBackdrop("from-a-newer-build", "s1", false, [])?.key).toBe("brownell");
+    expect(resolveBackdrop("mine:gone", "s1", false, [])?.key).toBe("brownell");
   });
 
   it("is nothing when Off", () => {
@@ -111,9 +111,9 @@ describe("SessionBackdrop", () => {
     return render(<StoreContext.Provider value={store}><SessionBackdrop sessionId="s1" /></StoreContext.Provider>);
   };
 
-  it("draws Sky for a home that never chose", async () => {
+  it("draws the default painting for a home that never chose", async () => {
     const { container } = await mount({});
-    expect(container.querySelector("canvas.hero-backdrop")?.getAttribute("data-look")).toBe("sky");
+    expect(container.querySelector("canvas.hero-backdrop")?.getAttribute("data-look")).toBe("brownell");
   });
 
   it("draws nothing at all when Off", async () => {

@@ -1,4 +1,11 @@
 [
+  {"id": "brownell", "name": "Northern Cuba", "mood": "Charles DeWolf Brownell, Sky – Northern Cuba, ca. 1853–66. The Met, CC0", "light": "painting-brownell.jpg", "dark": "painting-brownell.jpg", "effect": "dither-color", "motion": false},
+  {"id": "church", "name": "Twilight", "mood": "Frederic Edwin Church, Twilight in the Wilderness, 1860. Cleveland Museum of Art, CC0", "light": "painting-church.jpg", "dark": "painting-church.jpg", "effect": "dither-color", "motion": false},
+  {"id": "cross", "name": "Pink Cloud", "mood": "Henri-Edmond Cross, The Pink Cloud, c. 1896. Cleveland Museum of Art, CC0", "light": "painting-cross.jpg", "dark": "painting-cross.jpg", "effect": "dither-color", "motion": false},
+  {"id": "van-gogh", "name": "Cypresses", "mood": "Vincent van Gogh, Wheat Field with Cypresses, 1889. The Met, CC0", "light": "painting-van-gogh.jpg", "dark": "painting-van-gogh.jpg", "effect": "dither-color", "motion": false},
+  {"id": "heade", "name": "Moonlight", "mood": "Martin Johnson Heade, Point Judith Moonlight, 1867–68. Cleveland Museum of Art, CC0", "light": "painting-heade.jpg", "dark": "painting-heade.jpg", "effect": "dither-color", "motion": false},
+  {"id": "bierstadt", "name": "Storm Clouds", "mood": "Albert Bierstadt, Fir Trees and Storm Clouds, c. 1870. Cleveland Museum of Art, CC0", "light": "painting-bierstadt.jpg", "dark": "painting-bierstadt.jpg", "effect": "dither-color", "motion": false},
+  {"id": "monet", "name": "Stacks of Wheat", "mood": "Claude Monet, Stacks of Wheat (End of Day, Autumn), 1890–91. Art Institute of Chicago, CC0", "light": "painting-monet.jpg", "dark": "painting-monet.jpg", "effect": "dither-color", "motion": false},
   {"id": "sky", "name": "Sky", "mood": "Clouds in their own colours, by day and at dusk", "light": "sky-day.jpg", "dark": "sky-dusk.jpg", "effect": "dither-color", "motion": false},
   {"id": "haze", "name": "Haze", "mood": "A soft long-exposure sky over hazy hills", "light": "haze.jpg", "dark": "haze.jpg", "effect": "dither", "motion": true},
   {"id": "dunes", "name": "Dunes", "mood": "Long wind-laid ridges", "light": "dunes.jpg", "dark": "dunes.jpg", "effect": "dither", "motion": false},
