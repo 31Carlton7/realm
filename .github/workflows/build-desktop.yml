@@ -66,6 +66,7 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           hugeicons-token: ${{ secrets.HUGEICONS_TOKEN }}
+          electron: false
       - run: pnpm lint
 
   typecheck:
@@ -79,6 +80,7 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           hugeicons-token: ${{ secrets.HUGEICONS_TOKEN }}
+          electron: false
       - run: pnpm -r typecheck
 
   # The whole suite was written on a Mac — live ptys under /bin/sh, POSIX paths in fixtures — so it gates
