@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.9.5 - 2026-11-11
+
+- The window's frame colour now runs as one strip across the top of the session panes and the side panel. Both sit under it as sheets, the way the sidebar's list does, and the lines between panes start under the strip.
+- A side panel tab shows its full name in a tooltip only when the name is cut off.
+- Sheets close with a drawn icon instead of a typed character.
+- In light mode, cards lift with a shadow as they do in dark, without the extra ring around them.
+- The install card gives a plain sentence where a raw error showed.
+- Connection rows say Connected as a plain word, with no green dot. A failure stays amber.
+- The Permissions tooltip in Settings no longer covers the row below it.
+- A new session's bar shows no status before anything has been sent, and a folded sidebar leaves nothing to focus under the window buttons.
+- A menu opened by a press lights no row until the pointer moves, and with no model pinned the model picker ticks its Default row.
+
 ## v2.9.4 - 2026-11-11
 
 - A session in Full access no longer stops on an "Allow Bash?" card when Claude Code simply could not parse a command, such as a JavaScript snippet passed inline. Realm runs it and notes it in the log. A flagged command that names rm still asks, and so does one that asks to leave Claude Code's sandbox.
