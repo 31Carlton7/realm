@@ -177,6 +177,12 @@ describe("Background", () => {
     expect(screen.getByRole("switch", { name: "Background motion" })).toBeEnabled();
     fireEvent.click(grid().getByRole("radio", { name: "Off" }));
     await waitFor(() => expect(store.getState().background).toBe("off"));
+    // The chosen painting names its maker, and every shipped picture is credited.
+    fireEvent.click(grid().getByRole("radio", { name: "Northern Cuba" }));
+    await waitFor(() => expect(screen.getByTestId("background-credit").textContent).toMatch(/Brownell.*CC0/));
+    expect(screen.getByText("Picture credits")).toBeInTheDocument();
+    fireEvent.click(grid().getByRole("radio", { name: "Off" }));
+    await waitFor(() => expect(store.getState().background).toBe("off"));
     // No pictures yet: the empty state offers the way to add one.
     expect(screen.getByRole("button", { name: "Add image…" })).toBeInTheDocument();
   });

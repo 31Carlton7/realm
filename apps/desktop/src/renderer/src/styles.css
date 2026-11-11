@@ -8002,6 +8002,8 @@ select { appearance: none; padding-right: 22px;
 /* 13/18 — reading copy, not a caption, in the ink that stays legible at that size: on the Library
    page it is three lines per card. A DETAIL is the same line by another name (a row's one sentence
    under its label), and it had no rule at all — it ran on beside the label at the label's size. */
+.backdrop-credits { display: flex; flex-direction: column; gap: 6px; margin: 0; padding-left: 0; list-style: none; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
+.backdrop-credits strong { font-weight: var(--fw-medium); color: var(--rl-text-bright); }
 .settings-row-desc, .settings-row-detail { flex-basis: 100%; font-size: 13px; line-height: 18px; color: var(--rl-text-dim); }
 /* A row that only leaves for a page (Settings ▸ General ▸ About). The link IS the row — it takes the
    row's padding, so the whole row is the target — and the row's fill answers the pointer the way a

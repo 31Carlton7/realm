@@ -25,8 +25,8 @@ describe("gallery.json", () => {
       null, "x", 7,
     ], urls);
     expect(looks).toEqual([
-      { id: "a", name: "A", mood: "m", light: "/a.jpg", dark: "/b.jpg", effect: "dither", motion: true },
-      { id: "still", name: "A", mood: "", light: "/a.jpg", dark: "/b.jpg", effect: "halftone", motion: false },
+      { id: "a", name: "A", mood: "m", light: "/a.jpg", dark: "/b.jpg", effect: "dither", motion: true, credit: "" },
+      { id: "still", name: "A", mood: "", light: "/a.jpg", dark: "/b.jpg", effect: "halftone", motion: false, credit: "" },
     ]);
     expect(parseGallery({ looks: [entry] }, urls)).toEqual([]);
   });
@@ -55,14 +55,14 @@ describe("which backdrop a session shows", () => {
   it("is one of the gallery or your images under Shuffle, the same one for a session every time", () => {
     const pool = [mine("0123456789abcdef")];
     const picks = new Map<string, string>();
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 600; i++) {
       const id = `session-${i}`;
       const a = resolveBackdrop("shuffle", id, false, pool)!;
       expect(resolveBackdrop("shuffle", id, false, pool)!.key).toBe(a.key);
       picks.set(id, a.key);
     }
     const seen = new Set(picks.values());
-    // Every look in the pool turns up across forty sessions — a shuffle that always lands on one is no shuffle.
+    // Every look in the pool turns up across six hundred sessions — a shuffle that always lands on one is no shuffle.
     expect(seen).toEqual(new Set([...GALLERY.map((g) => g.id), "mine:0123456789abcdef:dither-color"]));
     // Waits for your images rather than picking without them.
     expect(resolveBackdrop("shuffle", "s1", false, undefined)).toBeNull();
@@ -119,5 +119,17 @@ describe("SessionBackdrop", () => {
   it("draws nothing at all when Off", async () => {
     const { container } = await mount({ [BACKGROUND_SETTING]: "off", [BACKGROUND_MOTION_SETTING]: true });
     expect(container.innerHTML).toBe("");
+  });
+});
+
+describe("picture credits", () => {
+  it("credits every shipped painting and photograph with its maker and source", () => {
+    const pictures = GALLERY.filter((g) => !g.credit.startsWith("Made for Realm"));
+    expect(pictures.map((g) => g.id)).toEqual(expect.arrayContaining(["brownell", "church", "webb", "cross", "van-gogh", "heade"]));
+    for (const g of pictures) expect(g.credit).toMatch(/(CC0|NASA)/);
+    expect(GALLERY.find((g) => g.id === "webb")?.credit).toMatch(/does not imply their endorsement/);
+  });
+  it("keeps a look without a credit", () => {
+    expect(parseGallery([{ id: "a", name: "A", light: "x.jpg", dark: "x.jpg", effect: "dither" }], { "x.jpg": "u" })[0]?.credit).toBe("");
   });
 });

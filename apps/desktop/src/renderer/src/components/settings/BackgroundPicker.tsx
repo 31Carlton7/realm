@@ -71,6 +71,7 @@ export function BackgroundPicker({ mode }: { mode: Mode }) {
   const [dropping, setDropping] = useState(false);
   const pick = (v: string) => run(() => setBackground(v));
   const chosenMine = pref.startsWith(MINE_PREFIX) ? mine.find((m) => `${MINE_PREFIX}${m.id}` === pref) ?? null : null;
+  const chosenLook = GALLERY.find((g) => g.id === pref) ?? null;
 
   const added = (r: BackgroundsAdded) => {
     const last = r.added.at(-1);
@@ -103,7 +104,18 @@ export function BackgroundPicker({ mode }: { mode: Mode }) {
             </Tile>
           ))}
         </fieldset>
+        {chosenLook?.credit && <span className="settings-row-desc" data-testid="background-credit">{chosenLook.credit}</span>}
       </div>
+
+      <details className="settings-row settings-disclosure" data-setting="background-credits">
+        <summary>
+          <div className="settings-row-main"><span className="settings-row-name">Picture credits</span></div>
+          <Icon name="chevronRight" size={14} className="settings-disclosure-caret" />
+        </summary>
+        <ul className="settings-disclosure-body backdrop-credits">
+          {GALLERY.filter((g) => g.credit).map((g) => <li key={g.id}><strong>{g.name}</strong>. {g.credit}</li>)}
+        </ul>
+      </details>
 
       <div className="settings-row" data-stack data-setting="background-images">
         <div className="settings-row-main"><span className="settings-row-name">Your images</span></div>

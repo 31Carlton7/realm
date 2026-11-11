@@ -2,7 +2,11 @@ import { BACKGROUND_EFFECTS as EFFECTS, DEFAULT_BACKGROUND, MINE_PREFIX, shuffle
 import galleryJson from "../../assets/hero-backdrops/gallery.json";
 
 /** A look Realm ships: `light` and `dark` are the pictures for each face, as URLs. */
-export type GalleryLook = { id: string; name: string; mood: string; light: string; dark: string; effect: BackgroundEffect; motion: boolean };
+export type GalleryLook = {
+  id: string; name: string; mood: string; light: string; dark: string; effect: BackgroundEffect; motion: boolean;
+  /** Who made the picture and where it came from, shown under Picture credits; empty when unknown. */
+  credit: string;
+};
 
 /**
  * The gallery as `gallery.json` lists it, keeping only entries that can be drawn: an id of lowercase
@@ -15,13 +19,13 @@ export function parseGallery(raw: unknown, urls: Record<string, string>): Galler
   const out: GalleryLook[] = [];
   for (const e of raw as Record<string, unknown>[]) {
     if (!e || typeof e !== "object") continue;
-    const { id, name, mood, light, dark, effect, motion } = e;
+    const { id, name, mood, light, dark, effect, motion, credit } = e;
     if (typeof id !== "string" || !/^[a-z0-9-]+$/.test(id) || out.some((g) => g.id === id)) continue;
     if (typeof name !== "string" || !name.trim() || !EFFECTS.includes(effect as BackgroundEffect)) continue;
     const lightUrl = typeof light === "string" ? urls[light] : undefined;
     const darkUrl = typeof dark === "string" ? urls[dark] : undefined;
     if (!lightUrl || !darkUrl) continue;
-    out.push({ id, name, mood: typeof mood === "string" ? mood : "", light: lightUrl, dark: darkUrl, effect: effect as BackgroundEffect, motion: motion === true });
+    out.push({ id, name, mood: typeof mood === "string" ? mood : "", light: lightUrl, dark: darkUrl, effect: effect as BackgroundEffect, motion: motion === true, credit: typeof credit === "string" ? credit : "" });
   }
   return out;
 }
