@@ -253,6 +253,30 @@ function sessionOnly(suggestions: readonly PermissionUpdate[]): PermissionUpdate
   });
 }
 
+/**
+ * A Bash command Full access runs though the CLI asked about it.
+ *
+ * In `bypassPermissions` the CLI still brings one thing to `canUseTool`: a Bash command its parser
+ * cannot vouch for ("Dangerous rm operation not ruled out — the shell may read this command
+ * differently than it was parsed"). A JavaScript snippet passed inline is enough, because `$$(` reads
+ * as shell syntax, and the card stops a session whose person chose not to be asked. The check is
+ * there to catch a delete, so a command that names `rm` anywhere still goes to the person. Bash only:
+ * what the CLI asks about any other tool in this mode is not Realm's to wave through.
+ *
+ * Only a call made of the fields a Bash call ordinarily carries. One that asks to leave the CLI's own
+ * sandbox, or brings a field this list does not know, is a different question and stays the person's.
+ *
+ * A guard against an accident, not a boundary: Full access already runs any command the CLI can
+ * parse, and any script, and `rm` can be spelled so this does not see it.
+ */
+export function runsInFullAccess(toolName: string, input: Record<string, unknown>): boolean {
+  if (toolName !== "Bash" || typeof input.command !== "string" || /\brm\b/.test(input.command)) return false;
+  return Object.entries(input).every(([field, value]) => BASH_FIELDS.has(field) || (field === "dangerouslyDisableSandbox" && value === false));
+}
+const BASH_FIELDS: ReadonlySet<string> = new Set(["command", "description", "timeout", "run_in_background"]);
+/** How much of a command the log keeps: enough to know it, short of a secret further along it. */
+const LOGGED_COMMAND_CHARS = 200;
+
 /** Who asks when Claude's own `AskUserQuestion` reaches the card. */
 const CLAUDE_ASKER = { kind: "agent", name: "Claude", agent: "claude" } as const;
 
@@ -420,6 +444,10 @@ export class ClaudeAdapter implements AgentAdapter {
       // Already cancelled: the abort has fired, and the listener below would never hear it, so a card
       // drawn now could never be cleared.
       if (o.signal.aborted) return { behavior: "deny", message: "aborted" };
+      if (permissionMode === "bypassPermissions" && runsInFullAccess(toolName, toolInput)) {
+        opts.onLog?.(`Full access ran a command without asking (${o.decisionReason ?? "the CLI asked"}): ${String(toolInput.command).slice(0, LOGGED_COMMAND_CHARS)}`);
+        return { behavior: "allow" };
+      }
       const requestId = newId();
       const suggestions = sessionOnly(o.suggestions ?? []);
       // A question travels on this channel too, and is marked as one HERE — from the SDK's own tool
