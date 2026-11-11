@@ -1884,7 +1884,6 @@ input.sb-space-name { flex: 1; }
 :root[data-quiet] .shimmer-text,
 :root[data-quiet] .tool-group[data-working] .tool-group-summary,
 :root[data-quiet] .composer-thinking span,
-:root[data-quiet] .status-dot[data-status="circuit_open"],
 :root[data-quiet] .permission-dot,
 :root[data-quiet] .gen-spin,
 :root[data-quiet] .drive-frame-glow,
@@ -3563,11 +3562,6 @@ input, textarea, [contenteditable] { caret-color: var(--caret); }
    difference has to be a shape. design.md, "readable without color alone". */
 .status-dot[data-status="machine-off"] { background: var(--rl-text-faint); }
 .status-dot[data-status="machine-suspended"] { background: transparent; box-shadow: inset 0 0 0 1.5px var(--rl-text-dim); }
-/* MCP server status (W6) shares the same dot — "connected"/"circuit_open" are this domain's own words
-   for "running"/"waiting on the user", so they get the same success/danger treatment. Connected is
-   RESTING, though — the server is up, nothing is in flight — so it stays a plain dot. */
-.status-dot[data-status="connected"] { background: var(--rl-success); }
-.status-dot[data-status="circuit_open"] { background: var(--rl-danger); animation: rl-pulse 0.9s ease-in-out infinite; }
 @keyframes rl-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
 
 /* The three states that mean "something is in flight" — a session running, a session waiting on the
@@ -5869,11 +5863,10 @@ textarea.question-text-input { height: auto; min-height: 72px; padding: 8px 0; r
 .market-name { font-size: 13px; font-weight: var(--fw-label); color: var(--rl-text-bright); }
 .market-blurb { font-size: 12px; line-height: 1.45; color: var(--rl-text-dim); }
 .market-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.market-state { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--rl-success); }
+.market-state { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--rl-text-dim); }
 .market-docs { font-size: 12px; color: var(--rl-text-dim); text-decoration: none; }
 .market-docs:hover { color: var(--rl-text-bright); text-decoration: underline; text-underline-offset: 2px; }
 .market-steps { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; line-height: 1.5; color: var(--rl-text-dim); }
-.market-card[data-state="connected"] .market-mark { box-shadow: 0 0 0 1px color-mix(in srgb, var(--rl-success) 45%, transparent); }
 /* The sign-in sheet (McpSignInSheet.tsx): a block per way in, parted by space rather than rules, and
    the code a device sign-in shows set large in mono so it can be read across to another window. */
 .signin-routes { gap: 18px; }
@@ -7663,6 +7656,11 @@ select { appearance: none; padding-right: 22px;
 .mcp-provider-state { max-width: 10em; text-align: right; font-size: 12px; line-height: 1.35; color: var(--rl-text-dim); }
 /* §3 status pills: tinted fill + full-strength colored text — the one thing the hub status dot alone
    can't say (auth is a different axis from connectivity; see McpServerRow). */
+/* An MCP server's state is its word, as an engine's is. Connected is an ordinary state; a failed one
+   (an error, a tripped breaker) adds the one amber dot. */
+.mcp-state { flex: none; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 12px; color: var(--rl-text-dim); }
+.mcp-state:is([data-state="error"], [data-state="circuit_open"])::before { content: ""; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--rl-warning); }
 .mcp-reauth-badge { font-size: 11px; padding: 1px 6px; border-radius: var(--r-chip); line-height: 1.5;
   background: color-mix(in srgb, var(--rl-warning) 14%, transparent); color: var(--rl-warning); }
 .mcp-form { padding: 10px 0 2px; margin-top: 8px; gap: 10px; }

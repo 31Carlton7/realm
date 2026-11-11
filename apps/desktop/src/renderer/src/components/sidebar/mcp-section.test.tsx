@@ -110,7 +110,7 @@ describe("McpSection", () => {
     expect(within(row).queryByRole("textbox", { name: "Headers key" })).toBeNull();
   });
 
-  it("mcp.serverStatus patches the status dot idempotently", async () => {
+  it("mcp.serverStatus patches the state word idempotently", async () => {
     const srv = mcpServer("m4", { name: "srv4", status: "idle" });
     const { store } = await mount({ mcpServers: [srv] });
     await screen.findByText("srv4");
@@ -120,7 +120,7 @@ describe("McpSection", () => {
     store.getState().applyMcpServerStatus(payload);
     const twice = store.getState().mcpServers.find((s) => s.id === "m4");
     expect(once).toEqual(twice);
-    await waitFor(() => expect(screen.getByTitle("Connected")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Connected")).toBeInTheDocument());
   });
 
   it("shows the secret storage note on the key form", async () => {
@@ -374,11 +374,20 @@ describe("scoped server groups (W4)", () => {
     expect(row.querySelector(".status-dot")).toBeNull();
   });
 
-  it("the idle status dot says 'Not checked yet' — the honest state, never an implied health check", async () => {
+  it("an idle server says 'Not checked yet' — the honest state, never an implied health check", async () => {
     await mount({ mcpServers: [mcpServer("m1", { name: "srv1", status: "idle" })] });
     await screen.findByText("srv1");
-    expect(screen.getByTitle("Not checked yet")).toBeInTheDocument();
-    expect(screen.queryByTitle("Idle")).toBeNull();
+    expect(screen.getByText("Not checked yet")).toBeInTheDocument();
+    expect(screen.queryByText("Idle")).toBeNull();
+  });
+
+  it("says a server's state in words, with no dot of its own (the one signal)", async () => {
+    await mount({ mcpServers: [mcpServer("m1", { name: "srv1", status: "connected" }), mcpServer("m2", { name: "srv2", status: "circuit_open" })] });
+    const row = (await screen.findByText("srv1")).closest(".mcp-row") as HTMLElement;
+    expect(row.querySelector(".status-dot")).toBeNull();
+    expect(within(row).getByText("Connected")).toHaveAttribute("data-state", "connected");
+    const failing = screen.getByText("srv2").closest(".mcp-row") as HTMLElement;
+    expect(within(failing).getByText("Circuit open")).toHaveAttribute("data-state", "circuit_open");
   });
 
 });

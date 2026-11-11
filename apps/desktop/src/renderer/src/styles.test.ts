@@ -2720,11 +2720,15 @@ describe("the sidebar and Settings carry one signal", () => {
   it("draw no green state: Ready, Granted and a lit row are words, and amber is the one dot", () => {
     /* design.md: amber is only for needs you and failed, with no green or blue dots. Engines' Ready
        wore a green dot and Permissions' Granted green ink (SB / ST-04 audit). THE mutant: either back. */
-    const SURFACES = /^(\.sb-|\.rail-|\.item-|\.group-label|\.engine|\.tcc-|\.settings-)/;
+    const SURFACES = /^(\.sb-|\.rail-|\.item-|\.group-label|\.engine|\.tcc-|\.settings-|\.mcp-|\.market-|\.env-)/;
     const GREEN = /var\(--(rl-success|green|green-tint|color-green)\)/;
     const green = RULES.filter((r) => r.selectors.some((sel) => SURFACES.test(sel)) && GREEN.test(r.body))
       .map((r) => r.selectors.join(", "));
     expect(green).toEqual([]);
+    // Connections and a space's servers: Connected is a word, and the status dot has no green of its
+    // own for it (THE mutant: `.status-dot[data-status="connected"]` back on --rl-success).
+    expect(RULES.filter((r) => r.selectors.some((sel) => sel.includes('data-status="connected"')))).toEqual([]);
+    expect(bodiesFor('.mcp-state:is([data-state="error"], [data-state="circuit_open"])::before').join(" ")).toContain("var(--rl-warning)");
   });
 
   it("gives a not-installed engine a plain surface, with no warning stripe down its edge", () => {
