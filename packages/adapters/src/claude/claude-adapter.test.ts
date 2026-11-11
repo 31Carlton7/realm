@@ -348,6 +348,25 @@ describe("Full access and the Bash check the CLI keeps", () => {
     }
   });
 
+  it("leaves a call that asks to leave the CLI's sandbox, or carries a field Realm does not know, to the person", async () => {
+    for (const extra of [{ dangerouslyDisableSandbox: true }, { somethingNew: 1 }]) {
+      const { got } = await run({ permissionMode: "bypassPermissions" }, { permissionOnTool: "Bash", permissionInput: { command: SNIPPET, ...extra } });
+      expect(types(got), JSON.stringify(extra)).toContain("permission_request");
+    }
+    // The fields a Bash call ordinarily carries, and a sandbox switch that is off, are not a reason to ask.
+    const usual = { command: SNIPPET, description: "read the page", timeout: 1000, run_in_background: false, dangerouslyDisableSandbox: false };
+    const { got } = await run({ permissionMode: "bypassPermissions" }, { permissionOnTool: "Bash", permissionInput: usual });
+    expect(types(got)).not.toContain("permission_request");
+  });
+
+  it("logs the start of a long command, not all of it", async () => {
+    const command = `node x.mjs '$$(".a")' ${"y".repeat(400)} TAIL`;
+    const { logged } = await run({ permissionMode: "bypassPermissions" }, { permissionOnTool: "Bash", permissionInput: { command } });
+    const line = logged.find((l) => l.startsWith("Full access"));
+    expect(line).toContain(command.slice(0, 200));
+    expect(line).not.toContain("TAIL");
+  });
+
   it("does not answer a Bash call that carries no command to read", async () => {
     const { got } = await run({ permissionMode: "bypassPermissions" }, { permissionOnTool: "Bash", permissionInput: { cmd: SNIPPET } });
     expect(types(got)).toContain("permission_request");
